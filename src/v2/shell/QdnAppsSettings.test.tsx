@@ -43,12 +43,16 @@ function initialState() {
       version: 1 as const,
     },
     chatSend: {
-      apps: [],
+      apps: [{
+        appKey: 'qdn://APP/Chat/Chat',
+        grantedAt: '2026-08-22T13:00:00.000Z',
+      }],
       revision: 3,
       version: 1,
     },
     accountRead: {
       apps: [{
+        accountId: 'wallet:QAAA',
         appKey: 'qdn://APP/Chat/Chat',
         grantedAt: '2026-08-22T14:00:00.000Z',
       }],
@@ -115,9 +119,8 @@ const adapter: HomeV2QdnSettingsAdapter = {
         revision: state.accountRead.revision + 1,
       },
       chatSend: {
-        apps: [],
-        revision: 3,
-        version: 1,
+        ...state.chatSend,
+        revision: state.chatSend.revision + 1,
       },
     }
     return state
@@ -153,7 +156,7 @@ const adapter: HomeV2QdnSettingsAdapter = {
     bookmarkRevokeRequests.push(request)
     // Honour the requested capability: a read-grant revoke must not remove
     // the bookmarks grant, and vice versa.
-    const revokingAccountRead = request.capability === 'account.read'
+    const capability = request.capability ?? 'bookmarks.manage'
     state = {
       ...state,
       assignments: {
@@ -161,22 +164,26 @@ const adapter: HomeV2QdnSettingsAdapter = {
         revision: state.assignments.revision + 1,
       },
       bookmarks: {
-        apps: revokingAccountRead
-          ? state.bookmarks.apps
-          : state.bookmarks.apps.filter(({ appKey }) => appKey !== request.appKey),
+        apps: capability === 'bookmarks.manage'
+          ? state.bookmarks.apps.filter(({ appKey }) => appKey !== request.appKey)
+          : state.bookmarks.apps,
         revision: state.bookmarks.revision + 1,
         version: 1,
       },
       accountRead: {
-        apps: revokingAccountRead
-          ? state.accountRead.apps.filter(({ appKey }) => appKey !== request.appKey)
+        // Only the named account's grant is dropped.
+        apps: capability === 'account.read'
+          ? state.accountRead.apps.filter(({ accountId, appKey }) =>
+            appKey !== request.appKey || accountId !== request.accountId)
           : state.accountRead.apps,
         revision: state.accountRead.revision + 1,
         version: 1,
       },
       chatSend: {
-        apps: [],
-        revision: 3,
+        apps: capability === 'chat.send'
+          ? state.chatSend.apps.filter(({ appKey }) => appKey !== request.appKey)
+          : state.chatSend.apps,
+        revision: state.chatSend.revision + 1,
         version: 1,
       },
     }
@@ -330,11 +337,35 @@ await act(async () => {
   await settle()
 })
 assert.deepEqual(bookmarkRevokeRequests[1], {
+  accountId: 'wallet:QAAA',
   appKey: 'qdn://APP/Chat/Chat',
   capability: 'account.read',
   expectedAssignmentRevision: 6,
 })
 assert.equal(container.querySelector('[data-qdn-account-read-grant]'), null)
+
+// Chat-send "always allow" grants are persisted and reported, and were never
+// rendered before, which left them unrevokable. They revoke the same way.
+const chatSendCard = container.querySelector('[data-qdn-chat-send-grant]') as HTMLElement
+assert.ok(chatSendCard, 'a durable chat.send grant must be listed in QDN Apps settings')
+assert.match(chatSendCard.textContent ?? '', /qdn:\/\/APP\/Chat\/Chat/)
+await act(async () => {
+  button('Revoke', chatSendCard).click()
+})
+assert.equal(bookmarkRevokeRequests.length, 2, 'chat-send revoke must require confirmation')
+const chatSendConfirmation = chatSendCard
+  .querySelector('[data-qdn-chat-send-revoke-confirm="true"]') as HTMLElement
+assert.ok(chatSendConfirmation)
+await act(async () => {
+  button('Revoke', chatSendConfirmation).click()
+  await settle()
+})
+assert.deepEqual(bookmarkRevokeRequests[2], {
+  appKey: 'qdn://APP/Chat/Chat',
+  capability: 'chat.send',
+  expectedAssignmentRevision: 7,
+})
+assert.equal(container.querySelector('[data-qdn-chat-send-grant]'), null)
 
 const grantCard = container.querySelector('[data-qdn-notification-grant]') as HTMLElement
 assert.match(grantCard.textContent ?? '', /qdn:\/\/APP\/Notify\/Notify/)

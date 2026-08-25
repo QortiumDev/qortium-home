@@ -1,7 +1,10 @@
 import type { IpcMainInvokeEvent } from 'electron'
 import {
+  listQdnAccountCapabilityGrants,
   sanitizeQdnAppAssignmentRole,
   sanitizeQdnAppAssignmentUrl,
+  sanitizeQdnCapabilityPrincipal,
+  sanitizeQdnGrantAccountId,
   sanitizeQdnManagerAppKey,
   type QdnAppAssignmentsStore,
 } from './qdn-manager-permissions.js'
@@ -34,8 +37,11 @@ export type HomeV2QdnNotificationState = {
 }
 
 export type HomeV2QdnSettingsState = {
+  // Each entry is one (app, account) pair: the durable read grant is bound to
+  // the selected account it was approved under, so the same app can hold a
+  // grant for one account and not another.
   readonly accountRead: Readonly<{
-    apps: readonly Readonly<{ appKey: string; grantedAt: string }>[]
+    apps: readonly Readonly<{ accountId: string; appKey: string; grantedAt: string }>[]
     revision: number
     version: 1
   }>
@@ -62,6 +68,9 @@ type Dependencies = {
     expectedRevision: number,
     appKey: string,
     capability: HomeV2RevocableCapability,
+    // Present only for account-scoped capabilities (account.read), naming the
+    // account whose grant is being revoked.
+    accountId: string | null,
   ) => QdnAppAssignmentsStore
   readonly revokeNotifications: (
     expectedRevision: number,
@@ -155,8 +164,23 @@ function parseRevoke(value: unknown) {
 // would be a one-way door, so it is revocable from the moment it is grantable.
 const REVOCABLE_CAPABILITIES = ['account.read', 'bookmarks.manage', 'chat.send'] as const
 export type HomeV2RevocableCapability = (typeof REVOCABLE_CAPABILITIES)[number]
+// The subset stored per (app principal, account). Revoking one of these
+// must name the account, and only that account's grant is dropped.
+const ACCOUNT_SCOPED_REVOCABLE_CAPABILITIES = ['account.read'] as const
+export type HomeV2AccountScopedRevocableCapability =
+  (typeof ACCOUNT_SCOPED_REVOCABLE_CAPABILITIES)[number]
 
 function parseRevokeBookmarks(value: unknown) {
+  // Three accepted shapes, narrowest first: an account-scoped revoke naming
+  // the account, a capability revoke, and the original bookmarks-only request.
+  const withAccount = exact(value, [
+    'accountId',
+    'appKey',
+    'capability',
+    'expectedAssignmentRevision',
+    'revision',
+    'schema',
+  ])
   const withCapability = exact(value, [
     'appKey',
     'capability',
@@ -165,19 +189,34 @@ function parseRevokeBookmarks(value: unknown) {
     'schema',
   ])
   if (
-    (!withCapability &&
+    (!withAccount && !withCapability &&
       !exact(value, ['appKey', 'expectedAssignmentRevision', 'revision', 'schema'])) ||
     value.revision !== 1 ||
     value.schema !== 'home-v2-qdn-settings-revoke-bookmarks-request'
   ) throw new Error('An exact Home 2 bookmark permission revoke request is required.')
   // Omitted capability keeps the original bookmarks-only meaning, so older
   // callers are unaffected.
-  const capability = withCapability ? value.capability : 'bookmarks.manage'
+  const capability = (withAccount || withCapability) ? value.capability : 'bookmarks.manage'
   if (!REVOCABLE_CAPABILITIES.includes(capability as HomeV2RevocableCapability)) {
     throw new Error('That capability cannot be revoked from Home settings.')
   }
+  const accountScoped = ACCOUNT_SCOPED_REVOCABLE_CAPABILITIES
+    .includes(capability as HomeV2AccountScopedRevocableCapability)
+  // An account-scoped grant is stored per account, so a revoke that does not
+  // name one cannot identify a grant. Refuse rather than guess.
+  if (accountScoped && !withAccount) {
+    throw new Error('Revoking read-only account access requires the account it was granted for.')
+  }
+  if (!accountScoped && withAccount) {
+    throw new Error('That capability is not granted per account.')
+  }
   return {
-    appKey: sanitizeQdnManagerAppKey(value.appKey),
+    accountId: accountScoped ? sanitizeQdnGrantAccountId(value.accountId) : null,
+    // Account-scoped grants are keyed by the canonical resource principal,
+    // which resolves `?identifier=`; app-scoped ones keep their legacy key.
+    appKey: accountScoped
+      ? sanitizeQdnCapabilityPrincipal(value.appKey)
+      : sanitizeQdnManagerAppKey(value.appKey),
     capability: capability as HomeV2RevocableCapability,
     expectedRevision: revision(value.expectedAssignmentRevision, 'Expected assignment revision'),
   }
@@ -197,7 +236,7 @@ export function redactHomeV2QdnSettingsState(
         ? [{ appKey, grantedAt: capabilities[capability].grantedAt }]
         : [])
       .sort((left, right) => left.appKey.localeCompare(right.appKey))
-  const accountReadApps = grantsFor('account.read')
+  const accountReadApps = listQdnAccountCapabilityGrants(assignmentsStore, 'account.read')
   const bookmarkApps = grantsFor('bookmarks.manage')
   const chatSendApps = grantsFor('chat.send')
   const apps = notificationStore ? Object.entries(notificationStore.grants)
@@ -272,7 +311,12 @@ export function createHomeV2QdnSettingsService(dependencies: Dependencies) {
     },
     revokeBookmarks(value: unknown) {
       const request = parseRevokeBookmarks(value)
-      dependencies.revokeBookmarks(request.expectedRevision, request.appKey, request.capability)
+      dependencies.revokeBookmarks(
+        request.expectedRevision,
+        request.appKey,
+        request.capability,
+        request.accountId,
+      )
       return state()
     },
     setAssignment(value: unknown) {

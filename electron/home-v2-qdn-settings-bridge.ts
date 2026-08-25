@@ -10,6 +10,7 @@ import {
 import {
   readQdnAppRolesStore,
   onQdnAppStoreChanged,
+  revokeQdnAccountCapabilityPermissionIfRevision,
   revokeQdnAppCapabilityPermissionIfRevision,
   setQdnAppAssignmentValueIfRevision,
 } from './qdn-manager-permission-store.js'
@@ -46,9 +47,19 @@ export function registerHomeV2QdnSettingsBridgeIpcHandlers() {
   const service = createHomeV2QdnSettingsService({
     inspectNotifications: inspectNotificationStore,
     readAssignments: readQdnAppRolesStore,
-    revokeBookmarks(expectedRevision, appKey, capability) {
+    revokeBookmarks(expectedRevision, appKey, capability, accountId) {
       // Capability is validated against the revocable allowlist in the
-      // contract parser; anything else never reaches here.
+      // contract parser; anything else never reaches here. The parser also
+      // guarantees accountId is non-null for exactly the account-scoped
+      // capabilities, so the two stores can never be crossed.
+      if (accountId !== null) {
+        return revokeQdnAccountCapabilityPermissionIfRevision(
+          expectedRevision,
+          appKey,
+          accountId,
+          'account.read',
+        )
+      }
       return revokeQdnAppCapabilityPermissionIfRevision(
         expectedRevision,
         appKey,

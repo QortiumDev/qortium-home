@@ -9,7 +9,7 @@ import {
   homeV2PermissionGrantFamily,
   isHomeV2AccountReadAction,
   HOME_V2_ACCOUNT_READ_ACTIONS,
-  HOME_V2_ACCOUNT_READ_ALWAYS_ALLOW_DETAIL,
+  homeV2AccountReadAlwaysAllowDetail,
   HOME_V2_PERMISSIONLESS_ACTIONS,
   isHomeV2PermissionlessAction,
 } from './home-v2-session-grants.js'
@@ -360,12 +360,20 @@ assert.equal(store.size(), 1)
   }
 
   // Every prompt offering "Always allow" says the grant is broader than the
-  // one action asked about, and points at where to revoke it.
-  assert.equal(HOME_V2_ACCOUNT_READ_ALWAYS_ALLOW_DETAIL.label, 'Always allow')
-  assert.match(HOME_V2_ACCOUNT_READ_ALWAYS_ALLOW_DETAIL.value, /private group chat/i)
-  assert.match(HOME_V2_ACCOUNT_READ_ALWAYS_ALLOW_DETAIL.value, /attachment/i)
-  assert.match(HOME_V2_ACCOUNT_READ_ALWAYS_ALLOW_DETAIL.value, /Qortal and Qortium/)
-  assert.match(HOME_V2_ACCOUNT_READ_ALWAYS_ALLOW_DETAIL.value, /revoke/i)
+  // one action asked about, points at where to revoke it, and NAMES the
+  // account it is bound to — the grant does not follow an account switch.
+  const alwaysAllow = homeV2AccountReadAlwaysAllowDetail('Main wallet')
+  assert.equal(alwaysAllow.label, 'Always allow')
+  assert.match(alwaysAllow.value, /private group chat/i)
+  assert.match(alwaysAllow.value, /attachment/i)
+  assert.match(alwaysAllow.value, /Qortal and Qortium/)
+  assert.match(alwaysAllow.value, /revoke/i)
+  assert.match(alwaysAllow.value, /Main wallet/)
+  assert.match(alwaysAllow.value, /Other accounts are asked separately/i)
+  assert.notEqual(
+    homeV2AccountReadAlwaysAllowDetail('Second wallet').value,
+    alwaysAllow.value,
+  )
 }
 
 // --- The security boundary is unchanged by this feature ---

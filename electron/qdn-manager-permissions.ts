@@ -32,6 +32,22 @@ export const QDN_APP_SEND_CAPABILITIES = ['chat.send'] as const;
  * publishes stay single-request.
  */
 export const QDN_APP_READ_CAPABILITIES = ['account.read'] as const;
+/**
+ * Capabilities stored per (app principal, selected account) rather than per
+ * app alone.
+ *
+ * account.read is account-scoped because the prompt that grants it names one
+ * account and describes that account's data. Keying it by app alone would let
+ * a grant approved while account A was selected silently cover account B after
+ * a switch - which is exactly why the SESSION grant for this family is dropped
+ * on `account-changed` (see home-v2-session-grants.ts). The durable grant now
+ * follows the same rule instead of outliving it.
+ *
+ * chat.send and the manager capabilities stay app-scoped on purpose: they
+ * shipped that way, and rekeying them would silently drop live user grants.
+ */
+export const QDN_ACCOUNT_SCOPED_CAPABILITIES = ['account.read'] as const;
+export type QdnAccountScopedCapability = (typeof QDN_ACCOUNT_SCOPED_CAPABILITIES)[number];
 export const QDN_APP_ASSIGNMENT_CAPABILITIES = ['assignments.read'] as const;
 export const QDN_APP_CAPABILITIES = [
   ...QDN_MANAGER_CAPABILITIES,
@@ -61,6 +77,14 @@ export type QdnAppAssignment = {
 };
 
 export type QdnAppAssignmentsStore = {
+  // principal -> selected account id -> capability. Separate from
+  // capabilityGrants so that binding a capability to an account is an additive
+  // change: an existing v2 store with no accountCapabilityGrants simply holds
+  // no account-scoped grants, and app-scoped capabilities keep their keying.
+  accountCapabilityGrants: Record<
+    string,
+    Record<string, Partial<Record<QdnAccountScopedCapability, { grantedAt: string }>>>
+  >;
   assignments: Record<string, QdnAppAssignment>;
   capabilityGrants: Record<string, Partial<Record<QdnAppCapability, { grantedAt: string }>>>;
   // Kept for the one-time import from the pre-assignments stores.
@@ -132,6 +156,103 @@ export function sanitizeQdnManagerAppKey(value: unknown): string {
   return `qdn://${match[1].toUpperCase()}/${match[2]}${match[3] ? `/${match[3]}` : ''}`;
 }
 
+// Accepts both schemes. `qortal://` is a real runtime value for Qortal-routed
+// apps: sanitizeQdnManagerAppKey rejects it outright, which made a durable
+// grant throw during persistence and fail the action the user had just
+// approved. The scheme is PRESERVED, so same-named resources on different
+// chains can never borrow each other's grants.
+const QDN_PRINCIPAL_PATTERN =
+  /^(qdn|qortal):\/\/(APP|WEBSITE)\/([^/?#]+)(?:\/([^/?#]+))?(?:\/[^?#]*)?(\?[^#]*)?(?:#.*)?$/i;
+
+/**
+ * Resolves the identifier the runtime would actually serve.
+ *
+ * This is a deliberate mirror of resolveCandidateIdentifier in
+ * qdn-resource-identity.ts (and its render-path-identity.ts / QdnRenderProxy
+ * twins). It is pinned against the same shared fixture,
+ * src/shared-fixtures/qdn-render-candidate-identifier-vectors.json, so a
+ * grant principal can never disagree with the resource Core serves.
+ *
+ * Two details are load-bearing and easy to get wrong:
+ * - the query value is returned UNTRIMMED. `?identifier=%20evil` serves the
+ *   identifier " evil", which is a DIFFERENT resource from "evil"; trimming
+ *   here would collapse them onto one grant.
+ * - a path segment equal to "default" (case-insensitively) is not an
+ *   identifier at all, matching the runtime's sentinel handling.
+ */
+export function resolveQdnCapabilityIdentifier(
+  pathIdentifier: string | null,
+  queryIdentifier: string | null,
+): string | null {
+  if (queryIdentifier !== null && queryIdentifier.trim() !== '') return queryIdentifier;
+  if (pathIdentifier !== null && pathIdentifier.toLowerCase() !== 'default') return pathIdentifier;
+  return null;
+}
+
+const CAPABILITY_IDENTIFIER_MAX_LENGTH = 128;
+
+/**
+ * Canonical principal a durable capability grant is keyed by.
+ *
+ * Unlike sanitizeQdnManagerAppKey this resolves the EFFECTIVE identifier the
+ * way the runtime does, so `?identifier=` cannot be discarded. Keying on the
+ * path alone collapsed `qdn://APP/Chat/default` and
+ * `qdn://APP/Chat/default?identifier=evil` onto one principal, letting the
+ * second resource silently inherit the first one's durable grant.
+ *
+ * Everything that does NOT change which resource is served is dropped: the
+ * in-app route path, the hash, and every other query parameter. A grant
+ * therefore follows an app across its own navigation, and only across that.
+ *
+ * Fails closed. Anything unparseable throws, which makes a capability CHECK
+ * answer false (so the user is prompted) rather than accidentally match.
+ */
+export function sanitizeQdnCapabilityPrincipal(value: unknown): string {
+  if (typeof value !== 'string') throw new Error('Capability principal is required.');
+  const url = value.trim();
+  const match = QDN_PRINCIPAL_PATTERN.exec(url);
+  if (
+    !url ||
+    url.length > APP_KEY_MAX_LENGTH ||
+    // Literal whitespace is rejected in the RAW url. A percent-encoded
+    // space is not: `?identifier=%20evil` decodes to the distinct
+    // identifier " evil", which the runtime serves as its own resource.
+    /[\u0000-\u001f\u007f\s]/.test(url) ||
+    !match
+  ) {
+    throw new Error('Capability principal must be a valid QDN APP or WEBSITE resource URL.');
+  }
+  const scheme = match[1].toLowerCase();
+  const type = match[2].toUpperCase();
+  const name = match[3];
+  const query = match[5];
+  const queryIdentifier = query
+    ? new URLSearchParams(query.slice(1)).get('identifier')
+    : null;
+  const identifier = resolveQdnCapabilityIdentifier(match[4] ?? null, queryIdentifier);
+  if (identifier !== null && (
+    !identifier ||
+    identifier.length > CAPABILITY_IDENTIFIER_MAX_LENGTH ||
+    /[\u0000-\u001f\u007f]/.test(identifier) ||
+    /[/?#]/.test(identifier)
+  )) {
+    throw new Error('Capability principal identifier is invalid.');
+  }
+  return `${scheme}://${type}/${name}${identifier !== null ? `/${identifier}` : ''}`;
+}
+
+const GRANT_ACCOUNT_ID_MAX_LENGTH = 240;
+
+/**
+ * The selected-account identity a durable account-scoped grant is bound to.
+ * Bounded and control-character free so it is safe as a persisted record key.
+ */
+export function sanitizeQdnGrantAccountId(value: unknown): string {
+  const accountId = sanitizeText(value, GRANT_ACCOUNT_ID_MAX_LENGTH, 'Grant account');
+  if (UNSAFE_RECORD_KEYS.has(accountId)) throw new Error('Grant account is invalid.');
+  return accountId;
+}
+
 export function isQdnAppCapability(value: unknown): value is QdnAppCapability {
   return typeof value === 'string' && (QDN_APP_CAPABILITIES as readonly string[]).includes(value);
 }
@@ -150,6 +271,7 @@ function defaultAssignments(): Record<string, QdnAppAssignment> {
 
 export function createDefaultQdnAppRolesStore(): QdnAppAssignmentsStore {
   return {
+    accountCapabilityGrants: {},
     assignments: defaultAssignments(),
     capabilityGrants: {},
     legacyMigrated: true,
@@ -188,6 +310,34 @@ function sanitizeCapabilityGrants(value: unknown) {
       if (grantedAt) safeCapabilities[capability] = { grantedAt };
     }
     if (Object.keys(safeCapabilities).length) grants[appKey] = safeCapabilities;
+  }
+  return grants;
+}
+
+function sanitizeAccountCapabilityGrants(value: unknown) {
+  const grants: QdnAppAssignmentsStore['accountCapabilityGrants'] = {};
+  if (!isRecord(value)) return grants;
+  for (const [rawPrincipal, rawAccounts] of Object.entries(value)) {
+    let principal: string;
+    // Re-canonicalize on read: a stored key that no longer canonicalizes is
+    // dropped rather than trusted, so a principal written by an older or
+    // tampered-with store cannot widen a grant.
+    try { principal = sanitizeQdnCapabilityPrincipal(rawPrincipal); } catch { continue; }
+    if (!isRecord(rawAccounts)) continue;
+    const safeAccounts: Record<string, Partial<Record<QdnAccountScopedCapability, { grantedAt: string }>>> = {};
+    for (const [rawAccountId, rawCapabilities] of Object.entries(rawAccounts)) {
+      let accountId: string;
+      try { accountId = sanitizeQdnGrantAccountId(rawAccountId); } catch { continue; }
+      if (!isRecord(rawCapabilities)) continue;
+      const safeCapabilities: Partial<Record<QdnAccountScopedCapability, { grantedAt: string }>> = {};
+      for (const capability of QDN_ACCOUNT_SCOPED_CAPABILITIES) {
+        const rawGrant = rawCapabilities[capability];
+        const grantedAt = isRecord(rawGrant) ? sanitizeGrantedAt(rawGrant.grantedAt) : null;
+        if (grantedAt) safeCapabilities[capability] = { grantedAt };
+      }
+      if (Object.keys(safeCapabilities).length) safeAccounts[accountId] = safeCapabilities;
+    }
+    if (Object.keys(safeAccounts).length) grants[principal] = safeAccounts;
   }
   return grants;
 }
@@ -236,6 +386,7 @@ export function sanitizeQdnAppRolesStore(value: unknown): QdnAppAssignmentsStore
     if (assignment) store.assignments[role] = assignment;
   }
   store.capabilityGrants = sanitizeCapabilityGrants(value.capabilityGrants);
+  store.accountCapabilityGrants = sanitizeAccountCapabilityGrants(value.accountCapabilityGrants);
   return store;
 }
 
@@ -297,6 +448,94 @@ export function grantQdnAppCapability(store: QdnAppAssignmentsStore, appKeyValue
     },
     revision: store.revision + 1,
   } satisfies QdnAppAssignmentsStore;
+}
+
+/**
+ * Account-scoped durable capabilities.
+ *
+ * Every one of these resolves the app principal through
+ * sanitizeQdnCapabilityPrincipal (so `?identifier=` cannot be collapsed away,
+ * and `qortal://` is accepted) and binds the grant to one selected account.
+ * A check therefore misses when EITHER the effective resource identifier or
+ * the selected account differs from the one the user approved.
+ */
+export function storeHoldsQdnAccountCapability(
+  store: QdnAppAssignmentsStore,
+  principalValue: unknown,
+  accountIdValue: unknown,
+  capability: QdnAccountScopedCapability,
+) {
+  let principal: string;
+  let accountId: string;
+  try {
+    principal = sanitizeQdnCapabilityPrincipal(principalValue);
+    accountId = sanitizeQdnGrantAccountId(accountIdValue);
+  } catch { return false; }
+  return !!store.accountCapabilityGrants[principal]?.[accountId]?.[capability];
+}
+
+export function grantQdnAccountCapability(
+  store: QdnAppAssignmentsStore,
+  principalValue: unknown,
+  accountIdValue: unknown,
+  capability: QdnAccountScopedCapability,
+) {
+  const principal = sanitizeQdnCapabilityPrincipal(principalValue);
+  const accountId = sanitizeQdnGrantAccountId(accountIdValue);
+  if (storeHoldsQdnAccountCapability(store, principal, accountId, capability)) return store;
+  const accounts = store.accountCapabilityGrants[principal] ?? {};
+  return {
+    ...store,
+    accountCapabilityGrants: {
+      ...store.accountCapabilityGrants,
+      [principal]: {
+        ...accounts,
+        [accountId]: {
+          ...(accounts[accountId] ?? {}),
+          [capability]: { grantedAt: new Date().toISOString() },
+        },
+      },
+    },
+    revision: store.revision + 1,
+  } satisfies QdnAppAssignmentsStore;
+}
+
+export function revokeQdnAccountCapability(
+  store: QdnAppAssignmentsStore,
+  principalValue: unknown,
+  accountIdValue: unknown,
+  capability: QdnAccountScopedCapability,
+) {
+  const principal = sanitizeQdnCapabilityPrincipal(principalValue);
+  const accountId = sanitizeQdnGrantAccountId(accountIdValue);
+  if (!storeHoldsQdnAccountCapability(store, principal, accountId, capability)) return store;
+  const nextCapabilities = { ...store.accountCapabilityGrants[principal]?.[accountId] };
+  delete nextCapabilities[capability];
+  const nextAccounts = { ...store.accountCapabilityGrants[principal] };
+  if (Object.keys(nextCapabilities).length) nextAccounts[accountId] = nextCapabilities;
+  else delete nextAccounts[accountId];
+  const accountCapabilityGrants = { ...store.accountCapabilityGrants };
+  if (Object.keys(nextAccounts).length) accountCapabilityGrants[principal] = nextAccounts;
+  else delete accountCapabilityGrants[principal];
+  return {
+    ...store,
+    accountCapabilityGrants,
+    revision: store.revision + 1,
+  } satisfies QdnAppAssignmentsStore;
+}
+
+/** Every (app, account) pair holding one account-scoped capability. */
+export function listQdnAccountCapabilityGrants(
+  store: QdnAppAssignmentsStore,
+  capability: QdnAccountScopedCapability,
+): readonly { accountId: string; appKey: string; grantedAt: string }[] {
+  return Object.entries(store.accountCapabilityGrants)
+    .flatMap(([appKey, accounts]) => Object.entries(accounts).flatMap(([accountId, capabilities]) => {
+      const grant = capabilities[capability];
+      return grant ? [{ accountId, appKey, grantedAt: grant.grantedAt }] : [];
+    }))
+    .sort((left, right) => left.appKey.localeCompare(right.appKey) ||
+      left.accountId.localeCompare(right.accountId));
 }
 
 export function revokeQdnAppCapability(store: QdnAppAssignmentsStore, appKeyValue: unknown, capability: QdnAppCapability) {

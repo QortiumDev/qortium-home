@@ -2,12 +2,16 @@ import { Capacitor } from '@capacitor/core';
 import { Preferences } from '@capacitor/preferences';
 import {
   createDefaultQdnAppRolesStore,
+  grantQdnAccountCapability,
   grantQdnAppCapability,
   migrateLegacyQdnAppStores,
+  revokeQdnAccountCapability,
   revokeQdnAppCapability,
   sanitizeQdnAppRolesStore,
   setQdnAppAssignment,
+  storeHoldsQdnAccountCapability,
   storeHoldsQdnAppCapability,
+  type QdnAccountScopedCapability,
   type QdnAppAssignmentsStore,
   type QdnAppCapability,
   type QdnManagerCapability,
@@ -153,6 +157,48 @@ export async function revokeQdnAppCapabilityPermission(
 ) {
   return updateLocalStore(
     (store) => revokeQdnAppCapability(store, appKey, capability),
+    expectedRevision,
+  );
+}
+
+/**
+ * Account-scoped durable capabilities (account.read), mirroring the desktop
+ * store. The principal resolves the effective `?identifier=` and the grant is
+ * bound to the selected account, so it stops applying when either changes.
+ */
+export async function hasQdnAccountCapability(
+  appPrincipal: string,
+  accountId: string,
+  capability: QdnAccountScopedCapability,
+) {
+  return storeHoldsQdnAccountCapability(
+    await getQdnAppRolesStore(),
+    appPrincipal,
+    accountId,
+    capability,
+  );
+}
+
+export async function grantQdnAccountCapabilityPermission(
+  appPrincipal: string,
+  accountId: string,
+  capability: QdnAccountScopedCapability,
+  expectedRevision?: number,
+) {
+  return updateLocalStore(
+    (store) => grantQdnAccountCapability(store, appPrincipal, accountId, capability),
+    expectedRevision,
+  );
+}
+
+export async function revokeQdnAccountCapabilityPermission(
+  appPrincipal: string,
+  accountId: string,
+  capability: QdnAccountScopedCapability,
+  expectedRevision?: number,
+) {
+  return updateLocalStore(
+    (store) => revokeQdnAccountCapability(store, appPrincipal, accountId, capability),
     expectedRevision,
   );
 }

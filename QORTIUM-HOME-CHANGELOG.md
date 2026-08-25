@@ -45,14 +45,21 @@ attachment decrypts it for the app. The problem was that you could only answer
 "just this once" or "for this session", so a chat app you use every day asked
 again every single time you restarted Home.
 
-You can now answer "Always allow" instead. That is one decision per app, and it
-covers read-only account access for that app on both Qortal and Qortium — the
-prompt says so before you choose, since the choice is broader than the one
-question in front of you. Nothing else changes: sending, publishing, unlocking
-your account, group administration and minting all still ask every time, and
-this never hands an app a key. If you change your mind, Settings > QDN Apps now
-lists every app holding read-only account access, with a Revoke button; revoking
-it puts that app back to asking.
+You can now answer "Always allow" instead. That answer is remembered for one
+app and one account: it covers read-only account access for that app on both
+Qortal and Qortium, and the prompt says so before you choose, since the choice
+is broader than the one question in front of you. If you switch to a different
+account, the app asks again for that account — an answer you gave for one
+account never quietly applies to another. Nothing else changes: sending,
+publishing, unlocking your account, group administration and minting all still
+ask every time, and this never hands an app a key.
+
+Settings > QDN Apps now lists what apps have been allowed to remember. There is
+a section for read-only account access, showing which account each answer
+covers, and a section for the apps allowed to send chat without asking — that
+second list existed as a saved setting for a while but was never shown, so
+there was no way to take it back. Both have a Revoke button, and revoking puts
+that app back to asking.
 
 The prompts themselves are also more honest. A private group request used to
 call itself "read-only account access", which was true but told you nothing.
@@ -62,6 +69,16 @@ device. An attachment request now says "Allow chat attachment access?" and names
 the file, its size and its checksum. The permission being asked for is exactly
 the same as before — only the wording changed, so you can tell what you are
 agreeing to.
+
+Two fixes underneath this, both of which could have let an answer apply more
+widely than intended. An app address can name the resource it wants in two
+places, and Home was only reading one of them, so a link that pointed at a
+different resource of the same app could inherit an answer you gave for the
+original. Home now works out the resource the same way it does when actually
+loading it. And an app served over the Qortal address scheme could not be
+recorded at all, so choosing "Always allow" for one failed the request you had
+just approved; those apps are now supported, and are kept distinct from
+same-named apps on the other chain.
 
 ### 2026-08-25 - refactor(home-v2): one shared view of Core maintenance
 

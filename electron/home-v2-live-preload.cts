@@ -366,10 +366,14 @@ contextBridge.exposeInMainWorld('homeV2QdnSettings', {
     schema: 'home-v2-qdn-settings-revoke-request',
   }),
   revokeBookmarks: (request: {
+    // Present only for account-scoped capabilities; the main-process parser
+    // requires it for those and rejects it for the others.
+    accountId?: string
     appKey: string
     capability?: 'account.read' | 'bookmarks.manage' | 'chat.send'
     expectedAssignmentRevision: number
   }) => ipcRenderer.invoke('home-v2-qdn-settings:revoke-bookmarks', {
+    ...(typeof request.accountId === 'string' ? { accountId: request.accountId } : {}),
     appKey: request.appKey,
     capability: request.capability ?? 'bookmarks.manage',
     expectedAssignmentRevision: request.expectedAssignmentRevision,

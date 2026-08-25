@@ -27,8 +27,13 @@ import {
   sanitizeQdnAppAssignmentRole,
   sanitizeQdnAppRolesStore,
   setQdnAppAssignment,
+  grantQdnAccountCapability,
+  isQdnAccountScopedCapability,
+  revokeQdnAccountCapability,
+  storeHoldsQdnAccountCapability,
   storeHoldsQdnAppCapability,
   storeHoldsQdnManagerPermission,
+  type QdnAccountScopedCapability,
   type QdnAppRolesStore,
   type QdnAppCapability,
   type QdnManagerCapability,
@@ -228,6 +233,47 @@ export function revokeQdnAppCapabilityPermissionIfRevision(
     throw new Error('QDN app settings changed. Refresh and try again.');
   }
   return writeStore(revokeQdnAppCapability(store, appKey, capability));
+}
+
+/**
+ * Account-scoped durable capabilities (account.read).
+ *
+ * `appPrincipal` is the app's resource URL as the runtime knows it, including
+ * any `?identifier=`; sanitizeQdnCapabilityPrincipal resolves the effective
+ * identifier so two different resources can never share one grant. The grant
+ * is additionally bound to `accountId`, so it stops applying the moment the
+ * user selects a different account.
+ */
+export function hasQdnAccountCapability(
+  appPrincipal: string,
+  accountId: string,
+  capability: QdnAccountScopedCapability,
+) {
+  return storeHoldsQdnAccountCapability(readQdnAppRolesStore(), appPrincipal, accountId, capability);
+}
+
+export function grantQdnAccountCapabilityPermission(
+  appPrincipal: string,
+  accountId: string,
+  capability: QdnAccountScopedCapability,
+) {
+  if (!isQdnAccountScopedCapability(capability)) {
+    throw new Error('QDN account capability is invalid.');
+  }
+  return writeStore(grantQdnAccountCapability(readQdnAppRolesStore(), appPrincipal, accountId, capability));
+}
+
+export function revokeQdnAccountCapabilityPermissionIfRevision(
+  expectedRevision: number,
+  appPrincipal: string,
+  accountId: string,
+  capability: QdnAccountScopedCapability,
+) {
+  const store = readQdnAppRolesStore();
+  if (store.revision !== expectedRevision) {
+    throw new Error('QDN app settings changed. Refresh and try again.');
+  }
+  return writeStore(revokeQdnAccountCapability(store, appPrincipal, accountId, capability));
 }
 
 /**

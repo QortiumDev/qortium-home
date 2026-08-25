@@ -207,12 +207,17 @@ export function homeV2AccountReadPromptSummary(
 
 /**
  * Shown on every account-read prompt that offers "Always allow", because the
- * durable grant is broader than the one action being asked about right now.
+ * durable grant is broader than the one action being asked about right now —
+ * but NOT unlimited. It names the account because the grant is bound to it:
+ * selecting a different account prompts again, exactly as the session grant
+ * behaves on 'account-changed'.
  */
-export const HOME_V2_ACCOUNT_READ_ALWAYS_ALLOW_DETAIL = Object.freeze({
-  label: 'Always allow',
-  value: 'One choice per app: it covers private group chat reads, chat attachment reads, and the other read-only account data, on Qortal and Qortium, until revoked in Settings › QDN Apps',
-})
+export function homeV2AccountReadAlwaysAllowDetail(accountLabel: string) {
+  return Object.freeze({
+    label: 'Always allow',
+    value: `One choice for this app and ${accountLabel}: it covers private group chat reads, chat attachment reads, and the other read-only account data for this account, on Qortal and Qortium, until revoked in Settings › QDN Apps. Other accounts are asked separately.`,
+  })
+}
 
 // A tab-level approval describes a chat capability, not one spelling of the
 // same user-visible operation. Keep unrelated actions exact while allowing an

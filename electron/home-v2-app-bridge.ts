@@ -36,7 +36,9 @@ import { sanitizeQdnManagerAppKey } from './qdn-manager-permissions.js'
 import {
   grantQdnManagerPermission,
   hasQdnManagerPermission,
+  hasQdnAccountCapability,
   hasQdnAppCapability,
+  grantQdnAccountCapabilityPermission,
   grantQdnAppCapabilityPermission,
 } from './qdn-manager-permission-store.js'
 import {
@@ -803,10 +805,20 @@ async function requireAccountReadPermission(
   if (chatSendGrantable && appGrantKey && hasQdnAppCapability(appGrantKey, 'chat.send')) {
     return
   }
+  // The durable read grant is checked against BOTH the canonical resource
+  // principal and the currently selected account:
+  // - hasQdnAccountCapability resolves the principal through
+  //   sanitizeQdnCapabilityPrincipal, so a nonblank `?identifier=` is the
+  //   effective identifier. Without that, qdn://APP/Chat/default and
+  //   qdn://APP/Chat/default?identifier=evil collapsed to one key and the
+  //   second resource inherited the first one's grant.
+  // - binding to context.accountId matches the session grant, which is
+  //   dropped outright on 'account-changed'. A durable grant approved while
+  //   one account was selected must not survive a switch to another.
   if (
     durableAccountReadCapability &&
     appGrantKey &&
-    hasQdnAppCapability(appGrantKey, durableAccountReadCapability)
+    hasQdnAccountCapability(appGrantKey, context.accountId, durableAccountReadCapability)
   ) {
     return
   }
@@ -971,19 +983,32 @@ async function requireAccountReadPermission(
       throw new Error('Account access node route changed before approval completed.')
     }
   }
+  // A durable grant that cannot be persisted must not fail the action the user
+  // just approved. Persisting can throw for an app key Home cannot canonicalize
+  // — most notably a `qortal://` resource, which the capability store rejects
+  // outright — and that threw straight out of this function, denying an
+  // already-approved request. Both paths now fall through to the session grant
+  // below instead, so the worst case is being asked again next session.
   if (decision.scope === 'always' && chatSendGrantable && appGrantKey) {
-    grantQdnAppCapabilityPermission(appGrantKey, 'chat.send')
-    return
+    try {
+      grantQdnAppCapabilityPermission(appGrantKey, 'chat.send')
+      return
+    } catch { /* fall through to the session grant */ }
   }
-  // A scope the prompt never offered must not become a durable grant, so this
-  // is gated on durableAccountReadCapability rather than on the scope alone:
-  // an 'always' arriving for anything outside the read-only account family
-  // falls through and retains nothing.
+  // Gated on durableAccountReadCapability rather than on the scope alone, so an
+  // 'always' arriving for anything outside the read-only account family retains
+  // nothing. The grant is bound to the selected account as well as the app.
   if (decision.scope === 'always' && durableAccountReadCapability && appGrantKey) {
-    grantQdnAppCapabilityPermission(appGrantKey, durableAccountReadCapability)
-    return
+    try {
+      grantQdnAccountCapabilityPermission(
+        appGrantKey,
+        context.accountId,
+        durableAccountReadCapability,
+      )
+      return
+    } catch { /* fall through to the session grant */ }
   }
-  if (!singleRequestOnly && decision.scope === 'session') {
+  if (!singleRequestOnly && (decision.scope === 'session' || decision.scope === 'always')) {
     sessionAccountReadGrants.add(grantKey, {
       family: homeV2PermissionGrantFamily(action),
       hostWebContentsId: context.windowId,

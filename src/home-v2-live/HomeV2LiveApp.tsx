@@ -181,7 +181,7 @@ import {
 import { isHomeV2MintingWriteAction } from '../../electron/home-v2-minting'
 import { createHomeV2SendRateLimiter } from '../../electron/home-v2-send-rate-limiter'
 import {
-  HOME_V2_ACCOUNT_READ_ALWAYS_ALLOW_DETAIL,
+  homeV2AccountReadAlwaysAllowDetail,
   homeV2AccountReadPermissionDetails,
   homeV2AccountReadPermissionSummary,
   homeV2AccountReadPromptKind,
@@ -224,11 +224,14 @@ import {
 } from '../notificationStore'
 import {
   grantQdnManagerPermission,
+  grantQdnAccountCapabilityPermission,
   grantQdnAppCapabilityPermission,
   getQdnAppRolesStore,
+  hasQdnAccountCapability,
   hasQdnAppCapability,
   hasQdnManagerPermission,
   onQdnManagerPermissionsChanged,
+  revokeQdnAccountCapabilityPermission,
   revokeQdnAppCapabilityPermission,
   setQdnAppAssignmentValue,
 } from '../qdnManagerPermissions'
@@ -548,6 +551,16 @@ export function HomeV2LiveApp() {
   // Desktop only: null on Android and in the browser preview, which is what
   // keeps the Window settings group off those hosts entirely.
   const windowBehaviorClient = useMemo(() => resolveHomeV2WindowBehaviorClient(), [])
+  // Durable account.read grants are stored per selected account, so QDN Apps
+  // settings has to say which account each one covers. An id that no longer
+  // resolves (a wallet removed from this device) falls back to a shortened
+  // address in the settings component rather than disappearing.
+  const resolveGrantAccountLabel = useCallback((accountId: string) => {
+    const account = accountCatalogueRef.current.accounts
+      .find((candidate) => candidate.id === accountId)
+    return account?.label ?? null
+  }, [])
+
   const qdnAppsManagement = useMemo(() => {
     const isNativeAndroid = Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android'
     if (!isNativeAndroid) return resolveHomeV2QdnSettingsManagement()
@@ -561,7 +574,23 @@ export function HomeV2LiveApp() {
             : 'unavailable'
         },
         revokeNotifications: revokeAppNotifications,
-        revokeBookmarks(appKey, expectedRevision, capability) {
+        revokeBookmarks(appKey, expectedRevision, capability, accountId) {
+          // account.read is stored per (principal, account), so it revokes
+          // through the account-scoped store. Everything else keeps its
+          // app-scoped keying.
+          if (capability === 'account.read') {
+            if (!accountId) {
+              return Promise.reject(new Error(
+                'Revoking read-only account access requires the account it was granted for.',
+              ))
+            }
+            return revokeQdnAccountCapabilityPermission(
+              appKey,
+              accountId,
+              'account.read',
+              expectedRevision,
+            )
+          }
           return revokeQdnAppCapabilityPermission(
             appKey,
             capability ?? 'bookmarks.manage',
@@ -2515,7 +2544,7 @@ export function HomeV2LiveApp() {
           // about — it is one durable grant over the whole read-only account
           // family on both chains — so every prompt that offers it says so.
           ...(accountReadPromptKind && value.writeSingleRequestOnly !== true
-            ? [HOME_V2_ACCOUNT_READ_ALWAYS_ALLOW_DETAIL]
+            ? [homeV2AccountReadAlwaysAllowDetail(account?.label ?? accountId)]
             : []),
         ],
         allowedScopes: isWidgetPrompt
@@ -3268,8 +3297,14 @@ export function HomeV2LiveApp() {
         // keep prompting single-request.
         const attachmentReadCapability = homeV2DurableAccountReadCapability(action)
         const attachmentAppCapabilityKey = context.resourceLocation || ''
+        // Bound to the canonical resource principal AND the selected account,
+        // matching the desktop bridge.
         const heldAttachmentReadGrant = attachmentReadCapability && attachmentAppCapabilityKey
-          ? await hasQdnAppCapability(attachmentAppCapabilityKey, attachmentReadCapability)
+          ? await hasQdnAccountCapability(
+              attachmentAppCapabilityKey,
+              accountId,
+              attachmentReadCapability,
+            )
           : false
         if (!heldAttachmentReadGrant &&
           (!readOnlyAttachment || !androidSessionAccountGrants.current.has(grantKey))) {
@@ -3306,7 +3341,7 @@ export function HomeV2LiveApp() {
               { label: 'Resource', value: `${descriptor.resource.service}/${descriptor.resource.name}/${descriptor.resource.identifier}` },
               { label: 'Ciphertext size', value: `${descriptor.ciphertext.size.toLocaleString()} bytes` },
               { label: 'Ciphertext SHA-256', value: descriptor.ciphertext.hash },
-              ...(attachmentReadCapability ? [HOME_V2_ACCOUNT_READ_ALWAYS_ALLOW_DETAIL] : []),
+              ...(attachmentReadCapability ? [homeV2AccountReadAlwaysAllowDetail(account.label)] : []),
             ],
             allowedScopes: attachmentReadCapability
               ? ['single-request', 'session', 'always']
@@ -3323,9 +3358,17 @@ export function HomeV2LiveApp() {
             attachmentReadCapability &&
             attachmentAppCapabilityKey
           ) {
-            await grantQdnAppCapabilityPermission(attachmentAppCapabilityKey, attachmentReadCapability)
+            // A grant that cannot be persisted must not fail the approved
+            // action; fall back to the session grant recorded below.
+            try {
+              await grantQdnAccountCapabilityPermission(
+                attachmentAppCapabilityKey,
+                accountId,
+                attachmentReadCapability,
+              )
+            } catch { /* fall through to the session grant */ }
           }
-          if (readOnlyAttachment && decision.scope === 'session') {
+          if (readOnlyAttachment && (decision.scope === 'session' || decision.scope === 'always')) {
             androidSessionAccountGrants.current.add(grantKey, {
               family: homeV2PermissionGrantFamily(action),
               hostWebContentsId: 'android',
@@ -4048,8 +4091,10 @@ export function HomeV2LiveApp() {
           ? null
           : homeV2DurableAccountReadCapability(action)
         const appCapabilityKey = context.resourceLocation || ''
+        // Bound to the canonical resource principal AND the selected account,
+        // matching the desktop bridge.
         const heldAccountReadGrant = privateGroupReadCapability && appCapabilityKey
-          ? await hasQdnAppCapability(appCapabilityKey, privateGroupReadCapability)
+          ? await hasQdnAccountCapability(appCapabilityKey, accountId, privateGroupReadCapability)
           : false
         if (!heldAccountReadGrant &&
           (singleRequestOnly || !androidSessionAccountGrants.current.has(grantKey))) {
@@ -4121,7 +4166,7 @@ export function HomeV2LiveApp() {
               ...(privateWriteRequest?.chatReference
                 ? [{ label: 'Reference', value: privateWriteRequest.chatReference }]
                 : []),
-              ...(privateGroupReadCapability ? [HOME_V2_ACCOUNT_READ_ALWAYS_ALLOW_DETAIL] : []),
+              ...(privateGroupReadCapability ? [homeV2AccountReadAlwaysAllowDetail(account.label)] : []),
             ],
             allowedScopes: singleRequestOnly
               ? ['single-request']
@@ -4150,9 +4195,19 @@ export function HomeV2LiveApp() {
             privateGroupReadCapability &&
             appCapabilityKey
           ) {
-            await grantQdnAppCapabilityPermission(appCapabilityKey, privateGroupReadCapability)
+            // A grant that cannot be persisted must not fail the approved
+            // action; fall back to the session grant recorded below.
+            try {
+              await grantQdnAccountCapabilityPermission(
+                appCapabilityKey,
+                accountId,
+                privateGroupReadCapability,
+              )
+            } catch { /* fall through to the session grant */ }
           }
-          if (!singleRequestOnly && decision.scope === 'session') {
+          if (!singleRequestOnly &&
+            (decision.scope === 'session' ||
+              (decision.scope === 'always' && privateGroupReadCapability))) {
             androidSessionAccountGrants.current.add(grantKey, {
               family: homeV2PermissionGrantFamily(action),
               hostWebContentsId: 'android',
@@ -5373,6 +5428,7 @@ export function HomeV2LiveApp() {
         onRetry: refreshDashboardPins,
       }}
       qdnAppsManagement={qdnAppsManagement}
+      resolveAccountLabel={resolveGrantAccountLabel}
       requestApp={requestApp}
       onActivateTab={(tabId) =>
         dispatchProduct({ type: 'activate-tab', tabId })

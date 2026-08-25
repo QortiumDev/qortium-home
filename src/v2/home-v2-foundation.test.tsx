@@ -2431,16 +2431,16 @@ function testGrantIdentityAndSendRateLimitHardening(): void {
   assert.match(
     appBridge,
     // Budget widened again when the durable account.read grant check (R3-10)
-    // was added between these two points, after the permissionless-read early
-    // return and the durable chat.send check before it. The ordering property
-    // is what matters and is unchanged: the stale-resource check still runs
-    // BEFORE any grant (session or durable) is honored.
-    /liveResourceMatchesGrant\(context\)[\s\S]{0,4400}sessionAccountReadGrants\.has\(grantKey\)/,
+    // grew an account binding and a canonical-principal lookup between these
+    // two points. The ordering property is what matters and is unchanged: the
+    // stale-resource check still runs BEFORE any grant (session or durable)
+    // is honored.
+    /liveResourceMatchesGrant\(context\)[\s\S]{0,5200}sessionAccountReadGrants\.has\(grantKey\)/,
   )
   // The durable chat.send grant must also sit after the stale-resource check.
   assert.match(
     appBridge,
-    /liveResourceMatchesGrant\(context\)[\s\S]{0,4400}hasQdnAppCapability\(appGrantKey, 'chat\.send'\)/,
+    /liveResourceMatchesGrant\(context\)[\s\S]{0,5200}hasQdnAppCapability\(appGrantKey, 'chat\.send'\)/,
   )
   // So must the durable account.read grant (R3-10). Its membership comes from
   // homeV2DurableAccountReadCapability, which returns null outside
@@ -2449,7 +2449,23 @@ function testGrantIdentityAndSendRateLimitHardening(): void {
   // unlock, a group-admin action or a minting write.
   assert.match(
     appBridge,
-    /liveResourceMatchesGrant\(context\)[\s\S]{0,4400}hasQdnAppCapability\(appGrantKey, durableAccountReadCapability\)/,
+    /liveResourceMatchesGrant\(context\)[\s\S]{0,5200}hasQdnAccountCapability\(appGrantKey, context\.accountId, durableAccountReadCapability\)/,
+  )
+  // The durable read grant is bound to the selected account, not just the app,
+  // so it cannot survive an account switch the way the session grant cannot.
+  assert.match(
+    appBridge,
+    /hasQdnAccountCapability\(appGrantKey, context\.accountId, durableAccountReadCapability\)/,
+  )
+  assert.match(
+    appBridge,
+    /grantQdnAccountCapabilityPermission\(\s*\n\s*appGrantKey,\s*\n\s*context\.accountId,\s*\n\s*durableAccountReadCapability,\s*\n\s*\)/,
+  )
+  // Persisting a durable grant must never fail the action the user approved:
+  // both durable paths fall through to the session grant instead of throwing.
+  assert.match(
+    appBridge,
+    /grantQdnAppCapabilityPermission\(appGrantKey, 'chat\.send'\)\s*\n\s*return\s*\n\s*\} catch \{/,
   )
   assert.match(
     appBridge,

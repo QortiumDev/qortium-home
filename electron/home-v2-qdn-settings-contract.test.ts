@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict'
 import {
   createDefaultQdnAppRolesStore,
+  grantQdnAccountCapability,
   grantQdnAppCapability,
+  revokeQdnAccountCapability,
   revokeQdnAppCapability,
   setQdnAppAssignment,
   type QdnAppAssignmentsStore,
@@ -12,17 +14,25 @@ import {
 } from './home-v2-qdn-settings-contract.js'
 import type { QdnNotificationStore } from './notification-rules.js'
 
-let assignments = grantQdnAppCapability(
-  grantQdnAppCapability(
+const READ_ACCOUNT_A = 'wallet:QAAA'
+const READ_ACCOUNT_B = 'wallet:QBBB'
+let assignments = grantQdnAccountCapability(
+  grantQdnAccountCapability(
     grantQdnAppCapability(
-      createDefaultQdnAppRolesStore(),
-      'qdn://APP/Bookmarks/Bookmarks',
-      'bookmarks.manage',
+      grantQdnAppCapability(
+        createDefaultQdnAppRolesStore(),
+        'qdn://APP/Bookmarks/Bookmarks',
+        'bookmarks.manage',
+      ),
+      'qdn://APP/Reader/Reader',
+      'assignments.read',
     ),
-    'qdn://APP/Reader/Reader',
-    'assignments.read',
+    'qdn://APP/Chat/Chat',
+    READ_ACCOUNT_A,
+    'account.read',
   ),
   'qdn://APP/Chat/Chat',
+  READ_ACCOUNT_B,
   'account.read',
 )
 let notifications: QdnNotificationStore = {
@@ -72,11 +82,17 @@ function inspectNotifications() {
 const service = createHomeV2QdnSettingsService({
   inspectNotifications,
   readAssignments,
-  revokeBookmarks(expectedRevision, appKey, capability) {
+  revokeBookmarks(expectedRevision, appKey, capability, accountId) {
     assert.equal(expectedRevision, assignments.revision, 'bookmark permission CAS must reject stale callers')
     // The service must forward the capability the user actually asked to
     // revoke; ignoring it here would let a read-grant revoke silently drop
-    // the bookmarks grant instead.
+    // the bookmarks grant instead. An account-scoped capability must also
+    // arrive with the account it belongs to.
+    if (accountId !== null) {
+      assert.equal(capability, 'account.read')
+      assignments = revokeQdnAccountCapability(assignments, appKey, accountId, 'account.read')
+      return assignments
+    }
     assignments = revokeQdnAppCapability(assignments, appKey, capability)
     return assignments
   },
@@ -206,22 +222,55 @@ assert.throws(() => service.revokeBookmarks({
 
 // The durable read-only account grant is listed on this surface and can be
 // revoked from it — a durable "always allow" the user cannot take back would
-// be a one-way door.
-assert.deepEqual(service.get({
+// be a one-way door. Each entry names the account it is bound to, and one app
+// legitimately appears once per account.
+const listedReadGrants = service.get({
   revision: 1,
   schema: 'home-v2-qdn-settings-get-request',
-}).accountRead.apps, [{
+}).accountRead.apps
+assert.deepEqual(
+  listedReadGrants.map(({ accountId, appKey }) => ({ accountId, appKey })),
+  [
+    { accountId: READ_ACCOUNT_A, appKey: 'qdn://APP/Chat/Chat' },
+    { accountId: READ_ACCOUNT_B, appKey: 'qdn://APP/Chat/Chat' },
+  ],
+)
+for (const grant of listedReadGrants) {
+  assert.ok(Number.isFinite(Date.parse(grant.grantedAt)))
+}
+
+// A revoke that does not name an account cannot identify an account-scoped
+// grant, so it is refused rather than guessing which one to drop.
+assert.throws(() => service.revokeBookmarks({
   appKey: 'qdn://APP/Chat/Chat',
-  grantedAt: assignments.capabilityGrants['qdn://APP/Chat/Chat']?.['account.read']?.grantedAt,
-}])
+  capability: 'account.read',
+  expectedAssignmentRevision: assignments.revision,
+  revision: 1,
+  schema: 'home-v2-qdn-settings-revoke-bookmarks-request',
+}), /requires the account/)
+// And an account may not be attached to a capability that is not account-scoped.
+assert.throws(() => service.revokeBookmarks({
+  accountId: READ_ACCOUNT_A,
+  appKey: 'qdn://APP/Bookmarks/Bookmarks',
+  capability: 'bookmarks.manage',
+  expectedAssignmentRevision: assignments.revision,
+  revision: 1,
+  schema: 'home-v2-qdn-settings-revoke-bookmarks-request',
+}), /not granted per account/)
+
 const accountReadRevoked = service.revokeBookmarks({
+  accountId: READ_ACCOUNT_A,
   appKey: 'qdn://APP/Chat/Chat',
   capability: 'account.read',
   expectedAssignmentRevision: assignments.revision,
   revision: 1,
   schema: 'home-v2-qdn-settings-revoke-bookmarks-request',
 })
-assert.deepEqual(accountReadRevoked.accountRead.apps, [])
+// Only the named account's grant is dropped; the other account keeps its own.
+assert.deepEqual(
+  accountReadRevoked.accountRead.apps.map(({ accountId }) => accountId),
+  [READ_ACCOUNT_B],
+)
 // Revoking the read grant must not disturb any other capability — the
 // bookmarks assignment keeps the URL this test set on it earlier.
 assert.equal(
@@ -238,6 +287,28 @@ for (const capability of ['account.minting', 'chat.private-group.read', 'assignm
     revision: 1,
     schema: 'home-v2-qdn-settings-revoke-bookmarks-request',
   }), /cannot be revoked/)
+}
+
+// A Qortal-routed app can hold and revoke a durable read grant. The capability
+// store used to reject the whole qortal:// scheme, which made granting throw.
+{
+  const qortalApp = 'qortal://APP/Chat/Chat'
+  assignments = grantQdnAccountCapability(assignments, qortalApp, READ_ACCOUNT_B, 'account.read')
+  assert.ok(service.get({
+    revision: 1,
+    schema: 'home-v2-qdn-settings-get-request',
+  }).accountRead.apps.some(({ appKey }) => appKey === qortalApp))
+  const qortalRevoked = service.revokeBookmarks({
+    accountId: READ_ACCOUNT_B,
+    appKey: qortalApp,
+    capability: 'account.read',
+    expectedAssignmentRevision: assignments.revision,
+    revision: 1,
+    schema: 'home-v2-qdn-settings-revoke-bookmarks-request',
+  })
+  assert.equal(qortalRevoked.accountRead.apps.some(({ appKey }) => appKey === qortalApp), false)
+  // The same-named qdn:// resource is a different principal and is untouched.
+  assert.ok(qortalRevoked.accountRead.apps.some(({ appKey }) => appKey === 'qdn://APP/Chat/Chat'))
 }
 
 const muted = service.setMuted({
