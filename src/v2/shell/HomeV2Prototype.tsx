@@ -68,6 +68,7 @@ import type {
   HomeV2NodeClient,
 } from '../../home-v2-live/node-client'
 import type { HomeV2AppUpdates } from '../../home-v2-live/app-update-controller'
+import type { HomeV2MaintenanceControllers } from '../../home-v2-live/maintenance-controllers'
 import type { HomeV2QdnSettingsManagement } from '../../home-v2-live/qdn-settings-client'
 import type { HomeV2NotificationPolicyState } from '../../home-v2-live/notification-policy-client'
 import type {
@@ -126,6 +127,9 @@ export interface HomeV2PrototypeProps {
   readonly selectedAccountLookup?: DualIdentityLookupResult | null
   readonly nodeClient?: HomeV2NodeClient | null
   readonly coreManagement?: HomeV2CoreManagement
+  // The app's one set of maintenance controllers, for the Settings and Welcome
+  // panels that render more of each domain than the dashboard tile's slice.
+  readonly maintenance?: HomeV2MaintenanceControllers
   readonly appUpdates?: HomeV2AppUpdates
   readonly onChainCoreUpdates?: HomeV2OnChainCoreUpdates
   readonly qdnAppsManagement?: HomeV2QdnSettingsManagement
@@ -1147,6 +1151,7 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
                 onToggleRememberUnlock={props.onToggleRememberUnlock}
                 onToggleLockOnExit={props.onToggleLockOnExit}
                 coreManagement={props.coreManagement}
+                maintenance={props.maintenance}
                 appUpdates={props.appUpdates}
                 onChainCoreUpdates={props.onChainCoreUpdates}
                 qdnAppsManagement={props.qdnAppsManagement}
@@ -1171,6 +1176,7 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
               <HomeV2WelcomePage
                 accountCatalogue={props.accountCatalogue}
                 coreManagement={props.coreManagement}
+                maintenance={props.maintenance}
                 onboarding={props.onboarding}
                 snapshot={snapshot}
                 vaultState={props.vaultState}

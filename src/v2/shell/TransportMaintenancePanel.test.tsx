@@ -11,6 +11,7 @@ import {
   parseHomeV2TransportMaintenanceActionResult,
   parseHomeV2TransportMaintenanceStatus,
 } from '../../home-v2-live/core-manager-client'
+import { useHomeV2TransportMaintenance } from '../../home-v2-live/transport-maintenance-controller'
 import type { HomeV2CoreManagement } from './CoreManagerCards'
 import { TransportMaintenancePanel } from './TransportMaintenancePanel'
 
@@ -97,12 +98,21 @@ function client(overrides: Partial<HomeV2CoreManagerClient> = {}): HomeV2CoreMan
   }
 }
 
-const management = {
+const management: HomeV2CoreManagement = {
   available: true,
   busyActions: { qortal: null, qortium: null },
   lastActions: { qortal: null, qortium: null },
   statuses: {} as never,
-} satisfies HomeV2CoreManagement
+}
+
+// The panel takes its controller as a prop now, so the app can own exactly one
+// per domain. This harness stands in for HomeV2LiveApp: it calls the real
+// controller hook and hands the whole return to the panel, so the polling,
+// staleness and busy behaviour below is still exercised end to end.
+function TransportMaintenanceHarness() {
+  const maintenance = useHomeV2TransportMaintenance(management.onRefresh)
+  return <TransportMaintenancePanel maintenance={maintenance} />
+}
 
 assert.deepEqual(parseHomeV2TransportMaintenanceStatus(missingStatus), missingStatus)
 assert.throws(() => parseHomeV2TransportMaintenanceStatus({
@@ -155,7 +165,7 @@ function hasButton(label: string) {
 async function render(nextClient: HomeV2CoreManagerClient) {
   window.homeV2CoreManagers = nextClient
   await act(async () => {
-    root.render(<TransportMaintenancePanel management={management} />)
+    root.render(<TransportMaintenanceHarness />)
     await Promise.resolve()
     await Promise.resolve()
   })

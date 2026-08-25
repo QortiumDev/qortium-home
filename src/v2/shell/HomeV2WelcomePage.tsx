@@ -15,6 +15,7 @@ import type {
   HomeV2VaultState,
   NodeConnectionMode,
 } from '../contracts'
+import type { HomeV2MaintenanceControllers } from '../../home-v2-live/maintenance-controllers'
 import type {
   HomeV2OnboardingState,
   HomeV2OnboardingStep,
@@ -26,6 +27,10 @@ import { TransportMaintenancePanel } from './TransportMaintenancePanel'
 export interface HomeV2WelcomePageProps {
   readonly accountCatalogue?: HomeV2AccountCatalogue
   readonly coreManagement?: HomeV2CoreManagement
+  // Onboarding offers the same install/update controls Settings does, so it
+  // takes the app's maintenance controllers by the same prop path rather than
+  // building a second set of them for the length of the welcome step.
+  readonly maintenance?: HomeV2MaintenanceControllers
   readonly onboarding: HomeV2OnboardingState
   readonly snapshot: HomeV2Snapshot
   readonly vaultState?: HomeV2VaultState
@@ -141,10 +146,10 @@ export function HomeV2WelcomePage(props: HomeV2WelcomePageProps) {
                   networks={['qortium']}
                 />
                 <CoreMaintenancePanel
-                  management={props.coreManagement}
+                  maintenance={props.maintenance?.core}
                   networks={['qortium']}
                 />
-                <TransportMaintenancePanel management={props.coreManagement} />
+                <TransportMaintenancePanel maintenance={props.maintenance?.transport} />
               </div>
             ) : null}
           </>

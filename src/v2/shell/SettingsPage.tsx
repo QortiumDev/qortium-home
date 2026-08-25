@@ -25,6 +25,7 @@ import { CoreMaintenancePanel } from './CoreMaintenancePanel'
 import { QortalMaintenancePanel } from './QortalMaintenancePanel'
 import { TransportMaintenancePanel } from './TransportMaintenancePanel'
 import type { HomeV2AppUpdates } from '../../home-v2-live/app-update-controller'
+import type { HomeV2MaintenanceControllers } from '../../home-v2-live/maintenance-controllers'
 import type { HomeV2QdnSettingsManagement } from '../../home-v2-live/qdn-settings-client'
 import { QdnAppsSettings } from './QdnAppsSettings'
 import type { HomeV2NotificationPolicyState } from '../../home-v2-live/notification-policy-client'
@@ -69,6 +70,10 @@ export interface SettingsPageProps extends AppearanceSettingsPageProps {
   readonly nodes?: SettingsNetworkNodes
   readonly newTabPreference: NewTabPreference
   readonly coreManagement?: HomeV2CoreManagement
+  // The app's single set of maintenance controllers. Settings renders the full
+  // surface of each one, so it takes the controllers themselves rather than the
+  // dashboard tile's trimmed slice inside `coreManagement`.
+  readonly maintenance?: HomeV2MaintenanceControllers
   readonly appUpdates?: HomeV2AppUpdates
   readonly onChainCoreUpdates?: HomeV2OnChainCoreUpdates
   readonly qdnAppsManagement?: HomeV2QdnSettingsManagement
@@ -555,14 +560,14 @@ export function SettingsPage(props: SettingsPageProps) {
                     networks={enabledNetworks}
                   />
                   <CoreMaintenancePanel
-                    management={props.coreManagement}
+                    maintenance={props.maintenance?.core}
                     networks={enabledNetworks}
                   />
                   {qortiumEnabled ? (
-                    <TransportMaintenancePanel management={props.coreManagement} />
+                    <TransportMaintenancePanel maintenance={props.maintenance?.transport} />
                   ) : null}
                   {enabledNetworks.includes('qortal') ? (
-                    <QortalMaintenancePanel management={props.coreManagement} />
+                    <QortalMaintenancePanel maintenance={props.maintenance?.qortal} />
                   ) : null}
                 </section>
               ) : null}

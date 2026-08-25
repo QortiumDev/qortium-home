@@ -2,9 +2,8 @@ import type {
   HomeV2QortalAdoptionCandidate,
   HomeV2QortalMaintenanceStatus,
 } from '../../home-v2-live/core-manager-client'
-import { useHomeV2QortalMaintenance } from '../../home-v2-live/qortal-maintenance-controller'
+import type { HomeV2QortalMaintenance } from '../../home-v2-live/qortal-maintenance-controller'
 import { t } from '../../i18n'
-import type { HomeV2CoreManagement } from './CoreManagerCards'
 
 function statusMessage(status: HomeV2QortalMaintenanceStatus) {
   if (status.issue) return t('home2.qortalMaintenance.status.unavailable')
@@ -57,8 +56,18 @@ function candidateVersion(candidate: HomeV2QortalAdoptionCandidate) {
     : t('home2.qortalMaintenance.adoption.versionUnknown')
 }
 
-export function QortalMaintenancePanel({ management }: { readonly management: HomeV2CoreManagement }) {
-  const maintenance = useHomeV2QortalMaintenance(management.onRefresh)
+/**
+ * The Qortal Core maintenance panel, including the adoption flow the dashboard
+ * tile deliberately leaves out. It owns no state: the controller is
+ * instantiated once per app and passed in, so this panel and the tile can never
+ * disagree about what is running.
+ */
+export function QortalMaintenancePanel({
+  maintenance,
+}: {
+  readonly maintenance?: HomeV2QortalMaintenance
+}) {
+  if (!maintenance?.available) return null
   const {
     actionAllowed,
     adoptCandidate,
@@ -80,7 +89,6 @@ export function QortalMaintenancePanel({ management }: { readonly management: Ho
     status,
   } = maintenance
 
-  if (!maintenance.available) return null
   if (!status) {
     return (
       <section className="home-v2-core-maintenance home-v2-qortal-maintenance"

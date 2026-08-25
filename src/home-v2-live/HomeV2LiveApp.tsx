@@ -674,19 +674,18 @@ export function HomeV2LiveApp() {
   const refreshCoreStatuses = useCallback(() => {
     void nodeCoreController.refreshCoreStatuses()
   }, [nodeCoreController])
-  // The combined "Node & Core" dashboard tile needs the maintenance surfaces,
-  // and a dashboard tab stays mounted once opened, so owning the controllers
-  // here rather than inside the tile costs nothing extra in practice and keeps
-  // HomeV2Prototype renderable from a fixture. Two prices, both accepted for
-  // now. The three 30s polls run for the app's lifetime instead of only while a
-  // Settings panel is open: one invoke per domain per 30s, all local IPC. And
-  // the Settings and Welcome panels still build their own controllers, so while
-  // Settings is open each domain has two independent instances with separate
-  // busy/notice state — an install started from the tile leaves the panel's
-  // button enabled and its notice stale, and the main-process coordinator, not
-  // the UI, is what refuses the second attempt. Collapsing that means feeding
-  // the panels these slices as props and deleting their internal hook calls,
-  // which is a change to panel internals and belongs in its own PR.
+  // The app's one instance of each maintenance controller. The dashboard tile
+  // and the toolbar node menus take the trimmed `HomeV2CoreManagement` slices
+  // built below; the Settings and Welcome panels take these controllers whole,
+  // through `maintenance`, because they render what the tile leaves out (Qortal
+  // adoption, the automatic-update-policy selects). Nothing else may call these
+  // hooks: a second instance polls a second time and keeps its own busy/notice
+  // state, which is exactly the split the tile and the panels used to have.
+  //
+  // The price is that the three 30s polls run for the app's lifetime rather
+  // than only while a Settings panel is open — one invoke per domain per 30s,
+  // all local IPC — and owning them here keeps HomeV2Prototype renderable from
+  // a fixture with no bridge at all.
   const coreMaintenance = useHomeV2CoreMaintenance({
     onCoreRefresh: refreshCoreStatuses,
     qortalEnabled: nodeCoreController.nodes.qortal.mode !== 'disabled',
@@ -5230,6 +5229,11 @@ export function HomeV2LiveApp() {
         transport: transportMaintenance.available
           ? toHomeV2TransportManagement(transportMaintenance)
           : undefined,
+      }}
+      maintenance={{
+        core: coreMaintenance,
+        qortal: qortalMaintenance,
+        transport: transportMaintenance,
       }}
       appUpdates={appUpdates.available ? appUpdates : undefined}
       onChainCoreUpdates={onChainCoreUpdates.available ? onChainCoreUpdates : undefined}

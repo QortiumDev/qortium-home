@@ -2,9 +2,8 @@ import type {
   HomeV2TransportMaintenanceStatus,
   HomeV2TransportMode,
 } from '../../home-v2-live/core-manager-client'
-import { useHomeV2TransportMaintenance } from '../../home-v2-live/transport-maintenance-controller'
+import type { HomeV2TransportMaintenance } from '../../home-v2-live/transport-maintenance-controller'
 import { t } from '../../i18n'
-import type { HomeV2CoreManagement } from './CoreManagerCards'
 
 type SettableTransportMode = Exclude<HomeV2TransportMode, 'unknown'>
 
@@ -65,12 +64,17 @@ export function ensureLabel(status: HomeV2TransportMaintenanceStatus) {
   return t('home2.transportMaintenance.router.start')
 }
 
+/**
+ * The i2p router / transport-mode panel. It owns no state: the controller is
+ * instantiated once per app and passed in, so this panel and the dashboard tile
+ * share one router status, one busy flag and one notice.
+ */
 export function TransportMaintenancePanel({
-  management,
+  maintenance: transport,
 }: {
-  readonly management: HomeV2CoreManagement
+  readonly maintenance?: HomeV2TransportMaintenance
 }) {
-  const transport = useHomeV2TransportMaintenance(management.onRefresh)
+  if (!transport?.available) return null
   const {
     busy,
     currentMode,
@@ -86,7 +90,6 @@ export function TransportMaintenancePanel({
     status,
   } = transport
 
-  if (!transport.available) return null
   if (!status) {
     return (
       <section className="home-v2-core-maintenance home-v2-transport-maintenance"
