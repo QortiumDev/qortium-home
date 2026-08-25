@@ -68,11 +68,18 @@ export type QdnAppCapability = (typeof QDN_APP_CAPABILITIES)[number];
 export const DEFAULT_BOOKMARKS_MANAGER_URL = 'qdn://APP/Bookmarks/Bookmarks';
 export const DEFAULT_NOTIFICATIONS_MANAGER_URL = 'qdn://APP/Notify/Notify';
 export const DEFAULT_EXPLORE_APP_URL = 'qdn://APP/Explore/Explore';
+/**
+ * Both segments are spelled out on purpose. The published resource is name
+ * "Apps" with identifier "Apps"; a bare `qdn://APP/Apps` would normalize to the
+ * identifier `default`, which is NOT published, so the app would fail to load.
+ */
+export const DEFAULT_APPS_APP_URL = 'qdn://APP/Apps/Apps';
 
 export const QDN_DEFAULT_APP_ASSIGNMENTS = {
   bookmarks: { description: 'App used when Home opens bookmarks.', label: 'Bookmarks', url: DEFAULT_BOOKMARKS_MANAGER_URL },
   notifications: { description: 'App used to manage Home notifications.', label: 'Notifications', url: DEFAULT_NOTIFICATIONS_MANAGER_URL },
   explore: { description: 'App used when Home opens QDN Explore.', label: 'Explore', url: DEFAULT_EXPLORE_APP_URL },
+  apps: { description: 'App used when Home opens the app directory.', label: 'Apps', url: DEFAULT_APPS_APP_URL },
 } as const;
 
 export type QdnAppAssignment = {

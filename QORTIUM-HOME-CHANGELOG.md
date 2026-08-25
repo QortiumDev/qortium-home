@@ -34,6 +34,30 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-26 - fix(home-v2): the dashboard Apps button opens Apps, and the bookmark strip shows names instead of addresses
+
+The "Apps" button on the dashboard used to open Explore. Explore is a resource
+browser, not an app directory, so the button did not go where its name said it
+would. It now opens the Apps app instead.
+
+As with the other apps Home opens on your behalf, this is a choice you own
+rather than a fixed address. Settings > QDN Apps has a new "Apps" row alongside
+Bookmarks, Notifications and Explore, so you can point the button at a different
+app directory and put it back with "Use default" at any time. Existing
+installations pick the new row up automatically; nothing needs to be migrated,
+and any app you had already chosen for the other rows is left exactly as it was.
+
+The bookmark strip also stops reading like an address bar. It was always meant
+to show a bookmark's name and fall back to the address only when there is no
+name, but a bookmark saved from a page with no title had the address written
+into its name when it was saved — so the fallback never had anything to fall
+back from, and the strip showed a row of long `qdn://` links. Home now saves an
+empty name in that case, and treats a name that is only the address as no name
+at all, so bookmarks already saved that way are fixed too, without any
+conversion step. Those entries now show the short label the dashboard tiles use
+— the app or resource name — and the full address is still there in the tooltip
+when you hover.
+
 ### 2026-08-26 - fix(home-v2): toolbar menus no longer open behind the app you are looking at
 
 While an app was open, the toolbar's menus were invisible. Pressing the

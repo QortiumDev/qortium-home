@@ -59,6 +59,32 @@ assert.throws(
   /revision must be a non-negative safe integer/,
 );
 
+// A link with no title must survive a round trip. It is stored empty rather
+// than as its own address so display code can derive a short label, and
+// loadBookmarkManagerSnapshot turns any parse throw into a DISCARDED tree —
+// so rejecting this would lose every bookmark the user has.
+const untitledSnapshot: BookmarkManagerSnapshot = {
+  ...snapshot,
+  toolbar: [{
+    accountId: null,
+    createdAt: 4,
+    displayUrl: 'qdn://APP/Untitled/Untitled',
+    id: 'bookmark-untitled',
+    title: '',
+    type: 'bookmark',
+  }],
+};
+assert.deepEqual(validateBookmarkManagerSnapshot(untitledSnapshot), untitledSnapshot);
+
+// A folder still needs a real title: it has no address to derive one from.
+assert.throws(
+  () => validateBookmarkManagerSnapshot({
+    ...snapshot,
+    toolbar: [{ children: [], createdAt: 4, id: 'folder-blank', title: '', type: 'folder' }],
+  }),
+  /title must not be empty/,
+);
+
 const homeV2Preload = readFileSync(new URL('../electron/home-v2-live-preload.cts', import.meta.url), 'utf8');
 const homeV2Live = readFileSync(new URL('../src/home-v2-live/HomeV2LiveApp.tsx', import.meta.url), 'utf8');
 const homeV2Collections = readFileSync(new URL('../src/home-v2-live/collections-client.ts', import.meta.url), 'utf8');

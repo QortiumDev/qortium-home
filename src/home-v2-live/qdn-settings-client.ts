@@ -142,6 +142,17 @@ const defaultAssignments = {
     label: 'Explore',
     url: 'qdn://APP/Explore/Explore',
   },
+  // Mirrors QDN_DEFAULT_APP_ASSIGNMENTS in electron/qdn-manager-permissions.ts;
+  // parsing HARD-FAILS on a state missing a role known here, so the two copies
+  // must change together. Key order here drives the Settings row order.
+  // Both segments are deliberate: the published resource is name "Apps" with
+  // identifier "Apps", and a bare `qdn://APP/Apps` would normalize to the
+  // identifier `default`, which is not published.
+  apps: {
+    description: 'App used when Home opens the app directory.',
+    label: 'Apps',
+    url: 'qdn://APP/Apps/Apps',
+  },
 } as const
 
 const defaultRoleOrder = new Map(
@@ -413,6 +424,20 @@ export function resolveHomeV2ExploreAppUrl(
 ): string {
   const assigned = state?.assignments.assignments.explore?.url
   return assigned && assigned.trim() ? assigned : HOME_V2_DEFAULT_EXPLORE_APP_URL
+}
+
+export const HOME_V2_DEFAULT_APPS_APP_URL = defaultAssignments.apps.url
+
+/**
+ * Where the dashboard "Apps" button should go: the user's assigned Apps app
+ * when they have one, otherwise the shipped default. Never returns an empty
+ * string.
+ */
+export function resolveHomeV2AppsAppUrl(
+  state?: HomeV2QdnSettingsState | null,
+): string {
+  const assigned = state?.assignments.assignments.apps?.url
+  return assigned && assigned.trim() ? assigned : HOME_V2_DEFAULT_APPS_APP_URL
 }
 
 export function getHomeV2QdnAssignmentRows(

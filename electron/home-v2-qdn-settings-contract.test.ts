@@ -167,6 +167,17 @@ const assigned = service.setAssignment({
 assert.equal(assigned.assignments.revision, assignments.revision)
 assert.equal(assigned.assignments.assignments.bookmarks.url, 'qdn://APP/Other/Bookmarks#/saved')
 assert.equal(assigned.assignments.assignments.bookmarks.label, 'Bookmarks')
+// The dashboard "Apps" button reads a real, persisted, user-editable role.
+assert.equal(initial.assignments.assignments.apps.url, 'qdn://APP/Apps/Apps')
+const appsAssigned = service.setAssignment({
+  expectedAssignmentRevision: assignments.revision,
+  revision: 1,
+  role: 'apps',
+  schema: 'home-v2-qdn-settings-set-assignment-request',
+  url: 'qdn://APP/OtherApps/OtherApps',
+})
+assert.equal(appsAssigned.assignments.assignments.apps.url, 'qdn://APP/OtherApps/OtherApps')
+assert.equal(appsAssigned.assignments.assignments.apps.label, 'Apps')
 assert.throws(() => service.setAssignment({
   expectedAssignmentRevision: assignments.revision,
   extra: true,

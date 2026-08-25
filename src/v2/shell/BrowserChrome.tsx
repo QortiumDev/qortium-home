@@ -155,14 +155,19 @@ function browserAddress(
 
 /**
  * The title that belongs with browserAddress(), so a saved bookmark carries
- * the tab's name rather than its raw address. Pages that are not tabs
- * (release notes, Core docs) fall back to the address.
+ * the tab's name rather than its raw address.
+ *
+ * Pages that are not tabs (release notes, Core docs) have no title to offer,
+ * and deliberately return EMPTY rather than the address: a bookmark whose
+ * title is its own URL is indistinguishable from a real title downstream, and
+ * the toolbar then renders an address instead of a name. Storing '' keeps the
+ * "no title" signal honest so display code can derive a short label.
  */
-function browserPageTitle(productState: ProductState, address: string): string {
+function browserPageTitle(productState: ProductState): string {
   const activeEntry = productState.entries.find(
     (entry) => entry.id === productState.activeTabId,
   )
-  if (!activeEntry) return address
+  if (!activeEntry) return ''
   return activeEntry.kind === 'app'
     ? activeEntry.title
     : t(internalTabLabelKeys[activeEntry.page])
@@ -437,7 +442,7 @@ export function BrowserChrome({
               onToggle={() =>
                 onToggleCurrentBookmark({
                   displayUrl: currentAddress,
-                  title: browserPageTitle(productState, currentAddress),
+                  title: browserPageTitle(productState),
                 })
               }
               onManage={onManageBookmarks}

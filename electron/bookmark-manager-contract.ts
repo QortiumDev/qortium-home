@@ -366,7 +366,14 @@ function parseTreeItem(value: unknown, name: string, depth: number, count: { val
       createdAt: getFiniteTimestamp(record.createdAt, `${name}.createdAt`),
       displayUrl: getString(record.displayUrl, `${name}.displayUrl`, MAX_DISPLAY_URL_LENGTH),
       id: getString(record.id, `${name}.id`, MAX_ID_LENGTH),
-      title: getString(record.title, `${name}.title`, MAX_TITLE_LENGTH),
+      // Empty is allowed here for the same reason it is allowed on the draft at
+      // parseLinkDraft: a link may legitimately have no title, and it derives a
+      // display label from its address instead. Requiring non-empty here meant a
+      // draft the contract accepts could never round-trip — the snapshot parse
+      // threw, and loadBookmarkManagerSnapshot turns that throw into a discarded
+      // tree. Folders above keep requiring a title: they have no address to
+      // derive one from.
+      title: getString(record.title, `${name}.title`, MAX_TITLE_LENGTH, { allowEmpty: true }),
       type,
     };
   }

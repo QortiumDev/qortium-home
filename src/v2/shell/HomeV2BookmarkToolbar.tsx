@@ -94,6 +94,30 @@ function LinkIcon({
   return <Icon aria-hidden="true" size={18} strokeWidth={1.9} />
 }
 
+/**
+ * What the strip should read.
+ *
+ * A stored title that is just the address is no title at all: older bookmarks
+ * were saved with the URL baked into `title`, so `title || displayUrl` always
+ * picked the URL and the strip read like an address bar. Treat that case as
+ * "untitled" and derive the same short, human label the dashboard tiles use
+ * (the QDN identifier or resource name, a page name for Home/Core routes).
+ * The full address stays available as the button's tooltip. This is the same
+ * rule Home 1.x already applies in src/bookmarkDisplay.tsx.
+ */
+function linkLabel(item: BookmarkManagerLink): string {
+  const title = item.title.trim()
+  if (title && title !== item.displayUrl.trim()) return item.title
+  return getDashboardPinDisplay({
+    createdAt: item.createdAt,
+    // Deliberately no customLabel: passing the URL-shaped title back in would
+    // short-circuit the derivation and hand back the address again.
+    displayUrl: item.displayUrl,
+    id: item.id,
+    label: item.displayUrl,
+  }).shortLabel
+}
+
 function ToolbarLink({
   accountLabel,
   disabled,
@@ -184,7 +208,7 @@ function ToolbarLink({
         loadVisibleAppIcon={loadVisibleAppIcon}
         title={item.title}
       />
-      <span>{item.title || item.displayUrl}</span>
+      <span>{linkLabel(item)}</span>
     </button>
   )
 }

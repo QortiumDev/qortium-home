@@ -4,6 +4,7 @@ import {
   createPortableHomeV2QdnSettingsAdapter,
   getHomeV2QdnAssignmentRows,
   parseHomeV2QdnSettingsState,
+  resolveHomeV2AppsAppUrl,
   resolveHomeV2QdnSettingsManagement,
   type HomeV2QdnSettingsAdapter,
 } from './qdn-settings-client'
@@ -25,6 +26,11 @@ const state = {
         description: 'Notifications role',
         label: 'Notifications',
         url: 'qdn://APP/Notify/Notify',
+      },
+      apps: {
+        description: 'Apps role',
+        label: 'Apps',
+        url: 'qdn://APP/CustomApps/CustomApps',
       },
       'media.video': {
         description: null,
@@ -87,9 +93,14 @@ assert.deepEqual(
     { defaultUrl: 'qdn://APP/Bookmarks/Bookmarks', role: 'bookmarks' },
     { defaultUrl: 'qdn://APP/Notify/Notify', role: 'notifications' },
     { defaultUrl: 'qdn://APP/Explore/Explore', role: 'explore' },
+    { defaultUrl: 'qdn://APP/Apps/Apps', role: 'apps' },
     { defaultUrl: null, role: 'media.video' },
   ],
 )
+// The dashboard "Apps" button honours the user's assignment, and falls back to
+// the shipped default when settings are unavailable.
+assert.equal(resolveHomeV2AppsAppUrl(parsed), 'qdn://APP/CustomApps/CustomApps')
+assert.equal(resolveHomeV2AppsAppUrl(null), 'qdn://APP/Apps/Apps')
 // One app appears once per account it holds a grant for.
 assert.deepEqual(parsed.accountRead.apps.map(({ accountId }) => accountId), [
   'wallet:QAAA',

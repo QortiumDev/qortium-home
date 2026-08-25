@@ -127,6 +127,32 @@ assert.throws(
   'apply rejects unsupported addresses with INVALID_ADDRESS',
 );
 
+// A link saved with no title stores an EMPTY title rather than its own address.
+// Baking the URL into `title` made "no title" indistinguishable from a real
+// one, so display code could never fall back to a derived short label.
+const untitledAdd = applyBookmarkManagerMutation(initial, {
+  type: 'addTreeLink',
+  rootId: 'bookmarks',
+  link: { displayUrl: 'qdn://APP/Untitled/Untitled', title: '' },
+});
+assert.equal(untitledAdd.changed, true);
+const untitledLink = locateBookmarkManagerLink(
+  untitledAdd.snapshot,
+  'qdn://APP/Untitled/Untitled',
+);
+assert.equal(untitledLink?.link.title, '');
+
+// A real title is still stored verbatim.
+const titledAdd = applyBookmarkManagerMutation(initial, {
+  type: 'addTreeLink',
+  rootId: 'bookmarks',
+  link: { displayUrl: 'qdn://APP/Titled/Titled', title: 'Titled app' },
+});
+assert.equal(
+  locateBookmarkManagerLink(titledAdd.snapshot, 'qdn://APP/Titled/Titled')?.link.title,
+  'Titled app',
+);
+
 // The toolbar star has to find a saved page by address, because ids are minted
 // per-add rather than derived from the URL, and removal needs the root too.
 const lookupSnapshot = {
