@@ -5,6 +5,8 @@ import {
   homeV2PermissionGrantFamily,
   isHomeV2AccountReadAction,
   HOME_V2_ACCOUNT_READ_ACTIONS,
+  HOME_V2_PERMISSIONLESS_ACTIONS,
+  isHomeV2PermissionlessAction,
 } from './home-v2-session-grants.js'
 
 assert.equal(homeV2PermissionGrantFamily('SEND_CHAT_MESSAGE'), 'chat.public.mutate')
@@ -112,12 +114,40 @@ assert.equal(store.size(), 1)
 // nothing else. This pins the boundary: if a mutating action is ever added to
 // HOME_V2_ACCOUNT_READ_ACTIONS it would silently become permissionless.
 {
-  const permissionless = [...HOME_V2_ACCOUNT_READ_ACTIONS]
+  const permissionless = [...HOME_V2_PERMISSIONLESS_ACTIONS]
   for (const action of permissionless) {
+    assert.equal(
+      isHomeV2PermissionlessAction(action),
+      true,
+      `${action} must be recognised as permissionless`,
+    )
     assert.equal(
       isHomeV2AccountReadAction(action),
       true,
-      `${action} must be recognised as a permissionless read`,
+      `${action} must also be an account-read action`,
+    )
+  }
+
+  // Reads with side effects are deliberately NOT permissionless: the private
+  // group reads persist a recovered group key to disk and expose member public
+  // keys for an arbitrary group, and the attachment reads allocate a retained
+  // decrypted-stream capability and can open Home UI. Found by security review.
+  for (const action of [
+    'GET_PRIVATE_GROUP_ACTIVE_CHATS',
+    'GET_PRIVATE_GROUP_CHAT_STATE',
+    'SEARCH_PRIVATE_GROUP_CHAT_MESSAGES',
+    'GET_CHAT_ATTACHMENT_STREAM_URL',
+    'OPEN_CHAT_ATTACHMENT_VIEWER',
+  ]) {
+    assert.equal(
+      isHomeV2AccountReadAction(action),
+      true,
+      `${action} is still an account-read action`,
+    )
+    assert.equal(
+      isHomeV2PermissionlessAction(action),
+      false,
+      `${action} has side effects and must still prompt`,
     )
   }
 
@@ -148,24 +178,20 @@ assert.equal(store.size(), 1)
   ]
   for (const action of mustStillPrompt) {
     assert.equal(
-      isHomeV2AccountReadAction(action),
+      isHomeV2PermissionlessAction(action),
       false,
       `${action} must NOT be permissionless — it sends, spends or writes`,
     )
   }
 
-  // The read set is exactly the identity, private-chat and journal reads.
+  // The permissionless set is exactly identity, the app's own journal, and
+  // direct-chat reads — every one a pure read of the caller's own data.
   assert.deepEqual([...permissionless].sort(), [
-    'GET_CHAT_ATTACHMENT_STREAM_URL',
     'GET_PENDING_TRANSACTIONS',
     'GET_PRIVATE_DIRECT_ACTIVE_CHATS',
-    'GET_PRIVATE_GROUP_ACTIVE_CHATS',
-    'GET_PRIVATE_GROUP_CHAT_STATE',
     'GET_SELECTED_ACCOUNT',
     'GET_USER_ACCOUNT',
-    'OPEN_CHAT_ATTACHMENT_VIEWER',
     'SEARCH_PRIVATE_DIRECT_CHAT_MESSAGES',
-    'SEARCH_PRIVATE_GROUP_CHAT_MESSAGES',
   ])
 }
 

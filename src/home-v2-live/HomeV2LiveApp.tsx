@@ -166,6 +166,7 @@ import {
   homeV2PermissionGrantKey,
   homeV2PermissionGrantFamily,
   isHomeV2AccountReadAction,
+  isHomeV2PermissionlessAction,
 } from '../../electron/home-v2-session-grants'
 import { getHomeV2BridgeStateDetails } from '../../electron/home-v2-app-runtime'
 import {
@@ -2618,7 +2619,7 @@ export function HomeV2LiveApp() {
         const singleRequestOnly = action === 'FORGET_PENDING_TRANSACTION'
         // Reading the journal is permissionless; forgetting an entry mutates
         // it and still prompts.
-        if (singleRequestOnly || (!isHomeV2AccountReadAction(action) &&
+        if (singleRequestOnly || (!isHomeV2PermissionlessAction(action) &&
           !androidSessionAccountGrants.current.has(grantKey))) {
           const appId = brand<AppId>(`home-v2:permission-app:${parsedApp.identityKey}`)
           const prompt = createPermissionPrompt({
@@ -3285,7 +3286,7 @@ export function HomeV2LiveApp() {
         })
         // Read-only actions are permissionless (owner decision 2026-08-24);
         // mirrors the desktop bridge. Sends and mutations still gate.
-        if (!isHomeV2AccountReadAction(action) &&
+        if (!isHomeV2PermissionlessAction(action) &&
           !androidSessionAccountGrants.current.has(grantKey)) {
           const requestId = brand<PermissionRequestId>(
             globalThis.crypto.randomUUID?.() ??
@@ -3887,7 +3888,7 @@ export function HomeV2LiveApp() {
         })
         // Read-only actions are permissionless (owner decision 2026-08-24);
         // mirrors the desktop bridge. Sends and mutations still gate.
-        if (!isHomeV2AccountReadAction(action) &&
+        if (!isHomeV2PermissionlessAction(action) &&
           !androidSessionAccountGrants.current.has(grantKey)) {
           const requestId = brand<PermissionRequestId>(
             globalThis.crypto.randomUUID?.() ??
@@ -4083,7 +4084,7 @@ export function HomeV2LiveApp() {
         })
         // Read-only actions are permissionless (owner decision 2026-08-24);
         // mirrors the desktop bridge. Sends and mutations still gate.
-        if (!isHomeV2AccountReadAction(action) &&
+        if (!isHomeV2PermissionlessAction(action) &&
           !androidSessionAccountGrants.current.has(grantKey)) {
           const requestId = brand<PermissionRequestId>(
             globalThis.crypto.randomUUID?.() ??
