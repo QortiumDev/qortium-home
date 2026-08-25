@@ -1518,6 +1518,16 @@ export interface HomeV2WindowsBridge {
   /** Null in the window Home started with; an address in a detached one. */
   getStartup(): Promise<{ address: string } | null>
   openTab(address: string): Promise<void>
+  /**
+   * The app-level window settings — close to tray, and the multi-tab close
+   * warning. Optional because only the desktop shell has them; both replies
+   * are re-validated by window-behavior-client.ts rather than trusted.
+   */
+  getBehavior?(): Promise<unknown>
+  setBehavior?(change: {
+    closeToTray?: boolean
+    warnOnCloseWithMultipleTabs?: boolean
+  }): Promise<unknown>
 }
 
 declare global {

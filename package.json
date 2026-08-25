@@ -209,6 +209,8 @@
     "test:bookmark-manager-contract": "node scripts/ensure-electron-build.mjs && node dist-electron/bookmark-manager-contract.test.js",
     "test:home-v2-window-startup": "node scripts/ensure-electron-build.mjs && node dist-electron/home-v2-window-startup.test.js",
     "test:home-window-state": "node scripts/ensure-electron-build.mjs && node dist-electron/home-window-state.test.js",
+    "test:home-window-behavior": "node scripts/ensure-electron-build.mjs && node dist-electron/home-window-behavior.test.js",
+    "test:home-close-behavior": "node scripts/ensure-electron-build.mjs && node dist-electron/home-close-behavior.test.js",
     "test:home-window-focus": "node scripts/ensure-electron-build.mjs && node dist-electron/home-window-focus.test.js",
     "test:tray-open-home": "node scripts/ensure-electron-build.mjs && node dist-electron/tray-open-home.test.js",
     "test:bookmark-manager": "esbuild src/bookmarkManager.test.ts --bundle --platform=node --format=esm --outfile=dist-electron/bookmark-manager.test.js && node dist-electron/bookmark-manager.test.js",

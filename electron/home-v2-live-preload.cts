@@ -57,12 +57,26 @@ contextBridge.exposeInMainWorld('homeV2Zoom', {
   },
 })
 
+type HomeV2WindowBehavior = {
+  closeToTray: boolean
+  warnOnCloseWithMultipleTabs: boolean
+}
+
 contextBridge.exposeInMainWorld('homeV2Windows', {
   // Null in the window Home started with; an address in one detached from it.
   getStartup: (): Promise<{ address: string } | null> =>
     ipcRenderer.invoke('home-v2-windows:getStartup'),
   openTab: (address: string): Promise<void> =>
     ipcRenderer.invoke('home-v2-windows:openTab', address),
+  // What closing the main window does. Main owns these two settings because it
+  // is what has to act on them, at a moment when no renderer can be asked.
+  getBehavior: (): Promise<HomeV2WindowBehavior> =>
+    ipcRenderer.invoke('home-v2-windows:getBehavior'),
+  // Takes one or both settings and returns the whole record as it now stands.
+  setBehavior: (
+    behavior: Partial<HomeV2WindowBehavior>,
+  ): Promise<HomeV2WindowBehavior> =>
+    ipcRenderer.invoke('home-v2-windows:setBehavior', behavior),
 })
 
 contextBridge.exposeInMainWorld('homeV2Nodes', {

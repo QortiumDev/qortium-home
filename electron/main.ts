@@ -1,6 +1,7 @@
 import {
   app,
   BrowserWindow,
+  dialog,
   ipcMain,
   Menu,
   protocol,
@@ -33,7 +34,21 @@ import { registerNodeSettingsIpcHandlers } from './node-settings.js';
 import { registerHomeV2NodeBridgeIpcHandlers } from './home-v2-node-bridge.js';
 import { assertAuthorizedHomeV2Sender, authorizeHomeV2Sender } from './home-v2-authorized-senders.js';
 import { sanitizeHomeV2WindowAddress } from './home-v2-window-startup.js';
+import { readHomeV2ShellState } from './home-v2-shell-store.js';
 import { homeWindowFocus } from './home-window-focus.js';
+import {
+  homeV2TabCount,
+  planHomeClose,
+  resolveHomeCloseDialog,
+} from './home-close-behavior.js';
+import {
+  applyHomeWindowBehaviorPatch,
+  DEFAULT_HOME_WINDOW_BEHAVIOR,
+  parseHomeWindowBehavior,
+  parseHomeWindowBehaviorPatch,
+  serializeHomeWindowBehavior,
+  type HomeWindowBehavior,
+} from './home-window-behavior.js';
 import {
   initialWindowState,
   mergeWindowState,
@@ -64,7 +79,7 @@ import {
 import { registerQdnViewIpcHandlers, syncQdnViewsForWindowZoom } from './qdn-views.js';
 import { registerQdnManagerPermissionStoreIpcHandlers } from './qdn-manager-permission-store.js';
 import { shouldLoadRendererFromDist } from './renderer-entry.js';
-import { destroyTray, installTray } from './tray.js';
+import { destroyTray, getTray, installTray } from './tray.js';
 import { installNodeTlsForDefaultSessions } from './node-tls.js';
 import { registerSystemIpcHandlers } from './system.js';
 import { getZoomPercent, initZoom, resetZoom, setZoomPercent, zoomIn, zoomOut } from './zoom.js';
@@ -76,6 +91,7 @@ const DEFAULT_WINDOW_HEIGHT = 720;
 const MIN_WINDOW_WIDTH = 720;
 const MIN_WINDOW_HEIGHT = 480;
 const WINDOW_STATE_FILE = 'window-state.json';
+const WINDOW_BEHAVIOR_FILE = 'window-behavior.json';
 const WINDOW_STATE_SAVE_DELAY_MS = 250;
 const WINDOW_ICON_FILE = 'icon.png';
 const NEW_WINDOW_OFFSET_PX = 32;
@@ -310,6 +326,60 @@ function writeWindowStates(states: WindowStatesRecord) {
   }
 }
 
+// --- window behaviour settings ----------------------------------------------
+// Close-to-tray and the multi-tab close warning. Their own file rather than a
+// third key in window-state.json, because parseWindowStates reads a record
+// with no primary/secondary key as one legacy geometry blob.
+//
+// Synchronous, and memoised, because the close event that reads them cannot
+// wait: an async read would return after the window has already gone. Home
+// holds the single-instance lock, so this process is the only writer.
+
+let windowBehavior: HomeWindowBehavior | undefined;
+
+function getWindowBehaviorPath() {
+  return path.join(app.getPath('userData'), WINDOW_BEHAVIOR_FILE);
+}
+
+function readWindowBehavior(): HomeWindowBehavior {
+  if (!windowBehavior) {
+    try {
+      const parsed: unknown = JSON.parse(readFileSync(getWindowBehaviorPath(), 'utf8'));
+
+      windowBehavior = parseHomeWindowBehavior(parsed);
+    } catch {
+      windowBehavior = DEFAULT_HOME_WINDOW_BEHAVIOR;
+    }
+  }
+
+  return windowBehavior;
+}
+
+function writeWindowBehavior(next: HomeWindowBehavior): HomeWindowBehavior {
+  const behaviorPath = getWindowBehaviorPath();
+
+  // The memo is updated even when the write fails, so the setting the user
+  // just chose is honoured for this session rather than silently ignored.
+  windowBehavior = next;
+
+  try {
+    mkdirSync(path.dirname(behaviorPath), { recursive: true });
+    writeFileSync(
+      behaviorPath,
+      `${JSON.stringify(serializeHomeWindowBehavior(next), null, 2)}\n`,
+      'utf8',
+    );
+  } catch (error) {
+    console.warn('Unable to save window behaviour settings.', error);
+  }
+
+  return next;
+}
+
+function changeWindowBehavior(patch: Partial<HomeWindowBehavior>): HomeWindowBehavior {
+  return writeWindowBehavior(applyHomeWindowBehaviorPatch(readWindowBehavior(), patch));
+}
+
 function getCurrentWindowState(window: BrowserWindow): WindowState {
   const bounds = window.isMaximized() ? window.getNormalBounds() : window.getBounds();
 
@@ -432,6 +502,147 @@ function getInitialWindowState(
   }
 
   return savedState;
+}
+
+// --- closing the main window ------------------------------------------------
+// Home 2 only. What a close does is decided by home-close-behavior.ts; this
+// half owns the BrowserWindow calls and the per-window flags that keep the
+// confirmed close from re-entering the handler it came from.
+
+/** A quit is under way, so nothing here may keep the app alive. */
+let quitRequested = false;
+/** Windows this hid rather than closed, and can therefore bring back. */
+const hiddenToTrayWindowIds = new Set<number>();
+/** Windows whose close the user has already confirmed in the dialog. */
+const confirmedCloseWindowIds = new Set<number>();
+/** Windows currently showing the close dialog. */
+const promptingWindowIds = new Set<number>();
+
+function hideWindowToTray(window: BrowserWindow) {
+  hiddenToTrayWindowIds.add(window.id);
+  window.hide();
+}
+
+/**
+ * Brings back a window that close-to-tray hid.
+ *
+ * A hidden window is still a window, so `window-all-closed` never fires for it
+ * and a second launch would otherwise open a duplicate beside the one the user
+ * already has. The tray's "Open Qortium Home" already restores hidden windows;
+ * this is the same answer for the other two routes back in — launching Home
+ * again, and the macOS dock.
+ */
+function showHiddenHomeWindow(): boolean {
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (window.isDestroyed() || !hiddenToTrayWindowIds.has(window.id) || window.isVisible()) {
+      continue;
+    }
+
+    if (window.isMinimized()) window.restore();
+    window.show();
+    // Same focus-stealing dance as the tray: a show that the user did not
+    // click on is demoted to a taskbar flash on X11 and Wayland without it.
+    window.moveTop();
+    window.focus();
+    app.focus({ steal: true });
+    return true;
+  }
+
+  return false;
+}
+
+function installHomeCloseBehavior(window: BrowserWindow, role: WindowStateRole) {
+  window.on('show', () => hiddenToTrayWindowIds.delete(window.id));
+  window.on('closed', () => {
+    hiddenToTrayWindowIds.delete(window.id);
+    confirmedCloseWindowIds.delete(window.id);
+    promptingWindowIds.delete(window.id);
+  });
+
+  window.on('close', (event) => {
+    // A dialog is already up for this window. A second close request — another
+    // click on the title bar X — must wait for the answer to the first rather
+    // than stack a second dialog on top of it.
+    if (promptingWindowIds.has(window.id)) {
+      event.preventDefault();
+      return;
+    }
+
+    const behavior = readWindowBehavior();
+    const plan = planHomeClose({
+      closeToTray: behavior.closeToTray,
+      confirmed: confirmedCloseWindowIds.has(window.id),
+      quitting: quitRequested,
+      role,
+      // The last state the renderer saved. A close cannot wait for an answer
+      // over IPC, and the renderer saves on every tab change, so this is
+      // current except in the moment between opening a tab and that save
+      // landing — where it can undercount by one and skip a warning.
+      tabCount: homeV2TabCount(readHomeV2ShellState()),
+      trayAvailable: getTray() !== null,
+      warnOnMultipleTabs: behavior.warnOnCloseWithMultipleTabs,
+    });
+
+    if (plan.kind === 'close') {
+      return;
+    }
+
+    event.preventDefault();
+
+    if (plan.kind === 'hide') {
+      hideWindowToTray(window);
+      return;
+    }
+
+    const promptDialog = plan.dialog;
+    promptingWindowIds.add(window.id);
+    void dialog
+      .showMessageBox(window, {
+        buttons: [...promptDialog.buttons],
+        cancelId: promptDialog.cancelId,
+        checkboxChecked: false,
+        checkboxLabel: promptDialog.checkboxLabel,
+        defaultId: promptDialog.defaultId,
+        detail: promptDialog.detail,
+        message: promptDialog.message,
+        // Windows renders multiple buttons as command links otherwise, which
+        // reads as a wizard rather than as a question about this window.
+        noLink: true,
+        title: promptDialog.title,
+        type: promptDialog.type,
+      })
+      .then((answer) => {
+        promptingWindowIds.delete(window.id);
+
+        const outcome = resolveHomeCloseDialog(promptDialog, answer);
+
+        if (outcome.settings) {
+          changeWindowBehavior(outcome.settings);
+        }
+
+        if (window.isDestroyed()) {
+          return;
+        }
+
+        if (outcome.action === 'hide') {
+          hideWindowToTray(window);
+          return;
+        }
+
+        if (outcome.action === 'close') {
+          // Marked confirmed first: this close re-enters the handler above,
+          // and without the flag it would ask the same question again.
+          confirmedCloseWindowIds.add(window.id);
+          window.close();
+        }
+      })
+      .catch((error) => {
+        promptingWindowIds.delete(window.id);
+        // The window stays open. A question that could not be asked must not
+        // be answered on the user's behalf.
+        console.warn('Home could not ask about closing this window.', error);
+      });
+  });
 }
 
 function zoomFocusedWindow(action: (webContents: WebContents) => void) {
@@ -564,6 +775,13 @@ function createWindow(options: CreateWindowOptions = {}) {
   }
 
   watchWindowState(window, windowStateRole);
+
+  if (IS_HOME_V2) {
+    // Close-to-tray and the multi-tab warning are Home 2 settings, and only
+    // Home 2 installs the tray a hidden window would be restored from.
+    installHomeCloseBehavior(window, windowStateRole);
+  }
+
   // The tray raises the window the user actually used last, rather than
   // whichever comes first in creation order.
   window.on('focus', () => homeWindowFocus.note(window.id));
@@ -906,6 +1124,24 @@ function registerHomeV2WindowIpcHandlers() {
       placement: 'secondary',
     });
   });
+
+  // The two app-level window settings. They are main's to own — the renderer
+  // is not on screen at the moment a close has to be decided — so Settings
+  // reads and writes them here rather than keeping its own copy.
+  ipcMain.handle('home-v2-windows:getBehavior', (event) => {
+    assertAuthorizedHomeV2Sender(event);
+
+    return readWindowBehavior();
+  });
+
+  // Returns the settings as they now stand, so the caller never has to guess
+  // what its own change produced. Not broadcast: a second window reads the
+  // stored value when its Settings page next opens.
+  ipcMain.handle('home-v2-windows:setBehavior', (event, value: unknown) => {
+    assertAuthorizedHomeV2Sender(event);
+
+    return changeWindowBehavior(parseHomeWindowBehaviorPatch(value));
+  });
 }
 
 function registerWindowIpcHandlers() {
@@ -956,6 +1192,12 @@ if (!gotSingleInstanceLock) {
 }
 
 app.on('second-instance', () => {
+  // Launching Home again while it sits in the tray means "give me Home back",
+  // not "give me a second one" — so restore the hidden window first.
+  if (showHiddenHomeWindow()) {
+    return;
+  }
+
   // Keep a single process / userData owner, but let a relaunch open another
   // window (offset from the focused one) within this instance.
   createWindow({ placement: 'secondary' });
@@ -1010,6 +1252,9 @@ app.whenReady().then(async () => {
     // Home 2 bridge remains invoke-only and does not re-enable legacy events.
     void reconcileI2pdWithCore();
     app.on('activate', () => {
+      // A window hidden to the tray still counts as open, so the length test
+      // below would leave the dock icon doing nothing at all.
+      if (showHiddenHomeWindow()) return;
       if (BrowserWindow.getAllWindows().length === 0) createWindow();
     });
     return;
@@ -1060,6 +1305,10 @@ app.on('window-all-closed', () => {
   // a floating player running after you close Home. It also means Home can sit
   // running with no main window, a state it never had before, and the tray
   // installed at startup is what makes that state visible and exitable.
+  //
+  // Close-to-tray reaches the same state by a different route and relies on
+  // the same fact: a hidden window has not been closed, so this does not fire
+  // for it and Home keeps running with nothing on screen.
   if (process.platform !== 'darwin') {
     app.quit();
   }
@@ -1072,6 +1321,11 @@ app.on('window-all-closed', () => {
 // external rather than adopted from mutable PID evidence.
 let i2pdShutdownComplete = false;
 app.on('before-quit', (event) => {
+  // First, before anything can cancel the quit: from here on a window close is
+  // a real close. Without this, close-to-tray would hide the window Quit just
+  // asked to close and the app could never exit from its own tray menu.
+  quitRequested = true;
+
   // A redundant second instance (no lock) never started the shared i2pd/Core, so
   // it must quit immediately without touching them. Same once shutdown has run.
   if (!gotSingleInstanceLock || i2pdShutdownComplete) {
@@ -1089,6 +1343,10 @@ app.on('before-quit', (event) => {
       // Keep Home alive with its ChildProcess authority intact. A later quit
       // retries the bounded stop; force termination remains the user's explicit
       // escape hatch if the child cannot be stopped.
+      //
+      // The quit is off, so the flag has to come off with it: Home is running
+      // again, and its windows should behave the way the settings say.
+      quitRequested = false;
       console.error('Home could not confirm that its managed i2pd child stopped; quit was cancelled.');
       return;
     }

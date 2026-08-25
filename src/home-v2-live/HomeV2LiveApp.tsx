@@ -237,6 +237,11 @@ import {
   resolveHomeV2NotificationPolicyClient,
   type HomeV2NotificationPolicyState,
 } from './notification-policy-client'
+import {
+  resolveHomeV2WindowBehaviorClient,
+  type HomeV2WindowBehaviorChange,
+  type HomeV2WindowBehaviorState,
+} from './window-behavior-client'
 import { resolveDualIdentity } from './identity-resolver'
 import { completeUnlockAfterAccountStatePropagation } from './unlock-account-state'
 import {
@@ -535,6 +540,9 @@ export function HomeV2LiveApp() {
         : resolveHomeV2NotificationPolicyClient(),
     [],
   )
+  // Desktop only: null on Android and in the browser preview, which is what
+  // keeps the Window settings group off those hosts entirely.
+  const windowBehaviorClient = useMemo(() => resolveHomeV2WindowBehaviorClient(), [])
   const qdnAppsManagement = useMemo(() => {
     const isNativeAndroid = Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android'
     if (!isNativeAndroid) return resolveHomeV2QdnSettingsManagement()
@@ -583,6 +591,8 @@ export function HomeV2LiveApp() {
     useState<HomeV2NotificationPolicyState | null>(null)
   const notificationPolicyRef = useRef<HomeV2NotificationPolicyState | null>(null)
   notificationPolicyRef.current = notificationPolicy
+  const [windowBehavior, setWindowBehavior] =
+    useState<HomeV2WindowBehaviorState | null>(null)
   // Live mirror of productState so long-running async work (e.g. the chat-send
   // context recheck that spans a tens-of-seconds memory-pow) sees the CURRENT
   // tab set, not the snapshot captured when the request started. Without this
@@ -747,6 +757,35 @@ export function HomeV2LiveApp() {
       unsubscribe()
     }
   }, [notificationPolicyClient])
+
+  useEffect(() => {
+    if (!windowBehaviorClient) return
+    let disposed = false
+    void windowBehaviorClient
+      .get()
+      .then((behavior) => {
+        if (!disposed) setWindowBehavior(behavior)
+      })
+      // Left null, which renders the group as unavailable rather than showing
+      // toggles whose position would be a guess.
+      .catch(() => undefined)
+    return () => {
+      disposed = true
+    }
+  }, [windowBehaviorClient])
+
+  // Main returns the settings as they now stand, so the reply is the new
+  // state rather than something to reconstruct. A failure rethrows and leaves
+  // the displayed value alone, so the row can report it.
+  const changeWindowBehavior = useCallback(
+    async (change: HomeV2WindowBehaviorChange) => {
+      if (!windowBehaviorClient) {
+        throw new Error('Window settings are unavailable on this platform.')
+      }
+      setWindowBehavior(await windowBehaviorClient.set(change))
+    },
+    [windowBehaviorClient],
+  )
 
   const setGlobalAppNotifications = useCallback(
     async (enabled: boolean) => {
@@ -5440,6 +5479,8 @@ export function HomeV2LiveApp() {
       onSetNewTabPreference={setNewTabPreference}
       notificationPolicy={notificationPolicy}
       onSetAppNotifications={setGlobalAppNotifications}
+      windowBehavior={windowBehavior}
+      onSetWindowBehavior={windowBehaviorClient ? changeWindowBehavior : undefined}
     />
   )
 }

@@ -70,6 +70,10 @@ import type {
 import type { HomeV2AppUpdates } from '../../home-v2-live/app-update-controller'
 import type { HomeV2QdnSettingsManagement } from '../../home-v2-live/qdn-settings-client'
 import type { HomeV2NotificationPolicyState } from '../../home-v2-live/notification-policy-client'
+import type {
+  HomeV2WindowBehaviorChange,
+  HomeV2WindowBehaviorState,
+} from '../../home-v2-live/window-behavior-client'
 import type { HomeV2OnChainCoreUpdates } from '../../home-v2-live/on-chain-core-update-controller'
 import {
   HomeV2ReleaseNotesPage,
@@ -126,6 +130,7 @@ export interface HomeV2PrototypeProps {
   readonly onChainCoreUpdates?: HomeV2OnChainCoreUpdates
   readonly qdnAppsManagement?: HomeV2QdnSettingsManagement
   readonly notificationPolicy?: HomeV2NotificationPolicyState | null
+  readonly windowBehavior?: HomeV2WindowBehaviorState | null
   readonly releaseNotesTarget?: HomeV2ReleaseNotesTarget | null
   readonly onboarding?: HomeV2OnboardingState
   readonly pinnedApps?: HomeV2PinnedAppsProps
@@ -215,6 +220,7 @@ export interface HomeV2PrototypeProps {
   ) => void | Promise<void>
   readonly onSetNewTabPreference?: (preference: NewTabPreference) => void
   readonly onSetAppNotifications?: (enabled: boolean) => Promise<void>
+  readonly onSetWindowBehavior?: (change: HomeV2WindowBehaviorChange) => Promise<void>
   readonly onOpenReleaseNotes?: (target: HomeV2ReleaseNotesTarget) => void
   readonly onWelcomeAccountAction?: (action: 'create' | 'import' | 'private') => void
   readonly onWelcomeComplete?: (
@@ -1147,6 +1153,8 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
                 loadVisibleAppIcon={props.loadVisibleAppIcon}
                 notificationPolicy={props.notificationPolicy}
                 onSetAppNotifications={props.onSetAppNotifications}
+                windowBehavior={props.windowBehavior}
+                onSetWindowBehavior={props.onSetWindowBehavior}
                 onOpenReleaseNotes={(tagName) => props.onOpenReleaseNotes?.({
                   product: 'home',
                   tagName,

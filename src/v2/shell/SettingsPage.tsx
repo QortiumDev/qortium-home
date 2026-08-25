@@ -28,6 +28,10 @@ import type { HomeV2AppUpdates } from '../../home-v2-live/app-update-controller'
 import type { HomeV2QdnSettingsManagement } from '../../home-v2-live/qdn-settings-client'
 import { QdnAppsSettings } from './QdnAppsSettings'
 import type { HomeV2NotificationPolicyState } from '../../home-v2-live/notification-policy-client'
+import type {
+  HomeV2WindowBehaviorChange,
+  HomeV2WindowBehaviorState,
+} from '../../home-v2-live/window-behavior-client'
 import type { HomeV2OnChainCoreUpdates } from '../../home-v2-live/on-chain-core-update-controller'
 import { OnChainCoreUpdateSettings } from './OnChainCoreUpdateSettings'
 
@@ -69,8 +73,10 @@ export interface SettingsPageProps extends AppearanceSettingsPageProps {
   readonly onChainCoreUpdates?: HomeV2OnChainCoreUpdates
   readonly qdnAppsManagement?: HomeV2QdnSettingsManagement
   readonly notificationPolicy?: HomeV2NotificationPolicyState | null
+  readonly windowBehavior?: HomeV2WindowBehaviorState | null
   readonly requestedSection?: HomeV2SettingsSectionTarget
   readonly onSetAppNotifications?: (enabled: boolean) => Promise<void>
+  readonly onSetWindowBehavior?: (change: HomeV2WindowBehaviorChange) => Promise<void>
   readonly onOpenReleaseNotes?: (tagName: string) => void
   readonly onRestartWelcome?: () => void
   readonly onSetNewTabPreference?: (preference: NewTabPreference) => void
@@ -157,6 +163,100 @@ function NetworkAvailabilitySettings({
   )
 }
 
+/**
+ * What closing the main window does.
+ *
+ * Both settings belong to the main process — it is what has to act on them, at
+ * a moment when no renderer can be asked — so this group has no local copy: it
+ * shows what the bridge reported and re-renders on what a change returns.
+ */
+function WindowBehaviorSettings({
+  windowBehavior,
+  onSetWindowBehavior,
+}: Pick<SettingsPageProps, 'windowBehavior' | 'onSetWindowBehavior'>) {
+  const [busySetting, setBusySetting] = useState<string | null>(null)
+  const [failedSetting, setFailedSetting] = useState<string | null>(null)
+
+  // Desktop only. Android and the browser preview have no window to close and
+  // no tray to close it to, so the group is absent there rather than disabled.
+  if (!windowBehavior) return null
+
+  const rows = [
+    {
+      change: (checked: boolean): HomeV2WindowBehaviorChange => ({ closeToTray: checked }),
+      enabled: windowBehavior.closeToTray,
+      hint: t('home2.settings.closeToTrayDescription'),
+      key: 'close-to-tray',
+      label: t('home2.settings.closeToTray'),
+    },
+    {
+      change: (checked: boolean): HomeV2WindowBehaviorChange => ({
+        warnOnCloseWithMultipleTabs: checked,
+      }),
+      enabled: windowBehavior.warnOnCloseWithMultipleTabs,
+      hint: t('home2.settings.warnOnCloseTabsDescription'),
+      key: 'warn-on-close-tabs',
+      label: t('home2.settings.warnOnCloseTabs'),
+    },
+  ]
+
+  const apply = async (key: string, change: HomeV2WindowBehaviorChange) => {
+    if (!onSetWindowBehavior || busySetting) return
+    setBusySetting(key)
+    setFailedSetting(null)
+    try {
+      await onSetWindowBehavior(change)
+    } catch {
+      setFailedSetting(key)
+    } finally {
+      setBusySetting(null)
+    }
+  }
+
+  return (
+    <div className="home-v2-window-behavior">
+      <div className="home-v2-setting-group-heading">
+        <strong>{t('home2.settings.window')}</strong>
+        <span>{t('home2.settings.windowDescription')}</span>
+      </div>
+      {rows.map((row) => (
+        <div
+          className="home-v2-setting-row"
+          data-home-v2-window-setting={row.key}
+          key={row.key}
+        >
+          <div className="home-v2-setting-row__copy">
+            <strong>{row.label}</strong>
+            <span>{row.hint}</span>
+            {busySetting === row.key ? (
+              <span role="status">{t('common.saving')}</span>
+            ) : failedSetting === row.key ? (
+              <span role="alert">{t('common.error')}</span>
+            ) : null}
+          </div>
+          <div className="home-v2-setting-row__control">
+            <label>
+              <input
+                aria-label={row.label}
+                checked={row.enabled}
+                disabled={!onSetWindowBehavior || busySetting !== null}
+                role="switch"
+                type="checkbox"
+                onChange={(event) =>
+                  void apply(row.key, row.change(event.target.checked))
+                }
+              />
+              {t(
+                row.enabled ? 'home2.settings.enabled' : 'home2.settings.disabled',
+              )}
+            </label>
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 function GeneralSettings({
   nodes,
   newTabPreference,
@@ -165,6 +265,8 @@ function GeneralSettings({
   onSetNewTabPreference,
   onRestartWelcome,
   onSetNodeMode,
+  windowBehavior,
+  onSetWindowBehavior,
 }: Pick<
   SettingsPageProps,
   | 'newTabPreference'
@@ -174,6 +276,8 @@ function GeneralSettings({
   | 'onSetNewTabPreference'
   | 'onRestartWelcome'
   | 'onSetNodeMode'
+  | 'windowBehavior'
+  | 'onSetWindowBehavior'
 >) {
   const [selectedKind, setSelectedKind] = useState(newTabPreference.kind)
   const [customAddress, setCustomAddress] = useState(
@@ -319,6 +423,10 @@ function GeneralSettings({
           </label>
         </div>
       </div>
+      <WindowBehaviorSettings
+        windowBehavior={windowBehavior}
+        onSetWindowBehavior={onSetWindowBehavior}
+      />
       <div className="home-v2-setting-row">
         <div className="home-v2-setting-row__copy">
           <strong>{t('welcome.restart')}</strong>
@@ -425,6 +533,8 @@ export function SettingsPage(props: SettingsPageProps) {
               onSetNewTabPreference={props.onSetNewTabPreference}
               onRestartWelcome={props.onRestartWelcome}
               onSetNodeMode={props.onSetNodeMode}
+              windowBehavior={props.windowBehavior}
+              onSetWindowBehavior={props.onSetWindowBehavior}
             />
           ) : activeSection === 'core' &&
             (props.coreManagement?.available ||
