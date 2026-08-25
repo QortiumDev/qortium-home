@@ -178,6 +178,7 @@ import {
   normalizeHomeV2GroupAdminRequest,
   normalizeHomeV2GroupAdminTarget,
 } from '../../electron/home-v2-group-admin-actions'
+import { isHomeV2MintingWriteAction } from '../../electron/home-v2-minting'
 import { createHomeV2SendRateLimiter } from '../../electron/home-v2-send-rate-limiter'
 import {
   homeV2AccountReadPermissionDetails,
@@ -2099,6 +2100,7 @@ export function HomeV2LiveApp() {
             !isHomeV2PrivateGroupChatReadAction(value.action) &&
             !isHomeV2PrivateGroupChatWriteAction(value.action) &&
             !isHomeV2GroupMembershipAction(value.action) &&
+            !isHomeV2MintingWriteAction(value.action) &&
             !isHomeV2GroupAdminAction(value.action))) ||
         (value.action !== 'SHOW_NOTIFICATION' &&
           value.action !== 'BOOKMARKS_GET' &&
@@ -2151,6 +2153,19 @@ export function HomeV2LiveApp() {
             typeof value.writeOperationLabel !== 'string' ||
             typeof value.writeRouteLabel !== 'string' ||
             typeof value.writeTargetChainLabel !== 'string'))
+        // Minting writes must always arrive as single-request prompts naming
+        // the account, the node route and the chain. REMOVE_MINTING_ACCOUNT
+        // additionally names the key; START_MINTING has none to name yet.
+        || (isHomeV2MintingWriteAction(value.action) &&
+          (value.writeKind !== 'minting' ||
+            typeof value.writeMintingAddress !== 'string' ||
+            (value.action === 'REMOVE_MINTING_ACCOUNT'
+              ? typeof value.writeMintingPublicKey !== 'string'
+              : value.writeMintingPublicKey !== null) ||
+            typeof value.writeOperationLabel !== 'string' ||
+            typeof value.writeRouteLabel !== 'string' ||
+            typeof value.writeTargetChainLabel !== 'string' ||
+            value.writeSingleRequestOnly !== true))
       ) {
         return
       }
@@ -2211,7 +2226,8 @@ export function HomeV2LiveApp() {
         value.action === 'BOOKMARKS_OPEN'
       const isJournalRead = value.action === 'GET_PENDING_TRANSACTIONS'
       const isJournalForget = value.action === 'FORGET_PENDING_TRANSACTION'
-      const operationLabel = isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment || isNotification || isBookmarkManager || isJournalForget
+      const isMintingWrite = isHomeV2MintingWriteAction(value.action)
+      const operationLabel = isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment || isNotification || isBookmarkManager || isJournalForget || isMintingWrite
         ? String(value.writeOperationLabel)
         : ''
       const prompt = createPermissionPrompt({
@@ -2252,6 +2268,8 @@ export function HomeV2LiveApp() {
                 ? 'transactions.pending.forget'
               : isJournalRead
                 ? 'transactions.pending.read'
+              : isMintingWrite
+                ? 'account.minting'
               : 'account.public.read',
         appId: brand<AppId>(`home-v2:permission-app:${appIdentityKey}`),
         appIdentityKey,
@@ -2284,7 +2302,7 @@ export function HomeV2LiveApp() {
             ? 'Allow pending transaction access?'
           : isJournalForget
             ? 'Forget pending transaction?'
-          : isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment
+          : isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment || isMintingWrite
           ? `Allow ${operationLabel.toLowerCase()}?`
           : 'Allow account access?',
         summary: isWidgetPrompt
@@ -2299,6 +2317,10 @@ export function HomeV2LiveApp() {
             ? `${appTitle} wants to read its retained unknown transaction outcomes for this account and chain.`
           : isJournalForget
             ? `${appTitle} wants Home to forget one retained transaction after reconciliation.`
+          : value.action === 'START_MINTING'
+            ? `${appTitle} wants to start minting with your account on this node. Home will load this account's minting key onto the local Core, and submit the on-chain authorization first if it does not exist yet. No key is given to the app.`
+          : value.action === 'REMOVE_MINTING_ACCOUNT'
+            ? `${appTitle} wants to remove a minting key from the local Core on this device. Minting with that key stops; nothing on chain changes.`
           : isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment
           ? `${appTitle} wants to ${operationLabel.toLowerCase()} as the selected account.`
           : `${appTitle} wants to read the selected account address and public identity data.`,
@@ -2399,6 +2421,21 @@ export function HomeV2LiveApp() {
                 ...(typeof value.writeTimeToLive === 'number'
                   ? [{ label: 'Lifetime', value: value.writeTimeToLive === 0 ? 'No expiry' : `${value.writeTimeToLive} seconds` }]
                   : []),
+              ]
+          : isMintingWrite
+            ? [
+                { label: 'Account', value: account?.label ?? accountId },
+                { label: 'Operation', value: operationLabel },
+                { label: 'Chain', value: String(value.writeTargetChainLabel) },
+                { label: 'Node', value: String(value.writeRouteLabel) },
+                { label: 'Address', value: String(value.writeMintingAddress) },
+                ...(typeof value.writeMintingPublicKey === 'string'
+                  ? [{ label: 'Minting key', value: value.writeMintingPublicKey }]
+                  : []),
+                {
+                  label: 'Not allowed',
+                  value: 'Giving the app any private or minting key, or changing minting on any node but this local one',
+                },
               ]
           : isPublish || isPrivateAttachment
             ? [

@@ -33,6 +33,9 @@ export type PermissionCapability =
   | 'bookmarks.manage'
   | 'transactions.pending.read'
   | 'transactions.pending.forget'
+  // Loading or removing a minting key on the local Core. Always a
+  // single-request approval; never retained as a grant.
+  | 'account.minting'
 
 export interface PermissionDetail {
   readonly label: string
@@ -90,6 +93,8 @@ export interface PermissionPrompt {
     | 'BOOKMARKS_OPEN'
     | 'GET_PENDING_TRANSACTIONS'
     | 'FORGET_PENDING_TRANSACTION'
+    | 'START_MINTING'
+    | 'REMOVE_MINTING_ACCOUNT'
   readonly capability: PermissionCapability
   readonly appId: AppId
   readonly appIdentityKey: string

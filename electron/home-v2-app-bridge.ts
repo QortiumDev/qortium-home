@@ -286,9 +286,24 @@ import {
   type HomeV2AppHostInfo,
 } from './home-v2-app-runtime.js'
 import {
+  buildHomeV2SelfRewardSharesPath,
+  createHomeV2MintingAccountsResult,
+  createHomeV2RemoveMintingAccountResult,
+  createHomeV2StartMintingResult,
+  deriveHomeV2MintingStatus,
+  homeV2MintingOperationLabel,
+  isHomeV2MintingReadAction,
+  isHomeV2MintingWriteAction,
+  isHomeV2TrustedMintingNode,
+  normalizeHomeV2MintingPublicKey,
+  selectHomeV2SelfRewardShares,
+  type HomeV2MintingWriteAction,
+} from './home-v2-minting.js'
+import {
   accountExists,
   getAccountProfile,
   getAccountSecretKey,
+  getAccountSigningKey,
   getAccountSigningPublicKey,
   isAccountUnlocked,
   signChatTransaction,
@@ -390,6 +405,7 @@ type AccountReadAction =
   | 'GET_PENDING_TRANSACTIONS'
   | 'FORGET_PENDING_TRANSACTION'
   | 'UNLOCK_SELECTED_ACCOUNT'
+  | HomeV2MintingWriteAction
 type PermissionDecision = {
   readonly approved: boolean
   readonly scope: 'always' | 'session' | 'single-request' | null
@@ -707,6 +723,13 @@ async function requireAccountReadPermission(
     readonly operationLabel: string
     readonly signature: string
     readonly targetChainLabel: string
+  } | {
+    readonly kind: 'minting'
+    readonly mintingAddress: string
+    readonly mintingPublicKey?: string
+    readonly operationLabel: string
+    readonly routeLabel: string
+    readonly targetChainLabel: string
   },
 ) {
   if (!context.accountId) throw new Error('No account is selected for this tab.')
@@ -738,6 +761,8 @@ async function requireAccountReadPermission(
         ? `direct:${writeDetails.otherAddress}`
         : writeDetails?.kind === 'journal'
           ? `signature:${writeDetails.signature}`
+        : writeDetails?.kind === 'minting'
+          ? `minting:${writeDetails.mintingPublicKey ?? writeDetails.mintingAddress}`
         : ''
   const grantKey = homeV2PermissionGrantKey({
     accountId: context.accountId,
@@ -753,6 +778,9 @@ async function requireAccountReadPermission(
   const singleRequestOnly = action === 'UNLOCK_SELECTED_ACCOUNT' ||
     (!isHomeV2AccountReadAction(action) && writeDetails?.kind === 'publish') ||
     writeDetails?.kind === 'journal' ||
+    // Minting writes load or remove a key on the user's own node. Neither is
+    // ever retained as a session or durable grant: every one asks again.
+    writeDetails?.kind === 'minting' ||
     (writeDetails?.kind === 'group' || writeDetails?.kind === 'direct' || writeDetails?.kind === 'private-group') &&
     writeDetails.singleRequestOnly === true
   // A durable per-app chat-send grant ("always allow", revocable in QDN Apps
@@ -871,6 +899,16 @@ async function requireAccountReadPermission(
                 journalSignature: writeDetails.signature,
                 writeKind: 'journal',
                 writeOperationLabel: writeDetails.operationLabel,
+                writeSingleRequestOnly: true,
+                writeTargetChainLabel: writeDetails.targetChainLabel,
+              }
+          : writeDetails?.kind === 'minting'
+            ? {
+                writeKind: 'minting',
+                writeMintingAddress: writeDetails.mintingAddress,
+                writeMintingPublicKey: writeDetails.mintingPublicKey ?? null,
+                writeOperationLabel: writeDetails.operationLabel,
+                writeRouteLabel: writeDetails.routeLabel,
                 writeSingleRequestOnly: true,
                 writeTargetChainLabel: writeDetails.targetChainLabel,
               }
@@ -4768,6 +4806,374 @@ async function sendHomeV2GroupMembershipAction(
   }
 }
 
+// ---------------------------------------------------------------------------
+// Minting (R3-11)
+//
+// Ported from the Home 1.x implementation in electron/qdn.ts. The shape of the
+// answers and the on-chain steps are the same; what changed is that every
+// derivation now runs through the pure helpers in home-v2-minting.ts, the
+// node-side half is restricted to a trusted LOCAL Core (1.x only excluded
+// public nodes), and the REWARD_SHARE authorization is signed in this process
+// instead of being handed to the node's /transactions/sign endpoint.
+//
+// No path here is built from app input: the four node paths below are
+// constants, and the only app-supplied value that ever reaches the node is the
+// base58 public key REMOVE_MINTING_ACCOUNT sends as a request BODY.
+// ---------------------------------------------------------------------------
+
+const MINTING_ACCOUNTS_PATH = '/admin/mintingaccounts'
+
+async function deleteHomeV2NodeText(
+  nodeApiUrl: string,
+  path: string,
+  body: string,
+  fallbackMessage: string,
+  apiKey: string,
+) {
+  const response = await nodeFetch(`${nodeApiUrl}${path}`, {
+    method: 'DELETE',
+    headers: {
+      'Content-Type': 'text/plain',
+      ...(apiKey ? { 'X-API-KEY': apiKey } : {}),
+    },
+    body,
+    signal: AbortSignal.timeout(CHAT_WRITE_TIMEOUT_MS),
+  })
+  const result = await readBoundedResponse(response, 'GET', CHAT_SIGNING_RESPONSE_MAX_BYTES)
+  const text = result.body.trim()
+  if (!result.ok) {
+    throw Object.assign(
+      new Error(readableNodeErrorMessage(text, `${fallbackMessage} HTTP ${result.status}.`)),
+      { status: result.status },
+    )
+  }
+  return text
+}
+
+async function resolveHomeV2MintingNode(network: HomeV2AppNetwork) {
+  const node = await getHomeV2ReadableNode(network)
+  const apiKey = await getHomeV2TrustedWriteApiKey(network, node.nodeApiUrl)
+  return {
+    apiKey,
+    node,
+    nodeRoute: `${node.mode}|${node.nodeApiUrl}`,
+    trusted: isHomeV2TrustedMintingNode({ apiKey, mode: node.mode }),
+  }
+}
+
+function assertHomeV2TrustedMintingNode(
+  action: HomeV2MintingWriteAction,
+  network: HomeV2AppNetwork,
+  trusted: boolean,
+) {
+  if (trusted) return
+  const operation = action === 'START_MINTING' ? 'Starting minting' : 'Removing a minting key'
+  throw createHomeV2BridgeError(
+    // Home holds an administrative key only for the Qortium Core it runs
+    // itself; see getHomeV2TrustedWriteApiKey, which returns none for Qortal.
+    network === 'qortal'
+      ? `${operation} is not available for Qortal: Home holds no administrative key for a Qortal node.`
+      : `${operation} needs the local Core that Home runs; the selected node is not one.`,
+    {
+      action,
+      code: 'NODE_CAPABILITY_MISSING',
+      network,
+      retryable: false,
+    },
+  )
+}
+
+async function readHomeV2MintingAddress(
+  context: QdnViewContext,
+  requestValue: Record<string, unknown>,
+) {
+  if (requestValue.address !== undefined && requestValue.address !== null && requestValue.address !== '') {
+    return normalizeHomeV2Address(requestValue.address)
+  }
+  if (!context.accountId) throw new Error('GET_MINTING_STATUS needs an address or a selected account.')
+  return (await getAccountProfile(context.accountId)).address
+}
+
+async function readHomeV2MintingStatus(
+  network: HomeV2AppNetwork,
+  context: QdnViewContext,
+  requestValue: Record<string, unknown>,
+) {
+  const address = await readHomeV2MintingAddress(context, requestValue)
+  const { apiKey, node, trusted } = await resolveHomeV2MintingNode(network)
+  const rewardShares = await readHomeV2ChatJson(
+    node.nodeApiUrl,
+    buildHomeV2SelfRewardSharesPath(address),
+    'Reward share lookup',
+    apiKey,
+  )
+  if (!trusted) {
+    return deriveHomeV2MintingStatus({ address, nodeAdmin: null, rewardShares })
+  }
+  // A local Core that answers the public read but refuses (or has not yet
+  // started) its admin endpoints is reported as "node-side state unknown"
+  // rather than as a failure, so the on-chain half of the answer survives.
+  // Home 1.x threw here instead; the app's own fallback did this degrade.
+  const nodeAdmin = await Promise.all([
+    readHomeV2ChatJson(node.nodeApiUrl, MINTING_ACCOUNTS_PATH, 'Minting account lookup', apiKey),
+    readHomeV2ChatJson(node.nodeApiUrl, '/admin/status', 'Node status lookup', apiKey),
+  ]).then(
+    ([mintingAccounts, status]) => ({ mintingAccounts, status }),
+    () => null,
+  )
+  return deriveHomeV2MintingStatus({ address, nodeAdmin, rewardShares })
+}
+
+async function readHomeV2MintingAccounts(network: HomeV2AppNetwork) {
+  const { apiKey, node, trusted } = await resolveHomeV2MintingNode(network)
+  // `available: false` is the honest answer for every node Home does not run,
+  // and for a local Core that will not answer its admin route. It is what the
+  // Minting app already renders as "node-side minting unavailable".
+  if (!trusted) return createHomeV2MintingAccountsResult({ accounts: [], available: false })
+  let accounts: unknown
+  try {
+    accounts = await readHomeV2ChatJson(
+      node.nodeApiUrl,
+      MINTING_ACCOUNTS_PATH,
+      'Minting account lookup',
+      apiKey,
+    )
+  } catch {
+    return createHomeV2MintingAccountsResult({ accounts: [], available: false })
+  }
+  return createHomeV2MintingAccountsResult({ accounts, available: true })
+}
+
+/**
+ * Derives the reward-share (minting) key pair for a self share.
+ *
+ * SECURITY: `/addresses/rewardsharekey` is the only way to obtain this key
+ * without reimplementing Core's ed25519→X25519 agreement, and it takes the
+ * account's private key as input — so the private key is sent to the node.
+ * That is why the whole minting write path is refused unless the node is a
+ * local Core Home itself runs and holds the API key for. Neither the derived
+ * private key nor the account's own key is ever returned to the app.
+ */
+async function deriveHomeV2MintingKeyPair(
+  nodeApiUrl: string,
+  apiKey: string,
+  privateKey58: string,
+  publicKey58: string,
+) {
+  const privateKey = await postHomeV2ChatText(
+    nodeApiUrl,
+    '/addresses/rewardsharekey',
+    JSON.stringify({
+      mintingAccountPrivateKey: privateKey58,
+      recipientAccountPublicKey: publicKey58,
+    }),
+    'application/json',
+    'Minting key derivation failed.',
+    apiKey,
+  )
+  const mintingPublicKey = await postHomeV2ChatText(
+    nodeApiUrl,
+    '/utils/publickey',
+    privateKey,
+    'text/plain',
+    'Minting public key derivation failed.',
+    apiKey,
+  )
+  return { privateKey58: privateKey, publicKey58: mintingPublicKey }
+}
+
+function homeV2MintingContextGuard(
+  sender: WebContents,
+  context: QdnViewContext,
+  accountId: string,
+  network: HomeV2AppNetwork,
+  nodeApiUrl: string,
+  nodeRoute: string,
+  apiKey: string,
+) {
+  return async () => {
+    const freshContext = getQdnViewContextForWebContents(sender)
+    if (!freshContext || !sameViewContext(context, freshContext)) return false
+    if (!liveResourceMatchesGrant(freshContext) || !isAccountUnlocked(accountId)) return false
+    const nodeNow = await getHomeV2ReadableNode(network).catch(() => null)
+    return !!nodeNow &&
+      `${nodeNow.mode}|${nodeNow.nodeApiUrl}` === nodeRoute &&
+      (await getHomeV2TrustedWriteApiKey(network, nodeApiUrl).catch(() => null)) === apiKey
+  }
+}
+
+async function startHomeV2Minting(
+  sender: WebContents,
+  context: QdnViewContext,
+  protocol: HomeV2AppBridgeProtocol,
+  network: HomeV2AppNetwork,
+) {
+  if (!context.accountId) throw new Error('No account is selected for this tab.')
+  const accountId = context.accountId
+  if (!isAccountUnlocked(accountId)) throw new Error('The selected account is locked.')
+  const { apiKey, node, nodeRoute, trusted } = await resolveHomeV2MintingNode(network)
+  assertHomeV2TrustedMintingNode('START_MINTING', network, trusted)
+  const profile = await getAccountProfile(accountId)
+  const address = profile.address
+  await requireAccountReadPermission(sender, context, protocol, 'START_MINTING', {
+    kind: 'minting',
+    mintingAddress: address,
+    operationLabel: homeV2MintingOperationLabel('START_MINTING'),
+    routeLabel: `${node.mode} · ${node.nodeApiUrl}`,
+    targetChainLabel: network === 'qortal' ? 'Qortal' : 'Qortium',
+  })
+  const rateLimitDecision = chatSendRateLimiter.checkAndRecordSend(chatSendRateLimitKey(sender, context))
+  if (!rateLimitDecision.allowed) throw new Error(rateLimitDecision.message)
+  const isStillValid = homeV2MintingContextGuard(
+    sender,
+    context,
+    accountId,
+    network,
+    node.nodeApiUrl,
+    nodeRoute,
+    apiKey,
+  )
+  if (!(await isStillValid())) throw new Error('Account access context changed before approval completed.')
+  const signingKey = getAccountSigningKey(accountId)
+  if (signingKey.address !== address) {
+    throw new Error('Selected account signing key changed before minting could start.')
+  }
+  const secretKey = getAccountSecretKey(accountId)
+  try {
+    if (secretKey.address !== address) {
+      throw new Error('Selected account signing key changed before minting could start.')
+    }
+    const selfShares = selectHomeV2SelfRewardShares(
+      await readHomeV2ChatJson(
+        node.nodeApiUrl,
+        buildHomeV2SelfRewardSharesPath(address),
+        'Reward share lookup',
+        apiKey,
+      ),
+      address,
+    )
+    const mintingKeyPair = await deriveHomeV2MintingKeyPair(
+      node.nodeApiUrl,
+      apiKey,
+      signingKey.privateKey58,
+      signingKey.publicKey58,
+    )
+    if (!(await isStillValid())) throw new Error('The signing context changed before minting could start.')
+    if (selfShares.length === 0) {
+      // No on-chain authorization yet (the account joined its minting group
+      // before joins carried minting keys) — submit a zero-fee self-share
+      // REWARD_SHARE. The key can be added to the node once it confirms.
+      const timestamp = Date.now()
+      const unsignedText = await postHomeV2ChatText(
+        node.nodeApiUrl,
+        '/addresses/rewardshare',
+        JSON.stringify({
+          fee: 0,
+          minterPublicKey: signingKey.publicKey58,
+          recipient: address,
+          rewardSharePublicKey: mintingKeyPair.publicKey58,
+          sharePercent: 0,
+          timestamp,
+          txGroupId: 0,
+        }),
+        'application/json',
+        'Minting authorization transaction build failed.',
+        apiKey,
+      )
+      if (!(await isStillValid())) throw new Error('The signing context changed before minting could start.')
+      // Signed here rather than through the node's /transactions/sign, which
+      // would be a second place the account's private key travels.
+      const unsignedBytes = base58Decode(unsignedText)
+      const signedBytes = appendSignatureToTransactionBytes(
+        unsignedBytes,
+        signDetached(unsignedBytes, secretKey.secretKey),
+      )
+      const signature = getSignatureFromSignedTransactionBytes(signedBytes)
+      await postHomeV2ChatText(
+        node.nodeApiUrl,
+        '/transactions/process?apiVersion=2',
+        base58Encode(signedBytes),
+        'text/plain',
+        'Minting authorization transaction processing failed.',
+        apiKey,
+      )
+      return createHomeV2StartMintingResult({
+        address,
+        keyAdded: false,
+        rewardSharePending: true,
+        transactionSignature: signature,
+      })
+    }
+    if (!selfShares.some((share) => share.rewardSharePublicKey === mintingKeyPair.publicKey58)) {
+      throw new Error(
+        'The minting key authorization on chain does not match the key derived from the selected account.',
+      )
+    }
+    // The derived minting private key goes to the local node and nowhere else;
+    // the result below deliberately carries no key material.
+    await postHomeV2ChatText(
+      node.nodeApiUrl,
+      MINTING_ACCOUNTS_PATH,
+      mintingKeyPair.privateKey58,
+      'text/plain',
+      'Adding the minting key to the node failed.',
+      apiKey,
+    )
+    return createHomeV2StartMintingResult({ address, keyAdded: true })
+  } finally {
+    secretKey.secretKey.fill(0)
+  }
+}
+
+async function removeHomeV2MintingAccount(
+  sender: WebContents,
+  context: QdnViewContext,
+  protocol: HomeV2AppBridgeProtocol,
+  network: HomeV2AppNetwork,
+  requestValue: Record<string, unknown>,
+) {
+  if (!context.accountId) throw new Error('No account is selected for this tab.')
+  const accountId = context.accountId
+  if (!isAccountUnlocked(accountId)) throw new Error('The selected account is locked.')
+  const publicKey = normalizeHomeV2MintingPublicKey(requestValue.publicKey)
+  const { apiKey, node, nodeRoute, trusted } = await resolveHomeV2MintingNode(network)
+  assertHomeV2TrustedMintingNode('REMOVE_MINTING_ACCOUNT', network, trusted)
+  const profile = await getAccountProfile(accountId)
+  await requireAccountReadPermission(sender, context, protocol, 'REMOVE_MINTING_ACCOUNT', {
+    kind: 'minting',
+    mintingAddress: profile.address,
+    mintingPublicKey: publicKey,
+    operationLabel: homeV2MintingOperationLabel('REMOVE_MINTING_ACCOUNT'),
+    routeLabel: `${node.mode} · ${node.nodeApiUrl}`,
+    targetChainLabel: network === 'qortal' ? 'Qortal' : 'Qortium',
+  })
+  const rateLimitDecision = chatSendRateLimiter.checkAndRecordSend(chatSendRateLimitKey(sender, context))
+  if (!rateLimitDecision.allowed) throw new Error(rateLimitDecision.message)
+  const isStillValid = homeV2MintingContextGuard(
+    sender,
+    context,
+    accountId,
+    network,
+    node.nodeApiUrl,
+    nodeRoute,
+    apiKey,
+  )
+  if (!(await isStillValid())) throw new Error('Account access context changed before approval completed.')
+  // DELETE /admin/mintingaccounts takes the base58 key as the plain-text body.
+  const result = await deleteHomeV2NodeText(
+    node.nodeApiUrl,
+    MINTING_ACCOUNTS_PATH,
+    publicKey,
+    'Removing the minting key from the node failed.',
+    apiKey,
+  )
+  // Core answers "true" on removal and "false" when it held no matching key.
+  if (result.trim() !== 'true') {
+    throw new Error('The node did not have a matching minting key to remove.')
+  }
+  return createHomeV2RemoveMintingAccountResult(publicKey)
+}
+
 async function showHomeV2DesktopContextMenu(
   sender: WebContents,
   context: QdnViewContext,
@@ -5149,6 +5555,16 @@ async function handleRequestWithRuntime(
   }
   if (isHomeV2GroupAdminAction(action)) {
     return sendHomeV2GroupAdminAction(sender, context, protocol, network, action, requestValue)
+  }
+  if (isHomeV2MintingReadAction(action)) {
+    return action === 'GET_MINTING_STATUS'
+      ? readHomeV2MintingStatus(network, context, requestValue)
+      : readHomeV2MintingAccounts(network)
+  }
+  if (isHomeV2MintingWriteAction(action)) {
+    return action === 'START_MINTING'
+      ? startHomeV2Minting(sender, context, protocol, network)
+      : removeHomeV2MintingAccount(sender, context, protocol, network, requestValue)
   }
   if (action === 'GET_NAME_DATA' || action === 'GET_ACCOUNT_NAMES' || action === 'GET_PRIMARY_NAME') {
     const path = buildHomeV2NamePath(action, requestValue)

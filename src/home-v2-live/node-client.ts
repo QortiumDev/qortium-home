@@ -28,6 +28,12 @@ import {
   normalizeHomeV2ResponseMaxBytes,
 } from '../../electron/home-v2-app-actions'
 import {
+  buildHomeV2SelfRewardSharesPath,
+  createHomeV2MintingAccountsResult,
+  deriveHomeV2MintingStatus,
+  isHomeV2MintingReadAction,
+} from '../../electron/home-v2-minting'
+import {
   getQdnResourceStreamRequest,
   getQdnResourceViewerRequest,
 } from '../../electron/qdn-resource-viewer-contract'
@@ -1116,6 +1122,38 @@ export function createPortableNodeClient(
           path,
           normalizeHomeV2ResponseMaxBytes(request.maxBytes),
         )).data
+      }
+      if (isHomeV2MintingReadAction(action)) {
+        // Android never runs a local Core (readSettings rejects 'local'), so
+        // the node-side half of minting — which keys the node holds, whether
+        // it can mint — is always unavailable here. Only the on-chain
+        // authorization is readable, and it is read from the public route.
+        // Keep this in step with readHomeV2MintingStatus in
+        // electron/home-v2-app-bridge.ts.
+        if (action === 'LIST_MINTING_ACCOUNTS') {
+          return createHomeV2MintingAccountsResult({ accounts: [], available: false })
+        }
+        const address = request.address === undefined || request.address === null || request.address === ''
+          ? await (async () => {
+              if (!context?.selectedAccountId) {
+                throw new Error('GET_MINTING_STATUS needs an address or a selected account.')
+              }
+              const catalogue = parseHomeV2AccountCatalogueStore(
+                await dependencies.getPreference(WALLET_STORE_KEY),
+              )
+              const account = catalogue.accounts.find(
+                (candidate) => candidate.id === context.selectedAccountId,
+              )
+              if (!account) throw new Error('The selected account is no longer available.')
+              return account.address
+            })()
+          : normalizeHomeV2Address(request.address)
+        const { data } = await requestData(
+          network,
+          buildHomeV2SelfRewardSharesPath(address),
+          normalizeHomeV2ResponseMaxBytes(request.maxBytes),
+        )
+        return deriveHomeV2MintingStatus({ address, nodeAdmin: null, rewardShares: data })
       }
       if (
         action === 'GET_ASSET_INFO' ||

@@ -34,6 +34,33 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-25 - feat(home-v2): let apps see and control minting again
+
+The Minting app has been showing "Node-side minting status unavailable" and
+Chat has been offering a "Start Minting" button that could not work, because
+Home 2 never carried over the minting support Home 1.x had. It does now. Apps
+can ask Home whether an account is authorized to mint, whether its key is
+actually loaded on your node, and which minting keys your node is holding — and
+they can ask Home to start minting with your account or to take a minting key
+back off your node.
+
+Looking is silent: the two questions an app can ask about minting return only
+yes/no answers Home works out for itself, never a key, so they do not interrupt
+you with a prompt. Changing anything asks first, every single time — there is no
+"remember this" for minting, and starting minting and removing a key are two
+separate questions, so agreeing to one never agrees to the other. The approval
+dialog names the account, the node, and the key involved.
+
+All of this only works through the local Core that Home itself runs and holds
+the key for. On a public node, on someone else's node, on Android, and on
+Qortal, Home reports honestly that it cannot see or change your node's minting
+state instead of guessing. Your account's keys stay inside Home and your node:
+the minting key Home loads onto your Core is never handed to the app that asked
+for it, and the list of minting accounts an app can read is rebuilt field by
+field so nothing key-shaped can travel with it. Apps still cannot reach your
+node's administration routes directly — these four requests are the only way in,
+and they are the reason that door stays shut.
+
 ### 2026-08-25 - feat(home-v2): one "Node & Core" tile on the Dashboard
 
 The Dashboard used to show two separate blocks for the same thing: a

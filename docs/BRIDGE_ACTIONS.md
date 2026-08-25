@@ -502,3 +502,45 @@ and optional `rater` (an address). If `rater` is not provided, Home uses the
 currently selected account address. The response shape is
 `{ action, target, category, rater, summary, ratings }` where `summary` is `null`
 and `ratings` is an array (empty when no ratings are returned).
+
+## Minting actions (Home 2)
+
+Home 2 exposes four minting actions on both `qdnRequest` and `qortalRequest`:
+`GET_MINTING_STATUS`, `LIST_MINTING_ACCOUNTS`, `START_MINTING`, and
+`REMOVE_MINTING_ACCOUNT`. They exist so an app never needs the raw
+`/admin/mintingaccounts` route, which stays outside `normalizeHomeV2ReadPath`'s
+read-only scope and always will.
+
+The two reads are permissionless — they return derived booleans and allowlisted
+fields, never key material. The two writes always prompt, are single-request
+only (never a session or "always allow" grant), and each asks separately.
+
+`GET_MINTING_STATUS` accepts an optional `address` (defaulting to the selected
+account) and answers
+`{ address, hasRewardShare, isMinting, keyOnNode, nodeMintingPossible }`.
+`hasRewardShare` comes from the public `/addresses/rewardshares` route and is
+always populated. The other three describe the node itself and are `null`
+unless the selected node is the local Core Home runs and holds an API key for —
+on a public node, a custom node, on Android, and on Qortal they are always
+`null`.
+
+`LIST_MINTING_ACCOUNTS` answers `{ accounts, available }`. `available` is
+`false` — with an empty `accounts` — wherever the node-side state is not
+readable, matching the `null`s above. Each entry carries only `address`,
+`mintingAccount`, `publicKey`, and `recipientAccount`; `publicKey` is the
+reward-share PUBLIC key that `REMOVE_MINTING_ACCOUNT` matches on. Entries are
+rebuilt from that fixed allowlist rather than filtered, so nothing else a Core
+build serializes alongside them can reach an app.
+
+`START_MINTING` takes no parameters and acts on the selected, unlocked account.
+Home derives that account's minting key, loads it onto the local Core, and
+answers `{ accepted, action, address, keyAdded }`. When the account has no
+on-chain self-share authorization yet, Home submits a zero-fee self-share
+`REWARD_SHARE` instead and answers with `rewardSharePending: true` and the
+`transactionSignature`; the app should call again once it confirms. No key
+material is ever returned.
+
+`REMOVE_MINTING_ACCOUNT` takes `publicKey` (base58) and removes that minting
+key from the local Core, answering
+`{ accepted, action, publicKey, removed }`. Nothing on chain changes. It fails
+with a specific error when the node held no matching key.

@@ -13,6 +13,12 @@ import {
   normalizeHomeV2ResponseMaxBytes,
   normalizeHomeV2SendTxGroupId,
 } from './home-v2-app-actions.js'
+import {
+  homeV2PermissionGrantFamily,
+  isHomeV2ChatSendAction,
+  isHomeV2PermissionlessAction,
+  HOME_V2_PERMISSIONLESS_ACTIONS,
+} from './home-v2-session-grants.js'
 
 const qdnActions = getHomeV2AppActions('qdnRequest')
 const qortalActions = getHomeV2AppActions('qortalRequest')
@@ -626,5 +632,54 @@ for (const protocol of ['qdnRequest', 'qortalRequest'] as const) {
     assert.equal(actions.includes(action), true, `${protocol} must advertise ${action}.`)
   }
 }
+
+// Minting (R3-11). All four ship on both protocols so one app build works on
+// either chain; the node-side half is gated at the handler, not the catalogue.
+for (const protocol of ['qdnRequest', 'qortalRequest'] as const) {
+  const actions = getHomeV2AppActions(protocol)
+  for (const action of [
+    'GET_MINTING_STATUS',
+    'LIST_MINTING_ACCOUNTS',
+    'START_MINTING',
+    'REMOVE_MINTING_ACCOUNT',
+  ]) {
+    assert.equal(actions.includes(action), true, `${protocol} must advertise ${action}.`)
+  }
+}
+// LIST_MINTING_ACCOUNTS exists so no app ever needs the raw admin route, and
+// the read allowlist must stay closed against it.
+assert.throws(
+  () => normalizeHomeV2ReadPath('/admin/mintingaccounts'),
+  /outside Home v2 read-only scope/,
+)
+assert.throws(
+  () => normalizeHomeV2ReadPath('/admin/mintingaccounts?limit=1'),
+  /outside Home v2 read-only scope/,
+)
+
+// The two minting reads are promptless; the two writes always prompt.
+for (const action of ['GET_MINTING_STATUS', 'LIST_MINTING_ACCOUNTS']) {
+  assert.equal(
+    (HOME_V2_PERMISSIONLESS_ACTIONS as readonly string[]).includes(action),
+    true,
+    `${action} must be permissionless.`,
+  )
+  assert.equal(isHomeV2PermissionlessAction(action), true)
+}
+for (const action of ['START_MINTING', 'REMOVE_MINTING_ACCOUNT']) {
+  assert.equal(
+    (HOME_V2_PERMISSIONLESS_ACTIONS as readonly string[]).includes(action),
+    false,
+    `${action} must always prompt.`,
+  )
+  assert.equal(isHomeV2PermissionlessAction(action), false)
+  assert.equal(isHomeV2ChatSendAction(action), false, `${action} must not be a grantable chat send.`)
+  // Exact families: approving one minting write must never satisfy the other.
+  assert.equal(homeV2PermissionGrantFamily(action), action)
+}
+assert.notEqual(
+  homeV2PermissionGrantFamily('START_MINTING'),
+  homeV2PermissionGrantFamily('REMOVE_MINTING_ACCOUNT'),
+)
 
 console.log('Home v2 app action contract tests passed.')
