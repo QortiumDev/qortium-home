@@ -133,8 +133,17 @@ export function HomeV2WelcomePage(props: HomeV2WelcomePageProps) {
             ) : null}
             {!isAndroid && node.mode === 'local' && props.coreManagement?.available ? (
               <div className="home-v2-welcome__runtime">
-                <CoreManagerCards management={props.coreManagement} />
-                <CoreMaintenancePanel management={props.coreManagement} />
+                {/* Onboarding sets up the Qortium node; Settings > Runtime is
+                    where Qortal Core is managed. Without this the welcome step
+                    listed a Qortal Core card, which made no sense here. */}
+                <CoreManagerCards
+                  management={props.coreManagement}
+                  networks={['qortium']}
+                />
+                <CoreMaintenancePanel
+                  management={props.coreManagement}
+                  networks={['qortium']}
+                />
                 <TransportMaintenancePanel management={props.coreManagement} />
               </div>
             ) : null}
