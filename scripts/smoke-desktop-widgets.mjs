@@ -19,7 +19,7 @@
 
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { launchHome, mainRequire, waitUntil } from './lib/electron-main-driver.mjs'
@@ -423,6 +423,14 @@ async function main() {
   // A shared profile across both launches is what makes the restart meaningful:
   // placement persistence is exactly the thing that must survive it.
   const profileDirectory = mkdtempSync(path.join(os.tmpdir(), 'qortium-home-widget-smoke-'))
+  // This smoke closes the main window with several tabs open and asserts it is
+  // gone. The multi-tab close warning (on by default) would turn that close
+  // into a dialog nobody answers headlessly, so the profile opts out of it.
+  writeFileSync(
+    path.join(profileDirectory, 'window-behavior.json'),
+    JSON.stringify({ closeToTray: false, warnOnCloseWithMultipleTabs: false }, null, 2),
+    'utf8',
+  )
   let home = null
 
   try {
