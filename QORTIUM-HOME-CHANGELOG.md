@@ -34,6 +34,17 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-24 - fix(home-v2): offer a Qortal Core install without checking first
+
+Installing or updating Qortal Core previously required pressing "Check
+release" every time, even though Home already checks for new releases on
+its own every six hours. Home now remembers the most recent result and
+offers Install straight away when one is available, without contacting
+GitHub again when you open the settings page. Pressing "Check release"
+still forces a fresh look, and the check made immediately before an
+install is always fresh, so a release that changed after the last check
+is still caught.
+
 ### 2026-08-24 - fix(home-v2): welcome as a tab, and a readable Home mark
 
 Three fixes to the welcome flow and chrome. The welcome guide's node

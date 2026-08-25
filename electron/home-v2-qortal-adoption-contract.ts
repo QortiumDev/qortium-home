@@ -115,6 +115,8 @@ function unavailableMaintenanceStatus(): HomeV2QortalMaintenanceStatus {
     discovery: 'unknown',
     install: 'unknown',
     installedVersion: null,
+    lastRelease: null,
+    lastReleaseCheckedAt: null,
     issue: 'status-unavailable',
     network: 'qortal',
     revision: 1,

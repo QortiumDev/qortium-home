@@ -295,4 +295,27 @@ for (const { code, label, response } of commitFailureCases) {
   assert.deepEqual(result, { code: 'commit-network-error', kind: 'unavailable' });
 }
 
+// The informational lookup may serve a cached result so the UI can offer
+// Install without pinging GitHub on every status read; the expected-tag check
+// above must NOT, because it guards installation against a retagged release.
+{
+  let calls = 0;
+  const cachedSource = createQortalLatestReleaseSource(async (input) => {
+    const url = String(input);
+    calls += 1;
+    if (url.includes('/commits/')) {
+      return new Response(JSON.stringify({ sha: 'a'.repeat(40) }), { status: 200 });
+    }
+    return new Response(JSON.stringify(release({ target_commitish: 'master' })), { status: 200 });
+  });
+  await cachedSource.getLatest();
+  const afterFirst = calls;
+  assert.ok(afterFirst > 0, 'the first lookup must fetch');
+  await cachedSource.getLatest();
+  assert.equal(calls, afterFirst, 'a second lookup inside the TTL must be served from cache');
+  const cached = cachedSource.getCachedLatest?.();
+  assert.ok(cached?.release, 'the cached lookup must be readable without fetching');
+  assert.equal(calls, afterFirst, 'reading the cache must not fetch');
+}
+
 console.log('Qortal exact bare-JAR release policy checks passed.');

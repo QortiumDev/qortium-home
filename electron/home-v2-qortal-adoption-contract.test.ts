@@ -14,6 +14,8 @@ const maintenanceStatus = (install: HomeV2QortalMaintenanceStatus['install'] = '
   discovery: install === 'missing' ? 'candidate-found' as const : 'not-applicable' as const,
   install,
   installedVersion: install === 'adopted' ? '6.2.0' : null,
+  lastRelease: null,
+  lastReleaseCheckedAt: null,
   issue: null,
   network: 'qortal' as const,
   revision: 1 as const,

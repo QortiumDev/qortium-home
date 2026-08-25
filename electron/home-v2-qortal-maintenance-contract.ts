@@ -30,6 +30,13 @@ export type HomeV2QortalMaintenanceStatus = {
   readonly discovery: HomeV2QortalMaintenanceDiscovery
   readonly install: 'adopted' | 'home-managed' | 'missing' | 'unknown'
   readonly installedVersion: string | null
+  /**
+   * Last release lookup already made (by the update scheduler or a manual
+   * check), so the UI can offer Install without the user pressing "Check
+   * release" first. Read from cache only — reading status never calls GitHub.
+   */
+  readonly lastRelease: HomeV2QortalMaintenanceRelease | null
+  readonly lastReleaseCheckedAt: string | null
   readonly issue: 'manager-unavailable' | 'status-unavailable' | 'unsupported-platform' | null
   readonly network: 'qortal'
   readonly revision: 1
@@ -134,6 +141,8 @@ function unavailableStatus(
     install: 'unknown',
     installedVersion: null,
     issue,
+    lastRelease: null,
+    lastReleaseCheckedAt: null,
     network: 'qortal',
     revision: 1,
     runtime: 'unknown',
@@ -179,12 +188,35 @@ async function readStatus(
       status.updateOwnership.ownership === 'home-github'
     )
 
+    // Derive the action from the cached lookup, exactly as checkRelease would,
+    // but WITHOUT contacting GitHub: this runs on every status read.
+    const source = dependencies.releaseSource ?? qortalLatestReleaseSource
+    const cachedLatest = source.getCachedLatest?.() ?? null
+    const cachedTag = cachedLatest?.release?.tagName ?? null
+    let lastRelease: HomeV2QortalMaintenanceRelease | null = null
+    if (canCheckRelease && cachedTag) {
+      if (status.install.kind === 'missing') {
+        lastRelease = releaseResult('initial-install', true, null, cachedTag)
+      } else if (!version) {
+        lastRelease = releaseResult('none', true, 'version-unavailable', cachedTag)
+      } else {
+        const comparison = compareCoreVersions(cachedTag, version)
+        lastRelease = comparison === null
+          ? releaseResult('none', true, 'version-unavailable', cachedTag)
+          : comparison > 0
+            ? releaseResult('strict-update', true, null, cachedTag)
+            : releaseResult('none', true, 'up-to-date', cachedTag)
+      }
+    }
+
     return {
       capabilities: { canCheckRelease, canInitialInstall, canUpdate },
       discovery,
       install: status.install.kind,
       installedVersion: version,
       issue: null,
+      lastRelease,
+      lastReleaseCheckedAt: cachedLatest?.checkedAt ?? null,
       network: 'qortal',
       revision: 1,
       runtime: status.runtime.state,
