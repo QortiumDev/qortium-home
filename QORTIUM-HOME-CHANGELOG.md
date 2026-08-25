@@ -34,6 +34,16 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-25 - fix(home-v2): windows remember their own size, and the tray raises the right one
+
+Home now remembers the size and position of your main window separately from
+windows you drag a tab out into. Before this, whichever window you closed last
+decided the size your main window opened at next time. Sizes saved by earlier
+versions are kept.
+
+The tray's "Open Home" now brings up the Home window you used most recently,
+rather than whichever one happened to be opened first.
+
 ### 2026-08-25 - feat(home-v2): drag a tab out to open it in its own window
 
 Dragging a tab away from the tab strip now moves it into a new window, the way

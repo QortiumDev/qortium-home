@@ -111,39 +111,92 @@ export class Cdp {
  * Launches the packaged app on a scratch profile and returns a connected CDP
  * session plus a shutdown that takes the whole process group with it.
  */
-export async function launchHomeV2({ appImage, log, portBase, timeoutMs = 90_000 }) {
+export async function launchHomeV2({
+  appImage,
+  log,
+  portBase,
+  profile: requestedProfile,
+  timeoutMs = 90_000,
+  // Starts a private X server WITH a window manager, so windows are really
+  // placed and can be resized. Plain xvfb-run has no WM: windows land at 0,0
+  // and never move, which makes any geometry assertion meaningless.
+  windowManager = false,
+}) {
   if (!existsSync(appImage)) {
     throw new Error(`AppImage not found: ${appImage} (run npm run dist:linux:x64 first)`)
   }
   const port = portBase + (process.pid % 190)
-  const profile = mkdtempSync(path.join(os.tmpdir(), 'home-v2-smoke-'))
-  const useXvfb = !process.env.DISPLAY && existsSync('/usr/bin/xvfb-run')
-  const command = useXvfb ? '/usr/bin/xvfb-run' : appImage
-  const args = useXvfb
-    ? ['-a', appImage, `--remote-debugging-port=${port}`]
-    : [`--remote-debugging-port=${port}`]
-
-  log(`starting ${path.basename(appImage)} (CDP ${port})`)
-  // detached => the app leads its own process group, so the whole tree
-  // (xvfb-run -> AppImage -> extracted binary -> zygotes) can be signalled.
-  const child = spawn(command, args, {
-    detached: true,
-    env: { ...process.env, APPIMAGE_EXTRACT_AND_RUN: '1', QORTIUM_HOME_USER_DATA_DIR: profile },
-    stdio: 'ignore',
-  })
+  // A caller may supply its own profile directory when the test needs to seed
+  // or inspect files inside it; otherwise a scratch one is made here.
+  const profile = requestedProfile ?? mkdtempSync(path.join(os.tmpdir(), 'home-v2-smoke-'))
+  const children = []
+  const spawnTracked = (command, args, env = {}) => {
+    const child = spawn(command, args, {
+      detached: true,
+      env: { ...process.env, ...env },
+      stdio: 'ignore',
+    })
+    children.push(child)
+    return child
+  }
 
   const shutdown = () => {
-    try { process.kill(-child.pid, 'SIGTERM') } catch {}
+    for (const child of children) {
+      try { process.kill(-child.pid, 'SIGTERM') } catch {}
+    }
     setTimeout(() => {
-      try { process.kill(-child.pid, 'SIGKILL') } catch {}
+      for (const child of children) {
+        try { process.kill(-child.pid, 'SIGKILL') } catch {}
+      }
     }, 2000).unref?.()
-    try { rmSync(profile, { recursive: true, force: true }) } catch {}
+    // A caller-supplied profile is the caller's to clean up: it may still want
+    // to read what the app wrote there.
+    if (!requestedProfile) {
+      try { rmSync(profile, { recursive: true, force: true }) } catch {}
+    }
   }
   // Cover the paths that skip `finally`: Ctrl+C, kill, and uncaught throws.
   const onSignal = () => { shutdown(); process.exit(130) }
   process.once('SIGINT', onSignal)
   process.once('SIGTERM', onSignal)
-  process.once('exit', () => { try { process.kill(-child.pid, 'SIGKILL') } catch {} })
+  process.once('exit', () => {
+    for (const child of children) {
+      try { process.kill(-child.pid, 'SIGKILL') } catch {}
+    }
+  })
+
+  let display = null
+  if (windowManager) {
+    display = `:${80 + (process.pid % 9)}`
+    spawnTracked('Xvfb', [display, '-screen', '0', '1800x1300x24', '-nolisten', 'tcp'], {
+      DISPLAY: display,
+    })
+    await sleep(2000)
+    spawnTracked('openbox', [], { DISPLAY: display })
+    await sleep(1500)
+    log(`window manager ready on ${display}`)
+  }
+
+  const useXvfb = !windowManager && !process.env.DISPLAY && existsSync('/usr/bin/xvfb-run')
+  const command = useXvfb ? '/usr/bin/xvfb-run' : appImage
+  const baseArgs = [`--remote-debugging-port=${port}`]
+  const args = useXvfb ? ['-a', appImage, ...baseArgs] : baseArgs
+
+  log(`starting ${path.basename(appImage)} (CDP ${port})`)
+  // detached => the app leads its own process group, so the whole tree
+  // (xvfb-run -> AppImage -> extracted binary -> zygotes) can be signalled.
+  spawnTracked(
+    command,
+    // WAYLAND_DISPLAY is inherited from the real session; leaving it set risks
+    // the window opening on the user's actual desktop instead of the private
+    // X server.
+    windowManager ? [...args, '--ozone-platform=x11'] : args,
+    {
+      APPIMAGE_EXTRACT_AND_RUN: '1',
+      QORTIUM_HOME_USER_DATA_DIR: profile,
+      ...(display ? { DISPLAY: display, WAYLAND_DISPLAY: '', XDG_SESSION_TYPE: 'x11' } : {}),
+    },
+  )
 
   let target = null
   const deadline = Date.now() + timeoutMs
@@ -171,5 +224,5 @@ export async function launchHomeV2({ appImage, log, portBase, timeoutMs = 90_000
   }
   // The resolved port is returned because callers that inspect /json/list
   // themselves (multi-window smokes) must use the same one, not recompute it.
-  return { cdp, port, shutdown }
+  return { cdp, display, port, profile, shutdown }
 }
