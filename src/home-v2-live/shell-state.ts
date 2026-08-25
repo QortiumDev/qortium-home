@@ -108,6 +108,7 @@ export function serializeHomeV2ShellState(state: HomeV2ShellState) {
       language: state.appearance.language,
       textSize: state.appearance.textSize,
       theme: state.appearance.theme,
+      ui: state.appearance.ui,
     },
     newTabPreference: state.newTabPreference,
     onboarding: state.onboarding,

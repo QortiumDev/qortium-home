@@ -6,6 +6,7 @@ import {
   defaultHomeV2Appearance,
   homeV2AccentOptions,
   homeV2LanguageOptions,
+  homeV2UiOptions,
   migrateLegacyAppearance,
   resolveHomeV2SystemLanguage,
   stepHomeV2TextSize,
@@ -52,6 +53,7 @@ import {
 import { PermissionDialog } from './shell/PermissionDialog'
 import type { HomeV2CoreManagement } from './shell/CoreManagerCards'
 import {
+  createHomeV2ShellState,
   parseHomeV2ShellState,
   serializeHomeV2ShellState,
 } from '../home-v2-live/shell-state'
@@ -1696,9 +1698,13 @@ function testAppearanceSettingsAndLegacyMigration(): void {
   assert.match(html, />Lock on exit</)
   assert.doesNotMatch(html, /home-v2-segmented/)
   assert.doesNotMatch(html, /home-v2-accent-options/)
-  assert.doesNotMatch(html, />Fun</)
-  assert.doesNotMatch(html, />Classic</)
-  assert.doesNotMatch(html, />Modern</)
+  // The interface-style control is back by owner decision: Home 2 had removed
+  // it and forced every app to Modern. It offers the same three values as
+  // Home 1.x and defaults to Classic.
+  assert.match(html, /aria-label="UI Style"/)
+  assert.match(html, /<option value="classic" selected="">Classic<\/option>/)
+  assert.match(html, />Modern<\/option>/)
+  assert.match(html, />Fun<\/option>/)
 
   const noAccountSettings = renderToStaticMarkup(
     <AppearanceSettingsPage
@@ -1749,8 +1755,10 @@ function testAppearanceSettingsAndLegacyMigration(): void {
     appZoom: 137,
     language: 'zh-TW',
     resolvedLanguage: 'zh-TW',
+    // Carried over rather than discarded: Home 2 used to drop the interface
+    // style on migration, which silently moved every 1.x user to Modern.
+    ui: 'fun',
   })
-  assert.equal('ui' in migrated, false)
   assert.deepEqual(
     homeV2AccentOptions.slice(1).map((option) => option.value),
     [
@@ -1780,6 +1788,41 @@ function testAppearanceSettingsAndLegacyMigration(): void {
   )
   assert.equal(migrateLegacyAppearance({ appZoom: 400 }).appZoom, 200)
   assert.equal(migrateLegacyAppearance({ appZoom: 20 }).appZoom, 50)
+
+  // Interface style: Home 2 shipped every app forced to 'modern' and dropped
+  // the user's choice on migration. The default is Classic, matching
+  // DEFAULT_UI, and a legacy choice must survive.
+  assert.equal(defaultHomeV2Appearance.ui, 'classic')
+  assert.equal(migrateLegacyAppearance(null).ui, 'classic')
+  assert.equal(migrateLegacyAppearance({ ui: 'modern' }).ui, 'modern')
+  assert.equal(migrateLegacyAppearance({ ui: 'nonsense' }).ui, 'classic')
+  assert.deepEqual(
+    homeV2UiOptions.map((option) => option.value),
+    ['classic', 'modern', 'fun'],
+  )
+  // The choice is worthless if it is not persisted across restarts.
+  assert.equal(
+    serializeHomeV2ShellState({
+      ...createHomeV2ShellState('dark', 'en'),
+      appearance: { ...defaultHomeV2Appearance, ui: 'fun' },
+    }).appearance.ui,
+    'fun',
+  )
+  // Every surface that tells an app which design system to use must read the
+  // setting; a literal 'modern' here is the regression this restored.
+  for (const file of [
+    'src/v2/shell/AppTabStage.tsx',
+    'src/v2/shell/HomeV2ResourceViewer.tsx',
+    'src/v2/shell/HomeV2CoreApiDocsPage.tsx',
+    'src/home-v2-live/HomeV2LiveApp.tsx',
+  ]) {
+    const source = readFileSync(file, 'utf8')
+    assert.doesNotMatch(
+      source,
+      /ui:\s*'modern'|'uiStyle',\s*'modern'/,
+      `${file} hardcodes the modern UI style instead of reading appearance.ui`,
+    )
+  }
 
   const css = readFileSync('src/v2/shell/home-v2-prototype.css', 'utf8')
   assert.match(css, /html,\s*body,\s*#root\s*\{[^}]*height:\s*100%;[^}]*margin:\s*0;/)
@@ -2499,6 +2542,7 @@ function testShellStateMigratesAddressSelection(): void {
       language: legacy.appearance.language,
       textSize: legacy.appearance.textSize,
       theme: legacy.appearance.theme,
+      ui: legacy.appearance.ui,
     },
     newTabPreference: DEFAULT_NEW_TAB_PREFERENCE,
     onboarding: legacy.onboarding,
