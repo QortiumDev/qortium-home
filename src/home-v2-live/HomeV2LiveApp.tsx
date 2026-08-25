@@ -101,7 +101,13 @@ import {
   type HomeV2CollectionsAccounts,
 } from './collections-client'
 import { planStartPageLaunch } from './start-page-launch'
-import { resolveHomeV2ExploreAppUrl } from './qdn-settings-client'
+import {
+  resolveHomeV2BookmarksAppUrl,
+  resolveHomeV2ExploreAppUrl,
+} from './qdn-settings-client'
+import { locateBookmarkManagerLink } from '../bookmarkManager'
+import { internalTabLabelKeys } from '../v2/shell/TabStrip'
+import { t } from '../i18n'
 import {
   buildAdjacentDashboardPinMoveMutation,
   buildDashboardPinMoveMutation,
@@ -1746,6 +1752,95 @@ export function HomeV2LiveApp() {
     },
     [openAddress, selectedAccountId],
   )
+
+  /**
+   * The toolbar star. Saving goes to the bookmarks tree; removing works on
+   * whichever root actually holds the address, so un-starring a page that is
+   * on the toolbar takes it off the toolbar.
+   */
+  const toggleCurrentBookmark = useCallback(
+    async (draft: { displayUrl: string; title: string }) => {
+      try {
+        const result = await applyCollectionsMutation((snapshot) => {
+          const existing = locateBookmarkManagerLink(snapshot, draft.displayUrl)
+          return existing
+            ? {
+                itemId: existing.link.id,
+                rootId: existing.rootId,
+                type: 'removeTreeItem',
+              }
+            : {
+                link: {
+                  accountId: selectedAccountId,
+                  displayUrl: draft.displayUrl,
+                  title: draft.title,
+                },
+                rootId: 'bookmarks',
+                type: 'addTreeLink',
+              }
+        })
+        // Without this the store is updated but the toolbar and the star keep
+        // rendering the previous snapshot.
+        applyCollectionsSnapshot(result.snapshot)
+      } catch (error) {
+        setShellNotice(
+          error instanceof Error ? error.message : 'Unable to update bookmarks.',
+        )
+      }
+    },
+    [applyCollectionsMutation, applyCollectionsSnapshot, selectedAccountId],
+  )
+
+  /** Dropping a tab on the bookmarks toolbar saves it there, as in Home 1.x. */
+  const dropTabOnBookmarkToolbar = useCallback(
+    async (tabId: TabId) => {
+      const entry = productState.entries.find((candidate) => candidate.id === tabId)
+      if (!entry) return
+      const displayUrl =
+        entry.kind === 'app'
+          ? entry.context.resourceLocation
+          : `home://${entry.page}`
+      try {
+        const result = await applyCollectionsMutation((snapshot) =>
+          locateBookmarkManagerLink(snapshot, displayUrl)?.rootId === 'toolbar'
+            ? null
+            : {
+                link: {
+                  accountId: selectedAccountId,
+                  displayUrl,
+                  title:
+                    entry.kind === 'app'
+                      ? entry.title
+                      : t(internalTabLabelKeys[entry.page]),
+                },
+                rootId: 'toolbar',
+                type: 'addTreeLink',
+              },
+        )
+        applyCollectionsSnapshot(result.snapshot)
+      } catch (error) {
+        setShellNotice(
+          error instanceof Error ? error.message : 'Unable to save that tab.',
+        )
+      }
+    },
+    [
+      applyCollectionsMutation,
+      applyCollectionsSnapshot,
+      productState.entries,
+      selectedAccountId,
+    ],
+  )
+
+  const openBookmarksManager = useCallback(async () => {
+    // Resolved at click time from the live assignment, so someone who points
+    // Bookmarks at their own app is honoured.
+    const settings = await qdnAppsManagement.client?.get().catch(() => null)
+    const result = await openAddress(resolveHomeV2BookmarksAppUrl(settings ?? null))
+    if (result.status !== 'opened') {
+      setShellNotice(result.message ?? 'Unable to open the Bookmarks app.')
+    }
+  }, [openAddress, qdnAppsManagement.client])
 
   const getBookmarkToolbarContextMenuItems = useCallback(
     (link: BookmarkManagerLink) => {
@@ -4913,6 +5008,9 @@ export function HomeV2LiveApp() {
       }}
       appUpdates={appUpdates.available ? appUpdates : undefined}
       onChainCoreUpdates={onChainCoreUpdates.available ? onChainCoreUpdates : undefined}
+      onToggleCurrentBookmark={toggleCurrentBookmark}
+      onManageBookmarks={openBookmarksManager}
+      onDropTabOnBookmarkToolbar={dropTabOnBookmarkToolbar}
       releaseNotesTarget={releaseNotesTarget}
       coreDocsNetwork={coreDocsNetwork}
       coreDocsTransport={homeV2CoreDocsTransport()}

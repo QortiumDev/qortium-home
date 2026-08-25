@@ -210,6 +210,39 @@ assert.throws(
   hasInvalidAddressCode,
   'BOOKMARKS_OPEN rejects with INVALID_ADDRESS',
 );
+
+// A Qortal-network app tab produces a qortal:// address (and qortal-core://
+// for its Core docs). Rejecting those made every Qortal tab unbookmarkable
+// while the same page on Qortium saved fine.
+for (const displayUrl of [
+  'qortal://APP/Q-Mail/Q-Mail',
+  'qortal://APP/Q-Mail/Q-Mail/inbox?filter=all#top',
+  'qortal://*/Q-Mail',
+  'qortal-core://',
+  'qortal-core://api-documentation',
+]) {
+  assert.deepEqual(
+    validateBookmarkManagerMutation({ type: 'addTreeLink', rootId: 'toolbar', link: { displayUrl, title: 'Qortal app' } }),
+    { type: 'addTreeLink', rootId: 'toolbar', link: { displayUrl, title: 'Qortal app' } },
+    `${displayUrl} is a saveable address`,
+  );
+  assert.deepEqual(
+    validateBookmarksOpenRequest({ address: displayUrl }),
+    { accountId: null, address: displayUrl },
+    `${displayUrl} is an openable address`,
+  );
+}
+// The scheme widening must not have opened the service allowlist.
+assert.throws(
+  () => validateBookmarkManagerMutation({ type: 'addTreeLink', rootId: 'bookmarks', link: { displayUrl: 'qortal://NOT_A_REAL_SERVICE/Alice/item', title: 'Nope' } }),
+  hasInvalidAddressCode,
+  'qortal:// still honours the public-service allowlist',
+);
+assert.throws(
+  () => validateBookmarkManagerMutation({ type: 'addTreeLink', rootId: 'bookmarks', link: { displayUrl: 'qortalish://APP/Foo/Foo', title: 'Nope' } }),
+  hasInvalidAddressCode,
+  'a scheme that merely starts with qortal is still rejected',
+);
 assert.throws(
   () => validateBookmarkManagerMutation({ type: 'moveItem', itemId: 'one', sourceRootId: 'bookmarks', targetRootId: 'toolbar', targetPosition: 'inside' }),
   /inside requires mutation.targetFolderId/,

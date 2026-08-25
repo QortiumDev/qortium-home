@@ -3,9 +3,11 @@ import {
   validateBookmarkManagerMutation,
   validateBookmarkManagerSnapshot,
   type BookmarkManagerAccountChoice,
+  type BookmarkManagerLink,
   type BookmarkManagerMutation,
   type BookmarkManagerMutationResult,
   type BookmarkManagerSnapshot,
+  type BookmarkManagerTreeItem,
 } from '../electron/bookmark-manager-contract';
 import {
   addBookmark,
@@ -228,4 +230,37 @@ export function applyBookmarkManagerMutation(
     collections: finalCollections,
     snapshot: createBookmarkManagerSnapshot(finalCollections),
   };
+}
+
+/**
+ * Finds a saved bookmark for `displayUrl` in the toolbar or the bookmarks
+ * tree, reporting which root holds it. `removeTreeItem` needs the root as
+ * well as the item id, and ids are minted per-add rather than derived from
+ * the address, so a star toggle has to look the item up by address first.
+ *
+ * The toolbar is searched before the bookmarks tree so that un-starring a
+ * page that sits on the toolbar removes it from where the user can see it.
+ */
+export function locateBookmarkManagerLink(
+  snapshot: Pick<BookmarkManagerSnapshot, 'bookmarks' | 'toolbar'>,
+  displayUrl: string,
+): { readonly link: BookmarkManagerLink; readonly rootId: 'bookmarks' | 'toolbar' } | null {
+  const search = (
+    items: readonly BookmarkManagerTreeItem[],
+  ): BookmarkManagerLink | null => {
+    for (const item of items) {
+      if (item.type === 'folder') {
+        const nested = search(item.children);
+        if (nested) return nested;
+        continue;
+      }
+      if (item.displayUrl === displayUrl) return item;
+    }
+    return null;
+  };
+
+  const onToolbar = search(snapshot.toolbar);
+  if (onToolbar) return { link: onToolbar, rootId: 'toolbar' };
+  const saved = search(snapshot.bookmarks);
+  return saved ? { link: saved, rootId: 'bookmarks' } : null;
 }

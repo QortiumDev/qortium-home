@@ -39,6 +39,12 @@ function toolbarErrorMessage(error: unknown): string {
 
 export interface HomeV2BookmarkToolbarProps {
   readonly disabled?: boolean
+  /**
+   * Keeps the strip mounted when it holds nothing, so a tab can be dragged
+   * onto it. Home 1.x rendered an empty placeholder for the same reason
+   * (src/TopBar.tsx:1507); returning null left no drop target at all.
+   */
+  readonly keepEmptyStrip?: boolean
   readonly isDashboardRoute: boolean
   readonly loadVisibleAppIcon?: VisibleAppIconLoader
   readonly onContextMenuAction?: (
@@ -319,13 +325,14 @@ export function HomeV2BookmarkToolbar({
   onContextMenuAction,
   onOpen,
   onActionError,
+  keepEmptyStrip,
   snapshot,
 }: HomeV2BookmarkToolbarProps) {
   const [menu, setMenu] = useState<ToolbarMenu>(null)
   const [folderMenu, setFolderMenu] = useState<FolderMenu>(null)
   const menuRef = useRef<HTMLDivElement | null>(null)
   const visible = !!snapshot &&
-    snapshot.toolbar.length > 0 &&
+    (snapshot.toolbar.length > 0 || !!keepEmptyStrip) &&
     shouldShowBookmarkToolbar(snapshot.toolbarVisibility, isDashboardRoute)
   const accountLabels = new Map(
     (snapshot?.availableAccounts ?? []).map((account) => [account.id, account.label]),
@@ -379,8 +386,14 @@ export function HomeV2BookmarkToolbar({
     <nav
       aria-label={t('bookmarks.folder.toolbar')}
       className="home-v2-bookmark-toolbar"
+      data-empty={snapshot.toolbar.length === 0 ? 'true' : undefined}
       data-toolbar-visibility={snapshot.toolbarVisibility}
     >
+      {snapshot.toolbar.length === 0 ? (
+        <span className="home-v2-bookmark-toolbar__empty">
+          {t('bookmarks.emptyFolder')}
+        </span>
+      ) : null}
       <ToolbarItems
         onActionError={onActionError}
         accountLabels={accountLabels}

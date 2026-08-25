@@ -2588,6 +2588,96 @@ function testShellStateMigratesAddressSelection(): void {
   assert.equal(restoredNewTab.product.tabs.length, 2)
 }
 
+function testBookmarksToolbarButtonAndTabDrop() {
+  const emptyToolbarSnapshot = {
+    bookmarks: [],
+    dashboardPins: [],
+    revision: 1,
+    schemaVersion: 1 as const,
+    startPages: [],
+    toolbar: [],
+    toolbarVisibility: 'always' as const,
+  }
+  const chrome = renderToStaticMarkup(
+    <HomeV2Prototype
+      snapshot={homeV2Fixture}
+      productState={createProductState()}
+      permissionState={createPermissionState()}
+      layout="desktop"
+      bookmarkToolbar={{ onOpen: () => Promise.resolve(), snapshot: emptyToolbarSnapshot }}
+      onToggleCurrentBookmark={() => undefined}
+      onDropTabOnBookmarkToolbar={() => undefined}
+    />,
+  )
+  // The control sits between reload and Home, where Home 1.x put it.
+  const reloadIndex = chrome.indexOf('aria-label="Reload"')
+  const bookmarksIndex = chrome.indexOf('class="home-v2-bookmarks-button')
+  const homeIndex = chrome.indexOf('class="home-v2-home-button"')
+  assert.ok(reloadIndex >= 0 && bookmarksIndex >= 0 && homeIndex >= 0)
+  assert.ok(
+    reloadIndex < bookmarksIndex && bookmarksIndex < homeIndex,
+    'the bookmarks button must sit between reload and Home',
+  )
+  // An empty toolbar still renders, or a dragged tab would have no target.
+  assert.match(chrome, /class="home-v2-bookmark-toolbar"[^>]*data-empty="true"/)
+
+  // Without a drop handler there is nothing to drop, so an empty strip stays
+  // hidden exactly as before.
+  const withoutDrop = renderToStaticMarkup(
+    <HomeV2Prototype
+      snapshot={homeV2Fixture}
+      productState={createProductState()}
+      permissionState={createPermissionState()}
+      layout="desktop"
+      bookmarkToolbar={{ onOpen: () => Promise.resolve(), snapshot: emptyToolbarSnapshot }}
+    />,
+  )
+  assert.doesNotMatch(withoutDrop, /home-v2-bookmark-toolbar/)
+  assert.doesNotMatch(withoutDrop, /home-v2-bookmarks-button/)
+
+  // A saved current page shows as bookmarked, and the star reports the state
+  // rather than always offering "Add".
+  const savedToolbarSnapshot = {
+    ...emptyToolbarSnapshot,
+    toolbar: [
+      {
+        createdAt: 1,
+        displayUrl: 'home://dashboard',
+        id: 'toolbar-dashboard',
+        title: 'Dashboard',
+        type: 'bookmark' as const,
+      },
+    ],
+  }
+  const saved = renderToStaticMarkup(
+    <HomeV2Prototype
+      snapshot={homeV2Fixture}
+      productState={createProductState()}
+      permissionState={createPermissionState()}
+      layout="desktop"
+      bookmarkToolbar={{ onOpen: () => Promise.resolve(), snapshot: savedToolbarSnapshot }}
+      onToggleCurrentBookmark={() => undefined}
+      onDropTabOnBookmarkToolbar={() => undefined}
+    />,
+  )
+  assert.match(saved, /home-v2-bookmarks-button is-bookmarked/)
+  assert.match(saved, /title="Remove from Bookmarks"/)
+  assert.match(chrome, /title="Add to Bookmarks"/)
+
+  // The tab strip owns the drop gesture, hit-testing the toolbar the way 1.x
+  // did rather than reordering tabs while the pointer is over it.
+  const tabStripSource = readFileSync('src/v2/shell/TabStrip.tsx', 'utf8')
+  assert.match(tabStripSource, /home-v2-bookmark-toolbar/)
+  assert.match(tabStripSource, /onDropOnBookmarkToolbar/)
+  assert.doesNotMatch(
+    tabStripSource,
+    // The comment explaining why capture is avoided must not trip this; only
+    // an actual call counts.
+    /\.setPointerCapture\(/,
+    'the drop hit-test must not reintroduce pointer capture (PR #351 regression)',
+  )
+}
+
 await testMockHostFailsClosed()
 await testPlatformFixtureHostsFailClosed()
 testWrongNetworkStopsBeforeAdapter()
@@ -2611,5 +2701,6 @@ testProductionHomeV2EntryIsCapabilityScoped()
 testShellStateMigratesAddressSelection()
 testRendererSourceHasNoRuntimeEscapeHatches()
 testGrantIdentityAndSendRateLimitHardening()
+testBookmarksToolbarButtonAndTabDrop()
 
 console.log('home v2 foundation contract tests passed')

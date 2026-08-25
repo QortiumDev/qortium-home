@@ -26,12 +26,15 @@ import {
 } from '../new-tab-preference'
 import { networkLabels } from './NetworkBadge'
 import { HomeMark, NetworkMark } from './ProductMarks'
-import { TabStrip } from './TabStrip'
+import { internalTabLabelKeys, TabStrip } from './TabStrip'
 import { VisibleIdentityAvatar } from './VisibleIdentityAvatar'
 import {
   HomeV2BookmarkToolbar,
   type HomeV2BookmarkToolbarProps,
 } from './HomeV2BookmarkToolbar'
+import { BookmarksMenuButton } from './BookmarksMenuButton'
+import { locateBookmarkManagerLink } from '../../bookmarkManager'
+import type { BookmarkToolbarVisibility } from '../../bookmarkToolbar'
 
 export interface BrowserChromeProps {
   readonly snapshot: HomeV2Snapshot
@@ -69,6 +72,20 @@ export interface BrowserChromeProps {
     HomeV2BookmarkToolbarProps,
     'isDashboardRoute'
   >
+  /** Saves or removes the address currently shown in the address bar. */
+  readonly onToggleCurrentBookmark?: (draft: {
+    readonly displayUrl: string
+    readonly title: string
+  }) => void | Promise<void>
+  /** Opens the app that owns bookmark browsing and editing. */
+  readonly onManageBookmarks?: () => void | Promise<void>
+  readonly onSetBookmarkToolbarVisibility?: (
+    visibility: BookmarkToolbarVisibility,
+  ) => void | Promise<void>
+  /** Saves a dragged tab onto the bookmarks toolbar. */
+  readonly onDropTabOnBookmarkToolbar?: (
+    tabId: ProductState['tabs'][number]['id'],
+  ) => void | Promise<void>
 }
 
 export type AddressOpenResult =
@@ -111,6 +128,21 @@ function browserAddress(
   return `home://${destination}`
 }
 
+/**
+ * The title that belongs with browserAddress(), so a saved bookmark carries
+ * the tab's name rather than its raw address. Pages that are not tabs
+ * (release notes, Core docs) fall back to the address.
+ */
+function browserPageTitle(productState: ProductState, address: string): string {
+  const activeEntry = productState.entries.find(
+    (entry) => entry.id === productState.activeTabId,
+  )
+  if (!activeEntry) return address
+  return activeEntry.kind === 'app'
+    ? activeEntry.title
+    : t(internalTabLabelKeys[activeEntry.page])
+}
+
 function accountLabel(snapshot: HomeV2Snapshot) {
   if (snapshot.account.state === 'none') return t('account.noAccount')
   if (snapshot.account.state === 'locked') {
@@ -142,12 +174,20 @@ export function BrowserChrome({
   loadVisibleAvatar,
   loadVisibleAppIcon,
   bookmarkToolbar,
+  onToggleCurrentBookmark,
+  onManageBookmarks,
+  onSetBookmarkToolbarVisibility,
+  onDropTabOnBookmarkToolbar,
 }: BrowserChromeProps) {
   const currentAddress = browserAddress(
     productState,
     releaseNotesAddress,
     coreDocsAddress,
   )
+  const bookmarkSnapshot = bookmarkToolbar?.snapshot ?? null
+  const currentBookmark = bookmarkSnapshot
+    ? locateBookmarkManagerLink(bookmarkSnapshot, currentAddress)
+    : null
   const [address, setAddress] = useState(currentAddress)
   const [addressResult, setAddressResult] = useState<AddressOpenResult | null>(null)
   const [addressBusy, setAddressBusy] = useState(false)
@@ -305,6 +345,7 @@ export function BrowserChrome({
           onCloseTab={onCloseTab}
           onReorderTab={onReorderTab}
           onNewTab={openNewTab}
+          onDropOnBookmarkToolbar={onDropTabOnBookmarkToolbar}
           newTabDisabled={navigationDisabled}
           loadVisibleAppIcon={loadVisibleAppIcon}
         />
@@ -323,6 +364,21 @@ export function BrowserChrome({
           <button type="button" aria-label={t('home2.browser.reload')} title={t('home2.browser.reload')} onClick={onReload}>
             <RotateCw aria-hidden="true" size={18} strokeWidth={2} />
           </button>
+          {onToggleCurrentBookmark ? (
+            <BookmarksMenuButton
+              isBookmarked={!!currentBookmark}
+              disabled={navigationDisabled}
+              onToggle={() =>
+                onToggleCurrentBookmark({
+                  displayUrl: currentAddress,
+                  title: browserPageTitle(productState, currentAddress),
+                })
+              }
+              onManage={onManageBookmarks}
+              toolbarVisibility={bookmarkSnapshot?.toolbarVisibility}
+              onSetToolbarVisibility={onSetBookmarkToolbarVisibility}
+            />
+          ) : null}
           <button
             type="button"
             className="home-v2-home-button"
@@ -487,6 +543,7 @@ export function BrowserChrome({
       {bookmarkToolbar ? (
         <HomeV2BookmarkToolbar
           {...bookmarkToolbar}
+          keepEmptyStrip={!!onDropTabOnBookmarkToolbar}
           isDashboardRoute={
             productState.destination === 'dashboard' ||
             productState.destination === 'newtab'

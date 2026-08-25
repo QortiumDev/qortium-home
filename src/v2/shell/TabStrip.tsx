@@ -20,11 +20,13 @@ export interface TabStripProps {
   readonly onCloseTab?: (tabId: TabId) => void
   readonly onReorderTab?: (tabId: TabId, toIndex: number) => void
   readonly onNewTab?: () => void
+  /** Saves the tab as a toolbar bookmark when it is released over the strip. */
+  readonly onDropOnBookmarkToolbar?: (tabId: TabId) => void | Promise<void>
   readonly newTabDisabled?: boolean
   readonly loadVisibleAppIcon?: VisibleAppIconLoader
 }
 
-const internalTabLabelKeys: Readonly<Record<TabPageId, TranslationKey>> = {
+export const internalTabLabelKeys: Readonly<Record<TabPageId, TranslationKey>> = {
   dashboard: 'common.dashboard',
   newtab: 'home2.tabs.newTab',
   settings: 'common.settings',
@@ -62,6 +64,31 @@ interface TabDragState {
   hasReordered: boolean
 }
 
+/**
+ * True when a drag was released over the bookmarks toolbar. Home 1.x hit-tested
+ * the same way (`isToolbarDropRelease`, src/TopBar.tsx:1772) rather than using
+ * HTML5 drag-and-drop, and checked it BEFORE any other release behaviour.
+ */
+function isBookmarkToolbarRelease(event: globalThis.PointerEvent): boolean {
+  const toolbar = document.querySelector('.home-v2-bookmark-toolbar')
+  if (!toolbar) return false
+  const bounds = toolbar.getBoundingClientRect()
+  if (bounds.width === 0 || bounds.height === 0) return false
+  return (
+    event.clientX >= bounds.left &&
+    event.clientX <= bounds.right &&
+    event.clientY >= bounds.top &&
+    event.clientY <= bounds.bottom
+  )
+}
+
+function setBookmarkToolbarDropTarget(active: boolean) {
+  const toolbar = document.querySelector('.home-v2-bookmark-toolbar')
+  if (!toolbar) return
+  if (active) toolbar.setAttribute('data-drop-target', 'true')
+  else toolbar.removeAttribute('data-drop-target')
+}
+
 function entryLabel(entry: ShellEntry): string {
   return entry.kind === 'internal'
     ? t(internalTabLabelKeys[entry.page])
@@ -74,6 +101,7 @@ export function TabStrip({
   onCloseTab,
   onReorderTab,
   onNewTab,
+  onDropOnBookmarkToolbar,
   newTabDisabled,
   loadVisibleAppIcon,
 }: TabStripProps) {
@@ -116,6 +144,13 @@ export function TabStrip({
         break
       }
     }
+    if (onDropOnBookmarkToolbar) {
+      const overToolbar = isBookmarkToolbarRelease(event)
+      setBookmarkToolbarDropTarget(overToolbar)
+      // While the pointer is over the toolbar the gesture means "save this",
+      // so it must not keep shuffling the strip underneath.
+      if (overToolbar) return
+    }
     if (insertIndex === fromIndex) return
     drag.hasReordered = true
     onReorderTab?.(drag.key as TabId, insertIndex)
@@ -124,6 +159,17 @@ export function TabStrip({
   const handleDragEnd = (event: globalThis.PointerEvent) => {
     const drag = dragState.current
     if (!drag || drag.pointerId !== event.pointerId) return
+    setBookmarkToolbarDropTarget(false)
+    if (onDropOnBookmarkToolbar && isBookmarkToolbarRelease(event)) {
+      // Releasing over the toolbar saves the tab; it must not also activate it.
+      suppressClickKey.current = drag.key
+      dragState.current = null
+      detachDragListeners.current?.()
+      void Promise.resolve(onDropOnBookmarkToolbar(drag.key as TabId)).catch(
+        () => undefined,
+      )
+      return
+    }
     // A completed reorder must not also activate the tab the pointer landed
     // on; an ordinary press (no reorder) still clicks through normally.
     if (drag.hasReordered) suppressClickKey.current = drag.key

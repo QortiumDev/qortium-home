@@ -25,6 +25,7 @@ import type {
   HomeV2VaultState,
   NetworkId,
   NodeConnectionMode,
+  TabId,
   VisibleAppIconLoader,
   VisibleAvatarLoader,
 } from '../contracts'
@@ -135,6 +136,12 @@ export interface HomeV2PrototypeProps {
     'isDashboardRoute'
   >
   readonly bookmarkToolbarVisibility?: BookmarkToolbarVisibility
+  readonly onToggleCurrentBookmark?: (draft: {
+    readonly displayUrl: string
+    readonly title: string
+  }) => void | Promise<void>
+  readonly onManageBookmarks?: () => void | Promise<void>
+  readonly onDropTabOnBookmarkToolbar?: (tabId: TabId) => void | Promise<void>
   readonly coreDocsNetwork?: NetworkId | null
   readonly coreDocsTransport?: HomeV2CoreDocsTransport
   readonly enableCoreDocs?: (network: NetworkId) => Promise<unknown>
@@ -1214,6 +1221,10 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
               }
             : undefined
         }
+        onToggleCurrentBookmark={props.onToggleCurrentBookmark}
+        onManageBookmarks={props.onManageBookmarks}
+        onSetBookmarkToolbarVisibility={props.onSetBookmarkToolbarVisibility}
+        onDropTabOnBookmarkToolbar={props.onDropTabOnBookmarkToolbar}
       />
       <main
         className="home-v2-page-viewport"
