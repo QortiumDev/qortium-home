@@ -1004,17 +1004,26 @@ async function requireAccountReadPermission(
   // Gated on durableAccountReadCapability rather than on the scope alone, so an
   // 'always' arriving for anything outside the read-only account family retains
   // nothing. The grant is bound to the selected account as well as the app.
-  if (decision.scope === 'always' && durableAccountReadCapability && appGrantKey) {
+  // An account-bound grant needs an account: with none selected the 'always'
+  // choice falls through to the session grant below, which is the narrower
+  // outcome and never wider than what the prompt described.
+  const grantAccountId = context.accountId
+  if (
+    decision.scope === 'always' &&
+    durableAccountReadCapability &&
+    appGrantKey &&
+    grantAccountId
+  ) {
     if (persistDurableGrant({
       capability: durableAccountReadCapability,
       isHeld: () => hasQdnAccountCapability(
         appGrantKey,
-        context.accountId,
+        grantAccountId,
         durableAccountReadCapability,
       ),
       write: () => grantQdnAccountCapabilityPermission(
         appGrantKey,
-        context.accountId,
+        grantAccountId,
         durableAccountReadCapability,
       ),
     })) return
