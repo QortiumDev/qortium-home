@@ -1032,6 +1032,23 @@ function testDesktopAndPhoneContracts(): void {
     assert.match(nodePillTag, /aria-haspopup="menu"/)
     assert.match(nodePillTag, /aria-expanded="false"/)
     assert.match(accountTag, /aria-haspopup="menu"/)
+    // The account button is avatars plus a lock glyph and nothing else (owner
+    // request), so the label it used to print has to survive as the accessible
+    // name and the tooltip.
+    assert.match(accountTag, /aria-label="Alice · Unlocked"/)
+    assert.match(accountTag, /title="Alice · Unlocked"/)
+    const accountButtonBody = (() => {
+      const start = html.indexOf(accountTag)
+      return html.slice(start + accountTag.length, html.indexOf('</button>', start))
+    })()
+    // Nothing inside is readable copy: the avatar stack and the lock glyph are
+    // aria-hidden decoration.
+    assert.doesNotMatch(accountButtonBody, /Alice/)
+    assert.doesNotMatch(accountButtonBody, /Locked|Unlocked/)
+    assert.match(accountButtonBody, /home-v2-account-avatars/)
+    // Unlocked fixture, so the open padlock: the glyph is the state signal.
+    assert.match(accountButtonBody, /home-v2-account-lock/)
+    assert.match(accountButtonBody, /lucide-lock-open/)
     // Closed by default: no panel is in the markup until the button is used.
     assert.doesNotMatch(html, /home-v2-chrome-menu__panel/)
     assert.doesNotMatch(html, /class="home-v2-node-pill"[^>]*>[^<]*Qortium</)

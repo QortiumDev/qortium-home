@@ -606,6 +606,57 @@ body,
   font-size: calc(11px * var(--v2-type-scale));
 }
 
+/* Account panel rows: the network name sits above its value rather than
+   beside it, so a long name or an address never wraps into its own title. */
+.home-v2-chrome-menu__panel .home-v2-account-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 4px 0;
+}
+
+.home-v2-chrome-menu__panel
+  .home-v2-account-detail
+  + .home-v2-account-detail {
+  border-top: 1px solid color-mix(in srgb, var(--v2-line) 60%, transparent);
+}
+
+.home-v2-chrome-menu__panel .home-v2-account-detail__label {
+  color: var(--v2-muted);
+  font-size: calc(10px * var(--v2-type-scale));
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.home-v2-chrome-menu__panel .home-v2-account-detail__value {
+  overflow-wrap: anywhere;
+  color: var(--v2-ink);
+  font-size: calc(12px * var(--v2-type-scale));
+}
+
+/* The address is the one string here that must stay character-exact, so it
+   gets a monospace line of its own. */
+.home-v2-chrome-menu__panel .home-v2-account-detail__address {
+  overflow-wrap: anywhere;
+  color: var(--v2-ink);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: calc(11px * var(--v2-type-scale));
+}
+
+.home-v2-chrome-menu__panel .home-v2-account-detail--state {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  color: var(--v2-muted);
+}
+
+.home-v2-chrome-menu__panel
+  .home-v2-account-detail--state
+  .home-v2-account-detail__value {
+  color: var(--v2-muted);
+  font-size: calc(11px * var(--v2-type-scale));
+}
+
 .home-v2-chrome-menu__panel button {
   margin-top: 6px;
   border: 1px solid var(--v2-line);
@@ -1028,6 +1079,13 @@ body,
   flex-basis: 7px;
 }
 
+/* The account button is avatars plus a lock glyph and nothing else: no text
+   to size, so the pill is as wide as its contents (owner request). */
+.home-v2-account-button {
+  gap: 5px;
+  padding: 0 8px;
+}
+
 .home-v2-account-button > span:not(.home-v2-account-avatars) {
   display: grid;
   width: 22px;
@@ -1036,7 +1094,21 @@ body,
   border-radius: 50%;
   color: var(--v2-accent-ink);
   background: var(--v2-accent);
+  /* Its own size, because the button no longer carries readable copy and the
+     narrow layouts used to zero the button's font-size to hide that copy. */
+  font-size: calc(12px * var(--v2-type-scale));
   font-weight: 750;
+}
+
+/* Locked vs unlocked is now the only state the trigger states outright, so it
+   has to read at a glance without relying on colour alone (the glyph differs). */
+.home-v2-account-lock {
+  flex: 0 0 auto;
+  color: var(--v2-muted);
+}
+
+.home-v2-account-button[data-account-state='locked'] .home-v2-account-lock {
+  color: var(--v2-ink);
 }
 
 .home-v2-account-avatars {
@@ -2730,8 +2802,9 @@ body,
   margin: 0 auto;
 }
 
-.home-v2-shell[data-layout='phone'] .home-v2-node-pill,
-.home-v2-shell[data-layout='phone'] .home-v2-account-button {
+/* Only the node pill still needs its text zeroed; the account button has no
+   text of its own any more, and zeroing it hid the fallback initial. */
+.home-v2-shell[data-layout='phone'] .home-v2-node-pill {
   font-size: 0;
 }
 
@@ -2863,8 +2936,7 @@ body,
 }
 
 @media (max-width: 760px) {
-  .home-v2-node-pill,
-  .home-v2-account-button {
+  .home-v2-node-pill {
     font-size: 0;
   }
 
