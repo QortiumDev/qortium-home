@@ -34,6 +34,15 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-25 - feat(home-v2): network and account buttons open menus
+
+The Qortium and Qortal buttons in the toolbar now open a small menu showing
+that network's status, connection, block height and peer count, instead of
+jumping to the Dashboard. The account button does the same, showing the
+selected account with its name and address on each chain, and a button to lock
+or unlock it. Both menus still offer the Dashboard, so it is a choice rather
+than something that happens to you when you only wanted to check a status.
+
 ### 2026-08-25 - feat(home-v2): bookmarks button in the toolbar, and drag a tab to save it
 
 There is a bookmarks button in the toolbar again, between the reload and Home

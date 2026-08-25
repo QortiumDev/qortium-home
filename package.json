@@ -263,7 +263,8 @@
     "test:widget-sizing": "node scripts/ensure-electron-build.mjs && node dist-electron/widget-sizing.test.js",
     "test:widget-snapping": "node scripts/ensure-electron-build.mjs && node dist-electron/widget-snapping.test.js",
     "smoke:desktop:home-v2-tabs": "node scripts/smoke-desktop-home-v2-tabs.mjs",
-    "smoke:desktop:home-v2-bookmarks": "node scripts/smoke-desktop-home-v2-bookmarks.mjs"
+    "smoke:desktop:home-v2-bookmarks": "node scripts/smoke-desktop-home-v2-bookmarks.mjs",
+    "smoke:desktop:home-v2-chrome-menus": "node scripts/smoke-desktop-home-v2-chrome-menus.mjs"
   },
   "dependencies": {
     "@capacitor-community/safe-area": "^8.0.1",

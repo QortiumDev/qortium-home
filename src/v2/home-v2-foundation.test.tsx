@@ -1021,6 +1021,19 @@ function testDesktopAndPhoneContracts(): void {
     // Network buttons are the chain mark alone: no visible label, but the name
     // and status must survive as the accessible name (owner request).
     assert.match(html, /class="home-v2-node-pill"[^>]*aria-label="Qortium: /)
+    // They open a menu in place rather than navigating to the Dashboard, so
+    // reading a status no longer costs the page you were on (owner request).
+    // Attribute order follows the JSX spread, so match the whole opening tag
+    // rather than assuming class comes first.
+    const openingTag = (markup: string, className: string) =>
+      new RegExp(`<button[^>]*class="${className}"[^>]*>`).exec(markup)?.[0] ?? ''
+    const nodePillTag = openingTag(html, 'home-v2-node-pill')
+    const accountTag = openingTag(html, 'home-v2-account-button')
+    assert.match(nodePillTag, /aria-haspopup="menu"/)
+    assert.match(nodePillTag, /aria-expanded="false"/)
+    assert.match(accountTag, /aria-haspopup="menu"/)
+    // Closed by default: no panel is in the markup until the button is used.
+    assert.doesNotMatch(html, /home-v2-chrome-menu__panel/)
     assert.doesNotMatch(html, /class="home-v2-node-pill"[^>]*>[^<]*Qortium</)
     // Tab badges use the compact, icon-only variant.
     assert.match(html, /home-v2-network--compact/)
