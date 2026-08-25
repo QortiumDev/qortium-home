@@ -97,21 +97,60 @@ export function homeV2MintingOperationLabel(action: string): string {
   return action === 'START_MINTING' ? 'Start minting' : 'Remove a minting key'
 }
 
+function isLoopbackIpv4(host: string): boolean {
+  const octets = host.split('.')
+  if (octets.length !== 4) return false
+  if (!octets.every((octet) => /^\d{1,3}$/.test(octet) && Number(octet) <= 255)) return false
+  return octets[0] === '127'
+}
+
+/**
+ * Whether a node URL points at this machine's loopback interface.
+ *
+ * Deliberately strict — `localhost`, 127.0.0.0/8, and `::1` only. Anything
+ * else is refused, including IPv4-mapped IPv6 forms, because Home's own
+ * managed Core is always reached over plain 127.0.0.1 and nothing else needs
+ * to pass. Matching is on the PARSED hostname, never on a substring, so
+ * `localhost.evil.com` and `127.0.0.1.evil.com` are rejected.
+ */
+export function isHomeV2LoopbackNodeUrl(value: unknown): boolean {
+  if (typeof value !== 'string' || !value) return false
+  let parsed: URL
+  try {
+    parsed = new URL(value)
+  } catch {
+    return false
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false
+  // WHATWG keeps the brackets on an IPv6 literal and normalizes its form, so
+  // [0:0:0:0:0:0:0:1] arrives here as ::1.
+  const host = parsed.hostname.toLowerCase().replace(/^\[(.*)\]$/, '$1')
+  return host === 'localhost' || host === '::1' || isLoopbackIpv4(host)
+}
+
 /**
  * The node-side minting surface (`/admin/mintingaccounts`, the minting fields
  * of `/admin/status`, and both write actions) is reachable ONLY through a
- * local Core that Home itself runs and holds the API key for.
+ * local Core that Home itself runs, holds the API key for, and reaches over
+ * loopback.
  *
  * A public node is somebody else's node: its minting state is not the user's
  * to read and its admin endpoints are not the user's to write. A custom node
  * is reachable but not owned by Home, so it is treated the same way — this is
  * deliberately stricter than Home 1.x, which only excluded public nodes.
+ *
+ * The loopback requirement is the backstop: both the mode and the API key come
+ * from Home's own settings, so a mis-set or tampered node URL could otherwise
+ * send an administrative key — or an account private key — to a remote host.
  */
 export function isHomeV2TrustedMintingNode(input: {
   readonly apiKey: string
   readonly mode: string
+  readonly nodeApiUrl: unknown
 }): boolean {
-  return input.mode === 'local' && input.apiKey.length > 0
+  return input.mode === 'local' &&
+    input.apiKey.length > 0 &&
+    isHomeV2LoopbackNodeUrl(input.nodeApiUrl)
 }
 
 export function buildHomeV2SelfRewardSharesPath(address: string): string {
@@ -141,14 +180,39 @@ export function selectHomeV2SelfRewardShares(
   return Object.freeze(shares)
 }
 
+function isSelfMintingAccount(entry: unknown, address: string): entry is Record<string, unknown> {
+  return isRecord(entry) &&
+    entry.mintingAccount === address &&
+    entry.recipientAccount === address
+}
+
 export function hasHomeV2MintingKeyOnNode(mintingAccounts: unknown, address: string): boolean {
   if (!Array.isArray(mintingAccounts)) return false
-  return mintingAccounts.some(
-    (entry) =>
-      isRecord(entry) &&
-      entry.mintingAccount === address &&
-      entry.recipientAccount === address,
-  )
+  return mintingAccounts.some((entry) => isSelfMintingAccount(entry, address))
+}
+
+/**
+ * The reward-share PUBLIC key the node holds for one address' own self share,
+ * or null when it holds none.
+ *
+ * This is what REMOVE_MINTING_ACCOUNT deletes. Home resolves it here, from the
+ * node's own list, rather than accepting a key from the app: Core's DELETE
+ * matches a private key just as happily as a public one, so an app-supplied
+ * value would be both an arbitrary-key-removal primitive and a channel for
+ * routing key material through Home. The returned value is shape-checked so a
+ * malformed entry cannot be echoed back to the node either.
+ */
+export function resolveHomeV2SelfMintingPublicKey(
+  mintingAccounts: unknown,
+  address: string,
+): string | null {
+  if (!Array.isArray(mintingAccounts)) return null
+  for (const entry of mintingAccounts) {
+    if (!isSelfMintingAccount(entry, address)) continue
+    const publicKey = stringOrNull(entry.publicKey)
+    if (publicKey && MINTING_PUBLIC_KEY_PATTERN.test(publicKey)) return publicKey
+  }
+  return null
 }
 
 /**
@@ -245,11 +309,21 @@ export function createHomeV2StartMintingResult(input: {
   })
 }
 
-export function createHomeV2RemoveMintingAccountResult(publicKey: string) {
+/**
+ * `removed: false` with a null key is the answer when the node held no
+ * self-share minting key for the selected account — a no-op, not a failure,
+ * and reached without calling the node at all.
+ */
+export function createHomeV2RemoveMintingAccountResult(input: {
+  readonly address: string
+  readonly publicKey: string | null
+  readonly removed: boolean
+}) {
   return Object.freeze({
     accepted: true as const,
     action: 'REMOVE_MINTING_ACCOUNT' as const,
-    publicKey,
-    removed: true as const,
+    address: input.address,
+    publicKey: input.publicKey,
+    removed: input.removed,
   })
 }

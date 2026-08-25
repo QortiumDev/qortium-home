@@ -296,6 +296,7 @@ import {
   isHomeV2MintingWriteAction,
   isHomeV2TrustedMintingNode,
   normalizeHomeV2MintingPublicKey,
+  resolveHomeV2SelfMintingPublicKey,
   selectHomeV2SelfRewardShares,
   type HomeV2MintingWriteAction,
 } from './home-v2-minting.js'
@@ -4823,31 +4824,70 @@ async function sendHomeV2GroupMembershipAction(
 
 const MINTING_ACCOUNTS_PATH = '/admin/mintingaccounts'
 
-async function deleteHomeV2NodeText(
+/**
+ * Error surface for the node calls that carry key material.
+ *
+ * Core echoes request context into its error bodies, and these particular
+ * requests have an account private key, a derived minting private key, or an
+ * administrative API key in them — so the node's body must never reach the
+ * app, and must not be written to a log either. The app gets the operation
+ * name and the HTTP status; nothing else survives.
+ */
+function scrubbedHomeV2MintingError(operation: string, error: unknown) {
+  const status = isHomeV2AppRecord(error) && typeof error.status === 'number'
+    ? error.status
+    : null
+  console.warn(
+    `[home-v2-app] ${operation} failed${status === null ? '' : ` with HTTP ${status}`}.`,
+  )
+  return Object.assign(
+    new Error(status === null ? `${operation} failed.` : `${operation} failed (HTTP ${status}).`),
+    status === null ? {} : { status },
+  )
+}
+
+// Every secret-bearing POST in this section goes through here, never through
+// postHomeV2ChatText directly.
+async function postHomeV2MintingText(
   nodeApiUrl: string,
   path: string,
   body: string,
-  fallbackMessage: string,
+  contentType: string,
+  operation: string,
   apiKey: string,
 ) {
-  const response = await nodeFetch(`${nodeApiUrl}${path}`, {
-    method: 'DELETE',
-    headers: {
-      'Content-Type': 'text/plain',
-      ...(apiKey ? { 'X-API-KEY': apiKey } : {}),
-    },
-    body,
-    signal: AbortSignal.timeout(CHAT_WRITE_TIMEOUT_MS),
-  })
-  const result = await readBoundedResponse(response, 'GET', CHAT_SIGNING_RESPONSE_MAX_BYTES)
-  const text = result.body.trim()
-  if (!result.ok) {
-    throw Object.assign(
-      new Error(readableNodeErrorMessage(text, `${fallbackMessage} HTTP ${result.status}.`)),
-      { status: result.status },
-    )
+  try {
+    return await postHomeV2ChatText(nodeApiUrl, path, body, contentType, operation, apiKey)
+  } catch (error) {
+    throw scrubbedHomeV2MintingError(operation, error)
   }
-  return text
+}
+
+// The key is always one Home resolved from the node's own list, never a value
+// the app supplied — see resolveHomeV2SelfMintingPublicKey.
+async function deleteHomeV2MintingKey(
+  nodeApiUrl: string,
+  publicKey: string,
+  apiKey: string,
+) {
+  const operation = 'Removing the minting key from the node'
+  let result: Awaited<ReturnType<typeof readBoundedResponse>>
+  try {
+    const response = await nodeFetch(`${nodeApiUrl}${MINTING_ACCOUNTS_PATH}`, {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'text/plain',
+        ...(apiKey ? { 'X-API-KEY': apiKey } : {}),
+      },
+      body: publicKey,
+      signal: AbortSignal.timeout(CHAT_WRITE_TIMEOUT_MS),
+    })
+    result = await readBoundedResponse(response, 'GET', CHAT_SIGNING_RESPONSE_MAX_BYTES)
+  } catch (error) {
+    throw scrubbedHomeV2MintingError(operation, error)
+  }
+  if (!result.ok) throw scrubbedHomeV2MintingError(operation, { status: result.status })
+  return result.body.trim()
 }
 
 async function resolveHomeV2MintingNode(network: HomeV2AppNetwork) {
@@ -4857,7 +4897,11 @@ async function resolveHomeV2MintingNode(network: HomeV2AppNetwork) {
     apiKey,
     node,
     nodeRoute: `${node.mode}|${node.nodeApiUrl}`,
-    trusted: isHomeV2TrustedMintingNode({ apiKey, mode: node.mode }),
+    trusted: isHomeV2TrustedMintingNode({
+      apiKey,
+      mode: node.mode,
+      nodeApiUrl: node.nodeApiUrl,
+    }),
   }
 }
 
@@ -4873,7 +4917,7 @@ function assertHomeV2TrustedMintingNode(
     // itself; see getHomeV2TrustedWriteApiKey, which returns none for Qortal.
     network === 'qortal'
       ? `${operation} is not available for Qortal: Home holds no administrative key for a Qortal node.`
-      : `${operation} needs the local Core that Home runs; the selected node is not one.`,
+      : `${operation} needs the local Core that Home runs and reaches over loopback; the selected node is not one.`,
     {
       action,
       code: 'NODE_CAPABILITY_MISSING',
@@ -4960,7 +5004,7 @@ async function deriveHomeV2MintingKeyPair(
   privateKey58: string,
   publicKey58: string,
 ) {
-  const privateKey = await postHomeV2ChatText(
+  const privateKey = await postHomeV2MintingText(
     nodeApiUrl,
     '/addresses/rewardsharekey',
     JSON.stringify({
@@ -4968,15 +5012,15 @@ async function deriveHomeV2MintingKeyPair(
       recipientAccountPublicKey: publicKey58,
     }),
     'application/json',
-    'Minting key derivation failed.',
+    'Minting key derivation',
     apiKey,
   )
-  const mintingPublicKey = await postHomeV2ChatText(
+  const mintingPublicKey = await postHomeV2MintingText(
     nodeApiUrl,
     '/utils/publickey',
     privateKey,
     'text/plain',
-    'Minting public key derivation failed.',
+    'Minting public key derivation',
     apiKey,
   )
   return { privateKey58: privateKey, publicKey58: mintingPublicKey }
@@ -5064,7 +5108,7 @@ async function startHomeV2Minting(
       // before joins carried minting keys) — submit a zero-fee self-share
       // REWARD_SHARE. The key can be added to the node once it confirms.
       const timestamp = Date.now()
-      const unsignedText = await postHomeV2ChatText(
+      const unsignedText = await postHomeV2MintingText(
         node.nodeApiUrl,
         '/addresses/rewardshare',
         JSON.stringify({
@@ -5077,7 +5121,7 @@ async function startHomeV2Minting(
           txGroupId: 0,
         }),
         'application/json',
-        'Minting authorization transaction build failed.',
+        'Minting authorization transaction build',
         apiKey,
       )
       if (!(await isStillValid())) throw new Error('The signing context changed before minting could start.')
@@ -5110,13 +5154,14 @@ async function startHomeV2Minting(
       )
     }
     // The derived minting private key goes to the local node and nowhere else;
-    // the result below deliberately carries no key material.
-    await postHomeV2ChatText(
+    // the result below deliberately carries no key material, and a failure
+    // here is scrubbed so the node cannot echo the key back through the error.
+    await postHomeV2MintingText(
       node.nodeApiUrl,
       MINTING_ACCOUNTS_PATH,
       mintingKeyPair.privateKey58,
       'text/plain',
-      'Adding the minting key to the node failed.',
+      'Adding the minting key to the node',
       apiKey,
     )
     return createHomeV2StartMintingResult({ address, keyAdded: true })
@@ -5125,6 +5170,31 @@ async function startHomeV2Minting(
   }
 }
 
+// The selected account's OWN self-share minting key as the node currently
+// reports it. Resolved in main, from the node's list, every time it is needed.
+async function readHomeV2SelfMintingKey(
+  nodeApiUrl: string,
+  apiKey: string,
+  address: string,
+) {
+  return resolveHomeV2SelfMintingPublicKey(
+    await readHomeV2ChatJson(nodeApiUrl, MINTING_ACCOUNTS_PATH, 'Minting account lookup', apiKey),
+    address,
+  )
+}
+
+/**
+ * Removes the selected account's own minting key from the local Core.
+ *
+ * The key is NOT a parameter. Core's DELETE /admin/mintingaccounts matches a
+ * private key just as readily as a public one and removes whatever it matches,
+ * so honoring an app-supplied value would let any app strip an unrelated
+ * minter off the user's node and would give it a path for pushing key-shaped
+ * material through Home. Home therefore resolves the account's own self-share
+ * key from the node's own list, before and again after the prompt, and deletes
+ * only that. An app may still SEND `publicKey`, but only as an assertion: it
+ * is compared against the resolved key and never forwarded.
+ */
 async function removeHomeV2MintingAccount(
   sender: WebContents,
   context: QdnViewContext,
@@ -5135,13 +5205,28 @@ async function removeHomeV2MintingAccount(
   if (!context.accountId) throw new Error('No account is selected for this tab.')
   const accountId = context.accountId
   if (!isAccountUnlocked(accountId)) throw new Error('The selected account is locked.')
-  const publicKey = normalizeHomeV2MintingPublicKey(requestValue.publicKey)
+  const assertedPublicKey =
+    requestValue.publicKey === undefined || requestValue.publicKey === null || requestValue.publicKey === ''
+      ? null
+      : normalizeHomeV2MintingPublicKey(requestValue.publicKey)
   const { apiKey, node, nodeRoute, trusted } = await resolveHomeV2MintingNode(network)
   assertHomeV2TrustedMintingNode('REMOVE_MINTING_ACCOUNT', network, trusted)
   const profile = await getAccountProfile(accountId)
+  const address = profile.address
+  const publicKey = await readHomeV2SelfMintingKey(node.nodeApiUrl, apiKey, address)
+  if (!publicKey) {
+    // A no-op, not a failure: nothing is changed and the node is not called.
+    // Answered without prompting, because there is nothing to approve.
+    return createHomeV2RemoveMintingAccountResult({ address, publicKey: null, removed: false })
+  }
+  if (assertedPublicKey && assertedPublicKey !== publicKey) {
+    throw new Error(
+      'The minting key in the request is not the selected account\'s key on this node.',
+    )
+  }
   await requireAccountReadPermission(sender, context, protocol, 'REMOVE_MINTING_ACCOUNT', {
     kind: 'minting',
-    mintingAddress: profile.address,
+    mintingAddress: address,
     mintingPublicKey: publicKey,
     operationLabel: homeV2MintingOperationLabel('REMOVE_MINTING_ACCOUNT'),
     routeLabel: `${node.mode} · ${node.nodeApiUrl}`,
@@ -5159,19 +5244,20 @@ async function removeHomeV2MintingAccount(
     apiKey,
   )
   if (!(await isStillValid())) throw new Error('Account access context changed before approval completed.')
+  // Re-resolve after the approval: the account, and the node's own list, must
+  // still agree on exactly the key the user was shown.
+  const freshProfile = await getAccountProfile(accountId)
+  const freshPublicKey = await readHomeV2SelfMintingKey(node.nodeApiUrl, apiKey, freshProfile.address)
+  if (freshProfile.address !== address || freshPublicKey !== publicKey) {
+    throw new Error('The minting key for the selected account changed before removal.')
+  }
   // DELETE /admin/mintingaccounts takes the base58 key as the plain-text body.
-  const result = await deleteHomeV2NodeText(
-    node.nodeApiUrl,
-    MINTING_ACCOUNTS_PATH,
-    publicKey,
-    'Removing the minting key from the node failed.',
-    apiKey,
-  )
+  const result = await deleteHomeV2MintingKey(node.nodeApiUrl, publicKey, apiKey)
   // Core answers "true" on removal and "false" when it held no matching key.
-  if (result.trim() !== 'true') {
+  if (result !== 'true') {
     throw new Error('The node did not have a matching minting key to remove.')
   }
-  return createHomeV2RemoveMintingAccountResult(publicKey)
+  return createHomeV2RemoveMintingAccountResult({ address, publicKey, removed: true })
 }
 
 async function showHomeV2DesktopContextMenu(

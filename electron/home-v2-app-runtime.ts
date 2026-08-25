@@ -168,7 +168,14 @@ function isWidgetPublicReadAction(action: string) {
     action.includes('CHAT_ATTACHMENT') ||
     action === 'GET_PENDING_TRANSACTIONS' ||
     action === 'GET_SELECTED_ACCOUNT' ||
-    action === 'GET_USER_ACCOUNT'
+    action === 'GET_USER_ACCOUNT' ||
+    // Minting reads describe the user's own node, and GET_MINTING_STATUS
+    // defaults to the selected account's address — so answering it in a widget
+    // discloses the selected identity with no prompt surface to disclose it
+    // through. Both are excluded for the same reason GET_SELECTED_ACCOUNT is,
+    // even though they are permissionless in a normal tab.
+    action === 'GET_MINTING_STATUS' ||
+    action === 'LIST_MINTING_ACCOUNTS'
   )
 }
 

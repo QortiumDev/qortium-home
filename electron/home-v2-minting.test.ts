@@ -10,9 +10,11 @@ import {
   homeV2MintingOperationLabel,
   isHomeV2MintingAction,
   isHomeV2MintingReadAction,
+  isHomeV2LoopbackNodeUrl,
   isHomeV2MintingWriteAction,
   isHomeV2TrustedMintingNode,
   normalizeHomeV2MintingPublicKey,
+  resolveHomeV2SelfMintingPublicKey,
   sanitizeHomeV2MintingAccounts,
   selectHomeV2SelfRewardShares,
   HOME_V2_MINTING_READ_ACTIONS,
@@ -22,6 +24,7 @@ import {
 const ADDRESS = 'QH143K2qjVdn864NSY7aNESo88ao1ZnALH'
 const OTHER = 'QLdBpGnZfP9nSnZ9nSnZ9nSnZ9nSnZ9nSn'
 const REWARD_SHARE_KEY = '9NKfLpKvKJGVvLKQ6bYFa6VbTL3cRAHT2eGmSKA3Vd1B'
+const OTHER_KEY = '7ZpKvKJGVvLKQ6bYFa6VbTL3cRAHT2eGmSKA3Vd1B9NK'
 
 // ---------------------------------------------------------------------------
 // Action classification
@@ -43,17 +46,83 @@ assert.equal(homeV2MintingOperationLabel('START_MINTING'), 'Start minting')
 assert.equal(homeV2MintingOperationLabel('REMOVE_MINTING_ACCOUNT'), 'Remove a minting key')
 
 // ---------------------------------------------------------------------------
-// Trusted-node predicate: local Core WITH an API key, nothing else
+// Trusted-node predicate: loopback local Core WITH an API key, nothing else
 // ---------------------------------------------------------------------------
 
-assert.equal(isHomeV2TrustedMintingNode({ apiKey: 'abc', mode: 'local' }), true)
-assert.equal(isHomeV2TrustedMintingNode({ apiKey: '', mode: 'local' }), false)
+const LOOPBACK = 'http://127.0.0.1:24891'
+
+assert.equal(isHomeV2TrustedMintingNode({ apiKey: 'abc', mode: 'local', nodeApiUrl: LOOPBACK }), true)
+assert.equal(isHomeV2TrustedMintingNode({ apiKey: '', mode: 'local', nodeApiUrl: LOOPBACK }), false)
 for (const mode of ['public', 'custom', 'disabled', 'network']) {
   assert.equal(
-    isHomeV2TrustedMintingNode({ apiKey: 'abc', mode }),
+    isHomeV2TrustedMintingNode({ apiKey: 'abc', mode, nodeApiUrl: LOOPBACK }),
     false,
     `${mode} nodes must never be treated as a trusted minting node.`,
   )
+}
+// The mode and the API key both come from Home's own settings; the URL is the
+// backstop that keeps an administrative or account private key off the network.
+for (const nodeApiUrl of [
+  'http://10.0.0.5:24891',
+  'https://node.example.com',
+  'http://localhost.evil.com:24891',
+  'http://127.0.0.1.evil.com:24891',
+  'http://[2001:db8::1]:24891',
+  '',
+  null,
+  undefined,
+]) {
+  assert.equal(
+    isHomeV2TrustedMintingNode({ apiKey: 'abc', mode: 'local', nodeApiUrl }),
+    false,
+    `${String(nodeApiUrl)} must not be treated as a loopback minting node.`,
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Loopback predicate
+// ---------------------------------------------------------------------------
+
+for (const url of [
+  'http://127.0.0.1:24891',
+  'http://127.0.0.1',
+  'https://127.0.0.1:24891',
+  'http://127.1.2.3:24891',
+  'http://localhost:24891',
+  'http://LOCALHOST:24891',
+  'http://[::1]:24891',
+  // WHATWG normalizes the long form to ::1 before the comparison.
+  'http://[0:0:0:0:0:0:0:1]:24891',
+]) {
+  assert.equal(isHomeV2LoopbackNodeUrl(url), true, `${url} is loopback.`)
+}
+for (const url of [
+  // Substring lookalikes: matching is on the parsed hostname only.
+  'http://localhost.evil.com',
+  'http://127.0.0.1.evil.com',
+  'http://evil.com/127.0.0.1',
+  'http://evil.com/?host=localhost',
+  'http://evil.com#127.0.0.1',
+  // Credentials cannot smuggle a loopback host past the hostname check.
+  'http://127.0.0.1@evil.com',
+  'http://localhost@evil.com',
+  'http://128.0.0.1',
+  'http://126.255.255.255',
+  'http://12.7.0.0.1',
+  'http://[::2]',
+  'http://[2001:db8::1]',
+  // IPv4-mapped IPv6 is deliberately refused: Home's Core is plain 127.0.0.1.
+  'http://[::ffff:127.0.0.1]',
+  'http://192.168.1.10',
+  'file:///etc/passwd',
+  'ftp://127.0.0.1',
+  'not-a-url',
+  '127.0.0.1:24891',
+  '',
+  null,
+  42,
+]) {
+  assert.equal(isHomeV2LoopbackNodeUrl(url), false, `${String(url)} is not loopback.`)
 }
 
 // ---------------------------------------------------------------------------
@@ -98,6 +167,64 @@ assert.equal(
   false,
 )
 assert.equal(hasHomeV2MintingKeyOnNode('nope', ADDRESS), false)
+
+// ---------------------------------------------------------------------------
+// Self-share minting key resolution (what REMOVE_MINTING_ACCOUNT deletes)
+// ---------------------------------------------------------------------------
+
+assert.equal(
+  resolveHomeV2SelfMintingPublicKey(
+    [
+      // Another minter on the same node must never be resolved.
+      { mintingAccount: OTHER, recipientAccount: OTHER, publicKey: OTHER_KEY },
+      { mintingAccount: ADDRESS, recipientAccount: ADDRESS, publicKey: REWARD_SHARE_KEY },
+    ],
+    ADDRESS,
+  ),
+  REWARD_SHARE_KEY,
+)
+// A share this account pays to someone else is not its own self share.
+assert.equal(
+  resolveHomeV2SelfMintingPublicKey(
+    [{ mintingAccount: ADDRESS, recipientAccount: OTHER, publicKey: OTHER_KEY }],
+    ADDRESS,
+  ),
+  null,
+)
+assert.equal(
+  resolveHomeV2SelfMintingPublicKey(
+    [{ mintingAccount: OTHER, recipientAccount: ADDRESS, publicKey: OTHER_KEY }],
+    ADDRESS,
+  ),
+  null,
+)
+assert.equal(resolveHomeV2SelfMintingPublicKey([], ADDRESS), null)
+assert.equal(resolveHomeV2SelfMintingPublicKey('nope', ADDRESS), null)
+assert.equal(resolveHomeV2SelfMintingPublicKey(null, ADDRESS), null)
+// A matching entry with no usable key resolves to null rather than to junk
+// that would then be echoed back to the node.
+for (const publicKey of [undefined, null, '', 'not base58!', 'short', 12345]) {
+  assert.equal(
+    resolveHomeV2SelfMintingPublicKey(
+      [{ mintingAccount: ADDRESS, publicKey, recipientAccount: ADDRESS }],
+      ADDRESS,
+    ),
+    null,
+    `${String(publicKey)} must not resolve as a removable minting key.`,
+  )
+}
+// The first well-formed self-share entry wins, and only self-share entries are
+// ever considered.
+assert.equal(
+  resolveHomeV2SelfMintingPublicKey(
+    [
+      { mintingAccount: ADDRESS, publicKey: 'bad key', recipientAccount: ADDRESS },
+      { mintingAccount: ADDRESS, publicKey: REWARD_SHARE_KEY, recipientAccount: ADDRESS },
+    ],
+    ADDRESS,
+  ),
+  REWARD_SHARE_KEY,
+)
 
 // ---------------------------------------------------------------------------
 // Status derivation: non-local nulls, and the four boolean combinations
@@ -297,12 +424,35 @@ assert.deepEqual({ ...pending }, {
   rewardSharePending: true,
   transactionSignature: 'sig58',
 })
-assert.deepEqual({ ...createHomeV2RemoveMintingAccountResult(REWARD_SHARE_KEY) }, {
-  accepted: true,
-  action: 'REMOVE_MINTING_ACCOUNT',
-  publicKey: REWARD_SHARE_KEY,
-  removed: true,
-})
+assert.deepEqual(
+  { ...createHomeV2RemoveMintingAccountResult({
+    address: ADDRESS,
+    publicKey: REWARD_SHARE_KEY,
+    removed: true,
+  }) },
+  {
+    accepted: true,
+    action: 'REMOVE_MINTING_ACCOUNT',
+    address: ADDRESS,
+    publicKey: REWARD_SHARE_KEY,
+    removed: true,
+  },
+)
+// The node held no self-share key for this account: a no-op, not a failure.
+assert.deepEqual(
+  { ...createHomeV2RemoveMintingAccountResult({
+    address: ADDRESS,
+    publicKey: null,
+    removed: false,
+  }) },
+  {
+    accepted: true,
+    action: 'REMOVE_MINTING_ACCOUNT',
+    address: ADDRESS,
+    publicKey: null,
+    removed: false,
+  },
+)
 
 // ---------------------------------------------------------------------------
 // Source pins: how the bridge is allowed to reach the node
@@ -327,15 +477,22 @@ const androidSource = readRepoSource(
   '../src/home-v2-live/node-client.js',
 )
 
-// The admin path is a module constant, never concatenated from app input.
+// The admin path is a module constant, never concatenated from app input. Only
+// one QUOTED occurrence may exist; prose mentioning the route is fine.
 assert.equal(bridgeSource.includes("const MINTING_ACCOUNTS_PATH = '/admin/mintingaccounts'"), true)
 assert.equal(
-  bridgeSource.split('/admin/mintingaccounts').length - 1,
-  2,
-  'The minting admin path may appear only in its constant and in the comment naming it.',
+  bridgeSource.split("'/admin/mintingaccounts'").length - 1,
+  1,
+  'The minting admin path may appear only in its single module constant.',
 )
 // Every node call in the minting handlers carries the trusted local API key.
-for (const handler of ['startHomeV2Minting', 'removeHomeV2MintingAccount', 'resolveHomeV2MintingNode']) {
+for (const handler of [
+  'startHomeV2Minting',
+  'removeHomeV2MintingAccount',
+  'resolveHomeV2MintingNode',
+  'readHomeV2SelfMintingKey',
+  'deleteHomeV2MintingKey',
+]) {
   assert.equal(bridgeSource.includes(handler), true, `${handler} must exist in the bridge.`)
 }
 assert.equal(bridgeSource.includes('getHomeV2TrustedWriteApiKey(network, node.nodeApiUrl)'), true)
@@ -348,6 +505,67 @@ assert.equal(
   false,
   'The minting private key must never appear in a returned value.',
 )
+
+// The trusted-node predicate is given the node URL, so the loopback check
+// above actually runs on the real route.
+assert.equal(
+  /isHomeV2TrustedMintingNode\(\{[^}]*nodeApiUrl/s.test(bridgeSource),
+  true,
+  'The bridge must pass the node URL to the trusted-minting-node predicate.',
+)
+
+const mintingSection = (() => {
+  const start = bridgeSource.indexOf('// Minting (R3-11)')
+  assert.notEqual(start, -1, 'The minting section marker must exist.')
+  const end = bridgeSource.indexOf('async function showHomeV2DesktopContextMenu', start)
+  assert.notEqual(end, -1, 'The minting section must end before the context-menu handler.')
+  return bridgeSource.slice(start, end)
+})()
+
+// FIX 1: removal deletes a key Home resolved from the node, never one the app
+// supplied. The app's value may only be compared against it.
+assert.equal(
+  mintingSection.includes('deleteHomeV2MintingKey(node.nodeApiUrl, publicKey, apiKey)'),
+  true,
+  'Removal must delete the key resolved from the node.',
+)
+assert.equal(
+  mintingSection.includes('resolveHomeV2SelfMintingPublicKey('),
+  true,
+  'Removal must resolve the selected account\'s own key in main.',
+)
+for (const line of mintingSection.split('\n')) {
+  if (!line.includes('assertedPublicKey')) continue
+  assert.equal(
+    /deleteHomeV2MintingKey\(|postHomeV2MintingText\(|postHomeV2ChatText\(|body:/.test(line),
+    false,
+    `An app-supplied minting key must never reach the node: ${line.trim()}`,
+  )
+}
+// The re-resolve after approval must compare against the key the user saw.
+assert.equal(mintingSection.includes('freshPublicKey !== publicKey'), true)
+
+// FIX 3: no node response body may reach the app from the secret-bearing calls.
+assert.equal(
+  mintingSection.includes('readableNodeErrorMessage'),
+  false,
+  'The minting section must never surface a node error body to the app.',
+)
+assert.equal(mintingSection.includes('function scrubbedHomeV2MintingError'), true)
+function isScrubbedCall(needle: string) {
+  const at = mintingSection.indexOf(needle)
+  assert.notEqual(at, -1, `${needle} must appear in the minting section.`)
+  const before = mintingSection.slice(0, at)
+  return before.lastIndexOf('postHomeV2MintingText(') > before.lastIndexOf('postHomeV2ChatText(')
+}
+for (const needle of [
+  "'/addresses/rewardsharekey',",
+  "'/utils/publickey',",
+  "'/addresses/rewardshare',",
+  'mintingKeyPair.privateKey58,',
+]) {
+  assert.equal(isScrubbedCall(needle), true, `${needle} must be posted through the scrubbing wrapper.`)
+}
 
 // The read allowlist stays closed: apps still cannot fetch /admin/mintingaccounts.
 assert.equal(actionsSource.includes("pathname === '/admin/status'"), true)

@@ -2320,7 +2320,7 @@ export function HomeV2LiveApp() {
           : value.action === 'START_MINTING'
             ? `${appTitle} wants to start minting with your account on this node. Home will load this account's minting key onto the local Core, and submit the on-chain authorization first if it does not exist yet. No key is given to the app.`
           : value.action === 'REMOVE_MINTING_ACCOUNT'
-            ? `${appTitle} wants to remove a minting key from the local Core on this device. Minting with that key stops; nothing on chain changes.`
+            ? `${appTitle} wants to remove this account's own minting key from the local Core on this device. Home read the key off the node itself rather than taking it from the app, so no other minter on your node can be touched. Minting with it stops; nothing on chain changes.`
           : isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment
           ? `${appTitle} wants to ${operationLabel.toLowerCase()} as the selected account.`
           : `${appTitle} wants to read the selected account address and public identity data.`,
@@ -2430,11 +2430,11 @@ export function HomeV2LiveApp() {
                 { label: 'Node', value: String(value.writeRouteLabel) },
                 { label: 'Address', value: String(value.writeMintingAddress) },
                 ...(typeof value.writeMintingPublicKey === 'string'
-                  ? [{ label: 'Minting key', value: value.writeMintingPublicKey }]
+                  ? [{ label: 'This account’s minting key', value: value.writeMintingPublicKey }]
                   : []),
                 {
                   label: 'Not allowed',
-                  value: 'Giving the app any private or minting key, or changing minting on any node but this local one',
+                  value: 'Touching any other minter’s key on this node, giving the app any private or minting key, or changing minting on any node but this local one',
                 },
               ]
           : isPublish || isPrivateAttachment
