@@ -2,7 +2,7 @@ import { app, ipcMain } from 'electron'
 import path from 'node:path'
 import {
   assertAuthorizedHomeV2Sender,
-  sendToAuthorizedHomeV2Senders,
+  broadcastToHomeV2Windows,
 } from './home-v2-authorized-senders.js'
 import { parseHomeV2NotificationPolicyMutation } from './home-v2-notification-policy-codec.js'
 import {
@@ -53,7 +53,7 @@ export async function registerHomeV2NotificationPolicyBridgeIpcHandlers() {
   setQdnAppNotificationsEnabled(initial.enabled)
   const handlers = createHomeV2NotificationPolicyHandlers({
     assertAuthorized: assertAuthorizedHomeV2Sender,
-    broadcast: sendToAuthorizedHomeV2Senders,
+    broadcast: broadcastToHomeV2Windows,
     setAuthoritativeGate: setQdnAppNotificationsEnabled,
     storage,
   })
