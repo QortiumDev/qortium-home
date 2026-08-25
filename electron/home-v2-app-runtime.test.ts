@@ -135,6 +135,7 @@ assert.deepEqual(getHomeV2AvailableAppActions('qortalRequest', {
   'GET_HOST_INFO',
   'IS_USING_PUBLIC_NODE',
   'NOTIFICATION_HAS_PERMISSION',
+  'OPEN_CURRENT_TAB',
   'OPEN_NEW_TAB',
   'SHOW_CONTEXT_MENU',
   'SHOW_NOTIFICATION',
@@ -420,6 +421,9 @@ for (const action of [
 for (const action of [
   'GET_SELECTED_ACCOUNT',
   'OPEN_AS_WIDGET',
+  // A widget has no tab of its own to replace, and no tab strip to add one
+  // to: both open actions stay out, for the same reason.
+  'OPEN_CURRENT_TAB',
   'OPEN_NEW_TAB',
   'PUBLISH_QDN_RESOURCE',
   'SEND_CHAT_MESSAGE',

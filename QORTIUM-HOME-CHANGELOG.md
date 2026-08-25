@@ -34,6 +34,38 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-26 - feat(home-v2): apps can check balances on Qortium again, open a page in the tab they are already in, and use the older viewer actions
+
+Five things apps used to be able to do in the older Home stopped working when
+Home 2 rebuilt the app bridge. None of them was removed on purpose, and this
+brings them all back.
+
+Apps can look up an account's details and its balance on Qortium again. That
+never actually stopped working — Home just forgot to say it was available, so
+apps asking Qortium were told no even though the answer was right there. Asking
+Qortal worked the whole time and is unchanged. Apps can also read the public
+star ratings people leave on published resources, which the apps and profile
+tools need to show a rating without asking Home for anything special. Leaving a
+rating still goes through the normal signed-transaction route; this only opens
+the reading side.
+
+Apps can now ask Home to load a different address in the tab they are already
+in, instead of only being able to open another one. An app browser that opens
+something you picked no longer has to leave a growing pile of tabs behind. An
+app can only ever do this to its own tab: it cannot name a tab, cannot reach
+into another app's tab, and cannot replace one of Home's own pages — Settings,
+the dashboard, the Core API docs and the release notes still open in a tab of
+their own. Because an app is only steering the tab it already occupies, this
+asks no more permission than opening a new tab does, and the tab it lands on
+starts with no more access than a brand-new one would.
+
+Finally, the two older ways of asking Home to show a media file or a document
+work again. They are simply other names for the resource viewer Home 2 already
+has, so they show the same viewer with the same checks, and each one still
+accepts only the kinds of files it always did. Apps published before Home 2 —
+Chat, Help, Explore and Library among them — no longer need to be republished
+to open an attachment. Newer apps should keep using the current action.
+
 ### 2026-08-26 - fix(home-v2): the widget button only appears for apps that have a widget, and Copy actually copies
 
 Two small things in the app toolbar and its menus were quietly wrong.

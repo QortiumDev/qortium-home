@@ -1,5 +1,19 @@
 # Add `OPEN_CURRENT_TAB` bridge action
 
+> **Status: implemented, but not by the plan below.** This file is the original
+> Home 1.x design note, and every file path in it (`electron/qdn.ts`,
+> `electron/qdn-app-actions.ts`, `src/App.tsx`, `src/platform.ts`) belongs to
+> the 1.x bridge. Home 2 ships `OPEN_CURRENT_TAB` through its own bridge:
+> `electron/home-v2-app-actions.ts` (catalogue and the shared
+> `normalizeHomeV2OpenAddress` validator), `electron/home-v2-app-bridge.ts`
+> (desktop handler, bound to `context.tabId`), `src/home-v2-live/node-client.ts`
+> (portable host), and the `replace-tab-app` reducer in `src/v2/product-model.ts`.
+> Two contract points also differ on purpose: Home 2 accepts `qdn://`,
+> `qortal://` and `home://` rather than 1.x's `core://` set, and it has no
+> per-tab history model of its own — Back is the app view's own navigation
+> history. See [Bridge action notes](BRIDGE_ACTIONS.md) for the current
+> contract; keep this file as the motivation record.
+
 ## Goal
 
 Add a `OPEN_CURRENT_TAB` QDN bridge action that lets a Q-App navigate the

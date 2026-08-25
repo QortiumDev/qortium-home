@@ -6,15 +6,19 @@ import {
   buildHomeV2NamePath,
   buildHomeV2ResourcePath,
   buildHomeV2ResourceRenderPath,
+  canonicalHomeV2AppAction,
   getHomeV2AppActions,
+  HOME_V2_RESOURCE_VIEWER_ALIASES,
   normalizeHomeV2ChatMessageText,
   normalizeHomeV2OpenAddress,
+  normalizeHomeV2ReadMethod,
   normalizeHomeV2ReadPath,
   normalizeHomeV2ResponseMaxBytes,
   normalizeHomeV2SendTxGroupId,
 } from './home-v2-app-actions.js'
 import {
   homeV2PermissionGrantFamily,
+  isHomeV2AccountReadAction,
   isHomeV2ChatSendAction,
   isHomeV2PermissionlessAction,
   HOME_V2_PERMISSIONLESS_ACTIONS,
@@ -681,5 +685,203 @@ assert.notEqual(
   homeV2PermissionGrantFamily('START_MINTING'),
   homeV2PermissionGrantFamily('REMOVE_MINTING_ACCOUNT'),
 )
+
+// ---------------------------------------------------------------------------
+// R4-8 parity re-adds: GET_ACCOUNT_DATA/GET_BALANCE on both protocols,
+// /resource-ratings reads, OPEN_CURRENT_TAB, and the two legacy viewer aliases.
+// ---------------------------------------------------------------------------
+
+// Both handlers derive their path from `network`, so the qdnRequest half was a
+// catalogue omission rather than a missing implementation. Pinned on both
+// protocols so it cannot silently become Qortal-only again.
+for (const action of ['GET_ACCOUNT_DATA', 'GET_BALANCE']) {
+  assert.equal(qdnActions.includes(action), true, `qdnRequest must advertise ${action}.`)
+  assert.equal(qortalActions.includes(action), true, `qortalRequest must advertise ${action}.`)
+}
+
+// Core's public resource ratings: three GET routes plus a POST /rate that the
+// GET/HEAD method allowlist already makes unreachable through this passthrough.
+assert.equal(
+  normalizeHomeV2ReadPath('/resource-ratings/summary?service=APP&name=Trust'),
+  '/resource-ratings/summary?service=APP&name=Trust',
+)
+assert.equal(normalizeHomeV2ReadPath('/resource-ratings'), '/resource-ratings')
+assert.equal(normalizeHomeV2ReadMethod('GET'), 'GET')
+assert.throws(() => normalizeHomeV2ReadMethod('POST'), /only use GET or HEAD/)
+// The prefix must not open neighbouring paths that merely start with the same
+// characters — normalizeHomeV2ReadPath matches on segment boundaries.
+assert.throws(
+  () => normalizeHomeV2ReadPath('/resource-ratings-admin'),
+  /outside Home v2 read-only scope/,
+)
+
+// OPEN_CURRENT_TAB ships on both protocols, next to OPEN_NEW_TAB.
+for (const action of ['OPEN_CURRENT_TAB', 'OPEN_NEW_TAB']) {
+  assert.equal(qdnActions.includes(action), true, `qdnRequest must advertise ${action}.`)
+  assert.equal(qortalActions.includes(action), true, `qortalRequest must advertise ${action}.`)
+}
+// Both open actions share one validator, so their accepted scheme set cannot
+// drift apart. Home 2 uses qdn:// / qortal:// / home:// — deliberately NOT
+// Home 1.x's core://, which has no v2 meaning.
+assert.equal(normalizeHomeV2OpenAddress({ address: 'home://settings' }), 'home://settings')
+assert.throws(() => normalizeHomeV2OpenAddress({ address: 'core://settings' }), /only accepts/)
+assert.throws(() => normalizeHomeV2OpenAddress({}), /Address is required/)
+
+// The legacy viewer actions are advertised, but they are ALIASES: each one
+// canonicalizes to OPEN_QDN_RESOURCE_VIEWER before dispatch, so neither
+// becomes a separate capability with its own grant identity.
+for (const action of HOME_V2_RESOURCE_VIEWER_ALIASES) {
+  assert.equal(qdnActions.includes(action), true, `qdnRequest must advertise ${action}.`)
+  assert.equal(qortalActions.includes(action), true, `qortalRequest must advertise ${action}.`)
+}
+assert.deepEqual(
+  [...HOME_V2_RESOURCE_VIEWER_ALIASES],
+  ['OPEN_QDN_DOCUMENT_VIEWER', 'OPEN_QDN_MEDIA_PLAYER'],
+)
+assert.equal(
+  canonicalHomeV2AppAction('OPEN_QDN_MEDIA_PLAYER', { name: 'Alice', service: 'VIDEO' }),
+  'OPEN_QDN_RESOURCE_VIEWER',
+)
+assert.equal(
+  canonicalHomeV2AppAction('OPEN_QDN_DOCUMENT_VIEWER', { name: 'Alice', service: 'DOCUMENT' }),
+  'OPEN_QDN_RESOURCE_VIEWER',
+)
+// Service matching is case- and whitespace-insensitive, and reads a nested
+// `payload` the same way the viewer contract's getRequestValue does.
+assert.equal(
+  canonicalHomeV2AppAction('OPEN_QDN_MEDIA_PLAYER', {
+    payload: { name: 'Alice', service: ' audio ' },
+  }),
+  'OPEN_QDN_RESOURCE_VIEWER',
+)
+// Each alias keeps the NARROWER service scope its Home 1.x handler enforced:
+// an alias must never reach a resource the action it replaced refused.
+assert.throws(
+  () => canonicalHomeV2AppAction('OPEN_QDN_MEDIA_PLAYER', { name: 'Alice', service: 'DOCUMENT' }),
+  /OPEN_QDN_MEDIA_PLAYER only supports AUDIO, PODCAST, VIDEO, VOICE resources/,
+)
+assert.throws(
+  () => canonicalHomeV2AppAction('OPEN_QDN_DOCUMENT_VIEWER', { name: 'Alice', service: 'VIDEO' }),
+  /OPEN_QDN_DOCUMENT_VIEWER only supports ATTACHMENT, DOCUMENT, FILE, FILES resources/,
+)
+// APP/WEBSITE/GAME stay out through both aliases too: neither scope contains
+// them, so an alias can never be used to nest browser content in the viewer.
+for (const service of ['APP', 'WEBSITE', 'GAME']) {
+  for (const action of HOME_V2_RESOURCE_VIEWER_ALIASES) {
+    assert.throws(
+      () => canonicalHomeV2AppAction(action, { name: 'Alice', service }),
+      /only supports/,
+      `${action} must refuse ${service}.`,
+    )
+  }
+}
+// A missing or non-string service is rejected before the alias resolves.
+assert.throws(
+  () => canonicalHomeV2AppAction('OPEN_QDN_MEDIA_PLAYER', { name: 'Alice' }),
+  /QDN resource service is required/,
+)
+assert.throws(
+  () => canonicalHomeV2AppAction('OPEN_QDN_DOCUMENT_VIEWER', { name: 'Alice', service: 42 }),
+  /QDN resource service is required/,
+)
+// Every non-alias action passes through untouched, including the canonical one.
+for (const action of [
+  'OPEN_QDN_RESOURCE_VIEWER',
+  'OPEN_CURRENT_TAB',
+  'OPEN_NEW_TAB',
+  'GET_BALANCE',
+  'SEND_CHAT_MESSAGE',
+]) {
+  assert.equal(canonicalHomeV2AppAction(action, { service: 'APP' }), action)
+}
+
+// Prompt classification. None of the five re-adds may land in a prompt family
+// by accident: the four reads are plain public reads, and OPEN_CURRENT_TAB is
+// matched to OPEN_NEW_TAB, which is unprompted because it only drives Home's
+// own navigation. The aliases inherit OPEN_QDN_RESOURCE_VIEWER's posture by
+// becoming it before any permission work happens.
+for (const action of [
+  'GET_ACCOUNT_DATA',
+  'GET_BALANCE',
+  'OPEN_CURRENT_TAB',
+  'OPEN_QDN_MEDIA_PLAYER',
+  'OPEN_QDN_DOCUMENT_VIEWER',
+]) {
+  assert.equal(
+    isHomeV2AccountReadAction(action),
+    false,
+    `${action} must not join the account.read grant family.`,
+  )
+  assert.equal(isHomeV2ChatSendAction(action), false, `${action} must not be a grantable chat send.`)
+  assert.equal(
+    (HOME_V2_PERMISSIONLESS_ACTIONS as readonly string[]).includes(action),
+    false,
+    `${action} must not be listed as a permissionless account read.`,
+  )
+  // Its own family, i.e. it shares no approval with anything else.
+  assert.equal(homeV2PermissionGrantFamily(action), action)
+}
+// OPEN_CURRENT_TAB is classified exactly like its reference, OPEN_NEW_TAB.
+for (const action of ['OPEN_CURRENT_TAB', 'OPEN_NEW_TAB']) {
+  assert.equal(isHomeV2AccountReadAction(action), false)
+  assert.equal(isHomeV2PermissionlessAction(action), false)
+  assert.equal(homeV2PermissionGrantFamily(action), action)
+}
+
+// Source pins.
+const openTabBridgeSource = readRepoSource(
+  '../electron/home-v2-app-bridge.ts',
+  './home-v2-app-bridge.ts',
+)
+const openTabShellSource = readRepoSource(
+  '../src/home-v2-live/HomeV2LiveApp.tsx',
+  '../src/home-v2-live/HomeV2LiveApp.js',
+)
+const openTabPortableSource = readRepoSource(
+  '../src/home-v2-live/node-client.ts',
+  '../src/home-v2-live/node-client.js',
+)
+// The desktop handler must reuse the shared address validator rather than
+// growing a second scheme test that could drift from OPEN_NEW_TAB's.
+assert(
+  /action === 'OPEN_CURRENT_TAB'[\s\S]{0,400}normalizeHomeV2OpenAddress\(requestValue\)/.test(
+    openTabBridgeSource,
+  ),
+  'OPEN_CURRENT_TAB must validate its address with normalizeHomeV2OpenAddress.',
+)
+// The tab it acts on must come from the trusted view context, never from the
+// request: an app may not navigate a tab it does not own.
+assert(
+  /action === 'OPEN_CURRENT_TAB'[\s\S]{0,800}home-v2-app:open-address-in-tab'[\s\S]{0,200}tabId: context\.tabId/.test(
+    openTabBridgeSource,
+  ),
+  'OPEN_CURRENT_TAB must bind to context.tabId.',
+)
+assert(
+  !/action === 'OPEN_CURRENT_TAB'[\s\S]{0,800}requestValue\.tabId/.test(openTabBridgeSource),
+  'OPEN_CURRENT_TAB must never read a tab id out of the request.',
+)
+assert(
+  openTabPortableSource.includes("action === 'OPEN_CURRENT_TAB'") &&
+    openTabPortableSource.includes("openIn: 'current-tab'"),
+  'The portable host must answer OPEN_CURRENT_TAB with a current-tab descriptor.',
+)
+assert(
+  openTabShellSource.includes("type: 'replace-tab-app'") &&
+    openTabShellSource.includes('onOpenAddressInTab'),
+  'The shell must replace a tab through the replace-tab-app product action.',
+)
+// Every bridge entry point must collapse aliases, or one host would treat a
+// legacy action as unimplemented while another served it.
+for (const [name, source] of [
+  ['electron/home-v2-app-bridge.ts', openTabBridgeSource],
+  ['src/home-v2-live/node-client.ts', openTabPortableSource],
+  ['src/home-v2-live/HomeV2LiveApp.tsx', openTabShellSource],
+] as const) {
+  assert(
+    source.includes('canonicalHomeV2AppAction('),
+    `${name} must canonicalize compatibility aliases at its bridge entry point.`,
+  )
+}
 
 console.log('Home v2 app action contract tests passed.')

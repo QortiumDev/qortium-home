@@ -553,6 +553,128 @@ function testProductModelKeepsSourceQualifiedTabs(): void {
   )
 }
 
+// OPEN_CURRENT_TAB's whole product-model surface. The bridge decides WHICH tab
+// (always the requesting view's own); this reducer decides what a replacement
+// is allowed to be.
+function testProductModelReplacesOneAppTabInPlace(): void {
+  const chat = fixtureApp(fixtureIds.chatApp)
+  const chatContext = fixtureTabContext(chat, fixtureIds.chatTab)
+  const trust = fixtureApp(fixtureIds.trustApp)
+  const trustInChatTab = fixtureTabContext(trust, fixtureIds.chatTab)
+
+  const withChat = reduceProductState(createProductState(), {
+    type: 'open-app',
+    app: chat,
+    context: chatContext,
+    tabId: fixtureIds.chatTab,
+  })
+  const dashboardTabId = withChat.entries.find((entry) => entry.kind === 'internal')!.id
+
+  const replaced = reduceProductState(withChat, {
+    type: 'replace-tab-app',
+    app: trust,
+    context: trustInChatTab,
+    tabId: fixtureIds.chatTab,
+  })
+  // Same tab, same strip position, new app.
+  assert.equal(replaced.tabs.length, 1, 'replacing must not add a tab')
+  assert.equal(replaced.entries.length, withChat.entries.length)
+  assert.deepEqual(
+    replaced.entries.map((entry) => entry.id),
+    withChat.entries.map((entry) => entry.id),
+    'the strip order and ids are untouched',
+  )
+  assert.equal(replaced.tabs[0].id, fixtureIds.chatTab)
+  assert.equal(replaced.tabs[0].appId, trust.id)
+  assert.equal(replaced.tabs[0].title, trust.title)
+  assert.equal(
+    replaced.tabs[0].context.resourceLocation,
+    trustInChatTab.resourceLocation,
+  )
+  assert.equal(replaced.activeTabId, fixtureIds.chatTab, 'the tab comes forward')
+  assert.equal(replaced.revision, withChat.revision + 1)
+  assert.equal(Object.isFrozen(replaced.tabs[0].context), true)
+
+  // Replacing a tab with what it already shows just brings it forward.
+  const unchanged = reduceProductState(replaced, {
+    type: 'replace-tab-app',
+    app: trust,
+    context: trustInChatTab,
+    tabId: fixtureIds.chatTab,
+  })
+  assert.equal(unchanged.tabs.length, 1)
+  assert.equal(unchanged.tabs[0].appId, trust.id)
+
+  // A tab that is not open cannot be replaced.
+  assert.throws(
+    () =>
+      reduceProductState(withChat, {
+        type: 'replace-tab-app',
+        app: trust,
+        context: fixtureTabContext(trust, fixtureIds.qortalCompatTab),
+        tabId: fixtureIds.qortalCompatTab,
+      }),
+    (error) => {
+      assert.ok(error instanceof ProductModelError)
+      assert.equal(error.code, 'TAB_NOT_FOUND')
+      return true
+    },
+  )
+  // An app may never take over one of Home's own pages: only APP tabs can be
+  // replaced, even though internal pages share the same id space.
+  assert.throws(
+    () =>
+      reduceProductState(withChat, {
+        type: 'replace-tab-app',
+        app: trust,
+        context: fixtureTabContext(trust, dashboardTabId),
+        tabId: dashboardTabId,
+      }),
+    (error) => {
+      assert.ok(error instanceof ProductModelError)
+      assert.equal(error.code, 'TAB_NOT_FOUND')
+      assert.match(error.message, /not an app tab/)
+      return true
+    },
+  )
+  assert.equal(
+    withChat.entries.find((entry) => entry.id === dashboardTabId)?.kind,
+    'internal',
+    'the dashboard page is still an internal page',
+  )
+  // A replacement is validated exactly as strictly as a fresh open: the
+  // immutable context must name this app and this tab, and its resource
+  // location must agree with the app's source chain.
+  assert.throws(
+    () =>
+      reduceProductState(withChat, {
+        type: 'replace-tab-app',
+        app: trust,
+        context: { ...trustInChatTab, appId: chat.id },
+        tabId: fixtureIds.chatTab,
+      }),
+    (error) => {
+      assert.ok(error instanceof ProductModelError)
+      assert.equal(error.code, 'APP_CONTEXT_MISMATCH')
+      return true
+    },
+  )
+  assert.throws(
+    () =>
+      reduceProductState(withChat, {
+        type: 'replace-tab-app',
+        app: trust,
+        context: { ...trustInChatTab, resourceLocation: chatContext.resourceLocation },
+        tabId: fixtureIds.chatTab,
+      }),
+    (error) => {
+      assert.ok(error instanceof ProductModelError)
+      assert.equal(error.code, 'APP_CONTEXT_MISMATCH')
+      return true
+    },
+  )
+}
+
 function testAndroidAppFrameMessagesStayBounded(): void {
   const token = 'fixture-bridge-token'
   const renderUrl = 'https://qdn-app.local/render/APP/Help/Help'
@@ -2905,6 +3027,7 @@ await testMockHostFailsClosed()
 await testPlatformFixtureHostsFailClosed()
 testWrongNetworkStopsBeforeAdapter()
 testProductModelKeepsSourceQualifiedTabs()
+testProductModelReplacesOneAppTabInPlace()
 testAndroidAppFrameMessagesStayBounded()
 testAppResourceSchemesStaySourceQualified()
 testBridgeProtocolsStaySeparate()

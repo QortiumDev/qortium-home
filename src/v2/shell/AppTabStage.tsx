@@ -476,11 +476,18 @@ function AndroidAppStage(props: AppTabStageProps) {
           result &&
           typeof result === 'object' &&
           'openIn' in result &&
-          result.openIn === 'new-tab' &&
+          (result.openIn === 'new-tab' || result.openIn === 'current-tab') &&
           'address' in result &&
           typeof result.address === 'string'
         ) {
-          await props.onOpenAddress?.(result.address)
+          // `context.tabId` is this stage's own resolved tab, not anything the
+          // app sent: an app can ask for its tab to be replaced, never for
+          // some other tab to be.
+          if (result.openIn === 'current-tab') {
+            await props.onOpenAddressInTab?.(result.address, context.tabId)
+          } else {
+            await props.onOpenAddress?.(result.address)
+          }
           result = true
         }
         ;(event.source as Window | null)?.postMessage({
@@ -515,6 +522,7 @@ function AndroidAppStage(props: AppTabStageProps) {
     props.nodeClient,
     props.onNavigationChanged,
     props.onOpenAddress,
+    props.onOpenAddressInTab,
     props.onTitleChanged,
     props.requestApp,
     resolved,
@@ -587,6 +595,8 @@ export interface AppTabStageProps {
     controller: AppTabNavigationController | null,
   ) => void
   readonly onOpenAddress?: (address: string) => Promise<unknown>
+  /** OPEN_CURRENT_TAB: replace the named tab's content instead of adding one. */
+  readonly onOpenAddressInTab?: (address: string, tabId: string) => Promise<unknown>
   readonly onTitleChanged?: (
     tabId: ProductState['tabs'][number]['id'],
     title: string | null,
@@ -664,6 +674,7 @@ declare global {
       resolvePermission(request: unknown): void
       show(request: unknown): Promise<void>
       onOpenAddress(listener: (event: unknown) => void): () => void
+      onOpenAddressInTab(listener: (event: unknown) => void): () => void
       onOpenResourceViewer(listener: (event: unknown) => void): () => void
       onNotificationClicked(listener: (event: unknown) => void): () => void
       onPermissionRequest(listener: (event: unknown) => void): () => void

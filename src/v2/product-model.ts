@@ -80,6 +80,16 @@ export type ProductAction =
       readonly context: AppTabContext
       readonly tabId: TabId
     }
+  /**
+   * Replaces one app tab's content in place, keeping its id and its position
+   * in the strip. The reducer behind the OPEN_CURRENT_TAB bridge action.
+   */
+  | {
+      readonly type: 'replace-tab-app'
+      readonly app: AppDescriptor
+      readonly context: AppTabContext
+      readonly tabId: TabId
+    }
   | { readonly type: 'activate-tab'; readonly tabId: TabId }
   | { readonly type: 'close-tab'; readonly tabId: TabId }
   | {
@@ -330,14 +340,21 @@ function contextsIdentifySameTab(
   )
 }
 
-function openApp(
-  state: ProductState,
-  action: Extract<ProductAction, { readonly type: 'open-app' }>,
-): ProductState {
-  if (
-    action.context.appId !== action.app.id ||
-    action.context.tabId !== action.tabId
-  ) {
+/**
+ * The invariants every app tab must satisfy, whether it is being opened in a
+ * new tab or replacing the content of an existing one: the immutable context
+ * names this exact app and tab, its resource location parses, and that
+ * location agrees with the app's source chain and resource identity.
+ *
+ * Shared so the in-place replacement can never be validated more loosely than
+ * a fresh open.
+ */
+function assertAppTabTarget(
+  app: AppDescriptor,
+  context: AppTabContext,
+  tabId: TabId,
+): void {
+  if (context.appId !== app.id || context.tabId !== tabId) {
     throw new ProductModelError(
       'APP_CONTEXT_MISMATCH',
       'The app or tab does not match the immutable operation context.',
@@ -345,7 +362,7 @@ function openApp(
   }
   let parsedLocation: ReturnType<typeof parseAppResourceLocation>
   try {
-    parsedLocation = parseAppResourceLocation(action.context.resourceLocation)
+    parsedLocation = parseAppResourceLocation(context.resourceLocation)
   } catch {
     throw new ProductModelError(
       'APP_CONTEXT_MISMATCH',
@@ -353,16 +370,79 @@ function openApp(
     )
   }
   if (
-    action.context.sourceNetwork !== action.app.sourceNetwork ||
-    parsedLocation.sourceNetwork !== action.app.sourceNetwork ||
-    parsedLocation.identity.name !== action.app.resourceIdentity.name ||
-    parsedLocation.identity.identifier !== action.app.resourceIdentity.identifier
+    context.sourceNetwork !== app.sourceNetwork ||
+    parsedLocation.sourceNetwork !== app.sourceNetwork ||
+    parsedLocation.identity.name !== app.resourceIdentity.name ||
+    parsedLocation.identity.identifier !== app.resourceIdentity.identifier
   ) {
     throw new ProductModelError(
       'APP_CONTEXT_MISMATCH',
       'The app resource location does not match its immutable source chain.',
     )
   }
+}
+
+/**
+ * Replaces one app tab's content in place, keeping its id and strip position.
+ *
+ * This is the reducer behind the OPEN_CURRENT_TAB bridge action. The tab it
+ * acts on is chosen by the trusted host from the requesting view's own
+ * context — never from a field the app supplied — and this reducer refuses any
+ * id that is not an existing APP tab. So even a bridge mistake cannot turn
+ * "navigate my own tab" into navigating Settings, the dashboard, or a tab
+ * belonging to a different app.
+ */
+function replaceTabApp(
+  state: ProductState,
+  action: Extract<ProductAction, { readonly type: 'replace-tab-app' }>,
+): ProductState {
+  const index = state.entries.findIndex((entry) => entry.id === action.tabId)
+  if (index < 0) {
+    throw new ProductModelError(
+      'TAB_NOT_FOUND',
+      `Tab ${action.tabId} was not found.`,
+    )
+  }
+  const current = state.entries[index]
+  if (current.kind !== 'app') {
+    throw new ProductModelError(
+      'TAB_NOT_FOUND',
+      `Tab ${action.tabId} is not an app tab.`,
+    )
+  }
+  assertAppTabTarget(action.app, action.context, action.tabId)
+  // Already showing exactly this app in this tab: bring it forward rather than
+  // rebuilding an identical entry, matching how open-app treats a repeat open.
+  if (contextsIdentifySameTab(current.context, action.context)) {
+    return freezeProductState({
+      ...state,
+      transient: null,
+      activeTabId: current.id,
+      revision: state.revision + 1,
+    })
+  }
+  const entries = [...state.entries]
+  entries[index] = {
+    kind: 'app',
+    id: action.tabId,
+    appId: action.app.id,
+    title: action.app.title,
+    context: { ...action.context, tabId: action.tabId },
+  }
+  return freezeProductState({
+    ...state,
+    entries,
+    transient: null,
+    activeTabId: action.tabId,
+    revision: state.revision + 1,
+  })
+}
+
+function openApp(
+  state: ProductState,
+  action: Extract<ProductAction, { readonly type: 'open-app' }>,
+): ProductState {
+  assertAppTabTarget(action.app, action.context, action.tabId)
 
   const existing = state.entries.find(
     (entry) =>
@@ -539,6 +619,8 @@ export function reduceProductState(
   switch (action.type) {
     case 'open-app':
       return openApp(state, action)
+    case 'replace-tab-app':
+      return replaceTabApp(state, action)
     case 'activate-tab':
       return activateTab(state, action.tabId)
     case 'close-tab':

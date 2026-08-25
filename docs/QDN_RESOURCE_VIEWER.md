@@ -30,12 +30,21 @@ used. Home still verifies the resource and its resolved properties.
 The Home 2 viewer renders raster images, audio, video, and PDF documents in its
 native overlay. Other public file services receive an explicit open-or-save
 surface rather than being interpreted as active content. `APP`, `WEBSITE`, and
-`GAME` are deliberately excluded: use `OPEN_NEW_TAB` rather than nesting
-browser content inside another Q-App. The viewer always labels the resource as
-public, including when the link came from a direct message or private group.
+`GAME` are deliberately excluded: use `OPEN_NEW_TAB` or `OPEN_CURRENT_TAB`
+rather than nesting browser content inside another Q-App. The viewer always
+labels the resource as public, including when the link came from a direct
+message or private group.
 
 The older `OPEN_QDN_MEDIA_PLAYER` and `OPEN_QDN_DOCUMENT_VIEWER` actions remain
-available for compatibility.
+available in Home 2 as compatibility **aliases** of `OPEN_QDN_RESOURCE_VIEWER`,
+on both `qdnRequest` and `qortalRequest`. Home collapses each onto the
+canonical action before dispatch, so they share its validation, its approval
+behavior, and its viewer — they are not separate capabilities and cannot be
+approved separately. Each alias keeps the narrower service list its Home 1.x
+handler enforced: `OPEN_QDN_MEDIA_PLAYER` accepts only `AUDIO`, `PODCAST`,
+`VIDEO`, and `VOICE`; `OPEN_QDN_DOCUMENT_VIEWER` accepts only `ATTACHMENT`,
+`DOCUMENT`, `FILE`, and `FILES`. Anything outside those lists must call
+`OPEN_QDN_RESOURCE_VIEWER` directly. New apps should use the canonical action.
 
 ## Obtain a ranged media URL
 

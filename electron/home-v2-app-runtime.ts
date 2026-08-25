@@ -58,6 +58,10 @@ export const HOME_V2_ROUTE_INDEPENDENT_ACTIONS = Object.freeze([
   'GET_PENDING_TRANSACTIONS',
   'IS_USING_PUBLIC_NODE',
   'NOTIFICATION_HAS_PERMISSION',
+  // Both open actions are route-independent for the same reason: they hand an
+  // address to Home's own navigation and never touch a node. An app on an
+  // unavailable route can still send the user somewhere useful.
+  'OPEN_CURRENT_TAB',
   'OPEN_NEW_TAB',
   'SHOW_CONTEXT_MENU',
   'SHOW_NOTIFICATION',

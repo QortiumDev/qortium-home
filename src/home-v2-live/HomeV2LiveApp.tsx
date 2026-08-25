@@ -197,6 +197,7 @@ import {
   isHomeV2PermissionlessAction,
 } from '../../electron/home-v2-session-grants'
 import { getHomeV2BridgeStateDetails } from '../../electron/home-v2-app-runtime'
+import { canonicalHomeV2AppAction } from '../../electron/home-v2-app-actions'
 import {
   homeV2NotificationChainLabel,
   homeV2NotificationSourceKey,
@@ -1482,6 +1483,53 @@ export function HomeV2LiveApp() {
     [snapshot.identity.id, snapshot.identity.selectedWallet],
   )
 
+  // The in-place twin of openApp, behind OPEN_CURRENT_TAB. The tab id always
+  // comes from the trusted host's view context, never from the app: see the
+  // OPEN_CURRENT_TAB handler in electron/home-v2-app-bridge.ts and the
+  // replace-tab-app reducer, which refuses anything that is not an app tab.
+  //
+  // The tab KEEPS its existing identity and wallet binding rather than picking
+  // up whatever account is selected right now. That is not a convenience: on
+  // desktop the native view's account is pinned when the view is created and a
+  // re-show deliberately never rebinds it (getOrCreateEntry in
+  // electron/qdn-views.ts), so choosing anything else here would leave the
+  // shell showing one account while the bridge still answered for another.
+  // OPEN_CURRENT_TAB therefore has no way to change accounts — it changes only
+  // which app is loaded.
+  const replaceTabWithApp = useCallback(
+    (
+      tabId: TabId,
+      app: AppDescriptor,
+      requestedLocation?: AppTabContext['resourceLocation'],
+    ) => {
+      const current = productStateRef.current.tabs.find((tab) => tab.id === tabId)
+      if (!current) throw new Error('That app tab is no longer open.')
+      setShellNotice(null)
+      dispatchProduct({
+        type: 'replace-tab-app',
+        app,
+        tabId,
+        context: {
+          appId: app.id,
+          identityId: current.context.identityId,
+          resourceLocation:
+            requestedLocation ??
+            buildAppResourceLocation(app.sourceNetwork, app.resourceIdentity),
+          sourceNetwork: app.sourceNetwork,
+          tabId,
+          walletRef: current.context.walletRef,
+        },
+      })
+      // The tab keeps its id but is now a different app. Session grants are
+      // keyed by app identity as well as tab, so an incoming app can never
+      // match a grant the outgoing one earned; this drops those grants anyway,
+      // so a replaced tab starts exactly as bare as a freshly opened one.
+      invalidateAndroidRuntime('navigation-changed', tabId)
+      window.homeV2Apps?.invalidateRuntime({ kind: 'navigation-changed', tabId })
+    },
+    [invalidateAndroidRuntime],
+  )
+
   // Whether an app has a widget face is only knowable from the manifest it
   // publishes on the node, and the shell renderer cannot reach the node, so
   // main answers it. The answer is cached per tab *and* resource - the same
@@ -1572,8 +1620,36 @@ export function HomeV2LiveApp() {
   }, [])
 
   const openAddress = useCallback(
-    async (address: string, requestedAccountId?: string | null): Promise<AddressOpenResult> => {
+    async (
+      address: string,
+      requestedAccountId?: string | null,
+      // Set only by OPEN_CURRENT_TAB: replace this existing app tab's content
+      // instead of opening another tab. Supplied by the trusted host from the
+      // requesting view's own context.
+      targetTabId?: TabId | null,
+    ): Promise<AddressOpenResult> => {
       try {
+        if (targetTabId) {
+          // The tab can close between the app's request and this handler —
+          // and `tabs` holds APP tabs only, so this also refuses an internal
+          // page's id. Fail here rather than in the reducer: a reducer throw
+          // surfaces at render, and a closed tab is a race, not a bug.
+          if (!productStateRef.current.tabs.some((tab) => tab.id === targetTabId)) {
+            throw new Error('That app tab is no longer open.')
+          }
+          // Home's own pages — settings, dashboard, welcome, Core docs,
+          // release notes — are not app content and must never take over an
+          // app tab, or an app could dress trusted Home chrome up as its own
+          // surface. Refuse before anything is dispatched, so the requesting
+          // tab is left exactly as it was.
+          if (
+            parseHomeV2CoreDocsAddress(address) ||
+            parseHomeV2ReleaseNotesAddress(address) ||
+            parseHomeV2InternalAddress(address)
+          ) {
+            throw new Error('Home pages cannot replace an app tab; open them in a new tab instead.')
+          }
+        }
         const coreDocs = parseHomeV2CoreDocsAddress(address)
         if (coreDocs) {
           setShellNotice(null)
@@ -1652,7 +1728,11 @@ export function HomeV2LiveApp() {
           targetNetworks: [parsed.sourceNetwork],
           placement: 'recommended',
         }
-        openApp(app, resourceLocation, requestedAccountId)
+        if (targetTabId) {
+          replaceTabWithApp(targetTabId, app, resourceLocation)
+        } else {
+          openApp(app, resourceLocation, requestedAccountId)
+        }
         return { status: 'opened' }
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Invalid app address.'
@@ -1660,7 +1740,17 @@ export function HomeV2LiveApp() {
         return { message, status: 'error' }
       }
     },
-    [nodeClient, openApp],
+    [nodeClient, openApp, replaceTabWithApp],
+  )
+
+  // The single entry point behind OPEN_CURRENT_TAB on every host. `tabId` is
+  // always the trusted host's own view context for the requesting app — the
+  // desktop main process supplies it over IPC, the portable app stage supplies
+  // its resolved tab — so an app can only ever replace the tab it is in.
+  const openAddressInTab = useCallback(
+    (address: string, tabId: string): Promise<AddressOpenResult> =>
+      openAddress(address, undefined, brand<TabId>(tabId)),
+    [openAddress],
   )
 
   const resolveAndroidContextMenu = useCallback(
@@ -1714,6 +1804,19 @@ export function HomeV2LiveApp() {
       void openAddress(value.address)
     })
   }, [openAddress])
+
+  useEffect(() => {
+    const bridge = window.homeV2Apps
+    if (!bridge?.onOpenAddressInTab) return
+    return bridge.onOpenAddressInTab((value) => {
+      if (!isRecord(value) || typeof value.address !== 'string') return
+      // `tabId` is the main process's own view context for the requesting app,
+      // not a field the app sent. Trust it only as far as the reducer does:
+      // replace-tab-app rejects any id that is not a live app tab.
+      if (typeof value.tabId !== 'string' || !value.tabId) return
+      void openAddressInTab(value.address, value.tabId)
+    })
+  }, [openAddressInTab])
 
   const getCollectionsAccounts = useCallback(
     (requestedAccountId: string | null = selectedAccountId): HomeV2CollectionsAccounts => {
@@ -2809,8 +2912,11 @@ export function HomeV2LiveApp() {
       requestValue: unknown,
       context: HomeV2AppRequestContext,
     ) => {
+      // Same alias collapse the desktop bridge does, at this host's own entry
+      // point: a compatibility alias must be dispatched, gated and reported as
+      // the canonical action on every surface, never as a capability of its own.
       const action = isRecord(requestValue) && typeof requestValue.action === 'string'
-        ? requestValue.action.trim().toUpperCase()
+        ? canonicalHomeV2AppAction(requestValue.action.trim().toUpperCase(), requestValue)
         : ''
       if (isAndroidHost && action === 'SHOW_CONTEXT_MENU') {
         const activeTab = productStateRef.current.tabs.find(
@@ -5704,6 +5810,7 @@ export function HomeV2LiveApp() {
       }}
       onOpenApp={openApp}
       onOpenAddress={openAddress}
+      onOpenAddressInTab={openAddressInTab}
       onOpenAsWidget={openTabAsWidget}
       widgetAvailable={activeWidgetAvailable}
       onResolvePermission={resolveAccountPermission}
