@@ -134,7 +134,9 @@ function renderChrome(
         nodeMenuCalls.push(`${network}:configure`)
       }
       onOpenCoreSettings={() => nodeMenuCalls.push('core-settings')}
-      onSetNodeMode={(network, mode) => nodeMenuCalls.push(`${network}:${mode}`)}
+      onSetNodeMode={(network, mode) => {
+        nodeMenuCalls.push(`${network}:${mode}`)
+      }}
     />,
   )
 }
