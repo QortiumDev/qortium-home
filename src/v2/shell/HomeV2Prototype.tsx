@@ -1048,6 +1048,10 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
         onDetachTab={props.onDetachTab}
         onLockAccount={props.onLockAccount}
         onUnlockAccount={props.onUnlockAccount}
+        coreManagement={props.coreManagement}
+        onConfigureCustomNode={props.onConfigureCustomNode}
+        onOpenCoreSettings={() => openSettingsSection('core')}
+        onSetNodeMode={props.onSetNodeMode}
       />
       <main
         className="home-v2-page-viewport"

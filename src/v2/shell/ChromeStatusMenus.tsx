@@ -1,23 +1,30 @@
 import type { ReactNode } from 'react'
 import { Lock, LockOpen } from 'lucide-react'
-import { t } from '../../i18n'
+import { t, type TranslationKey } from '../../i18n'
 import type {
   DualIdentityLookupResult,
   HomeV2Snapshot,
   NetworkId,
+  NodeConnectionMode,
   VisibleAvatarLoader,
 } from '../contracts'
+import {
+  useCoreLifecycleControl,
+  type HomeV2CoreManagement,
+} from './CoreManagerCards'
 import { networkLabels } from './NetworkBadge'
 import { NetworkMark } from './ProductMarks'
 import { VisibleIdentityAvatar } from './VisibleIdentityAvatar'
 import { useDismissablePopover } from './useDismissablePopover'
 
-const nodeModeLabelKeys = {
-  custom: 'home2.node.mode.custom',
+// Same order as the Dashboard's connection-mode select, so the two controls
+// read identically wherever the user meets them first.
+const nodeModeLabelKeys: Readonly<Record<NodeConnectionMode, TranslationKey>> = {
   disabled: 'home2.node.mode.disabled',
   local: 'home2.node.mode.local',
   public: 'home2.node.mode.public',
-} as const
+  custom: 'home2.node.mode.custom',
+}
 
 /** Height and peer count when the node has reported them, else why not. */
 function nodeMetrics(node: HomeV2Snapshot['nodes'][NetworkId]): string {
@@ -34,7 +41,13 @@ function nodeMetrics(node: HomeV2Snapshot['nodes'][NetworkId]): string {
 }
 
 interface ChromeMenuProps {
-  readonly children: ReactNode
+  /**
+   * Static content, or a render function handed a `close` callback. Items that
+   * take the user somewhere else — a dialog, another page — have to close the
+   * popover behind them; controls that act in place (a mode select, start/stop,
+   * an update button) deliberately do not, so their busy state stays readable.
+   */
+  readonly children: ReactNode | ((close: () => void) => ReactNode)
   readonly label: string
   readonly trigger: (props: {
     readonly onClick: () => void
@@ -58,25 +71,236 @@ function ChromeMenu({ children, label, trigger }: ChromeMenuProps) {
           className="home-v2-chrome-menu__panel"
           role="menu"
         >
-          {children}
+          {typeof children === 'function'
+            ? children(() => setOpen(false))
+            : children}
         </div>
       ) : null}
     </div>
   )
 }
 
+/**
+ * The one update affordance this menu offers, read from whichever maintenance
+ * slice owns the network. It is deliberately thinner than the Settings panel:
+ * a check while nothing is actionable, and a single install/update button once
+ * something is. Java, the on-chain route and the update policies stay in
+ * Settings, which the menu links to.
+ */
+interface NodeMenuMaintenance {
+  readonly canCheck: boolean
+  readonly checkBusy: boolean
+  readonly checkDisabled: boolean
+  readonly installBusy: boolean
+  readonly installDisabled: boolean
+  readonly installLabel: string
+  readonly notice: string | null
+  readonly showInstall: boolean
+  readonly onCheck?: () => void
+  readonly onInstall?: () => void
+}
+
+function nodeMenuMaintenance(
+  management: HomeV2CoreManagement,
+  network: NetworkId,
+): NodeMenuMaintenance | null {
+  if (network === 'qortal') {
+    const maintenance = management.qortalMaintenance
+    const status = maintenance?.status
+    if (!maintenance || !status) return null
+    const { busy, release } = maintenance
+    return {
+      canCheck: status.capabilities.canCheckRelease,
+      checkBusy: busy === 'check',
+      checkDisabled: busy !== null,
+      installBusy: busy === 'action',
+      installDisabled: busy !== null || !maintenance.actionAllowed,
+      installLabel:
+        release?.action === 'initial-install'
+          ? t('home2.qortalMaintenance.install')
+          : t('home2.qortalMaintenance.update'),
+      notice: maintenance.notice,
+      onCheck: maintenance.onCheckRelease,
+      onInstall: maintenance.onRunRelease,
+      showInstall: !!release?.tag && release.action !== 'none',
+    }
+  }
+  const maintenance = management.coreMaintenance
+  const status = maintenance?.status
+  if (!maintenance || !status) return null
+  const { busy, release } = maintenance
+  const showInstall = !!release?.tag && release.action !== 'none'
+  // Home replaces the jar in place, so it cannot install over a running Core.
+  // A disabled button with no explanation reads as a broken menu.
+  const blocked = showInstall && status.core.runtime !== 'stopped'
+  return {
+    canCheck: true,
+    checkBusy: busy === 'check',
+    checkDisabled: busy !== null,
+    installBusy: busy === 'core',
+    installDisabled: busy !== null || blocked,
+    installLabel:
+      release?.action === 'initial-install'
+        ? t('core.installCore')
+        : t('updates.installUpdate'),
+    notice: blocked ? t('home2.nodeCore.stopCoreFirst') : maintenance.notice,
+    onCheck: maintenance.onCheckRelease,
+    onInstall: maintenance.onRunRelease,
+    showInstall,
+  }
+}
+
+/**
+ * Start/stop plus the compact update affordance for one network's local Core.
+ * Split out so the lifecycle hook is called unconditionally — the menu only
+ * mounts this once it knows there is a Core manager to talk to.
+ */
+function NodeMenuCoreControls({
+  management,
+  network,
+}: {
+  readonly management: HomeV2CoreManagement
+  readonly network: NetworkId
+}) {
+  const {
+    busy,
+    busyAction,
+    cancelStop,
+    confirmApiStop,
+    invokeAction,
+    requestStop,
+    startBusy,
+    status,
+  } = useCoreLifecycleControl(management, network)
+  const maintenance = nodeMenuMaintenance(management, network)
+  const showInstall = !!maintenance?.showInstall && !!maintenance.onInstall
+  // Which lifecycle button this Core's capabilities allow, published so a smoke
+  // run can check the rendered button against the status without knowing what
+  // state the machine's Core happens to be in.
+  const lifecycle = status.capabilities.canStart
+    ? 'start'
+    : status.capabilities.canStop
+      ? 'stop'
+      : 'none'
+  return (
+    <div
+      className="home-v2-node-menu-core"
+      data-network={network}
+      data-lifecycle={lifecycle}
+    >
+      <small className="home-v2-node-menu-core__title">
+        {`${networkLabels[network]} Core`}
+      </small>
+      {confirmApiStop ? (
+        // Borrowed wholesale from the Core card: Home only asks an externally
+        // controlled Core to exit, so the user has to mean it.
+        <div className="home-v2-node-menu-confirm" role="alertdialog">
+          <small>
+            {t('home2.core.confirmExternalTitle', {
+              network: networkLabels[network],
+            })}
+          </small>
+          <small>{t('home2.core.confirmExternalBody')}</small>
+          <div className="home-v2-node-menu-core__actions">
+            <button
+              autoFocus
+              type="button"
+              data-home-v2-node-menu-action="stop-cancel"
+              onClick={cancelStop}
+            >
+              {t('common.cancel')}
+            </button>
+            <button
+              type="button"
+              data-home-v2-node-menu-action="stop-confirm"
+              onClick={() => invokeAction('stop')}
+            >
+              {t('core.stopCore')}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="home-v2-node-menu-core__actions">
+          {status.capabilities.canStart ? (
+            <button
+              type="button"
+              data-home-v2-node-menu-action="start"
+              disabled={busy || startBusy}
+              onClick={() => invokeAction('start')}
+            >
+              {busyAction === 'start' ? t('common.starting') : t('core.startCore')}
+            </button>
+          ) : status.capabilities.canStop ? (
+            <button
+              type="button"
+              data-home-v2-node-menu-action="stop"
+              disabled={busy}
+              onClick={requestStop}
+            >
+              {busyAction === 'stop' ? t('common.stopping') : t('core.stopCore')}
+            </button>
+          ) : null}
+          {showInstall && maintenance ? (
+            <button
+              type="button"
+              data-home-v2-node-menu-action="install"
+              disabled={maintenance.installDisabled}
+              onClick={maintenance.onInstall}
+            >
+              {maintenance.installBusy
+                ? t('home2.common.working')
+                : maintenance.installLabel}
+            </button>
+          ) : maintenance?.canCheck && maintenance.onCheck ? (
+            <button
+              type="button"
+              data-home-v2-node-menu-action="check"
+              disabled={maintenance.checkDisabled}
+              onClick={maintenance.onCheck}
+            >
+              {maintenance.checkBusy
+                ? t('common.checking')
+                : t('updates.checkForUpdates')}
+            </button>
+          ) : null}
+        </div>
+      )}
+      {maintenance?.notice ? (
+        <small role="status">{maintenance.notice}</small>
+      ) : null}
+    </div>
+  )
+}
+
 export interface NodeStatusMenuProps {
+  readonly coreManagement?: HomeV2CoreManagement
   readonly network: NetworkId
   readonly node: HomeV2Snapshot['nodes'][NetworkId]
   readonly tone: string
+  readonly onConfigureCustomNode?: (network: NetworkId) => void
+  readonly onOpenCoreSettings?: () => void
+  readonly onSetNodeMode?: (
+    network: NetworkId,
+    mode: NodeConnectionMode,
+  ) => void | Promise<void>
 }
 
 /**
  * The toolbar network button. It used to jump straight to the Dashboard, which
  * threw away whatever the user was looking at just to read a status line; it
- * now shows that status in place (owner request).
+ * now shows that status in place, and acts on it: switch connection mode,
+ * start or stop the local Core, and check or install a Core update without
+ * leaving the page (owner request).
  */
-export function NodeStatusMenu({ network, node, tone }: NodeStatusMenuProps) {
+export function NodeStatusMenu({
+  coreManagement,
+  network,
+  node,
+  onConfigureCustomNode,
+  onOpenCoreSettings,
+  onSetNodeMode,
+  tone,
+}: NodeStatusMenuProps) {
   const summary = `${networkLabels[network]}: ${node.statusText}`
   return (
     <ChromeMenu
@@ -98,15 +322,84 @@ export function NodeStatusMenu({ network, node, tone }: NodeStatusMenuProps) {
         </button>
       )}
     >
-      <strong>{networkLabels[network]}</strong>
-      <span>{node.statusText}</span>
-      <small>
-        {node.mode === 'disabled'
-          ? t('home2.node.noConnection')
-          : `${t(nodeModeLabelKeys[node.mode])} · ${node.label}`}
-      </small>
-      <small>{nodeMetrics(node)}</small>
-      {node.localCoreStatusText ? <small>{node.localCoreStatusText}</small> : null}
+      {(close) => (
+        <>
+          <strong>{networkLabels[network]}</strong>
+          <span>{node.statusText}</span>
+          <small>
+            {node.mode === 'disabled'
+              ? t('home2.node.noConnection')
+              : `${t(nodeModeLabelKeys[node.mode])} · ${node.label}`}
+          </small>
+          <small>{nodeMetrics(node)}</small>
+          {node.localCoreStatusText ? <small>{node.localCoreStatusText}</small> : null}
+          {onSetNodeMode ? (
+            <label className="home-v2-node-menu-mode">
+              <small>{t('home2.node.connectionMode')}</small>
+              <select
+                aria-label={t('home2.node.connectionModeFor', {
+                  network: networkLabels[network],
+                })}
+                data-home-v2-node-menu-mode={network}
+                value={node.mode}
+                onChange={(event) =>
+                  void onSetNodeMode(
+                    network,
+                    event.target.value as NodeConnectionMode,
+                  )
+                }
+              >
+                {(Object.keys(nodeModeLabelKeys) as NodeConnectionMode[]).map(
+                  (mode) => (
+                    <option
+                      key={mode}
+                      value={mode}
+                      disabled={mode === 'custom' && !node.customConfigured}
+                    >
+                      {t(nodeModeLabelKeys[mode])}
+                      {mode === 'custom' && !node.customConfigured
+                        ? ` (${t('home2.node.notConfigured')})`
+                        : ''}
+                    </option>
+                  ),
+                )}
+              </select>
+            </label>
+          ) : null}
+          {/* Custom is the one mode that cannot be chosen until it is set up, so
+              the dialog that sets it up has to be reachable from here too. */}
+          {onConfigureCustomNode ? (
+            <button
+              type="button"
+              role="menuitem"
+              data-home-v2-node-menu-action="configure"
+              onClick={() => {
+                close()
+                onConfigureCustomNode(network)
+              }}
+            >
+              {t('home2.node.configure')}
+            </button>
+          ) : null}
+          {coreManagement?.available ? (
+            <NodeMenuCoreControls management={coreManagement} network={network} />
+          ) : null}
+          {onOpenCoreSettings ? (
+            <button
+              type="button"
+              role="menuitem"
+              data-home-v2-node-menu-action="settings"
+              aria-label={`${t('common.settings')}: ${t('home2.nodeCore.title')}`}
+              onClick={() => {
+                close()
+                onOpenCoreSettings()
+              }}
+            >
+              {t('common.settings')}
+            </button>
+          ) : null}
+        </>
+      )}
     </ChromeMenu>
   )
 }

@@ -12,6 +12,11 @@
 // Dashboard, that the account panel prints an address rather than repeating it
 // per network, and that the Dashboard is still reachable by address.
 //
+// The network menu is now actionable, so it also checks that the real app
+// renders the connection-mode control, the Core lifecycle button its status
+// allows, and a single update control. Those checks are read-only: nothing
+// here presses Start, Stop or Install on the machine running the smoke.
+//
 //   node scripts/smoke-desktop-home-v2-chrome-menus.mjs
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -60,6 +65,43 @@ const ACCOUNT_TRIGGER = `(() => {
     found: true,
     lockGlyphs: button.querySelectorAll('.home-v2-account-lock').length,
     visibleText: (clone.textContent || '').trim(),
+  })
+})()`
+
+// The network menu acts on the node now: a connection-mode control, the local
+// Core's lifecycle button, and one update control. Read-only — this never
+// presses Stop on the machine running the smoke.
+const NODE_MENU = `(() => {
+  const pill = document.querySelector('.home-v2-node-pill')
+  const panel = pill?.closest('.home-v2-chrome-menu')
+    ?.querySelector('.home-v2-chrome-menu__panel')
+  if (!panel) return JSON.stringify({ found: false })
+  const select = panel.querySelector('select[data-home-v2-node-menu-mode]')
+  const core = panel.querySelector('.home-v2-node-menu-core')
+  const action = (name) => {
+    const button = panel.querySelector(
+      '[data-home-v2-node-menu-action="' + name + '"]',
+    )
+    return button
+      ? { disabled: !!button.disabled, label: (button.textContent || '').trim() }
+      : null
+  }
+  return JSON.stringify({
+    check: action('check'),
+    found: true,
+    install: action('install'),
+    lifecycle: core ? core.getAttribute('data-lifecycle') : null,
+    modes: select
+      ? [...select.options].map((option) => ({
+          disabled: !!option.disabled,
+          value: option.value,
+        }))
+      : null,
+    network: select ? select.getAttribute('data-home-v2-node-menu-mode') : '',
+    selected: select ? select.value : '',
+    settings: action('settings'),
+    start: action('start'),
+    stop: action('stop'),
   })
 })()`
 
@@ -137,6 +179,42 @@ async function main() {
       // from the tab strip and the address bar.
       if (await cdp.evaluate(DASHBOARD_ITEM)) {
         fail(`the ${name} menu still offers a Dashboard item`)
+      }
+      if (name === 'network') {
+        const menu = JSON.parse(await cdp.evaluate(NODE_MENU))
+        if (!menu.found) fail('the network menu opened without a panel')
+        if (!menu.modes) fail('the network menu offers no connection-mode control')
+        const modeValues = menu.modes.map((mode) => mode.value).join(',')
+        if (modeValues !== 'disabled,local,public,custom') {
+          fail(`the connection-mode control offers ${modeValues}`)
+        }
+        if (!menu.selected) {
+          fail('the connection-mode control shows no current mode')
+        }
+        if (!menu.settings) {
+          fail('the network menu no longer links to Settings')
+        }
+        // The Core half is only there when Home has a Core manager; when it is,
+        // the button on show has to match what the status says is allowed —
+        // asserted by presence and disabled state only, never by clicking.
+        if (menu.lifecycle === 'start' && !menu.start) {
+          fail('a startable Core offered no Start Core button')
+        }
+        if (menu.lifecycle === 'stop' && !menu.stop) {
+          fail('a stoppable Core offered no Stop Core button')
+        }
+        if (menu.lifecycle === 'none' && (menu.start || menu.stop)) {
+          fail('the menu offered a lifecycle button the Core status forbids')
+        }
+        if (menu.check && menu.install) {
+          fail('the update affordance should be one button, not two')
+        }
+        log(
+          `network menu: mode ${menu.network}=${menu.selected}, core ` +
+            `${menu.lifecycle ?? 'unmanaged'}, start ${JSON.stringify(menu.start)}, ` +
+            `stop ${JSON.stringify(menu.stop)}, update ` +
+            `${JSON.stringify(menu.install ?? menu.check)}`,
+        )
       }
       if (name === 'account' && signedIn) {
         const panel = JSON.parse(await cdp.evaluate(ACCOUNT_PANEL))

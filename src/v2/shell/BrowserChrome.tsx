@@ -4,6 +4,7 @@ import type {
   DualIdentityLookupResult,
   HomeV2Snapshot,
   NetworkId,
+  NodeConnectionMode,
   VisibleAppIconLoader,
   VisibleAvatarLoader,
 } from '../contracts'
@@ -32,6 +33,7 @@ import {
 } from './HomeV2BookmarkToolbar'
 import { BookmarksMenuButton } from './BookmarksMenuButton'
 import { AccountStatusMenu, NodeStatusMenu } from './ChromeStatusMenus'
+import type { HomeV2CoreManagement } from './CoreManagerCards'
 import { locateBookmarkManagerLink } from '../../bookmarkManager'
 import type { BookmarkToolbarVisibility } from '../../bookmarkToolbar'
 
@@ -90,6 +92,18 @@ export interface BrowserChromeProps {
   ) => void | Promise<void>
   readonly onLockAccount?: () => void
   readonly onUnlockAccount?: () => void
+  /**
+   * Everything the node-status menus need to act rather than only report:
+   * the Core manager and maintenance slices behind start/stop and updates,
+   * plus the connection-mode writes the Dashboard's node card also makes.
+   */
+  readonly coreManagement?: HomeV2CoreManagement
+  readonly onConfigureCustomNode?: (network: NetworkId) => void
+  readonly onOpenCoreSettings?: () => void
+  readonly onSetNodeMode?: (
+    network: NetworkId,
+    mode: NodeConnectionMode,
+  ) => void | Promise<void>
 }
 
 export type AddressOpenResult =
@@ -177,6 +191,10 @@ export function BrowserChrome({
   onDetachTab,
   onLockAccount,
   onUnlockAccount,
+  coreManagement,
+  onConfigureCustomNode,
+  onOpenCoreSettings,
+  onSetNodeMode,
 }: BrowserChromeProps) {
   const currentAddress = browserAddress(
     productState,
@@ -461,9 +479,13 @@ export function BrowserChrome({
             .map((network) => (
             <NodeStatusMenu
               key={network}
+              coreManagement={coreManagement}
               network={network}
               node={snapshot.nodes[network]}
               tone={nodeTone(snapshot, network)}
+              onConfigureCustomNode={onConfigureCustomNode}
+              onOpenCoreSettings={onOpenCoreSettings}
+              onSetNodeMode={onSetNodeMode}
             />
           ))}
           {onOpenAsWidget && productState.destination === 'tab' && productState.activeTabId ? (

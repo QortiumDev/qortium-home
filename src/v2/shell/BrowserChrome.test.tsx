@@ -4,7 +4,12 @@ import { createRoot } from 'react-dom/client'
 import { createProductState } from '../product-model'
 import { homeV2Fixture } from '../test-kit/fixtures'
 import { BrowserChrome, type AddressOpenResult } from './BrowserChrome'
-import type { DualIdentityLookupResult, HomeV2Snapshot } from '../contracts'
+import type { HomeV2CoreManagement } from './CoreManagerCards'
+import type {
+  DualIdentityLookupResult,
+  HomeV2Snapshot,
+  NetworkId,
+} from '../contracts'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -13,6 +18,82 @@ document.body.appendChild(container)
 const root = createRoot(container)
 const destinations: string[] = []
 const addresses: string[] = []
+const nodeMenuCalls: string[] = []
+
+/**
+ * A Core manager with both networks in different shapes: Qortium is a
+ * Home-managed Core that is stopped (so it may be started), Qortal is an
+ * adopted Core Home only reaches over the API (so stopping it must confirm).
+ */
+const coreManagementFixture: HomeV2CoreManagement = {
+  available: true,
+  busyActions: { qortal: null, qortium: null },
+  lastActions: { qortal: null, qortium: null },
+  statuses: {
+    qortium: {
+      capabilities: { canStart: true, canStop: false },
+      control: 'full',
+      install: 'home-managed',
+      issue: null,
+      network: 'qortium',
+      revision: 1,
+      runtime: 'stopped',
+      schema: 'home-v2-core-manager',
+    },
+    qortal: {
+      capabilities: { canStart: false, canStop: true },
+      control: 'api-only',
+      install: 'adopted',
+      issue: null,
+      network: 'qortal',
+      revision: 1,
+      runtime: 'running',
+      schema: 'home-v2-core-manager',
+    },
+  },
+  onAction: (network, action) => nodeMenuCalls.push(`${network}:${action}`),
+  coreMaintenance: {
+    busy: null,
+    notice: null,
+    policy: null,
+    release: null,
+    status: {
+      capabilities: { canInitialInstall: false, canInstallJava: false },
+      core: { channel: 'stable', installedVersion: '1.7.2', runtime: 'stopped' },
+      java: { source: 'managed', updateAvailable: false, version: '21' },
+      revision: 1,
+      schema: 'home-v2-core-maintenance',
+    },
+    onCheckRelease: () => nodeMenuCalls.push('qortium:check'),
+    onRunRelease: () => nodeMenuCalls.push('qortium:install'),
+  },
+  qortalMaintenance: {
+    actionAllowed: true,
+    busy: null,
+    notice: null,
+    release: null,
+    status: {
+      capabilities: {
+        canCheckRelease: true,
+        canInitialInstall: false,
+        canUpdate: true,
+      },
+      discovery: 'not-applicable',
+      install: 'home-managed',
+      installedVersion: '6.2.0',
+      issue: null,
+      lastRelease: null,
+      lastReleaseCheckedAt: null,
+      network: 'qortal',
+      revision: 1,
+      runtime: 'running',
+      schema: 'home-v2-qortal-maintenance',
+      updateAuthority: 'home-github',
+    },
+    onCheckRelease: () => nodeMenuCalls.push('qortal:check'),
+    onRunRelease: () => nodeMenuCalls.push('qortal:install'),
+  },
+}
 
 function newTabButton(): HTMLButtonElement {
   const button = container.querySelector<HTMLButtonElement>(
@@ -28,6 +109,7 @@ function renderChrome(
     | { readonly kind: 'dashboard' }
     | { readonly address: string; readonly kind: 'custom' },
   options: {
+    readonly coreManagement?: HomeV2CoreManagement
     readonly navigationDisabled?: boolean
     readonly openResult?: AddressOpenResult
     readonly selectedAccountLookup?: DualIdentityLookupResult
@@ -47,6 +129,14 @@ function renderChrome(
       }}
       selectedAccountLookup={options.selectedAccountLookup}
       loadVisibleAvatar={async () => ({ status: 'missing' })}
+      coreManagement={options.coreManagement}
+      onConfigureCustomNode={(network) =>
+        nodeMenuCalls.push(`${network}:configure`)
+      }
+      onOpenCoreSettings={() => nodeMenuCalls.push('core-settings')}
+      onSetNodeMode={(network, mode) => {
+        nodeMenuCalls.push(`${network}:${mode}`)
+      }}
     />,
   )
 }
@@ -248,6 +338,242 @@ try {
     'a locked account should show the closed padlock',
   )
   assert.equal(lockGlyph().classList.contains('lucide-lock'), true)
+
+  // R3-7: the node menus act on the node instead of only describing it —
+  // connection mode, the local Core's start/stop, and one update control.
+  const nodePanel = (network: NetworkId): HTMLElement => {
+    const trigger = container.querySelector<HTMLButtonElement>(
+      `.home-v2-node-pill[data-network="${network}"]`,
+    )
+    assert.ok(trigger, `expected a ${network} pill in the toolbar`)
+    if (trigger.getAttribute('aria-expanded') !== 'true') {
+      act(() => trigger.click())
+    }
+    const panel = trigger
+      .closest('.home-v2-chrome-menu')
+      ?.querySelector<HTMLElement>('.home-v2-chrome-menu__panel')
+    assert.ok(panel, `the ${network} menu should be open`)
+    return panel
+  }
+  const menuControl = (panel: HTMLElement, action: string) =>
+    panel.querySelector<HTMLButtonElement>(
+      `[data-home-v2-node-menu-action="${action}"]`,
+    )
+
+  await act(async () => {
+    renderChrome({ kind: 'search' }, { coreManagement: coreManagementFixture })
+    await Promise.resolve()
+  })
+  for (const [network, label] of [
+    ['qortium', 'Qortium'],
+    ['qortal', 'Qortal'],
+  ] as const) {
+    const panel = nodePanel(network)
+    const select = panel.querySelector<HTMLSelectElement>(
+      `select[aria-label="${label} connection mode"]`,
+    )
+    assert.ok(select, `the ${network} menu should offer a connection-mode control`)
+    // Same options, same order, same current-mode semantics as the Dashboard's
+    // node card, so the two controls cannot teach different things.
+    assert.deepEqual(
+      [...select.options].map((option) => option.value),
+      ['disabled', 'local', 'public', 'custom'],
+    )
+    assert.equal(select.value, homeV2Fixture.nodes[network].mode)
+    assert.ok(
+      menuControl(panel, 'configure'),
+      `the ${network} menu should reach the custom-node dialog`,
+    )
+    assert.ok(
+      menuControl(panel, 'settings'),
+      `the ${network} menu should link to Settings for anything deeper`,
+    )
+  }
+
+  // Start/stop follow the Core manager's capabilities: the stopped
+  // Home-managed Qortium Core can start, the running adopted Qortal Core can
+  // only be stopped, and neither offers the button it is not allowed.
+  const qortiumPanel = nodePanel('qortium')
+  const startButton = menuControl(qortiumPanel, 'start')
+  assert.ok(startButton, 'a startable Core should offer Start Core')
+  assert.equal(startButton.disabled, false)
+  assert.equal(menuControl(qortiumPanel, 'stop'), null)
+  act(() => startButton.click())
+  assert.ok(nodeMenuCalls.includes('qortium:start'))
+
+  const qortalStop = menuControl(nodePanel('qortal'), 'stop')
+  assert.ok(qortalStop, 'a stoppable Core should offer Stop Core')
+  assert.equal(menuControl(nodePanel('qortal'), 'start'), null)
+  // Qortal is api-only here, so the menu must ask before asking the Core to
+  // exit — the same confirmation the Core card does.
+  act(() => qortalStop.click())
+  assert.equal(
+    nodeMenuCalls.includes('qortal:stop'),
+    false,
+    'stopping an externally controlled Core must confirm first',
+  )
+  const confirmPanel = nodePanel('qortal').querySelector('[role="alertdialog"]')
+  assert.ok(confirmPanel, 'the api-only stop should raise a confirmation')
+  const cancelStop = menuControl(nodePanel('qortal'), 'stop-cancel')
+  assert.ok(cancelStop)
+  act(() => cancelStop.click())
+  assert.equal(nodePanel('qortal').querySelector('[role="alertdialog"]'), null)
+
+  // Nothing actionable yet: a check, and no install button pretending there is
+  // something to install.
+  assert.ok(menuControl(nodePanel('qortium'), 'check'))
+  assert.equal(menuControl(nodePanel('qortium'), 'install'), null)
+  assert.equal(menuControl(nodePanel('qortal'), 'install'), null)
+  const checkButton = menuControl(nodePanel('qortium'), 'check')
+  assert.ok(checkButton)
+  act(() => checkButton.click())
+  assert.ok(nodeMenuCalls.includes('qortium:check'))
+
+  // Capabilities off: no lifecycle buttons at all, however the menu is opened.
+  await act(async () => {
+    renderChrome(
+      { kind: 'search' },
+      {
+        coreManagement: {
+          ...coreManagementFixture,
+          statuses: {
+            ...coreManagementFixture.statuses,
+            qortium: {
+              ...coreManagementFixture.statuses.qortium,
+              capabilities: { canStart: false, canStop: false },
+            },
+          },
+        },
+      },
+    )
+    await Promise.resolve()
+  })
+  assert.equal(menuControl(nodePanel('qortium'), 'start'), null)
+  assert.equal(menuControl(nodePanel('qortium'), 'stop'), null)
+
+  const coreMaintenance = coreManagementFixture.coreMaintenance
+  const qortalMaintenance = coreManagementFixture.qortalMaintenance
+  assert.ok(coreMaintenance)
+  assert.ok(qortalMaintenance)
+  await act(async () => {
+    renderChrome(
+      { kind: 'search' },
+      {
+        coreManagement: {
+          ...coreManagementFixture,
+          coreMaintenance: {
+            ...coreMaintenance,
+            release: {
+              action: 'strict-update',
+              available: true,
+              channel: 'stable',
+              revision: 1,
+              schema: 'home-v2-core-maintenance-release',
+              tag: 'v1.7.3',
+            },
+          },
+          qortalMaintenance: {
+            ...qortalMaintenance,
+            release: {
+              action: 'strict-update',
+              available: true,
+              code: null,
+              network: 'qortal',
+              revision: 1,
+              schema: 'home-v2-qortal-maintenance-release',
+              tag: 'v6.3.0',
+            },
+          },
+        },
+      },
+    )
+    await Promise.resolve()
+  })
+  const qortiumInstall = menuControl(nodePanel('qortium'), 'install')
+  assert.ok(qortiumInstall, 'an actionable release should offer one install button')
+  assert.equal(qortiumInstall.textContent, 'Install update')
+  assert.equal(qortiumInstall.disabled, false)
+  assert.equal(
+    menuControl(nodePanel('qortium'), 'check'),
+    null,
+    'the compact menu shows the install button instead of the check, not both',
+  )
+  const qortalInstall = menuControl(nodePanel('qortal'), 'install')
+  assert.ok(qortalInstall)
+  assert.equal(qortalInstall.textContent, 'Update Qortal Core')
+  act(() => qortalInstall.click())
+  assert.ok(nodeMenuCalls.includes('qortal:install'))
+
+  // Interactive controls inside the panel must not trip the outside-pointerdown
+  // dismissal, or the menu would close the instant a control is pressed.
+  const openTrigger = container.querySelector<HTMLButtonElement>(
+    '.home-v2-node-pill[data-network="qortium"]',
+  )
+  assert.ok(openTrigger)
+  const modeSelect = nodePanel('qortium').querySelector('select')
+  assert.ok(modeSelect)
+  act(() => {
+    modeSelect.dispatchEvent(new Event('pointerdown', { bubbles: true }))
+  })
+  assert.equal(
+    openTrigger.getAttribute('aria-expanded'),
+    'true',
+    'a pointer press on a control inside the menu must not dismiss it',
+  )
+  act(() => {
+    document.body.dispatchEvent(new Event('pointerdown', { bubbles: true }))
+  })
+  assert.equal(
+    openTrigger.getAttribute('aria-expanded'),
+    'false',
+    'a pointer press outside the menu must still dismiss it',
+  )
+
+  // Custom stays unreachable until it is configured, and says why.
+  const customUnconfigured: HomeV2Snapshot = {
+    ...homeV2Fixture,
+    nodes: {
+      ...homeV2Fixture.nodes,
+      qortium: { ...homeV2Fixture.nodes.qortium, customConfigured: false },
+    },
+  }
+  await act(async () => {
+    renderChrome(
+      { kind: 'search' },
+      { coreManagement: coreManagementFixture, snapshot: customUnconfigured },
+    )
+    await Promise.resolve()
+  })
+  const unconfiguredSelect = nodePanel('qortium').querySelector('select')
+  assert.ok(unconfiguredSelect)
+  const customOption = [...unconfiguredSelect.options].find(
+    (option) => option.value === 'custom',
+  )
+  assert.ok(customOption)
+  assert.equal(customOption.disabled, true)
+  assert.match(customOption.textContent ?? '', /not configured/)
+  const settingsLink = menuControl(nodePanel('qortium'), 'settings')
+  assert.ok(settingsLink)
+  act(() => settingsLink.click())
+  assert.ok(nodeMenuCalls.includes('core-settings'))
+  // An item that takes the user somewhere else has to close the popover behind
+  // it; the controls that act in place (mode, start/stop, update) do not.
+  assert.equal(
+    container
+      .querySelector('.home-v2-node-pill[data-network="qortium"]')
+      ?.getAttribute('aria-expanded'),
+    'false',
+    'the Settings item should close the menu it navigates away from',
+  )
+
+  // Without a Core manager the menu keeps its connection half and simply drops
+  // the Core half, rather than rendering dead buttons.
+  await act(async () => {
+    renderChrome({ kind: 'search' })
+    await Promise.resolve()
+  })
+  assert.ok(nodePanel('qortium').querySelector('select'))
+  assert.equal(nodePanel('qortium').querySelector('.home-v2-node-menu-core'), null)
 
   const qortalDisabled = {
     ...homeV2Fixture,

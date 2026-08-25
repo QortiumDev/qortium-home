@@ -672,6 +672,65 @@ body,
   background: var(--v2-hover);
 }
 
+.home-v2-chrome-menu__panel button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.home-v2-chrome-menu__panel button:disabled:hover {
+  background: transparent;
+}
+
+/* The node menu acts as well as reports: connection mode, then the local
+   Core's start/stop and its one update control. */
+.home-v2-node-menu-mode {
+  display: flex;
+  flex-direction: column;
+  margin-top: 8px;
+  gap: 2px;
+}
+
+.home-v2-node-menu-mode select {
+  border: 1px solid var(--v2-line);
+  border-radius: 8px;
+  background: var(--v2-surface);
+  color: inherit;
+  font-size: calc(12px * var(--v2-type-scale));
+  padding: 5px 8px;
+}
+
+.home-v2-node-menu-core {
+  display: flex;
+  flex-direction: column;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid color-mix(in srgb, var(--v2-line) 60%, transparent);
+  gap: 2px;
+}
+
+.home-v2-node-menu-core__title {
+  color: var(--v2-muted);
+  font-size: calc(10px * var(--v2-type-scale));
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.home-v2-node-menu-core__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.home-v2-node-menu-core__actions button {
+  flex: 1 1 auto;
+}
+
+.home-v2-node-menu-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
 .home-v2-bookmarks-menu {
   position: relative;
   display: flex;
