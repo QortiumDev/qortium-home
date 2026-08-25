@@ -34,6 +34,21 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-25 - fix(home-v2): a tidier Welcome tab that closes when you are done
+
+The Welcome tab is now labelled just "Welcome" instead of "Welcome to Qortium
+Home", which no longer crowds out every other tab in the strip. The full
+greeting is still the heading on the page itself.
+
+Finishing the setup guide, or choosing "Skip setup", now closes the Welcome tab
+as well as taking you where you asked to go. Before this the tab stayed behind,
+so the guide you had just dismissed was still sitting there one click away.
+"Restart setup" in Settings still reopens it as usual.
+
+Two placeholder pages left over from an earlier design, home://apps and
+home://activity, never did anything useful. They are gone, and those addresses
+are now reported as unsupported like any other unknown address.
+
 ### 2026-08-25 - fix(home-v2): pinned apps stop flickering when you switch dashboard tabs
 
 Switching between two Dashboard tabs, or closing the one you were on, made the

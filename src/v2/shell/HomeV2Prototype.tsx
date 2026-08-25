@@ -751,29 +751,6 @@ function AccountCard({
   )
 }
 
-function InternalPage({
-  destination,
-}: {
-  readonly destination: Exclude<
-    ShellDestination,
-    'tab' | 'dashboard' | 'newtab' | 'releases' | 'settings' | 'welcome'
-    | 'core-docs'
-  >
-}) {
-  const copy: Record<typeof destination, readonly [TranslationKey, TranslationKey]> = {
-    activity: ['home2.activity', 'home2.internal.activityDescription'],
-    apps: ['home2.apps', 'home2.internal.appsDescription'],
-  } as const
-  return (
-    <section className="home-v2-internal-page" tabIndex={-1}>
-      <span className="home-v2-eyebrow">home://{destination}</span>
-      <h1>{t(copy[destination][0])}</h1>
-      <p>{t(copy[destination][1])}</p>
-      <small>{t('home2.internal.offlinePreview')}</small>
-    </section>
-  )
-}
-
 type DashboardProps = HomeV2PrototypeProps & {
   readonly onOpenSettingsSection?: (
     section: HomeV2SettingsSectionTarget,
@@ -1261,9 +1238,7 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
           <section className="home-v2-internal-page" role="alert">
             <h1>{t('api.loadFailed')}</h1>
           </section>
-          ) : (
-            <InternalPage destination={productState.transient} />
-          )
+          ) : null
         ) : null}
         {/* Every open tab stays mounted and is merely hidden when inactive:
             unmounting would throw away scroll position, form state and any
@@ -1361,9 +1336,7 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
                     <h1>{t('welcome.error')}</h1>
                   </section>
                 )
-              ) : (
-                <InternalPage destination={entry.page} />
-              )}
+              ) : null}
             </div>
           )
         })}
