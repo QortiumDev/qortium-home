@@ -555,6 +555,104 @@ body,
   background: color-mix(in srgb, var(--v2-chrome), var(--v2-surface) 28%);
 }
 
+/* The strip stays mounted while empty so a dragged tab has somewhere to land;
+   it collapses to a hint rather than a bare gap. */
+.home-v2-bookmark-toolbar__empty {
+  color: var(--v2-muted);
+  font-size: calc(11px * var(--v2-type-scale));
+}
+
+.home-v2-bookmark-toolbar[data-drop-target='true'] {
+  background: color-mix(in srgb, var(--v2-accent) 18%, var(--v2-chrome));
+  box-shadow: inset 0 0 0 2px var(--v2-accent);
+}
+
+.home-v2-bookmarks-menu {
+  position: relative;
+  display: flex;
+}
+
+.home-v2-bookmarks-button {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.home-v2-bookmarks-button:hover:not(:disabled),
+.home-v2-bookmarks-button[aria-expanded='true'] {
+  background: var(--v2-hover);
+}
+
+.home-v2-bookmarks-button:disabled {
+  cursor: default;
+  opacity: 0.35;
+}
+
+.home-v2-bookmarks-button.is-bookmarked {
+  color: var(--v2-accent);
+}
+
+.home-v2-bookmarks-menu__panel {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 6px);
+  left: 0;
+  display: flex;
+  min-width: 230px;
+  flex-direction: column;
+  padding: 6px;
+  border: 1px solid var(--v2-line);
+  border-radius: 12px;
+  background: var(--v2-surface);
+  box-shadow: 0 18px 40px rgb(0 0 0 / 28%);
+  gap: 1px;
+}
+
+.home-v2-bookmarks-menu__panel button {
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: calc(13px * var(--v2-type-scale));
+  padding: 7px 10px;
+  text-align: start;
+}
+
+.home-v2-bookmarks-menu__panel button:hover:not(:disabled) {
+  background: var(--v2-hover);
+}
+
+.home-v2-bookmarks-menu__panel button:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
+.home-v2-bookmarks-menu__panel button[aria-checked='true']::after {
+  content: ' ✓';
+  color: var(--v2-accent);
+}
+
+.home-v2-bookmarks-menu__panel hr {
+  height: 1px;
+  margin: 5px 4px;
+  border: 0;
+  background: var(--v2-line);
+}
+
+.home-v2-bookmarks-menu__panel strong {
+  padding: 4px 10px 2px;
+  color: var(--v2-muted);
+  font-size: calc(11px * var(--v2-type-scale));
+  font-weight: 600;
+}
+
 .home-v2-bookmark-toolbar__items {
   display: flex;
   min-width: 0;

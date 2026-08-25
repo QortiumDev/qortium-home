@@ -34,6 +34,21 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-25 - feat(home-v2): bookmarks button in the toolbar, and drag a tab to save it
+
+There is a bookmarks button in the toolbar again, between the reload and Home
+buttons. It fills in when the page you are on is already saved, and its menu
+saves or removes the current page, opens the Bookmarks app, and chooses when
+the bookmarks toolbar is shown.
+
+Dragging a tab onto the bookmarks toolbar saves it there, the way it worked in
+Home 1.x. The toolbar now stays visible while empty so there is somewhere to
+drop the first one.
+
+Bookmarks can now also be saved for pages on the Qortal network. Their
+addresses were being rejected, so a Qortal app could not be bookmarked at all
+while the same app on Qortium saved normally.
+
 ### 2026-08-24 - fix(home-v2): restore the interface style choice and unblock adding an address
 
 Apps are shown in the Classic interface style again by default. Home 2 had

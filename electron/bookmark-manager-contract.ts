@@ -304,9 +304,12 @@ function parseLinkDraft(value: unknown, name: string): BookmarkManagerLinkDraft 
   const displayUrl = getString(record.displayUrl, `${name}.displayUrl`, MAX_DISPLAY_URL_LENGTH);
   const isHomeUrl = /^home:\/\/(?:dashboard|settings|bookmarks|welcome)\/?$/i.test(displayUrl)
     || /^home:\/\/releases\/(?:core|home)\/[^/?#\s]+\/?$/i.test(displayUrl);
-  const isCoreUrl = /^core:\/\/(?:[^?\s]*)?(?:#[^\s]*)?$/i.test(displayUrl);
-  const qdnMatch = /^qdn:\/\/([a-z0-9_]+)(?:\/[^\s?#]*)?(?:\?[^\s#]*)?(?:#[^\s]*)?$/i.exec(displayUrl);
-  const isQdnWildcardUrl = /^qdn:\/\/\*\/[^/?#\s]+\/?$/i.test(displayUrl);
+  // qortal:// and qortal-core:// are the Qortal-network spellings of qdn://
+  // and core:// (src/v2/resource-location.ts). A Qortal app tab produces one
+  // of them, so rejecting them here made those tabs unbookmarkable.
+  const isCoreUrl = /^(?:core|qortal-core):\/\/(?:[^?\s]*)?(?:#[^\s]*)?$/i.test(displayUrl);
+  const qdnMatch = /^(?:qdn|qortal):\/\/([a-z0-9_]+)(?:\/[^\s?#]*)?(?:\?[^\s#]*)?(?:#[^\s]*)?$/i.exec(displayUrl);
+  const isQdnWildcardUrl = /^(?:qdn|qortal):\/\/\*\/[^/?#\s]+\/?$/i.test(displayUrl);
   const isQdnUrl = isQdnWildcardUrl
     || (!!qdnMatch && isPublicQdnService(qdnMatch[1].toUpperCase()));
   if (!isHomeUrl && !isCoreUrl && !isQdnUrl) {
@@ -621,7 +624,7 @@ export function validateBookmarksOpenRequest(value: unknown): BookmarksOpenReque
   assertKnownKeys(record, ['accountId', 'address'], 'request');
 
   const address = getString(record.address, 'request.address', BOOKMARKS_OPEN_ADDRESS_MAX_LENGTH);
-  if (!/^(?:qdn|home|core):\/\//i.test(address)) {
+  if (!/^(?:qdn|qortal|home|core|qortal-core):\/\//i.test(address)) {
     throw Object.assign(
       new Error('request.address must be a supported qdn://, home://, or core:// address.'),
       { code: 'INVALID_ADDRESS' },

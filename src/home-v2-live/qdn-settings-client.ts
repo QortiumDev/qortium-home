@@ -324,6 +324,15 @@ export const HOME_V2_DEFAULT_EXPLORE_APP_URL = defaultAssignments.explore.url
  * Where "find more apps" should go: the user's assigned Explore app when they
  * have one, otherwise the shipped default. Never returns an empty string.
  */
+export const HOME_V2_DEFAULT_BOOKMARKS_APP_URL = defaultAssignments.bookmarks.url
+
+export function resolveHomeV2BookmarksAppUrl(
+  state?: HomeV2QdnSettingsState | null,
+): string {
+  const assigned = state?.assignments.assignments.bookmarks?.url
+  return assigned && assigned.trim() ? assigned : HOME_V2_DEFAULT_BOOKMARKS_APP_URL
+}
+
 export function resolveHomeV2ExploreAppUrl(
   state?: HomeV2QdnSettingsState | null,
 ): string {
