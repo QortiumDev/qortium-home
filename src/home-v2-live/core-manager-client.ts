@@ -297,6 +297,8 @@ export function parseHomeV2QortalMaintenanceStatus(
     'install',
     'installedVersion',
     'issue',
+    'lastRelease',
+    'lastReleaseCheckedAt',
     'network',
     'revision',
     'runtime',
@@ -333,9 +335,18 @@ export function parseHomeV2QortalMaintenanceStatus(
         value.installedVersion !== null)
     )) ||
     (value.install === 'missing' && value.discovery === 'not-applicable') ||
-    (value.install !== 'missing' && value.issue === null && value.discovery !== 'not-applicable')) {
+    (value.install !== 'missing' && value.issue === null && value.discovery !== 'not-applicable') ||
+    !(value.lastReleaseCheckedAt === null || (
+      typeof value.lastReleaseCheckedAt === 'string' &&
+      Number.isFinite(Date.parse(value.lastReleaseCheckedAt))
+    )) ||
+    // A cached release is only meaningful when checking is allowed at all.
+    (value.lastRelease !== null && !value.capabilities.canCheckRelease)) {
     throw new Error('Invalid Home 2 Qortal maintenance status.')
   }
+  const lastRelease = value.lastRelease === null
+    ? null
+    : parseHomeV2QortalMaintenanceRelease(value.lastRelease)
   return Object.freeze({
     capabilities: Object.freeze({
       canCheckRelease: value.capabilities.canCheckRelease,
@@ -346,6 +357,8 @@ export function parseHomeV2QortalMaintenanceStatus(
     install: value.install,
     installedVersion: value.installedVersion,
     issue: value.issue,
+    lastRelease,
+    lastReleaseCheckedAt: value.lastReleaseCheckedAt as string | null,
     network: 'qortal',
     revision: 1,
     runtime: value.runtime,

@@ -28,6 +28,8 @@ const missingStatus: HomeV2QortalMaintenanceStatus = {
   discovery: 'clear',
   install: 'missing',
   installedVersion: null,
+  lastRelease: null,
+  lastReleaseCheckedAt: null,
   issue: null,
   network: 'qortal',
   revision: 1,
@@ -807,6 +809,45 @@ try {
   window.clearInterval = originalClearInterval
   delete window.homeV2CoreManagers
   container.remove()
+}
+
+// A release the app already knows about (six-hourly update pass, or an earlier
+// manual check) must offer Install straight away — pressing "Check release"
+// first was the reported annoyance, and status reads never call GitHub.
+{
+  const container = document.createElement('div')
+  document.body.appendChild(container)
+  const root = createRoot(container)
+  let checkCalls = 0
+  const cachedStatus: HomeV2QortalMaintenanceStatus = {
+    ...missingStatus,
+    lastRelease: installRelease,
+    lastReleaseCheckedAt: '2026-08-24T12:00:00.000Z',
+  }
+  try {
+    window.homeV2CoreManagers = client({
+      getQortalMaintenanceStatus: async () => cachedStatus,
+      checkQortalMaintenanceRelease: async () => {
+        checkCalls += 1
+        return installRelease
+      },
+    })
+    await act(async () => {
+      root.render(<QortalMaintenancePanel management={management} />)
+      await Promise.resolve()
+    })
+    await act(async () => { await Promise.resolve() })
+    const buttons = [...container.querySelectorAll('button')].map((button) => button.textContent)
+    assert.ok(
+      buttons.some((label) => label && /install/i.test(label)),
+      `Install must be offered from the cached release; saw ${JSON.stringify(buttons)}`,
+    )
+    assert.equal(checkCalls, 0, 'showing a cached release must not call GitHub')
+  } finally {
+    act(() => root.unmount())
+    delete window.homeV2CoreManagers
+    container.remove()
+  }
 }
 
 console.log('Home v2 Qortal maintenance panel tests passed.')

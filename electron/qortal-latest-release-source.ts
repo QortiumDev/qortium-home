@@ -47,8 +47,16 @@ export type QortalExpectedLatestReleaseResult =
 
 export type QortalLatestReleaseSource = Readonly<{
   getExpectedLatest(expectedTag: string): Promise<QortalExpectedLatestReleaseResult>;
-  getLatest(): Promise<QortalLatestReleaseResult>;
+  getLatest(options?: { readonly force?: boolean }): Promise<QortalLatestReleaseResult>;
+  getCachedLatest?(): Readonly<{
+    checkedAt: string;
+    kind: 'available';
+    release: QortalJarRelease | null;
+  }> | null;
 }>;
+
+/** Matches the core update scheduler's pass interval. */
+const LATEST_RELEASE_TTL_MS = 6 * 60 * 60 * 1000;
 
 function unavailable(code: QortalLatestReleaseFailureCode): QortalLatestReleaseFailure {
   return Object.freeze({ code, kind: 'unavailable' });
@@ -182,20 +190,46 @@ export function createQortalLatestReleaseSource(
   };
 
   let inFlight: Promise<QortalExpectedLatestReleaseResult> | null = null;
-  const getCoalescedLatest = () => {
+  // Successful lookups are cached so the UI can show an available release
+  // without asking the user to press "Check release", while GitHub is still
+  // only contacted at the scheduler's cadence. Failures are NOT cached: a
+  // transient outage must not suppress checks until the TTL expires.
+  let cached: { at: number; result: QortalExpectedLatestReleaseResult } | null = null;
+  const getCoalescedLatest = (force = false) => {
+    if (!force && cached && Date.now() - cached.at < LATEST_RELEASE_TTL_MS) {
+      return Promise.resolve(cached.result);
+    }
     if (inFlight) return inFlight;
-    inFlight = fetchLatest().finally(() => { inFlight = null; });
+    inFlight = fetchLatest()
+      .then((result) => {
+        if (result.kind === 'available') cached = { at: Date.now(), result };
+        return result;
+      })
+      .finally(() => { inFlight = null; });
     return inFlight;
   };
 
   return Object.freeze({
     async getExpectedLatest(expectedTag: string) {
-      const result = await getCoalescedLatest();
+      // ALWAYS refetch: this is the pre-install verification that the release
+      // still carries the expected tag. Serving it from cache would let a
+      // retagged or replaced release install unnoticed, which is exactly what
+      // the 'release-changed' failure exists to catch.
+      const result = await getCoalescedLatest(true);
       if (result.kind !== 'available') return result;
       return result.release.tagName === expectedTag ? result : unavailable('release-changed');
     },
-    async getLatest() {
-      const result = await getCoalescedLatest();
+    /** The last successful lookup, without contacting GitHub. */
+    getCachedLatest() {
+      if (!cached || Date.now() - cached.at >= LATEST_RELEASE_TTL_MS) return null;
+      return Object.freeze({
+        checkedAt: new Date(cached.at).toISOString(),
+        kind: 'available' as const,
+        release: cached.result.kind === 'available' ? cached.result.release : null,
+      });
+    },
+    async getLatest(options?: { readonly force?: boolean }) {
+      const result = await getCoalescedLatest(options?.force === true);
       return result.kind === 'available'
         ? Object.freeze({ kind: 'available', release: result.release })
         : result;

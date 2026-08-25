@@ -169,6 +169,10 @@ export function QortalMaintenancePanel({ management }: { readonly management: Ho
       }
       statusRef.current = next
       setStatus(next)
+      // Adopt the release the app already knows about (from the six-hourly
+      // update pass or an earlier manual check) so Install is offered without
+      // the user pressing "Check release" first. A manual check still wins.
+      setRelease((current) => current ?? next.lastRelease)
       setInitialLoadFailed(false)
     } catch {
       if (!disposed.current && sequence === requestSequence.current && !statusRef.current) {
