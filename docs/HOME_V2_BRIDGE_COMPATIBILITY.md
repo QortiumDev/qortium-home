@@ -99,6 +99,8 @@ This F4 slice does not add `GET_APP_ASSIGNMENTS` or
 | `PUBLISH_CHAT_ATTACHMENT`, `GET_CHAT_ATTACHMENT_STREAM_URL`, `OPEN_CHAT_ATTACHMENT_VIEWER`, `SAVE_CHAT_ATTACHMENT` | both | Immutable encrypted descriptor, expiring plaintext stream URL, viewer result, or save result | Home-issued source token only; one-request `chat.attachment` approval; QATT/QENC v2 for Qortium, distinct marked Qortal direct/generic-group formats, and Hub-compatible Qortal private-group images; 1 MiB ciphertext ceiling; exact hash/size, peer/membership, account, app/tab, chain, and route checks; no inline plaintext or reusable key crosses into the app, while the approved stream URL grants temporary bounded byte access | yes | yes |
 | `GET_GROUP`, `GET_ACCOUNT_GROUPS`, `GET_GROUP_MEMBERS`, `GET_GROUP_JOIN_REQUESTS`, `GET_ACCOUNT_GROUP_JOIN_REQUESTS`, `GET_ADMIN_GROUP_JOIN_REQUESTS`, `GET_ACTIVE_CHATS` | both | Bare Core JSON | No prompt; bounded anonymous public reads; positive-integer `groupId`, address regex, strict booleans, 100-entry page cap where Core has none | yes | yes |
 | `SEARCH_GROUPS` | `qdnRequest` | Bare Core JSON array | Qortium-only — `/groups/search` does not exist on Qortal (verified absent from the Qortal master 6.1.5 and develop checkouts' `GroupsResource.java`); required non-negative-length `query`, `visibility` validated against Core's real `ALL`/`OPEN`/`CLOSED` enum (not Hub's `PUBLIC`/`PRIVATE` terminology), strict `prefixOnly`, 100-entry page cap | yes | yes |
+| `GET_MINTING_STATUS`, `LIST_MINTING_ACCOUNTS` | both | `{ address, hasRewardShare, isMinting, keyOnNode, nodeMintingPossible }`, or `{ accounts, available }` with `address`/`mintingAccount`/`publicKey`/`recipientAccount` per entry | No prompt (derived booleans and allowlisted fields only, never key material). `hasRewardShare` is a public read; the node-side fields are `null` and `available` is `false` unless the route is the local Core Home runs and holds the API key for, so they are always unavailable on public/custom nodes, on Qortal, and on Android. Never offered to a chromeless widget, which has no prompt surface and must not learn the selected identity | yes | yes (node-side always unavailable) |
+| `START_MINTING`, `REMOVE_MINTING_ACCOUNT` | both | `{ accepted, action, address, keyAdded }` plus `rewardSharePending`/`transactionSignature` when the on-chain self-share was submitted first, or `{ accepted, action, address, publicKey, removed }` | Single-request prompt each, never a session or durable grant, and one never satisfies the other. Requires an unlocked selected account and the local Core reached over loopback; refused with `NODE_CAPABILITY_MISSING` elsewhere and on Qortal. Removal takes no key from the app: Home resolves the selected account's own self-share key from the node's own list, before and again after the approval, and deletes only that, so no other minter can be touched and no app-supplied key-shaped value reaches the node. Errors from the key-bearing calls carry only an operation name and HTTP status | yes | no |
 
 Q-Apps may also make an unchanged same-origin
 `GET /transactions/signature/{signature}` read. On Android this route requires
@@ -172,9 +174,16 @@ above is deferred and unadvertised in Home 2.0. In particular this includes
 multi-resource publishing/deletion, account/group/name/poll/rating mutations other than the
 implemented participation and exact group-administration actions, payments,
 foreign wallets, Home/node settings writes,
-background notification subscriptions, legacy inline/path publishing, minting, and Qortal-prefixed legacy
+background notification subscriptions, legacy inline/path publishing, and Qortal-prefixed legacy
 helpers. These actions will be migrated by family; they will not be exposed by
 forwarding Home 2.0 apps into the broad v1 bridge.
+
+Minting is no longer deferred. `GET_MINTING_STATUS`, `LIST_MINTING_ACCOUNTS`,
+`START_MINTING`, and `REMOVE_MINTING_ACCOUNT` are implemented on both protocols
+(R3-11); see [QDN bridge action notes](BRIDGE_ACTIONS.md) for their shapes and
+the local-Core restriction. `LIST_MINTING_ACCOUNTS` is new in Home 2 — it is the
+scoped replacement for the raw `/admin/mintingaccounts` fetch Home 1.x apps fell
+back to, which Home 2's read allowlist refuses.
 
 ## Known limitations of this slice
 

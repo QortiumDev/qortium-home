@@ -75,6 +75,12 @@ const ACCOUNT_READ_ACTIONS = new Set<string>(HOME_V2_ACCOUNT_READ_ACTIONS)
  *   retained decrypted-stream capability, can trigger the same key writes, and
  *   the viewer opens Home UI.
  * Revisit each once those side effects are removed or accepted explicitly.
+ *
+ * GET_MINTING_STATUS and LIST_MINTING_ACCOUNTS qualify (owner decision,
+ * R3-11): both are pure reads that return derived booleans and allowlisted
+ * fields — never key material — and both report node-side state only for a
+ * local Core the user already runs. The two minting WRITES are deliberately
+ * absent: they always prompt.
  */
 export const HOME_V2_PERMISSIONLESS_ACTIONS = Object.freeze([
   'GET_SELECTED_ACCOUNT',
@@ -82,6 +88,8 @@ export const HOME_V2_PERMISSIONLESS_ACTIONS = Object.freeze([
   'GET_PENDING_TRANSACTIONS',
   'GET_PRIVATE_DIRECT_ACTIVE_CHATS',
   'SEARCH_PRIVATE_DIRECT_CHAT_MESSAGES',
+  'GET_MINTING_STATUS',
+  'LIST_MINTING_ACCOUNTS',
 ] as const)
 
 const PERMISSIONLESS_ACTIONS = new Set<string>(HOME_V2_PERMISSIONLESS_ACTIONS)
@@ -134,6 +142,14 @@ export function homeV2AccountReadPermissionDetails(accountLabel: string) {
 // A tab-level approval describes a chat capability, not one spelling of the
 // same user-visible operation. Keep unrelated actions exact while allowing an
 // explicitly disclosed send/edit/delete/reaction family to share one grant.
+//
+// START_MINTING and REMOVE_MINTING_ACCOUNT are deliberately NOT collapsed into
+// a shared "minting" family: starting minting and removing a key off the node
+// are different user-visible operations, so one approval must never satisfy
+// the other. They are single-request only (see requireAccountReadPermission),
+// which means no grant is retained under either name; the exact family keeps
+// that true even if the single-request rule is ever relaxed. The user-facing
+// grouping lives in the prompt's `account.minting` capability instead.
 export function homeV2PermissionGrantFamily(action: string): string {
   if (isHomeV2AccountReadAction(action)) return 'account.read'
   if (PUBLIC_CHAT_MUTATIONS.has(action)) return 'chat.public.mutate'

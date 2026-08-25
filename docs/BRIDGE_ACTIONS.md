@@ -502,3 +502,79 @@ and optional `rater` (an address). If `rater` is not provided, Home uses the
 currently selected account address. The response shape is
 `{ action, target, category, rater, summary, ratings }` where `summary` is `null`
 and `ratings` is an array (empty when no ratings are returned).
+
+## Minting actions (Home 2)
+
+Home 2 exposes four minting actions on both `qdnRequest` and `qortalRequest`:
+`GET_MINTING_STATUS`, `LIST_MINTING_ACCOUNTS`, `START_MINTING`, and
+`REMOVE_MINTING_ACCOUNT`. They exist so an app never needs the raw
+`/admin/mintingaccounts` route, which stays outside `normalizeHomeV2ReadPath`'s
+read-only scope and always will.
+
+The two reads are permissionless — they return derived booleans and allowlisted
+fields, never key material. The two writes always prompt, are single-request
+only (never a session or "always allow" grant), and each asks separately.
+
+`GET_MINTING_STATUS` accepts an optional `address` (defaulting to the selected
+account) and answers
+`{ address, hasRewardShare, isMinting, keyOnNode, nodeMintingPossible }`.
+`hasRewardShare` comes from the public `/addresses/rewardshares` route and is
+always populated. The other three describe the node itself and are `null`
+unless the selected node is the local Core Home runs and holds an API key for —
+on a public node, a custom node, on Android, and on Qortal they are always
+`null`.
+
+`LIST_MINTING_ACCOUNTS` answers `{ accounts, available }`. `available` is
+`false` — with an empty `accounts` — wherever the node-side state is not
+readable, matching the `null`s above. Each entry carries only `address`,
+`mintingAccount`, `publicKey`, and `recipientAccount`; `publicKey` is the
+reward-share PUBLIC key that `REMOVE_MINTING_ACCOUNT` matches on. Entries are
+rebuilt from that fixed allowlist rather than filtered, so nothing else a Core
+build serializes alongside them can reach an app.
+
+`START_MINTING` takes no parameters and acts on the selected, unlocked account.
+Home derives that account's minting key, loads it onto the local Core, and
+answers `{ accepted, action, address, keyAdded }`. When the account has no
+on-chain self-share authorization yet, Home submits a zero-fee self-share
+`REWARD_SHARE` instead and answers with `rewardSharePending: true` and the
+`transactionSignature`; the app should call again once it confirms. No key
+material is ever returned.
+
+`REMOVE_MINTING_ACCOUNT` removes the selected account's OWN minting key from
+the local Core, answering `{ accepted, action, address, publicKey, removed }`.
+Nothing on chain changes.
+
+The key is not a parameter. Home resolves it in the main process from the
+node's own `/admin/mintingaccounts` list — the entry whose `mintingAccount` and
+`recipientAccount` are both the selected address — and deletes only that,
+re-resolving after the approval to confirm it is still the key the user was
+shown. Core's `DELETE` matches a private key as readily as a public one and
+removes whatever it matches, so honoring an app-supplied value would be both an
+arbitrary-key-removal primitive and a way to push key material through Home.
+An app may still send `publicKey`; it is treated purely as an assertion,
+compared against the resolved key, and rejected on mismatch — it is never
+forwarded to the node.
+
+When the node holds no self-share key for the selected account, the action
+answers `{ removed: false, publicKey: null }` without prompting and without
+calling the node: that is a no-op, not a failure.
+
+### Restrictions shared by the minting family
+
+The trusted node must be `local` mode, have an API key Home holds, **and**
+resolve to a loopback host (`127.0.0.0/8`, `localhost`, or `::1`). The mode and
+the key both come from Home's own settings, so the loopback requirement is what
+keeps an administrative or account private key off the network if either is
+mis-set. Any other host is refused before a single admin call or secret-bearing
+POST is made.
+
+Errors from the calls that carry key material — `/addresses/rewardsharekey`,
+`/utils/publickey`, `/addresses/rewardshare`, and the `/admin/mintingaccounts`
+POST and DELETE — are reduced to the operation name and HTTP status. Core
+echoes request context into its error bodies, so no body from these calls
+reaches the app, and none is written to a log either.
+
+None of the four actions is offered to a chromeless widget. The two reads would
+otherwise pass the widget `GET_`/`LIST_` prefix rule, but they describe the
+user's own node and `GET_MINTING_STATUS` defaults to the selected account's
+address, and a widget has no prompt surface to disclose that through.

@@ -425,8 +425,22 @@ for (const action of [
   'SEND_CHAT_MESSAGE',
   'SHOW_CONTEXT_MENU',
   'SHOW_NOTIFICATION',
+  // Minting reads pass the GET_/LIST_ prefix rule but describe the user's own
+  // node, and GET_MINTING_STATUS defaults to the selected account's address —
+  // a chromeless widget has no prompt surface to disclose either through. The
+  // writes are excluded by the prefix rule; pinned here so a rename cannot
+  // quietly admit them.
+  'GET_MINTING_STATUS',
+  'LIST_MINTING_ACCOUNTS',
+  'START_MINTING',
+  'REMOVE_MINTING_ACCOUNT',
 ]) {
   assert.equal(widgetActions.includes(action), false, `widget must not advertise ${action}`)
+}
+// The same actions stay available in a normal tab: the widget exclusion must
+// not be mistaken for the action being unimplemented.
+for (const action of ['GET_MINTING_STATUS', 'LIST_MINTING_ACCOUNTS', 'START_MINTING']) {
+  assert.equal(normalTabActions.includes(action), true, `tab should advertise ${action}`)
 }
 const androidActions = getHomeV2ContextualAppActions(
   getHomeV2AvailableAppActions('qdnRequest', {

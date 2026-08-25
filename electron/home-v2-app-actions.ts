@@ -72,6 +72,7 @@ const QDN_ACTIONS = [
   'GET_GROUP',
   'GET_GROUP_JOIN_REQUESTS',
   'GET_GROUP_MEMBERS',
+  'GET_MINTING_STATUS',
   'GET_NAME_DATA',
   'GET_PRIMARY_NAME',
   'GET_PRIVATE_DIRECT_ACTIVE_CHATS',
@@ -87,9 +88,12 @@ const QDN_ACTIONS = [
   'JOIN_GROUP',
   'LIST_ATS',
   'LIST_GROUPS',
+  'LIST_MINTING_ACCOUNTS',
   'LIST_QDN_RESOURCES',
   'LEAVE_GROUP',
   'REMOVE_GROUP_ADMIN',
+  'REMOVE_MINTING_ACCOUNT',
+  'START_MINTING',
   'OPEN_QDN_RESOURCE_VIEWER',
   'OPEN_CHAT_ATTACHMENT_VIEWER',
   'SAVE_QDN_RESOURCE',
@@ -152,6 +156,7 @@ const QORTAL_ACTIONS = [
   'GET_GROUP',
   'GET_GROUP_JOIN_REQUESTS',
   'GET_GROUP_MEMBERS',
+  'GET_MINTING_STATUS',
   'GET_NAME_DATA',
   'GET_PRICE',
   'GET_PRIMARY_NAME',
@@ -169,9 +174,12 @@ const QORTAL_ACTIONS = [
   'JOIN_GROUP',
   'LIST_ATS',
   'LIST_GROUPS',
+  'LIST_MINTING_ACCOUNTS',
   'LIST_QDN_RESOURCES',
   'LEAVE_GROUP',
   'REMOVE_GROUP_ADMIN',
+  'REMOVE_MINTING_ACCOUNT',
+  'START_MINTING',
   'OPEN_QDN_RESOURCE_VIEWER',
   'OPEN_CHAT_ATTACHMENT_VIEWER',
   'SAVE_QDN_RESOURCE',
@@ -208,6 +216,14 @@ const QORTAL_ACTIONS = [
 // for GET_DAY_SUMMARY/GET_PRICE (qortalRequest-only) and
 // RESOLVE_IDENTITIES/FETCH_QORTAL_NODE_API
 // (qdnRequest-only).
+
+// The minting family (GET_MINTING_STATUS, LIST_MINTING_ACCOUNTS,
+// START_MINTING, REMOVE_MINTING_ACCOUNT) is advertised on both protocols so
+// one app build works on either chain, but every node-side part of it is
+// answered only by a trusted local Core — see isHomeV2TrustedMintingNode in
+// home-v2-minting.ts. These four actions exist precisely so apps never need
+// raw /admin/mintingaccounts access: nothing below may be widened to let them
+// reach it directly.
 
 const READ_PREFIXES = [
   '/account-ratings',

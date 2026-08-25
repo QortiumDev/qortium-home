@@ -115,12 +115,25 @@ assert.equal(store.size(), 1)
 // HOME_V2_ACCOUNT_READ_ACTIONS it would silently become permissionless.
 {
   const permissionless = [...HOME_V2_PERMISSIONLESS_ACTIONS]
+  // The minting reads (R3-11) are permissionless without being account reads:
+  // they take an address rather than reaching into the selected account's
+  // private data, so they are deliberately outside the account.read grant.
+  // Any OTHER permissionless action must still be an account read.
+  const permissionlessNonAccountReads = ['GET_MINTING_STATUS', 'LIST_MINTING_ACCOUNTS']
   for (const action of permissionless) {
     assert.equal(
       isHomeV2PermissionlessAction(action),
       true,
       `${action} must be recognised as permissionless`,
     )
+    if (permissionlessNonAccountReads.includes(action)) {
+      assert.equal(
+        isHomeV2AccountReadAction(action),
+        false,
+        `${action} must stay outside the account.read grant`,
+      )
+      continue
+    }
     assert.equal(
       isHomeV2AccountReadAction(action),
       true,
@@ -175,6 +188,8 @@ assert.equal(store.size(), 1)
     'OPEN_AS_WIDGET',
     'SHOW_NOTIFICATION',
     'BOOKMARKS_APPLY',
+    'START_MINTING',
+    'REMOVE_MINTING_ACCOUNT',
   ]
   for (const action of mustStillPrompt) {
     assert.equal(
@@ -184,13 +199,16 @@ assert.equal(store.size(), 1)
     )
   }
 
-  // The permissionless set is exactly identity, the app's own journal, and
-  // direct-chat reads — every one a pure read of the caller's own data.
+  // The permissionless set is exactly identity, the app's own journal,
+  // direct-chat reads, and the two derived-only minting reads — every one a
+  // pure read that returns no key material.
   assert.deepEqual([...permissionless].sort(), [
+    'GET_MINTING_STATUS',
     'GET_PENDING_TRANSACTIONS',
     'GET_PRIVATE_DIRECT_ACTIVE_CHATS',
     'GET_SELECTED_ACCOUNT',
     'GET_USER_ACCOUNT',
+    'LIST_MINTING_ACCOUNTS',
     'SEARCH_PRIVATE_DIRECT_CHAT_MESSAGES',
   ])
 }
