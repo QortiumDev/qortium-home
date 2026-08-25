@@ -70,15 +70,21 @@ the file, its size and its checksum. The permission being asked for is exactly
 the same as before — only the wording changed, so you can tell what you are
 agreeing to.
 
-Two fixes underneath this, both of which could have let an answer apply more
-widely than intended. An app address can name the resource it wants in two
-places, and Home was only reading one of them, so a link that pointed at a
-different resource of the same app could inherit an answer you gave for the
-original. Home now works out the resource the same way it does when actually
-loading it. And an app served over the Qortal address scheme could not be
-recorded at all, so choosing "Always allow" for one failed the request you had
-just approved; those apps are now supported, and are kept distinct from
-same-named apps on the other chain.
+Several fixes underneath this, all of which could have let an answer apply more
+widely than intended, or quietly not apply at all. An app address can name the
+resource it wants in two places, and Home was only reading one of them, so a
+link that pointed at a different resource of the same app could inherit an
+answer you gave for the original. Home now works out the resource the same way
+it does when actually loading it, and it matches the reserved name "default"
+exactly as the network does — a resource named "DEFAULT" is a real, separate
+resource, and an answer given for it no longer lands on the app's main one.
+An app served over the Qortal address scheme could not be recorded at all, so
+choosing "Always allow" for one failed the request you had just approved; those
+apps are now supported, and are kept distinct from same-named apps on the other
+chain. Finally, Home now checks that a remembered answer was actually saved
+before relying on it: if saving does not work, the answer holds for the rest of
+the session and you are asked again next time, instead of the request failing
+or the answer silently disappearing.
 
 ### 2026-08-25 - refactor(home-v2): one shared view of Core maintenance
 

@@ -179,6 +179,7 @@ import {
   normalizeHomeV2GroupAdminTarget,
 } from '../../electron/home-v2-group-admin-actions'
 import { isHomeV2MintingWriteAction } from '../../electron/home-v2-minting'
+import { persistDurableGrantAsync } from '../../electron/durable-grant-persistence'
 import { createHomeV2SendRateLimiter } from '../../electron/home-v2-send-rate-limiter'
 import {
   homeV2AccountReadAlwaysAllowDetail,
@@ -536,6 +537,37 @@ function parseHomeV2ResourceViewerState(value: unknown): HomeV2ResourceViewerSta
     sourceTabId: value.sourceTabId,
     streamUrl: streamUrl.toString(),
   }
+}
+
+/**
+ * Writes a durable "always allow" grant on the portable/Android host and
+ * confirms it is actually held.
+ *
+ * Mirrors persistDurableGrant in electron/home-v2-app-bridge.ts. Returns false
+ * both when the write throws and when it silently persists nothing (a
+ * principal the capability store's own sanitizer discards on read-back), so
+ * every caller can fall back to the narrower session grant rather than
+ * denying a request the user already approved or believing in a grant that
+ * does not exist.
+ */
+function persistDurableChatSendGrant(appPrincipal: string): Promise<boolean> {
+  return persistDurableGrantAsync({
+    capability: 'chat.send',
+    isHeld: () => hasQdnAppCapability(appPrincipal, 'chat.send'),
+    write: () => grantQdnAppCapabilityPermission(appPrincipal, 'chat.send'),
+  })
+}
+
+function persistDurableAccountReadGrant(
+  appPrincipal: string,
+  accountId: string,
+  capability: 'account.read',
+): Promise<boolean> {
+  return persistDurableGrantAsync({
+    capability,
+    isHeld: () => hasQdnAccountCapability(appPrincipal, accountId, capability),
+    write: () => grantQdnAccountCapabilityPermission(appPrincipal, accountId, capability),
+  })
 }
 
 export function HomeV2LiveApp() {
@@ -3041,15 +3073,15 @@ export function HomeV2LiveApp() {
             : queueAndroidSessionGrantPermission(grantKey, prompt, context.tabId))
           if (!decision.approved) throw new Error('Account access was denied.')
           // Self-contained so it is correct at every prompt site and a no-op
-          // for anything that is not a chat send.
-          if (
+          // for anything that is not a chat send. A durable grant that throws
+          // or silently fails to persist must not fail the action the user
+          // just approved, so it degrades to the session grant below.
+          const durableChatSendFailed =
             decision.scope === 'always' &&
             isHomeV2ChatSendAction(action) &&
-            context.resourceLocation
-          ) {
-            await grantQdnAppCapabilityPermission(context.resourceLocation, 'chat.send')
-          }
-          if (!singleRequestOnly && decision.scope === 'session') {
+            !(context.resourceLocation &&
+              await persistDurableChatSendGrant(context.resourceLocation))
+          if (!singleRequestOnly && (decision.scope === 'session' || durableChatSendFailed)) {
             androidSessionAccountGrants.current.add(grantKey, {
               family: homeV2PermissionGrantFamily(action),
               hostWebContentsId: 'android',
@@ -3358,15 +3390,13 @@ export function HomeV2LiveApp() {
             attachmentReadCapability &&
             attachmentAppCapabilityKey
           ) {
-            // A grant that cannot be persisted must not fail the approved
-            // action; fall back to the session grant recorded below.
-            try {
-              await grantQdnAccountCapabilityPermission(
-                attachmentAppCapabilityKey,
-                accountId,
-                attachmentReadCapability,
-              )
-            } catch { /* fall through to the session grant */ }
+            // Verified, not assumed: a write that throws OR silently drops
+            // the key falls back to the session grant recorded below.
+            await persistDurableAccountReadGrant(
+              attachmentAppCapabilityKey,
+              accountId,
+              attachmentReadCapability,
+            )
           }
           if (readOnlyAttachment && (decision.scope === 'session' || decision.scope === 'always')) {
             androidSessionAccountGrants.current.add(grantKey, {
@@ -3786,15 +3816,15 @@ export function HomeV2LiveApp() {
           const decision = await queueAndroidPermissionPrompt(prompt, context.tabId)
           if (!decision.approved) throw new Error('Account access was denied.')
           // Self-contained so it is correct at every prompt site and a no-op
-          // for anything that is not a chat send.
-          if (
+          // for anything that is not a chat send. A durable grant that throws
+          // or silently fails to persist must not fail the action the user
+          // just approved, so it degrades to the session grant below.
+          const durableChatSendFailed =
             decision.scope === 'always' &&
             isHomeV2ChatSendAction(action) &&
-            context.resourceLocation
-          ) {
-            await grantQdnAppCapabilityPermission(context.resourceLocation, 'chat.send')
-          }
-          if (decision.scope === 'session') {
+            !(context.resourceLocation &&
+              await persistDurableChatSendGrant(context.resourceLocation))
+          if (decision.scope === 'session' || durableChatSendFailed) {
             androidSessionAccountGrants.current.add(grantKey, {
               family: homeV2PermissionGrantFamily(action),
               hostWebContentsId: 'android',
@@ -4179,14 +4209,14 @@ export function HomeV2LiveApp() {
             : queueAndroidPermissionPrompt(prompt, context.tabId))
           if (!decision.approved) throw new Error('Account access was denied.')
           // Self-contained so it is correct at every prompt site and a no-op
-          // for anything that is not a chat send.
-          if (
+          // for anything that is not a chat send. A durable grant that throws
+          // or silently fails to persist must not fail the action the user
+          // just approved, so it degrades to the session grant below.
+          const durableChatSendFailed =
             decision.scope === 'always' &&
             isHomeV2ChatSendAction(action) &&
-            context.resourceLocation
-          ) {
-            await grantQdnAppCapabilityPermission(context.resourceLocation, 'chat.send')
-          }
+            !(context.resourceLocation &&
+              await persistDurableChatSendGrant(context.resourceLocation))
           // Gated on privateGroupReadCapability, not on the scope alone, so an
           // 'always' that this prompt never offered cannot become a durable
           // grant. Mirrors the desktop bridge.
@@ -4195,18 +4225,17 @@ export function HomeV2LiveApp() {
             privateGroupReadCapability &&
             appCapabilityKey
           ) {
-            // A grant that cannot be persisted must not fail the approved
-            // action; fall back to the session grant recorded below.
-            try {
-              await grantQdnAccountCapabilityPermission(
-                appCapabilityKey,
-                accountId,
-                privateGroupReadCapability,
-              )
-            } catch { /* fall through to the session grant */ }
+            // Verified, not assumed: a write that throws OR silently drops
+            // the key falls back to the session grant recorded below.
+            await persistDurableAccountReadGrant(
+              appCapabilityKey,
+              accountId,
+              privateGroupReadCapability,
+            )
           }
           if (!singleRequestOnly &&
             (decision.scope === 'session' ||
+              durableChatSendFailed ||
               (decision.scope === 'always' && privateGroupReadCapability))) {
             androidSessionAccountGrants.current.add(grantKey, {
               family: homeV2PermissionGrantFamily(action),
@@ -4463,15 +4492,15 @@ export function HomeV2LiveApp() {
             : queueAndroidSessionGrantPermission(grantKey, prompt, context.tabId))
           if (!decision.approved) throw new Error('Account access was denied.')
           // Self-contained so it is correct at every prompt site and a no-op
-          // for anything that is not a chat send.
-          if (
+          // for anything that is not a chat send. A durable grant that throws
+          // or silently fails to persist must not fail the action the user
+          // just approved, so it degrades to the session grant below.
+          const durableChatSendFailed =
             decision.scope === 'always' &&
             isHomeV2ChatSendAction(action) &&
-            context.resourceLocation
-          ) {
-            await grantQdnAppCapabilityPermission(context.resourceLocation, 'chat.send')
-          }
-          if (decision.scope === 'session') {
+            !(context.resourceLocation &&
+              await persistDurableChatSendGrant(context.resourceLocation))
+          if (decision.scope === 'session' || durableChatSendFailed) {
             androidSessionAccountGrants.current.add(grantKey, {
               family: homeV2PermissionGrantFamily(action),
               hostWebContentsId: 'android',
@@ -4695,15 +4724,15 @@ export function HomeV2LiveApp() {
           const decision = await queueAndroidPermissionPrompt(prompt, context.tabId)
           if (!decision.approved) throw new Error('Account access was denied.')
           // Self-contained so it is correct at every prompt site and a no-op
-          // for anything that is not a chat send.
-          if (
+          // for anything that is not a chat send. A durable grant that throws
+          // or silently fails to persist must not fail the action the user
+          // just approved, so it degrades to the session grant below.
+          const durableChatSendFailed =
             decision.scope === 'always' &&
             isHomeV2ChatSendAction(action) &&
-            context.resourceLocation
-          ) {
-            await grantQdnAppCapabilityPermission(context.resourceLocation, 'chat.send')
-          }
-          if (decision.scope === 'session') {
+            !(context.resourceLocation &&
+              await persistDurableChatSendGrant(context.resourceLocation))
+          if (decision.scope === 'session' || durableChatSendFailed) {
             androidSessionAccountGrants.current.add(grantKey, {
               family: homeV2PermissionGrantFamily(effectiveAction),
               hostWebContentsId: 'android',

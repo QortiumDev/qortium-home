@@ -2461,11 +2461,58 @@ function testGrantIdentityAndSendRateLimitHardening(): void {
     appBridge,
     /grantQdnAccountCapabilityPermission\(\s*\n\s*appGrantKey,\s*\n\s*context\.accountId,\s*\n\s*durableAccountReadCapability,\s*\n\s*\)/,
   )
-  // Persisting a durable grant must never fail the action the user approved:
-  // both durable paths fall through to the session grant instead of throwing.
+  // Persisting a durable grant must never fail the action the user approved,
+  // and must never be believed unless a confirming read says it stuck. Both
+  // desktop paths go through persistDurableGrant, which returns false on a
+  // throwing write AND on a silent one, and both fall through to the session
+  // grant when it does.
   assert.match(
     appBridge,
-    /grantQdnAppCapabilityPermission\(appGrantKey, 'chat\.send'\)\s*\n\s*return\s*\n\s*\} catch \{/,
+    /persistDurableGrant\(\{[\s\S]{0,400}capability: 'chat\.send'/,
+  )
+  assert.match(
+    appBridge,
+    /persistDurableGrant\(\{[\s\S]{0,400}capability: durableAccountReadCapability/,
+  )
+  assert.match(appBridge, /if \(persistDurableGrant\(\{[\s\S]{0,600}\}\)\) return/)
+  assert.doesNotMatch(
+    appBridge,
+    /^\s*grantQdnAppCapabilityPermission\(appGrantKey, 'chat\.send'\)\s*$/m,
+    'the durable chat.send write must only happen through persistDurableGrant',
+  )
+  assert.match(
+    appBridge,
+    /if \(!singleRequestOnly && \(decision\.scope === 'session' \|\| decision\.scope === 'always'\)\) \{/,
+  )
+
+  // The portable/Android host has the same guarantee. Every one of its
+  // durable chat-send writes goes through the verifying helper, and each
+  // prompt site records a session grant when that helper reports failure.
+  const durableGrantLiveApp = readFileSync('src/home-v2-live/HomeV2LiveApp.tsx', 'utf8')
+  assert.match(
+    durableGrantLiveApp,
+    /function persistDurableChatSendGrant[\s\S]{0,400}persistDurableGrantAsync\(\{/,
+  )
+  assert.match(
+    durableGrantLiveApp,
+    /function persistDurableAccountReadGrant[\s\S]{0,400}persistDurableGrantAsync\(\{/,
+  )
+  // Exactly the two helpers write a durable grant; no prompt site calls the
+  // store writers directly any more (those calls had no fallback at all).
+  assert.equal(
+    durableGrantLiveApp.match(/await grantQdnAppCapabilityPermission\(/g)?.length ?? 0,
+    0,
+  )
+  assert.equal(
+    durableGrantLiveApp.match(/await grantQdnAccountCapabilityPermission\(/g)?.length ?? 0,
+    0,
+  )
+  const durableChatSendSites = durableGrantLiveApp.match(/const durableChatSendFailed =/g)?.length ?? 0
+  assert.equal(durableChatSendSites, 5, 'every Android chat-send prompt site must compute the fallback')
+  assert.equal(
+    durableGrantLiveApp.match(/durableChatSendFailed \|\||\|\| durableChatSendFailed/g)?.length ?? 0,
+    durableChatSendSites,
+    'every computed fallback must be consumed by a session-grant condition',
   )
   assert.match(
     appBridge,

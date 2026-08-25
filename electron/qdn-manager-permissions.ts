@@ -179,20 +179,31 @@ const QDN_PRINCIPAL_PATTERN =
  * src/shared-fixtures/qdn-render-candidate-identifier-vectors.json, so a
  * grant principal can never disagree with the resource Core serves.
  *
- * Two details are load-bearing and easy to get wrong:
- * - the query value is returned UNTRIMMED. `?identifier=%20evil` serves the
- *   identifier " evil", which is a DIFFERENT resource from "evil"; trimming
- *   here would collapse them onto one grant.
- * - a path segment equal to "default" (case-insensitively) is not an
- *   identifier at all, matching the runtime's sentinel handling.
+ * Three details are load-bearing and easy to get wrong:
+ * - the winning value is used UNTRIMMED. `?identifier=%20evil` names the
+ *   identifier " evil", a DIFFERENT resource from "evil"; trimming here would
+ *   collapse them onto one grant.
+ * - the "default" sentinel is compared EXACTLY, not case-insensitively. Core
+ *   reserves only the exact lowercase string (ArbitraryDataTransactionBuilder),
+ *   so "DEFAULT" names a real, distinct resource. Folding case here let a
+ *   grant approved for .../DEFAULT persist under the no-identifier base
+ *   principal, handing the base resource an approval it never received.
+ *   Where this is stricter than the render-path twin it is stricter in the
+ *   fail-closed direction: at worst the user is asked again.
+ * - the sentinel applies to WHICHEVER value wins, query or path. Applying it
+ *   to only one of them made canonicalization non-idempotent, and the store
+ *   re-canonicalizes stored keys on read, so a second pass silently moved a
+ *   grant to a different principal than the one it was written under.
  */
 export function resolveQdnCapabilityIdentifier(
   pathIdentifier: string | null,
   queryIdentifier: string | null,
 ): string | null {
-  if (queryIdentifier !== null && queryIdentifier.trim() !== '') return queryIdentifier;
-  if (pathIdentifier !== null && pathIdentifier.toLowerCase() !== 'default') return pathIdentifier;
-  return null;
+  const candidate = queryIdentifier !== null && queryIdentifier.trim() !== ''
+    ? queryIdentifier
+    : pathIdentifier;
+  if (candidate === null || candidate === 'default') return null;
+  return candidate;
 }
 
 const CAPABILITY_IDENTIFIER_MAX_LENGTH = 128;
@@ -236,10 +247,17 @@ export function sanitizeQdnCapabilityPrincipal(value: unknown): string {
     ? new URLSearchParams(query.slice(1)).get('identifier')
     : null;
   const identifier = resolveQdnCapabilityIdentifier(match[4] ?? null, queryIdentifier);
+  // The identifier is embedded verbatim in the returned principal, so anything
+  // that would not survive re-parsing that principal is refused rather than
+  // stored. Whitespace is the important case: `?identifier=%20evil` decodes to
+  // " evil", which would produce a principal the raw-URL check then rejects,
+  // making sanitize() non-idempotent and silently dropping the grant on
+  // read-back. Refusing here is fail-closed - the caller falls back to a
+  // session grant and the user is asked again next session.
   if (identifier !== null && (
     !identifier ||
     identifier.length > CAPABILITY_IDENTIFIER_MAX_LENGTH ||
-    /[\u0000-\u001f\u007f]/.test(identifier) ||
+    /[\u0000-\u001f\u007f\s]/.test(identifier) ||
     /[/?#]/.test(identifier)
   )) {
     throw new Error('Capability principal identifier is invalid.');

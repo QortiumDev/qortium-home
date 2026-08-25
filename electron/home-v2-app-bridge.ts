@@ -147,6 +147,7 @@ import {
   listHomeV2PendingTransactions,
   recordHomeV2PendingTransaction,
 } from './home-v2-transaction-journal-store.js'
+import { persistDurableGrant } from './durable-grant-persistence.js'
 import { normalizeHomeV2RuntimeInvalidation } from './home-v2-runtime-invalidation.js'
 import {
   createHomeV2SessionGrantStore,
@@ -983,30 +984,40 @@ async function requireAccountReadPermission(
       throw new Error('Account access node route changed before approval completed.')
     }
   }
-  // A durable grant that cannot be persisted must not fail the action the user
-  // just approved. Persisting can throw for an app key Home cannot canonicalize
-  // — most notably a `qortal://` resource, which the capability store rejects
-  // outright — and that threw straight out of this function, denying an
-  // already-approved request. Both paths now fall through to the session grant
-  // below instead, so the worst case is being asked again next session.
+  // A durable grant must never fail the action the user just approved, and must
+  // never be BELIEVED unless it actually stuck. Two distinct failure modes:
+  //   - the write throws (an app key the capability store refuses outright,
+  //     e.g. a `qortal://` resource before that scheme was supported);
+  //   - the write returns normally but persists nothing, because the store's
+  //     own sanitizer discards the key on read-back. That one is silent, so
+  //     returning here would leave the user believing they had answered
+  //     "always" while nothing was retained at all.
+  // persistDurableGrant covers both by re-reading the grant, and every caller
+  // falls through to the session grant below when it reports failure.
   if (decision.scope === 'always' && chatSendGrantable && appGrantKey) {
-    try {
-      grantQdnAppCapabilityPermission(appGrantKey, 'chat.send')
-      return
-    } catch { /* fall through to the session grant */ }
+    if (persistDurableGrant({
+      capability: 'chat.send',
+      isHeld: () => hasQdnAppCapability(appGrantKey, 'chat.send'),
+      write: () => grantQdnAppCapabilityPermission(appGrantKey, 'chat.send'),
+    })) return
   }
   // Gated on durableAccountReadCapability rather than on the scope alone, so an
   // 'always' arriving for anything outside the read-only account family retains
   // nothing. The grant is bound to the selected account as well as the app.
   if (decision.scope === 'always' && durableAccountReadCapability && appGrantKey) {
-    try {
-      grantQdnAccountCapabilityPermission(
+    if (persistDurableGrant({
+      capability: durableAccountReadCapability,
+      isHeld: () => hasQdnAccountCapability(
         appGrantKey,
         context.accountId,
         durableAccountReadCapability,
-      )
-      return
-    } catch { /* fall through to the session grant */ }
+      ),
+      write: () => grantQdnAccountCapabilityPermission(
+        appGrantKey,
+        context.accountId,
+        durableAccountReadCapability,
+      ),
+    })) return
   }
   if (!singleRequestOnly && (decision.scope === 'session' || decision.scope === 'always')) {
     sessionAccountReadGrants.add(grantKey, {
