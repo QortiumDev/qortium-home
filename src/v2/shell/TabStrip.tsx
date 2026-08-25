@@ -5,7 +5,7 @@ import {
   type MouseEvent,
   type PointerEvent,
 } from 'react'
-import { LayoutDashboard, Settings } from 'lucide-react'
+import { Compass, LayoutDashboard, Settings } from 'lucide-react'
 import type { TabId } from '../contracts'
 import type { ProductState, ShellEntry, TabPageId } from '../product-model'
 import { t, type TranslationKey } from '../../i18n'
@@ -28,6 +28,7 @@ const internalTabLabelKeys: Readonly<Record<TabPageId, TranslationKey>> = {
   dashboard: 'common.dashboard',
   newtab: 'home2.tabs.newTab',
   settings: 'common.settings',
+  welcome: 'welcome.title',
 }
 
 /**
@@ -36,7 +37,11 @@ const internalTabLabelKeys: Readonly<Record<TabPageId, TranslationKey>> = {
  */
 function InternalTabIcon({ page }: { readonly page: TabPageId }) {
   if (page === 'dashboard') return <HomeMark className="home-v2-tab__favicon" />
-  const Icon = page === 'settings' ? Settings : LayoutDashboard
+  const Icon = page === 'settings'
+    ? Settings
+    : page === 'welcome'
+      ? Compass
+      : LayoutDashboard
   return (
     <Icon
       className="home-v2-tab__favicon"

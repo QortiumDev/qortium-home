@@ -24,7 +24,7 @@ export type InternalPageId = Exclude<ShellDestination, 'tab'>
  * taking a tab, so there is only ever one of each and they never survive a
  * restart.
  */
-export type TransientPageId = 'core-docs' | 'releases' | 'welcome'
+export type TransientPageId = 'core-docs' | 'releases'
 
 /** Internal pages that can hold a tab, and may do so more than once. */
 export type TabPageId = Exclude<InternalPageId, TransientPageId>
@@ -32,7 +32,6 @@ export type TabPageId = Exclude<InternalPageId, TransientPageId>
 const transientPages: ReadonlySet<InternalPageId> = new Set<InternalPageId>([
   'core-docs',
   'releases',
-  'welcome',
 ])
 
 export function isTransientPage(page: InternalPageId): page is TransientPageId {
@@ -190,6 +189,18 @@ const tabPages: ReadonlySet<string> = new Set<TabPageId>([
   'dashboard',
   'newtab',
   'settings',
+  'welcome',
+])
+
+/**
+ * Welcome opens as an ordinary closable tab, but it must not come BACK on a
+ * later launch: onboarding state is separate, and a restored welcome tab in a
+ * completed profile would render its error state.
+ */
+const restorableTabPages: ReadonlySet<string> = new Set<TabPageId>([
+  'dashboard',
+  'newtab',
+  'settings',
 ])
 
 function parseAppEntry(candidate: unknown): ShellEntry | null {
@@ -259,7 +270,7 @@ export function restoreProductState(value: unknown): ProductState {
       if (candidate.kind === 'internal') {
         const page = typeof candidate.page === 'string' ? candidate.page : ''
         const id = typeof candidate.id === 'string' ? candidate.id.trim() : ''
-        if (!tabPages.has(page) || !id || id.length > 80) continue
+        if (!restorableTabPages.has(page) || !id || id.length > 80) continue
         pushEntry({ kind: 'internal', id: id as TabId, page: page as TabPageId })
       } else {
         pushEntry(parseAppEntry(candidate))
@@ -269,7 +280,7 @@ export function restoreProductState(value: unknown): ProductState {
     // Pre-unified states: a separate internalPages list plus app tabs.
     if (Array.isArray(value.internalPages)) {
       for (const candidate of value.internalPages.slice(0, 8)) {
-        if (typeof candidate !== 'string' || !tabPages.has(candidate)) continue
+        if (typeof candidate !== 'string' || !restorableTabPages.has(candidate)) continue
         pushEntry({
           kind: 'internal',
           id: nextInternalTabId(),

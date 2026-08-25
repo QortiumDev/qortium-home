@@ -1219,25 +1219,7 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
         data-app-overlay-active={appOverlayActive ? 'true' : 'false'}
       >
         {productState.transient ? (
-          productState.transient === 'welcome' && props.onboarding ? (
-          <HomeV2WelcomePage
-            accountCatalogue={props.accountCatalogue}
-            coreManagement={props.coreManagement}
-            onboarding={props.onboarding}
-            snapshot={snapshot}
-            vaultState={props.vaultState}
-            onAccountAction={props.onWelcomeAccountAction}
-            onComplete={(destination) => {
-              if (destination === 'appearance') setRequestedSettingsSection('appearance')
-              props.onWelcomeComplete?.(destination)
-            }}
-            onConfigureCustomNode={() => props.onConfigureCustomNode?.('qortium')}
-            onOpenNames={() => void props.onOpenAddress?.('qdn://APP/Names/Names')}
-            onSetNodeMode={(mode) => props.onSetNodeMode?.('qortium', mode)}
-            onSkip={props.onWelcomeSkip}
-            onStepChange={props.onWelcomeStepChange}
-          />
-        ) : productState.destination === 'core-docs' &&
+          productState.destination === 'core-docs' &&
           props.coreDocsNetwork &&
           props.coreDocsTransport &&
           props.probeCoreDocs ? (
@@ -1257,10 +1239,6 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
           ) : productState.transient === 'releases' ? (
           <section className="home-v2-internal-page" role="alert">
             <h1>{t('releaseNotes.loadFailed')}</h1>
-          </section>
-          ) : productState.transient === 'welcome' ? (
-          <section className="home-v2-internal-page" role="alert">
-            <h1>{t('welcome.error')}</h1>
           </section>
           ) : productState.transient === 'core-docs' ? (
           <section className="home-v2-internal-page" role="alert">
@@ -1341,6 +1319,30 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
                 <NewTabPage {...props} />
               ) : entry.page === 'dashboard' ? (
                 <Dashboard {...props} onOpenSettingsSection={openSettingsSection} />
+              ) : entry.page === 'welcome' ? (
+                props.onboarding ? (
+              <HomeV2WelcomePage
+                accountCatalogue={props.accountCatalogue}
+                coreManagement={props.coreManagement}
+                onboarding={props.onboarding}
+                snapshot={snapshot}
+                vaultState={props.vaultState}
+                onAccountAction={props.onWelcomeAccountAction}
+                onComplete={(destination) => {
+                  if (destination === 'appearance') setRequestedSettingsSection('appearance')
+                  props.onWelcomeComplete?.(destination)
+                }}
+                onConfigureCustomNode={() => props.onConfigureCustomNode?.('qortium')}
+                onOpenNames={() => void props.onOpenAddress?.('qdn://APP/Names/Names')}
+                onSetNodeMode={(mode) => props.onSetNodeMode?.('qortium', mode)}
+                onSkip={props.onWelcomeSkip}
+                onStepChange={props.onWelcomeStepChange}
+              />
+                ) : (
+                  <section className="home-v2-internal-page" role="alert">
+                    <h1>{t('welcome.error')}</h1>
+                  </section>
+                )
               ) : (
                 <InternalPage destination={entry.page} />
               )}

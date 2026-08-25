@@ -416,7 +416,10 @@ body,
   transform: scale(1.22);
 }
 
-.home-v2-shell[data-theme='dark'] .home-v2-home-mark img {
+/* The asset is black line art on transparency. Inverting it in DARK mode left
+   dark strokes on a dark chrome; the mark must instead invert in LIGHT mode so
+   each theme gets the contrasting version. */
+.home-v2-shell:not([data-theme='dark']) .home-v2-home-mark img {
   filter: invert(1);
 }
 

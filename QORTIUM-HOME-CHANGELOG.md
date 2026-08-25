@@ -34,6 +34,18 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-24 - fix(home-v2): welcome as a tab, and a readable Home mark
+
+Three fixes to the welcome flow and chrome. The welcome guide's node
+step listed a Qortal Core card even though that step is about setting up
+your Qortium node; it now shows only Qortium, and Qortal Core stays
+where it belongs in Settings. Welcome now opens as an ordinary tab you
+can close and come back to, instead of taking over the window, though it
+still will not reappear on a later launch once you are set up. And the
+Home mark in the toolbar and tab strip now uses the version that
+contrasts with the theme: light strokes on the dark theme, dark strokes
+on the light one, which was previously the wrong way round.
+
 ### 2026-08-24 - feat(home-v2): let trusted apps keep permission to send chat
 
 When an app asks to send a chat message you can now choose "always

@@ -430,16 +430,32 @@ function testProductModelKeepsSourceQualifiedTabs(): void {
   assert.deepEqual(kinds(emptied), ['dashboard'])
 
   // Transient pages render full-window and take no tab.
+  // Welcome is an ordinary closable tab (owner decision 2026-08-24), unlike
+  // the release-notes and Core-docs pages which stay full-window.
   const welcome = reduceProductState(settingsOpen, {
     type: 'navigate',
     destination: 'welcome',
   })
   assert.equal(welcome.destination, 'welcome')
-  assert.equal(welcome.transient, 'welcome')
-  assert.deepEqual(kinds(welcome), kinds(settingsOpen))
-  const leftWelcome = reduceProductState(welcome, {
+  assert.equal(welcome.transient, null)
+  assert.deepEqual(kinds(welcome), [...kinds(settingsOpen), 'welcome'])
+  assert.equal(welcome.activeTabId, pageId(welcome, 'welcome'))
+  // ...but it must never come back on a later launch: onboarding state is
+  // tracked separately and a restored welcome tab would render its error page.
+  const restoredWithoutWelcome = restoreProductState(
+    JSON.parse(JSON.stringify(welcome)),
+  )
+  assert.deepEqual(kinds(restoredWithoutWelcome), kinds(settingsOpen))
+
+  const stillTransient = reduceProductState(settingsOpen, {
+    type: 'navigate',
+    destination: 'releases',
+  })
+  assert.equal(stillTransient.transient, 'releases')
+  assert.deepEqual(kinds(stillTransient), kinds(settingsOpen))
+  const leftWelcome = reduceProductState(stillTransient, {
     type: 'activate-tab',
-    tabId: pageId(welcome, 'dashboard'),
+    tabId: pageId(stillTransient, 'dashboard'),
   })
   assert.equal(leftWelcome.transient, null)
   assert.equal(leftWelcome.destination, 'dashboard')
