@@ -7,7 +7,7 @@ import {
   type FormEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import { ArrowDown, ArrowUp, Copy, ExternalLink, Pencil, Plus, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, Compass, Copy, ExternalLink, Pencil, Plus, Trash2 } from "lucide-react";
 import {
   reorderDashboardPins,
   type DashboardPin,
@@ -44,6 +44,8 @@ export interface HomeV2PinnedAppsProps {
     action: string,
   ) => void | Promise<void>;
   readonly onAdd: (draft: HomeV2PinnedAppsDraft) => void | Promise<void>;
+  /** Opens the assigned Explore app so people can find apps to pin. */
+  readonly onFindMoreApps?: () => void | Promise<void>;
   readonly onRename: (pin: DashboardPin, title: string) => void | Promise<void>;
   readonly onRemove: (pin: DashboardPin) => void | Promise<void>;
   readonly onMove: (
@@ -117,6 +119,7 @@ export function HomeV2PinnedApps({
   onOpen,
   onContextMenuAction,
   onAdd,
+  onFindMoreApps,
   onRename,
   onRemove,
   onMove,
@@ -513,6 +516,17 @@ export function HomeV2PinnedApps({
         <div>
           <h2 id="pinned-apps-title">{t("home2.dashboard.pinnedApps")}</h2>
         </div>
+        {onFindMoreApps ? (
+          <button
+            type="button"
+            className="home-v2-link-button home-v2-pinned-apps__find-button"
+            disabled={controlsDisabled}
+            onClick={() => void onFindMoreApps()}
+          >
+            <Compass aria-hidden="true" size={17} />
+            {t("home2.apps")}
+          </button>
+        ) : null}
         {allowAdd ? (
           <button
             ref={addButtonRef}

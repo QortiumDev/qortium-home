@@ -100,6 +100,7 @@ import {
   type HomeV2CollectionsAccounts,
 } from './collections-client'
 import { planStartPageLaunch } from './start-page-launch'
+import { resolveHomeV2ExploreAppUrl } from './qdn-settings-client'
 import {
   buildAdjacentDashboardPinMoveMutation,
   buildDashboardPinMoveMutation,
@@ -4910,6 +4911,15 @@ export function HomeV2LiveApp() {
       }}
       bookmarkToolbarVisibility={collectionsSnapshot?.toolbarVisibility}
       pinnedApps={{
+        // Sends people to the app they assigned as Explore, falling back to
+        // the shipped default rather than hard-coding a URL here.
+        onFindMoreApps: async () => {
+          // Resolved at click time from the live assignment, so a user who
+          // points Explore at their own app is honoured; falls back to the
+          // shipped default when settings are unavailable.
+          const settings = await qdnAppsManagement.client?.get().catch(() => null)
+          await openAddress(resolveHomeV2ExploreAppUrl(settings ?? null))
+        },
         pins: collectionsSnapshot?.dashboardPins ?? [],
         status: dashboardPinsPhase,
         error: dashboardPinsError,

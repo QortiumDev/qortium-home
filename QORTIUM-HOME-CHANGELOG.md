@@ -34,6 +34,14 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-24 - feat(home-v2): find more apps from the dashboard
+
+The Pinned Apps section on the Dashboard now has a button that opens
+your Explore app, so there is a way to go and find apps to pin rather
+than having to know an address and paste it in. It opens whichever app
+you have assigned to Explore in QDN Apps settings, falling back to the
+one Home ships with if you have not chosen your own.
+
 ### 2026-08-24 - fix(home-v2): offer a Qortal Core install without checking first
 
 Installing or updating Qortal Core previously required pressing "Check

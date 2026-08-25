@@ -77,4 +77,18 @@ assert.match(failed, /role="alert"/)
 assert.match(failed, /Pinned apps could not be loaded\./)
 assert.match(failed, />Retry</)
 
+// Discovery button: present only when the shell supplies a handler, so it is
+// never a dead control, and it never hard-codes an app address.
+const withDiscovery = renderToStaticMarkup(
+  <HomeV2PinnedApps
+    {...callbacks}
+    onFindMoreApps={() => undefined}
+    pins={pins}
+    status="ready"
+  />,
+)
+assert.match(withDiscovery, /home-v2-pinned-apps__find-button/)
+assert.doesNotMatch(withDiscovery, /qdn:\/\/APP\/Explore/)
+assert.doesNotMatch(ready, /home-v2-pinned-apps__find-button/)
+
 console.log('Home v2 pinned apps UI tests passed.')

@@ -318,6 +318,19 @@ export function parseHomeV2QdnSettingsState(
   })
 }
 
+export const HOME_V2_DEFAULT_EXPLORE_APP_URL = defaultAssignments.explore.url
+
+/**
+ * Where "find more apps" should go: the user's assigned Explore app when they
+ * have one, otherwise the shipped default. Never returns an empty string.
+ */
+export function resolveHomeV2ExploreAppUrl(
+  state?: HomeV2QdnSettingsState | null,
+): string {
+  const assigned = state?.assignments.assignments.explore?.url
+  return assigned && assigned.trim() ? assigned : HOME_V2_DEFAULT_EXPLORE_APP_URL
+}
+
 export function getHomeV2QdnAssignmentRows(
   state: HomeV2QdnSettingsState,
 ): readonly HomeV2QdnAssignmentRow[] {
