@@ -101,11 +101,13 @@ export function HomeV2AppIcon({
     >
       <span className="home-v2-app-icon__monogram">{monogram}</span>
       {image.url && image.url !== failedUrl ? (
+        // Eager for every variant: a lazy image inside a hidden dashboard tab is
+        // never fetched, so pins pop in as monograms when that tab is shown.
         <img
           alt=""
           className="home-v2-app-icon__image"
           decoding="async"
-          loading={variant === 'pin' ? 'lazy' : 'eager'}
+          loading="eager"
           src={image.url}
           onError={() => {
             setFailedUrl(image.url)

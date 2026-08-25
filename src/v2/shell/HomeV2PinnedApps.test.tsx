@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { renderToStaticMarkup } from 'react-dom/server'
 import type { DashboardPin } from '../../dashboardPins'
 import { HomeV2PinnedApps, type HomeV2PinnedAppsProps } from './HomeV2PinnedApps'
@@ -90,5 +91,11 @@ const withDiscovery = renderToStaticMarkup(
 assert.match(withDiscovery, /home-v2-pinned-apps__find-button/)
 assert.doesNotMatch(withDiscovery, /qdn:\/\/APP\/Explore/)
 assert.doesNotMatch(ready, /home-v2-pinned-apps__find-button/)
+
+// Pin icons load eagerly: a lazy image inside a hidden dashboard tab is never
+// fetched, so the pins would show monograms until the tab is opened again.
+const iconSource = readFileSync('src/v2/shell/HomeV2AppIcon.tsx', 'utf8')
+assert.match(iconSource, /loading="eager"/)
+assert.doesNotMatch(iconSource, /loading=\{[^}]*'lazy'/)
 
 console.log('Home v2 pinned apps UI tests passed.')

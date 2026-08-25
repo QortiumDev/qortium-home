@@ -443,9 +443,18 @@ export function HomeV2PinnedApps({
 
   useLayoutEffect(() => {
     const element = sectionRef.current;
-    if (!element || typeof ResizeObserver === "undefined") return undefined;
+    if (!element) return undefined;
+    // Measure before the first paint: the observer callback is asynchronous, so
+    // waiting for it paints one unconstrained row that then reflows.
+    setListWidth(element.getBoundingClientRect().width);
+    if (typeof ResizeObserver === "undefined") return undefined;
     const observer = new ResizeObserver((entries) => {
-      for (const entry of entries) setListWidth(entry.contentRect.width);
+      for (const entry of entries) {
+        // A hidden dashboard tab (display:none slot) reports width 0. Keeping
+        // the last good width stops the grid from losing its max-width and
+        // flickering back into a single row when the tab is shown again.
+        if (entry.contentRect.width > 0) setListWidth(entry.contentRect.width);
+      }
     });
     observer.observe(element);
     return () => observer.disconnect();

@@ -27,6 +27,7 @@ globalThis.PointerEvent = class PointerEvent extends dom.window.MouseEvent {
 }
 dom.window.PointerEvent = globalThis.PointerEvent
 globalThis.Node = dom.window.Node
+globalThis.getComputedStyle = dom.window.getComputedStyle.bind(dom.window)
 globalThis.requestAnimationFrame = dom.window.requestAnimationFrame.bind(dom.window)
 globalThis.cancelAnimationFrame = dom.window.cancelAnimationFrame.bind(dom.window)
 
