@@ -506,7 +506,7 @@ assert.equal(bridgeSource.includes("assertHomeV2TrustedMintingNode('REMOVE_MINTI
   const readSites = bridgeSource.split("'Reward share lookup'").slice(1)
   assert.equal(readSites.length >= 2, true, 'both reward-share reads are present')
   for (const site of readSites) {
-    const keyArgument = site.split(')')[0].replace(/^[\s,]+/, '').trim()
+    const keyArgument = site.split(')')[0].replace(/[\s,]/g, '')
     assert.equal(keyArgument, "''", 'every reward-share lookup passes an empty API key')
   }
 }
