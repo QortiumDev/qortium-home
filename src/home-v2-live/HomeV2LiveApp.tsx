@@ -95,6 +95,18 @@ import {
   useHomeV2NodeCoreController,
 } from './node-core-controller'
 import { useHomeV2AppUpdates } from './app-update-controller'
+import {
+  toHomeV2CoreMaintenanceManagement,
+  useHomeV2CoreMaintenance,
+} from './core-maintenance-controller'
+import {
+  toHomeV2QortalMaintenanceManagement,
+  useHomeV2QortalMaintenance,
+} from './qortal-maintenance-controller'
+import {
+  toHomeV2TransportManagement,
+  useHomeV2TransportMaintenance,
+} from './transport-maintenance-controller'
 import { useHomeV2OnChainCoreUpdates } from './on-chain-core-update-controller'
 import {
   HomeV2CollectionsClient,
@@ -648,6 +660,29 @@ export function HomeV2LiveApp() {
     () => ({ ...snapshotState, nodes: nodeCoreController.nodes }),
     [nodeCoreController.nodes, snapshotState],
   )
+  const refreshCoreStatuses = useCallback(() => {
+    void nodeCoreController.refreshCoreStatuses()
+  }, [nodeCoreController])
+  // The combined "Node & Core" dashboard tile needs the maintenance surfaces,
+  // and a dashboard tab stays mounted once opened, so owning the controllers
+  // here rather than inside the tile costs nothing extra in practice and keeps
+  // HomeV2Prototype renderable from a fixture. Two prices, both accepted for
+  // now. The three 30s polls run for the app's lifetime instead of only while a
+  // Settings panel is open: one invoke per domain per 30s, all local IPC. And
+  // the Settings and Welcome panels still build their own controllers, so while
+  // Settings is open each domain has two independent instances with separate
+  // busy/notice state — an install started from the tile leaves the panel's
+  // button enabled and its notice stale, and the main-process coordinator, not
+  // the UI, is what refuses the second attempt. Collapsing that means feeding
+  // the panels these slices as props and deleting their internal hook calls,
+  // which is a change to panel internals and belongs in its own PR.
+  const coreMaintenance = useHomeV2CoreMaintenance({
+    onCoreRefresh: refreshCoreStatuses,
+    qortalEnabled: nodeCoreController.nodes.qortal.mode !== 'disabled',
+    qortiumEnabled: nodeCoreController.nodes.qortium.mode !== 'disabled',
+  })
+  const qortalMaintenance = useHomeV2QortalMaintenance(refreshCoreStatuses)
+  const transportMaintenance = useHomeV2TransportMaintenance(refreshCoreStatuses)
   const [vaultClient, setVaultClient] = useState<HomeV2VaultClient | null>(
     () => window.homeV2Vault ?? null,
   )
@@ -5109,9 +5144,16 @@ export function HomeV2LiveApp() {
         onAction: (network, action) => {
           void nodeCoreController.runCoreAction(network, action)
         },
-        onRefresh: () => {
-          void nodeCoreController.refreshCoreStatuses()
-        },
+        onRefresh: refreshCoreStatuses,
+        coreMaintenance: coreMaintenance.available
+          ? toHomeV2CoreMaintenanceManagement(coreMaintenance)
+          : undefined,
+        qortalMaintenance: qortalMaintenance.available
+          ? toHomeV2QortalMaintenanceManagement(qortalMaintenance)
+          : undefined,
+        transport: transportMaintenance.available
+          ? toHomeV2TransportManagement(transportMaintenance)
+          : undefined,
       }}
       appUpdates={appUpdates.available ? appUpdates : undefined}
       onChainCoreUpdates={onChainCoreUpdates.available ? onChainCoreUpdates : undefined}

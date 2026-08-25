@@ -52,6 +52,7 @@ import {
 } from './shell/SettingsPage'
 import { PermissionDialog } from './shell/PermissionDialog'
 import type { HomeV2CoreManagement } from './shell/CoreManagerCards'
+import type { HomeV2AppUpdates } from '../home-v2-live/app-update-controller'
 import {
   createHomeV2ShellState,
   parseHomeV2ShellState,
@@ -1429,25 +1430,118 @@ function testCoreManagementRenderingAndAndroidDegrade(): void {
     },
     onAction: () => undefined,
     onRefresh: () => undefined,
+    coreMaintenance: {
+      busy: null,
+      notice: null,
+      policy: null,
+      release: {
+        action: 'strict-update',
+        available: true,
+        channel: 'stable',
+        revision: 1,
+        schema: 'home-v2-core-maintenance-release',
+        tag: 'v1.7.3',
+      },
+      status: {
+        capabilities: { canInitialInstall: false, canInstallJava: true },
+        core: { channel: 'stable', installedVersion: '1.7.2', runtime: 'running' },
+        java: { source: 'missing', updateAvailable: false, version: null },
+        revision: 1,
+        schema: 'home-v2-core-maintenance',
+      },
+      onCheckRelease: () => undefined,
+      onInstallJava: () => undefined,
+      onRunRelease: () => undefined,
+    },
+    transport: {
+      busy: null,
+      mode: 'direct-only',
+      notice: null,
+      stale: false,
+      status: {
+        capabilities: {
+          canEnsureRouter: true,
+          canSetDirectAndI2p: true,
+          canSetDirectOnly: true,
+          canSetI2pOnly: false,
+        },
+        core: { install: 'installed', runtime: 'stopped' },
+        issue: null,
+        network: 'qortium',
+        revision: 1,
+        router: { maintenance: 'install', state: 'missing', version: null },
+        schema: 'home-v2-transport-maintenance',
+        transportMode: 'direct-only',
+      },
+      onEnsureRouter: () => undefined,
+      onSetTransportMode: () => undefined,
+    },
   }
+  const appUpdates = {
+    available: true,
+    busy: null,
+    channel: 'stable',
+    check: async () => undefined,
+    download: null,
+    downloadUpdate: async () => undefined,
+    formattedSize: null,
+    homeUpdatePolicy: 'notify',
+    isAndroid: false,
+    message: null,
+    openDownloaded: async () => undefined,
+    preferencesLoaded: true,
+    result: null,
+  } as unknown as HomeV2AppUpdates
   const dashboard = renderToStaticMarkup(
     <HomeV2Prototype
       snapshot={homeV2Fixture}
       productState={createProductState()}
       permissionState={createPermissionState()}
       layout="desktop"
+      appUpdates={appUpdates}
       coreManagement={coreManagement}
     />,
   )
-  const managementStart = dashboard.indexOf('data-home-v2-core-management="desktop"')
-  const qortium = dashboard.indexOf('data-network="qortium"', managementStart)
-  const qortal = dashboard.indexOf('data-network="qortal"', managementStart)
-  assert.ok(managementStart >= 0 && qortium > managementStart && qortal > qortium)
+  // Connections and Core management are one "Node & Core" section: exactly one
+  // of them, one combined card per enabled network, in shell network order.
+  assert.equal([...dashboard.matchAll(/class="home-v2-node-core"/g)].length, 1)
+  assert.doesNotMatch(dashboard, /home-v2-connections|home-v2-core-management/)
+  const sectionStart = dashboard.indexOf('class="home-v2-node-core-grid"')
+  const qortium = dashboard.indexOf(
+    'class="home-v2-node-core-card" data-network="qortium"',
+    sectionStart,
+  )
+  const qortal = dashboard.indexOf(
+    'class="home-v2-node-core-card" data-network="qortal"',
+    sectionStart,
+  )
+  assert.ok(sectionStart >= 0 && qortium > sectionStart && qortal > qortium)
+  // Each card still carries the connection controls and the Core controls.
+  assert.match(dashboard, /aria-label="Qortium connection mode"/)
+  assert.match(dashboard, /aria-label="Qortal connection mode"/)
   assert.match(dashboard, /Qortium Core running · managed by Home/)
   assert.match(dashboard, />Stop Core</)
   assert.match(dashboard, /Adopted Qortal Core · stopped/)
   assert.match(dashboard, />Start Core</)
-  assert.match(dashboard, /aria-label="Settings: Core management"/)
+  assert.match(dashboard, /aria-label="Settings: Node &amp; Core"/)
+  // Java gates the release install, so only the Java control is offered and the
+  // running Core never gets an install button behind its back.
+  assert.match(dashboard, /data-home-v2-node-core-action="java"[^>]*>Install Java</)
+  assert.doesNotMatch(dashboard, /data-home-v2-node-core-action="core-release"/)
+  // The i2p transport row belongs to Qortium only.
+  const transportMatches = [
+    ...dashboard.matchAll(/data-home-v2-node-core-transport="dashboard" data-network="(\w+)"/g),
+  ].map((match) => match[1])
+  assert.deepEqual(transportMatches, ['qortium'])
+  // One Home-update row for the whole section, not one per network.
+  assert.equal(
+    [...dashboard.matchAll(/data-home-v2-node-core-home-update="dashboard"/g)].length,
+    1,
+  )
+  assert.equal(
+    [...dashboard.matchAll(/data-home-v2-node-core-action="home-check"/g)].length,
+    1,
+  )
 
   const qortalDisabledSnapshot = {
     ...homeV2Fixture,
@@ -1545,7 +1639,7 @@ function testCoreManagementRenderingAndAndroidDegrade(): void {
 
   const css = readFileSync('src/v2/shell/home-v2-prototype.css', 'utf8')
   for (const selector of [
-    '.home-v2-node-grid',
+    '.home-v2-node-core-grid',
     '.home-v2-core-grid',
     '.home-v2-presence-list',
   ]) {
@@ -1680,7 +1774,8 @@ function testCoreManagementRenderingAndAndroidDegrade(): void {
       coreManagement={{ ...coreManagement, available: false }}
     />,
   )
-  assert.doesNotMatch(android, /data-home-v2-core-management/)
+  assert.doesNotMatch(android, /home-v2-core-card/)
+  assert.doesNotMatch(android, /data-home-v2-node-core-action/)
   assert.doesNotMatch(android, />Start Core|>Stop Core/)
   assert.doesNotMatch(android, /home-v2-qortal-maintenance|Qortal Core maintenance/)
 }

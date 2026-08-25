@@ -394,6 +394,8 @@ export type HomeV2QortalMaintenance = ReturnType<typeof useHomeV2QortalMaintenan
 export interface HomeV2QortalMaintenanceManagement {
   readonly actionAllowed: boolean
   readonly busy: HomeV2QortalMaintenanceBusy | null
+  /** Last action outcome, so a tile can report a failure it caused. */
+  readonly notice: string | null
   readonly release: HomeV2QortalMaintenanceRelease | null
   readonly status: HomeV2QortalMaintenanceStatus | null
   readonly onCheckRelease?: () => void
@@ -406,6 +408,7 @@ export function toHomeV2QortalMaintenanceManagement(
   return {
     actionAllowed: maintenance.actionAllowed,
     busy: maintenance.busy,
+    notice: maintenance.notice,
     onCheckRelease: () => void maintenance.check(),
     onRunRelease: () => void maintenance.run(),
     release: maintenance.release,

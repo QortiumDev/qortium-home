@@ -251,6 +251,8 @@ export type HomeV2CoreMaintenance = ReturnType<typeof useHomeV2CoreMaintenance>
  */
 export interface HomeV2CoreMaintenanceManagement {
   readonly busy: HomeV2CoreMaintenanceBusy | null
+  /** Last action outcome, so a tile can report a failure it caused. */
+  readonly notice: string | null
   readonly policy: HomeV2CoreUpdatePolicyState | null
   readonly release: HomeV2CoreMaintenanceRelease | null
   readonly status: HomeV2CoreMaintenanceStatus | null
@@ -268,6 +270,7 @@ export function toHomeV2CoreMaintenanceManagement(
 ): HomeV2CoreMaintenanceManagement {
   return {
     busy: maintenance.busy,
+    notice: maintenance.notice,
     onCheckRelease: () => void maintenance.check(),
     onInstallJava: () => void maintenance.installJava(),
     onRunRelease: () => void maintenance.runCore(),

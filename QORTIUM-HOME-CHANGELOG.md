@@ -34,6 +34,45 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-25 - feat(home-v2): one "Node & Core" tile on the Dashboard
+
+The Dashboard used to show two separate blocks for the same thing: a
+"Connections" block with a card per network, and a "Core management" block with
+a second card per network underneath it. Everything about one network was split
+across two places, and neither place could actually install or update anything —
+that all lived in Settings.
+
+They are now a single "Node & Core" section with one card per enabled network.
+Each card keeps the connection controls it always had — the local / public /
+custom / disabled mode picker, the status line with height and peers, the local
+Core status, and the Configure, Core API docs and Refresh links — and adds the
+Core controls directly underneath: install or update the managed Java runtime,
+install an approved on-chain update, install or update Qortium Core from a
+verified release, and start or stop the Core. Those install actions are offered
+one at a time and in the order that makes sense, so the tile never asks you to
+install Core before there is a Java runtime to run it in, and it tells you to
+stop Core first rather than silently greying a button out. Stopping an
+externally controlled Core still asks for confirmation exactly as before.
+
+The Qortium card also gains a row for the I2P side of things: what the router is
+doing, a button to install, start or update it, and the transport mode picker.
+Below the cards there is now one compact Qortium Home update row for the whole
+section — its status, a check button, and download or open when there is
+something to download or open. The full update policy and release channel
+settings stay in Settings, and the "Settings" link in the section heading still
+jumps straight there.
+
+Underneath, the three maintenance controllers that Settings uses are now also
+created once when the app starts, so the Dashboard tile has something to read.
+That means Home polls for Core, Qortal and I2P maintenance status for as long as
+it is running — three local requests every thirty seconds — rather than only
+while a Settings panel is on screen. The Settings panels themselves are
+unchanged and still keep their own copy of that state, so if you start an
+install from the Dashboard and then open Settings, the Settings buttons will not
+know about it until they next refresh; the install itself is still safe, because
+Home refuses a second attempt underneath. Giving the panels the same shared
+state is a follow-up.
+
 ### 2026-08-25 - refactor(home-v2): share the Core maintenance logic behind one set of hooks
 
 Nothing changes on screen with this one. The logic behind Settings > Runtime —
