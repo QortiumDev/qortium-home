@@ -48,6 +48,12 @@ export const QDN_APP_READ_CAPABILITIES = ['account.read'] as const;
  */
 export const QDN_ACCOUNT_SCOPED_CAPABILITIES = ['account.read'] as const;
 export type QdnAccountScopedCapability = (typeof QDN_ACCOUNT_SCOPED_CAPABILITIES)[number];
+
+export function isQdnAccountScopedCapability(
+  value: string,
+): value is QdnAccountScopedCapability {
+  return (QDN_ACCOUNT_SCOPED_CAPABILITIES as readonly string[]).includes(value);
+}
 export const QDN_APP_ASSIGNMENT_CAPABILITIES = ['assignments.read'] as const;
 export const QDN_APP_CAPABILITIES = [
   ...QDN_MANAGER_CAPABILITIES,
