@@ -222,10 +222,11 @@ const accountReadRevoked = service.revokeBookmarks({
   schema: 'home-v2-qdn-settings-revoke-bookmarks-request',
 })
 assert.deepEqual(accountReadRevoked.accountRead.apps, [])
-// Revoking the read grant must not disturb any other capability.
+// Revoking the read grant must not disturb any other capability — the
+// bookmarks assignment keeps the URL this test set on it earlier.
 assert.equal(
   accountReadRevoked.assignments.assignments.bookmarks?.url,
-  'qdn://APP/Bookmarks/Bookmarks',
+  'qdn://APP/Other/Bookmarks#/saved',
 )
 // Only allowlisted capabilities may be revoked through the renderer, and the
 // allowlist is not a way to revoke something that was never grantable.
