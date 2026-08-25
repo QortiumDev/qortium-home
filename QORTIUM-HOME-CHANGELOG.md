@@ -34,6 +34,19 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-25 - fix(home-v2): pinned apps stop flickering when you switch dashboard tabs
+
+Switching between two Dashboard tabs, or closing the one you were on, made the
+pinned app icons jump: for a moment they appeared spread across a single line
+and then snapped back into their usual rows. The Dashboard was measuring its own
+width while it was still hidden, getting nothing back, and laying the icons out
+from that. It now keeps the last real measurement and takes a first measurement
+before it draws, so the icons appear where they belong straight away.
+
+Pinned icons in a Dashboard tab you are not looking at are now loaded in advance
+instead of being left until you open it, so they no longer show up as plain
+letter tiles for a moment when you switch to that tab.
+
 ### 2026-08-25 - fix(home-v2): windows remember their own size, and the tray raises the right one
 
 Home now remembers the size and position of your main window separately from

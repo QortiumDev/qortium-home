@@ -276,7 +276,14 @@ export function useHomeV2Image({
   const [state, setState] = useState<{
     readonly cacheKey: string | null
     readonly snapshot: ImageSnapshot
-  }>({ cacheKey: null, snapshot: FALLBACK })
+  }>(() => {
+    // A remount (a dashboard tab coming back) should paint a still-cached image
+    // straight away instead of flashing the fallback until the effect runs.
+    const cached = cacheKey ? entries.get(cacheKey) : undefined
+    return cached && cached.snapshot.status === 'ready' && Date.now() < cached.expiresAt
+      ? { cacheKey, snapshot: cached.snapshot }
+      : { cacheKey: null, snapshot: FALLBACK }
+  })
   useEffect(() => {
     if (!cacheKey || !load) {
       setState({ cacheKey: null, snapshot: FALLBACK })

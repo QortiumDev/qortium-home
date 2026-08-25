@@ -313,4 +313,89 @@ try {
   container.remove()
 }
 
+// Grid width: balanced on the first paint, and unharmed by a dashboard tab
+// being hidden — a display:none slot reports width 0 to the resize observer.
+{
+  type ObservedEntry = { readonly contentRect: { readonly width: number } }
+  const priorGetBoundingClientRect = HTMLElement.prototype.getBoundingClientRect
+  const priorResizeObserver = globalThis.ResizeObserver
+  const layoutContainer = document.createElement('div')
+  document.body.appendChild(layoutContainer)
+  const layoutRoot = createRoot(layoutContainer)
+  let sectionWidth = 500
+  let observed: ((entries: readonly ObservedEntry[]) => void) | null = null
+
+  HTMLElement.prototype.getBoundingClientRect = () => ({
+    bottom: 200,
+    height: 200,
+    left: 0,
+    right: sectionWidth,
+    top: 0,
+    width: sectionWidth,
+    x: 0,
+    y: 0,
+    toJSON: () => ({}),
+  })
+  globalThis.ResizeObserver = class {
+    constructor(callback: (entries: readonly ObservedEntry[]) => void) {
+      observed = callback
+    }
+    disconnect() {}
+    observe() {}
+    unobserve() {}
+  } as unknown as typeof ResizeObserver
+
+  try {
+    await act(async () => {
+      layoutRoot.render(
+        <HomeV2PinnedApps
+          pins={pins}
+          status="ready"
+          onAdd={() => undefined}
+          onMove={() => undefined}
+          onOpen={() => undefined}
+          onRemove={() => undefined}
+          onRename={() => undefined}
+          onReorder={() => undefined}
+          onRetry={() => undefined}
+        />,
+      )
+    })
+    const grid = layoutContainer.querySelector(
+      '.home-v2-pinned-apps__grid',
+    ) as HTMLUListElement | null
+    assert(grid)
+    assert.equal(
+      grid.style.maxWidth,
+      '154px',
+      'the first paint is measured synchronously, not left to the observer',
+    )
+    assert(observed, 'the section is observed for later resizes')
+
+    await act(async () => {
+      observed?.([{ contentRect: { width: 0 } }])
+    })
+    assert.equal(
+      grid.style.maxWidth,
+      '154px',
+      'a hidden tab reporting width 0 keeps the last good measurement',
+    )
+
+    sectionWidth = 100
+    await act(async () => {
+      observed?.([{ contentRect: { width: 100 } }])
+    })
+    assert.equal(
+      grid.style.maxWidth,
+      '72px',
+      'a real resize still re-balances the grid',
+    )
+  } finally {
+    await act(async () => layoutRoot.unmount())
+    layoutContainer.remove()
+    HTMLElement.prototype.getBoundingClientRect = priorGetBoundingClientRect
+    globalThis.ResizeObserver = priorResizeObserver
+  }
+}
+
 console.log('Home v2 pinned apps interaction tests passed.')
