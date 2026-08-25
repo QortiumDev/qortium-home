@@ -34,6 +34,36 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-25 - feat(home-v2): close to tray, and a warning before closing several tabs
+
+Closing the main window has always meant closing Qortium Home, with no warning,
+however many tabs were open in it. Settings now has a "Window" group, under
+General, with two switches that change that.
+
+"Close to tray" keeps Home running in the notification area when you close the
+window instead of shutting it down. The window is hidden rather than closed, so
+nothing is lost: the tray's "Open Qortium Home" brings it back exactly as you
+left it, and so do launching Home again and, on macOS, the dock icon. Quit —
+from the tray menu or anywhere else — still quits, and always outranks this
+setting, so Home can never become an app you cannot exit. Where no tray icon is
+available the setting has nothing to restore a hidden window from, so it stands
+aside and the warning below applies instead.
+
+"Ask before closing tabs" is on by default and asks first when the window you
+are closing has more than one tab open. The question says how many tabs it is
+about and offers to close the window, to close to the tray instead when a tray
+is there, or to cancel — and cancel is the answer that Enter and Escape both
+give, so a reflexive keypress keeps your tabs. A "Remember my choice" box turns
+whichever answer you gave into the matching setting: closing the window stops
+the warning, closing to the tray turns close-to-tray on. Cancelling remembers
+nothing, on the grounds that backing out of a question is not an answer to it.
+
+Both settings belong to the application rather than to the shell, because what a
+close does has to be decided at a moment when the window is already going away
+and no page can be asked. They are stored beside the remembered window size, in
+their own small file, and only the main window carries them: a window you
+detached a tab into closes normally, exactly as it did before.
+
 ### 2026-08-25 - feat(home-v2): toolbar node menus that act, not just report
 
 The small network buttons in the toolbar opened a panel that told you how the
