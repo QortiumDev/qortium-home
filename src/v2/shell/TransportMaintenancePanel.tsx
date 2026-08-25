@@ -8,7 +8,7 @@ import type { HomeV2CoreManagement } from './CoreManagerCards'
 
 type SettableTransportMode = Exclude<HomeV2TransportMode, 'unknown'>
 
-function routerStatusMessage(status: HomeV2TransportMaintenanceStatus) {
+export function routerStatusMessage(status: HomeV2TransportMaintenanceStatus) {
   if (status.issue === 'manager-unavailable' || status.issue === 'status-unavailable') {
     return t('home2.transportMaintenance.status.unavailable')
   }
@@ -55,7 +55,7 @@ function modeDescription(mode: SettableTransportMode) {
   return t('home2.transportMaintenance.mode.directAndI2pDescription')
 }
 
-function ensureLabel(status: HomeV2TransportMaintenanceStatus) {
+export function ensureLabel(status: HomeV2TransportMaintenanceStatus) {
   if (status.router.maintenance === 'install') {
     return t('home2.transportMaintenance.router.installAndStart')
   }

@@ -6,7 +6,7 @@ import {
   type CSSProperties,
   type ReactNode,
 } from 'react'
-import { t, type TranslationKey } from '../../i18n'
+import { t } from '../../i18n'
 import { translateMainProcessMessage } from '../../mainProcessMessage'
 import {
   isHomeV2RtlLanguage,
@@ -53,17 +53,15 @@ import {
   type AppTabNavigationSnapshot,
 } from './AppTabStage'
 import { BrowserChrome, type AddressOpenResult } from './BrowserChrome'
-import { NetworkBadge, networkLabels } from './NetworkBadge'
+import { NetworkBadge } from './NetworkBadge'
 import { PermissionDialog } from './PermissionDialog'
 import { VisibleIdentityAvatar } from './VisibleIdentityAvatar'
 import {
   SettingsPage,
   type HomeV2SettingsSectionTarget,
 } from './SettingsPage'
-import {
-  CoreManagerCards,
-  type HomeV2CoreManagement,
-} from './CoreManagerCards'
+import type { HomeV2CoreManagement } from './CoreManagerCards'
+import { HomeV2NodeCoreSection } from './HomeV2NodeCoreSection'
 import type {
   HomeV2AppBridgeProtocol,
   HomeV2AppRequestContext,
@@ -361,13 +359,6 @@ function NewTabPage(props: HomeV2PrototypeProps) {
   )
 }
 
-const nodeModeLabelKeys: Readonly<Record<NodeConnectionMode, TranslationKey>> = {
-  disabled: 'home2.node.mode.disabled',
-  local: 'home2.node.mode.local',
-  public: 'home2.node.mode.public',
-  custom: 'home2.node.mode.custom',
-}
-
 function IdentityPresence({
   snapshot,
   network,
@@ -401,123 +392,6 @@ function IdentityPresence({
           {presence.primaryName ?? t('home2.identity.noRegisteredName')}
         </strong>
         <code>{presence.address ?? t('home2.identity.noAddress')}</code>
-      </div>
-    </article>
-  )
-}
-
-function NodeCard({
-  snapshot,
-  network,
-  onSetNodeMode,
-  onRefreshNode,
-  onConfigureCustomNode,
-  onOpenCoreDocs,
-}: {
-  readonly snapshot: HomeV2Snapshot
-  readonly network: NetworkId
-  readonly onSetNodeMode?: HomeV2PrototypeProps['onSetNodeMode']
-  readonly onRefreshNode?: HomeV2PrototypeProps['onRefreshNode']
-  readonly onConfigureCustomNode?: HomeV2PrototypeProps['onConfigureCustomNode']
-  readonly onOpenCoreDocs?: HomeV2PrototypeProps['onOpenCoreDocs']
-}) {
-  const node = snapshot.nodes[network]
-  return (
-    <article className="home-v2-node-card" data-network={network}>
-      <header>
-        <div>
-          <NetworkBadge network={network} />
-          <h3>
-            {t('home2.node.connectionTitle', {
-              network: networkLabels[network],
-            })}
-          </h3>
-        </div>
-        <span className="home-v2-node-state" data-node-state={node.state}>
-          <span className="home-v2-status-dot" aria-hidden="true" />
-          {node.statusText}
-        </span>
-      </header>
-      <label className="home-v2-node-mode-control">
-        <span>{t('home2.node.connectionMode')}</span>
-        <select
-          aria-label={t('home2.node.connectionModeFor', {
-            network: networkLabels[network],
-          })}
-          value={node.mode}
-          onChange={(event) =>
-            onSetNodeMode?.(network, event.target.value as NodeConnectionMode)
-          }
-        >
-          {(Object.keys(nodeModeLabelKeys) as NodeConnectionMode[]).map((mode) => (
-            <option
-              key={mode}
-              value={mode}
-              disabled={mode === 'custom' && !node.customConfigured}
-            >
-              {t(nodeModeLabelKeys[mode])}
-              {mode === 'custom' && !node.customConfigured
-                ? ` (${t('home2.node.notConfigured')})`
-                : ''}
-            </option>
-          ))}
-        </select>
-      </label>
-      <div className="home-v2-node-detail">
-        <span>
-          {node.mode === 'disabled'
-            ? t('home2.node.noConnection')
-            : `${t(nodeModeLabelKeys[node.mode])} · ${node.label}`}
-        </span>
-        <small>
-          {node.error ??
-            ([
-              node.height === null
-                ? null
-                : t('home2.node.height', {
-                    height: node.height.toLocaleString(),
-                  }),
-              node.peerCount === null
-                ? null
-                : t('home2.node.peers', { count: node.peerCount }),
-            ]
-              .filter(Boolean)
-              .join(' · ') || t('home2.node.waitingForStatus'))}
-        </small>
-        <small>{node.localCoreStatusText}</small>
-      </div>
-      <div className="home-v2-node-actions">
-        {onOpenCoreDocs && node.capabilities.read ? (
-          <button
-            type="button"
-            className="home-v2-link-button"
-            onClick={() => onOpenCoreDocs(network)}
-          >
-            {t('coreApi.title')}
-          </button>
-        ) : null}
-        {onConfigureCustomNode ? (
-          <button
-            type="button"
-            className="home-v2-link-button"
-            onClick={() => onConfigureCustomNode(network)}
-          >
-            {t('home2.node.configure')}
-          </button>
-        ) : (
-          <span aria-hidden="true" />
-        )}
-        {onRefreshNode ? (
-          <button
-            type="button"
-            className="home-v2-link-button"
-            onClick={() => onRefreshNode(network)}
-          >
-            {t('common.refresh')}
-          </button>
-        ) : (
-          <span aria-hidden="true" />
-        )}
       </div>
     </article>
   )
@@ -806,54 +680,22 @@ function Dashboard(props: DashboardProps) {
         />
       ) : null}
 
-      {enabledNetworks.length > 0 ? <section
-        className="home-v2-connections"
-        aria-labelledby="connections-title"
-      >
-        <div className="home-v2-section-heading">
-          <div>
-            <h2 id="connections-title">{t('connections.title')}</h2>
-          </div>
-        </div>
-        <div className="home-v2-node-grid">
-          {enabledNetworks.map((network) => (
-            <NodeCard
-              key={network}
-              snapshot={snapshot}
-              network={network}
-              onSetNodeMode={onSetNodeMode}
-              onRefreshNode={onRefreshNode}
-              onConfigureCustomNode={onConfigureCustomNode}
-            />
-          ))}
-        </div>
-      </section> : null}
-
-      {props.coreManagement?.available && enabledNetworks.length > 0 ? (
-        <section
-          className="home-v2-core-management"
-          aria-labelledby="core-management-title"
-        >
-          <div className="home-v2-section-heading">
-            <div>
-              <h2 id="core-management-title">{t('home2.core.title')}</h2>
-              <p>{t('home2.core.dashboardDescription')}</p>
-            </div>
-            <button
-              type="button"
-              className="home-v2-link-button"
-              aria-label={`${t('common.settings')}: ${t('home2.core.title')}`}
-              onClick={() => props.onOpenSettingsSection?.('core')}
-            >
-              {t('common.settings')}
-            </button>
-          </div>
-          <CoreManagerCards
-            management={props.coreManagement}
-            networks={enabledNetworks}
-          />
-        </section>
-      ) : null}
+      <HomeV2NodeCoreSection
+        snapshot={snapshot}
+        networks={enabledNetworks}
+        appUpdates={props.appUpdates}
+        coreManagement={props.coreManagement}
+        onChainCoreUpdates={props.onChainCoreUpdates}
+        onSetNodeMode={onSetNodeMode}
+        onRefreshNode={onRefreshNode}
+        onConfigureCustomNode={onConfigureCustomNode}
+        onOpenCoreDocs={props.onOpenCoreDocs}
+        onOpenSettings={
+          props.onOpenSettingsSection
+            ? () => props.onOpenSettingsSection?.('core')
+            : undefined
+        }
+      />
 
       <AccountCard {...props} />
 

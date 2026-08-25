@@ -2,7 +2,7 @@ import type { HomeV2AppUpdates } from '../../home-v2-live/app-update-controller'
 import type { HomeV2AppUpdatePolicy } from '../../home-v2-live/app-update-preferences'
 import { t } from '../../i18n'
 
-function statusText(updates: HomeV2AppUpdates) {
+export function homeUpdateStatusText(updates: HomeV2AppUpdates) {
   const result = updates.result
   if (updates.busy === 'check') return t('common.checking')
   if (!updates.preferencesLoaded) return t('common.loading')
@@ -44,7 +44,7 @@ export function HomeUpdateSettings({
     >
       <div className="home-v2-settings-panel__heading">
         <h2 id="home-update-settings-title">{t('common.appName')}</h2>
-        <p aria-live="polite" role="status">{statusText(updates)}</p>
+        <p aria-live="polite" role="status">{homeUpdateStatusText(updates)}</p>
       </div>
 
       <div className="home-v2-setting-row">

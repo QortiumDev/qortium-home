@@ -201,6 +201,8 @@ export type HomeV2TransportMaintenance = ReturnType<typeof useHomeV2TransportMai
 export interface HomeV2TransportManagement {
   readonly busy: HomeV2TransportMaintenanceAction | null
   readonly mode: HomeV2SettableTransportMode | null
+  /** Last action outcome, so a tile can report a failure it caused. */
+  readonly notice: HomeV2TransportMaintenanceNotice | null
   readonly stale: boolean
   readonly status: HomeV2TransportMaintenanceStatus | null
   readonly onEnsureRouter?: () => void
@@ -213,6 +215,7 @@ export function toHomeV2TransportManagement(
   return {
     busy: transport.busy,
     mode: transport.currentMode,
+    notice: transport.notice,
     onEnsureRouter: () => void transport.run('ensure-router', null),
     onSetTransportMode: (mode: HomeV2SettableTransportMode) =>
       void transport.run('set-mode', mode),

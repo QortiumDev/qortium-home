@@ -325,8 +325,9 @@ try {
           };
         };
         return {
-          core: measure('.home-v2-core-grid', '.home-v2-core-card'),
-          nodes: measure('.home-v2-node-grid', '.home-v2-node-card'),
+          // Connections and Core management are one "Node & Core" section, so
+          // the dashboard has a single grid of combined cards to measure.
+          nodes: measure('.home-v2-node-core-grid', '.home-v2-node-core-card'),
           pinned: [...document.querySelectorAll('.home-v2-pinned-apps__card')]
             .map((card) => card.getBoundingClientRect().width),
           pinnedText: document.querySelector('.home-v2-pinned-apps')?.textContent ?? '',
@@ -335,7 +336,6 @@ try {
       })()`,
     )
     for (const [name, measurement] of Object.entries({
-      core: qortiumOnlyLayout.core,
       nodes: qortiumOnlyLayout.nodes,
     })) {
       assert.equal(measurement.cardWidths.length, 1)
@@ -458,9 +458,9 @@ try {
     const dualNetworkLayout = await evaluate(
       client,
       `(() => {
-        const grid = document.querySelector('.home-v2-node-grid');
+        const grid = document.querySelector('.home-v2-node-core-grid');
         return {
-          cardWidths: [...(grid?.querySelectorAll('.home-v2-node-card') ?? [])]
+          cardWidths: [...(grid?.querySelectorAll('.home-v2-node-core-card') ?? [])]
             .map((card) => card.getBoundingClientRect().width),
           gridWidth: grid?.getBoundingClientRect().width ?? 0,
         };
@@ -491,8 +491,8 @@ try {
       evaluate(
         client,
         `(() => {
-          const grid = document.querySelector('.home-v2-node-grid');
-          const cards = [...(grid?.querySelectorAll('.home-v2-node-card') ?? [])];
+          const grid = document.querySelector('.home-v2-node-core-grid');
+          const cards = [...(grid?.querySelectorAll('.home-v2-node-core-card') ?? [])];
           if (cards.length !== 1 || cards[0].getAttribute('data-network') !== 'qortal') return null;
           return {
             cardWidth: cards[0].getBoundingClientRect().width,

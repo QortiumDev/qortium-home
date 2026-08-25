@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import type {
   HomeV2CoreActionCode,
   HomeV2CoreManagerBusyActions,
@@ -21,10 +21,10 @@ export interface HomeV2CoreManagement {
   readonly onAction?: (network: NetworkId, action: 'start' | 'stop') => void
   readonly onRefresh?: () => void
   // Maintenance slices for the combined "Node & Core" dashboard tile and the
-  // actionable node-status menus. Optional on purpose: today the Settings and
-  // Welcome panels each own their own maintenance controller for exactly as
-  // long as they are mounted, so nothing populates these yet and every
-  // existing call site compiles unchanged.
+  // actionable node-status menus. HomeV2LiveApp populates all three. They stay
+  // optional because the Settings and Welcome panels still each own their own
+  // maintenance controller for as long as they are mounted, and the other call
+  // sites build a management object without them.
   readonly coreMaintenance?: HomeV2CoreMaintenanceManagement
   readonly qortalMaintenance?: HomeV2QortalMaintenanceManagement
   readonly transport?: HomeV2TransportManagement
@@ -118,10 +118,20 @@ function actionNotice(lastAction: HomeV2CoreManagerLastActions[NetworkId]) {
     : message
 }
 
-function CoreManagerCard({
+/**
+ * The start/stop card. `maintenanceActions` and `maintenanceNotice` let the
+ * combined "Node & Core" dashboard tile place install/update controls in this
+ * card's own action row and notice slot, so the tile inherits the api-only stop
+ * confirmation and the busy gating instead of reimplementing them.
+ */
+export function CoreManagerCard({
+  maintenanceActions,
+  maintenanceNotice,
   management,
   network,
 }: {
+  readonly maintenanceActions?: ReactNode
+  readonly maintenanceNotice?: ReactNode
   readonly management: HomeV2CoreManagement
   readonly network: NetworkId
 }) {
@@ -175,6 +185,11 @@ function CoreManagerCard({
             {notice}
           </span>
         ) : null}
+        {maintenanceNotice ? (
+          <span className="home-v2-core-notice" role="status">
+            {maintenanceNotice}
+          </span>
+        ) : null}
       </div>
       {confirmApiStop ? (
         <div className="home-v2-core-confirm" role="alertdialog">
@@ -209,6 +224,7 @@ function CoreManagerCard({
         >
           {t('common.refresh')}
         </button>
+        {maintenanceActions}
         {status.capabilities.canStart ? (
           <button
             type="button"
