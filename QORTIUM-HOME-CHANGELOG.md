@@ -34,6 +34,28 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-25 - feat(home-v2): a quieter account button and a readable account menu
+
+The toolbar account button no longer prints your account name beside the
+avatars. It is now just the avatar for each connected chain plus a small
+padlock — closed when the account is locked, open when it is unlocked — so it
+takes far less room in the toolbar. Nothing is lost for screen readers or for
+anyone hovering it: the name and the locked-or-unlocked state are still the
+button's label and its tooltip.
+
+The menu that button opens has been rewritten. It used to repeat your account
+name twice and then cram the chain name, your registered name and your address
+onto one wrapping line per chain. Now each chain gets its own small heading with
+your registered name beneath it (or "No registered name"), the locked-or-unlocked
+state has a line of its own, and your address is printed once, in a monospace
+line of its own, instead of once per chain. The address is only repeated per
+chain in the unusual case where the two chains really do have different ones.
+
+Both the network menus and the account menu have also dropped their "Dashboard"
+entry. It was a leftover from when these buttons navigated to the Dashboard, and
+the Dashboard is still a click away in the tab strip or by typing
+`home://dashboard` in the address bar.
+
 ### 2026-08-25 - fix(home-v2): make the tray's "Open Qortium Home" open or raise
 
 Choosing "Open Qortium Home" from the tray now reliably gets you a Home window.

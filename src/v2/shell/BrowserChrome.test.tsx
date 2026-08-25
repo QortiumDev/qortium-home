@@ -153,6 +153,102 @@ try {
     'the toolbar account control should show both enabled-network avatars',
   )
 
+  // The trigger is decoration only now: avatars plus a padlock, with the label
+  // carried by the accessible name (owner request).
+  const accountButton = (): HTMLButtonElement => {
+    const button = container.querySelector<HTMLButtonElement>(
+      '.home-v2-account-button',
+    )
+    assert.ok(button, 'the browser chrome should render an account button')
+    return button
+  }
+  assert.equal(accountButton().getAttribute('aria-label'), 'Alice · Unlocked')
+  assert.equal(accountButton().getAttribute('title'), 'Alice · Unlocked')
+  // Avatar monograms and the padlock are aria-hidden decoration; anything left
+  // after removing them would be a visible label, which the trigger must not
+  // have any more.
+  const visibleTriggerText = (): string => {
+    const clone = accountButton().cloneNode(true) as HTMLElement
+    for (const node of clone.querySelectorAll('[aria-hidden="true"]')) node.remove()
+    return (clone.textContent ?? '').trim()
+  }
+  assert.equal(
+    visibleTriggerText(),
+    '',
+    'the account trigger must not print any text',
+  )
+  const lockGlyph = (): SVGElement => {
+    const glyph = accountButton().querySelector<SVGElement>('.home-v2-account-lock')
+    assert.ok(glyph, 'the account trigger should show a lock-state glyph')
+    return glyph
+  }
+  assert.equal(
+    lockGlyph().classList.contains('lucide-lock-open'),
+    true,
+    'an unlocked account should show the open padlock',
+  )
+
+  // Opening a menu must not offer a Dashboard shortcut any more: the item was
+  // removed from both dropdowns, and the Dashboard stays reachable elsewhere.
+  const openMenuPanel = (triggerSelector: string): HTMLElement => {
+    const trigger = container.querySelector<HTMLButtonElement>(triggerSelector)
+    assert.ok(trigger, `expected ${triggerSelector} in the toolbar`)
+    act(() => trigger.click())
+    const panel = trigger
+      .closest('.home-v2-chrome-menu')
+      ?.querySelector<HTMLElement>('.home-v2-chrome-menu__panel')
+    assert.ok(panel, `${triggerSelector} should open a menu in place`)
+    return panel
+  }
+  for (const triggerSelector of ['.home-v2-node-pill', '.home-v2-account-button']) {
+    const panel = openMenuPanel(triggerSelector)
+    assert.equal(
+      [...panel.querySelectorAll('button')].some((button) =>
+        /Dashboard/i.test(button.textContent ?? ''),
+      ),
+      false,
+      `${triggerSelector} must no longer offer a Dashboard menu item`,
+    )
+  }
+  const accountPanel = accountButton()
+    .closest('.home-v2-chrome-menu')
+    ?.querySelector<HTMLElement>('.home-v2-chrome-menu__panel')
+  assert.ok(accountPanel, 'the account menu should be open')
+  // Both networks share one address here, so it is printed once in its own
+  // monospace row rather than repeated per network.
+  const addressRows = accountPanel.querySelectorAll(
+    '.home-v2-account-detail__address',
+  )
+  assert.equal(addressRows.length, 1, 'a shared address should be printed once')
+  assert.equal(
+    addressRows[0]?.textContent,
+    'QH143K2qjVdn864NSY7aNESo88ao1ZnALH',
+  )
+  assert.equal(
+    accountPanel.querySelectorAll('.home-v2-account-detail[data-network]').length,
+    2,
+    'each enabled network should get its own detail row',
+  )
+
+  const lockedSnapshot: HomeV2Snapshot = {
+    ...homeV2Fixture,
+    account: { ...homeV2Fixture.account, state: 'locked' as const },
+  }
+  await act(async () => {
+    renderChrome(
+      { kind: 'search' },
+      { selectedAccountLookup: accountLookup, snapshot: lockedSnapshot },
+    )
+    await Promise.resolve()
+  })
+  assert.equal(accountButton().getAttribute('aria-label'), 'Alice · Locked')
+  assert.equal(
+    lockGlyph().classList.contains('lucide-lock-open'),
+    false,
+    'a locked account should show the closed padlock',
+  )
+  assert.equal(lockGlyph().classList.contains('lucide-lock'), true)
+
   const qortalDisabled = {
     ...homeV2Fixture,
     nodes: {

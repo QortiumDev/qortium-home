@@ -464,9 +464,6 @@ export function BrowserChrome({
               network={network}
               node={snapshot.nodes[network]}
               tone={nodeTone(snapshot, network)}
-              onOpenDashboard={
-                onNavigate ? () => onNavigate('dashboard') : undefined
-              }
             />
           ))}
           {onOpenAsWidget && productState.destination === 'tab' && productState.activeTabId ? (
@@ -506,9 +503,6 @@ export function BrowserChrome({
             snapshot={snapshot}
             selectedAccountLookup={selectedAccountLookup}
             loadVisibleAvatar={loadVisibleAvatar}
-            onOpenDashboard={
-              onNavigate ? () => onNavigate('dashboard') : undefined
-            }
             onLockAccount={onLockAccount}
             onUnlockAccount={onUnlockAccount}
           />
