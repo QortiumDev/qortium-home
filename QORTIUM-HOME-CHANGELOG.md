@@ -34,6 +34,35 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-25 - feat(home-v2): remember read-only account access, and say what private group prompts really ask for
+
+Most read-only account requests stopped asking permission in an earlier
+release, but five did not: the three that read your private group chats and the
+two that open a chat attachment. Those stay behind a prompt on purpose, because
+unlike the others they do real work on your behalf — reading a private group
+resolves that group's key and keeps a copy of it on this device, and reading an
+attachment decrypts it for the app. The problem was that you could only answer
+"just this once" or "for this session", so a chat app you use every day asked
+again every single time you restarted Home.
+
+You can now answer "Always allow" instead. That is one decision per app, and it
+covers read-only account access for that app on both Qortal and Qortium — the
+prompt says so before you choose, since the choice is broader than the one
+question in front of you. Nothing else changes: sending, publishing, unlocking
+your account, group administration and minting all still ask every time, and
+this never hands an app a key. If you change your mind, Settings > QDN Apps now
+lists every app holding read-only account access, with a Revoke button; revoking
+it puts that app back to asking.
+
+The prompts themselves are also more honest. A private group request used to
+call itself "read-only account access", which was true but told you nothing.
+It now says "Allow private group chat access?", names the group and the node it
+will use, and spells out that resolving the group key stores a copy on this
+device. An attachment request now says "Allow chat attachment access?" and names
+the file, its size and its checksum. The permission being asked for is exactly
+the same as before — only the wording changed, so you can tell what you are
+agreeing to.
+
 ### 2026-08-25 - refactor(home-v2): one shared view of Core maintenance
 
 Settings and the Dashboard both offer the same Core maintenance work — check for

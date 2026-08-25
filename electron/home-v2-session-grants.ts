@@ -139,6 +139,81 @@ export function homeV2AccountReadPermissionDetails(accountLabel: string) {
   ] as const
 }
 
+/**
+ * The durable QDN app capability an "always allow" on an account-read prompt
+ * grants (owner decision, R3-10). Returns null for every action outside the
+ * family, so a caller cannot widen the durable grant by passing an unrelated
+ * action: the bridge and the Android host both gate on this returning a
+ * capability rather than on the raw scope value.
+ *
+ * One capability for the whole family on purpose — it mirrors the
+ * protocol-independent 'account.read' grant family below, so approving it
+ * once covers every HOME_V2_ACCOUNT_READ_ACTIONS member on both chains.
+ */
+export function homeV2DurableAccountReadCapability(action: string): 'account.read' | null {
+  return isHomeV2AccountReadAction(action) ? 'account.read' : null
+}
+
+/**
+ * Wording-only refinement of an account-read prompt.
+ *
+ * The private-group and attachment reads stay FULL members of the
+ * 'account.read' grant family (see homeV2PermissionGrantFamily): one session
+ * grant, and one durable "always allow", still covers all of them on both
+ * chains. Only the prompt copy is specialised, because the generic
+ * "read-only account access" title hid what those five actions actually do —
+ * resolve and persist a private-group key, list a group's members, and
+ * decrypt an attachment. Splitting the GRANT is a separate decision and is
+ * deliberately not made here.
+ */
+export type HomeV2AccountReadPromptKind = 'account' | 'attachment' | 'private-group'
+
+const PRIVATE_GROUP_READ_ACTIONS = new Set<string>([
+  'GET_PRIVATE_GROUP_ACTIVE_CHATS',
+  'GET_PRIVATE_GROUP_CHAT_STATE',
+  'SEARCH_PRIVATE_GROUP_CHAT_MESSAGES',
+])
+
+const PRIVATE_ATTACHMENT_READ_ACTIONS = new Set<string>([
+  'GET_CHAT_ATTACHMENT_STREAM_URL',
+  'OPEN_CHAT_ATTACHMENT_VIEWER',
+])
+
+export function homeV2AccountReadPromptKind(action: string): HomeV2AccountReadPromptKind | null {
+  if (!isHomeV2AccountReadAction(action)) return null
+  if (PRIVATE_GROUP_READ_ACTIONS.has(action)) return 'private-group'
+  if (PRIVATE_ATTACHMENT_READ_ACTIONS.has(action)) return 'attachment'
+  return 'account'
+}
+
+export function homeV2AccountReadPromptTitle(kind: HomeV2AccountReadPromptKind): string {
+  if (kind === 'private-group') return 'Allow private group chat access?'
+  if (kind === 'attachment') return 'Allow chat attachment access?'
+  return 'Allow read-only account access?'
+}
+
+export function homeV2AccountReadPromptSummary(
+  kind: HomeV2AccountReadPromptKind,
+  appTitle: string,
+): string {
+  if (kind === 'private-group') {
+    return `${appTitle} wants to read your private group chats: a group’s member list and its encrypted message history, decrypted with your account’s group key. Resolving that key stores a copy of it on this device. The key itself is never given to the app.`
+  }
+  if (kind === 'attachment') {
+    return `${appTitle} wants Home to decrypt a private chat attachment and hand it back as a temporary stream of the decrypted bytes. The key used to decrypt it is never given to the app.`
+  }
+  return homeV2AccountReadPermissionSummary(appTitle)
+}
+
+/**
+ * Shown on every account-read prompt that offers "Always allow", because the
+ * durable grant is broader than the one action being asked about right now.
+ */
+export const HOME_V2_ACCOUNT_READ_ALWAYS_ALLOW_DETAIL = Object.freeze({
+  label: 'Always allow',
+  value: 'One choice per app: it covers private group chat reads, chat attachment reads, and the other read-only account data, on Qortal and Qortium, until revoked in Settings › QDN Apps',
+})
+
 // A tab-level approval describes a chat capability, not one spelling of the
 // same user-visible operation. Keep unrelated actions exact while allowing an
 // explicitly disclosed send/edit/delete/reaction family to share one grant.

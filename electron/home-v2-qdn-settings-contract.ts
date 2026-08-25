@@ -34,6 +34,11 @@ export type HomeV2QdnNotificationState = {
 }
 
 export type HomeV2QdnSettingsState = {
+  readonly accountRead: Readonly<{
+    apps: readonly Readonly<{ appKey: string; grantedAt: string }>[]
+    revision: number
+    version: 1
+  }>
   readonly assignments: HomeV2QdnAssignmentState
   readonly chatSend: Readonly<{
     apps: readonly Readonly<{ appKey: string; grantedAt: string }>[]
@@ -144,7 +149,11 @@ function parseRevoke(value: unknown) {
 
 // Capabilities a user may revoke from this settings surface. Anything not on
 // this list cannot be revoked through the renderer, whatever it sends.
-const REVOCABLE_CAPABILITIES = ['bookmarks.manage', 'chat.send'] as const
+//
+// 'account.read' is the durable read-only account grant an "always allow"
+// creates (owner decision, R3-10). A durable grant that cannot be taken back
+// would be a one-way door, so it is revocable from the moment it is grantable.
+const REVOCABLE_CAPABILITIES = ['account.read', 'bookmarks.manage', 'chat.send'] as const
 export type HomeV2RevocableCapability = (typeof REVOCABLE_CAPABILITIES)[number]
 
 function parseRevokeBookmarks(value: unknown) {
@@ -182,12 +191,13 @@ export function redactHomeV2QdnSettingsState(
     Object.entries(assignmentsStore.assignments).map(([role, assignment]) => [role, { ...assignment }]),
   )
   const notificationStore = notificationInspection.store
-  const grantsFor = (capability: 'bookmarks.manage' | 'chat.send') =>
+  const grantsFor = (capability: HomeV2RevocableCapability) =>
     Object.entries(assignmentsStore.capabilityGrants)
       .flatMap(([appKey, capabilities]) => capabilities[capability]
         ? [{ appKey, grantedAt: capabilities[capability].grantedAt }]
         : [])
       .sort((left, right) => left.appKey.localeCompare(right.appKey))
+  const accountReadApps = grantsFor('account.read')
   const bookmarkApps = grantsFor('bookmarks.manage')
   const chatSendApps = grantsFor('chat.send')
   const apps = notificationStore ? Object.entries(notificationStore.grants)
@@ -203,6 +213,11 @@ export function redactHomeV2QdnSettingsState(
     })
     .sort((left, right) => left.appKey.localeCompare(right.appKey)) : []
   return {
+    accountRead: {
+      apps: accountReadApps,
+      revision: assignmentsStore.revision,
+      version: 1,
+    },
     assignments: {
       assignments,
       revision: assignmentsStore.revision,

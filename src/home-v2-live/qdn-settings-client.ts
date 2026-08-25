@@ -18,6 +18,17 @@ export type HomeV2QdnBookmarkGrant = Readonly<{
 }>
 
 export type HomeV2QdnSettingsState = Readonly<{
+  /**
+   * Apps granted the durable read-only account family ("always allow"). One
+   * grant per app covers every HOME_V2_ACCOUNT_READ_ACTIONS member on both
+   * chains, so this is the list a user revokes from to start being asked
+   * about private group chats and chat attachments again.
+   */
+  accountRead: Readonly<{
+    apps: readonly HomeV2QdnBookmarkGrant[]
+    revision: number
+    version: 1
+  }>
   assignments: Readonly<{
     assignments: Readonly<Record<string, HomeV2QdnAssignment>>
     revision: number
@@ -66,8 +77,15 @@ export type HomeV2QdnNotificationRevokeRequest = Readonly<{
   expectedNotificationRevision: number
 }>
 
+/**
+ * Revokes one durable app capability. The name is historical — it started as
+ * bookmarks-only — and an omitted `capability` still means 'bookmarks.manage'
+ * so existing callers are unchanged. The main process re-validates the value
+ * against its own revocable allowlist; nothing here is trusted.
+ */
 export type HomeV2QdnBookmarkRevokeRequest = Readonly<{
   appKey: string
+  capability?: 'account.read' | 'bookmarks.manage' | 'chat.send'
   expectedAssignmentRevision: number
 }>
 
@@ -233,7 +251,7 @@ export function parseHomeV2QdnSettingsState(
 ): HomeV2QdnSettingsState {
   if (
     !isRecord(value) ||
-    !hasExactKeys(value, ['assignments', 'bookmarks', 'chatSend', 'notifications', 'revision', 'schema']) ||
+    !hasExactKeys(value, ['accountRead', 'assignments', 'bookmarks', 'chatSend', 'notifications', 'revision', 'schema']) ||
     value.schema !== 'home-v2-qdn-settings-state' ||
     value.revision !== 1 ||
     !isRecord(value.assignments) ||
@@ -250,6 +268,12 @@ export function parseHomeV2QdnSettingsState(
     value.chatSend.version !== 1 ||
     !safeGeneration(value.chatSend.revision) ||
     !Array.isArray(value.chatSend.apps) ||
+    !isRecord(value.accountRead) ||
+    !hasExactKeys(value.accountRead, ['apps', 'revision', 'version']) ||
+    value.accountRead.version !== 1 ||
+    !safeGeneration(value.accountRead.revision) ||
+    !Array.isArray(value.accountRead.apps) ||
+    value.accountRead.apps.length > 100 ||
     value.bookmarks.apps.length > 100 ||
     !isRecord(value.notifications) ||
     !hasExactKeys(value.notifications, ['apps', 'revision', 'status', 'version']) ||
@@ -270,8 +294,12 @@ export function parseHomeV2QdnSettingsState(
   const apps = value.notifications.apps.map(parseGrant)
   const bookmarkApps = value.bookmarks.apps.map(parseBookmarkGrant)
   const chatSendApps = value.chatSend.apps.map(parseBookmarkGrant)
+  const accountReadApps = value.accountRead.apps.map(parseBookmarkGrant)
   if (new Set(chatSendApps.map(({ appKey }) => appKey)).size !== chatSendApps.length) {
     throw new Error('Home 2 QDN settings contained duplicate chat-send grants.')
+  }
+  if (new Set(accountReadApps.map(({ appKey }) => appKey)).size !== accountReadApps.length) {
+    throw new Error('Home 2 QDN settings contained duplicate account-read grants.')
   }
   if (new Set(bookmarkApps.map(({ appKey }) => appKey)).size !== bookmarkApps.length) {
     throw new Error('Home 2 QDN settings contained duplicate bookmark grants.')
@@ -286,6 +314,13 @@ export function parseHomeV2QdnSettingsState(
     throw new Error('Available Home 2 notification settings omitted its revision.')
   }
   return Object.freeze({
+    accountRead: Object.freeze({
+      apps: Object.freeze(
+        [...accountReadApps].sort((left, right) => left.appKey.localeCompare(right.appKey)),
+      ),
+      revision: value.accountRead.revision,
+      version: 1,
+    }),
     assignments: Object.freeze({
       assignments,
       revision: value.assignments.revision,
@@ -371,6 +406,8 @@ export interface PortableHomeV2QdnSettingsDependencies {
   revokeBookmarks(
     appKey: string,
     expectedRevision: number,
+    // Omitted means 'bookmarks.manage', preserving the original signature.
+    capability?: 'account.read' | 'bookmarks.manage' | 'chat.send',
   ): Promise<unknown>
   revokeNotifications(
     appKey: string,
@@ -411,7 +448,14 @@ function projectPortableAssignments(value: unknown) {
   const bookmarkApps = grantsFor('bookmarks.manage')
   // Apps the user chose "always allow" for when sending chat.
   const chatSendApps = grantsFor('chat.send')
+  // Apps the user chose "always allow" for read-only account access.
+  const accountReadApps = grantsFor('account.read')
   return {
+    accountRead: {
+      apps: accountReadApps,
+      revision: value.revision,
+      version: 1 as const,
+    },
     assignments,
     bookmarks: {
       apps: bookmarkApps,
@@ -500,6 +544,7 @@ export function createPortableHomeV2QdnSettingsAdapter(
       }
     }
     return parseHomeV2QdnSettingsState({
+      accountRead: assignments.accountRead,
       assignments: {
         assignments: assignments.assignments,
         revision: assignments.revision,
@@ -526,6 +571,7 @@ export function createPortableHomeV2QdnSettingsAdapter(
       await dependencies.revokeBookmarks(
         request.appKey,
         request.expectedAssignmentRevision,
+        request.capability ?? 'bookmarks.manage',
       )
       return readState()
     },

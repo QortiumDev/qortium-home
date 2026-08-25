@@ -1,13 +1,19 @@
 import assert from 'node:assert/strict'
 import {
   createHomeV2SessionGrantStore,
+  homeV2AccountReadPromptKind,
+  homeV2AccountReadPromptSummary,
+  homeV2AccountReadPromptTitle,
+  homeV2DurableAccountReadCapability,
   homeV2PermissionGrantKey,
   homeV2PermissionGrantFamily,
   isHomeV2AccountReadAction,
   HOME_V2_ACCOUNT_READ_ACTIONS,
+  HOME_V2_ACCOUNT_READ_ALWAYS_ALLOW_DETAIL,
   HOME_V2_PERMISSIONLESS_ACTIONS,
   isHomeV2PermissionlessAction,
 } from './home-v2-session-grants.js'
+import { QDN_APP_CAPABILITIES } from './qdn-manager-permissions.js'
 
 assert.equal(homeV2PermissionGrantFamily('SEND_CHAT_MESSAGE'), 'chat.public.mutate')
 assert.equal(homeV2PermissionGrantFamily('SEND_CHAT_EDIT'), 'chat.public.mutate')
@@ -211,6 +217,175 @@ assert.equal(store.size(), 1)
     'LIST_MINTING_ACCOUNTS',
     'SEARCH_PRIVATE_DIRECT_CHAT_MESSAGES',
   ])
+}
+
+// --- Durable "always allow" for the read-only account family (R3-10) ---
+{
+  // Every family member maps to the ONE durable capability, so a single
+  // "always allow" covers all of them on both chains.
+  for (const action of HOME_V2_ACCOUNT_READ_ACTIONS) {
+    assert.equal(
+      homeV2DurableAccountReadCapability(action),
+      'account.read',
+      `${action} must map to the durable account.read capability`,
+    )
+  }
+  assert.equal(
+    new Set(HOME_V2_ACCOUNT_READ_ACTIONS.map(homeV2DurableAccountReadCapability)).size,
+    1,
+    'the account-read family must map to exactly one durable capability',
+  )
+
+  // Nothing outside the family may be reachable through the durable grant.
+  // These are the actions a durable read grant must never satisfy.
+  const mustNotBeDurablyReadable = [
+    'UNLOCK_SELECTED_ACCOUNT',
+    'FORGET_PENDING_TRANSACTION',
+    'SAVE_CHAT_ATTACHMENT',
+    'PUBLISH_CHAT_ATTACHMENT',
+    'PUBLISH_QDN_RESOURCE',
+    'SEND_CHAT_MESSAGE',
+    'SEND_DIRECT_CHAT_MESSAGE',
+    'SEND_PRIVATE_GROUP_CHAT_MESSAGE',
+    'REQUEST_PRIVATE_GROUP_CHAT_KEY',
+    'RESOLVE_PRIVATE_GROUP_CHAT_KEY_REQUESTS',
+    'ROTATE_PRIVATE_GROUP_CHAT_KEY',
+    'START_MINTING',
+    'REMOVE_MINTING_ACCOUNT',
+    'ADD_GROUP_ADMIN',
+    'GROUP_BAN',
+    'JOIN_GROUP',
+    'OPEN_AS_WIDGET',
+    'SHOW_NOTIFICATION',
+    'BOOKMARKS_APPLY',
+  ]
+  for (const action of mustNotBeDurablyReadable) {
+    assert.equal(
+      homeV2DurableAccountReadCapability(action),
+      null,
+      `${action} must NOT be grantable through the durable account.read capability`,
+    )
+  }
+
+  // The durable capability must actually exist in the persisted allowlist,
+  // or a grant would be silently dropped when the store is re-read.
+  assert.equal(
+    (QDN_APP_CAPABILITIES as readonly string[]).includes('account.read'),
+    true,
+    'account.read must be a persisted, sanitizer-allowlisted app capability',
+  )
+}
+
+// --- Honest prompt labels; the grant family is deliberately unchanged ---
+{
+  for (const action of [
+    'GET_PRIVATE_GROUP_ACTIVE_CHATS',
+    'GET_PRIVATE_GROUP_CHAT_STATE',
+    'SEARCH_PRIVATE_GROUP_CHAT_MESSAGES',
+  ]) {
+    assert.equal(homeV2AccountReadPromptKind(action), 'private-group')
+  }
+  for (const action of [
+    'GET_CHAT_ATTACHMENT_STREAM_URL',
+    'OPEN_CHAT_ATTACHMENT_VIEWER',
+  ]) {
+    assert.equal(homeV2AccountReadPromptKind(action), 'attachment')
+  }
+  for (const action of [
+    'GET_SELECTED_ACCOUNT',
+    'GET_USER_ACCOUNT',
+    'GET_PENDING_TRANSACTIONS',
+    'GET_PRIVATE_DIRECT_ACTIVE_CHATS',
+    'SEARCH_PRIVATE_DIRECT_CHAT_MESSAGES',
+  ]) {
+    assert.equal(homeV2AccountReadPromptKind(action), 'account')
+  }
+  // Anything outside the family has no account-read prompt kind at all.
+  for (const action of ['SEND_CHAT_MESSAGE', 'SAVE_CHAT_ATTACHMENT', 'START_MINTING']) {
+    assert.equal(homeV2AccountReadPromptKind(action), null)
+  }
+  // Every family member has a kind, and every kind is one of the three.
+  for (const action of HOME_V2_ACCOUNT_READ_ACTIONS) {
+    const kind = homeV2AccountReadPromptKind(action)
+    assert.ok(kind && ['account', 'attachment', 'private-group'].includes(kind))
+  }
+
+  // The specialised prompts must NOT reuse the generic title.
+  const genericTitle = homeV2AccountReadPromptTitle('account')
+  assert.equal(genericTitle, 'Allow read-only account access?')
+  assert.notEqual(homeV2AccountReadPromptTitle('private-group'), genericTitle)
+  assert.notEqual(homeV2AccountReadPromptTitle('attachment'), genericTitle)
+  assert.equal(homeV2AccountReadPromptTitle('private-group'), 'Allow private group chat access?')
+  assert.equal(homeV2AccountReadPromptTitle('attachment'), 'Allow chat attachment access?')
+
+  // The private-group summary must disclose the two side effects the Codex
+  // security review kept these actions gated for: a persisted group key and
+  // the group's member list.
+  const groupSummary = homeV2AccountReadPromptSummary('private-group', 'Chat')
+  assert.match(groupSummary, /^Chat /)
+  assert.match(groupSummary, /member/i)
+  assert.match(groupSummary, /stores a copy of it on this device/i)
+  assert.match(groupSummary, /never given to the app/i)
+  const attachmentSummary = homeV2AccountReadPromptSummary('attachment', 'Chat')
+  assert.match(attachmentSummary, /decrypt/i)
+  assert.match(attachmentSummary, /never given to the app/i)
+  assert.notEqual(groupSummary, attachmentSummary)
+
+  // Wording changed; the GRANT family did not. All five still share one grant
+  // key with the rest of the family, on either protocol and either route.
+  const familyBase = {
+    accountId: 'account-one',
+    accountUnlocked: true,
+    appIdentity: 'qdn://APP/Chat/Chat',
+    principalId: 50,
+    tabId: 'tab-a',
+  }
+  const expectedKey = '50|tab-a|account-one|qdn://APP/Chat/Chat|account.read'
+  for (const action of HOME_V2_ACCOUNT_READ_ACTIONS) {
+    assert.equal(homeV2PermissionGrantFamily(action), 'account.read')
+    assert.equal(homeV2PermissionGrantKey({
+      ...familyBase,
+      action,
+      nodeRoute: 'local|https://127.0.0.1:24891',
+      protocol: 'qdnRequest',
+      target: 'group:7',
+    }), expectedKey)
+    assert.equal(homeV2PermissionGrantKey({
+      ...familyBase,
+      action,
+      nodeRoute: 'public|https://api.qortal.org',
+      protocol: 'qortalRequest',
+      target: '',
+    }), expectedKey)
+  }
+
+  // Every prompt offering "Always allow" says the grant is broader than the
+  // one action asked about, and points at where to revoke it.
+  assert.equal(HOME_V2_ACCOUNT_READ_ALWAYS_ALLOW_DETAIL.label, 'Always allow')
+  assert.match(HOME_V2_ACCOUNT_READ_ALWAYS_ALLOW_DETAIL.value, /private group chat/i)
+  assert.match(HOME_V2_ACCOUNT_READ_ALWAYS_ALLOW_DETAIL.value, /attachment/i)
+  assert.match(HOME_V2_ACCOUNT_READ_ALWAYS_ALLOW_DETAIL.value, /Qortal and Qortium/)
+  assert.match(HOME_V2_ACCOUNT_READ_ALWAYS_ALLOW_DETAIL.value, /revoke/i)
+}
+
+// --- The security boundary is unchanged by this feature ---
+{
+  // The durable grant must not have quietly widened the permissionless set:
+  // the five gated actions still have to reach a prompt or a held grant.
+  for (const action of [
+    'GET_PRIVATE_GROUP_ACTIVE_CHATS',
+    'GET_PRIVATE_GROUP_CHAT_STATE',
+    'SEARCH_PRIVATE_GROUP_CHAT_MESSAGES',
+    'GET_CHAT_ATTACHMENT_STREAM_URL',
+    'OPEN_CHAT_ATTACHMENT_VIEWER',
+  ]) {
+    assert.equal(
+      isHomeV2PermissionlessAction(action),
+      false,
+      `${action} must still be gated — a durable grant is a user decision, not a default`,
+    )
+    assert.equal(isHomeV2AccountReadAction(action), true)
+  }
 }
 
 console.log('Home v2 session grant tests passed')

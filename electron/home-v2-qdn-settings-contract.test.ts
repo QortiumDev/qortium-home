@@ -14,12 +14,16 @@ import type { QdnNotificationStore } from './notification-rules.js'
 
 let assignments = grantQdnAppCapability(
   grantQdnAppCapability(
-    createDefaultQdnAppRolesStore(),
-    'qdn://APP/Bookmarks/Bookmarks',
-    'bookmarks.manage',
+    grantQdnAppCapability(
+      createDefaultQdnAppRolesStore(),
+      'qdn://APP/Bookmarks/Bookmarks',
+      'bookmarks.manage',
+    ),
+    'qdn://APP/Reader/Reader',
+    'assignments.read',
   ),
-  'qdn://APP/Reader/Reader',
-  'assignments.read',
+  'qdn://APP/Chat/Chat',
+  'account.read',
 )
 let notifications: QdnNotificationStore = {
   grants: {
@@ -68,9 +72,12 @@ function inspectNotifications() {
 const service = createHomeV2QdnSettingsService({
   inspectNotifications,
   readAssignments,
-  revokeBookmarks(expectedRevision, appKey) {
+  revokeBookmarks(expectedRevision, appKey, capability) {
     assert.equal(expectedRevision, assignments.revision, 'bookmark permission CAS must reject stale callers')
-    assignments = revokeQdnAppCapability(assignments, appKey, 'bookmarks.manage')
+    // The service must forward the capability the user actually asked to
+    // revoke; ignoring it here would let a read-grant revoke silently drop
+    // the bookmarks grant instead.
+    assignments = revokeQdnAppCapability(assignments, appKey, capability)
     return assignments
   },
   revokeNotifications(expectedRevision, appKey) {
@@ -196,6 +203,41 @@ assert.throws(() => service.revokeBookmarks({
   revision: 1,
   schema: 'home-v2-qdn-settings-revoke-bookmarks-request',
 }), /exact/)
+
+// The durable read-only account grant is listed on this surface and can be
+// revoked from it — a durable "always allow" the user cannot take back would
+// be a one-way door.
+assert.deepEqual(service.get({
+  revision: 1,
+  schema: 'home-v2-qdn-settings-get-request',
+}).accountRead.apps, [{
+  appKey: 'qdn://APP/Chat/Chat',
+  grantedAt: assignments.capabilityGrants['qdn://APP/Chat/Chat']?.['account.read']?.grantedAt,
+}])
+const accountReadRevoked = service.revokeBookmarks({
+  appKey: 'qdn://APP/Chat/Chat',
+  capability: 'account.read',
+  expectedAssignmentRevision: assignments.revision,
+  revision: 1,
+  schema: 'home-v2-qdn-settings-revoke-bookmarks-request',
+})
+assert.deepEqual(accountReadRevoked.accountRead.apps, [])
+// Revoking the read grant must not disturb any other capability.
+assert.equal(
+  accountReadRevoked.assignments.assignments.bookmarks?.url,
+  'qdn://APP/Bookmarks/Bookmarks',
+)
+// Only allowlisted capabilities may be revoked through the renderer, and the
+// allowlist is not a way to revoke something that was never grantable.
+for (const capability of ['account.minting', 'chat.private-group.read', 'assignments.read', '']) {
+  assert.throws(() => service.revokeBookmarks({
+    appKey: 'qdn://APP/Chat/Chat',
+    capability,
+    expectedAssignmentRevision: assignments.revision,
+    revision: 1,
+    schema: 'home-v2-qdn-settings-revoke-bookmarks-request',
+  }), /cannot be revoked/)
+}
 
 const muted = service.setMuted({
   appKey: 'qdn://app/Notify/Notify#/settings',

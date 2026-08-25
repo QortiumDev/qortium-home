@@ -148,6 +148,7 @@ import {
 import { normalizeHomeV2RuntimeInvalidation } from './home-v2-runtime-invalidation.js'
 import {
   createHomeV2SessionGrantStore,
+  homeV2DurableAccountReadCapability,
   homeV2PermissionGrantKey,
   homeV2PermissionGrantFamily,
   isHomeV2AccountReadAction,
@@ -788,8 +789,25 @@ async function requireAccountReadPermission(
   // settings) skips the prompt entirely. Scoped to chat sends only: publishing,
   // unlocking, group admin and key rotation are never grantable this way.
   const chatSendGrantable = isHomeV2ChatSendAction(action) && !singleRequestOnly
+  // The same durable machinery for the read-only account family (owner
+  // decision, R3-10). Membership comes from homeV2DurableAccountReadCapability,
+  // which answers only for HOME_V2_ACCOUNT_READ_ACTIONS and returns null for
+  // everything else — so this can never short-circuit a send, a publish, an
+  // unlock, a group-admin action or a minting write, and it is additionally
+  // gated on !singleRequestOnly. Permissionless actions never reach here at
+  // all; they returned above.
+  const durableAccountReadCapability = singleRequestOnly
+    ? null
+    : homeV2DurableAccountReadCapability(action)
   const appGrantKey = context.resourceUrl ?? ''
   if (chatSendGrantable && appGrantKey && hasQdnAppCapability(appGrantKey, 'chat.send')) {
+    return
+  }
+  if (
+    durableAccountReadCapability &&
+    appGrantKey &&
+    hasQdnAppCapability(appGrantKey, durableAccountReadCapability)
+  ) {
     return
   }
   if (!singleRequestOnly && sessionAccountReadGrants.has(grantKey)) return
@@ -892,7 +910,16 @@ async function requireAccountReadPermission(
                 publishSize: writeDetails.size,
                 writeOperationLabel: writeDetails.operationLabel,
                 writeRouteLabel: writeDetails.routeLabel,
-                writeSingleRequestOnly: true,
+                // Report the value this function actually enforces instead of
+                // a hard-coded `true`. Publishing, PUBLISH_CHAT_ATTACHMENT and
+                // SAVE_CHAT_ATTACHMENT are not account-read actions, so
+                // singleRequestOnly stays true for them and their prompt keeps
+                // offering single-request only. The two attachment READS
+                // (GET_CHAT_ATTACHMENT_STREAM_URL, OPEN_CHAT_ATTACHMENT_VIEWER)
+                // are account-read family members that this function has always
+                // allowed to hold a session grant; the flag was telling the
+                // prompt otherwise and hiding the scopes they qualify for.
+                writeSingleRequestOnly: singleRequestOnly,
                 writeTargetChainLabel: writeDetails.targetChainLabel,
               }
           : writeDetails?.kind === 'journal'
@@ -946,6 +973,14 @@ async function requireAccountReadPermission(
   }
   if (decision.scope === 'always' && chatSendGrantable && appGrantKey) {
     grantQdnAppCapabilityPermission(appGrantKey, 'chat.send')
+    return
+  }
+  // A scope the prompt never offered must not become a durable grant, so this
+  // is gated on durableAccountReadCapability rather than on the scope alone:
+  // an 'always' arriving for anything outside the read-only account family
+  // falls through and retains nothing.
+  if (decision.scope === 'always' && durableAccountReadCapability && appGrantKey) {
+    grantQdnAppCapabilityPermission(appGrantKey, durableAccountReadCapability)
     return
   }
   if (!singleRequestOnly && decision.scope === 'session') {

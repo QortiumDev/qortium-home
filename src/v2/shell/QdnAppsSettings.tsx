@@ -255,24 +255,36 @@ function NotificationGrantCard({
   )
 }
 
+/**
+ * One revocable durable capability grant. Shared by the bookmarks card and
+ * the read-only account card so both revoke through exactly the same path;
+ * only the labels and the test attributes differ.
+ */
 function BookmarkGrantCard({
   busy,
+  capability,
   disabled,
   grant,
   onRevoke,
   loadVisibleAppIcon,
 }: Readonly<{
   busy: boolean
+  capability: 'account.read' | 'bookmarks.manage'
   disabled: boolean
   grant: HomeV2QdnBookmarkGrant
   onRevoke: (grant: HomeV2QdnBookmarkGrant) => Promise<void>
   loadVisibleAppIcon?: VisibleAppIconLoader
 }>) {
   const [confirmingRevoke, setConfirmingRevoke] = useState(false)
+  const isAccountRead = capability === 'account.read'
+  const accessLabel = isAccountRead
+    ? t('managerPermissions.access.accountRead')
+    : t('managerPermissions.access.bookmarks')
   return (
     <article
       className="home-v2-setting-row"
-      data-qdn-bookmark-grant={grant.appKey}
+      data-qdn-account-read-grant={isAccountRead ? grant.appKey : undefined}
+      data-qdn-bookmark-grant={isAccountRead ? undefined : grant.appKey}
     >
       <AppIdentityCopy
         appKey={grant.appKey}
@@ -284,9 +296,13 @@ function BookmarkGrantCard({
       </AppIdentityCopy>
       <div className="home-v2-setting-row__control">
         {confirmingRevoke ? (
-          <div data-qdn-bookmark-revoke-confirm="true" role="alert">
+          <div
+            data-qdn-account-read-revoke-confirm={isAccountRead ? 'true' : undefined}
+            data-qdn-bookmark-revoke-confirm={isAccountRead ? undefined : 'true'}
+            role="alert"
+          >
             <strong>{t('notifications.revoke')}</strong>
-            <span>{t('managerPermissions.access.bookmarks')}</span>
+            <span>{accessLabel}</span>
             <button
               className="home-v2-secondary-button"
               disabled={busy}
@@ -425,6 +441,19 @@ export function QdnAppsSettings({
       }))
   }
 
+  // Revoking this drops the durable "always allow" for the whole read-only
+  // account family, so the app is prompted again the next time it asks for a
+  // private group chat or a chat attachment.
+  const revokeAccountRead = async (grant: HomeV2QdnBookmarkGrant) => {
+    if (!snapshot) return
+    await applyMutation(`accountRead:${grant.appKey}`, () =>
+      client.revokeBookmarks({
+        appKey: grant.appKey,
+        capability: 'account.read',
+        expectedAssignmentRevision: snapshot.accountRead.revision,
+      }))
+  }
+
   const actionsDisabled = loading || stale || snapshot === null
 
   return (
@@ -470,6 +499,28 @@ export function QdnAppsSettings({
         </div>
       ) : null}
 
+      {snapshot?.accountRead.apps.length ? (
+        <section aria-labelledby="home-v2-qdn-account-read-controls-title">
+          <div className="home-v2-settings-panel__heading">
+            <h3 id="home-v2-qdn-account-read-controls-title">
+              {t('qdnApps.accountReadControlsTitle')}
+            </h3>
+            <p>{t('managerPermissions.access.accountRead')}</p>
+          </div>
+          {snapshot.accountRead.apps.map((grant) => (
+            <BookmarkGrantCard
+              busy={busy === `accountRead:${grant.appKey}`}
+              capability="account.read"
+              disabled={actionsDisabled || busy !== null}
+              grant={grant}
+              key={grant.appKey}
+              loadVisibleAppIcon={loadVisibleAppIcon}
+              onRevoke={revokeAccountRead}
+            />
+          ))}
+        </section>
+      ) : null}
+
       {snapshot?.bookmarks.apps.length ? (
         <section aria-labelledby="home-v2-qdn-bookmark-controls-title">
           <div className="home-v2-settings-panel__heading">
@@ -481,6 +532,7 @@ export function QdnAppsSettings({
           {snapshot.bookmarks.apps.map((grant) => (
             <BookmarkGrantCard
               busy={busy === `bookmarks:${grant.appKey}`}
+              capability="bookmarks.manage"
               disabled={actionsDisabled || busy !== null}
               grant={grant}
               key={grant.appKey}

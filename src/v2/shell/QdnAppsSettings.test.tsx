@@ -47,6 +47,14 @@ function initialState() {
       revision: 3,
       version: 1,
     },
+    accountRead: {
+      apps: [{
+        appKey: 'qdn://APP/Chat/Chat',
+        grantedAt: '2026-08-22T14:00:00.000Z',
+      }],
+      revision: 3,
+      version: 1,
+    },
     notifications: {
       apps: [{
         appKey: 'qdn://APP/Notify/Notify',
@@ -102,6 +110,10 @@ const adapter: HomeV2QdnSettingsAdapter = {
         ...state.bookmarks,
         revision: state.bookmarks.revision + 1,
       },
+      accountRead: {
+        ...state.accountRead,
+        revision: state.accountRead.revision + 1,
+      },
       chatSend: {
         apps: [],
         revision: 3,
@@ -139,6 +151,9 @@ const adapter: HomeV2QdnSettingsAdapter = {
   },
   async revokeBookmarks(request) {
     bookmarkRevokeRequests.push(request)
+    // Honour the requested capability: a read-grant revoke must not remove
+    // the bookmarks grant, and vice versa.
+    const revokingAccountRead = request.capability === 'account.read'
     state = {
       ...state,
       assignments: {
@@ -146,8 +161,17 @@ const adapter: HomeV2QdnSettingsAdapter = {
         revision: state.assignments.revision + 1,
       },
       bookmarks: {
-        apps: state.bookmarks.apps.filter(({ appKey }) => appKey !== request.appKey),
+        apps: revokingAccountRead
+          ? state.bookmarks.apps
+          : state.bookmarks.apps.filter(({ appKey }) => appKey !== request.appKey),
         revision: state.bookmarks.revision + 1,
+        version: 1,
+      },
+      accountRead: {
+        apps: revokingAccountRead
+          ? state.accountRead.apps.filter(({ appKey }) => appKey !== request.appKey)
+          : state.accountRead.apps,
+        revision: state.accountRead.revision + 1,
         version: 1,
       },
       chatSend: {
@@ -282,6 +306,35 @@ assert.deepEqual(bookmarkRevokeRequests, [{
   expectedAssignmentRevision: 5,
 }])
 assert.equal(container.querySelector('[data-qdn-bookmark-grant]'), null)
+
+// A durable "always allow" for read-only account access is listed here and
+// can be taken back. Revoking it is what restores prompting for the app's
+// private group chat and chat attachment reads.
+const accountReadCard = container.querySelector('[data-qdn-account-read-grant]') as HTMLElement
+assert.ok(accountReadCard, 'a durable account.read grant must be listed in QDN Apps settings')
+assert.match(accountReadCard.textContent ?? '', /qdn:\/\/APP\/Chat\/Chat/)
+assert.match(accountReadCard.textContent ?? '', /Granted/)
+await act(async () => {
+  button('Revoke', accountReadCard).click()
+})
+assert.equal(
+  bookmarkRevokeRequests.length,
+  1,
+  'read-grant revoke must require confirmation',
+)
+const accountReadConfirmation = accountReadCard
+  .querySelector('[data-qdn-account-read-revoke-confirm="true"]') as HTMLElement
+assert.ok(accountReadConfirmation)
+await act(async () => {
+  button('Revoke', accountReadConfirmation).click()
+  await settle()
+})
+assert.deepEqual(bookmarkRevokeRequests[1], {
+  appKey: 'qdn://APP/Chat/Chat',
+  capability: 'account.read',
+  expectedAssignmentRevision: 6,
+})
+assert.equal(container.querySelector('[data-qdn-account-read-grant]'), null)
 
 const grantCard = container.querySelector('[data-qdn-notification-grant]') as HTMLElement
 assert.match(grantCard.textContent ?? '', /qdn:\/\/APP\/Notify\/Notify/)

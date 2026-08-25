@@ -13,11 +13,31 @@ export const QDN_MANAGER_CAPABILITIES = ['bookmarks.manage', 'notifications.mana
  * private-group key rotation are never grantable this way.
  */
 export const QDN_APP_SEND_CAPABILITIES = ['chat.send'] as const;
+/**
+ * Durable per-app permission for the read-only account family, granted by
+ * choosing "always allow" on an account-read prompt and revocable in QDN Apps
+ * settings.
+ *
+ * Deliberately ONE capability for the whole family. It is the durable twin of
+ * the `account.read` session-grant family in home-v2-session-grants.ts, which
+ * is itself protocol- and route-independent, so a single approval covers the
+ * family on both Qortal and Qortium. The family members that still prompt
+ * today are the private-group chat reads and the chat-attachment reads;
+ * granting this covers all of them at once, and the prompt says so.
+ *
+ * Deliberately READS ONLY. Membership is exactly the frozen
+ * HOME_V2_ACCOUNT_READ_ACTIONS list, so nothing that sends, signs, publishes,
+ * unlocks the account, administers a group or rotates a private-group key can
+ * be reached through it — those keep prompting, and the minting writes and
+ * publishes stay single-request.
+ */
+export const QDN_APP_READ_CAPABILITIES = ['account.read'] as const;
 export const QDN_APP_ASSIGNMENT_CAPABILITIES = ['assignments.read'] as const;
 export const QDN_APP_CAPABILITIES = [
   ...QDN_MANAGER_CAPABILITIES,
   ...QDN_APP_ASSIGNMENT_CAPABILITIES,
   ...QDN_APP_SEND_CAPABILITIES,
+  ...QDN_APP_READ_CAPABILITIES,
 ] as const;
 
 export type QdnManagerCapability = (typeof QDN_MANAGER_CAPABILITIES)[number];

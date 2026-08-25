@@ -367,7 +367,7 @@ contextBridge.exposeInMainWorld('homeV2QdnSettings', {
   }),
   revokeBookmarks: (request: {
     appKey: string
-    capability?: 'bookmarks.manage' | 'chat.send'
+    capability?: 'account.read' | 'bookmarks.manage' | 'chat.send'
     expectedAssignmentRevision: number
   }) => ipcRenderer.invoke('home-v2-qdn-settings:revoke-bookmarks', {
     appKey: request.appKey,

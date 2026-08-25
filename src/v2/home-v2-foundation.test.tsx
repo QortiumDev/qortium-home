@@ -2430,16 +2430,42 @@ function testGrantIdentityAndSendRateLimitHardening(): void {
   assert.match(appBridge, /function liveResourceMatchesGrant/)
   assert.match(
     appBridge,
-    // Budget widened when the permissionless-read early return and the durable
-    // chat.send grant check were added between these two points. The ordering
-    // property is what matters and is unchanged: the stale-resource check
-    // still runs BEFORE any grant (session or durable) is honored.
-    /liveResourceMatchesGrant\(context\)[\s\S]{0,3200}sessionAccountReadGrants\.has\(grantKey\)/,
+    // Budget widened again when the durable account.read grant check (R3-10)
+    // was added between these two points, after the permissionless-read early
+    // return and the durable chat.send check before it. The ordering property
+    // is what matters and is unchanged: the stale-resource check still runs
+    // BEFORE any grant (session or durable) is honored.
+    /liveResourceMatchesGrant\(context\)[\s\S]{0,4400}sessionAccountReadGrants\.has\(grantKey\)/,
   )
   // The durable chat.send grant must also sit after the stale-resource check.
   assert.match(
     appBridge,
-    /liveResourceMatchesGrant\(context\)[\s\S]{0,3200}hasQdnAppCapability\(appGrantKey, 'chat\.send'\)/,
+    /liveResourceMatchesGrant\(context\)[\s\S]{0,4400}hasQdnAppCapability\(appGrantKey, 'chat\.send'\)/,
+  )
+  // So must the durable account.read grant (R3-10). Its membership comes from
+  // homeV2DurableAccountReadCapability, which returns null outside
+  // HOME_V2_ACCOUNT_READ_ACTIONS, and it is additionally gated on
+  // !singleRequestOnly — so it can never short-circuit a send, a publish, an
+  // unlock, a group-admin action or a minting write.
+  assert.match(
+    appBridge,
+    /liveResourceMatchesGrant\(context\)[\s\S]{0,4400}hasQdnAppCapability\(appGrantKey, durableAccountReadCapability\)/,
+  )
+  assert.match(
+    appBridge,
+    /const durableAccountReadCapability = singleRequestOnly\s*\n\s*\? null\s*\n\s*: homeV2DurableAccountReadCapability\(action\)/,
+  )
+  // Granting it is gated on the capability, never on the scope alone: an
+  // 'always' the prompt never offered must not become a durable grant.
+  assert.match(
+    appBridge,
+    /decision\.scope === 'always' && durableAccountReadCapability && appGrantKey/,
+  )
+  // The permissionless early return still precedes every grant check, so this
+  // feature did not widen what needs no prompt at all.
+  assert.match(
+    appBridge,
+    /isHomeV2PermissionlessAction\(action\)\) return[\s\S]{0,3600}homeV2DurableAccountReadCapability\(action\)/,
   )
   assert.match(appBridge, /liveResourceMatchesGrant\(freshContext\)/)
   assert.match(appBridge, /isQdnViewVisible\(context\.windowId, context\.tabId\)/)

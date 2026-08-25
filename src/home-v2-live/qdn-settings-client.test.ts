@@ -51,6 +51,14 @@ const state = {
     revision: 3,
     version: 1,
   },
+  accountRead: {
+    apps: [{
+      appKey: 'qdn://APP/Chat/Chat',
+      grantedAt: '2026-08-22T14:00:00.000Z',
+    }],
+    revision: 3,
+    version: 1,
+  },
   notifications: {
     apps: [{
       appKey: 'qdn://APP/Notify/Notify',
@@ -77,9 +85,34 @@ assert.deepEqual(
     { defaultUrl: null, role: 'media.video' },
   ],
 )
+assert.deepEqual(parsed.accountRead.apps, [{
+  appKey: 'qdn://APP/Chat/Chat',
+  grantedAt: '2026-08-22T14:00:00.000Z',
+}])
 assert.throws(
   () => parseHomeV2QdnSettingsState({ ...state, privatePath: '/secret' }),
   /malformed/,
+)
+// A state that omits the durable read grants must be rejected rather than
+// silently parsed as "no app holds one" — that would hide a live grant from
+// the revocation surface.
+assert.throws(
+  () => {
+    const { accountRead: _omitted, ...withoutAccountRead } = state
+    return parseHomeV2QdnSettingsState(withoutAccountRead)
+  },
+  /malformed/,
+)
+assert.throws(
+  () => parseHomeV2QdnSettingsState({
+    ...state,
+    accountRead: {
+      apps: [...state.accountRead.apps, ...state.accountRead.apps],
+      revision: 3,
+      version: 1,
+    },
+  }),
+  /duplicate account-read grants/,
 )
 assert.throws(
   () => parseHomeV2QdnSettingsState({
@@ -172,7 +205,10 @@ assert.deepEqual(requests, [
 const portableCalls: unknown[] = []
 const portableAssignments = {
   ...state.assignments,
-  capabilityGrants: { 'qdn://APP/Secret/Secret': { 'bookmarks.manage': { grantedAt: '2026-08-22T12:00:00.000Z' } } },
+  capabilityGrants: {
+    'qdn://APP/Secret/Secret': { 'bookmarks.manage': { grantedAt: '2026-08-22T12:00:00.000Z' } },
+    'qdn://APP/Chat/Chat': { 'account.read': { grantedAt: '2026-08-22T14:00:00.000Z' } },
+  },
   legacyMigrated: true,
 }
 const portableNotifications = {
@@ -215,6 +251,13 @@ assert.deepEqual(portableState.bookmarks.apps, [{
   appKey: 'qdn://APP/Secret/Secret',
   grantedAt: '2026-08-22T12:00:00.000Z',
 }])
+// The durable read-only account grant is surfaced separately, so it can be
+// listed and revoked on its own without touching the bookmarks grant.
+assert.deepEqual(portableState.accountRead.apps, [{
+  appKey: 'qdn://APP/Chat/Chat',
+  grantedAt: '2026-08-22T14:00:00.000Z',
+}])
+assert.equal(portableState.bookmarks.apps.some(({ appKey }) => appKey === 'qdn://APP/Chat/Chat'), false)
 assert.equal(JSON.stringify(portableState).includes('secret-watch-data'), false)
 assert.equal(JSON.stringify(portableState).includes('QSECRET'), false)
 assert.equal(JSON.stringify(portableState).includes('capabilityGrants'), false)
@@ -236,11 +279,19 @@ await portableAdapter.revokeBookmarks({
   appKey: 'qdn://APP/Secret/Secret',
   expectedAssignmentRevision: 3,
 })
+// Revoking the durable read grant travels the same channel, carrying the
+// capability explicitly; an omitted capability still means bookmarks only.
+await portableAdapter.revokeBookmarks({
+  appKey: 'qdn://APP/Chat/Chat',
+  capability: 'account.read',
+  expectedAssignmentRevision: 3,
+})
 assert.deepEqual(portableCalls, [
   ['assignment', { role: 'explore', url: 'qdn://APP/Explore/Explore' }, 3],
   ['muted', 'qdn://APP/Notify/Notify', false, 7],
   ['revoke', 'qdn://APP/Notify/Notify', 7],
-  ['bookmarks', 'qdn://APP/Secret/Secret', 3],
+  ['bookmarks', 'qdn://APP/Secret/Secret', 3, 'bookmarks.manage'],
+  ['bookmarks', 'qdn://APP/Chat/Chat', 3, 'account.read'],
 ])
 const corruptPortable = createPortableHomeV2QdnSettingsAdapter({
   readAssignments: async () => portableAssignments,
