@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import type { IpcMainInvokeEvent, WebContents } from 'electron'
 import {
   assertAuthorizedHomeV2Sender,
   authorizeHomeV2Sender,
-  sendToAuthorizedHomeV2Senders,
+  broadcastToHomeV2Windows,
+  sendToHomeV2Window,
 } from './home-v2-authorized-senders.js'
 
 type Listener = (...args: unknown[]) => void
@@ -96,7 +98,7 @@ const trustedUrl = 'file:///opt/qortium-home/dist/v2-live.html'
   const home = senderFixture(104, trustedUrl)
   const widget = senderFixture(105, trustedUrl)
   authorizeHomeV2Sender(home.sender, trustedUrl)
-  sendToAuthorizedHomeV2Senders('home-v2-qdn-settings:changed', { revision: 1 })
+  broadcastToHomeV2Windows('home-v2-qdn-settings:changed', { revision: 1 })
   assert.deepEqual(home.sent, [{
     channel: 'home-v2-qdn-settings:changed',
     value: { revision: 1 },
@@ -108,7 +110,7 @@ const trustedUrl = 'file:///opt/qortium-home/dist/v2-live.html'
   const navigated = senderFixture(106, trustedUrl)
   authorizeHomeV2Sender(navigated.sender, trustedUrl)
   navigated.navigate('file:///tmp/untrusted.html')
-  sendToAuthorizedHomeV2Senders('home-v2-qdn-settings:changed', null)
+  broadcastToHomeV2Windows('home-v2-qdn-settings:changed', null)
   assert.deepEqual(navigated.sent, [], 'a navigated Home sender must be revoked before broadcast')
 }
 
@@ -117,8 +119,90 @@ const trustedUrl = 'file:///opt/qortium-home/dist/v2-live.html'
   authorizeHomeV2Sender(failed.sender, trustedUrl)
   failed.failSend()
   assert.doesNotThrow(() =>
-    sendToAuthorizedHomeV2Senders('home-v2-qdn-settings:changed', null))
+    broadcastToHomeV2Windows('home-v2-qdn-settings:changed', null))
   assert.throws(() => assertAuthorizedHomeV2Sender(failed.event()), /authorized top-level/)
+}
+
+// A targeted send exists so that window-specific events do not have to reach
+// for the broadcast. Home 2 can have several windows open since tabs became
+// detachable, so "send to the window that asked" must be the easy path.
+{
+  const first = senderFixture(108, trustedUrl)
+  const second = senderFixture(109, trustedUrl)
+  authorizeHomeV2Sender(first.sender, trustedUrl)
+  authorizeHomeV2Sender(second.sender, trustedUrl)
+
+  assert.equal(sendToHomeV2Window(108, 'home-v2-window:example', { n: 1 }), true)
+  assert.deepEqual(first.sent, [{ channel: 'home-v2-window:example', value: { n: 1 } }])
+  assert.deepEqual(second.sent, [], 'the other window must not receive it')
+
+  // And the broadcast still reaches both, so the two are genuinely different.
+  broadcastToHomeV2Windows('home-v2-qdn-settings:changed', null)
+  assert.equal(first.sent.length, 2)
+  assert.equal(second.sent.length, 1)
+}
+
+// The targeted send applies the same revocation rules as the broadcast; a
+// weaker check here would be a way around them.
+{
+  const unknown = sendToHomeV2Window(9999, 'home-v2-window:example', null)
+  assert.equal(unknown, false, 'an unregistered window id is refused')
+}
+
+{
+  const navigated = senderFixture(110, trustedUrl)
+  authorizeHomeV2Sender(navigated.sender, trustedUrl)
+  navigated.navigate('file:///tmp/untrusted.html')
+  assert.equal(
+    sendToHomeV2Window(110, 'home-v2-window:example', null),
+    false,
+    'a window that navigated away from its trusted document is refused',
+  )
+  assert.deepEqual(navigated.sent, [])
+}
+
+{
+  const destroyed = senderFixture(111, trustedUrl)
+  authorizeHomeV2Sender(destroyed.sender, trustedUrl)
+  destroyed.destroy()
+  assert.equal(sendToHomeV2Window(111, 'home-v2-window:example', null), false)
+  assert.deepEqual(destroyed.sent, [])
+}
+
+{
+  const failed = senderFixture(112, trustedUrl)
+  authorizeHomeV2Sender(failed.sender, trustedUrl)
+  failed.failSend()
+  assert.equal(
+    sendToHomeV2Window(112, 'home-v2-window:example', null),
+    false,
+    'a failed send reports failure rather than throwing',
+  )
+  assert.throws(() => assertAuthorizedHomeV2Sender(failed.event()), /authorized top-level/)
+}
+
+// The broadcast is for genuinely global state only. Both callers today are
+// settings-shaped; this pins that so a window-specific channel added here is a
+// deliberate decision rather than an accident.
+{
+  const broadcastChannels = [
+    'home-v2-qdn-settings:changed',
+    'home-v2-notification-policy:changed',
+  ]
+  const settingsSource = readFileSync('electron/home-v2-qdn-settings-bridge.ts', 'utf8')
+  const policySource = readFileSync('electron/home-v2-notification-policy-bridge.ts', 'utf8')
+  assert.match(settingsSource, /broadcastToHomeV2Windows\(/)
+  assert.match(policySource, /broadcast: broadcastToHomeV2Windows/)
+  for (const source of [settingsSource, policySource]) {
+    for (const channel of source.match(/'home-v2-[a-z0-9:-]+'/g) ?? []) {
+      const name = channel.slice(1, -1)
+      if (!name.endsWith(':changed')) continue
+      assert.ok(
+        broadcastChannels.includes(name),
+        `${name} is broadcast to every window; confirm that is intended`,
+      )
+    }
+  }
 }
 
 console.log('Home v2 authorized-sender tests passed.')

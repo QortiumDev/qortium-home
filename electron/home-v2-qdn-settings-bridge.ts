@@ -1,7 +1,7 @@
 import { ipcMain } from 'electron'
 import {
   assertAuthorizedHomeV2Sender,
-  sendToAuthorizedHomeV2Senders,
+  broadcastToHomeV2Windows,
 } from './home-v2-authorized-senders.js'
 import {
   createAuthorizedHomeV2QdnSettingsHandlers,
@@ -26,7 +26,7 @@ const HOME_V2_QDN_SETTINGS_CHANGED = Object.freeze({
 })
 
 function broadcastHomeV2QdnSettingsChanged() {
-  sendToAuthorizedHomeV2Senders(
+  broadcastToHomeV2Windows(
     'home-v2-qdn-settings:changed',
     HOME_V2_QDN_SETTINGS_CHANGED,
   )
