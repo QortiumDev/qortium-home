@@ -4,6 +4,7 @@ import { createRoot } from 'react-dom/client'
 import { createProductState } from '../product-model'
 import { homeV2Fixture } from '../test-kit/fixtures'
 import { BrowserChrome, type AddressOpenResult } from './BrowserChrome'
+import { useDismissablePopover } from './useDismissablePopover'
 import type { HomeV2CoreManagement } from './CoreManagerCards'
 import type {
   DualIdentityLookupResult,
@@ -93,6 +94,28 @@ const coreManagementFixture: HomeV2CoreManagement = {
     onCheckRelease: () => nodeMenuCalls.push('qortal:check'),
     onRunRelease: () => nodeMenuCalls.push('qortal:install'),
   },
+}
+
+/**
+ * A minimal popover built on the shared hook, so its reporting contract can be
+ * checked directly — above all that unmounting while open still reports closed.
+ */
+const popoverProbeCalls: boolean[] = []
+function PopoverProbe() {
+  const { containerRef, open, setOpen } = useDismissablePopover<HTMLDivElement>(
+    (isOpen) => popoverProbeCalls.push(isOpen),
+  )
+  return (
+    <div ref={containerRef}>
+      <button
+        type="button"
+        data-popover-probe="toggle"
+        onClick={() => setOpen((current) => !current)}
+      >
+        {open ? 'open' : 'closed'}
+      </button>
+    </div>
+  )
 }
 
 function newTabButton(): HTMLButtonElement {
@@ -594,6 +617,144 @@ try {
     1,
     'disabled-network avatars should be hidden with the rest of that network',
   )
+
+  // R4-1: app pages are native views composited over the renderer, so no
+  // z-index can put a toolbar popover in front of one. Every popover therefore
+  // reports its open state upward, and the shell suspends the app view while
+  // anything is open. A fresh tree, because the assertions above deliberately
+  // leave menus open.
+  const overlayCalls: boolean[] = []
+  const overlayContainer = document.createElement('div')
+  document.body.appendChild(overlayContainer)
+  const overlayRoot = createRoot(overlayContainer)
+  const overlayTrigger = (selector: string): HTMLButtonElement => {
+    const trigger = overlayContainer.querySelector<HTMLButtonElement>(selector)
+    assert.ok(trigger, `expected ${selector} in the toolbar`)
+    return trigger
+  }
+  await act(async () => {
+    overlayRoot.render(
+      <BrowserChrome
+        snapshot={homeV2Fixture}
+        productState={createProductState()}
+        onOpenAddress={async () => ({
+          message: 'No app answers to that address.',
+          status: 'error',
+        })}
+        onToggleCurrentBookmark={() => undefined}
+        onOverlayOpenChange={(open) => overlayCalls.push(open)}
+      />,
+    )
+    await Promise.resolve()
+  })
+  assert.deepEqual(
+    overlayCalls,
+    [false],
+    'a toolbar with nothing open should report the app view free to run',
+  )
+
+  act(() => overlayTrigger('.home-v2-bookmarks-button').click())
+  assert.deepEqual(
+    overlayCalls,
+    [false, true],
+    'opening the bookmarks menu must suspend the app view under it',
+  )
+  act(() => overlayTrigger('.home-v2-bookmarks-button').click())
+  assert.deepEqual(
+    overlayCalls,
+    [false, true, false],
+    'closing the menu must release the app view again',
+  )
+
+  // Escape is a dismissal like any other and has to report as one, or the app
+  // page would stay frozen behind a menu that is no longer there.
+  act(() => overlayTrigger('.home-v2-bookmarks-button').click())
+  assert.equal(overlayCalls.at(-1), true)
+  act(() => {
+    // `window.KeyboardEvent`, not the bare global: this suite's runner installs
+    // only a few jsdom constructors on globalThis, and this is not one of them.
+    window.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape' }))
+  })
+  assert.equal(
+    overlayCalls.at(-1),
+    false,
+    'dismissing with Escape must release the app view',
+  )
+
+  // Popovers can overlap — the report is "is anything open", not "what changed
+  // last", so closing one of two must not un-suspend the page under the other.
+  const beforeMenus = overlayCalls.length
+  act(() => overlayTrigger('.home-v2-node-pill[data-network="qortium"]').click())
+  assert.deepEqual(overlayCalls.slice(beforeMenus), [true])
+  act(() => overlayTrigger('.home-v2-account-button').click())
+  assert.deepEqual(
+    overlayCalls.slice(beforeMenus),
+    [true],
+    'a second popover should not re-report an already-suspended view',
+  )
+  act(() => overlayTrigger('.home-v2-node-pill[data-network="qortium"]').click())
+  assert.deepEqual(
+    overlayCalls.slice(beforeMenus),
+    [true],
+    'closing one of two open popovers must keep the app view suspended',
+  )
+  act(() => overlayTrigger('.home-v2-account-button').click())
+  assert.deepEqual(
+    overlayCalls.slice(beforeMenus),
+    [true, false],
+    'closing the last popover releases the app view',
+  )
+
+  // The address bar's result popup overhangs the page exactly like a menu,
+  // so it registers too even though it is chrome state rather than a popover.
+  const beforeAddressResult = overlayCalls.length
+  const addressForm = overlayContainer.querySelector('.home-v2-address')
+  assert.ok(addressForm, 'the toolbar should render the address form')
+  await act(async () => {
+    addressForm.dispatchEvent(
+      new Event('submit', { bubbles: true, cancelable: true }),
+    )
+    await Promise.resolve()
+  })
+  assert.match(
+    overlayContainer.textContent ?? '',
+    /No app answers to that address\./,
+  )
+  assert.deepEqual(
+    overlayCalls.slice(beforeAddressResult),
+    [true],
+    'the address-result popup must suspend the app view like a menu does',
+  )
+
+  // Unmounting with something still open must report closed, or the app view
+  // stays hidden with nothing left on screen that could close it.
+  act(() => overlayRoot.unmount())
+  assert.equal(
+    overlayCalls.at(-1),
+    false,
+    'chrome unmounted with an overlay open must release the app view',
+  )
+  overlayContainer.remove()
+
+  // The same guarantee at the hook itself, where it is implemented.
+  const probeContainer = document.createElement('div')
+  document.body.appendChild(probeContainer)
+  const probeRoot = createRoot(probeContainer)
+  act(() => probeRoot.render(<PopoverProbe />))
+  assert.deepEqual(popoverProbeCalls, [false])
+  const probeToggle = probeContainer.querySelector<HTMLButtonElement>(
+    '[data-popover-probe="toggle"]',
+  )
+  assert.ok(probeToggle, 'the probe should render its trigger')
+  act(() => probeToggle.click())
+  assert.deepEqual(popoverProbeCalls, [false, true])
+  act(() => probeRoot.unmount())
+  assert.deepEqual(
+    popoverProbeCalls,
+    [false, true, false],
+    'a popover unmounted while open must still report closed',
+  )
+  probeContainer.remove()
 } finally {
   act(() => root.unmount())
   container.remove()

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { t } from '../../i18n'
 import type {
   DualIdentityLookupResult,
@@ -104,6 +104,13 @@ export interface BrowserChromeProps {
     network: NetworkId,
     mode: NodeConnectionMode,
   ) => void | Promise<void>
+  /**
+   * True while any toolbar popover is showing — a menu, or the address bar's
+   * result popup. App pages are native views composited over the renderer, so
+   * nothing the chrome draws can sit on top of one; the shell answers this by
+   * suspending the view (snapshot in its place) for as long as it is true.
+   */
+  readonly onOverlayOpenChange?: (open: boolean) => void
 }
 
 export type AddressOpenResult =
@@ -195,6 +202,7 @@ export function BrowserChrome({
   onConfigureCustomNode,
   onOpenCoreSettings,
   onSetNodeMode,
+  onOverlayOpenChange,
 }: BrowserChromeProps) {
   const currentAddress = browserAddress(
     productState,
@@ -213,6 +221,37 @@ export function BrowserChrome({
   const [widgetError, setWidgetError] = useState<string | null>(null)
   const addressRequest = useRef(0)
   const addressInputRef = useRef<HTMLInputElement | null>(null)
+  // Which toolbar popovers are open, by id. Several can coexist (a node menu
+  // per network, the account menu, the bookmarks menu, the address result), so
+  // the answer the shell needs is "any of them", not "the last one to change" —
+  // this is Home 1.x's `overlayOpenById` registry (src/TopBar.tsx:2240).
+  const [openOverlayIds, setOpenOverlayIds] = useState<readonly string[]>([])
+  const setOverlayOpen = useCallback((overlayId: string, isOpen: boolean) => {
+    setOpenOverlayIds((current) => {
+      if (current.includes(overlayId) === isOpen) return current
+      return isOpen
+        ? [...current, overlayId]
+        : current.filter((id) => id !== overlayId)
+    })
+  }, [])
+  const overlayOpen = openOverlayIds.length > 0
+  const onOverlayOpenChangeRef = useRef(onOverlayOpenChange)
+  useEffect(() => {
+    onOverlayOpenChangeRef.current = onOverlayOpenChange
+  }, [onOverlayOpenChange])
+  // Keyed on the boolean, so closing one of two open menus reports nothing and
+  // the app view stays suspended until the last one closes.
+  useEffect(() => {
+    onOverlayOpenChangeRef.current?.(overlayOpen)
+    return () => {
+      if (overlayOpen) onOverlayOpenChangeRef.current?.(false)
+    }
+  }, [overlayOpen])
+  // The address bar's error/choose popup overhangs the page like the menus do,
+  // and it is state rather than a popover component, so it registers here.
+  useEffect(() => {
+    setOverlayOpen('address-suggestions', addressResult !== null)
+  }, [addressResult, setOverlayOpen])
   useEffect(() => {
     addressRequest.current += 1
     setAddress(currentAddress)
@@ -395,6 +434,7 @@ export function BrowserChrome({
               onManage={onManageBookmarks}
               toolbarVisibility={bookmarkSnapshot?.toolbarVisibility}
               onSetToolbarVisibility={onSetBookmarkToolbarVisibility}
+              onOpenChange={(open) => setOverlayOpen('bookmarks-menu', open)}
             />
           ) : null}
           <button
@@ -483,6 +523,9 @@ export function BrowserChrome({
               network={network}
               node={snapshot.nodes[network]}
               tone={nodeTone(snapshot, network)}
+              onOpenChange={(open) =>
+                setOverlayOpen(`node-menu:${network}`, open)
+              }
               onConfigureCustomNode={onConfigureCustomNode}
               onOpenCoreSettings={onOpenCoreSettings}
               onSetNodeMode={onSetNodeMode}
@@ -526,6 +569,7 @@ export function BrowserChrome({
             selectedAccountLookup={selectedAccountLookup}
             loadVisibleAvatar={loadVisibleAvatar}
             onLockAccount={onLockAccount}
+            onOpenChange={(open) => setOverlayOpen('account-menu', open)}
             onUnlockAccount={onUnlockAccount}
           />
         </div>
