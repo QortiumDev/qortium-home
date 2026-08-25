@@ -34,6 +34,20 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-24 - fix(home-v2): show app avatars instead of letter monograms
+
+Apps without their own icon were falling back to a plain letter instead
+of the avatar of the name that published them. Two separate faults were
+responsible. Home looked up the avatar of the publisher's primary name
+rather than the name the app is actually published under, so an app
+published under its own name showed nothing even though that name has a
+picture. And avatars stored without a recognisable file type were
+rejected outright, which affected several publishers' pictures. Home now
+prefers the avatar belonging to the name the app is published under,
+falling back to the publisher's primary name as before, and it accepts a
+picture whose type it has to work out from the file contents, while
+still refusing anything that is not an image.
+
 ### 2026-08-24 - feat(home-v2): find more apps from the dashboard
 
 The Pinned Apps section on the Dashboard now has a button that opens
