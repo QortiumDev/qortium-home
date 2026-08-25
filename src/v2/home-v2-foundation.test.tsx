@@ -2457,9 +2457,15 @@ function testGrantIdentityAndSendRateLimitHardening(): void {
     appBridge,
     /hasQdnAccountCapability\(appGrantKey, context\.accountId, durableAccountReadCapability\)/,
   )
+  // The grant site binds to a non-null captured account id: no selected
+  // account means no durable grant, only the narrower session fallback.
   assert.match(
     appBridge,
-    /grantQdnAccountCapabilityPermission\(\s*\n\s*appGrantKey,\s*\n\s*context\.accountId,\s*\n\s*durableAccountReadCapability,\s*\n\s*\)/,
+    /const grantAccountId = context\.accountId/,
+  )
+  assert.match(
+    appBridge,
+    /grantQdnAccountCapabilityPermission\(\s*\n\s*appGrantKey,\s*\n\s*grantAccountId,\s*\n\s*durableAccountReadCapability,\s*\n\s*\)/,
   )
   // Persisting a durable grant must never fail the action the user approved,
   // and must never be believed unless a confirming read says it stuck. Both
