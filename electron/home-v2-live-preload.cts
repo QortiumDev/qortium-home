@@ -57,6 +57,14 @@ contextBridge.exposeInMainWorld('homeV2Zoom', {
   },
 })
 
+// Write-only, one short string at a time. The shell's session denies every
+// permission request, so navigator.clipboard rejects there and its copy
+// actions have to reach the system clipboard through main.
+contextBridge.exposeInMainWorld('homeV2Clipboard', {
+  copyText: (value: string): Promise<void> =>
+    ipcRenderer.invoke('home-v2-shell:copy-text', value),
+})
+
 type HomeV2WindowBehavior = {
   closeToTray: boolean
   warnOnCloseWithMultipleTabs: boolean
@@ -463,6 +471,10 @@ contextBridge.exposeInMainWorld('homeV2Apps', {
     ipcRenderer.invoke('qdn-views:updateBridgeStates', request),
   show: (request: unknown) => ipcRenderer.invoke('qdn-views:show', request),
   openAsWidget: (request: unknown) => ipcRenderer.invoke('home-v2-widgets:open', request),
+  // Availability only. The shell renderer's session blocks every network
+  // request, so whether the tab's app publishes a widget face has to be
+  // answered by main before the toolbar offers the control.
+  probeWidget: (request: unknown) => ipcRenderer.invoke('home-v2-widgets:probe', request),
   syncWidgets: (request: unknown) => ipcRenderer.invoke('home-v2-widgets:sync-state', request),
   resolvePermission: (request: unknown) =>
     ipcRenderer.send('home-v2-app:permission-resolve', request),

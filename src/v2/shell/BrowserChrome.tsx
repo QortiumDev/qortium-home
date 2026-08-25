@@ -57,6 +57,12 @@ export interface BrowserChromeProps {
    * a message to show when the app has no widget face or the grant was refused.
    */
   readonly onOpenAsWidget?: (tabId: string) => Promise<string | null>
+  /**
+   * Whether the active tab's app publishes a widget face. Undefined means the
+   * host has not been told yet; the control stays hidden until it is, so it
+   * never appears and then vanishes.
+   */
+  readonly widgetAvailable?: boolean
   readonly canGoBack?: boolean
   readonly canGoForward?: boolean
   readonly onGoBack?: () => void
@@ -183,6 +189,7 @@ export function BrowserChrome({
   onNavigate,
   onOpenAddress,
   onOpenAsWidget,
+  widgetAvailable,
   canGoBack,
   canGoForward,
   onGoBack,
@@ -545,7 +552,10 @@ export function BrowserChrome({
               onSetNodeMode={onSetNodeMode}
             />
           ))}
-          {onOpenAsWidget && productState.destination === 'tab' && productState.activeTabId ? (
+          {onOpenAsWidget &&
+          widgetAvailable === true &&
+          productState.destination === 'tab' &&
+          productState.activeTabId ? (
             <button
               type="button"
               className="home-v2-toolbar-button"
@@ -558,9 +568,10 @@ export function BrowserChrome({
                 if (!tabId) return
                 setWidgetBusy(true)
                 setWidgetError(null)
-                // Whether the app publishes a widget face is only knowable from
-                // its manifest on the node, so the answer arrives here rather
-                // than in the button's enabled state.
+                // widgetAvailable already says the app publishes a widget, so
+                // this reports the launch-time answers the probe deliberately
+                // does not ask for: a refused grant, the one-widget-per-
+                // resource limit, or a manifest that turns out to be broken.
                 void onOpenAsWidget(tabId)
                   .then((message) => setWidgetError(message))
                   .finally(() => setWidgetBusy(false))
