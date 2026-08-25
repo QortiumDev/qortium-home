@@ -1016,6 +1016,12 @@ function testDesktopAndPhoneContracts(): void {
     assert.match(html, /fixture:tab:chat/)
     assert.match(html, /fixture:tab:qortal-compat/)
     assert.doesNotMatch(html, /role="dialog"/)
+    // Network buttons are the chain mark alone: no visible label, but the name
+    // and status must survive as the accessible name (owner request).
+    assert.match(html, /class="home-v2-node-pill"[^>]*aria-label="Qortium: /)
+    assert.doesNotMatch(html, /class="home-v2-node-pill"[^>]*>[^<]*Qortium</)
+    // Tab badges use the compact, icon-only variant.
+    assert.match(html, /home-v2-network--compact/)
     assertNetworkOrder(html, 'home-v2-node-pill')
     assertNetworkOrder(html, 'home-v2-node-card')
     assertNetworkOrder(html, 'home-v2-presence')
