@@ -28,6 +28,12 @@ export type HomeV2QdnSettingsState = Readonly<{
     revision: number
     version: 1
   }>
+  /** Apps granted persistent permission to send chat ("always allow"). */
+  chatSend: Readonly<{
+    apps: readonly HomeV2QdnBookmarkGrant[]
+    revision: number
+    version: 1
+  }>
   notifications: Readonly<{
     apps: readonly HomeV2QdnNotificationGrant[]
     revision: number | null
@@ -227,7 +233,7 @@ export function parseHomeV2QdnSettingsState(
 ): HomeV2QdnSettingsState {
   if (
     !isRecord(value) ||
-    !hasExactKeys(value, ['assignments', 'bookmarks', 'notifications', 'revision', 'schema']) ||
+    !hasExactKeys(value, ['assignments', 'bookmarks', 'chatSend', 'notifications', 'revision', 'schema']) ||
     value.schema !== 'home-v2-qdn-settings-state' ||
     value.revision !== 1 ||
     !isRecord(value.assignments) ||
@@ -239,6 +245,11 @@ export function parseHomeV2QdnSettingsState(
     value.bookmarks.version !== 1 ||
     !safeGeneration(value.bookmarks.revision) ||
     !Array.isArray(value.bookmarks.apps) ||
+    !isRecord(value.chatSend) ||
+    !hasExactKeys(value.chatSend, ['apps', 'revision', 'version']) ||
+    value.chatSend.version !== 1 ||
+    !safeGeneration(value.chatSend.revision) ||
+    !Array.isArray(value.chatSend.apps) ||
     value.bookmarks.apps.length > 100 ||
     !isRecord(value.notifications) ||
     !hasExactKeys(value.notifications, ['apps', 'revision', 'status', 'version']) ||
@@ -258,6 +269,10 @@ export function parseHomeV2QdnSettingsState(
   }
   const apps = value.notifications.apps.map(parseGrant)
   const bookmarkApps = value.bookmarks.apps.map(parseBookmarkGrant)
+  const chatSendApps = value.chatSend.apps.map(parseBookmarkGrant)
+  if (new Set(chatSendApps.map(({ appKey }) => appKey)).size !== chatSendApps.length) {
+    throw new Error('Home 2 QDN settings contained duplicate chat-send grants.')
+  }
   if (new Set(bookmarkApps.map(({ appKey }) => appKey)).size !== bookmarkApps.length) {
     throw new Error('Home 2 QDN settings contained duplicate bookmark grants.')
   }
@@ -281,6 +296,13 @@ export function parseHomeV2QdnSettingsState(
         [...bookmarkApps].sort((left, right) => left.appKey.localeCompare(right.appKey)),
       ),
       revision: value.bookmarks.revision,
+      version: 1,
+    }),
+    chatSend: Object.freeze({
+      apps: Object.freeze(
+        [...chatSendApps].sort((left, right) => left.appKey.localeCompare(right.appKey)),
+      ),
+      revision: value.chatSend.revision,
       version: 1,
     }),
     notifications: Object.freeze({
@@ -356,17 +378,26 @@ function projectPortableAssignments(value: unknown) {
     throw new Error('Portable QDN assignments omitted a default role.')
   }
   const capabilityGrants = isRecord(value.capabilityGrants) ? value.capabilityGrants : {}
-  const bookmarkApps = Object.entries(capabilityGrants).flatMap(([appKey, capabilities]) => {
-    if (!isRecord(capabilities) || !isRecord(capabilities['bookmarks.manage'])) return []
-    return [parseBookmarkGrant({
-      appKey,
-      grantedAt: capabilities['bookmarks.manage'].grantedAt,
-    })]
-  })
+  const grantsFor = (capability: string) =>
+    Object.entries(capabilityGrants).flatMap(([appKey, capabilities]) => {
+      if (!isRecord(capabilities) || !isRecord(capabilities[capability])) return []
+      return [parseBookmarkGrant({
+        appKey,
+        grantedAt: capabilities[capability].grantedAt,
+      })]
+    })
+  const bookmarkApps = grantsFor('bookmarks.manage')
+  // Apps the user chose "always allow" for when sending chat.
+  const chatSendApps = grantsFor('chat.send')
   return {
     assignments,
     bookmarks: {
       apps: bookmarkApps,
+      revision: value.revision,
+      version: 1 as const,
+    },
+    chatSend: {
+      apps: chatSendApps,
       revision: value.revision,
       version: 1 as const,
     },
@@ -453,6 +484,7 @@ export function createPortableHomeV2QdnSettingsAdapter(
         version: assignments.version,
       },
       bookmarks: assignments.bookmarks,
+      chatSend: assignments.chatSend,
       notifications,
       revision: 1,
       schema: 'home-v2-qdn-settings-state',

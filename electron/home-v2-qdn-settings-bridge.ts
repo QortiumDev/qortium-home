@@ -46,11 +46,13 @@ export function registerHomeV2QdnSettingsBridgeIpcHandlers() {
   const service = createHomeV2QdnSettingsService({
     inspectNotifications: inspectNotificationStore,
     readAssignments: readQdnAppRolesStore,
-    revokeBookmarks(expectedRevision, appKey) {
+    revokeBookmarks(expectedRevision, appKey, capability) {
+      // Capability is validated against the revocable allowlist in the
+      // contract parser; anything else never reaches here.
       return revokeQdnAppCapabilityPermissionIfRevision(
         expectedRevision,
         appKey,
-        'bookmarks.manage',
+        capability,
       )
     },
     revokeNotifications(expectedRevision, appKey) {

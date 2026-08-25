@@ -43,6 +43,14 @@ const state = {
     revision: 3,
     version: 1,
   },
+  chatSend: {
+    apps: [{
+      appKey: 'qdn://APP/Chat/Chat',
+      grantedAt: '2026-08-22T13:00:00.000Z',
+    }],
+    revision: 3,
+    version: 1,
+  },
   notifications: {
     apps: [{
       appKey: 'qdn://APP/Notify/Notify',

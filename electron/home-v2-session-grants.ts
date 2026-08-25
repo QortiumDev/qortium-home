@@ -86,6 +86,30 @@ export const HOME_V2_PERMISSIONLESS_ACTIONS = Object.freeze([
 
 const PERMISSIONLESS_ACTIONS = new Set<string>(HOME_V2_PERMISSIONLESS_ACTIONS)
 
+/**
+ * Chat sends that a user may grant an app persistently ("always allow").
+ * Deliberately excludes publishing, account unlock, group membership and
+ * admin, and private-group key operations — those always prompt.
+ */
+const CHAT_SEND_ACTIONS = new Set<string>([
+  'SEND_CHAT_MESSAGE',
+  'SEND_CHAT_EDIT',
+  'SEND_CHAT_DELETE',
+  'SEND_CHAT_REACTION',
+  'SEND_DIRECT_CHAT_MESSAGE',
+  'SEND_DIRECT_CHAT_EDIT',
+  'SEND_DIRECT_CHAT_DELETE',
+  'SEND_DIRECT_CHAT_REACTION',
+  'SEND_PRIVATE_GROUP_CHAT_MESSAGE',
+  'SEND_PRIVATE_GROUP_CHAT_EDIT',
+  'SEND_PRIVATE_GROUP_CHAT_DELETE',
+  'SEND_PRIVATE_GROUP_CHAT_REACTION',
+])
+
+export function isHomeV2ChatSendAction(action: string): boolean {
+  return CHAT_SEND_ACTIONS.has(action)
+}
+
 export function isHomeV2PermissionlessAction(action: string): boolean {
   return PERMISSIONLESS_ACTIONS.has(action)
 }

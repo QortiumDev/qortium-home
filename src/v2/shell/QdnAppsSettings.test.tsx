@@ -42,6 +42,11 @@ function initialState() {
       revision: 3,
       version: 1 as const,
     },
+    chatSend: {
+      apps: [],
+      revision: 3,
+      version: 1,
+    },
     notifications: {
       apps: [{
         appKey: 'qdn://APP/Notify/Notify',
@@ -97,6 +102,11 @@ const adapter: HomeV2QdnSettingsAdapter = {
         ...state.bookmarks,
         revision: state.bookmarks.revision + 1,
       },
+      chatSend: {
+        apps: [],
+        revision: 3,
+        version: 1,
+      },
     }
     return state
   },
@@ -138,6 +148,11 @@ const adapter: HomeV2QdnSettingsAdapter = {
       bookmarks: {
         apps: state.bookmarks.apps.filter(({ appKey }) => appKey !== request.appKey),
         revision: state.bookmarks.revision + 1,
+        version: 1,
+      },
+      chatSend: {
+        apps: [],
+        revision: 3,
         version: 1,
       },
     }

@@ -2237,7 +2237,16 @@ function testGrantIdentityAndSendRateLimitHardening(): void {
   assert.match(appBridge, /function liveResourceMatchesGrant/)
   assert.match(
     appBridge,
-    /liveResourceMatchesGrant\(context\)[\s\S]{0,2400}sessionAccountReadGrants\.has\(grantKey\)/,
+    // Budget widened when the permissionless-read early return and the durable
+    // chat.send grant check were added between these two points. The ordering
+    // property is what matters and is unchanged: the stale-resource check
+    // still runs BEFORE any grant (session or durable) is honored.
+    /liveResourceMatchesGrant\(context\)[\s\S]{0,3200}sessionAccountReadGrants\.has\(grantKey\)/,
+  )
+  // The durable chat.send grant must also sit after the stale-resource check.
+  assert.match(
+    appBridge,
+    /liveResourceMatchesGrant\(context\)[\s\S]{0,3200}hasQdnAppCapability\(appGrantKey, 'chat\.send'\)/,
   )
   assert.match(appBridge, /liveResourceMatchesGrant\(freshContext\)/)
   assert.match(appBridge, /isQdnViewVisible\(context\.windowId, context\.tabId\)/)

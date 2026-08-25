@@ -6,8 +6,19 @@
  * resource identity that requested them.
  */
 export const QDN_MANAGER_CAPABILITIES = ['bookmarks.manage', 'notifications.manage'] as const;
+/**
+ * Durable per-app permission to send chat on the user's behalf, granted by
+ * choosing "always allow" on a send prompt and revocable in QDN Apps settings.
+ * Deliberately covers chat sends only — publishing, unlocking, group admin and
+ * private-group key rotation are never grantable this way.
+ */
+export const QDN_APP_SEND_CAPABILITIES = ['chat.send'] as const;
 export const QDN_APP_ASSIGNMENT_CAPABILITIES = ['assignments.read'] as const;
-export const QDN_APP_CAPABILITIES = [...QDN_MANAGER_CAPABILITIES, ...QDN_APP_ASSIGNMENT_CAPABILITIES] as const;
+export const QDN_APP_CAPABILITIES = [
+  ...QDN_MANAGER_CAPABILITIES,
+  ...QDN_APP_ASSIGNMENT_CAPABILITIES,
+  ...QDN_APP_SEND_CAPABILITIES,
+] as const;
 
 export type QdnManagerCapability = (typeof QDN_MANAGER_CAPABILITIES)[number];
 export type QdnAppCapability = (typeof QDN_APP_CAPABILITIES)[number];

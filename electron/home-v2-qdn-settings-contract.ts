@@ -35,6 +35,11 @@ export type HomeV2QdnNotificationState = {
 
 export type HomeV2QdnSettingsState = {
   readonly assignments: HomeV2QdnAssignmentState
+  readonly chatSend: Readonly<{
+    apps: readonly Readonly<{ appKey: string; grantedAt: string }>[]
+    revision: number
+    version: 1
+  }>
   readonly bookmarks: Readonly<{
     apps: readonly HomeV2QdnBookmarkGrantSummary[]
     revision: number
@@ -51,6 +56,7 @@ type Dependencies = {
   readonly revokeBookmarks: (
     expectedRevision: number,
     appKey: string,
+    capability: HomeV2RevocableCapability,
   ) => QdnAppAssignmentsStore
   readonly revokeNotifications: (
     expectedRevision: number,
@@ -136,14 +142,34 @@ function parseRevoke(value: unknown) {
   }
 }
 
+// Capabilities a user may revoke from this settings surface. Anything not on
+// this list cannot be revoked through the renderer, whatever it sends.
+const REVOCABLE_CAPABILITIES = ['bookmarks.manage', 'chat.send'] as const
+export type HomeV2RevocableCapability = (typeof REVOCABLE_CAPABILITIES)[number]
+
 function parseRevokeBookmarks(value: unknown) {
+  const withCapability = exact(value, [
+    'appKey',
+    'capability',
+    'expectedAssignmentRevision',
+    'revision',
+    'schema',
+  ])
   if (
-    !exact(value, ['appKey', 'expectedAssignmentRevision', 'revision', 'schema']) ||
+    (!withCapability &&
+      !exact(value, ['appKey', 'expectedAssignmentRevision', 'revision', 'schema'])) ||
     value.revision !== 1 ||
     value.schema !== 'home-v2-qdn-settings-revoke-bookmarks-request'
   ) throw new Error('An exact Home 2 bookmark permission revoke request is required.')
+  // Omitted capability keeps the original bookmarks-only meaning, so older
+  // callers are unaffected.
+  const capability = withCapability ? value.capability : 'bookmarks.manage'
+  if (!REVOCABLE_CAPABILITIES.includes(capability as HomeV2RevocableCapability)) {
+    throw new Error('That capability cannot be revoked from Home settings.')
+  }
   return {
     appKey: sanitizeQdnManagerAppKey(value.appKey),
+    capability: capability as HomeV2RevocableCapability,
     expectedRevision: revision(value.expectedAssignmentRevision, 'Expected assignment revision'),
   }
 }
@@ -156,11 +182,14 @@ export function redactHomeV2QdnSettingsState(
     Object.entries(assignmentsStore.assignments).map(([role, assignment]) => [role, { ...assignment }]),
   )
   const notificationStore = notificationInspection.store
-  const bookmarkApps = Object.entries(assignmentsStore.capabilityGrants)
-    .flatMap(([appKey, capabilities]) => capabilities['bookmarks.manage']
-      ? [{ appKey, grantedAt: capabilities['bookmarks.manage'].grantedAt }]
-      : [])
-    .sort((left, right) => left.appKey.localeCompare(right.appKey))
+  const grantsFor = (capability: 'bookmarks.manage' | 'chat.send') =>
+    Object.entries(assignmentsStore.capabilityGrants)
+      .flatMap(([appKey, capabilities]) => capabilities[capability]
+        ? [{ appKey, grantedAt: capabilities[capability].grantedAt }]
+        : [])
+      .sort((left, right) => left.appKey.localeCompare(right.appKey))
+  const bookmarkApps = grantsFor('bookmarks.manage')
+  const chatSendApps = grantsFor('chat.send')
   const apps = notificationStore ? Object.entries(notificationStore.grants)
     .map(([appKey, grant]) => {
       const rules = notificationStore.rules[appKey] ?? []
@@ -178,6 +207,11 @@ export function redactHomeV2QdnSettingsState(
       assignments,
       revision: assignmentsStore.revision,
       version: 2,
+    },
+    chatSend: {
+      apps: chatSendApps,
+      revision: assignmentsStore.revision,
+      version: 1,
     },
     bookmarks: {
       apps: bookmarkApps,
@@ -223,7 +257,7 @@ export function createHomeV2QdnSettingsService(dependencies: Dependencies) {
     },
     revokeBookmarks(value: unknown) {
       const request = parseRevokeBookmarks(value)
-      dependencies.revokeBookmarks(request.expectedRevision, request.appKey)
+      dependencies.revokeBookmarks(request.expectedRevision, request.appKey, request.capability)
       return state()
     },
     setAssignment(value: unknown) {

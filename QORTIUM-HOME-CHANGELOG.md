@@ -34,6 +34,16 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-24 - feat(home-v2): let trusted apps keep permission to send chat
+
+When an app asks to send a chat message you can now choose "always
+allow" alongside the existing once and this-session options, so a chat
+app you trust stops asking every time you restart Home. The permission
+is per app and is listed in QDN Apps settings with the date it was
+granted, where it can be revoked at any time. Only chat sending can be
+granted this way: publishing, unlocking your account, group moderation
+and private group key changes always ask, every time.
+
 ### 2026-08-24 - feat(home-v2): stop asking permission to read
 
 Opening an app no longer asks for permission. Apps can read the selected
