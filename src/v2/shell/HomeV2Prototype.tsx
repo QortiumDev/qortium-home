@@ -1225,6 +1225,8 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
         onManageBookmarks={props.onManageBookmarks}
         onSetBookmarkToolbarVisibility={props.onSetBookmarkToolbarVisibility}
         onDropTabOnBookmarkToolbar={props.onDropTabOnBookmarkToolbar}
+        onLockAccount={props.onLockAccount}
+        onUnlockAccount={props.onUnlockAccount}
       />
       <main
         className="home-v2-page-viewport"

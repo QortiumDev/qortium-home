@@ -24,15 +24,14 @@ import {
   DEFAULT_NEW_TAB_PREFERENCE,
   type NewTabPreference,
 } from '../new-tab-preference'
-import { networkLabels } from './NetworkBadge'
-import { HomeMark, NetworkMark } from './ProductMarks'
+import { HomeMark } from './ProductMarks'
 import { internalTabLabelKeys, TabStrip } from './TabStrip'
-import { VisibleIdentityAvatar } from './VisibleIdentityAvatar'
 import {
   HomeV2BookmarkToolbar,
   type HomeV2BookmarkToolbarProps,
 } from './HomeV2BookmarkToolbar'
 import { BookmarksMenuButton } from './BookmarksMenuButton'
+import { AccountStatusMenu, NodeStatusMenu } from './ChromeStatusMenus'
 import { locateBookmarkManagerLink } from '../../bookmarkManager'
 import type { BookmarkToolbarVisibility } from '../../bookmarkToolbar'
 
@@ -86,6 +85,8 @@ export interface BrowserChromeProps {
   readonly onDropTabOnBookmarkToolbar?: (
     tabId: ProductState['tabs'][number]['id'],
   ) => void | Promise<void>
+  readonly onLockAccount?: () => void
+  readonly onUnlockAccount?: () => void
 }
 
 export type AddressOpenResult =
@@ -143,14 +144,6 @@ function browserPageTitle(productState: ProductState, address: string): string {
     : t(internalTabLabelKeys[activeEntry.page])
 }
 
-function accountLabel(snapshot: HomeV2Snapshot) {
-  if (snapshot.account.state === 'none') return t('account.noAccount')
-  if (snapshot.account.state === 'locked') {
-    return `${snapshot.identity.displayLabel} · ${t('account.statusLocked')}`
-  }
-  return snapshot.identity.displayLabel
-}
-
 export function BrowserChrome({
   snapshot,
   productState,
@@ -178,6 +171,8 @@ export function BrowserChrome({
   onManageBookmarks,
   onSetBookmarkToolbarVisibility,
   onDropTabOnBookmarkToolbar,
+  onLockAccount,
+  onUnlockAccount,
 }: BrowserChromeProps) {
   const currentAddress = browserAddress(
     productState,
@@ -459,21 +454,15 @@ export function BrowserChrome({
           {(['qortium', 'qortal'] as const)
             .filter((network) => snapshot.nodes[network].mode !== 'disabled')
             .map((network) => (
-            <button
+            <NodeStatusMenu
               key={network}
-              type="button"
-              className="home-v2-node-pill"
-              data-network={network}
-              data-node-tone={nodeTone(snapshot, network)}
-              aria-label={`${networkLabels[network]}: ${snapshot.nodes[network].statusText}`}
-              title={`${networkLabels[network]}: ${snapshot.nodes[network].statusText}`}
-              onClick={() => onNavigate?.('dashboard')}
-            >
-              <NetworkMark network={network} />
-              {/* The only remaining status signal now the label is gone; the
-                  full text lives in the accessible name and the tooltip. */}
-              <span className="home-v2-status-dot" aria-hidden="true" />
-            </button>
+              network={network}
+              node={snapshot.nodes[network]}
+              tone={nodeTone(snapshot, network)}
+              onOpenDashboard={
+                onNavigate ? () => onNavigate('dashboard') : undefined
+              }
+            />
           ))}
           {onOpenAsWidget && productState.destination === 'tab' && productState.activeTabId ? (
             <button
@@ -508,36 +497,16 @@ export function BrowserChrome({
           >
             <Settings aria-hidden="true" size={18} strokeWidth={2} />
           </button>
-          <button
-            type="button"
-            className="home-v2-account-button"
-            data-account-state={snapshot.account.state}
-            onClick={() => onNavigate?.('dashboard')}
-          >
-            {snapshot.account.state === 'none' ? (
-              <span aria-hidden="true">+</span>
-            ) : selectedAccountLookup ? (
-              <span className="home-v2-account-avatars" aria-hidden="true">
-                {(['qortium', 'qortal'] as const)
-                  .filter((network) => snapshot.nodes[network].mode !== 'disabled')
-                  .map((network) => (
-                    <VisibleIdentityAvatar
-                      className="home-v2-account-avatar"
-                      identity={selectedAccountLookup.networks[network]}
-                      key={network}
-                      loader={loadVisibleAvatar}
-                      network={network}
-                      query={selectedAccountLookup.query}
-                    />
-                  ))}
-              </span>
-            ) : (
-              <span aria-hidden="true">
-                {snapshot.identity.displayLabel.slice(0, 1)}
-              </span>
-            )}
-            {accountLabel(snapshot)}
-          </button>
+          <AccountStatusMenu
+            snapshot={snapshot}
+            selectedAccountLookup={selectedAccountLookup}
+            loadVisibleAvatar={loadVisibleAvatar}
+            onOpenDashboard={
+              onNavigate ? () => onNavigate('dashboard') : undefined
+            }
+            onLockAccount={onLockAccount}
+            onUnlockAccount={onUnlockAccount}
+          />
         </div>
       </div>
       {bookmarkToolbar ? (

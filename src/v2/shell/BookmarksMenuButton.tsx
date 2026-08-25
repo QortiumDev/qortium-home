@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState } from 'react'
 import { Bookmark } from 'lucide-react'
 import { t } from '../../i18n'
 import {
   BOOKMARK_TOOLBAR_VISIBILITIES,
   type BookmarkToolbarVisibility,
 } from '../../bookmarkToolbar'
+import { useDismissablePopover } from './useDismissablePopover'
 
 export interface BookmarksMenuButtonProps {
   /** Whether the address currently shown is already saved. */
@@ -33,24 +33,7 @@ export function BookmarksMenuButton({
   toolbarVisibility,
   onSetToolbarVisibility,
 }: BookmarksMenuButtonProps) {
-  const [open, setOpen] = useState(false)
-  const containerRef = useRef<HTMLDivElement | null>(null)
-
-  useEffect(() => {
-    if (!open) return undefined
-    const dismiss = (event: globalThis.PointerEvent) => {
-      if (!containerRef.current?.contains(event.target as Node)) setOpen(false)
-    }
-    const dismissKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpen(false)
-    }
-    window.addEventListener('pointerdown', dismiss)
-    window.addEventListener('keydown', dismissKey)
-    return () => {
-      window.removeEventListener('pointerdown', dismiss)
-      window.removeEventListener('keydown', dismissKey)
-    }
-  }, [open])
+  const { containerRef, open, setOpen } = useDismissablePopover<HTMLDivElement>()
 
   const run = (action?: () => void | Promise<void>) => () => {
     setOpen(false)
