@@ -240,11 +240,20 @@ export function BrowserChrome({
     onOverlayOpenChangeRef.current = onOverlayOpenChange
   }, [onOverlayOpenChange])
   // Keyed on the boolean, so closing one of two open menus reports nothing and
-  // the app view stays suspended until the last one closes.
+  // the app view stays suspended until the last one closes. The cleanup runs on
+  // every true->false transition as well as on unmount, so a last-reported ref
+  // dedupes it: the transition's cleanup and re-run collapse to one `false`,
+  // while an unmount-while-open still releases the app view.
+  const lastReportedOverlayOpenRef = useRef<boolean | null>(null)
   useEffect(() => {
-    onOverlayOpenChangeRef.current?.(overlayOpen)
+    const report = (open: boolean) => {
+      if (lastReportedOverlayOpenRef.current === open) return
+      lastReportedOverlayOpenRef.current = open
+      onOverlayOpenChangeRef.current?.(open)
+    }
+    report(overlayOpen)
     return () => {
-      if (overlayOpen) onOverlayOpenChangeRef.current?.(false)
+      if (overlayOpen) report(false)
     }
   }, [overlayOpen])
   // The address bar's error/choose popup overhangs the page like the menus do,
