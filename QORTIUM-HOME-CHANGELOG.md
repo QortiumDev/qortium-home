@@ -34,6 +34,16 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-24 - feat(home-v2): show networks as their mark alone
+
+The Qortium and Qortal indicators in the toolbar and on app tabs are now
+just the chain's mark, drawn larger and in the chain's own colour, with
+no surrounding pill and no text beside it. The toolbar buttons keep a
+small dot showing whether that node is online, and the chain name and
+status are still read out by screen readers and shown on hover. The
+labelled badge is unchanged where there is room for it, such as the
+Dashboard cards.
+
 ### 2026-08-24 - fix(home-v2): show app avatars instead of letter monograms
 
 Apps without their own icon were falling back to a plain letter instead

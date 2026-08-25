@@ -254,7 +254,7 @@ export function TabStrip({
               )}
               <span>{label}</span>
               {entry.kind === 'app' ? (
-                <NetworkBadge network={entry.context.sourceNetwork} />
+                <NetworkBadge compact network={entry.context.sourceNetwork} />
               ) : null}
             </button>
             <button

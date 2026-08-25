@@ -409,12 +409,14 @@ export function BrowserChrome({
               className="home-v2-node-pill"
               data-network={network}
               data-node-tone={nodeTone(snapshot, network)}
+              aria-label={`${networkLabels[network]}: ${snapshot.nodes[network].statusText}`}
               title={`${networkLabels[network]}: ${snapshot.nodes[network].statusText}`}
               onClick={() => onNavigate?.('dashboard')}
             >
               <NetworkMark network={network} />
+              {/* The only remaining status signal now the label is gone; the
+                  full text lives in the accessible name and the tooltip. */}
               <span className="home-v2-status-dot" aria-hidden="true" />
-              {networkLabels[network]}
             </button>
           ))}
           {onOpenAsWidget && productState.destination === 'tab' && productState.activeTabId ? (
