@@ -2528,7 +2528,7 @@ function testGrantIdentityAndSendRateLimitHardening(): void {
   // 'always' the prompt never offered must not become a durable grant.
   assert.match(
     appBridge,
-    /decision\.scope === 'always' && durableAccountReadCapability && appGrantKey/,
+    /decision\.scope === 'always' &&\s*\n\s*durableAccountReadCapability &&\s*\n\s*appGrantKey &&\s*\n\s*grantAccountId/,
   )
   // The permissionless early return still precedes every grant check, so this
   // feature did not widen what needs no prompt at all.
