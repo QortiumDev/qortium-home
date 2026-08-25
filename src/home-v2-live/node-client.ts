@@ -55,11 +55,14 @@ import {
   getHomeV2ContextualAppActions,
   HOME_V2_ROUTE_INDEPENDENT_ACTIONS,
 } from '../../electron/home-v2-app-runtime'
+import { mergeHomeV2ShellGlobalState } from '../../electron/home-v2-window-startup'
 
 export interface HomeV2NodeClient {
   getSnapshot(): Promise<unknown>
   getShellState(): Promise<unknown>
   saveShellState(value: unknown): Promise<void>
+  /** Saves everything except the tab strip; used by detached windows. */
+  saveShellGlobalState(value: unknown): Promise<void>
   requestApp(
     protocol: HomeV2AppBridgeProtocol,
     request: unknown,
@@ -973,6 +976,22 @@ export function createPortableNodeClient(
       }
       await dependencies.setPreference(SHELL_STATE_KEY, raw)
     },
+    async saveShellGlobalState(value) {
+      // Android has a single window, so there is no second tab strip to
+      // protect; it shares the merge so both platforms mean the same thing.
+      const stored = await dependencies.getPreference(SHELL_STATE_KEY)
+      let parsed: unknown = null
+      try {
+        parsed = stored ? (JSON.parse(stored) as unknown) : null
+      } catch {
+        parsed = null
+      }
+      const raw = JSON.stringify(mergeHomeV2ShellGlobalState(parsed, value))
+      if (raw.length > 128 * 1024) {
+        throw new Error('Home v2 shell state exceeded the 128 KiB limit.')
+      }
+      await dependencies.setPreference(SHELL_STATE_KEY, raw)
+    },
     async requestApp(protocol, requestValue, context) {
       if (!isHomeV2AppRecord(requestValue)) throw new Error('App requests must be objects.')
       const request = requestValue
@@ -1457,8 +1476,15 @@ export function getHomeV2NodeClient() {
   throw new Error('Live node access is unavailable on this platform.')
 }
 
+export interface HomeV2WindowsBridge {
+  /** Null in the window Home started with; an address in a detached one. */
+  getStartup(): Promise<{ address: string } | null>
+  openTab(address: string): Promise<void>
+}
+
 declare global {
   interface Window {
     homeV2Nodes?: HomeV2NodeClient
+    homeV2Windows?: HomeV2WindowsBridge
   }
 }

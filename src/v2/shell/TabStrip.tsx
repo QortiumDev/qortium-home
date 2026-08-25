@@ -22,6 +22,8 @@ export interface TabStripProps {
   readonly onNewTab?: () => void
   /** Saves the tab as a toolbar bookmark when it is released over the strip. */
   readonly onDropOnBookmarkToolbar?: (tabId: TabId) => void | Promise<void>
+  /** Moves the tab into its own window when it is dragged clear of the strip. */
+  readonly onDetachTab?: (tabId: TabId) => void | Promise<void>
   readonly newTabDisabled?: boolean
   readonly loadVisibleAppIcon?: VisibleAppIconLoader
 }
@@ -55,6 +57,8 @@ function InternalTabIcon({ page }: { readonly page: TabPageId }) {
 }
 
 const TAB_DRAG_START_MIN_DISTANCE_PX = 5
+/** Matches Home 1.x (TopBar.tsx:212): far enough that a detach is deliberate. */
+const TAB_DRAG_OUT_MIN_DISTANCE_PX = 72
 
 interface TabDragState {
   key: string
@@ -82,6 +86,37 @@ function isBookmarkToolbarRelease(event: globalThis.PointerEvent): boolean {
   )
 }
 
+/**
+ * True when a drag was released clear of the tab strip: outside the window
+ * entirely, or far enough above/below the strip that it cannot be a reorder.
+ * Ported from Home 1.x (`isDragOutRelease`, src/TopBar.tsx:1733).
+ */
+function isDetachRelease(
+  event: globalThis.PointerEvent,
+  drag: TabDragState,
+  strip: HTMLElement | null,
+): boolean {
+  const distance = Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY)
+  if (distance < TAB_DRAG_OUT_MIN_DISTANCE_PX) return false
+  if (
+    event.clientX < 0 ||
+    event.clientX > window.innerWidth ||
+    event.clientY < 0 ||
+    event.clientY > window.innerHeight
+  ) {
+    return true
+  }
+  const bounds = strip?.getBoundingClientRect()
+  if (!bounds) return false
+  if (event.clientY < bounds.top) {
+    return bounds.top - event.clientY >= TAB_DRAG_OUT_MIN_DISTANCE_PX
+  }
+  if (event.clientY > bounds.bottom) {
+    return event.clientY - bounds.bottom >= TAB_DRAG_OUT_MIN_DISTANCE_PX
+  }
+  return false
+}
+
 function setBookmarkToolbarDropTarget(active: boolean) {
   const toolbar = document.querySelector('.home-v2-bookmark-toolbar')
   if (!toolbar) return
@@ -102,10 +137,12 @@ export function TabStrip({
   onReorderTab,
   onNewTab,
   onDropOnBookmarkToolbar,
+  onDetachTab,
   newTabDisabled,
   loadVisibleAppIcon,
 }: TabStripProps) {
   const tabElements = useRef(new Map<string, HTMLDivElement>())
+  const stripRef = useRef<HTMLDivElement | null>(null)
   const dragState = useRef<TabDragState | null>(null)
   const detachDragListeners = useRef<(() => void) | null>(null)
   const suppressClickKey = useRef<string | null>(null)
@@ -168,6 +205,16 @@ export function TabStrip({
       void Promise.resolve(onDropOnBookmarkToolbar(drag.key as TabId)).catch(
         () => undefined,
       )
+      return
+    }
+    // Checked after the toolbar drop, matching 1.x's ordering: dropping onto
+    // the toolbar wins over detaching, since the toolbar sits below the strip
+    // and would otherwise read as "dragged clear of it".
+    if (onDetachTab && isDetachRelease(event, drag, stripRef.current)) {
+      suppressClickKey.current = drag.key
+      dragState.current = null
+      detachDragListeners.current?.()
+      void Promise.resolve(onDetachTab(drag.key as TabId)).catch(() => undefined)
       return
     }
     // A completed reorder must not also activate the tab the pointer landed
@@ -251,6 +298,7 @@ export function TabStrip({
   return (
     <div
       className="home-v2-tabs"
+      ref={stripRef}
       role="tablist"
       aria-label={t('tabs.listLabel')}
       onDoubleClick={(event) => {

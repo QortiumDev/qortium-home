@@ -169,5 +169,7 @@ export async function launchHomeV2({ appImage, log, portBase, timeoutMs = 90_000
     if (await cdp.evaluate('document.readyState === "complete" && !!document.querySelector(".home-v2-tabs")')) break
     await sleep(1000)
   }
-  return { cdp, shutdown }
+  // The resolved port is returned because callers that inspect /json/list
+  // themselves (multi-window smokes) must use the same one, not recompute it.
+  return { cdp, port, shutdown }
 }

@@ -142,6 +142,7 @@ export interface HomeV2PrototypeProps {
   }) => void | Promise<void>
   readonly onManageBookmarks?: () => void | Promise<void>
   readonly onDropTabOnBookmarkToolbar?: (tabId: TabId) => void | Promise<void>
+  readonly onDetachTab?: (tabId: TabId) => void | Promise<void>
   readonly coreDocsNetwork?: NetworkId | null
   readonly coreDocsTransport?: HomeV2CoreDocsTransport
   readonly enableCoreDocs?: (network: NetworkId) => Promise<unknown>
@@ -1225,6 +1226,7 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
         onManageBookmarks={props.onManageBookmarks}
         onSetBookmarkToolbarVisibility={props.onSetBookmarkToolbarVisibility}
         onDropTabOnBookmarkToolbar={props.onDropTabOnBookmarkToolbar}
+        onDetachTab={props.onDetachTab}
         onLockAccount={props.onLockAccount}
         onUnlockAccount={props.onUnlockAccount}
       />

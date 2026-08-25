@@ -651,6 +651,12 @@ export function HomeV2LiveApp() {
   const [vaultClient, setVaultClient] = useState<HomeV2VaultClient | null>(
     () => window.homeV2Vault ?? null,
   )
+  // A window opened by dragging a tab out. Its tab strip is deliberately
+  // session-only: it must not restore the primary window's tabs, and must not
+  // save over them. `null` while the answer is still being fetched.
+  const [detachedAddress, setDetachedAddress] = useState<string | null>(null)
+  const [windowRoleReady, setWindowRoleReady] = useState(false)
+  const isDetachedWindow = useRef(false)
   const [vaultState, setVaultState] = useState<HomeV2VaultState>(emptyVaultState)
   const [accountCatalogue, setAccountCatalogue] =
     useState<HomeV2AccountCatalogue>(emptyAccountCatalogue)
@@ -1022,8 +1028,35 @@ export function HomeV2LiveApp() {
     }
   }, [nodeClient, nodeCoreController.markNodesUnavailable])
 
+  // Asked once, before any shell state is restored, because the answer decides
+  // whether this window restores tabs at all.
   useEffect(() => {
-    if (!nodeClient) return
+    let cancelled = false
+    const windows = window.homeV2Windows
+    if (!windows) {
+      setWindowRoleReady(true)
+      return () => {
+        cancelled = true
+      }
+    }
+    void windows
+      .getStartup()
+      .then((startup) => {
+        if (cancelled) return
+        isDetachedWindow.current = !!startup
+        setDetachedAddress(startup?.address ?? null)
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (!cancelled) setWindowRoleReady(true)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!nodeClient || !windowRoleReady) return
     let cancelled = false
     void nodeClient
       .getShellState()
@@ -1044,7 +1077,11 @@ export function HomeV2LiveApp() {
           ...current,
           appearance: restored.appearance,
         }))
-        dispatchProduct({ type: 'restore', state: restored.product })
+        // A detached window starts with only the tab it was dragged out with;
+        // restoring here would duplicate the primary window's whole strip.
+        if (!isDetachedWindow.current) {
+          dispatchProduct({ type: 'restore', state: restored.product })
+        }
         setNewTabPreference(restored.newTabPreference)
         setOnboarding(restored.onboarding)
         setRestoredAccountId(restored.selectedAccountId)
@@ -1070,7 +1107,7 @@ export function HomeV2LiveApp() {
     return () => {
       cancelled = true
     }
-  }, [collectionsClient, nodeClient])
+  }, [collectionsClient, nodeClient, windowRoleReady])
 
   useEffect(() => {
     if (!nodeClient || !vaultClient) return
@@ -1117,7 +1154,13 @@ export function HomeV2LiveApp() {
   useEffect(() => {
     if (!nodeClient || !shellStateReady || !accountCatalogueReady) return
     const timeout = window.setTimeout(() => {
-      void nodeClient.saveShellState(
+      // saveShellGlobalState keeps whatever tab state is already stored, so a
+      // detached window's session-only strip cannot destroy the primary
+      // window's tabs. The merge happens in the main process.
+      const save = isDetachedWindow.current
+        ? nodeClient.saveShellGlobalState.bind(nodeClient)
+        : nodeClient.saveShellState.bind(nodeClient)
+      void save(
         serializeHomeV2ShellState({
           version: 3,
           appearance: snapshot.appearance,
@@ -1789,6 +1832,60 @@ export function HomeV2LiveApp() {
       }
     },
     [applyCollectionsMutation, applyCollectionsSnapshot, selectedAccountId],
+  )
+
+  // The tab this window was dragged out with, opened through the ordinary
+  // address route so it behaves exactly like any other tab.
+  const openedDetachedAddress = useRef(false)
+  useEffect(() => {
+    if (!detachedAddress || !shellStateReady || openedDetachedAddress.current) return
+    openedDetachedAddress.current = true
+    void openAddress(detachedAddress).then((result) => {
+      if (result.status !== 'opened') {
+        setShellNotice(result.message ?? 'That tab could not be reopened here.')
+      }
+    })
+  }, [detachedAddress, openAddress, shellStateReady])
+
+  /** The address a tab carries when it is bookmarked or moved to a window. */
+  const tabAddress = useCallback(
+    (tabId: TabId): { address: string; title: string } | null => {
+      const entry = productState.entries.find((candidate) => candidate.id === tabId)
+      if (!entry) return null
+      return entry.kind === 'app'
+        ? { address: entry.context.resourceLocation, title: entry.title }
+        : {
+            address: `home://${entry.page}`,
+            title: t(internalTabLabelKeys[entry.page]),
+          }
+    },
+    [productState.entries],
+  )
+
+  /**
+   * Moves a tab into its own window, as Home 1.x did. Only the address travels
+   * to the new window, which then opens it through the ordinary address route,
+   * so no tab internals have to survive a trip through the main process.
+   */
+  const detachTab = useCallback(
+    async (tabId: TabId) => {
+      const windows = window.homeV2Windows
+      const target = tabAddress(tabId)
+      if (!windows || !target) return
+      try {
+        await windows.openTab(target.address)
+        // Closed only after the new window is asked for, so a rejected request
+        // leaves the tab where it was rather than losing it.
+        dispatchProduct({ type: 'close-tab', tabId })
+      } catch (error) {
+        setShellNotice(
+          error instanceof Error
+            ? error.message
+            : 'Unable to open that tab in a new window.',
+        )
+      }
+    },
+    [tabAddress],
   )
 
   /** Dropping a tab on the bookmarks toolbar saves it there, as in Home 1.x. */
@@ -5011,6 +5108,7 @@ export function HomeV2LiveApp() {
       onToggleCurrentBookmark={toggleCurrentBookmark}
       onManageBookmarks={openBookmarksManager}
       onDropTabOnBookmarkToolbar={dropTabOnBookmarkToolbar}
+      onDetachTab={window.homeV2Windows ? detachTab : undefined}
       releaseNotesTarget={releaseNotesTarget}
       coreDocsNetwork={coreDocsNetwork}
       coreDocsTransport={homeV2CoreDocsTransport()}

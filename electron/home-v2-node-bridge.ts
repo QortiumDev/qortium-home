@@ -48,6 +48,7 @@ import {
 import { ensureHomeV2ProfileBackup, requestHomeV2ProfileRestore } from './home-v2-profile-recovery.js'
 import {
   readHomeV2ShellState,
+  writeHomeV2ShellGlobalState,
   writeHomeV2ShellState,
 } from './home-v2-shell-store.js'
 import {
@@ -826,6 +827,12 @@ export function registerHomeV2NodeBridgeIpcHandlers() {
   ipcMain.handle('home-v2-shell:saveState', (event, value: unknown) => {
     assertAuthorizedHomeV2Sender(event)
     writeHomeV2ShellState(value)
+  })
+  // Used by detached windows, whose tab strip is session-only: it persists
+  // settings without overwriting the primary window's tabs.
+  ipcMain.handle('home-v2-shell:saveGlobalState', (event, value: unknown) => {
+    assertAuthorizedHomeV2Sender(event)
+    writeHomeV2ShellGlobalState(value)
   })
   ipcMain.handle(
     'home-v2-nodes:readIdentity',

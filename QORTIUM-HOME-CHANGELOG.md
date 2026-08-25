@@ -34,6 +34,17 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-25 - feat(home-v2): drag a tab out to open it in its own window
+
+Dragging a tab away from the tab strip now moves it into a new window, the way
+it worked in Home 1.x. Drag it clear of the strip, or outside the window, and
+it opens on its own; drop it back on the strip and it simply moves as before.
+
+A window opened this way starts with just the tab you dragged out. Its tabs
+belong to that window for as long as it is open and are not remembered when
+Home restarts, so opening one can never disturb the tabs in your main window.
+Settings changed in it are still saved as usual.
+
 ### 2026-08-25 - feat(home-v2): network and account buttons open menus
 
 The Qortium and Qortal buttons in the toolbar now open a small menu showing

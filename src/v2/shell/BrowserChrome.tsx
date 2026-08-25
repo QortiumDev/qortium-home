@@ -85,6 +85,9 @@ export interface BrowserChromeProps {
   readonly onDropTabOnBookmarkToolbar?: (
     tabId: ProductState['tabs'][number]['id'],
   ) => void | Promise<void>
+  readonly onDetachTab?: (
+    tabId: ProductState['tabs'][number]['id'],
+  ) => void | Promise<void>
   readonly onLockAccount?: () => void
   readonly onUnlockAccount?: () => void
 }
@@ -171,6 +174,7 @@ export function BrowserChrome({
   onManageBookmarks,
   onSetBookmarkToolbarVisibility,
   onDropTabOnBookmarkToolbar,
+  onDetachTab,
   onLockAccount,
   onUnlockAccount,
 }: BrowserChromeProps) {
@@ -341,6 +345,7 @@ export function BrowserChrome({
           onReorderTab={onReorderTab}
           onNewTab={openNewTab}
           onDropOnBookmarkToolbar={onDropTabOnBookmarkToolbar}
+          onDetachTab={onDetachTab}
           newTabDisabled={navigationDisabled}
           loadVisibleAppIcon={loadVisibleAppIcon}
         />
