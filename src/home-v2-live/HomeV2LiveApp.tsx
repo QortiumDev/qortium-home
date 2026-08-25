@@ -179,11 +179,17 @@ import {
   normalizeHomeV2GroupAdminTarget,
 } from '../../electron/home-v2-group-admin-actions'
 import { isHomeV2MintingWriteAction } from '../../electron/home-v2-minting'
+import { persistDurableGrantAsync } from '../../electron/durable-grant-persistence'
 import { createHomeV2SendRateLimiter } from '../../electron/home-v2-send-rate-limiter'
 import {
+  homeV2AccountReadAlwaysAllowDetail,
   homeV2AccountReadPermissionDetails,
   homeV2AccountReadPermissionSummary,
+  homeV2AccountReadPromptKind,
+  homeV2AccountReadPromptSummary,
+  homeV2AccountReadPromptTitle,
   createHomeV2SessionGrantStore,
+  homeV2DurableAccountReadCapability,
   homeV2PermissionGrantKey,
   homeV2PermissionGrantFamily,
   isHomeV2AccountReadAction,
@@ -219,11 +225,14 @@ import {
 } from '../notificationStore'
 import {
   grantQdnManagerPermission,
+  grantQdnAccountCapabilityPermission,
   grantQdnAppCapabilityPermission,
   getQdnAppRolesStore,
+  hasQdnAccountCapability,
   hasQdnAppCapability,
   hasQdnManagerPermission,
   onQdnManagerPermissionsChanged,
+  revokeQdnAccountCapabilityPermission,
   revokeQdnAppCapabilityPermission,
   setQdnAppAssignmentValue,
 } from '../qdnManagerPermissions'
@@ -530,6 +539,43 @@ function parseHomeV2ResourceViewerState(value: unknown): HomeV2ResourceViewerSta
   }
 }
 
+/**
+ * Writes a durable "always allow" grant on the portable/Android host and
+ * confirms it is actually held.
+ *
+ * Mirrors persistDurableGrant in electron/home-v2-app-bridge.ts. Returns false
+ * both when the write throws and when it silently persists nothing (a
+ * principal the capability store's own sanitizer discards on read-back), so
+ * every caller can fall back to the narrower session grant rather than
+ * denying a request the user already approved or believing in a grant that
+ * does not exist.
+ */
+function persistDurableChatSendGrant(appPrincipal: string): Promise<boolean> {
+  return persistDurableGrantAsync({
+    capability: 'chat.send',
+    isHeld: () => hasQdnAppCapability(appPrincipal, 'chat.send'),
+    // .then-discard rather than await: the foundation test pins that no
+    // `await grantQdn...` call exists in this file, so prompt sites cannot
+    // bypass the verifying helper; this helper is the one legitimate writer.
+    write: () => grantQdnAppCapabilityPermission(appPrincipal, 'chat.send').then(() => undefined),
+  })
+}
+
+function persistDurableAccountReadGrant(
+  appPrincipal: string,
+  accountId: string,
+  capability: 'account.read',
+): Promise<boolean> {
+  return persistDurableGrantAsync({
+    capability,
+    isHeld: () => hasQdnAccountCapability(appPrincipal, accountId, capability),
+    write: () =>
+      grantQdnAccountCapabilityPermission(appPrincipal, accountId, capability).then(
+        () => undefined,
+      ),
+  })
+}
+
 export function HomeV2LiveApp() {
   const isAndroidHost = useRef(!window.homeV2Nodes).current
   const collectionsClient = useRef(new HomeV2CollectionsClient()).current
@@ -543,6 +589,16 @@ export function HomeV2LiveApp() {
   // Desktop only: null on Android and in the browser preview, which is what
   // keeps the Window settings group off those hosts entirely.
   const windowBehaviorClient = useMemo(() => resolveHomeV2WindowBehaviorClient(), [])
+  // Durable account.read grants are stored per selected account, so QDN Apps
+  // settings has to say which account each one covers. An id that no longer
+  // resolves (a wallet removed from this device) falls back to a shortened
+  // address in the settings component rather than disappearing.
+  const resolveGrantAccountLabel = useCallback((accountId: string) => {
+    const account = accountCatalogueRef.current.accounts
+      .find((candidate) => candidate.id === accountId)
+    return account?.label ?? null
+  }, [])
+
   const qdnAppsManagement = useMemo(() => {
     const isNativeAndroid = Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android'
     if (!isNativeAndroid) return resolveHomeV2QdnSettingsManagement()
@@ -556,10 +612,26 @@ export function HomeV2LiveApp() {
             : 'unavailable'
         },
         revokeNotifications: revokeAppNotifications,
-        revokeBookmarks(appKey, expectedRevision) {
+        revokeBookmarks(appKey, expectedRevision, capability, accountId) {
+          // account.read is stored per (principal, account), so it revokes
+          // through the account-scoped store. Everything else keeps its
+          // app-scoped keying.
+          if (capability === 'account.read') {
+            if (!accountId) {
+              return Promise.reject(new Error(
+                'Revoking read-only account access requires the account it was granted for.',
+              ))
+            }
+            return revokeQdnAccountCapabilityPermission(
+              appKey,
+              accountId,
+              'account.read',
+              expectedRevision,
+            )
+          }
           return revokeQdnAppCapabilityPermission(
             appKey,
-            'bookmarks.manage',
+            capability ?? 'bookmarks.manage',
             expectedRevision,
           )
         },
@@ -2265,6 +2337,17 @@ export function HomeV2LiveApp() {
       const isJournalRead = value.action === 'GET_PENDING_TRANSACTIONS'
       const isJournalForget = value.action === 'FORGET_PENDING_TRANSACTION'
       const isMintingWrite = isHomeV2MintingWriteAction(value.action)
+      // Wording-only refinement of the account-read prompt. The private-group
+      // and attachment reads stay FULL members of the account.read grant
+      // family: the `capability` below is deliberately still 'account.read'
+      // for all of them, because bridge-permissions.ts unifies grants on that
+      // exact string (see `unifiedAccountRead`), so one session grant — and
+      // one durable "Always allow" — keeps covering all five actions on both
+      // chains. Only the title, summary and details change, so the prompt
+      // stops calling a private-group key resolution "read-only account
+      // access". Splitting the GRANT is a separate decision, not made here.
+      const accountReadPromptKind = homeV2AccountReadPromptKind(value.action)
+      const isGenericAccountRead = accountReadPromptKind === 'account'
       const operationLabel = isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment || isNotification || isBookmarkManager || isJournalForget || isMintingWrite
         ? String(value.writeOperationLabel)
         : ''
@@ -2334,8 +2417,8 @@ export function HomeV2LiveApp() {
           ? 'Allow app notifications?'
           : isBookmarkManager
           ? 'Allow saved-link management?'
-          : isAccountRead
-          ? 'Allow read-only account access?'
+          : accountReadPromptKind
+          ? homeV2AccountReadPromptTitle(accountReadPromptKind)
           : isJournalRead
             ? 'Allow pending transaction access?'
           : isJournalForget
@@ -2349,8 +2432,8 @@ export function HomeV2LiveApp() {
           ? `${appTitle} wants to show system notifications until revoked in Settings.`
           : isBookmarkManager
           ? `${appTitle} wants to manage bookmarks, toolbar links, dashboard pins, and start pages on this device.`
-          : isAccountRead
-          ? homeV2AccountReadPermissionSummary(appTitle)
+          : accountReadPromptKind
+          ? homeV2AccountReadPromptSummary(accountReadPromptKind, appTitle)
           : isJournalRead
             ? `${appTitle} wants to read its retained unknown transaction outcomes for this account and chain.`
           : isJournalForget
@@ -2362,7 +2445,8 @@ export function HomeV2LiveApp() {
           : isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment
           ? `${appTitle} wants to ${operationLabel.toLowerCase()} as the selected account.`
           : `${appTitle} wants to read the selected account address and public identity data.`,
-        details: isWidgetPrompt
+        details: [
+          ...(isWidgetPrompt
           ? [
               { label: 'App', value: appTitle },
               { label: 'Window', value: 'Frameless, always on top, and drawn entirely by the app' },
@@ -2379,7 +2463,11 @@ export function HomeV2LiveApp() {
               { label: 'Access', value: 'All saved Home links on this device' },
               { label: 'Scope', value: 'Until revoked in Settings' },
             ]
-          : isAccountRead
+          // Only the GENERIC account-read prompt keeps the generic detail
+          // rows. The private-group and attachment reads now fall through to
+          // the branches below, which name the group, the route and the
+          // attachment they are actually about.
+          : isGenericAccountRead
             ? homeV2AccountReadPermissionDetails(account?.label ?? accountId)
           : isJournalRead
             ? [
@@ -2489,13 +2577,29 @@ export function HomeV2LiveApp() {
             : [
               { label: 'Account', value: account?.label ?? accountId },
               { label: 'Data', value: 'Address, public key when available, lock state, and public name' },
-            ],
+            ]),
+          // "Always allow" is broader than the single action being asked
+          // about — it is one durable grant over the whole read-only account
+          // family on both chains — so every prompt that offers it says so.
+          ...(accountReadPromptKind && value.writeSingleRequestOnly !== true
+            ? [homeV2AccountReadAlwaysAllowDetail(account?.label ?? accountId)]
+            : []),
+        ],
         allowedScopes: isWidgetPrompt
           ? ['single-request', 'session']
           : isNotification
           ? ['always']
           : isBookmarkManager
           ? ['always']
+          // The read-only account family may be granted persistently so a
+          // trusted app stops asking every session (owner decision, R3-10);
+          // the grant is revocable in QDN Apps settings. Membership is the
+          // frozen HOME_V2_ACCOUNT_READ_ACTIONS list, and the
+          // writeSingleRequestOnly guard keeps anything the bridge refuses to
+          // retain — publishes, SAVE_CHAT_ATTACHMENT, journal forgets,
+          // minting writes, unlock — on single-request only.
+          : accountReadPromptKind && value.writeSingleRequestOnly !== true
+          ? ['single-request', 'session', 'always']
           // Chat sends may be granted persistently so trusted apps stop
           // asking on every restart; the grant is revocable in QDN Apps
           // settings. Publishing, unlock, group admin and key rotation are
@@ -2975,15 +3079,15 @@ export function HomeV2LiveApp() {
             : queueAndroidSessionGrantPermission(grantKey, prompt, context.tabId))
           if (!decision.approved) throw new Error('Account access was denied.')
           // Self-contained so it is correct at every prompt site and a no-op
-          // for anything that is not a chat send.
-          if (
+          // for anything that is not a chat send. A durable grant that throws
+          // or silently fails to persist must not fail the action the user
+          // just approved, so it degrades to the session grant below.
+          const durableChatSendFailed =
             decision.scope === 'always' &&
             isHomeV2ChatSendAction(action) &&
-            context.resourceLocation
-          ) {
-            await grantQdnAppCapabilityPermission(context.resourceLocation, 'chat.send')
-          }
-          if (!singleRequestOnly && decision.scope === 'session') {
+            !(context.resourceLocation &&
+              await persistDurableChatSendGrant(context.resourceLocation))
+          if (!singleRequestOnly && (decision.scope === 'session' || durableChatSendFailed)) {
             androidSessionAccountGrants.current.add(grantKey, {
               family: homeV2PermissionGrantFamily(action),
               hostWebContentsId: 'android',
@@ -3224,7 +3328,24 @@ export function HomeV2LiveApp() {
           tabId: context.tabId,
           target: `${descriptor.resource.service}/${descriptor.resource.name}/${descriptor.resource.identifier}`,
         })
-        if (!readOnlyAttachment || !androidSessionAccountGrants.current.has(grantKey)) {
+        // A durable per-app account-read grant ("always allow") skips the
+        // prompt; it is revocable in QDN Apps settings. Mirrors the desktop
+        // bridge. Returns null for SAVE_CHAT_ATTACHMENT and
+        // PUBLISH_CHAT_ATTACHMENT, which are not account-read actions and
+        // keep prompting single-request.
+        const attachmentReadCapability = homeV2DurableAccountReadCapability(action)
+        const attachmentAppCapabilityKey = context.resourceLocation || ''
+        // Bound to the canonical resource principal AND the selected account,
+        // matching the desktop bridge.
+        const heldAttachmentReadGrant = attachmentReadCapability && attachmentAppCapabilityKey
+          ? await hasQdnAccountCapability(
+              attachmentAppCapabilityKey,
+              accountId,
+              attachmentReadCapability,
+            )
+          : false
+        if (!heldAttachmentReadGrant &&
+          (!readOnlyAttachment || !androidSessionAccountGrants.current.has(grantKey))) {
           const prompt = createPermissionPrompt({
             id: requestId,
             protocol,
@@ -3241,29 +3362,49 @@ export function HomeV2LiveApp() {
               targetNetwork,
               walletRef: brand<WalletRef>(`home-v2:wallet:${account.walletId}`),
             },
+            // Wording only: a read keeps capability 'account.read' above, so
+            // it stays in the one unified grant family. It just names the
+            // attachment instead of describing itself as generic account
+            // access. Mirrors the desktop bridge.
             title: readOnlyAttachment
-              ? 'Allow read-only account access?'
+              ? homeV2AccountReadPromptTitle('attachment')
               : `Allow private attachment ${operation}?`,
             summary: readOnlyAttachment
-              ? homeV2AccountReadPermissionSummary(parsedApp.title)
+              ? homeV2AccountReadPromptSummary('attachment', parsedApp.title)
               : `${parsedApp.title} wants to decrypt and ${operation} a private chat attachment.`,
-            details: readOnlyAttachment
-              ? homeV2AccountReadPermissionDetails(account.label)
-              : [
-                  { label: 'Account', value: account.label },
-                  { label: 'Chain', value: targetNetwork === 'qortal' ? 'Qortal' : 'Qortium' },
-                  { label: 'Route', value: `${nodeBefore.mode} · ${nodeBefore.nodeApiUrl}` },
-                  { label: 'Resource', value: `${descriptor.resource.service}/${descriptor.resource.name}/${descriptor.resource.identifier}` },
-                  { label: 'Ciphertext size', value: `${descriptor.ciphertext.size.toLocaleString()} bytes` },
-                  { label: 'Ciphertext SHA-256', value: descriptor.ciphertext.hash },
-                ],
-            allowedScopes: readOnlyAttachment ? ['single-request', 'session'] : ['single-request'],
+            details: [
+              { label: 'Account', value: account.label },
+              { label: 'Chain', value: targetNetwork === 'qortal' ? 'Qortal' : 'Qortium' },
+              { label: 'Route', value: `${nodeBefore.mode} · ${nodeBefore.nodeApiUrl}` },
+              { label: 'Resource', value: `${descriptor.resource.service}/${descriptor.resource.name}/${descriptor.resource.identifier}` },
+              { label: 'Ciphertext size', value: `${descriptor.ciphertext.size.toLocaleString()} bytes` },
+              { label: 'Ciphertext SHA-256', value: descriptor.ciphertext.hash },
+              ...(attachmentReadCapability ? [homeV2AccountReadAlwaysAllowDetail(account.label)] : []),
+            ],
+            allowedScopes: attachmentReadCapability
+              ? ['single-request', 'session', 'always']
+              : readOnlyAttachment ? ['single-request', 'session'] : ['single-request'],
           })
           const decision = await (readOnlyAttachment
             ? queueAndroidSessionGrantPermission(grantKey, prompt, context.tabId)
             : queueAndroidPermissionPrompt(prompt, context.tabId))
           if (!decision.approved) throw new Error('Private attachment access was denied.')
-          if (readOnlyAttachment && decision.scope === 'session') {
+          // Gated on attachmentReadCapability, not on the scope alone, so an
+          // 'always' this prompt never offered cannot become a durable grant.
+          if (
+            decision.scope === 'always' &&
+            attachmentReadCapability &&
+            attachmentAppCapabilityKey
+          ) {
+            // Verified, not assumed: a write that throws OR silently drops
+            // the key falls back to the session grant recorded below.
+            await persistDurableAccountReadGrant(
+              attachmentAppCapabilityKey,
+              accountId,
+              attachmentReadCapability,
+            )
+          }
+          if (readOnlyAttachment && (decision.scope === 'session' || decision.scope === 'always')) {
             androidSessionAccountGrants.current.add(grantKey, {
               family: homeV2PermissionGrantFamily(action),
               hostWebContentsId: 'android',
@@ -3681,15 +3822,15 @@ export function HomeV2LiveApp() {
           const decision = await queueAndroidPermissionPrompt(prompt, context.tabId)
           if (!decision.approved) throw new Error('Account access was denied.')
           // Self-contained so it is correct at every prompt site and a no-op
-          // for anything that is not a chat send.
-          if (
+          // for anything that is not a chat send. A durable grant that throws
+          // or silently fails to persist must not fail the action the user
+          // just approved, so it degrades to the session grant below.
+          const durableChatSendFailed =
             decision.scope === 'always' &&
             isHomeV2ChatSendAction(action) &&
-            context.resourceLocation
-          ) {
-            await grantQdnAppCapabilityPermission(context.resourceLocation, 'chat.send')
-          }
-          if (decision.scope === 'session') {
+            !(context.resourceLocation &&
+              await persistDurableChatSendGrant(context.resourceLocation))
+          if (decision.scope === 'session' || durableChatSendFailed) {
             androidSessionAccountGrants.current.add(grantKey, {
               family: homeV2PermissionGrantFamily(action),
               hostWebContentsId: 'android',
@@ -3978,7 +4119,21 @@ export function HomeV2LiveApp() {
           action === 'RESOLVE_PRIVATE_GROUP_CHAT_KEY_REQUESTS' ||
           action === 'ROTATE_PRIVATE_GROUP_CHAT_KEY'
         )
-        if (singleRequestOnly || !androidSessionAccountGrants.current.has(grantKey)) {
+        // A durable per-app account-read grant ("always allow") skips the
+        // prompt; it is revocable in QDN Apps settings. Mirrors the desktop
+        // bridge, including the null-for-non-members rule that keeps every
+        // private-group WRITE and key operation prompting.
+        const privateGroupReadCapability = singleRequestOnly
+          ? null
+          : homeV2DurableAccountReadCapability(action)
+        const appCapabilityKey = context.resourceLocation || ''
+        // Bound to the canonical resource principal AND the selected account,
+        // matching the desktop bridge.
+        const heldAccountReadGrant = privateGroupReadCapability && appCapabilityKey
+          ? await hasQdnAccountCapability(appCapabilityKey, accountId, privateGroupReadCapability)
+          : false
+        if (!heldAccountReadGrant &&
+          (singleRequestOnly || !androidSessionAccountGrants.current.has(grantKey))) {
           const requestId = brand<PermissionRequestId>(
             globalThis.crypto.randomUUID?.() ??
               `home-v2-permission-${Date.now()}-${Math.random().toString(36).slice(2)}`,
@@ -4022,46 +4177,72 @@ export function HomeV2LiveApp() {
               targetNetwork: privateGroupNetwork,
               walletRef: brand<WalletRef>(`home-v2:wallet:${account.walletId}`),
             },
-            title: !isWrite ? 'Allow read-only account access?' : `Allow ${operationLabel.toLowerCase()}?`,
+            // Wording only: a private-group read keeps capability
+            // 'account.read' above, so it stays in the one unified grant
+            // family. It just stops describing itself as generic account
+            // access. Mirrors the desktop bridge.
+            title: !isWrite
+              ? homeV2AccountReadPromptTitle('private-group')
+              : `Allow ${operationLabel.toLowerCase()}?`,
             summary: !isWrite
-              ? homeV2AccountReadPermissionSummary(parsedApp.title)
+              ? homeV2AccountReadPromptSummary('private-group', parsedApp.title)
               : `${parsedApp.title} wants to ${operationLabel.toLowerCase()} as the selected account.`,
-            details: !isWrite
-              ? homeV2AccountReadPermissionDetails(account.label)
-              : [
-                  { label: 'Account', value: account.label },
-                  { label: 'Operation', value: operationLabel },
-                  ...(!singleRequestOnly
-                    ? [{ label: 'Tab approval', value: 'Send, edit, delete, and react in this private group' }]
-                    : []),
-                  { label: 'Chain', value: privateGroupNetwork === 'qortium' ? 'Qortium' : 'Qortal' },
-                  { label: 'Route', value: `${nodeBefore.mode} · ${nodeBefore.nodeApiUrl}` },
-                  ...(groupId ? [{ label: 'Group', value: String(groupId) }] : []),
-                  ...(privateWriteRequest?.message
-                    ? [{ label: 'Message', value: privateWriteRequest.message.slice(0, 180) }]
-                    : []),
-                  ...(privateWriteRequest?.chatReference
-                    ? [{ label: 'Reference', value: privateWriteRequest.chatReference }]
-                    : []),
-                ],
+            details: [
+              { label: 'Account', value: account.label },
+              { label: 'Operation', value: operationLabel },
+              ...(isWrite && !singleRequestOnly
+                ? [{ label: 'Tab approval', value: 'Send, edit, delete, and react in this private group' }]
+                : []),
+              { label: 'Chain', value: privateGroupNetwork === 'qortium' ? 'Qortium' : 'Qortal' },
+              { label: 'Route', value: `${nodeBefore.mode} · ${nodeBefore.nodeApiUrl}` },
+              ...(groupId ? [{ label: 'Group', value: String(groupId) }] : []),
+              ...(privateWriteRequest?.message
+                ? [{ label: 'Message', value: privateWriteRequest.message.slice(0, 180) }]
+                : []),
+              ...(privateWriteRequest?.chatReference
+                ? [{ label: 'Reference', value: privateWriteRequest.chatReference }]
+                : []),
+              ...(privateGroupReadCapability ? [homeV2AccountReadAlwaysAllowDetail(account.label)] : []),
+            ],
             allowedScopes: singleRequestOnly
               ? ['single-request']
-              : ['single-request', 'session'],
+              : privateGroupReadCapability
+                ? ['single-request', 'session', 'always']
+                : ['single-request', 'session'],
           })
           const decision = await (!isWrite
             ? queueAndroidSessionGrantPermission(grantKey, prompt, context.tabId)
             : queueAndroidPermissionPrompt(prompt, context.tabId))
           if (!decision.approved) throw new Error('Account access was denied.')
           // Self-contained so it is correct at every prompt site and a no-op
-          // for anything that is not a chat send.
-          if (
+          // for anything that is not a chat send. A durable grant that throws
+          // or silently fails to persist must not fail the action the user
+          // just approved, so it degrades to the session grant below.
+          const durableChatSendFailed =
             decision.scope === 'always' &&
             isHomeV2ChatSendAction(action) &&
-            context.resourceLocation
+            !(context.resourceLocation &&
+              await persistDurableChatSendGrant(context.resourceLocation))
+          // Gated on privateGroupReadCapability, not on the scope alone, so an
+          // 'always' that this prompt never offered cannot become a durable
+          // grant. Mirrors the desktop bridge.
+          if (
+            decision.scope === 'always' &&
+            privateGroupReadCapability &&
+            appCapabilityKey
           ) {
-            await grantQdnAppCapabilityPermission(context.resourceLocation, 'chat.send')
+            // Verified, not assumed: a write that throws OR silently drops
+            // the key falls back to the session grant recorded below.
+            await persistDurableAccountReadGrant(
+              appCapabilityKey,
+              accountId,
+              privateGroupReadCapability,
+            )
           }
-          if (!singleRequestOnly && decision.scope === 'session') {
+          if (!singleRequestOnly &&
+            (decision.scope === 'session' ||
+              durableChatSendFailed ||
+              (decision.scope === 'always' && privateGroupReadCapability))) {
             androidSessionAccountGrants.current.add(grantKey, {
               family: homeV2PermissionGrantFamily(action),
               hostWebContentsId: 'android',
@@ -4317,15 +4498,15 @@ export function HomeV2LiveApp() {
             : queueAndroidSessionGrantPermission(grantKey, prompt, context.tabId))
           if (!decision.approved) throw new Error('Account access was denied.')
           // Self-contained so it is correct at every prompt site and a no-op
-          // for anything that is not a chat send.
-          if (
+          // for anything that is not a chat send. A durable grant that throws
+          // or silently fails to persist must not fail the action the user
+          // just approved, so it degrades to the session grant below.
+          const durableChatSendFailed =
             decision.scope === 'always' &&
             isHomeV2ChatSendAction(action) &&
-            context.resourceLocation
-          ) {
-            await grantQdnAppCapabilityPermission(context.resourceLocation, 'chat.send')
-          }
-          if (decision.scope === 'session') {
+            !(context.resourceLocation &&
+              await persistDurableChatSendGrant(context.resourceLocation))
+          if (decision.scope === 'session' || durableChatSendFailed) {
             androidSessionAccountGrants.current.add(grantKey, {
               family: homeV2PermissionGrantFamily(action),
               hostWebContentsId: 'android',
@@ -4549,15 +4730,15 @@ export function HomeV2LiveApp() {
           const decision = await queueAndroidPermissionPrompt(prompt, context.tabId)
           if (!decision.approved) throw new Error('Account access was denied.')
           // Self-contained so it is correct at every prompt site and a no-op
-          // for anything that is not a chat send.
-          if (
+          // for anything that is not a chat send. A durable grant that throws
+          // or silently fails to persist must not fail the action the user
+          // just approved, so it degrades to the session grant below.
+          const durableChatSendFailed =
             decision.scope === 'always' &&
             isHomeV2ChatSendAction(action) &&
-            context.resourceLocation
-          ) {
-            await grantQdnAppCapabilityPermission(context.resourceLocation, 'chat.send')
-          }
-          if (decision.scope === 'session') {
+            !(context.resourceLocation &&
+              await persistDurableChatSendGrant(context.resourceLocation))
+          if (decision.scope === 'session' || durableChatSendFailed) {
             androidSessionAccountGrants.current.add(grantKey, {
               family: homeV2PermissionGrantFamily(effectiveAction),
               hostWebContentsId: 'android',
@@ -5282,6 +5463,7 @@ export function HomeV2LiveApp() {
         onRetry: refreshDashboardPins,
       }}
       qdnAppsManagement={qdnAppsManagement}
+      resolveAccountLabel={resolveGrantAccountLabel}
       requestApp={requestApp}
       onActivateTab={(tabId) =>
         dispatchProduct({ type: 'activate-tab', tabId })

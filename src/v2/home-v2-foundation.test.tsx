@@ -2430,16 +2430,111 @@ function testGrantIdentityAndSendRateLimitHardening(): void {
   assert.match(appBridge, /function liveResourceMatchesGrant/)
   assert.match(
     appBridge,
-    // Budget widened when the permissionless-read early return and the durable
-    // chat.send grant check were added between these two points. The ordering
-    // property is what matters and is unchanged: the stale-resource check
-    // still runs BEFORE any grant (session or durable) is honored.
-    /liveResourceMatchesGrant\(context\)[\s\S]{0,3200}sessionAccountReadGrants\.has\(grantKey\)/,
+    // Budget widened again when the durable account.read grant check (R3-10)
+    // grew an account binding and a canonical-principal lookup between these
+    // two points. The ordering property is what matters and is unchanged: the
+    // stale-resource check still runs BEFORE any grant (session or durable)
+    // is honored.
+    /liveResourceMatchesGrant\(context\)[\s\S]{0,5200}sessionAccountReadGrants\.has\(grantKey\)/,
   )
   // The durable chat.send grant must also sit after the stale-resource check.
   assert.match(
     appBridge,
-    /liveResourceMatchesGrant\(context\)[\s\S]{0,3200}hasQdnAppCapability\(appGrantKey, 'chat\.send'\)/,
+    /liveResourceMatchesGrant\(context\)[\s\S]{0,5200}hasQdnAppCapability\(appGrantKey, 'chat\.send'\)/,
+  )
+  // So must the durable account.read grant (R3-10). Its membership comes from
+  // homeV2DurableAccountReadCapability, which returns null outside
+  // HOME_V2_ACCOUNT_READ_ACTIONS, and it is additionally gated on
+  // !singleRequestOnly — so it can never short-circuit a send, a publish, an
+  // unlock, a group-admin action or a minting write.
+  assert.match(
+    appBridge,
+    /liveResourceMatchesGrant\(context\)[\s\S]{0,5200}hasQdnAccountCapability\(appGrantKey, context\.accountId, durableAccountReadCapability\)/,
+  )
+  // The durable read grant is bound to the selected account, not just the app,
+  // so it cannot survive an account switch the way the session grant cannot.
+  assert.match(
+    appBridge,
+    /hasQdnAccountCapability\(appGrantKey, context\.accountId, durableAccountReadCapability\)/,
+  )
+  // The grant site binds to a non-null captured account id: no selected
+  // account means no durable grant, only the narrower session fallback.
+  assert.match(
+    appBridge,
+    /const grantAccountId = context\.accountId/,
+  )
+  assert.match(
+    appBridge,
+    /grantQdnAccountCapabilityPermission\(\s*\n\s*appGrantKey,\s*\n\s*grantAccountId,\s*\n\s*durableAccountReadCapability,\s*\n\s*\)/,
+  )
+  // Persisting a durable grant must never fail the action the user approved,
+  // and must never be believed unless a confirming read says it stuck. Both
+  // desktop paths go through persistDurableGrant, which returns false on a
+  // throwing write AND on a silent one, and both fall through to the session
+  // grant when it does.
+  assert.match(
+    appBridge,
+    /persistDurableGrant\(\{[\s\S]{0,400}capability: 'chat\.send'/,
+  )
+  assert.match(
+    appBridge,
+    /persistDurableGrant\(\{[\s\S]{0,400}capability: durableAccountReadCapability/,
+  )
+  assert.match(appBridge, /if \(persistDurableGrant\(\{[\s\S]{0,600}\}\)\) return/)
+  assert.doesNotMatch(
+    appBridge,
+    /^\s*grantQdnAppCapabilityPermission\(appGrantKey, 'chat\.send'\)\s*$/m,
+    'the durable chat.send write must only happen through persistDurableGrant',
+  )
+  assert.match(
+    appBridge,
+    /if \(!singleRequestOnly && \(decision\.scope === 'session' \|\| decision\.scope === 'always'\)\) \{/,
+  )
+
+  // The portable/Android host has the same guarantee. Every one of its
+  // durable chat-send writes goes through the verifying helper, and each
+  // prompt site records a session grant when that helper reports failure.
+  const durableGrantLiveApp = readFileSync('src/home-v2-live/HomeV2LiveApp.tsx', 'utf8')
+  assert.match(
+    durableGrantLiveApp,
+    /function persistDurableChatSendGrant[\s\S]{0,400}persistDurableGrantAsync\(\{/,
+  )
+  assert.match(
+    durableGrantLiveApp,
+    /function persistDurableAccountReadGrant[\s\S]{0,400}persistDurableGrantAsync\(\{/,
+  )
+  // Exactly the two helpers write a durable grant; no prompt site calls the
+  // store writers directly any more (those calls had no fallback at all).
+  assert.equal(
+    durableGrantLiveApp.match(/await grantQdnAppCapabilityPermission\(/g)?.length ?? 0,
+    0,
+  )
+  assert.equal(
+    durableGrantLiveApp.match(/await grantQdnAccountCapabilityPermission\(/g)?.length ?? 0,
+    0,
+  )
+  const durableChatSendSites = durableGrantLiveApp.match(/const durableChatSendFailed =/g)?.length ?? 0
+  assert.equal(durableChatSendSites, 5, 'every Android chat-send prompt site must compute the fallback')
+  assert.equal(
+    durableGrantLiveApp.match(/durableChatSendFailed \|\||\|\| durableChatSendFailed/g)?.length ?? 0,
+    durableChatSendSites,
+    'every computed fallback must be consumed by a session-grant condition',
+  )
+  assert.match(
+    appBridge,
+    /const durableAccountReadCapability = singleRequestOnly\s*\n\s*\? null\s*\n\s*: homeV2DurableAccountReadCapability\(action\)/,
+  )
+  // Granting it is gated on the capability, never on the scope alone: an
+  // 'always' the prompt never offered must not become a durable grant.
+  assert.match(
+    appBridge,
+    /decision\.scope === 'always' &&\s*\n\s*durableAccountReadCapability &&\s*\n\s*appGrantKey &&\s*\n\s*grantAccountId/,
+  )
+  // The permissionless early return still precedes every grant check, so this
+  // feature did not widen what needs no prompt at all.
+  assert.match(
+    appBridge,
+    /isHomeV2PermissionlessAction\(action\)\) return[\s\S]{0,3600}homeV2DurableAccountReadCapability\(action\)/,
   )
   assert.match(appBridge, /liveResourceMatchesGrant\(freshContext\)/)
   assert.match(appBridge, /isQdnViewVisible\(context\.windowId, context\.tabId\)/)

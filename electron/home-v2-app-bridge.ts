@@ -36,7 +36,9 @@ import { sanitizeQdnManagerAppKey } from './qdn-manager-permissions.js'
 import {
   grantQdnManagerPermission,
   hasQdnManagerPermission,
+  hasQdnAccountCapability,
   hasQdnAppCapability,
+  grantQdnAccountCapabilityPermission,
   grantQdnAppCapabilityPermission,
 } from './qdn-manager-permission-store.js'
 import {
@@ -145,9 +147,11 @@ import {
   listHomeV2PendingTransactions,
   recordHomeV2PendingTransaction,
 } from './home-v2-transaction-journal-store.js'
+import { persistDurableGrant } from './durable-grant-persistence.js'
 import { normalizeHomeV2RuntimeInvalidation } from './home-v2-runtime-invalidation.js'
 import {
   createHomeV2SessionGrantStore,
+  homeV2DurableAccountReadCapability,
   homeV2PermissionGrantKey,
   homeV2PermissionGrantFamily,
   isHomeV2AccountReadAction,
@@ -788,8 +792,35 @@ async function requireAccountReadPermission(
   // settings) skips the prompt entirely. Scoped to chat sends only: publishing,
   // unlocking, group admin and key rotation are never grantable this way.
   const chatSendGrantable = isHomeV2ChatSendAction(action) && !singleRequestOnly
+  // The same durable machinery for the read-only account family (owner
+  // decision, R3-10). Membership comes from homeV2DurableAccountReadCapability,
+  // which answers only for HOME_V2_ACCOUNT_READ_ACTIONS and returns null for
+  // everything else — so this can never short-circuit a send, a publish, an
+  // unlock, a group-admin action or a minting write, and it is additionally
+  // gated on !singleRequestOnly. Permissionless actions never reach here at
+  // all; they returned above.
+  const durableAccountReadCapability = singleRequestOnly
+    ? null
+    : homeV2DurableAccountReadCapability(action)
   const appGrantKey = context.resourceUrl ?? ''
   if (chatSendGrantable && appGrantKey && hasQdnAppCapability(appGrantKey, 'chat.send')) {
+    return
+  }
+  // The durable read grant is checked against BOTH the canonical resource
+  // principal and the currently selected account:
+  // - hasQdnAccountCapability resolves the principal through
+  //   sanitizeQdnCapabilityPrincipal, so a nonblank `?identifier=` is the
+  //   effective identifier. Without that, qdn://APP/Chat/default and
+  //   qdn://APP/Chat/default?identifier=evil collapsed to one key and the
+  //   second resource inherited the first one's grant.
+  // - binding to context.accountId matches the session grant, which is
+  //   dropped outright on 'account-changed'. A durable grant approved while
+  //   one account was selected must not survive a switch to another.
+  if (
+    durableAccountReadCapability &&
+    appGrantKey &&
+    hasQdnAccountCapability(appGrantKey, context.accountId, durableAccountReadCapability)
+  ) {
     return
   }
   if (!singleRequestOnly && sessionAccountReadGrants.has(grantKey)) return
@@ -892,7 +923,16 @@ async function requireAccountReadPermission(
                 publishSize: writeDetails.size,
                 writeOperationLabel: writeDetails.operationLabel,
                 writeRouteLabel: writeDetails.routeLabel,
-                writeSingleRequestOnly: true,
+                // Report the value this function actually enforces instead of
+                // a hard-coded `true`. Publishing, PUBLISH_CHAT_ATTACHMENT and
+                // SAVE_CHAT_ATTACHMENT are not account-read actions, so
+                // singleRequestOnly stays true for them and their prompt keeps
+                // offering single-request only. The two attachment READS
+                // (GET_CHAT_ATTACHMENT_STREAM_URL, OPEN_CHAT_ATTACHMENT_VIEWER)
+                // are account-read family members that this function has always
+                // allowed to hold a session grant; the flag was telling the
+                // prompt otherwise and hiding the scopes they qualify for.
+                writeSingleRequestOnly: singleRequestOnly,
                 writeTargetChainLabel: writeDetails.targetChainLabel,
               }
           : writeDetails?.kind === 'journal'
@@ -944,11 +984,51 @@ async function requireAccountReadPermission(
       throw new Error('Account access node route changed before approval completed.')
     }
   }
+  // A durable grant must never fail the action the user just approved, and must
+  // never be BELIEVED unless it actually stuck. Two distinct failure modes:
+  //   - the write throws (an app key the capability store refuses outright,
+  //     e.g. a `qortal://` resource before that scheme was supported);
+  //   - the write returns normally but persists nothing, because the store's
+  //     own sanitizer discards the key on read-back. That one is silent, so
+  //     returning here would leave the user believing they had answered
+  //     "always" while nothing was retained at all.
+  // persistDurableGrant covers both by re-reading the grant, and every caller
+  // falls through to the session grant below when it reports failure.
   if (decision.scope === 'always' && chatSendGrantable && appGrantKey) {
-    grantQdnAppCapabilityPermission(appGrantKey, 'chat.send')
-    return
+    if (persistDurableGrant({
+      capability: 'chat.send',
+      isHeld: () => hasQdnAppCapability(appGrantKey, 'chat.send'),
+      write: () => grantQdnAppCapabilityPermission(appGrantKey, 'chat.send'),
+    })) return
   }
-  if (!singleRequestOnly && decision.scope === 'session') {
+  // Gated on durableAccountReadCapability rather than on the scope alone, so an
+  // 'always' arriving for anything outside the read-only account family retains
+  // nothing. The grant is bound to the selected account as well as the app.
+  // An account-bound grant needs an account: with none selected the 'always'
+  // choice falls through to the session grant below, which is the narrower
+  // outcome and never wider than what the prompt described.
+  const grantAccountId = context.accountId
+  if (
+    decision.scope === 'always' &&
+    durableAccountReadCapability &&
+    appGrantKey &&
+    grantAccountId
+  ) {
+    if (persistDurableGrant({
+      capability: durableAccountReadCapability,
+      isHeld: () => hasQdnAccountCapability(
+        appGrantKey,
+        grantAccountId,
+        durableAccountReadCapability,
+      ),
+      write: () => grantQdnAccountCapabilityPermission(
+        appGrantKey,
+        grantAccountId,
+        durableAccountReadCapability,
+      ),
+    })) return
+  }
+  if (!singleRequestOnly && (decision.scope === 'session' || decision.scope === 'always')) {
     sessionAccountReadGrants.add(grantKey, {
       family: homeV2PermissionGrantFamily(action),
       hostWebContentsId: context.windowId,

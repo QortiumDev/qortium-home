@@ -77,6 +77,8 @@ export interface SettingsPageProps extends AppearanceSettingsPageProps {
   readonly appUpdates?: HomeV2AppUpdates
   readonly onChainCoreUpdates?: HomeV2OnChainCoreUpdates
   readonly qdnAppsManagement?: HomeV2QdnSettingsManagement
+  // Names the account a durable QDN app grant is bound to.
+  readonly resolveAccountLabel?: (accountId: string) => string | null
   readonly notificationPolicy?: HomeV2NotificationPolicyState | null
   readonly windowBehavior?: HomeV2WindowBehaviorState | null
   readonly requestedSection?: HomeV2SettingsSectionTarget
@@ -587,6 +589,7 @@ export function SettingsPage(props: SettingsPageProps) {
             <QdnAppsSettings
               client={props.qdnAppsManagement.client}
               loadVisibleAppIcon={props.loadVisibleAppIcon}
+              resolveAccountLabel={props.resolveAccountLabel}
             />
           ) : activeSection === 'appearance' || activeSection === 'account' ? (
             <AppearanceSettingsPage

@@ -133,6 +133,7 @@ export interface HomeV2PrototypeProps {
   readonly appUpdates?: HomeV2AppUpdates
   readonly onChainCoreUpdates?: HomeV2OnChainCoreUpdates
   readonly qdnAppsManagement?: HomeV2QdnSettingsManagement
+  readonly resolveAccountLabel?: (accountId: string) => string | null
   readonly notificationPolicy?: HomeV2NotificationPolicyState | null
   readonly windowBehavior?: HomeV2WindowBehaviorState | null
   readonly releaseNotesTarget?: HomeV2ReleaseNotesTarget | null
@@ -1155,6 +1156,7 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
                 appUpdates={props.appUpdates}
                 onChainCoreUpdates={props.onChainCoreUpdates}
                 qdnAppsManagement={props.qdnAppsManagement}
+                resolveAccountLabel={props.resolveAccountLabel}
                 loadVisibleAppIcon={props.loadVisibleAppIcon}
                 notificationPolicy={props.notificationPolicy}
                 onSetAppNotifications={props.onSetAppNotifications}

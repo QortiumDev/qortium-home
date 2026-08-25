@@ -11,6 +11,7 @@ import {
   getHomeV2QdnAssignmentRows,
   normalizeHomeV2QdnAssignmentUrl,
   type HomeV2QdnAssignmentRow,
+  type HomeV2QdnAccountGrant,
   type HomeV2QdnBookmarkGrant,
   type HomeV2QdnNotificationGrant,
   type HomeV2QdnSettingsClient,
@@ -23,7 +24,30 @@ import { HomeV2AppIcon } from './HomeV2AppIcon'
 type QdnAppsSettingsProps = Readonly<{
   client: HomeV2QdnSettingsClient
   loadVisibleAppIcon?: VisibleAppIconLoader
+  /**
+   * Resolves the display label for an account a durable grant is bound to.
+   * Optional: when it is absent or returns null the account id is shortened
+   * for display instead, so a grant is never rendered without saying which
+   * account it covers.
+   */
+  resolveAccountLabel?: (accountId: string) => string | null
 }>
+
+/**
+ * Fallback attribution when an account id no longer resolves to a catalogue
+ * entry — a wallet removed from this device still has a stored grant, and the
+ * user has to be able to see and revoke it. Account ids are
+ * `wallet:<address>` or `wallet:<address>:<index>`.
+ */
+function shortenAccountId(accountId: string): string {
+  const withoutPrefix = accountId.startsWith('wallet:') ? accountId.slice('wallet:'.length) : accountId
+  const [address, ...rest] = withoutPrefix.split(':')
+  const suffix = rest.length ? ` · ${rest.join(':')}` : ''
+  const shortAddress = address.length > 12
+    ? `${address.slice(0, 6)}…${address.slice(-4)}`
+    : address
+  return `${shortAddress}${suffix}`
+}
 
 function AppIdentityCopy({
   appKey,
@@ -48,7 +72,8 @@ function AppIdentityCopy({
 }
 
 function getAppName(appKey: string) {
-  const match = /^qdn:\/\/[^/]+\/([^/]+)/i.exec(appKey)
+  // Both schemes: a durable read grant can be held by a Qortal-routed app.
+  const match = /^(?:qdn|qortal):\/\/[^/]+\/([^/]+)/i.exec(appKey)
   if (!match) return appKey
   try {
     return decodeURIComponent(match[1])
@@ -255,24 +280,52 @@ function NotificationGrantCard({
   )
 }
 
-function BookmarkGrantCard({
+/**
+ * Per-capability presentation for the shared grant card. Keeping the test
+ * attributes in one table is what lets bookmarks, chat sends and read-only
+ * account access render and revoke through exactly one code path.
+ */
+const GRANT_CARD_ACCESS_LABEL_KEYS = {
+  'account.read': 'managerPermissions.access.accountRead',
+  'bookmarks.manage': 'managerPermissions.access.bookmarks',
+  'chat.send': 'managerPermissions.access.chatSend',
+} as const
+
+type GrantCardCapability = keyof typeof GRANT_CARD_ACCESS_LABEL_KEYS
+
+/**
+ * One revocable durable capability grant. Shared by the bookmarks, chat-send
+ * and read-only account cards so all three revoke through exactly the same
+ * path; only the labels and the test attributes differ.
+ *
+ * An account-scoped grant (account.read) also names the account it was given
+ * for, because it covers only that account — see accountLabel.
+ */
+function BookmarkGrantCard<Grant extends HomeV2QdnBookmarkGrant>({
+  accountLabel,
   busy,
+  capability,
   disabled,
   grant,
   onRevoke,
   loadVisibleAppIcon,
 }: Readonly<{
+  accountLabel?: string | null
   busy: boolean
+  capability: GrantCardCapability
   disabled: boolean
-  grant: HomeV2QdnBookmarkGrant
-  onRevoke: (grant: HomeV2QdnBookmarkGrant) => Promise<void>
+  grant: Grant
+  onRevoke: (grant: Grant) => Promise<void>
   loadVisibleAppIcon?: VisibleAppIconLoader
 }>) {
   const [confirmingRevoke, setConfirmingRevoke] = useState(false)
+  const accessLabel = t(GRANT_CARD_ACCESS_LABEL_KEYS[capability])
   return (
     <article
       className="home-v2-setting-row"
-      data-qdn-bookmark-grant={grant.appKey}
+      data-qdn-account-read-grant={capability === 'account.read' ? grant.appKey : undefined}
+      data-qdn-bookmark-grant={capability === 'bookmarks.manage' ? grant.appKey : undefined}
+      data-qdn-chat-send-grant={capability === 'chat.send' ? grant.appKey : undefined}
     >
       <AppIdentityCopy
         appKey={grant.appKey}
@@ -280,13 +333,23 @@ function BookmarkGrantCard({
       >
         <strong>{getAppName(grant.appKey)}</strong>
         <code dir="ltr">{grant.appKey}</code>
+        {accountLabel ? (
+          <span data-qdn-grant-account="true">
+            {t('qdnApps.grantAccount', { account: accountLabel })}
+          </span>
+        ) : null}
         <span>{t('qdnApps.grantedAt', { date: formatGrantedAt(grant.grantedAt) })}</span>
       </AppIdentityCopy>
       <div className="home-v2-setting-row__control">
         {confirmingRevoke ? (
-          <div data-qdn-bookmark-revoke-confirm="true" role="alert">
+          <div
+            data-qdn-account-read-revoke-confirm={capability === 'account.read' ? 'true' : undefined}
+            data-qdn-bookmark-revoke-confirm={capability === 'bookmarks.manage' ? 'true' : undefined}
+            data-qdn-chat-send-revoke-confirm={capability === 'chat.send' ? 'true' : undefined}
+            role="alert"
+          >
             <strong>{t('notifications.revoke')}</strong>
-            <span>{t('managerPermissions.access.bookmarks')}</span>
+            <span>{accessLabel}</span>
             <button
               className="home-v2-secondary-button"
               disabled={busy}
@@ -322,6 +385,7 @@ function BookmarkGrantCard({
 export function QdnAppsSettings({
   client,
   loadVisibleAppIcon,
+  resolveAccountLabel,
 }: QdnAppsSettingsProps) {
   const [snapshot, setSnapshot] = useState<HomeV2QdnSettingsState | null>(null)
   const [loading, setLoading] = useState(true)
@@ -425,6 +489,36 @@ export function QdnAppsSettings({
       }))
   }
 
+  // Revoking this drops the durable "always allow" for the whole read-only
+  // account family, so the app is prompted again the next time it asks for a
+  // private group chat or a chat attachment.
+  const revokeAccountRead = async (grant: HomeV2QdnAccountGrant) => {
+    if (!snapshot) return
+    // Keyed by the (app, account) pair, and revoking names the account: the
+    // grant covers only the account it was approved under, so revoking one
+    // must not touch the same app's grant for a different account.
+    await applyMutation(`accountRead:${grant.appKey}:${grant.accountId}`, () =>
+      client.revokeBookmarks({
+        accountId: grant.accountId,
+        appKey: grant.appKey,
+        capability: 'account.read',
+        expectedAssignmentRevision: snapshot.accountRead.revision,
+      }))
+  }
+
+  // Chat-send "always allow" grants were persisted and reported here from the
+  // start but never rendered, which made them unrevokable in practice. They
+  // revoke through the same path as every other durable capability.
+  const revokeChatSend = async (grant: HomeV2QdnBookmarkGrant) => {
+    if (!snapshot) return
+    await applyMutation(`chatSend:${grant.appKey}`, () =>
+      client.revokeBookmarks({
+        appKey: grant.appKey,
+        capability: 'chat.send',
+        expectedAssignmentRevision: snapshot.chatSend.revision,
+      }))
+  }
+
   const actionsDisabled = loading || stale || snapshot === null
 
   return (
@@ -470,6 +564,51 @@ export function QdnAppsSettings({
         </div>
       ) : null}
 
+      {snapshot?.accountRead.apps.length ? (
+        <section aria-labelledby="home-v2-qdn-account-read-controls-title">
+          <div className="home-v2-settings-panel__heading">
+            <h3 id="home-v2-qdn-account-read-controls-title">
+              {t('qdnApps.accountReadControlsTitle')}
+            </h3>
+            <p>{t('managerPermissions.access.accountRead')}</p>
+          </div>
+          {snapshot.accountRead.apps.map((grant) => (
+            <BookmarkGrantCard
+              accountLabel={resolveAccountLabel?.(grant.accountId) ?? shortenAccountId(grant.accountId)}
+              busy={busy === `accountRead:${grant.appKey}:${grant.accountId}`}
+              capability="account.read"
+              disabled={actionsDisabled || busy !== null}
+              grant={grant}
+              key={`${grant.appKey}:${grant.accountId}`}
+              loadVisibleAppIcon={loadVisibleAppIcon}
+              onRevoke={revokeAccountRead}
+            />
+          ))}
+        </section>
+      ) : null}
+
+      {snapshot?.chatSend.apps.length ? (
+        <section aria-labelledby="home-v2-qdn-chat-send-controls-title">
+          <div className="home-v2-settings-panel__heading">
+            <h3 id="home-v2-qdn-chat-send-controls-title">
+              {t('qdnApps.chatSendControlsTitle')}
+            </h3>
+            <p>{t('managerPermissions.access.chatSend')}</p>
+          </div>
+          {snapshot.chatSend.apps.map((grant) => (
+            <BookmarkGrantCard
+              busy={busy === `chatSend:${grant.appKey}`}
+              capability="chat.send"
+              disabled={actionsDisabled || busy !== null}
+              grant={grant}
+              key={grant.appKey}
+              loadVisibleAppIcon={loadVisibleAppIcon}
+              onRevoke={revokeChatSend}
+            />
+          ))}
+        </section>
+      ) : null}
+
       {snapshot?.bookmarks.apps.length ? (
         <section aria-labelledby="home-v2-qdn-bookmark-controls-title">
           <div className="home-v2-settings-panel__heading">
@@ -481,6 +620,7 @@ export function QdnAppsSettings({
           {snapshot.bookmarks.apps.map((grant) => (
             <BookmarkGrantCard
               busy={busy === `bookmarks:${grant.appKey}`}
+              capability="bookmarks.manage"
               disabled={actionsDisabled || busy !== null}
               grant={grant}
               key={grant.appKey}
