@@ -9,11 +9,13 @@ import {
   homeV2LanguageOptions,
   homeV2TextSizeOptions,
   homeV2ThemeOptions,
+  homeV2UiOptions,
   type HomeV2Accent,
   type HomeV2AppearanceSettings,
   type HomeV2Language,
   type HomeV2TextSize,
   type HomeV2ThemePreference,
+  type HomeV2UiStyle,
 } from '../appearance'
 import type { AccountSessionSummary } from '../contracts'
 
@@ -23,6 +25,7 @@ export interface AppearanceSettingsPageProps {
   readonly onSetTheme?: (theme: HomeV2ThemePreference) => void
   readonly onSetAccent?: (accent: HomeV2Accent) => void
   readonly onSetTextSize?: (textSize: HomeV2TextSize) => void
+  readonly onSetUiStyle?: (ui: HomeV2UiStyle) => void
   readonly onSetAppZoom?: (appZoom: number) => void
   readonly onSetLanguage?: (language: HomeV2Language) => void
   readonly bookmarkToolbarVisibility?: BookmarkToolbarVisibility
@@ -41,14 +44,14 @@ function SettingRow({
   children,
 }: {
   readonly label: string
-  readonly description: string
+  readonly description?: string
   readonly children: ReactNode
 }) {
   return (
     <div className="home-v2-setting-row">
       <div className="home-v2-setting-row__copy">
         <strong>{label}</strong>
-        <span>{description}</span>
+        {description ? <span>{description}</span> : null}
       </div>
       <div className="home-v2-setting-row__control">{children}</div>
     </div>
@@ -61,6 +64,7 @@ export function AppearanceSettingsPage({
   onSetTheme,
   onSetAccent,
   onSetTextSize,
+  onSetUiStyle,
   onSetAppZoom,
   onSetLanguage,
   bookmarkToolbarVisibility,
@@ -166,6 +170,23 @@ export function AppearanceSettingsPage({
               }
             >
               {homeV2TextSizeOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {t(option.labelKey)}
+                </option>
+              ))}
+            </select>
+          </SettingRow>
+
+          <SettingRow label={t('display.uiLabel')}>
+            <select
+              aria-label={t('display.uiLabel')}
+              value={appearance.ui}
+              disabled={!onSetUiStyle}
+              onChange={(event) =>
+                onSetUiStyle?.(event.target.value as HomeV2UiStyle)
+              }
+            >
+              {homeV2UiOptions.map((option) => (
                 <option key={option.value} value={option.value}>
                   {t(option.labelKey)}
                 </option>

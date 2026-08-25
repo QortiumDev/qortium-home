@@ -56,7 +56,7 @@ export function HomeV2ResourceViewer({ appearance, loadRetainedBytes, saveRetain
     language: appearance.resolvedLanguage,
     textSize: appearance.textSize,
     theme: appearance.resolvedTheme,
-    ui: 'modern',
+    ui: appearance.ui,
   }), [appearance])
   const loadBytes = useCallback(async () => {
     const loaded = await loadRetainedBytes(resource.streamUrl)

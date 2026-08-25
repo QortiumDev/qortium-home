@@ -14,6 +14,7 @@ import {
   type HomeV2Accent,
   type HomeV2Language,
   type HomeV2TextSize,
+  type HomeV2UiStyle,
   type HomeV2ThemePreference,
 } from '../appearance'
 import type {
@@ -200,6 +201,7 @@ export interface HomeV2PrototypeProps {
   readonly onSetTheme?: (theme: HomeV2ThemePreference) => void
   readonly onSetAccent?: (accent: HomeV2Accent) => void
   readonly onSetTextSize?: (textSize: HomeV2TextSize) => void
+  readonly onSetUiStyle?: (ui: HomeV2UiStyle) => void
   readonly onSetAppZoom?: (appZoom: number) => void
   readonly onSetLanguage?: (language: HomeV2Language) => void
   readonly onSetBookmarkToolbarVisibility?: (
@@ -680,7 +682,7 @@ function AccountCard({
               <option value="" disabled>{t('home2.account.chooseAction')}</option>
               <option value="rename">{t('home2.account.rename')}</option>
               <option value="export">{t('home2.account.exportWallet')}</option>
-              <option value="add-address" disabled={!selectedVaultAccount.supportsDerivedAddresses || !selectedVaultAccount.isUnlocked}>{t('home2.account.addAddress')}</option>
+              <option value="add-address" disabled={!selectedVaultAccount.supportsDerivedAddresses}>{t('home2.account.addAddress')}</option>
               <option value="remove-address" disabled={(vaultState?.selectedAddressId ?? selectedVaultAccount.id) === selectedVaultAccount.id}>{t('home2.account.removeAddress')}</option>
               <option value="import-private-key">{t('home2.account.importPrivateKey')}</option>
               <option value="remove-account">{t('home2.account.remove')}</option>
@@ -703,7 +705,7 @@ function AccountCard({
               <option value="" disabled>{t('home2.account.chooseAction')}</option>
               <option value="rename">{t('home2.account.rename')}</option>
               <option value="export">{t('home2.account.exportWallet')}</option>
-              <option value="add-address" disabled={!selectedVaultAccount.supportsDerivedAddresses || !selectedVaultAccount.isUnlocked}>{t('home2.account.addAddress')}</option>
+              <option value="add-address" disabled={!selectedVaultAccount.supportsDerivedAddresses}>{t('home2.account.addAddress')}</option>
               <option value="import-private-key">{t('home2.account.importPrivateKey')}</option>
               <option value="remove-account">{t('home2.account.remove')}</option>
             </select>
@@ -1291,6 +1293,7 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
                 onSetTheme={props.onSetTheme}
                 onSetAccent={props.onSetAccent}
                 onSetTextSize={props.onSetTextSize}
+                onSetUiStyle={props.onSetUiStyle}
                 onSetAppZoom={props.onSetAppZoom}
                 onSetLanguage={props.onSetLanguage}
                 bookmarkToolbarVisibility={props.bookmarkToolbarVisibility}

@@ -8,6 +8,7 @@ import {
   type HomeV2Accent,
   type HomeV2Language,
   type HomeV2TextSize,
+  type HomeV2UiStyle,
   type HomeV2ThemePreference,
 } from '../v2/appearance'
 import {
@@ -609,6 +610,10 @@ export function HomeV2LiveApp() {
   const [accountDialog, setAccountDialog] = useState<{
     mode: AccountDialogMode
     accountId?: string
+    // Deriving a new address needs the seed, so a locked account unlocks
+    // first and the add runs once that succeeds — matching Home 1.x, which
+    // never dead-ended the control just because the account was locked.
+    afterUnlock?: 'add-address'
     pendingToken?: string
     permissionRequestId?: string
     requestTabId?: string
@@ -853,7 +858,7 @@ export function HomeV2LiveApp() {
         language: snapshot.appearance.resolvedLanguage,
         textSize: snapshot.appearance.textSize,
         theme: snapshot.appearance.resolvedTheme,
-        ui: 'modern',
+        ui: snapshot.appearance.ui,
       },
     }).catch((error: unknown) => {
       console.warn('Unable to update live widget state.', error)
@@ -864,6 +869,7 @@ export function HomeV2LiveApp() {
     snapshot.appearance.resolvedLanguage,
     snapshot.appearance.resolvedTheme,
     snapshot.appearance.textSize,
+    snapshot.appearance.ui,
     snapshot.nodes,
   ])
 
@@ -4550,7 +4556,11 @@ export function HomeV2LiveApp() {
                   })
                 : undefined,
             })
+            const queued = accountDialog.afterUnlock
             setAccountDialog(null)
+            if (queued === 'add-address') {
+              void runVaultOperation(() => vaultClient.addAddress(accountId))
+            }
           }).catch((error: unknown) => {
             setAccountDialogError(error instanceof Error ? error.message : 'Unable to unlock the account.')
           }).finally(() => setAccountDialogBusy(false))
@@ -4605,6 +4615,14 @@ export function HomeV2LiveApp() {
       return
     }
     if (action === 'add-address') {
+      if (!selectedVaultAccount.isUnlocked) {
+        setAccountDialog({
+          accountId: selectedVaultAccount.id,
+          afterUnlock: 'add-address',
+          mode: 'unlock',
+        })
+        return
+      }
       void runVaultOperation(() => vaultClient.addAddress(selectedVaultAccount.id))
       return
     }
@@ -5118,6 +5136,7 @@ export function HomeV2LiveApp() {
       }
       onSetAccent={(accent: HomeV2Accent) => updateAppearance({ accent })}
       onSetBookmarkToolbarVisibility={setBookmarkToolbarVisibility}
+      onSetUiStyle={(ui: HomeV2UiStyle) => updateAppearance({ ui })}
       onSetTextSize={(textSize: HomeV2TextSize) =>
         updateAppearance({ textSize })
       }

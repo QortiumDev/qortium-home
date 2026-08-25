@@ -34,6 +34,18 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-24 - fix(home-v2): restore the interface style choice and unblock adding an address
+
+Apps are shown in the Classic interface style again by default. Home 2 had
+been telling every app to use the Modern style no matter what, and it threw
+away the choice people had made in Home 1.x when their settings were carried
+over. The setting is back under Settings > Appearance with the same three
+choices as before, and it is remembered between restarts.
+
+"Add address" in the account menu no longer sits greyed out when the account
+is locked. Choosing it now asks for the password and adds the address once
+the account unlocks, the way Home 1.x did.
+
 ### 2026-08-24 - feat(home-v2): show networks as their mark alone
 
 The Qortium and Qortal indicators in the toolbar and on app tabs are now

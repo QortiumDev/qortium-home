@@ -49,7 +49,7 @@ export function HomeV2CoreApiDocsPage({
     raw.searchParams.set('theme', snapshot.appearance.resolvedTheme)
     raw.searchParams.set('accent', snapshot.appearance.accent)
     raw.searchParams.set('textSize', snapshot.appearance.textSize)
-    raw.searchParams.set('uiStyle', 'modern')
+    raw.searchParams.set('uiStyle', snapshot.appearance.ui)
     return raw.toString()
   }, [network, node.nodeApiUrl, snapshot.appearance, transport])
 

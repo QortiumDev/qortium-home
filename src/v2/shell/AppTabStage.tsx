@@ -56,7 +56,7 @@ function resolveRender(productState: ProductState, snapshot: HomeV2Snapshot) {
   query.set('lang', snapshot.appearance.resolvedLanguage)
   query.set('textSize', snapshot.appearance.textSize)
   query.set('theme', snapshot.appearance.resolvedTheme)
-  query.set('uiStyle', 'modern')
+  query.set('uiStyle', snapshot.appearance.ui)
   const queryString = query.toString()
   return {
     identity: resource.identity,
@@ -207,7 +207,7 @@ function DesktopAppStage(props: AppTabStageProps) {
           language: props.snapshot.appearance.resolvedLanguage,
           textSize: props.snapshot.appearance.textSize,
           theme: props.snapshot.appearance.resolvedTheme,
-          ui: 'modern',
+          ui: props.snapshot.appearance.ui,
         },
         nodeApiUrl: resolved.nodeApiUrl,
         renderUrl: resolved.url,

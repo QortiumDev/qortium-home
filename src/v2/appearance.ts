@@ -21,6 +21,9 @@ export type HomeV2TextSize =
   | 'extra-large'
   | 'huge'
 export type HomeV2Language = 'system' | ConcreteLanguageSetting
+/** Which design system QDN apps render with. Mirrors `UiSetting` in
+ *  ../displaySettings, which is the value apps actually receive. */
+export type HomeV2UiStyle = 'classic' | 'modern' | 'fun'
 export type HomeV2ResolvedLanguage = ConcreteLanguageSetting
 
 export interface HomeV2AppearanceSettings {
@@ -28,6 +31,7 @@ export interface HomeV2AppearanceSettings {
   readonly resolvedTheme: HomeV2ResolvedTheme
   readonly accent: HomeV2Accent
   readonly textSize: HomeV2TextSize
+  readonly ui: HomeV2UiStyle
   readonly appZoom: number
   readonly language: HomeV2Language
   readonly resolvedLanguage: HomeV2ResolvedLanguage
@@ -77,6 +81,15 @@ export const homeV2TextSizeOptions = [
   { value: 'huge', labelKey: 'display.textSize.huge' },
 ] as const satisfies readonly {
   readonly value: HomeV2TextSize
+  readonly labelKey: import('../i18n').TranslationKey
+}[]
+
+export const homeV2UiOptions = [
+  { value: 'classic', labelKey: 'display.ui.classic' },
+  { value: 'modern', labelKey: 'display.ui.modern' },
+  { value: 'fun', labelKey: 'display.ui.fun' },
+] as const satisfies readonly {
+  readonly value: HomeV2UiStyle
   readonly labelKey: import('../i18n').TranslationKey
 }[]
 
@@ -136,6 +149,9 @@ export const defaultHomeV2Appearance: HomeV2AppearanceSettings = {
   resolvedTheme: 'dark',
   accent: 'clay',
   textSize: 'medium',
+  // Classic, matching DEFAULT_UI in ../displaySettings. Home 2 briefly forced
+  // every app to 'modern' regardless of this setting.
+  ui: 'classic',
   appZoom: 100,
   language: 'system',
   resolvedLanguage: 'en',
@@ -201,6 +217,7 @@ export function migrateLegacyAppearance(
     textSize:
       optionValue(legacy?.textSize, homeV2TextSizeOptions) ??
       defaultHomeV2Appearance.textSize,
+    ui: optionValue(legacy?.ui, homeV2UiOptions) ?? defaultHomeV2Appearance.ui,
     appZoom: clampHomeV2AppZoom(legacy?.appZoom),
     language,
     resolvedLanguage: language === 'system' ? systemLanguage : language,
