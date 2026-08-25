@@ -6,6 +6,9 @@ import type {
   HomeV2CoreManagerStatus,
   HomeV2CoreManagerStatuses,
 } from '../../home-v2-live/node-core-controller'
+import type { HomeV2CoreMaintenanceManagement } from '../../home-v2-live/core-maintenance-controller'
+import type { HomeV2QortalMaintenanceManagement } from '../../home-v2-live/qortal-maintenance-controller'
+import type { HomeV2TransportManagement } from '../../home-v2-live/transport-maintenance-controller'
 import { t, type TranslationKey } from '../../i18n'
 import type { NetworkId } from '../contracts'
 import { NetworkBadge, networkLabels } from './NetworkBadge'
@@ -17,6 +20,14 @@ export interface HomeV2CoreManagement {
   readonly statuses: HomeV2CoreManagerStatuses
   readonly onAction?: (network: NetworkId, action: 'start' | 'stop') => void
   readonly onRefresh?: () => void
+  // Maintenance slices for the combined "Node & Core" dashboard tile and the
+  // actionable node-status menus. Optional on purpose: today the Settings and
+  // Welcome panels each own their own maintenance controller for exactly as
+  // long as they are mounted, so nothing populates these yet and every
+  // existing call site compiles unchanged.
+  readonly coreMaintenance?: HomeV2CoreMaintenanceManagement
+  readonly qortalMaintenance?: HomeV2QortalMaintenanceManagement
+  readonly transport?: HomeV2TransportManagement
 }
 
 const actionCodeMessageKeys = {
