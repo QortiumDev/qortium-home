@@ -4817,9 +4817,12 @@ async function sendHomeV2GroupMembershipAction(
 // public nodes), and the REWARD_SHARE authorization is signed in this process
 // instead of being handed to the node's /transactions/sign endpoint.
 //
-// No path here is built from app input: the four node paths below are
-// constants, and the only app-supplied value that ever reaches the node is the
-// base58 public key REMOVE_MINTING_ACCOUNT sends as a request BODY.
+// No path here is built from app input, the node paths below are constants,
+// and no app-supplied value ever reaches the node: the key REMOVE_MINTING_ACCOUNT
+// deletes is resolved here from the node's own list, and a caller-sent key is
+// only compared against it, never forwarded. The public reward-share reads are
+// keyless; the API key travels only to the attested loopback node's admin
+// endpoints.
 // ---------------------------------------------------------------------------
 
 const MINTING_ACCOUNTS_PATH = '/admin/mintingaccounts'
@@ -4945,11 +4948,15 @@ async function readHomeV2MintingStatus(
 ) {
   const address = await readHomeV2MintingAddress(context, requestValue)
   const { apiKey, node, trusted } = await resolveHomeV2MintingNode(network)
+  // Public endpoint: the API key is never attached to it. This read runs
+  // before the trusted check, and a mis-set "local" mode can hold a confirmed
+  // remote HTTPS URL with a sendable key — the key must not travel to any
+  // node that has not passed the loopback attestation.
   const rewardShares = await readHomeV2ChatJson(
     node.nodeApiUrl,
     buildHomeV2SelfRewardSharesPath(address),
     'Reward share lookup',
-    apiKey,
+    '',
   )
   if (!trusted) {
     return deriveHomeV2MintingStatus({ address, nodeAdmin: null, rewardShares })
@@ -5088,11 +5095,13 @@ async function startHomeV2Minting(
       throw new Error('Selected account signing key changed before minting could start.')
     }
     const selfShares = selectHomeV2SelfRewardShares(
+      // Public endpoint — read keyless like the status path, so the API key
+      // only ever accompanies admin calls to the attested loopback node.
       await readHomeV2ChatJson(
         node.nodeApiUrl,
         buildHomeV2SelfRewardSharesPath(address),
         'Reward share lookup',
-        apiKey,
+        '',
       ),
       address,
     )

@@ -498,6 +498,19 @@ for (const handler of [
 assert.equal(bridgeSource.includes('getHomeV2TrustedWriteApiKey(network, node.nodeApiUrl)'), true)
 assert.equal(bridgeSource.includes("assertHomeV2TrustedMintingNode('START_MINTING'"), true)
 assert.equal(bridgeSource.includes("assertHomeV2TrustedMintingNode('REMOVE_MINTING_ACCOUNT'"), true)
+// The public reward-share reads are keyless: GET_MINTING_STATUS runs before
+// the trusted check, and a mis-set "local" mode can hold a confirmed remote
+// HTTPS URL with a sendable key — the API key must not travel to a node that
+// has not passed the loopback attestation.
+{
+  const readSites = bridgeSource.split("'Reward share lookup'").slice(1)
+  assert.equal(readSites.length >= 2, true, 'both reward-share reads are present')
+  for (const site of readSites) {
+    const keyArgument = site.split(')')[0].replace(/^[\s,]+/, '').trim()
+    assert.equal(keyArgument, "''", 'every reward-share lookup passes an empty API key')
+  }
+}
+
 // The derived minting key is posted to the node and never returned to the app.
 assert.equal(bridgeSource.includes('mintingKeyPair.privateKey58'), true)
 assert.equal(
