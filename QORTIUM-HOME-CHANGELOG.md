@@ -34,6 +34,27 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-25 - feat(home-v2): toolbar node menus that act, not just report
+
+The small network buttons in the toolbar opened a panel that told you how the
+node was doing and then left you to walk to the Dashboard or Settings to do
+anything about it. They now do the obvious things themselves. Each network's
+panel has a connection-mode picker with the same local / public / custom /
+disabled choices the Dashboard card offers — custom stays unselectable until it
+has been set up, and the button that sets it up is right there — plus a Start
+Core or Stop Core button for that network's local Core, offered only when the
+Core is in a state where that makes sense. Stopping a Core that Home only
+reaches over the API still asks for confirmation first, in the panel, because
+Home can only ask that Core to exit rather than stop it outright.
+
+There is also a compact update control: a "Check for updates" button while
+nothing is waiting, replaced by a single install or update button once there is
+a release to act on, with a line explaining when it cannot run yet — Core has to
+be stopped before it can be replaced. Anything deeper than that, including the
+Java runtime, the automatic-update policies and the on-chain update route, stays
+in Settings, which the panel links to. Nothing was taken away: the status text,
+height, peer count and local Core status still read exactly as before.
+
 ### 2026-08-25 - feat(home-v2): let apps see and control minting again
 
 The Minting app has been showing "Node-side minting status unavailable" and

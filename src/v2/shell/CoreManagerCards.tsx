@@ -119,6 +119,42 @@ function actionNotice(lastAction: HomeV2CoreManagerLastActions[NetworkId]) {
 }
 
 /**
+ * The start/stop rules every surface that offers those two buttons has to obey:
+ * one action at a time per network, no second start while another network is
+ * starting, and a confirmation step before stopping a Core that Home only
+ * reaches over the API (it cannot kill that process, it can only ask it to
+ * exit). Shared with the toolbar node-status menu so the two cannot drift.
+ */
+export function useCoreLifecycleControl(
+  management: HomeV2CoreManagement,
+  network: NetworkId,
+) {
+  const [confirmApiStop, setConfirmApiStop] = useState(false)
+  const status = management.statuses[network]
+  const busyAction = management.busyActions[network]
+  const invokeAction = (action: 'start' | 'stop') => {
+    setConfirmApiStop(false)
+    management.onAction?.(network, action)
+  }
+  return {
+    busy: busyAction !== null,
+    busyAction,
+    cancelStop: () => setConfirmApiStop(false),
+    confirmApiStop,
+    invokeAction,
+    requestStop: () => {
+      if (status.control === 'api-only') {
+        setConfirmApiStop(true)
+        return
+      }
+      invokeAction('stop')
+    },
+    startBusy: Object.values(management.busyActions).includes('start'),
+    status,
+  }
+}
+
+/**
  * The start/stop card. `maintenanceActions` and `maintenanceNotice` let the
  * combined "Node & Core" dashboard tile place install/update controls in this
  * card's own action row and notice slot, so the tile inherits the api-only stop
@@ -135,26 +171,20 @@ export function CoreManagerCard({
   readonly management: HomeV2CoreManagement
   readonly network: NetworkId
 }) {
-  const [confirmApiStop, setConfirmApiStop] = useState(false)
-  const status = management.statuses[network]
-  const busyAction = management.busyActions[network]
-  const busy = busyAction !== null
-  const startBusy = Object.values(management.busyActions).includes('start')
+  const {
+    busy,
+    busyAction,
+    cancelStop,
+    confirmApiStop,
+    invokeAction,
+    requestStop,
+    startBusy,
+    status,
+  } = useCoreLifecycleControl(management, network)
   const lastAction = management.lastActions[network]
   const notice = actionNotice(lastAction)
   const statusText = coreStatusText(status)
   const issueText = status.issue ? t(issueMessageKeys[status.issue]) : null
-  const invokeAction = (action: 'start' | 'stop') => {
-    setConfirmApiStop(false)
-    management.onAction?.(network, action)
-  }
-  const requestStop = () => {
-    if (status.control === 'api-only') {
-      setConfirmApiStop(true)
-      return
-    }
-    invokeAction('stop')
-  }
 
   return (
     <article
@@ -202,11 +232,7 @@ export function CoreManagerCard({
             {t('home2.core.confirmExternalBody')}
           </p>
           <div>
-            <button
-              autoFocus
-              type="button"
-              onClick={() => setConfirmApiStop(false)}
-            >
+            <button autoFocus type="button" onClick={cancelStop}>
               {t('common.cancel')}
             </button>
             <button type="button" onClick={() => invokeAction('stop')}>
