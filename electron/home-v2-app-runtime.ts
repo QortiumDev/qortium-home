@@ -392,8 +392,16 @@ function inferredCode(message: string) {
   if (
     normalized.includes('user cancelled') ||
     normalized.includes('user canceled') ||
-    normalized.includes('approval was denied') ||
-    normalized.includes('permission was denied')
+    // Any Home prompt refusal ("Account access was denied.", "Home settings
+    // update was denied.", "Opening a widget was denied.", …) is a DEFINITIVE
+    // pre-broadcast "no": nothing was signed and nothing was sent. The broad
+    // match replaced a narrower "approval/permission was denied" pair that
+    // missed the other denial messages, letting them fall through to the
+    // generic HOME_BRIDGE_ERROR — so an app could not distinguish the user
+    // saying no from a mid-broadcast failure (qortium-chat journaled a denied
+    // send as "outcome unknown; it may already have been sent", the opposite
+    // of the truth). Apps must treat USER_CANCELLED as definitively not-sent.
+    normalized.includes('was denied')
   ) return 'USER_CANCELLED'
   if (
     normalized.includes('unavailable') ||
