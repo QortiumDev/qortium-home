@@ -893,13 +893,14 @@ const openTabPortableSource = readRepoSource(
   '../src/home-v2-live/node-client.ts',
   '../src/home-v2-live/node-client.js',
 )
-// The desktop handler must reuse the shared address validator rather than
-// growing a second scheme test that could drift from OPEN_NEW_TAB's.
+// The desktop handler must use the replace-tab validator, which layers the
+// explicit-identifier and app-resource-only rules over the shared scheme test
+// so bare names and internal pages fail the bridge call itself.
 assert(
-  /action === 'OPEN_CURRENT_TAB'[\s\S]{0,400}normalizeHomeV2OpenAddress\(requestValue\)/.test(
+  /action === 'OPEN_CURRENT_TAB'[\s\S]{0,400}normalizeHomeV2ReplaceTabAddress\(requestValue\)/.test(
     openTabBridgeSource,
   ),
-  'OPEN_CURRENT_TAB must validate its address with normalizeHomeV2OpenAddress.',
+  'OPEN_CURRENT_TAB must validate its address with normalizeHomeV2ReplaceTabAddress.',
 )
 // The tab it acts on, and the app it is compared against, must both come from
 // the trusted view context — never from the request. An app may not navigate a
