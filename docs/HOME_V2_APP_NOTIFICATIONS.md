@@ -107,13 +107,45 @@ a public QDN action and does not change QAVS `platformVersion: "2.0"`.
 
 ## Background boundary
 
-These actions let a running app show a notification. They do not migrate the
-legacy `NOTIFICATION_ADD` subscription-rule system into Home 2. The trusted
-Settings page may still summarize, mute, and revoke rules already stored in the
-Home profile. Desktop sends none of their account bindings, filters, watch-only
-data, titles, text, or links across IPC. Android reads its renderer-owned
-Preferences store and projects the same redacted state before the Settings
-component receives it. Chat owns its bounded foreground polling for now. A
-Home-proxied dual-chain background subscription will be added only if measured
-delivery behavior shows that it is needed; it will require a separate
-network-qualified rule and watcher contract.
+The boundary here is between MANAGING notification rules and CREATING them.
+Home 2 implements the first and deliberately not the second.
+
+**Managing is app-facing.** The five `NOTIFICATION_MANAGER_*` actions —
+summarize, mute an app, delete an app's rules, revoke an app's notification
+permission — are available to any embedded QDN app the user grants the durable
+`notifications.manage` capability. They are `qdnRequest`-only and
+route-independent, because the data is Home's profile rather than a chain's.
+The summary an app receives is the same redaction the trusted Settings page
+uses: no account bindings, no watch-only keys, no signature filters, and
+address-like filters exposed only when they validate as real Qortal addresses.
+Every mutation carries the store revision it was computed against, and a
+corrupt or unreadable store fails the request closed instead of reading as an
+empty profile. The grant is listed and revocable in Settings > QDN Apps,
+separately from each app's own permission to show a notification.
+
+**Creating is still deferred.** `NOTIFICATION_ADD`, `NOTIFICATION_GET` and
+`NOTIFICATION_REMOVE` — the legacy subscription-rule system an app uses to
+register its OWN rules — are not implemented in Home 2, and the manager surface
+deliberately cannot stand in for them: it can delete a rule but never add one.
+Two reasons, both about the rules being inert rather than about risk:
+
+- **No consumer.** Home 2 has no rule watcher. Nothing in the v2 host polls
+  Qortium or Qortal for the events a stored rule describes, so a rule created
+  today would sit in the profile and never fire. Shipping a creation API whose
+  output does nothing is a worse contract than not shipping it.
+- **The watcher is the real work.** A useful implementation needs a
+  network-qualified rule shape — a rule has to say which chain it watches — and
+  a Home-proxied dual-chain background subscription with its own scheduling,
+  backoff, and battery behavior. That is a separate contract, not a bridge
+  action.
+
+Rules created by Home 1.x are preserved, summarizable, and deletable through
+the manager surface, so a user is never stuck with a rule they cannot see or
+remove. Chat owns its bounded foreground polling for now. A Home-proxied
+dual-chain background subscription will be added only if measured delivery
+behavior shows that it is needed.
+
+Desktop sends none of a rule's account bindings, filters, watch-only data,
+titles, text, or links across the Settings IPC boundary. Android reads its
+renderer-owned Preferences store and projects the same redacted state before
+the Settings component receives it.

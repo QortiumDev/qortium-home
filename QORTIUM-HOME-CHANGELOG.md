@@ -34,6 +34,41 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-26 - feat(home-v2): apps can manage notification permissions again
+
+Home lets each app ask permission to send you notifications, and lets apps save
+rules about which events should notify you. Managing all of that — seeing which
+apps have asked, muting one, deleting a rule you no longer want, or taking an
+app's notification permission away entirely — used to be something a notification
+manager app could do for you. The Notify app was built for exactly that. When
+Home's new interface arrived, the five requests it uses were not carried over,
+so Notify came up, found them missing, and showed nothing.
+
+They work again, on both desktop and Android. An app that wants to manage
+notifications asks once, in a prompt that says plainly what it is asking for:
+authority over *other* apps' notifications on this device. It can mute an app,
+delete an app's rules, and revoke an app's permission to notify you. It cannot
+create a rule for any app, it cannot notify you itself without asking for that
+separately, and the rule details it is shown are filtered — an app's saved
+wallet-watching keys, transaction signatures, and any address-shaped value that
+is not actually a valid address are never handed over.
+
+Being the app Home is set to open for notifications does not grant any of this.
+That setting is only a preference about which app opens; every app, assigned or
+not, has to ask you. Your answer is remembered until you take it back, and
+Settings > QDN Apps now lists the apps you have allowed with a Revoke button.
+That list is deliberately separate from the list of apps allowed to show you
+notifications, because they are different things: taking back the management
+permission removes one app's authority over the others, and deletes no rules
+and no one's notification permission.
+
+Two smaller fixes came with it. If the file holding your notification settings
+is damaged or unreadable, a managing app is now told so rather than being shown
+an empty list it might then save over. And when anything changes your
+notification settings — Home's own Settings page, or an app you have allowed —
+open app windows are told immediately, instead of carrying on with a stale copy
+until their next request failed.
+
 ### 2026-08-26 - fix(home-v2): app icons and avatars stop flashing back to placeholder letters
 
 Pictures Home had already fetched kept being thrown away and asked for again.

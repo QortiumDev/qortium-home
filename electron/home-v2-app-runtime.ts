@@ -62,6 +62,13 @@ export const HOME_V2_ROUTE_INDEPENDENT_ACTIONS = Object.freeze([
   // address to Home's own navigation and never touch a node. An app on an
   // unavailable route can still send the user somewhere useful.
   'OPEN_CURRENT_TAB',
+  // The manager family touches Home-profile data only, so it stays callable
+  // while every node route is disabled or unreachable — exactly like BOOKMARKS_*.
+  'NOTIFICATION_MANAGER_GET',
+  'NOTIFICATION_MANAGER_HAS_PERMISSION',
+  'NOTIFICATION_MANAGER_REMOVE_RULES',
+  'NOTIFICATION_MANAGER_REVOKE',
+  'NOTIFICATION_MANAGER_SET_MUTED',
   'OPEN_NEW_TAB',
   'SHOW_CONTEXT_MENU',
   'SHOW_NOTIFICATION',

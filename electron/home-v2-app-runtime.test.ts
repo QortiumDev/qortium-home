@@ -458,4 +458,87 @@ assert.equal(androidActions.includes('OPEN_AS_WIDGET'), false)
 assert.equal(androidActions.some((action) => action.startsWith('WIDGET_')), false)
 assert.equal(androidActions.includes('SHOW_CONTEXT_MENU'), true)
 
+// ---------------------------------------------------------------------------
+// The app-facing notification manager family.
+// ---------------------------------------------------------------------------
+
+const notificationManagerActions = [
+  'NOTIFICATION_MANAGER_HAS_PERMISSION',
+  'NOTIFICATION_MANAGER_GET',
+  'NOTIFICATION_MANAGER_SET_MUTED',
+  'NOTIFICATION_MANAGER_REMOVE_RULES',
+  'NOTIFICATION_MANAGER_REVOKE',
+] as const
+
+const disabledRoute = getHomeV2AppHostInfo({
+  hostVersion: '2.1.0',
+  node: {
+    capabilities: { read: false },
+    customConfigured: false,
+    mode: 'disabled',
+    nodeApiUrl: null,
+  },
+  platform: 'desktop',
+  platformVersion: '2.1',
+  protocol: 'qdnRequest',
+}).route
+assert.equal(disabledRoute.available, false)
+
+for (const action of notificationManagerActions) {
+  // Advertised on qdnRequest only: the data is Home's profile, not a chain's,
+  // so a qortalRequest copy of it would be meaningless.
+  assert.equal(
+    getHomeV2AvailableAppActions('qdnRequest', {
+      qortal: publicInfo.route,
+      qortium: publicInfo.route,
+    }).includes(action),
+    true,
+    `${action} must be advertised on qdnRequest`,
+  )
+  assert.equal(
+    getHomeV2AvailableAppActions('qortalRequest', {
+      qortal: publicInfo.route,
+      qortium: publicInfo.route,
+    }).includes(action),
+    false,
+    `${action} must not be advertised on qortalRequest`,
+  )
+  // Route-independent: still callable with every node route disabled.
+  assert.equal(
+    getHomeV2AvailableAppActions('qdnRequest', {
+      qortal: disabledRoute,
+      qortium: disabledRoute,
+    }).includes(action),
+    true,
+    `${action} must stay callable while the node route is disabled`,
+  )
+  // Also callable while the route is configured but unreachable.
+  assert.equal(
+    getHomeV2AvailableAppActions('qdnRequest', {
+      qortal: unreachableInfo.route,
+      qortium: unreachableInfo.route,
+    }).includes(action),
+    true,
+    `${action} must stay callable while the node route is unreachable`,
+  )
+  // Widgets are chromeless: they have no trusted surface to raise a manager
+  // prompt on, and the whole family is administrative. isWidgetPublicReadAction
+  // excludes them today only because none of them matches its read prefixes —
+  // this pins that OUTCOME so a future rename (say, GET_NOTIFICATION_MANAGER)
+  // cannot quietly admit an administrative action to a widget.
+  assert.equal(widgetActions.includes(action), false, `widget must not advertise ${action}`)
+  // The widget exclusion must not be mistaken for the action being missing.
+  assert.equal(normalTabActions.includes(action), true, `tab should advertise ${action}`)
+  assert.equal(androidActions.includes(action), true, `android should advertise ${action}`)
+}
+
+// SHOW_ACTIONS must expose the five together or not at all: Notify
+// feature-detects the family with hasEveryAction (qortium-notify App.tsx).
+const advertised = notificationManagerActions.filter((action) => normalTabActions.includes(action))
+assert.equal(
+  advertised.length,
+  notificationManagerActions.length,
+  'the notification manager family must be advertised all-or-nothing',
+)
+
 console.log('Home v2 app runtime contract tests passed.')

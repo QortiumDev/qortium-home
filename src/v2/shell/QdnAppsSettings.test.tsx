@@ -76,6 +76,14 @@ function initialState() {
       status: 'available' as const,
       version: 1 as const,
     },
+    notificationsManage: {
+      apps: [{
+        appKey: 'qdn://APP/Notify/Notify',
+        grantedAt: '2026-08-22T16:00:00.000Z',
+      }],
+      revision: 3,
+      version: 1 as const,
+    },
     revision: 1 as const,
     schema: 'home-v2-qdn-settings-state' as const,
   }
@@ -126,6 +134,10 @@ const adapter: HomeV2QdnSettingsAdapter = {
       chatSend: {
         ...state.chatSend,
         revision: state.chatSend.revision + 1,
+      },
+      notificationsManage: {
+        ...state.notificationsManage,
+        revision: state.notificationsManage.revision + 1,
       },
     }
     return state
@@ -189,6 +201,13 @@ const adapter: HomeV2QdnSettingsAdapter = {
           ? state.chatSend.apps.filter(({ appKey }) => appKey !== request.appKey)
           : state.chatSend.apps,
         revision: state.chatSend.revision + 1,
+        version: 1,
+      },
+      notificationsManage: {
+        apps: capability === 'notifications.manage'
+          ? state.notificationsManage.apps.filter(({ appKey }) => appKey !== request.appKey)
+          : state.notificationsManage.apps,
+        revision: state.notificationsManage.revision + 1,
         version: 1,
       },
     }
@@ -371,6 +390,36 @@ assert.deepEqual(bookmarkRevokeRequests[2], {
   expectedAssignmentRevision: 7,
 })
 assert.equal(container.querySelector('[data-qdn-chat-send-grant]'), null)
+
+// The durable notification-MANAGER grant: authority over every app's
+// notification rules. It has its own card, distinct from the per-app "may show
+// notifications" grant below, and revokes through the same capability path.
+const managerCard = container.querySelector('[data-qdn-notification-manager-grant]') as HTMLElement
+assert.ok(managerCard, 'a durable notifications.manage grant must be listed in QDN Apps settings')
+assert.match(managerCard.textContent ?? '', /qdn:\/\/APP\/Notify\/Notify/)
+await act(async () => {
+  button('Revoke', managerCard).click()
+})
+assert.equal(bookmarkRevokeRequests.length, 3, 'notification manager revoke must require confirmation')
+const managerConfirmation = managerCard
+  .querySelector('[data-qdn-notification-manager-revoke-confirm="true"]') as HTMLElement
+assert.ok(managerConfirmation)
+await act(async () => {
+  button('Revoke', managerConfirmation).click()
+  await settle()
+})
+assert.deepEqual(bookmarkRevokeRequests[3], {
+  appKey: 'qdn://APP/Notify/Notify',
+  capability: 'notifications.manage',
+  expectedAssignmentRevision: 8,
+})
+assert.equal(container.querySelector('[data-qdn-notification-manager-grant]'), null)
+// Revoking the manager capability must not have touched the same app's own
+// permission to show notifications.
+assert.ok(
+  container.querySelector('[data-qdn-notification-grant]'),
+  'revoking the manager capability must not revoke the app’s own notification grant',
+)
 
 const grantCard = container.querySelector('[data-qdn-notification-grant]') as HTMLElement
 assert.match(grantCard.textContent ?? '', /qdn:\/\/APP\/Notify\/Notify/)

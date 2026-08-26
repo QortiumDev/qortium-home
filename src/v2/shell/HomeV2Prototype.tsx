@@ -133,6 +133,8 @@ export interface HomeV2PrototypeProps {
   readonly appUpdates?: HomeV2AppUpdates
   readonly onChainCoreUpdates?: HomeV2OnChainCoreUpdates
   readonly qdnAppsManagement?: HomeV2QdnSettingsManagement
+  /** Current Home-profile manager revisions, seeded into each shown app view. */
+  readonly managerRevisions?: import('../../../electron/qdn-manager-events').QdnManagerRevisions | null
   readonly resolveAccountLabel?: (accountId: string) => string | null
   readonly notificationPolicy?: HomeV2NotificationPolicyState | null
   readonly windowBehavior?: HomeV2WindowBehaviorState | null
@@ -1131,6 +1133,7 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
                 translationVersion={translationVersion}
                 nodeClient={props.nodeClient}
                 selectedAccountId={props.selectedAccountId}
+                managerRevisions={props.managerRevisions}
                 reloadVersion={props.appReloadVersion}
                 suspended={appOverlayActive || chromeOverlayOpen}
                 onNavigationChanged={props.onAppNavigationChanged}

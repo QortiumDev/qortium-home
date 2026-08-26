@@ -52,6 +52,29 @@ This F4 slice does not add `GET_APP_ASSIGNMENTS` or
 `REQUEST_APP_ASSIGNMENT` to Home 2's `SHOW_ACTIONS` and does not change QAVS
 `platformVersion: "2.0"`. App-facing assignment delegation remains deferred.
 
+The notification-manager half of this surface is no longer Settings-only. The
+same summarize/mute/remove/revoke operations are now also reachable by an
+embedded QDN app through the five `NOTIFICATION_MANAGER_*` actions in the table
+below, gated by the durable `notifications.manage` capability. Two things did
+not change and are the reason that is a bounded widening rather than a new
+class of access:
+
+- The app sees exactly the redaction the Settings surface produces. It is the
+  same `getQdnNotificationManagerSummary` output 1.x served: no account
+  bindings, no watch-only keys, no signature filters, and address-like filters
+  only when they validate as real Qortal addresses.
+- Nothing about rule CREATION becomes reachable. The manager can mute, delete
+  rules, and revoke; it cannot add a rule to any app, including itself.
+
+The app-facing path is strictly more restricted than the Settings path in three
+ways the trusted shell does not need: it requires a user-granted durable
+capability, it refuses to answer at all when the notification store is corrupt
+or unreadable (the trusted surface renders a status instead), and it requires
+the caller to present the current store revision on every mutation.
+
+The app ASSIGNMENT (`notifications` → Notify) still grants nothing. Any app may
+request `notifications.manage`, and the assigned app gets no head start.
+
 ## Implemented slice
 
 | Public action | Protocol | Result contract | Permission and route | Desktop | Android |
@@ -61,6 +84,8 @@ This F4 slice does not add `GET_APP_ASSIGNMENTS` or
 | `GET_HOST_INFO` | both | Host/platform metadata plus authoritative protocol, network, configured/effective route, availability, reachability, and opaque route revision | No prompt | yes | yes |
 | `SHOW_CONTEXT_MENU` | both | `{ version: 1, status: "handled", action }` or `{ version: 1, status: "dismissed" }` after a fixed Home-owned account, group, or resource menu | Route-independent; protocol fixes the network; sender/tab/resource context and untrusted anchor are validated; v1 performs only copy and APP-tab navigation | yes | yes |
 | `BOOKMARKS_HAS_PERMISSION`, `BOOKMARKS_GET`, `BOOKMARKS_APPLY`, `BOOKMARKS_OPEN` | `qdnRequest` | Permission state, validated saved-link snapshot, revision-CAS mutation result, or `true` after an account-aware open | Route-independent durable `bookmarks.manage` approval; invalid addresses, missing accounts, stale revisions, changed app contexts, and malformed saved data fail closed | yes | yes |
+| `NOTIFICATION_MANAGER_HAS_PERMISSION` | `qdnRequest` | `{ granted }` | Route-independent; never prompts, and answers from the capability store alone so it stays truthful while the notification store is degraded | yes | yes |
+| `NOTIFICATION_MANAGER_GET`, `NOTIFICATION_MANAGER_SET_MUTED`, `NOTIFICATION_MANAGER_REMOVE_RULES`, `NOTIFICATION_MANAGER_REVOKE` | `qdnRequest` | The 1.x-compatible `{ version: 1, revision, apps }` summary, with address-like filters exposed only when they validate and watch-only/signature filters masked | Route-independent durable `notifications.manage` approval, offered as "always" only; every mutation carries `expectedRevision` and a mismatch fails with `code: "HOME_DATA_STALE"`; a corrupt or unreadable store fails closed rather than reading as an empty profile; rule creation is not part of the surface | yes | yes |
 | `GET_PENDING_TRANSACTIONS` | both | This app/account/chain's opaque unknown-outcome entries without Home-internal account or app keys; an automatic QPGC setup entry may include `stage: "key-announcement"` | Route-independent scoped `transactions.pending.read` approval; message and key material are never stored | yes | yes |
 | `FORGET_PENDING_TRANSACTION` | both | `{ forgotten, network, signature }` | Route-independent single-request `transactions.pending.forget` approval after app reconciliation | yes | yes |
 | `GET_NODE_INFO`, `GET_NODE_STATUS` | both | Bare Core JSON | Protocol selects Qortium or Qortal | yes | yes |

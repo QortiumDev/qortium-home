@@ -384,7 +384,7 @@ contextBridge.exposeInMainWorld('homeV2QdnSettings', {
     // requires it for those and rejects it for the others.
     accountId?: string
     appKey: string
-    capability?: 'account.read' | 'bookmarks.manage' | 'chat.send'
+    capability?: 'account.read' | 'bookmarks.manage' | 'chat.send' | 'notifications.manage'
     expectedAssignmentRevision: number
   }) => ipcRenderer.invoke('home-v2-qdn-settings:revoke-bookmarks', {
     ...(typeof request.accountId === 'string' ? { accountId: request.accountId } : {}),
@@ -475,6 +475,14 @@ contextBridge.exposeInMainWorld('homeV2Apps', {
     ipcRenderer.invoke('qdn-views:updateAccountState', request),
   updateBridgeStates: (request: unknown) =>
     ipcRenderer.invoke('qdn-views:updateBridgeStates', request),
+  // Home-profile manager revisions (bookmarks, notifications). The delivery
+  // machinery in qdn-views.ts already existed but was reachable only from Home
+  // 1.x's preload; without this the v2 shell could change an app's notification
+  // rules and an open app view would never hear about it. The main-process
+  // handler re-validates the payload (validateQdnManagerRevisions) and ignores
+  // a tabId this window does not own.
+  updateManagerRevisions: (request: unknown) =>
+    ipcRenderer.invoke('qdn-views:updateManagerRevisions', request),
   show: (request: unknown) => ipcRenderer.invoke('qdn-views:show', request),
   openAsWidget: (request: unknown) => ipcRenderer.invoke('home-v2-widgets:open', request),
   // Availability only. The shell renderer's session blocks every network

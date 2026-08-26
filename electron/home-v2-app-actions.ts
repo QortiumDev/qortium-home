@@ -46,6 +46,11 @@ const QDN_ACTIONS = [
   'BOOKMARKS_GET',
   'BOOKMARKS_APPLY',
   'BOOKMARKS_OPEN',
+  'NOTIFICATION_MANAGER_HAS_PERMISSION',
+  'NOTIFICATION_MANAGER_GET',
+  'NOTIFICATION_MANAGER_SET_MUTED',
+  'NOTIFICATION_MANAGER_REMOVE_RULES',
+  'NOTIFICATION_MANAGER_REVOKE',
   'ADD_GROUP_ADMIN',
   'APPROVE_GROUP_JOIN_REQUEST',
   'CANCEL_GROUP_BAN',
@@ -223,6 +228,17 @@ const QORTAL_ACTIONS = [
 // for GET_DAY_SUMMARY/GET_PRICE (qortalRequest-only) and
 // RESOLVE_IDENTITIES/FETCH_QORTAL_NODE_API
 // (qdnRequest-only).
+
+// The Home data manager families (BOOKMARKS_* and NOTIFICATION_MANAGER_*) are
+// qdnRequest-only for the same asymmetric reason, but a different one from
+// SEARCH_GROUPS above: it is not that Qortal's node lacks an endpoint, it is
+// that these actions touch NO node at all. They read and write Home-profile
+// data — the user's saved links, and the per-app notification grants and rules
+// Home itself stores — so they carry no chain semantics and there is nothing
+// for a Qortal-network variant of them to mean. Advertising them on
+// qortalRequest would imply a second, chain-scoped copy of Home's one profile.
+// A Qortal-routed app that wants them calls them on qdnRequest; the durable
+// capability and the manager app key are protocol-independent already.
 
 // The minting family (GET_MINTING_STATUS, LIST_MINTING_ACCOUNTS,
 // START_MINTING, REMOVE_MINTING_ACCOUNT) is advertised on both protocols so

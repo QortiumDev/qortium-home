@@ -241,6 +241,24 @@ The Home-data manager actions are `BOOKMARKS_HAS_PERMISSION`, `BOOKMARKS_GET`,
 remain available when Home uses a public/network node because they operate on
 Home's local device data rather than Core.
 
+Both families are advertised by Home 2 as well, on `qdnRequest` only. Home 2
+shipped the bookmark half first and carried this paragraph while the
+notification half was still 1.x-only; as of the 2.1 line both halves are
+app-facing on desktop and Android. They are deliberately absent from
+`qortalRequest`: the data they read and write is Home's own profile, so a
+chain-scoped copy of it would not mean anything. A Qortal-routed app calls them
+on `qdnRequest`; the durable capability and the manager app key are
+protocol-independent.
+
+The notification manager is a closed administrative surface. It can mute an
+app, delete an app's stored rules, and revoke an app's notification permission.
+It cannot CREATE a rule for any app — rule creation belongs to each originating
+app's own actions, which Home 2 has not implemented. See
+[Home data manager QDN bridge](HOME_DATA_MANAGERS.md) for the request and
+response shapes, and
+[Home 2 app notifications](HOME_V2_APP_NOTIFICATIONS.md) for why the creation
+half is still deferred.
+
 `GET_APP_ASSIGNMENTS` and `REQUEST_APP_ASSIGNMENT` provide the generic,
 consented app-target mechanism; see [Home app assignments](HOME_APP_ASSIGNMENTS.md).
 These assignment actions describe the older shell catalogue. Home 2.1's current

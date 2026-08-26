@@ -84,6 +84,16 @@ export async function readNotificationStoreForManagement() {
   return requireAvailableLocalStore();
 }
 
+/**
+ * The Android twin of electron/notification-store.ts's inspectNotificationStore.
+ * Exported so the app-facing manager bridge runs the SAME fail-closed gate on
+ * both platforms (electron/home-v2-notification-manager-contract.ts) instead of
+ * each host inventing its own corrupt/unavailable handling.
+ */
+export async function inspectNotificationStoreForManagement() {
+  return inspectLocalNotificationStore();
+}
+
 async function writeLocalStore(store: QdnNotificationStore) {
   const value = JSON.stringify(store);
   if (Capacitor.isNativePlatform()) await Preferences.set({ key: NOTIFICATION_STORE_KEY, value });
