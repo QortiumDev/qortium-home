@@ -1,13 +1,26 @@
-import { createHash } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import {
+  closeSync,
+  constants as fsConstants,
+  fstatSync,
+  lstatSync,
   mkdirSync,
-  readFileSync,
+  openSync,
+  readdirSync,
+  readSync,
   renameSync,
   rmSync,
-  writeFileSync,
+  writeSync,
 } from 'node:fs'
 import path from 'node:path'
 import { getHomeV2AppIconContentType } from './home-v2-app-icon.js'
+
+// O_NOFOLLOW makes an open() fail rather than follow a symlink at the final
+// path component — so a same-user process cannot plant a symlink where a cache
+// blob (or the manifest) is expected and redirect the read/write outside the
+// store. It does not exist on Windows; there `?? 0` makes it a harmless no-op
+// (Windows symlink creation is privileged and the threat model differs).
+const O_NOFOLLOW = fsConstants.O_NOFOLLOW ?? 0
 
 // Persistent, main-process image cache for QDN app icons and avatars.
 //
@@ -32,8 +45,49 @@ import { getHomeV2AppIconContentType } from './home-v2-app-icon.js'
 export const HOME_V2_IMAGE_CACHE_DIR_NAME = 'home-v2-image-cache'
 export const HOME_V2_IMAGE_CACHE_MAX_TOTAL_BYTES = 32 * 1024 * 1024
 export const HOME_V2_IMAGE_CACHE_MAX_ENTRIES = 512
+// A negative (`missing`) entry is authoritative only for a bounded window: a
+// node-local transient 404 (or an invalid non-image body) must not suppress
+// re-fetching for the resource's entire publication lifetime. After this it is
+// treated as a miss and re-checked. Positive entries need no TTL — they are
+// invalidated content-addressed, by signature.
+export const HOME_V2_IMAGE_CACHE_NEGATIVE_TTL_MS = 6 * 60 * 60_000
+// Guard rails applied when loading an untrusted index.json from disk. The
+// manifest is refused above this size before it is even parsed, and each field
+// is bounded so a hostile or corrupt manifest cannot drive unbounded work.
+const HOME_V2_IMAGE_CACHE_MAX_INDEX_BYTES = 2 * 1024 * 1024
+const HOME_V2_IMAGE_CACHE_MAX_SIGNATURE_LENGTH = 128
+const HOME_V2_IMAGE_CACHE_MAX_CACHE_KEY_LENGTH = 1024
+const HOME_V2_IMAGE_CACHE_MAX_CONTENT_TYPE_LENGTH = 128
+
+export const HOME_V2_IMAGE_CACHE_KEY_VERSION = 'v2'
+
+// Collision-free cache key. Earlier keys joined fields with '|', but a name or
+// identifier may itself contain '|', so ('a|b','c') and ('a','b|c') produced
+// the same key and one resource could serve another's cached bytes. JSON array
+// encoding is unambiguous — structure, not a delimiter, separates the fields —
+// and the version prefix retires the old ambiguous keys on upgrade (they no
+// longer match, so they simply miss and are re-fetched, then evicted).
+export function buildHomeV2ImageCacheKey(
+  kind: 'appicon' | 'avatar',
+  network: string,
+  service: string,
+  name: string,
+  identifier: string | null,
+): string {
+  return `${HOME_V2_IMAGE_CACHE_KEY_VERSION}:${JSON.stringify([
+    kind,
+    network,
+    service,
+    name,
+    identifier ?? 'default',
+  ])}`
+}
 
 const INDEX_FILE = 'index.json'
+// Base58 (Bitcoin alphabet) — the alphabet Qortal/Qortium signatures use. A
+// stored signature that is not plausible Base58 of a sane length is rejected on
+// load rather than trusted as an addressable key.
+const BASE58_RE = /^[1-9A-HJ-NP-Za-km-z]+$/
 
 export interface HomeV2ImageCacheEntry {
   cacheKey: string
@@ -65,24 +119,43 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function normalizeEntry(value: unknown): HomeV2ImageCacheEntry | null {
   if (!isRecord(value)) return null
-  const cacheKey = typeof value.cacheKey === 'string' && value.cacheKey ? value.cacheKey : null
-  const signature = typeof value.signature === 'string' && value.signature ? value.signature : null
+  const cacheKey =
+    typeof value.cacheKey === 'string' &&
+    value.cacheKey &&
+    value.cacheKey.length <= HOME_V2_IMAGE_CACHE_MAX_CACHE_KEY_LENGTH
+      ? value.cacheKey
+      : null
+  // The signature is the addressable key; a stored value that is not plausible
+  // Base58 of a bounded length is rejected rather than trusted.
+  const signature =
+    typeof value.signature === 'string' &&
+    value.signature.length > 0 &&
+    value.signature.length <= HOME_V2_IMAGE_CACHE_MAX_SIGNATURE_LENGTH &&
+    BASE58_RE.test(value.signature)
+      ? value.signature
+      : null
   const status =
     value.status === 'ready' || value.status === 'missing' ? value.status : null
   const byteLength =
     typeof value.byteLength === 'number' &&
     Number.isInteger(value.byteLength) &&
-    value.byteLength >= 0
+    value.byteLength >= 0 &&
+    value.byteLength <= HOME_V2_IMAGE_CACHE_MAX_TOTAL_BYTES
       ? value.byteLength
       : null
   const storedAt =
-    typeof value.storedAt === 'number' && Number.isFinite(value.storedAt)
+    typeof value.storedAt === 'number' &&
+    Number.isFinite(value.storedAt) &&
+    value.storedAt >= 0 &&
+    value.storedAt <= 8.64e15
       ? value.storedAt
       : null
   const contentType =
     value.contentType === null
       ? null
-      : typeof value.contentType === 'string' && value.contentType
+      : typeof value.contentType === 'string' &&
+          value.contentType &&
+          value.contentType.length <= HOME_V2_IMAGE_CACHE_MAX_CONTENT_TYPE_LENGTH
         ? value.contentType
         : undefined
   if (
@@ -119,26 +192,131 @@ export class HomeV2ImageCache {
   }
 
   private ensureLoaded(): Map<string, HomeV2ImageCacheEntry> {
-    if (!this.index) this.index = this.readIndexFromDisk()
+    if (!this.index) {
+      this.index = this.readIndexFromDisk()
+      // A manifest can reference more bytes/rows than the cap (hand-edited, or a
+      // cap lowered across versions). Bound it immediately on load so the cap is
+      // enforced even for a session that only ever reads.
+      this.evict()
+    }
     return this.index
+  }
+
+  // True only when the root is a REAL directory — not a symlink, a file, or
+  // missing. The gate for every destructive/enumerating operation: we never
+  // reconcile (delete) or read through a symlinked root, which a same-user
+  // process could aim at another directory.
+  private isRealDirectory(): boolean {
+    try {
+      return lstatSync(this.directory).isDirectory()
+    } catch {
+      return false
+    }
   }
 
   private readIndexFromDisk(): Map<string, HomeV2ImageCacheEntry> {
     const map = new Map<string, HomeV2ImageCacheEntry>()
+    // If the root is missing or a symlink, touch NOTHING (no read, no
+    // reconcile/delete) — a symlinked root must never let us delete or serve a
+    // file outside the store.
+    if (!this.isRealDirectory()) return map
+    const indexPath = path.join(this.directory, INDEX_FILE)
+    let fd: number | null = null
     try {
-      const raw = readFileSync(path.join(this.directory, INDEX_FILE), 'utf8')
-      const parsed: unknown = JSON.parse(raw)
-      if (!Array.isArray(parsed)) return map
-      for (const item of parsed) {
-        const entry = normalizeEntry(item)
-        // Last writer wins on a duplicate key, matching the persisted order.
-        if (entry) map.set(entry.cacheKey, entry)
+      // O_NOFOLLOW: a symlink planted at index.json is refused, not followed.
+      // fstat the open handle (not a pre-open lstat) so there is no size/type
+      // TOCTOU between the check and the read.
+      fd = openSync(indexPath, fsConstants.O_RDONLY | O_NOFOLLOW)
+      const stat = fstatSync(fd)
+      if (stat.isFile() && stat.size <= HOME_V2_IMAGE_CACHE_MAX_INDEX_BYTES) {
+        const buffer = Buffer.allocUnsafe(stat.size)
+        let read = 0
+        while (read < stat.size) {
+          const chunk = readSync(fd, buffer, read, stat.size - read, read)
+          if (chunk === 0) break
+          read += chunk
+        }
+        const parsed: unknown = JSON.parse(buffer.subarray(0, read).toString('utf8'))
+        if (Array.isArray(parsed)) {
+          for (const item of parsed) {
+            if (map.size >= this.maxEntries) break // hard row cap
+            const entry = normalizeEntry(item)
+            if (entry) map.set(entry.cacheKey, entry) // last writer wins
+          }
+        }
       }
     } catch {
-      // Corrupt or unreadable index → behave as an empty cache (re-fetch).
-      return new Map<string, HomeV2ImageCacheEntry>()
+      // Missing/oversized/corrupt/symlinked index → empty manifest, but still
+      // reconcile the real directory below so orphans cannot accumulate.
+      map.clear()
+    } finally {
+      if (fd !== null) {
+        try {
+          closeSync(fd)
+        } catch {
+          // nothing to do
+        }
+      }
     }
+    this.reconcileDirectory(map)
     return map
+  }
+
+  // Bring the on-disk directory back in line with the loaded manifest: drop any
+  // `ready` row whose blob is missing, not a regular file, or the wrong size,
+  // and delete every stray file (orphaned blobs from a crash between blob-write
+  // and index-write, leftover temp files) that the manifest does not reference.
+  // Without this, orphaned blobs are never counted by eviction and the store
+  // grows without bound across crashes and recovery.
+  private reconcileDirectory(map: Map<string, HomeV2ImageCacheEntry>): void {
+    // Never enumerate/delete through a symlinked (or missing) root.
+    if (!this.isRealDirectory()) return
+    const referenced = new Map<string, { cacheKey: string; byteLength: number }>()
+    for (const entry of map.values()) {
+      if (entry.status === 'ready') {
+        referenced.set(createHash('sha256').update(entry.cacheKey).digest('hex'), {
+          cacheKey: entry.cacheKey,
+          byteLength: entry.byteLength,
+        })
+      }
+    }
+    let names: string[]
+    try {
+      names = readdirSync(this.directory)
+    } catch {
+      return
+    }
+    const present = new Set<string>()
+    for (const name of names) {
+      if (name === INDEX_FILE) continue
+      const ref = referenced.get(name)
+      if (ref) {
+        // A referenced blob must be a real regular file of exactly the recorded
+        // size to count; a symlink, gone, or resized blob drops the row so the
+        // entry re-fetches and eviction's byte total tracks the real directory.
+        try {
+          const stat = lstatSync(path.join(this.directory, name))
+          if (stat.isFile() && stat.size === ref.byteLength) {
+            present.add(name)
+            continue
+          }
+        } catch {
+          // fall through to removal + row drop
+        }
+        map.delete(ref.cacheKey)
+      }
+      // Unreferenced file (orphan blob, stray temp, or a now-dropped blob):
+      // remove it. The manifest is the single source of truth.
+      try {
+        rmSync(path.join(this.directory, name), { force: true })
+      } catch {
+        // Best effort.
+      }
+    }
+    // Drop any ready row whose blob never materialised on disk.
+    for (const [name, ref] of referenced) {
+      if (!present.has(name)) map.delete(ref.cacheKey)
+    }
   }
 
   private fileFor(cacheKey: string): string {
@@ -153,23 +331,74 @@ export class HomeV2ImageCache {
     }
   }
 
+  // Create the cache directory and refuse to operate through a symlinked root:
+  // a same-user process could otherwise point the whole store at another
+  // directory and have every write land there. Re-verified on EVERY write (not
+  // cached) so a root swapped to a symlink after an earlier check cannot make a
+  // later write land outside.
+  private ensureDirectory(): void {
+    mkdirSync(this.directory, { recursive: true })
+    const stat = lstatSync(this.directory)
+    if (stat.isSymbolicLink() || !stat.isDirectory()) {
+      throw new Error('Image cache root is not a real directory.')
+    }
+  }
+
+  // Atomic, symlink-safe write: a fresh randomly named temp file in the same
+  // directory, opened with O_EXCL so a pre-created symlink at that path is
+  // refused (never followed), then rename over the target. Defeats the
+  // predictable-'.next'-symlink overwrite of an out-of-cache file.
+  private atomicWrite(target: string, data: Uint8Array | string): void {
+    this.ensureDirectory()
+    const staging = path.join(
+      this.directory,
+      `.tmp-${randomBytes(12).toString('hex')}`,
+    )
+    // 'wx' = O_CREAT | O_EXCL: fails if `staging` already exists (including as a
+    // symlink), so an attacker cannot pre-plant the temp path.
+    const fd = openSync(staging, 'wx', 0o600)
+    try {
+      const bytes = typeof data === 'string' ? Buffer.from(data, 'utf8') : data
+      // Loop until every byte is written: writeSync can report a SHORT write
+      // (e.g. a nearly full disk), and renaming a truncated staging file into
+      // place would leave a corrupt blob or manifest.
+      let written = 0
+      while (written < bytes.byteLength) {
+        const chunk = writeSync(fd, bytes, written, bytes.byteLength - written)
+        if (chunk <= 0) throw new Error('Image cache write made no progress.')
+        written += chunk
+      }
+    } finally {
+      closeSync(fd)
+    }
+    try {
+      renameSync(staging, target)
+    } catch (error) {
+      try {
+        rmSync(staging, { force: true })
+      } catch {
+        // Best effort — a leftover temp file is swept by reconcile() on load.
+      }
+      throw error
+    }
+  }
+
   private writeIndex(): void {
     const index = this.ensureLoaded()
-    mkdirSync(this.directory, { recursive: true })
-    const target = path.join(this.directory, INDEX_FILE)
-    const staging = `${target}.next`
-    writeFileSync(staging, JSON.stringify([...index.values()]), {
-      encoding: 'utf8',
-      mode: 0o600,
-    })
-    renameSync(staging, target)
+    this.atomicWrite(path.join(this.directory, INDEX_FILE), JSON.stringify([...index.values()]))
   }
 
   private dropEntry(cacheKey: string): void {
     const index = this.ensureLoaded()
     if (index.delete(cacheKey)) {
       this.removeFile(cacheKey)
-      this.writeIndex()
+      // dropEntry runs on read paths (get); a failed index rewrite must not
+      // throw out of a lookup — the in-memory drop already took effect.
+      try {
+        this.writeIndex()
+      } catch {
+        // Best effort; reconcile fixes the disk manifest on the next load.
+      }
     }
   }
 
@@ -178,15 +407,38 @@ export class HomeV2ImageCache {
   // magic bytes do not re-sniff to exactly the stored contentType.
   private readValidatedBytes(entry: HomeV2ImageCacheEntry): Uint8Array | null {
     if (entry.status !== 'ready' || !entry.contentType) return null
+    let fd: number | null = null
     try {
-      const buffer = readFileSync(this.fileFor(entry.cacheKey))
+      // O_NOFOLLOW so a blob symlink planted by a same-user process is REFUSED,
+      // not followed (a plain 'r' open would follow it and fstat would then
+      // report the outside target as a regular file). fstat the open handle and
+      // require a regular file of exactly the recorded size.
+      fd = openSync(this.fileFor(entry.cacheKey), fsConstants.O_RDONLY | O_NOFOLLOW)
+      const stat = fstatSync(fd)
+      if (!stat.isFile()) return null
+      if (stat.size !== entry.byteLength) return null
+      const buffer = Buffer.allocUnsafe(stat.size)
+      let read = 0
+      while (read < stat.size) {
+        const chunk = readSync(fd, buffer, read, stat.size - read, read)
+        if (chunk === 0) break
+        read += chunk
+      }
+      if (read !== entry.byteLength) return null
       const bytes = new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength)
-      if (bytes.byteLength !== entry.byteLength) return null
       const sniffed = this.sniff(bytes)
       if (!sniffed || sniffed !== entry.contentType) return null
       return bytes
     } catch {
       return null
+    } finally {
+      if (fd !== null) {
+        try {
+          closeSync(fd)
+        } catch {
+          // Nothing more to do on a close failure.
+        }
+      }
     }
   }
 
@@ -198,7 +450,19 @@ export class HomeV2ImageCache {
     const index = this.ensureLoaded()
     const entry = index.get(cacheKey)
     if (!entry || entry.signature !== signature) return null
-    if (entry.status === 'missing') return { kind: 'missing' }
+    if (entry.status === 'missing') {
+      // Negative entries are authoritative only for a bounded window: a
+      // transient 404 must not suppress re-fetching forever. Past the TTL — OR
+      // with a FUTURE storedAt (age < 0), which a hostile manifest could forge
+      // to keep the age below the TTL for millennia — drop it and report a true
+      // miss so the caller re-checks.
+      const age = this.now() - entry.storedAt
+      if (age < 0 || age >= HOME_V2_IMAGE_CACHE_NEGATIVE_TTL_MS) {
+        this.dropEntry(cacheKey)
+        return null
+      }
+      return { kind: 'missing' }
+    }
     const bytes = this.readValidatedBytes(entry)
     if (!bytes) {
       // The file was corrupt/tampered/gone: drop it and force a re-fetch.
@@ -206,20 +470,6 @@ export class HomeV2ImageCache {
       return null
     }
     return { kind: 'ready', bytes, contentType: entry.contentType as string }
-  }
-
-  // Serves any valid ready bytes for the key regardless of signature. Used only
-  // to keep showing a last-known-good image when a fresh fetch fails.
-  getStale(cacheKey: string): { bytes: Uint8Array; contentType: string } | null {
-    const index = this.ensureLoaded()
-    const entry = index.get(cacheKey)
-    if (!entry || entry.status !== 'ready') return null
-    const bytes = this.readValidatedBytes(entry)
-    if (!bytes) {
-      this.dropEntry(cacheKey)
-      return null
-    }
-    return { bytes, contentType: entry.contentType as string }
   }
 
   putReady(
@@ -236,11 +486,13 @@ export class HomeV2ImageCache {
     const sniffed = this.sniff(bytes)
     if (!sniffed || sniffed !== contentType) return false
     const index = this.ensureLoaded()
-    mkdirSync(this.directory, { recursive: true })
-    const target = this.fileFor(cacheKey)
-    const staging = `${target}.next`
-    writeFileSync(staging, bytes, { mode: 0o600 })
-    renameSync(staging, target)
+    try {
+      this.atomicWrite(this.fileFor(cacheKey), bytes)
+    } catch {
+      // A failed write (symlinked root, disk error) is a cache miss, not a
+      // crash: the caller still returns the freshly fetched bytes to the app.
+      return false
+    }
     index.set(cacheKey, {
       cacheKey,
       contentType,
@@ -249,15 +501,27 @@ export class HomeV2ImageCache {
       storedAt: this.now(),
       status: 'ready',
     })
-    this.evict()
-    this.writeIndex()
+    // evict()/writeIndex() touch the filesystem and can throw (e.g. index.json
+    // is a directory, or the root was swapped to a symlink). A store write must
+    // never crash the caller — degrade to "not cached" and keep the blob for
+    // reconcile to sweep.
+    try {
+      this.evict()
+      this.writeIndex()
+    } catch {
+      return false
+    }
     return true
   }
 
   putMissing(cacheKey: string, signature: string): boolean {
     if (!signature) return false
     const index = this.ensureLoaded()
-    mkdirSync(this.directory, { recursive: true })
+    try {
+      this.ensureDirectory()
+    } catch {
+      return false
+    }
     this.removeFile(cacheKey)
     index.set(cacheKey, {
       cacheKey,
@@ -267,8 +531,14 @@ export class HomeV2ImageCache {
       storedAt: this.now(),
       status: 'missing',
     })
-    this.evict()
-    this.writeIndex()
+    // As in putReady: a filesystem failure in the tail degrades to "not
+    // cached", never a throw to the caller.
+    try {
+      this.evict()
+      this.writeIndex()
+    } catch {
+      return false
+    }
     return true
   }
 
@@ -369,6 +639,11 @@ export interface ReadImageThroughCacheOptions {
   fetchImage: () => Promise<HomeV2ImageFetchOutcome>
 }
 
+// Serializes the resolve→disk→fetch→store path per cache key so concurrent
+// callers dedupe and, crucially, an older operation can never commit its bytes
+// after a newer one. Keyed by the (globally unique) cacheKey.
+const imageReadInFlight = new Map<string, Promise<HomeV2CachedImageOutcome>>()
+
 // The persistent read-through. Layered: in-memory memo (within the revalidate
 // floor) → signature-addressed disk store → network fetch. Content-addressing
 // by signature is the real invalidation; the floor only caps how often the
@@ -377,13 +652,30 @@ export async function readImageThroughCache(
   options: ReadImageThroughCacheOptions,
 ): Promise<HomeV2CachedImageOutcome> {
   const now = options.now ?? Date.now
-  const at = now()
 
-  // 1. Hot path: a recently validated answer, no search / disk / fetch.
+  // 1. Hot path: a recently validated answer, no search / disk / fetch. Kept
+  // outside the singleflight — it is a synchronous in-memory read.
   const memoed = options.memo.get(options.cacheKey)
-  if (memoed && at < memoed.revalidateAfter) {
+  if (memoed && now() < memoed.revalidateAfter) {
     return memoed.outcome
   }
+
+  const existing = imageReadInFlight.get(options.cacheKey)
+  if (existing) return existing
+  const run = runImageReadThroughCache(options, now)
+  imageReadInFlight.set(options.cacheKey, run)
+  try {
+    return await run
+  } finally {
+    imageReadInFlight.delete(options.cacheKey)
+  }
+}
+
+async function runImageReadThroughCache(
+  options: ReadImageThroughCacheOptions,
+  now: () => number,
+): Promise<HomeV2CachedImageOutcome> {
+  const at = now()
 
   // 2. Content-address by the current signature.
   const signature = await options.resolveSignature()
@@ -411,16 +703,14 @@ export async function readImageThroughCache(
     return outcome
   }
 
-  // 4. Miss → fetch, validate, store.
+  // 4. Miss → fetch, validate, store. The node serves the CURRENT latest, so if
+  // the resource republished between resolving `signature` and this fetch the
+  // bytes belong to the NEW revision. Re-resolve and only persist when the
+  // signature still agrees (a bytes↔signature pin); otherwise return the bytes
+  // uncached and let the next call store the correct pair.
   const fetched = await options.fetchImage()
   if (fetched.kind === 'ready') {
-    options.store.putReady(
-      options.cacheKey,
-      signature,
-      fetched.bytes,
-      fetched.contentType,
-      options.maxEntryBytes,
-    )
+    const confirmed = await options.resolveSignature()
     const outcome: HomeV2CachedImageOutcome = {
       kind: 'ready',
       bytes: fetched.bytes,
@@ -428,24 +718,40 @@ export async function readImageThroughCache(
       meta: fetched.meta ?? {},
       fromCache: false,
     }
-    rememberOutcome(options.memo, options.cacheKey, signature, at + options.revalidateFloorMs, outcome)
+    if (confirmed === signature) {
+      options.store.putReady(
+        options.cacheKey,
+        signature,
+        fetched.bytes,
+        fetched.contentType,
+        options.maxEntryBytes,
+      )
+      rememberOutcome(options.memo, options.cacheKey, signature, at + options.revalidateFloorMs, outcome)
+    }
     return outcome
   }
   if (fetched.kind === 'missing') {
-    options.store.putMissing(options.cacheKey, signature)
-    const outcome: HomeV2CachedImageOutcome = { kind: 'missing' }
-    rememberOutcome(options.memo, options.cacheKey, signature, at + options.revalidateFloorMs, outcome)
-    return outcome
+    const confirmed = await options.resolveSignature()
+    if (confirmed === signature) {
+      options.store.putMissing(options.cacheKey, signature)
+      rememberOutcome(
+        options.memo,
+        options.cacheKey,
+        signature,
+        at + options.revalidateFloorMs,
+        { kind: 'missing' },
+      )
+    }
+    return { kind: 'missing' }
   }
   if (fetched.kind === 'pending') {
     return { kind: 'pending', meta: fetched.meta ?? {} }
   }
-  // Fetch failed. Keep showing a last-known-good copy if one is on disk;
-  // otherwise report unavailable (the renderer's SWR keeps its own last good).
-  const stale = options.store.getStale(options.cacheKey)
-  if (stale) {
-    return { kind: 'ready', bytes: stale.bytes, contentType: stale.contentType, meta: {}, fromCache: true }
-  }
+  // Fetch failed. We already resolved the CURRENT signature and missed the
+  // store for it, so any on-disk bytes are for an OLDER signature. Serving
+  // those as a fresh `ready` would report known-stale content as current, so
+  // report unavailable instead: the renderer's stale-while-revalidate keeps
+  // showing its own last-good image, and a later successful fetch repaints it.
   return { kind: 'unavailable', message: fetched.message }
 }
 

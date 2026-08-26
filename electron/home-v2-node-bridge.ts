@@ -62,6 +62,7 @@ import {
   type HomeV2ResourceSignatureQuery,
 } from './home-v2-app-resource-discovery.js'
 import {
+  buildHomeV2ImageCacheKey,
   createHomeV2ImageMemo,
   HomeV2ImageCache,
   HOME_V2_IMAGE_CACHE_DIR_NAME,
@@ -725,7 +726,25 @@ export async function readHomeV2Avatar(network: NetworkId, requestValue: unknown
   const outcome = await readImageThroughCache({
     store: imageStore(),
     memo: avatarImageMemo,
-    cacheKey: `avatar|${network}|${request.descriptor.service}|${request.descriptor.name}|${request.descriptor.identifier}`,
+    // FOLLOW-UP (documented): key + signature are the descriptor SUPPLIED BY THE
+    // RENDERER, while the account-pointer path fetches bytes via the address,
+    // which re-reads the account's CURRENT avatar pointer. If the account
+    // repoints its avatar (A→B) between normalize and fetch, the sequence is
+    // resolve-A → fetch-B → re-resolve-A, so B's bytes are cached under A's
+    // signature and signature equality does not detect it. It does NOT self-heal
+    // on the next avatar request: the renderer keeps supplying the stale
+    // descriptor A (from identity.avatar), so A is resolved again and the
+    // mispaired entry is re-served. It clears only when an upstream identity
+    // refresh supplies the new pointer (descriptor B). Impact is bounded (an
+    // out-of-date avatar for that account until identity data refreshes); full
+    // address-pinning of this path is tracked as a follow-up, not blocking.
+    cacheKey: buildHomeV2ImageCacheKey(
+      'avatar',
+      network,
+      request.descriptor.service,
+      request.descriptor.name,
+      request.descriptor.identifier,
+    ),
     maxEntryBytes: GROUP_AVATAR_MAX_BYTES,
     revalidateFloorMs: IMAGE_SIGNATURE_REVALIDATE_MS,
     resolveSignature: () => resolveLatestSignature(readable, request.descriptor),
@@ -779,9 +798,13 @@ async function fetchHomeV2AppIconBytes(
     }
     const bytes = await readBoundedBytes(response, HOME_V2_APP_ICON_MAX_BYTES)
     const contentType = getHomeV2AppIconContentType(bytes)
-    // No recognized image type is treated as "this resource has no icon", which
-    // the negative cache remembers so the missing favicon stops costing fetches.
-    if (!contentType) return { kind: 'missing' }
+    // A 200 with a non-image body is AMBIGUOUS — a proxy/error page, a partial
+    // build, or a genuinely non-image resource — not authoritative absence.
+    // Report it transient so it is never negatively cached; only an actual 404
+    // (above) records `missing`, and even that is now bounded by a TTL.
+    if (!contentType) {
+      return { kind: 'unavailable', message: 'App icon response was not a supported image.' }
+    }
     return { kind: 'ready', bytes, contentType, meta: {} }
   } catch (error) {
     return {
@@ -839,7 +862,13 @@ export async function readHomeV2AppIcon(network: NetworkId, requestValue: unknow
   const outcome = await readImageThroughCache({
     store: imageStore(),
     memo: appIconImageMemo,
-    cacheKey: `appicon|${network}|${request.service}|${request.name}|${request.identifier ?? 'default'}`,
+    cacheKey: buildHomeV2ImageCacheKey(
+      'appicon',
+      network,
+      request.service,
+      request.name,
+      request.identifier ?? 'default',
+    ),
     maxEntryBytes: HOME_V2_APP_ICON_MAX_BYTES,
     revalidateFloorMs: IMAGE_SIGNATURE_REVALIDATE_MS,
     resolveSignature: () => resolveLatestSignature(readable, resource),

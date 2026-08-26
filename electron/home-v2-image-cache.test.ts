@@ -7,16 +7,23 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import {
+  buildHomeV2ImageCacheKey,
   createHomeV2ImageMemo,
   HomeV2ImageCache,
+  HOME_V2_IMAGE_CACHE_NEGATIVE_TTL_MS,
   readImageThroughCache,
   type HomeV2ImageFetchOutcome,
 } from './home-v2-image-cache.js'
+
+// A valid Base58 signature for fixtures — real Qortal/Qortium signatures are
+// Base58, and the store validates that on load.
+const SIG = 'z2Ge4h7KcVpQ1nRstUvWxY'
 
 function tempDir() {
   return mkdtempSync(path.join(tmpdir(), 'home-v2-image-cache-'))
@@ -39,24 +46,24 @@ function gifBytes(size = 64) {
   const dir = tempDir()
   try {
     const cache = new HomeV2ImageCache({ directory: dir })
-    assert.equal(cache.get('appicon|Chat', 'sig-1'), null, 'cold cache misses')
+    assert.equal(cache.get('appicon|Chat', 'sig1'), null, 'cold cache misses')
 
     const bytes = pngBytes()
     assert.equal(
-      cache.putReady('appicon|Chat', 'sig-1', bytes, 'image/png', 256 * 1024),
+      cache.putReady('appicon|Chat', 'sig1', bytes, 'image/png', 256 * 1024),
       true,
     )
-    const hit = cache.get('appicon|Chat', 'sig-1')
+    const hit = cache.get('appicon|Chat', 'sig1')
     assert.ok(hit && hit.kind === 'ready', 'warm signature hits')
     assert.equal(hit.contentType, 'image/png')
     assert.deepEqual(hit.bytes, bytes)
 
     // A different signature for the same key is a miss (stale), not a hit.
-    assert.equal(cache.get('appicon|Chat', 'sig-2'), null, 'changed signature misses')
+    assert.equal(cache.get('appicon|Chat', 'sig2'), null, 'changed signature misses')
 
     // A fresh instance re-reads index.json from disk — survives restart.
     const reopened = new HomeV2ImageCache({ directory: dir })
-    const persisted = reopened.get('appicon|Chat', 'sig-1')
+    const persisted = reopened.get('appicon|Chat', 'sig1')
     assert.ok(persisted && persisted.kind === 'ready', 'survives a restart')
     assert.deepEqual(persisted.bytes, bytes)
   } finally {
@@ -95,10 +102,10 @@ function gifBytes(size = 64) {
   const dir = tempDir()
   try {
     const cache = new HomeV2ImageCache({ directory: dir })
-    assert.equal(cache.putMissing('appicon|NoIcon', 'sig-x'), true)
-    const hit = cache.get('appicon|NoIcon', 'sig-x')
+    assert.equal(cache.putMissing('appicon|NoIcon', 'sigx'), true)
+    const hit = cache.get('appicon|NoIcon', 'sigx')
     assert.ok(hit && hit.kind === 'missing', 'negative cache hits for the same signature')
-    assert.equal(cache.get('appicon|NoIcon', 'sig-y'), null, 'a new signature retries')
+    assert.equal(cache.get('appicon|NoIcon', 'sigy'), null, 'a new signature retries')
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -112,15 +119,15 @@ function gifBytes(size = 64) {
     // Store a genuine PNG, then tamper the file on disk with GIF bytes while the
     // index still claims image/png. A corrupt/tampered file must degrade to a
     // miss (never a spoofed type served back).
-    cache.putReady('appicon|Tampered', 'sig-1', pngBytes(), 'image/png', 256 * 1024)
+    cache.putReady('appicon|Tampered', 'sig1', pngBytes(), 'image/png', 256 * 1024)
     const byteFile = readdirSync(dir).find((name) => name !== 'index.json')
     assert.ok(byteFile)
     writeFileSync(path.join(dir, byteFile), Buffer.from(gifBytes()))
 
     const reopened = new HomeV2ImageCache({ directory: dir })
-    assert.equal(reopened.get('appicon|Tampered', 'sig-1'), null, 'mismatched bytes rejected')
+    assert.equal(reopened.get('appicon|Tampered', 'sig1'), null, 'mismatched bytes rejected')
     // The poisoned entry is dropped, so a later put can repopulate cleanly.
-    assert.equal(reopened.get('appicon|Tampered', 'sig-1'), null)
+    assert.equal(reopened.get('appicon|Tampered', 'sig1'), null)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -143,14 +150,14 @@ function gifBytes(size = 64) {
           cacheKey,
           contentType: 'image/png',
           byteLength: bytes.byteLength,
-          signature: 'sig-1',
+          signature: 'sig1',
           storedAt: 1,
           status: 'ready',
         },
       ]),
     )
     const cache = new HomeV2ImageCache({ directory: dir })
-    assert.equal(cache.get(cacheKey, 'sig-1'), null, 'injected type mismatch rejected')
+    assert.equal(cache.get(cacheKey, 'sig1'), null, 'injected type mismatch rejected')
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -207,7 +214,7 @@ function gifBytes(size = 64) {
     }
     const resolveSignature = async () => {
       signatureCount += 1
-      return 'sig-1'
+      return 'sig1'
     }
 
     // Fresh memo each call proves the DISK store (not the memo) suppresses the
@@ -233,7 +240,9 @@ function gifBytes(size = 64) {
     })
     assert.equal(second.kind, 'ready')
     assert.equal(fetchCount, 1, 'the warm disk store serves the second read')
-    assert.equal(signatureCount, 2, 'the signature is still checked on a cold memo')
+    // 3 = first read resolves once, then re-resolves to PIN the fetched bytes to
+    // the signature before caching; the second (warm) read resolves once more.
+    assert.equal(signatureCount, 3, 'the signature is still checked on a cold memo')
 
     // The shared memo suppresses even the signature search within the floor.
     const memo = createHomeV2ImageMemo(8)
@@ -262,7 +271,7 @@ function gifBytes(size = 64) {
   try {
     const store = new HomeV2ImageCache({ directory: dir })
     let fetchCount = 0
-    let signature = 'sig-1'
+    let signature = 'sig1'
     const fetchImage = async (): Promise<HomeV2ImageFetchOutcome> => {
       fetchCount += 1
       return { kind: 'ready', bytes: pngBytes(fetchCount === 1 ? 64 : 96), contentType: 'image/png' }
@@ -275,7 +284,7 @@ function gifBytes(size = 64) {
       fetchImage,
     }
     await readImageThroughCache({ ...base, memo: createHomeV2ImageMemo(8), resolveSignature: async () => signature })
-    signature = 'sig-2' // a republish
+    signature = 'sig2' // a republish
     const after = await readImageThroughCache({
       ...base,
       memo: createHomeV2ImageMemo(8),
@@ -288,26 +297,28 @@ function gifBytes(size = 64) {
   }
 }
 
-// --- read-through: a fetch failure with a warm cache serves the cached bytes ---
+// --- read-through: a fetch failure after a NEWER signature is unavailable,
+//     never the older on-disk bytes relabelled as fresh ---
 {
   const dir = tempDir()
   try {
     const store = new HomeV2ImageCache({ directory: dir })
     const warm = pngBytes(48)
-    store.putReady('avatar|Bob', 'sig-1', warm, 'image/png', 500 * 1024)
-    // The signature moved on, so the exact-signature lookup misses; the fetch
-    // then fails. The last-known-good bytes must still be served.
+    store.putReady('avatar|Bob', 'sig1', warm, 'image/png', 500 * 1024)
+    // The signature moved on (sig2), so the exact-signature lookup misses; the
+    // fetch then fails. The on-disk bytes are for the OLDER sig1, so serving
+    // them as a fresh `ready` would report known-stale content as current.
+    // Report unavailable instead — the renderer keeps its own last-good copy.
     const outcome = await readImageThroughCache({
       store,
       memo: createHomeV2ImageMemo(8),
       cacheKey: 'avatar|Bob',
       maxEntryBytes: 500 * 1024,
       revalidateFloorMs: 6 * 60 * 60 * 1000,
-      resolveSignature: async () => 'sig-2',
+      resolveSignature: async () => 'sig2',
       fetchImage: async () => ({ kind: 'unavailable', message: 'node busy' }),
     })
-    assert.ok(outcome.kind === 'ready', 'a fetch failure falls back to the warm cache')
-    assert.deepEqual(outcome.bytes, warm)
+    assert.equal(outcome.kind, 'unavailable', 'known-stale bytes are not served as fresh')
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -318,7 +329,7 @@ function gifBytes(size = 64) {
   const dir = tempDir()
   try {
     const store = new HomeV2ImageCache({ directory: dir })
-    store.putMissing('appicon|NoIcon', 'sig-1')
+    store.putMissing('appicon|NoIcon', 'sig1')
     let fetchCount = 0
     const outcome = await readImageThroughCache({
       store,
@@ -326,7 +337,7 @@ function gifBytes(size = 64) {
       cacheKey: 'appicon|NoIcon',
       maxEntryBytes: 256 * 1024,
       revalidateFloorMs: 6 * 60 * 60 * 1000,
-      resolveSignature: async () => 'sig-1',
+      resolveSignature: async () => 'sig1',
       fetchImage: async () => {
         fetchCount += 1
         return { kind: 'ready', bytes: pngBytes(), contentType: 'image/png' }
@@ -362,6 +373,274 @@ function gifBytes(size = 64) {
     assert.equal((await run()).kind, 'ready')
     assert.equal(fetchCount, 2, 'without a signature nothing is cached')
     assert.equal(store.entries().length, 0, 'and nothing is written to the store')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+// --- cache keys are collision-free across field boundaries ---
+{
+  // ('a|b','c') and ('a','b|c') must not collide (the old '|'-join bug).
+  assert.notEqual(
+    buildHomeV2ImageCacheKey('appicon', 'qortium', 'APP', 'a|b', 'c'),
+    buildHomeV2ImageCacheKey('appicon', 'qortium', 'APP', 'a', 'b|c'),
+    'ambiguous field splits produce different keys',
+  )
+  // kind and null-vs-"default" identifier are also distinguished.
+  assert.notEqual(
+    buildHomeV2ImageCacheKey('appicon', 'qortium', 'APP', 'X', null),
+    buildHomeV2ImageCacheKey('avatar', 'qortium', 'APP', 'X', null),
+    'different kinds do not collide',
+  )
+  assert.equal(
+    buildHomeV2ImageCacheKey('appicon', 'qortium', 'APP', 'X', null),
+    buildHomeV2ImageCacheKey('appicon', 'qortium', 'APP', 'X', 'default'),
+    'null identifier canonicalizes to default',
+  )
+}
+
+// --- negative cache entries expire after the TTL and re-fetch ---
+{
+  const dir = tempDir()
+  try {
+    let clock = 1_000
+    const cache = new HomeV2ImageCache({ directory: dir, now: () => clock })
+    assert.equal(cache.putMissing('appiconExpire', SIG), true)
+    assert.ok(cache.get('appiconExpire', SIG), 'fresh negative entry is a hit')
+    clock += HOME_V2_IMAGE_CACHE_NEGATIVE_TTL_MS + 1
+    assert.equal(
+      cache.get('appiconExpire', SIG),
+      null,
+      'a negative entry past its TTL is a true miss (re-fetch)',
+    )
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+// --- a non-Base58 (or over-long) signature is rejected on load ---
+{
+  const dir = tempDir()
+  try {
+    mkdirSync(dir, { recursive: true })
+    const cacheKey = 'appiconBadSig'
+    const fileName = createHash('sha256').update(cacheKey).digest('hex')
+    writeFileSync(path.join(dir, fileName), Buffer.from(pngBytes()))
+    writeFileSync(
+      path.join(dir, 'index.json'),
+      JSON.stringify([
+        {
+          cacheKey,
+          contentType: 'image/png',
+          byteLength: pngBytes().byteLength,
+          signature: 'not-base58-!!',
+          storedAt: 1,
+          status: 'ready',
+        },
+      ]),
+    )
+    const cache = new HomeV2ImageCache({ directory: dir })
+    assert.equal(cache.entries().length, 0, 'a non-Base58 signature row is dropped on load')
+    // ...and its now-orphaned blob is reconciled away.
+    assert.equal(
+      readdirSync(dir).filter((name) => name !== 'index.json').length,
+      0,
+      'the orphaned blob was swept',
+    )
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+// --- orphaned blobs (no manifest row) are reconciled away on load ---
+{
+  const dir = tempDir()
+  try {
+    const cache = new HomeV2ImageCache({ directory: dir })
+    cache.putReady('keep', SIG, pngBytes(), 'image/png', 256 * 1024)
+    // A stray blob and a stray temp file with no manifest row.
+    writeFileSync(path.join(dir, 'deadbeef'.repeat(8)), Buffer.from(pngBytes()))
+    writeFileSync(path.join(dir, '.tmp-orphan'), Buffer.from(pngBytes()))
+    const reopened = new HomeV2ImageCache({ directory: dir })
+    assert.ok(reopened.get('keep', SIG), 'the referenced entry survives')
+    const files = readdirSync(dir).filter((name) => name !== 'index.json')
+    assert.equal(files.length, 1, 'only the one referenced blob remains')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+// --- a symlinked cache root is refused (writes fail, never follow the link) ---
+{
+  const base = tempDir()
+  try {
+    const real = path.join(base, 'real')
+    const link = path.join(base, 'link')
+    mkdirSync(real, { recursive: true })
+    symlinkSync(real, link, 'dir')
+    const cache = new HomeV2ImageCache({ directory: link })
+    assert.equal(
+      cache.putReady('viaSymlink', SIG, pngBytes(), 'image/png', 256 * 1024),
+      false,
+      'a write through a symlinked root is refused',
+    )
+  } finally {
+    rmSync(base, { recursive: true, force: true })
+  }
+}
+
+// --- read-through: bytes are NOT cached when the signature changes mid-fetch ---
+{
+  const dir = tempDir()
+  try {
+    const store = new HomeV2ImageCache({ directory: dir })
+    let resolveCount = 0
+    // First resolve (pre-fetch) sees sig1; the pin re-resolve (post-fetch) sees
+    // sig2 — a republish landed mid-fetch — so the bytes must NOT be cached
+    // under sig1.
+    const outcome = await readImageThroughCache({
+      store,
+      memo: createHomeV2ImageMemo(8),
+      cacheKey: 'appiconRepublish',
+      maxEntryBytes: 256 * 1024,
+      revalidateFloorMs: 6 * 60 * 60 * 1000,
+      resolveSignature: async () => {
+        resolveCount += 1
+        return resolveCount === 1 ? SIG : `${SIG}2`
+      },
+      fetchImage: async () => ({ kind: 'ready', bytes: pngBytes(), contentType: 'image/png' }),
+    })
+    assert.equal(outcome.kind, 'ready', 'the fetched bytes are still returned to the caller')
+    assert.equal(store.entries().length, 0, 'but nothing is cached under the stale signature')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+// --- a FUTURE storedAt cannot keep a forged negative entry alive forever ---
+{
+  const dir = tempDir()
+  try {
+    mkdirSync(dir, { recursive: true })
+    // A hostile manifest sets storedAt far in the future so `now - storedAt`
+    // stays below the TTL for millennia. It must be treated as expired.
+    writeFileSync(
+      path.join(dir, 'index.json'),
+      JSON.stringify([
+        { cacheKey: 'k', contentType: null, byteLength: 0, signature: SIG, storedAt: 8.64e15, status: 'missing' },
+      ]),
+    )
+    const cache = new HomeV2ImageCache({ directory: dir, now: () => 1_000 })
+    assert.equal(cache.get('k', SIG), null, 'a future-dated negative entry is not a live hit')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+// --- a symlinked cache root never lets reconcile delete OUTSIDE the store ---
+{
+  const base = tempDir()
+  try {
+    const outside = path.join(base, 'outside')
+    const sentinel = path.join(outside, 'keep.txt')
+    mkdirSync(outside, { recursive: true })
+    writeFileSync(sentinel, 'precious')
+    const link = path.join(base, 'link')
+    symlinkSync(outside, link, 'dir')
+    // Loading (which reconciles) must touch nothing through the symlinked root.
+    const cache = new HomeV2ImageCache({ directory: link })
+    assert.equal(cache.entries().length, 0, 'a symlinked root loads empty')
+    assert.equal(existsSync(sentinel), true, 'the outside sentinel file was NOT deleted')
+    // And a write is still refused.
+    assert.equal(cache.putReady('x', SIG, pngBytes(), 'image/png', 256 * 1024), false)
+    assert.equal(existsSync(sentinel), true, 'still not deleted after a write attempt')
+  } finally {
+    rmSync(base, { recursive: true, force: true })
+  }
+}
+
+// --- a blob replaced by a symlink to an outside file is refused on read ---
+{
+  const base = tempDir()
+  try {
+    const dir = path.join(base, 'cache')
+    const cache = new HomeV2ImageCache({ directory: dir })
+    cache.putReady('sym', SIG, pngBytes(), 'image/png', 256 * 1024)
+    const blob = readdirSync(dir).find((name) => name !== 'index.json')
+    assert.ok(blob)
+    // Replace the blob with a symlink to an outside, same-content PNG.
+    const outsidePng = path.join(base, 'outside.png')
+    writeFileSync(outsidePng, Buffer.from(pngBytes()))
+    rmSync(path.join(dir, blob), { force: true })
+    symlinkSync(outsidePng, path.join(dir, blob))
+    const reopened = new HomeV2ImageCache({ directory: dir })
+    assert.equal(reopened.get('sym', SIG), null, 'a symlinked blob is not followed/served')
+  } finally {
+    rmSync(base, { recursive: true, force: true })
+  }
+}
+
+// --- a symlinked index.json is refused on load (O_NOFOLLOW), not followed ---
+{
+  const base = tempDir()
+  try {
+    const dir = path.join(base, 'cache')
+    mkdirSync(dir, { recursive: true })
+    // A real, valid manifest sitting OUTSIDE the cache dir...
+    const outsideIndex = path.join(base, 'outside-index.json')
+    writeFileSync(
+      outsideIndex,
+      JSON.stringify([
+        { cacheKey: 'k', contentType: null, byteLength: 0, signature: SIG, storedAt: 1, status: 'missing' },
+      ]),
+    )
+    // ...and index.json is a symlink to it. O_NOFOLLOW must refuse to read it.
+    symlinkSync(outsideIndex, path.join(dir, 'index.json'))
+    const cache = new HomeV2ImageCache({ directory: dir })
+    assert.equal(cache.entries().length, 0, 'a symlinked index.json is not followed/read')
+  } finally {
+    rmSync(base, { recursive: true, force: true })
+  }
+}
+
+// --- an over-cap manifest is bounded by eviction on load ---
+{
+  const dir = tempDir()
+  try {
+    let clock = 1_000
+    const cache = new HomeV2ImageCache({
+      directory: dir,
+      maxTotalBytes: 200,
+      now: () => (clock += 1_000),
+    })
+    // Two 80-byte entries persisted (160 bytes, under the 200 write-time cap).
+    cache.putReady('a', SIG, pngBytes(80), 'image/png', 256 * 1024)
+    cache.putReady('b', SIG, pngBytes(80), 'image/png', 256 * 1024)
+    // Re-open with a LOWER cap: load must evict down to it even though the
+    // manifest lists more than the new cap holds.
+    const reopened = new HomeV2ImageCache({ directory: dir, maxTotalBytes: 100 })
+    let total = 0
+    for (const entry of reopened.entries()) total += entry.byteLength
+    assert.ok(total <= 100, `load-time eviction bounds the store (was ${total})`)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+// --- a filesystem failure in the write tail returns false, never throws ---
+{
+  const dir = tempDir()
+  try {
+    mkdirSync(dir, { recursive: true })
+    // index.json is a DIRECTORY, so writing the manifest throws EISDIR.
+    mkdirSync(path.join(dir, 'index.json'), { recursive: true })
+    const cache = new HomeV2ImageCache({ directory: dir })
+    assert.equal(
+      cache.putReady('k', SIG, pngBytes(), 'image/png', 256 * 1024),
+      false,
+      'a failing manifest write returns false rather than throwing',
+    )
+    assert.equal(cache.putMissing('k2', SIG), false, 'putMissing likewise returns false')
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

@@ -13,6 +13,11 @@ export interface HomeV2AppResourceCandidate {
 }
 
 const APP_RESOURCE_LIMIT = 50
+// Core implements the search's `identifier=` as a case-insensitive
+// LIKE '%value%', so a substring identifier can occupy a limit=1 result and the
+// exact resource is never seen. Pull several candidates and select the exact,
+// case-correct identity client-side instead.
+const SIGNATURE_SEARCH_LIMIT = 20
 
 export function normalizeHomeV2AppResourceService(value: unknown): QdnBrowserArchiveService {
   // Defaults to APP: the search predates WEBSITE/GAME support, and the IPC
@@ -94,7 +99,7 @@ export function buildHomeV2ResourceSignatureSearchPath(resource: HomeV2ResourceS
     mode: 'ALL',
     includestatus: 'false',
     includemetadata: 'false',
-    limit: '1',
+    limit: String(SIGNATURE_SEARCH_LIMIT),
   })
   return `/arbitrary/resources/search?${query.toString()}`
 }
@@ -107,13 +112,19 @@ export function parseHomeV2ResourceLatestSignature(
   resource: HomeV2ResourceSignatureQuery,
 ): string | null {
   if (!Array.isArray(value)) return null
+  // Names match case-insensitively (Core's exactmatchnames is case-insensitive),
+  // but identifiers are compared EXACTLY, case included: Core retrieves a
+  // resource by case-sensitive `identifier = ?`, so `Logo` and `logo` are two
+  // different resources and must not be conflated — folding case here could
+  // accept the wrong resource's signature and defeat later republish
+  // invalidation.
   const expectedName = normalizeHomeV2AppResourceName(resource.name).toLowerCase()
   const expectedService = normalizeSignatureService(resource.service)
-  const expectedIdentifier = (resource.identifier ?? 'default').toLowerCase()
+  const expectedIdentifier = resource.identifier ?? 'default'
   for (const item of value) {
     const name = stringField(item, 'name')?.toLowerCase()
     const service = stringField(item, 'service')?.toUpperCase()
-    const identifier = (stringField(item, 'identifier') ?? 'default').toLowerCase()
+    const identifier = stringField(item, 'identifier') ?? 'default'
     if (
       name !== expectedName ||
       service !== expectedService ||

@@ -113,7 +113,10 @@ assert.match(iconSignaturePath, /^\/arbitrary\/resources\/search\?/)
 assert.match(iconSignaturePath, /service=APP/)
 assert.match(iconSignaturePath, /identifier=default/)
 assert.match(iconSignaturePath, /includemetadata=false/)
-assert.match(iconSignaturePath, /limit=1/)
+// Several candidates, not one: Core's identifier= is a case-insensitive
+// LIKE '%value%', so limit=1 could be occupied by a substring match and the
+// exact resource never seen. Pull a batch and exact-filter client-side.
+assert.match(iconSignaturePath, /limit=20/)
 
 // Avatars use THUMBNAIL, which the browser-archive service check would reject
 // but the signature search deliberately accepts.
@@ -159,6 +162,28 @@ assert.equal(
   ),
   null,
   'a missing latestSignature yields null',
+)
+// Identifiers are matched EXACTLY, case included: `Logo` and `logo` are two
+// different resources (Core retrieves by case-sensitive identifier=?), so a
+// case-different row must not satisfy the request.
+assert.equal(
+  parseHomeV2ResourceLatestSignature(
+    [{ name: 'Chat', service: 'APP', identifier: 'logo', latestSignature: 'sigLower' }],
+    { service: 'APP', name: 'Chat', identifier: 'Logo' },
+  ),
+  null,
+  'a case-different identifier is not the same resource',
+)
+assert.equal(
+  parseHomeV2ResourceLatestSignature(
+    [
+      { name: 'Chat', service: 'APP', identifier: 'logo', latestSignature: 'sigLower' },
+      { name: 'Chat', service: 'APP', identifier: 'Logo', latestSignature: 'sigExact' },
+    ],
+    { service: 'APP', name: 'Chat', identifier: 'Logo' },
+  ),
+  'sigExact',
+  'the exact-case identifier is selected even when a case-variant is present',
 )
 
 console.log('Home v2 app resource discovery tests passed.')
