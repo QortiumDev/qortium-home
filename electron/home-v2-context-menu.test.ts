@@ -186,7 +186,12 @@ const viewHostSource = readFileSync('electron/qdn-views.ts', 'utf8')
 const androidHostSource = readFileSync('src/home-v2-live/HomeV2LiveApp.tsx', 'utf8')
 assert.match(desktopBridgeSource, /getQdnViewContextMenuPopupHost\(sender, request\.anchor\)/)
 assert.match(desktopBridgeSource, /Menu\.buildFromTemplate\(template\)/)
-assert.match(desktopBridgeSource, /pending\.menu\.closePopup\(pending\.window\)/)
+// The app-invoked menu shares the single per-view menu slot (in qdn-views) with
+// the native link menu: it reserves on open and runtime invalidation closes any
+// open menu through the shared coordinator.
+assert.match(desktopBridgeSource, /reserveQdnViewContextMenu\(sender\.id, \{/)
+assert.match(desktopBridgeSource, /closeQdnViewContextMenus\(/)
+assert.match(viewHostSource, /registration\.menu\.closePopup\(registration\.window\)/)
 assert.match(desktopBridgeSource, /getQdnViewContextForWebContents\(sender\)/)
 assert.match(viewHostSource, /!entry\.window\.isFocused\(\)/)
 assert.match(viewHostSource, /!entry\.view\.getVisible\(\)/)
@@ -206,8 +211,15 @@ assert.match(viewHostSource, /menu\.popup\(\{/)
 assert.match(viewHostSource, /send\('home-v2-app:open-address', \{\s*address: operation\.address/)
 // The menu is never bound to widget views or the shell renderer.
 assert.match(viewHostSource, /if \(!isWidgetTabId\(entry\.tabId\)\) \{/)
-// A selection with no actionable link still offers a plain Copy.
+// The native link menu shares the per-view slot too (declines to stack).
+assert.match(viewHostSource, /reserveQdnViewContextMenu\(viewWebContentsId, \{/)
+// A selection with no actionable link still offers a plain Copy, bounded.
 assert.match(viewHostSource, /selectionText/)
+assert.match(viewHostSource, /MAX_QDN_SELECTION_COPY_LENGTH/)
+// Open-in-new-tab binds the new tab to the ORIGINATING tab's account (resolved
+// from the trusted sourceTabId/sourceResourceLocation), never the global one.
+assert.match(androidHostSource, /resolveSourceTabAccountBinding\(/)
+assert.match(androidHostSource, /value\.sourceTabId,\s*value\.sourceResourceLocation,/)
 assert.match(androidHostSource, /action === 'SHOW_CONTEXT_MENU'/)
 assert.match(androidHostSource, /ANDROID_CONTEXT_MENU_TIMEOUT_MS/)
 assert.match(androidHostSource, /activeTab\.context\.resourceLocation !== pending\.resourceLocation/)

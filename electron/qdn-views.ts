@@ -938,6 +938,51 @@ export function getQdnViewContextMenuPopupHost(
   return null
 }
 
+// One open Home context menu per app view, keyed by the view's webContents id.
+// Shared by the native right-click link menu (this module) and the app-invoked
+// SHOW_CONTEXT_MENU (home-v2-app-bridge) so the two mutually exclude and both
+// honour runtime invalidation (account change / lock / navigation), which
+// closes any open menu bound to the affected host+tab+network.
+export interface QdnViewContextMenuRegistration {
+  readonly hostWebContentsId: number
+  readonly menu: Menu
+  readonly tabId: string
+  // null for a network-agnostic menu (a plain selection copy); such a menu is
+  // closed by non-network-scoped invalidations but not by a network switch.
+  readonly targetNetwork: HomeV2ContextMenuTarget['network'] | null
+  readonly window: BrowserWindow
+}
+
+const qdnViewContextMenus = new Map<number, QdnViewContextMenuRegistration>()
+
+// Reserve the single menu slot for a view. Returns false when that view already
+// has an open menu, so the caller can decline to stack a second popup.
+export function reserveQdnViewContextMenu(
+  webContentsId: number,
+  registration: QdnViewContextMenuRegistration,
+): boolean {
+  if (qdnViewContextMenus.has(webContentsId)) return false
+  qdnViewContextMenus.set(webContentsId, registration)
+  return true
+}
+
+// Release the slot ONLY if it still holds the menu we registered — a later menu
+// on the same view must not be dropped by an earlier menu's dismissal callback.
+export function releaseQdnViewContextMenu(webContentsId: number, menu: Menu): void {
+  const current = qdnViewContextMenus.get(webContentsId)
+  if (current && current.menu === menu) qdnViewContextMenus.delete(webContentsId)
+}
+
+// Close every open menu the predicate selects (used by runtime invalidation).
+export function closeQdnViewContextMenus(
+  predicate: (registration: QdnViewContextMenuRegistration) => boolean,
+): void {
+  for (const registration of qdnViewContextMenus.values()) {
+    if (!predicate(registration)) continue
+    registration.menu.closePopup(registration.window)
+  }
+}
+
 // The "Open as widget" toolbar action is issued by the Home shell rather than
 // by the app, so the request names a tab instead of arriving on the app view's
 // own webContents. The host window is verified by the caller, so a shell can
@@ -1048,6 +1093,13 @@ function resolveQdnLinkResourceTarget(linkURL: string): HomeV2ContextMenuTarget 
   }
 }
 
+// A QDN page can select an arbitrarily large text node and then a user copy of
+// it flows to the synchronous main-process clipboard.writeText. Resource links
+// are already bounded (≤2,000 chars, sanitizeOptionalResourceUrl); bound the
+// selection the same way. Above this, the Copy item is omitted rather than
+// silently truncated, so the user is never handed a partial copy.
+const MAX_QDN_SELECTION_COPY_LENGTH = 100_000;
+
 function showQdnViewLinkContextMenu(entry: QdnViewEntry, params: Electron.ContextMenuParams) {
   // Widget views and the shell renderer never get this menu; guarded by the
   // caller, re-checked here so the helper is safe on its own.
@@ -1073,9 +1125,11 @@ function showQdnViewLinkContextMenu(entry: QdnViewEntry, params: Electron.Contex
       });
       previousGroup = item.group;
     }
-  } else if (selectionText) {
+  } else if (selectionText && selectionText.length <= MAX_QDN_SELECTION_COPY_LENGTH) {
     // No actionable link: offer to copy the current selection. The value is the
-    // real selection from the trusted event, not page-injected menu content.
+    // real selection from the trusted event, not page-injected menu content,
+    // and is bounded so a giant selected node cannot force a huge synchronous
+    // main-process clipboard write.
     template.push({
       label: 'Copy',
       click: () => {
@@ -1097,8 +1151,27 @@ function showQdnViewLinkContextMenu(entry: QdnViewEntry, params: Electron.Contex
   // between the right-click and the user's selection, the operation is dropped.
   const capturedResourceUrl = entry.resourceUrl;
   const menu = Menu.buildFromTemplate(template);
-  menu.popup({
+  // Share the single menu slot with the app-invoked SHOW_CONTEXT_MENU so the
+  // two never stack, and so runtime invalidation (account change / lock) can
+  // close this native menu too. Decline to open if a menu is already up.
+  const viewWebContentsId = entry.view.webContents.id;
+  if (
+    !reserveQdnViewContextMenu(viewWebContentsId, {
+      hostWebContentsId: entry.window.webContents.id,
+      menu,
+      tabId: entry.tabId,
+      targetNetwork: resourceTarget?.network ?? null,
+      window: popupHost.window,
+    })
+  ) {
+    return;
+  }
+  try {
+    menu.popup({
     callback: () => {
+      // Clear the slot on every dismissal — but only if this menu still owns
+      // it, so a later menu on the same view is never dropped by our callback.
+      releaseQdnViewContextMenu(viewWebContentsId, menu);
       const operation = selectedOperation;
       if (!operation) return;
       // Re-check the live view after native dismissal and before acting.
@@ -1115,19 +1188,31 @@ function showQdnViewLinkContextMenu(entry: QdnViewEntry, params: Electron.Contex
         clipboard.writeText(operation.value);
       } else {
         // Reuse the exact app-invoked open path: the host window's openAddress
-        // binds the new tab to the selected Home account and the resolved
+        // binds the new tab to the originating tab's account and the resolved
         // resource's own identity, and applies WEBSITE/GAME + viewer-alias
         // routing. The address is the validated one, never the raw linkURL.
         entry.window.webContents.send('home-v2-app:open-address', {
           address: operation.address,
+          // Both come from this trusted view context, never the link/page.
+          // The renderer binds the new tab to the ORIGINATING tab's account
+          // (looked up by these two), not whatever account is globally
+          // selected now; `capturedResourceUrl` is the tab's own
+          // resourceLocation, so it is the compare half of that lookup.
           sourceTabId: entry.tabId,
+          sourceResourceLocation: capturedResourceUrl,
         });
       }
     },
     window: popupHost.window,
     x: popupHost.x,
     y: popupHost.y,
-  });
+    });
+  } catch (error) {
+    // popup() threw before it could show: release the slot we reserved so the
+    // view is not left unable to open any future menu.
+    releaseQdnViewContextMenu(viewWebContentsId, menu);
+    throw error;
+  }
 }
 
 function applyViewGuards(entry: QdnViewEntry) {

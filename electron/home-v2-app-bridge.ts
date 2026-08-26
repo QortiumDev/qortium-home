@@ -24,6 +24,7 @@ import {
 } from './home-v2-node-bridge.js'
 import { nodeFetch } from './node-tls.js'
 import {
+  closeQdnViewContextMenus,
   getQdnViewContextForTab,
   getQdnViewContextMenuPopupHost,
   getQdnViewContextForWebContents,
@@ -31,6 +32,8 @@ import {
   isQdnViewVisible,
   isQdnRenderUrlSameAppResource,
   onQdnViewNavigated,
+  releaseQdnViewContextMenu,
+  reserveQdnViewContextMenu,
   syncWidgetQdnViewState,
   type QdnViewContext,
 } from './qdn-views.js'
@@ -556,13 +559,10 @@ export function forgetHomeV2TabPendingHomeSettingsPrompts(
     !!pending.grantKey?.startsWith(HOME_V2_HOME_SETTINGS_GRANT_KEY_PREFIX))
 }
 const pendingSessionGrantDecisions = new Map<string, Promise<PermissionDecision>>()
-const pendingContextMenus = new Map<number, {
-  readonly hostWebContentsId: number
-  readonly menu: Menu
-  readonly tabId: string
-  readonly targetNetwork: HomeV2AppNetwork
-  readonly window: BrowserWindow
-}>()
+// The single open-menu-per-view registry lives in qdn-views (the lower-level
+// module that owns the popup host), shared with the native right-click link
+// menu — see reserveQdnViewContextMenu / releaseQdnViewContextMenu /
+// closeQdnViewContextMenus.
 const sessionAccountReadGrants = createHomeV2SessionGrantStore()
 // Fix B (security review finding 8): bounds how often an already-granted tab
 // can broadcast chat sends. See home-v2-send-rate-limiter.ts for the shared
@@ -6039,9 +6039,6 @@ async function showHomeV2DesktopContextMenu(
   protocol: HomeV2AppBridgeProtocol,
   requestValue: Record<string, unknown>,
 ) {
-  if (pendingContextMenus.has(sender.id)) {
-    throw new Error('This app tab already has an open Home context menu.')
-  }
   const request = normalizeHomeV2ContextMenuRequest(protocol, requestValue)
   const popupHost = getQdnViewContextMenuPopupHost(sender, request.anchor)
   if (!popupHost) {
@@ -6062,16 +6059,22 @@ async function showHomeV2DesktopContextMenu(
     previousGroup = item.group
   }
   const menu = Menu.buildFromTemplate(template)
-  pendingContextMenus.set(sender.id, {
-    hostWebContentsId: context.windowId,
-    menu,
-    tabId: context.tabId,
-    targetNetwork: request.target.network,
-    window: popupHost.window,
-  })
+  // Share the one-menu-per-view slot with the native right-click link menu.
+  // reserveQdnViewContextMenu returns false if this view already has a menu up.
+  if (
+    !reserveQdnViewContextMenu(sender.id, {
+      hostWebContentsId: context.windowId,
+      menu,
+      tabId: context.tabId,
+      targetNetwork: request.target.network,
+      window: popupHost.window,
+    })
+  ) {
+    throw new Error('This app tab already has an open Home context menu.')
+  }
   return new Promise((resolve, reject) => {
     const finish = async () => {
-      pendingContextMenus.delete(sender.id)
+      releaseQdnViewContextMenu(sender.id, menu)
       if (!selectedAction) {
         resolve(dismissedHomeV2ContextMenuResult())
         return
@@ -6092,7 +6095,10 @@ async function showHomeV2DesktopContextMenu(
         } else {
           popupHost.window.webContents.send('home-v2-app:open-address', {
             address: operation.address,
+            // Trusted view context, never the request; the renderer binds the
+            // new tab to the ORIGINATING tab's account, looked up by these two.
             sourceTabId: context.tabId,
+            sourceResourceLocation: context.resourceUrl,
           })
         }
         resolve(handledHomeV2ContextMenuResult(selectedAction))
@@ -6110,7 +6116,7 @@ async function showHomeV2DesktopContextMenu(
         y: popupHost.y,
       })
     } catch (error) {
-      pendingContextMenus.delete(sender.id)
+      releaseQdnViewContextMenu(sender.id, menu)
       reject(error)
     }
   })
@@ -6368,7 +6374,12 @@ async function handleRequestWithRuntime(
     }
     hostWindow.webContents.send('home-v2-app:open-address', {
       address,
+      // Both come from this trusted view context, never the request. The
+      // renderer binds the new tab to the ORIGINATING tab's account (looked up
+      // by these two), not whatever account is globally selected now, so an
+      // app can only ever open a resource under its own account.
       sourceTabId: context.tabId,
+      sourceResourceLocation: context.resourceUrl,
     })
     return true
   }
@@ -6916,12 +6927,23 @@ export function registerHomeV2AppBridgeIpcHandlers() {
     }
     homeV2DesktopPublishSources.clear()
     clearHomeV2DesktopResourceStreams()
-    for (const pending of pendingContextMenus.values()) {
-      if (pending.hostWebContentsId !== hostWebContentsId) continue
-      if (invalidation.tabId && pending.tabId !== invalidation.tabId) continue
-      if (invalidation.network && pending.targetNetwork !== invalidation.network) continue
-      pending.menu.closePopup(pending.window)
-    }
+    // Close any open Home context menu — native link menu or app-invoked —
+    // bound to the affected host/tab/network. A network-agnostic menu (a plain
+    // selection copy, targetNetwork null) is closed by any non-network-scoped
+    // invalidation for that host+tab, but a bare network switch leaves it be.
+    closeQdnViewContextMenus((registration) => {
+      if (registration.hostWebContentsId !== hostWebContentsId) return false
+      if (invalidation.tabId && registration.tabId !== invalidation.tabId) return false
+      if (invalidation.network) {
+        // A network-scoped invalidation closes only menus for that network. A
+        // network-agnostic menu (a plain selection copy, targetNetwork null)
+        // survives a bare network switch — non-network-scoped invalidations
+        // (account change / lock, below) still close it.
+        if (registration.targetNetwork === null) return false
+        if (registration.targetNetwork !== invalidation.network) return false
+      }
+      return true
+    })
     for (const [requestId, pending] of pendingAccountReads) {
       if (pending.hostWebContentsId !== hostWebContentsId) continue
       if (invalidation.tabId && pending.tabId !== invalidation.tabId) continue
