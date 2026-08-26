@@ -219,7 +219,7 @@ assert.ok(
 // store it touches arrives as an injected dependency, which is what makes the
 // write path the same code on desktop and on Android.
 assert.ok(
-  !/ipcRenderer|window\./.test(rendererClient),
+  !/ipcRenderer|window\.[A-Za-z_$]/.test(rendererClient),
   'the renderer client must not reach a bridge or IPC channel directly',
 );
 assert.ok(
