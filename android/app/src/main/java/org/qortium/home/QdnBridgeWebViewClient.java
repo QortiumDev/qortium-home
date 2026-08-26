@@ -462,7 +462,7 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
             contentType = QdnRenderProxy.resolveResponseMimeType(request.getUrl());
         }
 
-        Map<String, String> responseHeaders = getResponseHeaders(connection);
+        Map<String, String> responseHeaders = withoutContentTypeHeader(getResponseHeaders(connection));
 
         if (
             streamCapability &&
@@ -471,10 +471,6 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
         ) {
             connection.disconnect();
             return payloadTooLargeResponse();
-        }
-
-        if (inferredContentType && contentType != null) {
-            responseHeaders.put("Content-Type", contentType);
         }
 
         InputStream responseStream = getResponseStream(connection, statusCode);
@@ -885,6 +881,29 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
             }
 
             headers.put(header.getKey(), header.getValue().get(0));
+        }
+
+        return headers;
+    }
+
+    /**
+     * The response mime type travels ONLY as the WebResourceResponse
+     * constructor argument. A Content-Type copied from the upstream response
+     * (or re-added as an inferred hint) must be dropped from the header map,
+     * because WebView emits BOTH sources: the renderer then sees the merged,
+     * invalid "video/mp4, video/mp4" and the media element refuses the
+     * response with a format error, breaking every stream-capability playback
+     * on Android (2026-08-26 phone-pass finding H-P1).
+     */
+    static Map<String, String> withoutContentTypeHeader(Map<String, String> headers) {
+        // Iterate explicitly: a map may hold more than one casing of the same
+        // header name, and every one of them must go.
+        java.util.Iterator<String> names = headers.keySet().iterator();
+
+        while (names.hasNext()) {
+            if ("Content-Type".equalsIgnoreCase(names.next())) {
+                names.remove();
+            }
         }
 
         return headers;
