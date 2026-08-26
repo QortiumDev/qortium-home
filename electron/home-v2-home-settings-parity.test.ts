@@ -47,6 +47,7 @@ const rendererClient = readRepoSource(
 const livePreload = readRepoSource('../electron/home-v2-live-preload.cts', './home-v2-live-preload.cts');
 const promptTypes = readRepoSource('../src/v2/bridge-permissions.ts', './src/v2/bridge-permissions.ts');
 const appRuntime = readRepoSource('../electron/home-v2-app-runtime.ts', './home-v2-app-runtime.ts');
+const appTabStage = readRepoSource('../src/v2/shell/AppTabStage.tsx', './src/v2/shell/AppTabStage.tsx');
 
 // ---------------------------------------------------------------------------
 // Parity: the v2 surface is EXACTLY the 1.x three, and no more.
@@ -287,5 +288,129 @@ for (const action of HOME_V2_HOME_SETTINGS_UNPROMPTED_ACTIONS) {
     `${action} must be excluded from widget public reads explicitly`,
   );
 }
+
+// ---------------------------------------------------------------------------
+// Posture: the trusted prompt queue cannot be flooded.
+// ---------------------------------------------------------------------------
+
+// UPDATE_HOME_SETTINGS is single-request, so unlike the durable manager
+// families it has no "already granted" early return to absorb repeats — an app
+// can issue endless individually VALID updates. Desktop must therefore dedup
+// equivalent requests and cap outstanding ones, as Android already does in
+// queueAndroidPermissionPrompt.
+assert.ok(
+  desktopBridge.includes('MAX_PENDING_HOME_SETTINGS_PROMPTS_PER_APP') &&
+    desktopBridge.includes('MAX_PENDING_HOME_SETTINGS_PROMPTS_GLOBAL'),
+  'the desktop Home settings gate must cap pending prompts per app and globally',
+);
+assert.ok(
+  /This Home settings request is already pending for the app tab\./.test(desktopBridge),
+  'the desktop gate must refuse a duplicate pending request',
+);
+assert.ok(
+  /Too many pending Home settings requests for this app\./.test(desktopBridge),
+  'the desktop gate must refuse an app that exceeds its pending cap',
+);
+// The dedup key must include the approval rows, so two DIFFERENT proposed
+// changes still prompt separately while the same one twice does not.
+assert.ok(
+  /const grantKey = [^\n]*HOME_SETTINGS_GRANT_KEY_PREFIX[^\n]*JSON\.stringify\(details\)/.test(desktopBridge),
+  'the dedup key must cover the app, tab, protocol and the proposed change',
+);
+// Cleanup rides on pendingAccountReads, which resolve and timeout delete and
+// which invalidateRuntime already drains on tab-close, app-replaced,
+// navigation and lock. Pin that the entry is registered there, rather than in
+// a private map nothing would clean up.
+assert.ok(
+  /pendingAccountReads\.set\(requestId, \{\s*appIdentityKey: appKey,\s*grantKey,/.test(desktopBridge),
+  'a pending Home settings prompt must live in pendingAccountReads with its app key and dedup key',
+);
+
+// ---------------------------------------------------------------------------
+// Posture: widgets get the display state but NOT the settings event.
+// ---------------------------------------------------------------------------
+
+// No qdn-views test harness exists (it would need a real Electron window), so
+// this is pinned against the source of the broadcast handler, in the same style
+// as the rest of this file.
+const broadcastHandler = (() => {
+  const qdnViews = readRepoSource('../electron/qdn-views.ts', './qdn-views.ts');
+  const start = qdnViews.indexOf("ipcMain.handle('qdn-views:broadcastHomeSettingsChanged'");
+  assert.ok(start >= 0, 'the Home settings broadcast handler must exist');
+  const end = qdnViews.indexOf('ipcMain.handle(', start + 1);
+  return qdnViews.slice(start, end > start ? end : undefined);
+})();
+
+const displayAssignment = broadcastHandler.indexOf('entry.displaySettings =');
+const widgetGuard = broadcastHandler.indexOf("entry.tabId.startsWith('widget:')");
+const eventAssignment = broadcastHandler.indexOf('entry.pendingHomeSettingsEvent =');
+assert.ok(
+  displayAssignment >= 0 && widgetGuard >= 0 && eventAssignment >= 0,
+  'the broadcast handler must assign display state, guard widgets, and assign the event',
+);
+// Display sync happens BEFORE the guard, so a widget still re-themes...
+assert.ok(
+  displayAssignment < widgetGuard,
+  'widget display state must stay ungated: a widget must re-theme with the rest of Home',
+);
+// ...and the EVENT happens inside it, so a widget never receives a detail
+// carrying appNotifications and appZoom — the very fields it is refused at the
+// GET_HOME_SETTINGS gate.
+assert.ok(
+  widgetGuard < eventAssignment,
+  'the Home settings EVENT must be withheld from widget views',
+);
+
+// ---------------------------------------------------------------------------
+// Posture: Android apps actually receive the change event.
+// ---------------------------------------------------------------------------
+
+// Desktop injects a CustomEvent into the view; Android has no injection point,
+// so the shell posts the same detail to the frame and the native bridge shim
+// re-dispatches it as the identical CustomEvent.
+assert.ok(
+  appTabStage.includes("type: 'qortium:home-settings-changed'"),
+  'the Android stage must post the Home settings change event',
+);
+// Pinned target origin, never a wildcard: this detail is the user's settings,
+// and '*' would hand them to whatever the frame had navigated to.
+assert.ok(
+  /frameWindow\.postMessage\(\{\s*type: 'qortium:home-settings-changed',[\s\S]*?\}, new URL\(source\)\.origin\)/
+    .test(appTabStage),
+  'the Android settings event must be posted to the pinned proxy origin',
+);
+assert.ok(
+  !/qortium:home-settings-changed[\s\S]{0,600}?postMessage\([\s\S]*?,\s*'\*'\)/.test(appTabStage),
+  'the Android settings event must never be posted to a wildcard origin',
+);
+// appNotifications must be a real boolean or a hard-validating consumer drops
+// the whole event, so nothing is posted while the policy is unread.
+assert.ok(
+  /typeof props\.appNotifications !== 'boolean'/.test(appTabStage),
+  'Android must not post a settings event before the notification policy is read',
+);
+// The detail must carry the 1.x duplicate fields, which the desktop validator
+// requires to be present and equal.
+for (const field of ['lang:', 'language:', 'uiStyle:', 'appZoom:', 'appNotifications:']) {
+  assert.ok(appTabStage.includes(field), `the Android settings detail must carry ${field}`);
+}
+
+// ---------------------------------------------------------------------------
+// The documented appearance-persistence window.
+// ---------------------------------------------------------------------------
+
+// Ordering makes the split write safe against every HANDLED failure, but not
+// against process death: appearance is persisted by a debounced, unawaited
+// save. That is a known and accepted limitation, and it must stay documented at
+// the write site rather than decaying into folklore.
+assert.ok(
+  /KNOWN WINDOW/.test(rendererClient),
+  'the appearance-persistence window must be documented at the write site',
+);
+assert.ok(
+  readRepoSource('../docs/HOME_SETTINGS_BRIDGE.md', './docs/HOME_SETTINGS_BRIDGE.md')
+    .includes('eventually consistent'),
+  'the appearance-persistence window must be documented for app authors',
+);
 
 console.log('Home v2 Home settings parity and posture tests passed.');

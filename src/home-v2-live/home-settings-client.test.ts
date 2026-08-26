@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
 import {
+  HOME_V2_HOME_SETTINGS_STALE_CODE,
   createHomeV2HomeSettingsResponder,
+  normalizeHomeV2NotificationPolicyError,
   splitHomeV2HomeSettingsPatch,
   type HomeV2HomeSettingsResponderDependencies,
 } from './home-settings-client'
@@ -78,10 +80,41 @@ function harness(options: {
   return state
 }
 
+/** A conflict as the ANDROID portable adapter throws it: in-process, code intact. */
 function stale() {
   return Object.assign(new Error('Notification settings changed; refresh and try again.'), {
     code: 'HOME_DATA_STALE',
   })
+}
+
+/** The DESKTOP store's own shape, before the IPC gets to it. */
+function desktopStaleInProcess() {
+  return Object.assign(new Error('Notification policy changed in another Home window.'), {
+    code: 'SETTINGS_CHANGED',
+  })
+}
+
+/**
+ * A desktop conflict as it ACTUALLY ARRIVES in the renderer.
+ *
+ * This is the shape that matters. Electron serializes a rejected
+ * ipcMain.handle by message only: `code: 'SETTINGS_CHANGED'` is GONE, and the
+ * text is re-wrapped with the "Error invoking remote method" prefix. A
+ * code-only check sees nothing to retry on.
+ */
+function desktopStaleOverIpc() {
+  return new Error(
+    "Error invoking remote method 'home-v2-notification-policy:set': Error: Notification policy changed in another Home window.",
+  )
+}
+
+const POLICY_PATH = '/home/user/.config/Qortium Home/home-v2-notification-policy.json'
+
+/** A raw filesystem failure, likewise stripped of its code and carrying a path. */
+function desktopWriteFailureOverIpc() {
+  return new Error(
+    `Error invoking remote method 'home-v2-notification-policy:set': Error: EACCES: permission denied, open '${POLICY_PATH}.4242.a1b2c3.tmp'`,
+  )
 }
 
 async function main() {
@@ -286,15 +319,131 @@ async function main() {
   }
 
   {
-    // A non-conflict failure is NOT retried: only HOME_DATA_STALE means "try
-    // again against a newer generation".
+    // A non-conflict failure is NOT retried: only a stale compare-and-set means
+    // "try again against a newer generation". It is also normalized, so the
+    // underlying message never reaches the app.
     const test = harness({ setPolicy: async () => { throw new Error('disk is on fire') } })
     await assert.rejects(
       () => createHomeV2HomeSettingsResponder(test.dependencies).apply({ appNotifications: false }),
-      /disk is on fire/,
+      (error: unknown) => {
+        const failure = error as { code?: string; message?: string }
+        assert.equal(failure.code, 'HOME_NOTIFICATION_POLICY_WRITE_FAILED')
+        assert.equal(failure.message, 'Notification settings could not be saved.')
+        assert.ok(!failure.message?.includes('disk is on fire'))
+        return true
+      },
     )
     assert.equal(test.policyWrites.length, 1)
     assert.equal(test.refreshes, 0)
+  }
+
+  // -------------------------------------------------------------------------
+  // The REAL desktop error path.
+  //
+  // These are the shapes that actually arrive in the renderer on desktop, not
+  // a mocked HOME_DATA_STALE. Electron serializes a rejected ipcMain.handle by
+  // message alone, so the store's `code` is gone by the time the responder sees
+  // it — which is exactly how the retry came to be dead on desktop while the
+  // Android tests above passed.
+  // -------------------------------------------------------------------------
+
+  for (const [label, makeError] of [
+    ['in-process (SETTINGS_CHANGED code intact)', desktopStaleInProcess],
+    ['over IPC (code stripped, message wrapped)', desktopStaleOverIpc],
+  ] as const) {
+    const test = harness({
+      refreshedPolicy: policy({ generation: 9 }),
+      setPolicy: async (request, attempt) => {
+        if (attempt === 1) throw makeError()
+        return policy({ enabled: request.enabled, generation: request.expectedGeneration + 1 })
+      },
+    })
+    const applied = await createHomeV2HomeSettingsResponder(test.dependencies)
+      .apply({ appNotifications: false })
+    assert.equal(test.refreshes, 1, `a desktop conflict ${label} must trigger a re-read`)
+    assert.deepEqual(
+      test.policyWrites,
+      [
+        { enabled: false, expectedGeneration: 4 },
+        { enabled: false, expectedGeneration: 9 },
+      ],
+      `a desktop conflict ${label} must retry against the refreshed generation`,
+    )
+    assert.equal(applied.appNotifications, false)
+  }
+
+  {
+    // A desktop write failure must not leak the policy path, the temp-file name
+    // or the pid to the app. The path is sanitized in main as well; this is the
+    // renderer-side half of the same defence.
+    const test = harness({ setPolicy: async () => { throw desktopWriteFailureOverIpc() } })
+    await assert.rejects(
+      () => createHomeV2HomeSettingsResponder(test.dependencies).apply({ appNotifications: false }),
+      (error: unknown) => {
+        const failure = error as { code?: string; message?: string }
+        assert.equal(failure.code, 'HOME_NOTIFICATION_POLICY_WRITE_FAILED')
+        assert.equal(failure.message, 'Notification settings could not be saved.')
+        assert.ok(!failure.message?.includes(POLICY_PATH), 'the policy path must not reach the app')
+        assert.ok(!failure.message?.includes('EACCES'), 'the fs errno must not reach the app')
+        assert.ok(!failure.message?.includes('.tmp'), 'the temp file name must not reach the app')
+        assert.ok(
+          !failure.message?.includes('Error invoking remote method'),
+          'the Electron IPC wrapper must not reach the app',
+        )
+        return true
+      },
+    )
+    // Not retried: a write failure is not a conflict.
+    assert.equal(test.refreshes, 0)
+    assert.equal(test.policyWrites.length, 1)
+  }
+
+  {
+    // A desktop conflict that keeps losing is reported with the stale code, so
+    // an app can still distinguish "retry" from "give up".
+    const test = harness({
+      refreshedPolicy: policy({ generation: 9 }),
+      setPolicy: async () => { throw desktopStaleOverIpc() },
+    })
+    await assert.rejects(
+      () => createHomeV2HomeSettingsResponder(test.dependencies).apply({ appNotifications: false }),
+      (error: unknown) => (error as { code?: string }).code === HOME_V2_HOME_SETTINGS_STALE_CODE,
+    )
+    assert.equal(test.policyWrites.length, 2)
+    assert.equal(test.refreshes, 1)
+  }
+
+  // -------------------------------------------------------------------------
+  // The normalizer on its own.
+  // -------------------------------------------------------------------------
+
+  for (const [input, expected] of [
+    [stale(), HOME_V2_HOME_SETTINGS_STALE_CODE],
+    [desktopStaleInProcess(), HOME_V2_HOME_SETTINGS_STALE_CODE],
+    [desktopStaleOverIpc(), HOME_V2_HOME_SETTINGS_STALE_CODE],
+    [
+      Object.assign(new Error('Notification policy storage is unavailable.'), {
+        code: 'POLICY_STORAGE_UNAVAILABLE',
+      }),
+      'HOME_NOTIFICATION_POLICY_UNAVAILABLE',
+    ],
+    [new Error('Notification policy storage is unavailable.'), 'HOME_NOTIFICATION_POLICY_UNAVAILABLE'],
+    [new Error('Notification policy storage is corrupt.'), 'HOME_NOTIFICATION_POLICY_CORRUPT'],
+    [desktopWriteFailureOverIpc(), 'HOME_NOTIFICATION_POLICY_WRITE_FAILED'],
+    [new Error('something nobody anticipated'), 'HOME_NOTIFICATION_POLICY_WRITE_FAILED'],
+    // Not an Error at all, and a null: both must still normalize rather than throw.
+    ['a bare string', 'HOME_NOTIFICATION_POLICY_WRITE_FAILED'],
+    [null, 'HOME_NOTIFICATION_POLICY_WRITE_FAILED'],
+  ] as const) {
+    const normalized = normalizeHomeV2NotificationPolicyError(input)
+    assert.equal(normalized.code, expected)
+    // Whatever went in, only one of four fixed public messages comes out.
+    assert.ok([
+      'Notification settings changed; refresh and try again.',
+      'Notification settings are unavailable.',
+      'Notification settings could not be saved.',
+    ].includes(normalized.message), `unexpected public message: ${normalized.message}`)
+    assert.ok(!normalized.message.includes(POLICY_PATH))
   }
 
   for (const status of ['corrupt', 'unavailable'] as const) {

@@ -317,6 +317,10 @@ function AndroidAppStage(props: AppTabStageProps) {
   // in QdnBridgeWebViewClient.java for the layer that actually is one.
   const liveResourcePathRef = useRef<string | null>(null)
   const deliveredBridgeStateRevisionsRef = useRef<Record<string, string> | null>(null)
+  // Signature of the last Home-settings detail posted to this frame. null means
+  // "nothing delivered yet", which suppresses the first post — the frame was
+  // loaded with those values already.
+  const deliveredHomeSettingsRef = useRef<string | null>(null)
 
   useEffect(() => {
     liveResourcePathRef.current = resolved ? resolved.url : null
@@ -351,6 +355,59 @@ function AndroidAppStage(props: AppTabStageProps) {
       }, targetOrigin)
     }
   }, [props.snapshot.nodes, resolved, source, token])
+
+  // The Android half of `qortium:home-settings-changed`.
+  //
+  // Desktop delivers this by injecting a CustomEvent into the app view
+  // (sendQdnHomeSettingsChangedEvent in electron/qdn-views.ts). Android has no
+  // such injection point, but the native bridge shim already listens for a
+  // parent postMessage of this exact type and re-dispatches it as the SAME
+  // CustomEvent (QdnBridgeWebViewClient.java, getQdnBridgeTag) — so an app uses
+  // one API on both platforms and only the transport differs.
+  //
+  // Why it matters: on Android an accent/theme/language/textSize change already
+  // reloads the frame, because each is a query parameter of the render URL.
+  // Interface style, app zoom and appNotifications are NOT, so before this
+  // those three changes produced no signal to an open Android app at all.
+  //
+  // The detail is byte-identical to the desktop one, lang/uiStyle duplicates
+  // included: that is the Home 1.x event shape apps were written against, and
+  // the desktop validator requires both to be present and equal.
+  // `appNotifications` must be a real boolean — a consumer that hard-validates
+  // the snapshot drops the entire event without it — which is why nothing is
+  // posted until the notification policy has actually been read.
+  useEffect(() => {
+    const frameWindow = frameRef.current?.contentWindow
+    const appearance = props.snapshot.appearance
+    if (!resolved || !source || !frameWindow || typeof props.appNotifications !== 'boolean') {
+      deliveredHomeSettingsRef.current = null
+      return
+    }
+    const detail = {
+      accent: appearance.accent,
+      appNotifications: props.appNotifications,
+      appZoom: appearance.appZoom,
+      lang: appearance.resolvedLanguage,
+      language: appearance.resolvedLanguage,
+      textSize: appearance.textSize,
+      theme: appearance.resolvedTheme,
+      ui: appearance.ui,
+      uiStyle: appearance.ui,
+    }
+    const signature = JSON.stringify(detail)
+    const previous = deliveredHomeSettingsRef.current
+    deliveredHomeSettingsRef.current = signature
+    // The first delivery is skipped deliberately: an app's initial values
+    // arrive in its render URL, so announcing them again as a "change" would
+    // report one that never happened. Same rule as the bridge-state effect.
+    if (previous === null || previous === signature) return
+    frameWindow.postMessage({
+      type: 'qortium:home-settings-changed',
+      bridgeToken: token,
+      detail,
+      // Pinned to the proxy origin the frame was loaded from, never '*'.
+    }, new URL(source).origin)
+  }, [props.appNotifications, props.snapshot.appearance, resolved, source, token])
 
   useEffect(() => {
     if (!resolved) return
@@ -634,6 +691,17 @@ export interface AppTabStageProps {
    * later changes are pushed with homeV2Apps.updateManagerRevisions.
    */
   readonly managerRevisions?: QdnManagerRevisions | null
+  /**
+   * Whether app notifications are globally enabled, or null while the
+   * notification policy has not been read yet.
+   *
+   * A plain boolean rather than the policy state object on purpose: this is the
+   * only field of it the app-facing `qortium:home-settings-changed` detail
+   * carries, and a primitive keeps the shell free of a dependency on the live
+   * host's policy client. Android does not post the event while this is null —
+   * a consumer that hard-validates the snapshot would drop the whole event.
+   */
+  readonly appNotifications?: boolean | null
   readonly translationVersion?: number
   readonly nodeClient?: HomeV2NodeClient | null
   readonly selectedAccountId?: string | null

@@ -175,8 +175,27 @@ difference without having to be refused first.
 Home 1.x also told open apps whenever a display setting changed, so an app could
 re-theme itself immediately. Home 2 had the machinery for this but had never
 connected it, so nothing was ever announced — whether the change came from an
-app or from Home's own Appearance panel. It is connected now, and apps listening
-for that change hear it again.
+app or from Home's own Appearance panel. It is connected now, on desktop and on
+Android, and apps listening for that change hear it again. On Android this
+matters most for interface style, app zoom and the notification toggle: the
+other settings form part of the address an app loads from, so they already
+refreshed it, while those three previously produced no signal at all.
+
+Small desktop widgets are excluded from that announcement, though they still
+follow Home's theme exactly as before. The announcement also carries the zoom
+and notification settings, which widgets are not allowed to read — a widget is
+too small for Home to ask a permission question in, so it is not given the
+answer by another route either.
+
+Two further protections came out of review. An app that asks to change settings
+can no longer flood Home with permission dialogs: asking for the same change
+again while the first is still on screen is refused, and there is a ceiling on
+how many can be waiting at once. And when saving the notification setting fails,
+the app is now told in a plain, fixed way that it did not work — Home keeps the
+technical detail, which can name a file path on the machine, in its own log
+instead of handing it to the app. A related bug was fixed at the same time: on
+desktop, when two Home windows changed the notification setting at once, one of
+them used to give up immediately instead of noticing, re-reading and retrying.
 
 ### 2026-08-26 - feat(home-v2): apps can manage notification permissions again
 

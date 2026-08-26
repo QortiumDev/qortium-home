@@ -60,6 +60,19 @@ An app never reaches the policy directly. It supplies a validated patch, Home ra
 
 A corrupt or unreadable notification policy reads as `appNotifications: false` (nothing would be shown in that state anyway), and a write touching `appNotifications` then fails with `HOME_NOTIFICATION_POLICY_CORRUPT` or `HOME_NOTIFICATION_POLICY_UNAVAILABLE` rather than writing over a damaged record. An appearance-only write is unaffected: the two stores fail independently.
 
+Every failure is reported with one of four codes and a fixed message. `HOME_DATA_STALE` is the only one worth branching on — re-read and try again. The others (`HOME_NOTIFICATION_POLICY_CORRUPT`, `HOME_NOTIFICATION_POLICY_UNAVAILABLE`, `HOME_NOTIFICATION_POLICY_WRITE_FAILED`) mean the change did not happen. Home deliberately does not pass the underlying error text through, because it can name this device's filesystem; the detail is logged inside Home instead.
+
+### Appearance persistence is eventually consistent
+
+Worth knowing if you are reasoning about durability. The two halves of a write are not persisted the same way:
+
+- `appNotifications` is written and flushed to disk before the request resolves.
+- The six appearance keys are applied to Home's live state immediately — the user sees them at once, and every later read returns them — but written to disk by a short debounced save just afterwards.
+
+Ordering protects you from every failure Home can *handle*: the fallible notification write goes first, so a rejected patch never half-applies. It does not protect against Home being killed in the gap between the two. If that happens, an approved patch that changed both halves can leave only the notification half durable, and the appearance half reverts on the next start even though the request reported success.
+
+This is not something an app needs to compensate for, and there is no API to force a flush. The split heals itself: the next appearance change from any source — your app, or Home's own Appearance panel — persists both halves.
+
 ### `clay` is readable but not writable
 
 Home 2 has a tenth accent, `clay`, which is also its default. Home 1.x's schema does not list it.
@@ -89,6 +102,15 @@ For the other six keys the two lists are identical, so the rule is uniform: **wr
 - All three are **route-independent**: they work while every node route is disabled or unreachable.
 - All three are **excluded from widgets**, the two reads included. A widget has no trusted Home chrome to raise the update prompt on, and shipping the read half of a read/write pair without the write half is an incoherent surface. The display subset a widget needs already reaches it as render-URL parameters (`theme`, `lang`, `textSize`, `accent`, `uiStyle`).
 - A read returns the seven keys and nothing else — never node URLs, account data, or API keys. The reply is built from the schema projection and validated against it at both ends of the desktop round-trip.
+
+### Live changes in Home 2
+
+`qortiumHomeSettingsChanged` fires on both platforms, with the same `detail`, whether the change came from an app or from Home's own Appearance panel. Keep using the single `window.addEventListener('qortiumHomeSettingsChanged', ...)` listener — the transport differs but the event does not. (On Android, Home posts the change to the app frame and the native bridge re-dispatches it as that same event; a `message` listener for `qortium:home-settings-changed` also works there, as it always has.)
+
+Two notes:
+
+- **Widgets do not receive the event.** They still re-theme — the display subset reaches them the same way it always has — but the event's `detail` carries `appNotifications` and `appZoom`, which widgets are refused at the read gate, so it would be inconsistent to broadcast them.
+- On Android an accent, theme, language or text-size change also reloads the app frame, because those are part of its render URL. Interface style, app zoom and `appNotifications` are not, so for those the event is the only signal.
 
 ### Where the work happens
 

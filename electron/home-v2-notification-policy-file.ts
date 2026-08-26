@@ -159,6 +159,9 @@ export function createHomeV2NotificationPolicyFile(
           throw error
         }
         if (current.enabled === enabled) return { changed: false, snapshot: current } as const
+        // Left with its own descriptive message: it names no path, so it is
+        // safe to surface, and the app-facing bridge collapses it to a generic
+        // code anyway (normalizeHomeV2NotificationPolicyError).
         if (current.generation >= Number.MAX_SAFE_INTEGER) {
           throw new Error('Notification policy generation is exhausted.')
         }
@@ -169,7 +172,21 @@ export function createHomeV2NotificationPolicyFile(
           status: 'available' as const,
           version: 1 as const,
         })
-        await writeAtomically(next)
+        try {
+          await writeAtomically(next)
+        } catch (error) {
+          // A raw fs failure carries the absolute policy path, the temp-file
+          // name and the pid in its message. That message would otherwise
+          // travel out of main untouched: Electron serializes a rejected
+          // ipcMain.handle by MESSAGE (custom fields like `code` are dropped),
+          // the shell forwards it, and UPDATE_HOME_SETTINGS hands it to an
+          // untrusted QDN app. The detail is logged HERE, in trusted main, and
+          // only a fixed public message leaves this process.
+          console.warn('[home-v2-notification-policy] Unable to persist the notification policy:', error)
+          const sanitized = new Error('Notification settings could not be saved.')
+          Object.assign(sanitized, { code: 'POLICY_WRITE_FAILED' })
+          throw sanitized
+        }
         cached = next
         return { changed: true, snapshot: next } as const
       })

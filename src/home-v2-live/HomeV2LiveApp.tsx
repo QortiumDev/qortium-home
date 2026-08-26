@@ -983,9 +983,18 @@ export function HomeV2LiveApp() {
           code: 'HOME_NOTIFICATION_POLICY_UNAVAILABLE',
         })
       }
-      // A rejection is rethrown untouched so its `code` survives to the caller;
-      // recovering from HOME_DATA_STALE is the responder's job, not this one's.
-      const next = await notificationPolicyClient.set(request)
+      // A rejection is rethrown untouched: classifying it belongs to the
+      // responder (normalizeHomeV2NotificationPolicyError), which needs the
+      // original because on desktop a conflict arrives with NO `code` and only
+      // a wrapped message. The detail is logged HERE, inside trusted Home
+      // chrome; only a normalized code and a fixed message reach the app.
+      let next: Awaited<ReturnType<typeof notificationPolicyClient.set>>
+      try {
+        next = await notificationPolicyClient.set(request)
+      } catch (error) {
+        console.warn('[home-settings] Notification policy write failed.', error)
+        throw error
+      }
       notificationPolicyRef.current = next
       setNotificationPolicy(next)
       return next

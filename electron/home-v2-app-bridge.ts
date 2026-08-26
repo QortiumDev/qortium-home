@@ -483,11 +483,22 @@ type PermissionDecision = {
 const pendingAccountReads = new Map<string, {
   readonly grantKey?: string
   readonly hostWebContentsId: number
+  // The app a pending prompt belongs to. Set by families that cap how many
+  // prompts one app may have outstanding; absent entries are simply not
+  // counted, so adding this changes no existing family's behaviour.
+  readonly appIdentityKey?: string
   readonly tabId: string
   readonly targetNetwork?: HomeV2AppNetwork
   readonly resolve: (decision: PermissionDecision) => void
   readonly timeout: ReturnType<typeof setTimeout>
 }>()
+
+// Mirrors MAX_PENDING_ANDROID_PERMISSION_PROMPTS_* in HomeV2LiveApp.tsx. Home
+// settings updates are single-request, so an app may legitimately ask again and
+// again — which is exactly why the queue needs a ceiling on desktop too.
+const MAX_PENDING_HOME_SETTINGS_PROMPTS_PER_APP = 3
+const MAX_PENDING_HOME_SETTINGS_PROMPTS_GLOBAL = 20
+const HOME_SETTINGS_GRANT_KEY_PREFIX = 'home-settings|'
 const pendingSessionGrantDecisions = new Map<string, Promise<PermissionDecision>>()
 const pendingContextMenus = new Map<number, {
   readonly hostWebContentsId: number
@@ -888,6 +899,38 @@ async function requestHomeV2HomeSettingsUpdateApproval(
     throw new Error('The Home settings request does not belong to an active Home window.')
   }
   const appKey = homeV2AppIdentityKey(context)
+
+  // Dedup and cap, mirroring queueAndroidPermissionPrompt in HomeV2LiveApp.tsx.
+  //
+  // Every UPDATE_HOME_SETTINGS is single-request, so unlike the durable manager
+  // families there is no "already granted" early return to absorb repeats: an
+  // app may issue hundreds of individually VALID updates and each one would
+  // otherwise queue its own modal in trusted Home chrome and sit there for the
+  // full 60s timeout. The semantic key includes the approval rows, so it
+  // captures the app, the tab, the protocol AND the exact proposed change —
+  // two different patches still prompt separately, the same patch twice does
+  // not. Cleanup needs nothing new: entries live in pendingAccountReads, which
+  // is already drained on resolve, on timeout, and by invalidateRuntime for
+  // tab-close, app-replaced, navigation and lock.
+  const hostWebContentsId = hostWindow.webContents.id
+  const grantKey = `${HOME_SETTINGS_GRANT_KEY_PREFIX}${context.windowId}|${context.tabId}|${appKey}|${protocol}|${JSON.stringify(details)}`
+  const pendingHomeSettings = Array.from(pendingAccountReads.values()).filter(
+    (pending) => pending.hostWebContentsId === hostWebContentsId &&
+      pending.grantKey?.startsWith(HOME_SETTINGS_GRANT_KEY_PREFIX),
+  )
+  if (pendingHomeSettings.some((pending) => pending.grantKey === grantKey)) {
+    throw new Error('This Home settings request is already pending for the app tab.')
+  }
+  if (
+    pendingHomeSettings.filter((pending) => pending.appIdentityKey === appKey).length >=
+    MAX_PENDING_HOME_SETTINGS_PROMPTS_PER_APP
+  ) {
+    throw new Error('Too many pending Home settings requests for this app. Wait for the existing prompt to resolve.')
+  }
+  if (pendingHomeSettings.length >= MAX_PENDING_HOME_SETTINGS_PROMPTS_GLOBAL) {
+    throw new Error('Too many pending Home settings requests. Wait for the existing prompts to resolve.')
+  }
+
   const requestId = randomUUID()
   const decision = await new Promise<PermissionDecision>((resolve) => {
     const timeout = setTimeout(() => {
@@ -898,7 +941,9 @@ async function requestHomeV2HomeSettingsUpdateApproval(
       }
     }, HOME_SETTINGS_REQUEST_TIMEOUT_MS)
     pendingAccountReads.set(requestId, {
-      hostWebContentsId: hostWindow.webContents.id,
+      appIdentityKey: appKey,
+      grantKey,
+      hostWebContentsId,
       tabId: context.tabId,
       resolve,
       timeout,

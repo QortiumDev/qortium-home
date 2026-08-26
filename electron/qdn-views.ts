@@ -1800,7 +1800,16 @@ export function registerQdnViewIpcHandlers() {
         theme: request.detail.theme,
         ui: request.detail.ui,
       };
-      entry.pendingHomeSettingsEvent = request.detail;
+      // The EVENT is withheld from widgets, while the display state above is
+      // not. Its detail carries appNotifications and appZoom on top of the
+      // display subset, and widgets are deliberately excluded from
+      // GET_HOME_SETTINGS (isWidgetPublicReadAction, home-v2-app-runtime.ts) —
+      // broadcasting the same fields would hand a chromeless widget by the back
+      // door exactly what the read gate refuses it at the front. A widget still
+      // re-themes, because that is what entry.displaySettings above is for.
+      if (!entry.tabId.startsWith('widget:')) {
+        entry.pendingHomeSettingsEvent = request.detail;
+      }
       deliveries.push(queueQdnViewStateDelivery(entry));
     }
     return Promise.all(deliveries).then(() => undefined);

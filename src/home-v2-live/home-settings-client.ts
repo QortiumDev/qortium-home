@@ -96,9 +96,67 @@ function codedError(code: string, message: string) {
   return Object.assign(new Error(message), { code })
 }
 
-function isStale(error: unknown) {
-  return !!error && typeof error === 'object' &&
-    (error as { code?: unknown }).code === 'HOME_DATA_STALE'
+/** The one code an app is expected to branch on: re-read and try again. */
+export const HOME_V2_HOME_SETTINGS_STALE_CODE = 'HOME_DATA_STALE'
+
+/**
+ * Normalizes anything the notification policy can reject with into one of four
+ * public codes, discarding the original message.
+ *
+ * TWO reasons this exists, and the second is the load-bearing one.
+ *
+ * 1. Nothing raw may reach an app. A policy write failure originates in the
+ *    main process and its message can name the absolute policy path, the temp
+ *    file and the pid. That is sanitized at the source now
+ *    (home-v2-notification-policy-file.ts logs the detail in trusted main and
+ *    throws a fixed message); this is the second line of the same defence, so
+ *    that whatever arrives, only a known code and a fixed message leave here.
+ *
+ * 2. The two hosts report the SAME conflict differently, and matching on code
+ *    alone silently disables the retry on desktop:
+ *      - Android runs the portable adapter in-process, so its rejection
+ *        arrives intact with `code: 'HOME_DATA_STALE'`.
+ *      - Desktop crosses `ipcMain.handle`, and Electron serializes a rejected
+ *        handler by MESSAGE only — custom fields including `code` are DROPPED,
+ *        and the text is re-wrapped as
+ *        "Error invoking remote method '...': Error: <original>". The desktop
+ *        store's `code: 'SETTINGS_CHANGED'` therefore never survives the trip.
+ *    Both are recognised: by code where it survives, and by the stable,
+ *    path-free sentinel the desktop store throws where it does not. Without
+ *    the message arm a genuine desktop conflict would be surfaced to the app
+ *    immediately and the promised one-refetch-retry would never fire.
+ */
+export function normalizeHomeV2NotificationPolicyError(error: unknown): Error & { code: string } {
+  const code = typeof (error as { code?: unknown } | null)?.code === 'string'
+    ? (error as { code: string }).code
+    : ''
+  const message = error instanceof Error ? error.message : ''
+
+  // A lost compare-and-set. Recoverable, and the only case the responder retries.
+  if (
+    code === HOME_V2_HOME_SETTINGS_STALE_CODE ||
+    code === 'SETTINGS_CHANGED' ||
+    message.includes('Notification policy changed in another Home window.')
+  ) {
+    return codedError(
+      HOME_V2_HOME_SETTINGS_STALE_CODE,
+      'Notification settings changed; refresh and try again.',
+    )
+  }
+  if (code === 'HOME_NOTIFICATION_POLICY_CORRUPT' || message.includes('storage is corrupt')) {
+    return codedError('HOME_NOTIFICATION_POLICY_CORRUPT', 'Notification settings are unavailable.')
+  }
+  if (
+    code === 'HOME_NOTIFICATION_POLICY_UNAVAILABLE' ||
+    code === 'POLICY_STORAGE_UNAVAILABLE' ||
+    message.includes('storage is unavailable')
+  ) {
+    return codedError('HOME_NOTIFICATION_POLICY_UNAVAILABLE', 'Notification settings are unavailable.')
+  }
+  // Everything else — a write failure, a malformed mutation, an unrecognised
+  // rejection. Collapsed deliberately: an app gets one actionable code and no
+  // detail about this device's filesystem.
+  return codedError('HOME_NOTIFICATION_POLICY_WRITE_FAILED', 'Notification settings could not be saved.')
 }
 
 /**
@@ -207,6 +265,27 @@ export function createHomeV2HomeSettingsResponder(
           : appearancePatch.language
       }
       if (Object.keys(appearancePatch).length > 0) {
+        // KNOWN WINDOW, deliberately not closed here.
+        //
+        // Ordering makes the split write safe against every HANDLED failure:
+        // the policy write is fallible and runs first, so a rejected patch
+        // never half-applies. It is NOT safe against a process death, and the
+        // asymmetry is worth stating plainly.
+        //
+        // applyAppearance is a React state update. On the live host the new
+        // appearance is persisted by a debounced effect ~250ms later
+        // (HomeV2LiveApp.tsx, saveShellState), and that save is not awaited
+        // here — there is no imperative save to await. So if Home is killed in
+        // that window after the notification half has already been fsync'd to
+        // disk, the app has been told the whole patch succeeded while only the
+        // notification half is durable; the appearance half reverts on restart.
+        //
+        // Left alone on purpose: awaiting persistence would mean adding a
+        // second imperative write path that races the debounce and the
+        // detached-window state merge, which is a larger change than the defect
+        // justifies. The split is self-healing — the next appearance change of
+        // any kind, from an app or from the Appearance panel, persists both —
+        // and it is documented in docs/HOME_SETTINGS_BRIDGE.md.
         await dependencies.applyAppearance(appearancePatch)
       }
 
@@ -254,11 +333,21 @@ async function writeNotificationPolicy(
       expectedGeneration: requireAvailable(known),
     })
   } catch (error) {
-    if (!isStale(error)) throw error
+    // Normalized BEFORE the retry decision, because on desktop the conflict
+    // arrives with no `code` at all — see normalizeHomeV2NotificationPolicyError.
+    const normalized = normalizeHomeV2NotificationPolicyError(error)
+    if (normalized.code !== HOME_V2_HOME_SETTINGS_STALE_CODE) throw normalized
     const refreshed = await dependencies.refreshNotificationPolicy()
-    return dependencies.setNotificationPolicy({
-      enabled,
-      expectedGeneration: requireAvailable(refreshed),
-    })
+    try {
+      return await dependencies.setNotificationPolicy({
+        enabled,
+        expectedGeneration: requireAvailable(refreshed),
+      })
+    } catch (retryError) {
+      // A second conflict is reported, not looped on: two losses in a row mean
+      // something else is writing continuously, and retrying forever would let
+      // an app's write win a fight against the user's own hand.
+      throw normalizeHomeV2NotificationPolicyError(retryError)
+    }
   }
 }

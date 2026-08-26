@@ -428,6 +428,15 @@ export function parseHomeV2HomeSettingsRoundTripResponse(
   if (!isRecord(value) || typeof value.requestId !== 'string' || !value.requestId) {
     throw new Error('A Home settings round-trip response needs a requestId.')
   }
+  // Exact-key, like every other envelope in this module. A success reply is
+  // exactly {requestId, settings}. An extra top-level field used to be ignored
+  // rather than refused, so a shell that started attaching something to a
+  // success reply would have been silently tolerated instead of caught here.
+  // The caller handles the ERROR envelope (which carries code/error) before
+  // reaching this function, so only the success shape is accepted.
+  if (!exact(value, ['requestId', 'settings'])) {
+    throw new Error('An exact Home settings round-trip response is required.')
+  }
   return Object.freeze({
     requestId: value.requestId as string,
     settings: parseHomeV2HomeSettings(value.settings),

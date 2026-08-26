@@ -370,5 +370,27 @@ assert.throws(
   () => parseHomeV2HomeSettingsRoundTripResponse({ settings: settings() }),
   /needs a requestId/,
 )
+// The success envelope is exact-key too. An extra top-level field used to be
+// ignored rather than refused, so a shell that started attaching something to a
+// success reply would have been tolerated silently instead of caught here.
+assert.throws(
+  () => parseHomeV2HomeSettingsRoundTripResponse({
+    requestId: 'req-1',
+    settings: settings(),
+    nodeApiUrl: 'http://127.0.0.1:24891',
+  }),
+  /exact Home settings round-trip response/,
+)
+// The ERROR envelope is consumed by the caller before it reaches this function.
+// If one ever did arrive here it is refused rather than read as a success.
+assert.throws(
+  () => parseHomeV2HomeSettingsRoundTripResponse({
+    requestId: 'req-1',
+    settings: undefined,
+    code: 'HOME_DATA_STALE',
+    error: 'Notification settings changed; refresh and try again.',
+  }),
+  /exact Home settings round-trip response/,
+)
 
 console.log('Home v2 Home settings contract tests passed.')
