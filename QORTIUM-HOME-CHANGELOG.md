@@ -34,6 +34,28 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-26 - fix(home-v2): keep app icons and avatars on disk so they survive a restart
+
+Home already stopped throwing away pictures it had fetched during a session.
+Now it keeps them across restarts too. App icons and account pictures are saved
+in a small store on your computer, shared by every window, so opening a tab,
+opening a second window, or relaunching Home shows the picture straight from
+disk instead of asking a node for it all over again. Apps published with no
+icon are remembered as having none, so Home stops repeatedly asking for a
+picture that was never there.
+
+The store knows a picture has changed the same way the rest of Home does — by
+its publication, not by a clock. A new version of an app or avatar is a new
+publication, and Home notices it and swaps in the new picture; nothing goes
+stale waiting for a timer. The store is kept small (about 32 MB, oldest dropped
+first) and only ever holds public pictures.
+
+The saved files are treated as untrusted: before a saved picture is shown, its
+actual bytes are re-checked to confirm they really are the kind of image the
+record claims, so a corrupted or tampered file can never be served as the wrong
+kind of content — it is simply re-fetched. A damaged store degrades to fetching
+again rather than failing. See `docs/HOME_V2_IMAGE_CACHE.md`.
+
 ### 2026-08-26 - feat(home-v2): right-click a link inside an app to open or copy it
 
 Links inside a QDN app can now be right-clicked to open the resource they point

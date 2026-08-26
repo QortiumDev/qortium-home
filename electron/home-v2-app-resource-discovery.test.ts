@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict'
 import {
   buildHomeV2AppResourceSearchPath,
+  buildHomeV2ResourceSignatureSearchPath,
   normalizeHomeV2AppResourceService,
   parseHomeV2AppResourceCandidates,
+  parseHomeV2ResourceLatestSignature,
 } from './home-v2-app-resource-discovery.js'
 
 const path = buildHomeV2AppResourceSearchPath('Trust App')
@@ -100,5 +102,63 @@ assert.throws(
   /invalid app resource list/,
 )
 assert.throws(() => buildHomeV2AppResourceSearchPath(''), /1 to 128/)
+
+// --- signature search: used by the persistent image cache (R4-7 pass 2) ---
+const iconSignaturePath = buildHomeV2ResourceSignatureSearchPath({
+  service: 'APP',
+  name: 'Chat',
+  identifier: null,
+})
+assert.match(iconSignaturePath, /^\/arbitrary\/resources\/search\?/)
+assert.match(iconSignaturePath, /service=APP/)
+assert.match(iconSignaturePath, /identifier=default/)
+assert.match(iconSignaturePath, /includemetadata=false/)
+assert.match(iconSignaturePath, /limit=1/)
+
+// Avatars use THUMBNAIL, which the browser-archive service check would reject
+// but the signature search deliberately accepts.
+const avatarSignaturePath = buildHomeV2ResourceSignatureSearchPath({
+  service: 'THUMBNAIL',
+  name: 'Alice',
+  identifier: 'avatar',
+})
+assert.match(avatarSignaturePath, /service=THUMBNAIL/)
+assert.match(avatarSignaturePath, /identifier=avatar/)
+assert.throws(
+  () => buildHomeV2ResourceSignatureSearchPath({ service: '../bad', name: 'X', identifier: null }),
+  /uppercase token/,
+)
+
+// The signature is extracted only for the exact requested identity.
+assert.equal(
+  parseHomeV2ResourceLatestSignature(
+    [
+      { name: 'Chat', service: 'APP', latestSignature: 'sigDefault' },
+      { name: 'Chat', service: 'APP', identifier: 'other', latestSignature: 'sigOther' },
+    ],
+    { service: 'APP', name: 'Chat', identifier: null },
+  ),
+  'sigDefault',
+)
+assert.equal(
+  parseHomeV2ResourceLatestSignature(
+    [{ name: 'Chat', service: 'APP', identifier: 'other', latestSignature: 'sigOther' }],
+    { service: 'APP', name: 'Chat', identifier: null },
+  ),
+  null,
+  'a non-matching identifier yields no signature (uncached fetch)',
+)
+assert.equal(
+  parseHomeV2ResourceLatestSignature('not-an-array', { service: 'APP', name: 'Chat', identifier: null }),
+  null,
+)
+assert.equal(
+  parseHomeV2ResourceLatestSignature(
+    [{ name: 'Chat', service: 'APP' }],
+    { service: 'APP', name: 'Chat', identifier: null },
+  ),
+  null,
+  'a missing latestSignature yields null',
+)
 
 console.log('Home v2 app resource discovery tests passed.')

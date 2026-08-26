@@ -1,4 +1,5 @@
-import { ipcMain } from 'electron'
+import { app, ipcMain } from 'electron'
+import path from 'node:path'
 import { assertAuthorizedHomeV2Sender } from './home-v2-authorized-senders.js'
 import {
   getLocalNodeStatusForHomeV2,
@@ -53,10 +54,21 @@ import {
 } from './home-v2-shell-store.js'
 import {
   buildHomeV2AppResourceSearchPath,
+  buildHomeV2ResourceSignatureSearchPath,
   normalizeHomeV2AppResourceName,
   normalizeHomeV2AppResourceService,
   parseHomeV2AppResourceCandidates,
+  parseHomeV2ResourceLatestSignature,
+  type HomeV2ResourceSignatureQuery,
 } from './home-v2-app-resource-discovery.js'
+import {
+  createHomeV2ImageMemo,
+  HomeV2ImageCache,
+  HOME_V2_IMAGE_CACHE_DIR_NAME,
+  readImageThroughCache,
+  type HomeV2CachedImageOutcome,
+  type HomeV2ImageFetchOutcome,
+} from './home-v2-image-cache.js'
 import {
   buildHomeV2IdentityReadPath,
 } from './home-v2-identity-read.js'
@@ -199,7 +211,14 @@ function normalizeAvatarReadRequest(network: NetworkId, value: unknown) {
     throw new Error('Avatar pointer metadata is invalid.')
   }
   if (network === 'qortium' && source === 'account-pointer') {
-    return { address, legacyAsync: false, path: buildAccountAvatarPath(address) }
+    // The pointer still names the on-chain resource the address resolves to, so
+    // it is the stable identity the image cache content-addresses.
+    return {
+      address,
+      legacyAsync: false,
+      path: buildAccountAvatarPath(address),
+      descriptor: { service, name, identifier },
+    }
   }
   const expectedIdentifier = network === 'qortal' ? 'qortal_avatar' : 'avatar'
   if (
@@ -213,6 +232,7 @@ function normalizeAvatarReadRequest(network: NetworkId, value: unknown) {
     address,
     legacyAsync: true,
     path: buildAvatarResourcePath({ identifier, name, service }),
+    descriptor: { service, name, identifier },
   }
 }
 
@@ -557,6 +577,132 @@ async function listAppResources(
   return parseHomeV2AppResourceCandidates(data, name)
 }
 
+// R4-7 pass 2: the persistent main-process image cache. One store on disk under
+// userData is shared by every renderer, every detached window, and every
+// restart, so a favicon or avatar is fetched from the node once per signature
+// instead of once per surface. Six hours is only how often the cheap signature
+// search re-runs; a republish (new signature) still invalidates immediately.
+const IMAGE_SIGNATURE_REVALIDATE_MS = 6 * 60 * 60 * 1000
+
+let cachedImageStore: HomeV2ImageCache | null = null
+function imageStore(): HomeV2ImageCache {
+  if (!cachedImageStore) {
+    cachedImageStore = new HomeV2ImageCache({
+      directory: path.join(app.getPath('userData'), HOME_V2_IMAGE_CACHE_DIR_NAME),
+    })
+  }
+  return cachedImageStore
+}
+
+const appIconImageMemo = createHomeV2ImageMemo(256)
+const avatarImageMemo = createHomeV2ImageMemo(256)
+
+type ReadableNode = { readonly nodeApiUrl: string }
+
+// The cheap signature read. Best-effort: any failure returns null and the
+// caller falls back to an uncached fetch rather than caching wrong bytes.
+async function resolveLatestSignature(
+  node: ReadableNode,
+  resource: HomeV2ResourceSignatureQuery,
+): Promise<string | null> {
+  try {
+    const response = await nodeFetch(
+      `${node.nodeApiUrl}${buildHomeV2ResourceSignatureSearchPath(resource)}`,
+      { method: 'GET', signal: AbortSignal.timeout(5_000) },
+    )
+    if (!response.ok) return null
+    const text = await readBoundedText(response)
+    const data: unknown = text ? JSON.parse(text) : []
+    return parseHomeV2ResourceLatestSignature(data, resource)
+  } catch {
+    return null
+  }
+}
+
+type AvatarDescriptorValue = { service: string; name: string; identifier: string }
+
+async function fetchHomeV2AvatarBytes(
+  node: ReadableNode,
+  avatarPath: string,
+): Promise<HomeV2ImageFetchOutcome> {
+  try {
+    const response = await nodeFetch(`${node.nodeApiUrl}${avatarPath}`, {
+      method: 'GET',
+      signal: AbortSignal.timeout(8_000),
+    })
+    if (response.status === 202) {
+      return {
+        kind: 'pending',
+        meta: {
+          descriptor: getAvatarDescriptorFromHeaders(
+            (name) => response.headers.get(name) ?? undefined,
+          ),
+          retryAfterSeconds: getGroupAvatarRetryAfterSeconds(
+            response.headers.get('retry-after') ?? undefined,
+          ),
+        },
+      }
+    }
+    if (response.status === 404) return { kind: 'missing' }
+    if (!response.ok) {
+      return { kind: 'unavailable', message: `Avatar request returned HTTP ${response.status}.` }
+    }
+    const bytes = await readBoundedBytes(response, GROUP_AVATAR_MAX_BYTES)
+    const contentType = getAvatarImageContentType(
+      response.headers.get('content-type') ?? undefined,
+      bytes,
+    )
+    if (!contentType) {
+      return { kind: 'unavailable', message: 'Avatar was not a supported image.' }
+    }
+    return {
+      kind: 'ready',
+      bytes,
+      contentType,
+      meta: {
+        descriptor: getAvatarDescriptorFromHeaders(
+          (name) => response.headers.get(name) ?? undefined,
+        ),
+      },
+    }
+  } catch (error) {
+    return {
+      kind: 'unavailable',
+      message: error instanceof Error ? error.message : 'Avatar request failed.',
+    }
+  }
+}
+
+function mapAvatarOutcome(
+  outcome: HomeV2ImageFetchOutcome | HomeV2CachedImageOutcome,
+  fallbackDescriptor: AvatarDescriptorValue | null,
+) {
+  switch (outcome.kind) {
+    case 'ready':
+      return {
+        body: Buffer.from(outcome.bytes).toString('base64'),
+        contentLength: outcome.bytes.byteLength,
+        contentType: outcome.contentType,
+        descriptor:
+          (outcome.meta?.descriptor as AvatarDescriptorValue | null | undefined) ??
+          fallbackDescriptor,
+        status: 'ready' as const,
+      }
+    case 'pending':
+      return {
+        descriptor:
+          (outcome.meta?.descriptor as AvatarDescriptorValue | null | undefined) ??
+          fallbackDescriptor,
+        retryAfterSeconds: (outcome.meta?.retryAfterSeconds as number | null | undefined) ?? null,
+        status: 'pending' as const,
+      }
+    case 'missing':
+      return { status: 'missing' as const }
+    case 'unavailable':
+      return { message: outcome.message, status: 'unavailable' as const }
+  }
+}
+
 export async function readHomeV2Avatar(network: NetworkId, requestValue: unknown) {
   let request: ReturnType<typeof normalizeAvatarReadRequest>
   try {
@@ -567,9 +713,29 @@ export async function readHomeV2Avatar(network: NetworkId, requestValue: unknown
       status: 'unavailable' as const,
     }
   }
-  return readResolvedHomeV2Avatar(network, request)
+  const snapshot = await getRecentSnapshot()
+  const node = snapshot.nodes[network]
+  if (!node.capabilities.read || !node.nodeApiUrl) {
+    return {
+      message: node.error ?? `${network} node is unavailable.`,
+      status: 'unavailable' as const,
+    }
+  }
+  const readable: ReadableNode = { nodeApiUrl: node.nodeApiUrl }
+  const outcome = await readImageThroughCache({
+    store: imageStore(),
+    memo: avatarImageMemo,
+    cacheKey: `avatar|${network}|${request.descriptor.service}|${request.descriptor.name}|${request.descriptor.identifier}`,
+    maxEntryBytes: GROUP_AVATAR_MAX_BYTES,
+    revalidateFloorMs: IMAGE_SIGNATURE_REVALIDATE_MS,
+    resolveSignature: () => resolveLatestSignature(readable, request.descriptor),
+    fetchImage: () => fetchHomeV2AvatarBytes(readable, request.path),
+  })
+  return mapAvatarOutcome(outcome, request.descriptor)
 }
 
+// The uncached avatar fetch primitive, still used directly by the QDN app
+// bridge (which passes only a resolved path and has no descriptor to key on).
 export async function readResolvedHomeV2Avatar(
   network: NetworkId,
   request: { readonly legacyAsync: boolean; readonly path: string },
@@ -582,56 +748,67 @@ export async function readResolvedHomeV2Avatar(
       status: 'unavailable' as const,
     }
   }
+  return mapAvatarOutcome(
+    await fetchHomeV2AvatarBytes({ nodeApiUrl: node.nodeApiUrl }, request.path),
+    null,
+  )
+}
+
+async function fetchHomeV2AppIconBytes(
+  node: ReadableNode,
+  request: ReturnType<typeof normalizeHomeV2AppIconReadRequest>,
+): Promise<HomeV2ImageFetchOutcome> {
   try {
-    const response = await nodeFetch(`${node.nodeApiUrl}${request.path}`, {
-      method: 'GET',
-      signal: AbortSignal.timeout(8_000),
-    })
+    const response = await nodeFetch(
+      `${node.nodeApiUrl}${buildHomeV2AppIconPath(request)}`,
+      { method: 'GET', signal: AbortSignal.timeout(8_000) },
+    )
     if (response.status === 202) {
       return {
-        descriptor: getAvatarDescriptorFromHeaders(
-          (name) => response.headers.get(name) ?? undefined,
-        ),
-        retryAfterSeconds: getGroupAvatarRetryAfterSeconds(
-          response.headers.get('retry-after') ?? undefined,
-        ),
-        status: 'pending' as const,
+        kind: 'pending',
+        meta: {
+          retryAfterSeconds: getGroupAvatarRetryAfterSeconds(
+            response.headers.get('retry-after') ?? undefined,
+          ),
+        },
       }
     }
-    if (response.status === 404) {
-      return { status: 'missing' as const }
-    }
+    if (response.status === 404) return { kind: 'missing' }
     if (!response.ok) {
-      return {
-        message: `Avatar request returned HTTP ${response.status}.`,
-        status: 'unavailable' as const,
-      }
+      return { kind: 'unavailable', message: `App icon request returned HTTP ${response.status}.` }
     }
-    const bytes = await readBoundedBytes(response, GROUP_AVATAR_MAX_BYTES)
-    const contentType = getAvatarImageContentType(
-      response.headers.get('content-type') ?? undefined,
-      bytes,
-    )
-    if (!contentType) {
-      return {
-        message: 'Avatar was not a supported image.',
-        status: 'unavailable' as const,
-      }
-    }
-    return {
-      body: Buffer.from(bytes).toString('base64'),
-      contentLength: bytes.byteLength,
-      contentType,
-      descriptor: getAvatarDescriptorFromHeaders(
-        (name) => response.headers.get(name) ?? undefined,
-      ),
-      status: 'ready' as const,
-    }
+    const bytes = await readBoundedBytes(response, HOME_V2_APP_ICON_MAX_BYTES)
+    const contentType = getHomeV2AppIconContentType(bytes)
+    // No recognized image type is treated as "this resource has no icon", which
+    // the negative cache remembers so the missing favicon stops costing fetches.
+    if (!contentType) return { kind: 'missing' }
+    return { kind: 'ready', bytes, contentType, meta: {} }
   } catch (error) {
     return {
-      message: error instanceof Error ? error.message : 'Avatar request failed.',
-      status: 'unavailable' as const,
+      kind: 'unavailable',
+      message: error instanceof Error ? error.message : 'App icon request failed.',
     }
+  }
+}
+
+function mapAppIconOutcome(outcome: HomeV2CachedImageOutcome) {
+  switch (outcome.kind) {
+    case 'ready':
+      return {
+        body: Buffer.from(outcome.bytes).toString('base64'),
+        contentLength: outcome.bytes.byteLength,
+        contentType: outcome.contentType,
+        status: 'ready' as const,
+      }
+    case 'pending':
+      return {
+        retryAfterSeconds: (outcome.meta.retryAfterSeconds as number | null | undefined) ?? null,
+        status: 'pending' as const,
+      }
+    case 'missing':
+      return { status: 'missing' as const }
+    case 'unavailable':
+      return { message: outcome.message, status: 'unavailable' as const }
   }
 }
 
@@ -653,41 +830,22 @@ export async function readHomeV2AppIcon(network: NetworkId, requestValue: unknow
       status: 'unavailable' as const,
     }
   }
-  try {
-    const response = await nodeFetch(
-      `${node.nodeApiUrl}${buildHomeV2AppIconPath(request)}`,
-      { method: 'GET', signal: AbortSignal.timeout(8_000) },
-    )
-    if (response.status === 202) {
-      return {
-        retryAfterSeconds: getGroupAvatarRetryAfterSeconds(
-          response.headers.get('retry-after') ?? undefined,
-        ),
-        status: 'pending' as const,
-      }
-    }
-    if (response.status === 404) return { status: 'missing' as const }
-    if (!response.ok) {
-      return {
-        message: `App icon request returned HTTP ${response.status}.`,
-        status: 'unavailable' as const,
-      }
-    }
-    const bytes = await readBoundedBytes(response, HOME_V2_APP_ICON_MAX_BYTES)
-    const contentType = getHomeV2AppIconContentType(bytes)
-    if (!contentType) return { status: 'missing' as const }
-    return {
-      body: Buffer.from(bytes).toString('base64'),
-      contentLength: bytes.byteLength,
-      contentType,
-      status: 'ready' as const,
-    }
-  } catch (error) {
-    return {
-      message: error instanceof Error ? error.message : 'App icon request failed.',
-      status: 'unavailable' as const,
-    }
+  const readable: ReadableNode = { nodeApiUrl: node.nodeApiUrl }
+  const resource: HomeV2ResourceSignatureQuery = {
+    service: request.service,
+    name: request.name,
+    identifier: request.identifier,
   }
+  const outcome = await readImageThroughCache({
+    store: imageStore(),
+    memo: appIconImageMemo,
+    cacheKey: `appicon|${network}|${request.service}|${request.name}|${request.identifier ?? 'default'}`,
+    maxEntryBytes: HOME_V2_APP_ICON_MAX_BYTES,
+    revalidateFloorMs: IMAGE_SIGNATURE_REVALIDATE_MS,
+    resolveSignature: () => resolveLatestSignature(readable, resource),
+    fetchImage: () => fetchHomeV2AppIconBytes(readable, request),
+  })
+  return mapAppIconOutcome(outcome)
 }
 
 export function registerHomeV2NodeBridgeIpcHandlers() {
