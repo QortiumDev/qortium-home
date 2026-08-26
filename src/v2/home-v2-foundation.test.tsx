@@ -3250,7 +3250,9 @@ function testIdentityAndImageCachingKeepsChromeStable(): void {
     /status === 'ready' && Date\.now\(\) < cached\.expiresAt/,
     'gating the seed on expiry is the flash this pass removed',
   )
-  assert.match(imageHook, /const READY_CACHE_MS = 24 \* 60 \* 60_000/)
+  // Aligned to the main-process 6h signature-revalidation floor (R4-7 pass 2):
+  // the renderer TTL is only the trigger to re-ask main, never longer than it.
+  assert.match(imageHook, /const READY_CACHE_MS = 6 \* 60 \* 60_000/)
 
   // The identity memo: keyed lookups, in-flight dedupe, and a failure window
   // short enough that a node coming back is visible almost immediately.

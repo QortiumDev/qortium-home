@@ -13,6 +13,11 @@ export interface HomeV2AppResourceCandidate {
 }
 
 const APP_RESOURCE_LIMIT = 50
+// Core implements the search's `identifier=` as a case-insensitive
+// LIKE '%value%', so a substring identifier can occupy a limit=1 result and the
+// exact resource is never seen. Pull several candidates and select the exact,
+// case-correct identity client-side instead.
+const SIGNATURE_SEARCH_LIMIT = 20
 
 export function normalizeHomeV2AppResourceService(value: unknown): QdnBrowserArchiveService {
   // Defaults to APP: the search predates WEBSITE/GAME support, and the IPC
@@ -59,6 +64,78 @@ export function buildHomeV2AppResourceSearchPath(value: unknown, serviceValue?: 
     limit: String(APP_RESOURCE_LIMIT),
   })
   return `/arbitrary/resources/search?${query.toString()}`
+}
+
+// A resource identity the image cache content-addresses. `identifier` null (or
+// 'default') selects the default resource, matching the renderer's revision
+// lookup in useQdnImageResource.ts.
+export interface HomeV2ResourceSignatureQuery {
+  service: string
+  name: string
+  identifier: string | null
+}
+
+function normalizeSignatureService(value: unknown): string {
+  const service = typeof value === 'string' ? value.trim().toUpperCase() : ''
+  // Avatars use THUMBNAIL, app icons use APP/WEBSITE/GAME. The signature search
+  // is not restricted to the browser-archive set, but the token is still
+  // validated before it is interpolated into the node query.
+  if (!/^[A-Z0-9_]{1,64}$/.test(service)) {
+    throw new Error('Resource service must be a short uppercase token.')
+  }
+  return service
+}
+
+// Builds the cheap `/arbitrary/resources/search` used only to read a resource's
+// current `latestSignature`. Metadata and status are excluded — the signature
+// comes back regardless — and the identifier is pinned so a name with several
+// identifiers resolves to exactly the one requested.
+export function buildHomeV2ResourceSignatureSearchPath(resource: HomeV2ResourceSignatureQuery): string {
+  const query = new URLSearchParams({
+    service: normalizeSignatureService(resource.service),
+    name: normalizeHomeV2AppResourceName(resource.name),
+    identifier: resource.identifier ?? 'default',
+    exactmatchnames: 'true',
+    mode: 'ALL',
+    includestatus: 'false',
+    includemetadata: 'false',
+    limit: String(SIGNATURE_SEARCH_LIMIT),
+  })
+  return `/arbitrary/resources/search?${query.toString()}`
+}
+
+// Extracts the latestSignature for exactly the requested resource from a search
+// response. Returns null when nothing matches or the node omitted the field, so
+// the caller degrades to an uncached fetch rather than caching wrong bytes.
+export function parseHomeV2ResourceLatestSignature(
+  value: unknown,
+  resource: HomeV2ResourceSignatureQuery,
+): string | null {
+  if (!Array.isArray(value)) return null
+  // Names match case-insensitively (Core's exactmatchnames is case-insensitive),
+  // but identifiers are compared EXACTLY, case included: Core retrieves a
+  // resource by case-sensitive `identifier = ?`, so `Logo` and `logo` are two
+  // different resources and must not be conflated — folding case here could
+  // accept the wrong resource's signature and defeat later republish
+  // invalidation.
+  const expectedName = normalizeHomeV2AppResourceName(resource.name).toLowerCase()
+  const expectedService = normalizeSignatureService(resource.service)
+  const expectedIdentifier = resource.identifier ?? 'default'
+  for (const item of value) {
+    const name = stringField(item, 'name')?.toLowerCase()
+    const service = stringField(item, 'service')?.toUpperCase()
+    const identifier = stringField(item, 'identifier') ?? 'default'
+    if (
+      name !== expectedName ||
+      service !== expectedService ||
+      identifier !== expectedIdentifier
+    ) {
+      continue
+    }
+    const signature = stringField(item, 'latestSignature')
+    if (signature) return signature
+  }
+  return null
 }
 
 export function parseHomeV2AppResourceCandidates(

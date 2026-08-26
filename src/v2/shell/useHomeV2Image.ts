@@ -25,15 +25,17 @@ const MISSING_CACHE_MS = 5 * 60_000
  * QDN content is immutable per publish, so a decoded image only goes stale when
  * its owner publishes a new revision — not on a wall clock. Home 1.x kept ready
  * images for the whole process lifetime and invalidated them content-addressed,
- * by `latestSignature` (src/useQdnImageResource.ts). This hook has no revision
- * feed yet, so it keeps a long TTL as the revalidation trigger and leans on
- * MAX_CACHE_ENTRIES (LRU) as the real bound. A short TTL bought nothing: the
- * refetch still runs when the entry expires, it only decided how often.
+ * by `latestSignature` (src/useQdnImageResource.ts).
  *
- * The persistent disk cache lands in a later pass and moves invalidation onto
- * `latestSignature`, at which point this TTL can go away entirely.
+ * The persistent disk cache now performs that content-addressed invalidation in
+ * the MAIN process: every `revalidateFloorMs` (IMAGE_SIGNATURE_REVALIDATE_MS,
+ * 6h) it re-checks the resource's `latestSignature` and re-fetches on a change.
+ * So this renderer TTL is only the trigger that re-asks the main process; it is
+ * matched to that floor so a republish is picked up within ~6h, not ~24h. It
+ * must never be LONGER than the main floor, or the renderer would sit on a
+ * decoded image past the point where main would have revalidated it.
  */
-const READY_CACHE_MS = 24 * 60 * 60_000
+const READY_CACHE_MS = 6 * 60 * 60_000
 const UNAVAILABLE_CACHE_MS = 30_000
 /** Types that carry no information, so the bytes decide. */
 const UNTYPED_CONTENT_TYPES = new Set(['application/octet-stream', 'binary/octet-stream'])
