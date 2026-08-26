@@ -3208,6 +3208,64 @@ function testBookmarksToolbarButtonAndTabDrop() {
   )
 }
 
+/**
+ * Icons and avatars must not flash a placeholder letter for work already done.
+ * Three separate caches carry that, and each has a way of being "tidied" back
+ * into the flash, so pin the shape of all three.
+ */
+function testIdentityAndImageCachingKeepsChromeStable(): void {
+  const liveApp = readFileSync('src/home-v2-live/HomeV2LiveApp.tsx', 'utf8')
+  const imageHook = readFileSync('src/v2/shell/useHomeV2Image.ts', 'utf8')
+  const identityResolver = readFileSync('src/home-v2-live/identity-resolver.ts', 'utf8')
+
+  // selectAccount runs for a re-selection of the same account (unlock, relaunch,
+  // catalogue refresh) far more often than for a real switch. Re-selection must
+  // KEEP the resolved lookup — clearing it drops the chrome to a monogram for
+  // two uncached round-trips — while a switch to a different account must still
+  // clear it, or the new account is labelled with the previous one's identity.
+  assert.match(
+    liveApp,
+    /if \(accountId === null \|\| accountId !== selectedAccountLookupIdRef\.current\) \{\s*selectedAccountLookupIdRef\.current = null\s*setSelectedAccountLookup\(null\)\s*\}/,
+    'a same-account re-selection must keep the resolved lookup; a real switch must clear it',
+  )
+  assert.equal(
+    [...liveApp.matchAll(/setSelectedAccountLookup\(null\)/g)].length,
+    1,
+    'the only unconditional-looking clear must be the guarded one',
+  )
+  assert.match(
+    liveApp,
+    /selectedAccountLookupIdRef\.current = result \? accountId : null/,
+    'the ref must record which account the lookup on screen describes',
+  )
+
+  // Stale-while-revalidate: seed from any ready snapshot, expiry or not.
+  assert.match(
+    imageHook,
+    /cached && cached\.snapshot\.status === 'ready'\s*\?\s*\{ cacheKey, snapshot: cached\.snapshot \}/,
+    'the initial state must seed from a ready snapshot without consulting its expiry',
+  )
+  assert.doesNotMatch(
+    imageHook,
+    /status === 'ready' && Date\.now\(\) < cached\.expiresAt/,
+    'gating the seed on expiry is the flash this pass removed',
+  )
+  assert.match(imageHook, /const READY_CACHE_MS = 24 \* 60 \* 60_000/)
+
+  // The identity memo: keyed lookups, in-flight dedupe, and a failure window
+  // short enough that a node coming back is visible almost immediately.
+  assert.match(identityResolver, /async function cachedLookup</)
+  assert.match(identityResolver, /if \(existing\.inflight\) \{/)
+  assert.match(identityResolver, /const IDENTITY_TRANSIENT_CACHE_MS = 15_000/)
+  assert.match(identityResolver, /export function clearIdentityLookupCache\(\)/)
+  for (const entryPoint of [
+    /return cachedLookup\(\s*`\$\{network\}:\$\{query\}`/,
+    /return cachedLookup\(\s*`dual:\$\{query\}`/,
+  ]) {
+    assert.match(identityResolver, entryPoint, 'both public resolvers must go through the memo')
+  }
+}
+
 await testMockHostFailsClosed()
 await testPlatformFixtureHostsFailClosed()
 testWrongNetworkStopsBeforeAdapter()
@@ -3235,5 +3293,6 @@ testShellStateMigratesAddressSelection()
 testRendererSourceHasNoRuntimeEscapeHatches()
 testGrantIdentityAndSendRateLimitHardening()
 testBookmarksToolbarButtonAndTabDrop()
+testIdentityAndImageCachingKeepsChromeStable()
 
 console.log('home v2 foundation contract tests passed')

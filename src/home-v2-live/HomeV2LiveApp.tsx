@@ -821,6 +821,10 @@ export function HomeV2LiveApp() {
   const [selectedAccountLookup, setSelectedAccountLookup] =
     useState<DualIdentityLookupResult | null>(null)
   const accountSelectionEpoch = useRef(0)
+  // Which account the current `selectedAccountLookup` describes. Read
+  // synchronously by selectAccount, which cannot see the state value it is
+  // about to replace.
+  const selectedAccountLookupIdRef = useRef<string | null>(null)
   const [permissionState, setPermissionState] = useState(createPermissionState)
   const androidPermissionResolvers = useRef(new Map<
     PermissionRequestId,
@@ -1146,7 +1150,19 @@ export function HomeV2LiveApp() {
       const epoch = accountSelectionEpoch.current + 1
       accountSelectionEpoch.current = epoch
       setSelectedAccountId(accountId)
-      setSelectedAccountLookup(null)
+      // selectAccount runs for a re-selection of the SAME account far more often
+      // than for a real switch (unlock, relaunch, catalogue refresh, restore).
+      // In that case the answer being fetched is the answer already on screen,
+      // so keep it and let the resolution below replace it — clearing dropped
+      // the chrome avatar and name to a monogram for two uncached round-trips.
+      //
+      // A switch to a DIFFERENT account (or to none) must still clear: keeping
+      // it there would label the new account with the previous account's name
+      // and avatar until the lookup lands, which is worse than a monogram.
+      if (accountId === null || accountId !== selectedAccountLookupIdRef.current) {
+        selectedAccountLookupIdRef.current = null
+        setSelectedAccountLookup(null)
+      }
       if (!accountId) {
         const empty = initialSnapshot()
         setSnapshot((current) => ({
@@ -1176,6 +1192,7 @@ export function HomeV2LiveApp() {
         nodeClient.readIdentity(network, request),
       ).catch(() => undefined)
       if (accountSelectionEpoch.current !== epoch) return
+      selectedAccountLookupIdRef.current = result ? accountId : null
       setSelectedAccountLookup(result ?? null)
       setSnapshot((current) => ({
         ...current,
