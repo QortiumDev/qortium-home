@@ -848,3 +848,68 @@ None of the four actions is offered to a chromeless widget. The two reads would
 otherwise pass the widget `GET_`/`LIST_` prefix rule, but they describe the
 user's own node and `GET_MINTING_STATUS` defaults to the selected account's
 address, and a widget has no prompt surface to disclose that through.
+
+## List actions (Home 2)
+
+Home 2 exposes the node-local list family on `qdnRequest` only:
+`GET_ALL_LISTS`, `GET_LIST`, `ADD_TO_LIST`, and `REMOVE_FROM_LIST`. The pinned
+Qortal v3 list actions (`GET_LIST_ITEMS`, `ADD_LIST_ITEMS`, `DELETE_LIST_ITEM`)
+stay deferred: every Core `/lists` route requires the node's administrative API
+key, and Home holds one only for the Qortium Core it runs itself.
+
+Lists live on the user's own node — Core stores each non-empty list as
+`lists/<name>.json` on the node's disk — and every call in the family, reads
+included, is made with the `X-API-KEY` header against the same trusted node the
+minting family uses: `local` mode, key in hand, loopback host (see the minting
+restrictions above). On any other route, and always on Android (which never
+runs a local Core), the family answers the coded `NODE_CAPABILITY_MISSING`
+error rather than a pretend-empty list. Home 1.x drew the same line
+(`assertLocalWriteConnection`), so on a real phone these actions never worked
+there either. On Android the four actions are filtered out of `SHOW_ACTIONS`
+entirely (`ANDROID_UNSUPPORTED_ACTIONS`) — an advertised action that can never
+succeed would make the list lie — and a direct call is still refused with the
+precise coded reason as defense in depth.
+
+`GET_ALL_LISTS` takes no parameters and answers Core's sorted array of list
+names. `GET_LIST` takes `listName` and answers the array of items in stored
+order; a 404 answers as `[]` (current Core answers `[]` itself for a missing
+list — the mapping guards older Cores). Both reads are permissionless, capped
+at the same 2 MiB response bound as 1.x, and neither is offered to a chromeless
+widget: which names the user blocks and follows is a behavioral profile of the
+person, and both action names would otherwise pass the widget `GET_` prefix
+rule. Like every other permissionless read, they remain callable from any open
+app tab whether or not it is the foreground one — backgrounding a tab does not
+revoke what opening the app granted; only the widget surface is excluded.
+
+Every list call refuses HTTP redirects outright. The trusted-node gate proves
+the URL is loopback, but a redirect would let the responder pick a second URL
+the gate never saw — and unlike `Authorization`, the `X-API-KEY` header
+survives a cross-origin fetch redirect, with 307/308 re-sending the method and
+body too. Refusing them keeps the administrative key pinned to the host the
+gate approved.
+
+`ADD_TO_LIST` and `REMOVE_FROM_LIST` take `listName` and `items`, require a
+selected account — a deliberate divergence from 1.x, where these were
+account-free writes: every Home 2 write prompt is anchored to the account
+context it was approved in, and lists do not get a parallel accountless prompt
+path just to preserve that quirk — and always prompt — single-request only, one approval per batch, never a session or
+"always allow" grant, under the never-durable `node.lists.write` capability.
+The prompt shows the list name, the node, and the complete serialized item
+batch in a bounded scrolling block; a batch whose serialization exceeds 4,000
+characters is refused before any prompt is raised (the 1.x rule: an approval
+the user cannot read in full is not an approval). The displayed batch is the
+serialization escaped to printable ASCII (`\uXXXX` for everything past DEL),
+so a bidi override or invisible separator in an item can never make the prompt
+read differently from what Core receives; the raw strings still go to the node
+untouched. The node route is re-resolved
+after approval and the write is refused if it changed mid-prompt. The result is
+Core's own `text/plain` body — the string `"true"` or `"false"`, exactly as 1.x
+returned it. `"false"` means Core declined to apply the batch and is returned,
+not thrown; apps that check the value keep working unchanged.
+
+Request shapes are 1.x parity: `listName` starts with a letter, continues with
+letters, digits or underscores, and caps at 120 characters (applied to reads
+too — 1.x checked it only on writes); `items` is a non-empty array of
+non-empty strings, each trimmed. One deliberate divergence: 1.x silently
+dropped blank and non-string entries and applied the survivors, reporting
+success for a half-applied batch. Home 2 refuses the whole request instead.

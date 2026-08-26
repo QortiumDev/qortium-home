@@ -199,6 +199,12 @@ function isWidgetPublicReadAction(action: string) {
     // even though they are permissionless in a normal tab.
     action === 'GET_MINTING_STATUS' ||
     action === 'LIST_MINTING_ACCOUNTS' ||
+    // The list reads describe the user's own node too — which names the user
+    // blocks and follows is a behavioral profile of the person, not of any
+    // app — and both match /^GET_/, so without this line they would be
+    // admitted silently. Excluded for the same reason as the minting reads.
+    action === 'GET_ALL_LISTS' ||
+    action === 'GET_LIST' ||
     // Same reason again, and the reason this predicate is a DENYLIST behind a
     // prefix test rather than a plain allowlist is exactly this trap:
     // GET_USER_WALLET matches /^GET_/ and would have been admitted silently.
@@ -261,6 +267,16 @@ export function homeV2WidgetWithholdsSelfSubject(action: string) {
  */
 const ANDROID_UNSUPPORTED_ACTIONS = new Set<string>([
   'SEND_MESSAGE',
+  // The list family needs the administrative key of a local Core, and Android
+  // never runs one — so unlike the minting reads (which still answer a useful
+  // degraded result there) these four can NEVER succeed on Android. Leaving
+  // them in SHOW_ACTIONS would make the result lie; the portable client also
+  // refuses direct calls with a precise coded error (node-client.ts) as
+  // defense in depth. (Security review 2026-08-26, finding 5.)
+  'GET_ALL_LISTS',
+  'GET_LIST',
+  'ADD_TO_LIST',
+  'REMOVE_FROM_LIST',
 ])
 
 export function isHomeV2AndroidUnsupportedAction(action: string) {

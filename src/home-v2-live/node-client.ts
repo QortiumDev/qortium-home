@@ -24,6 +24,7 @@ import {
   homeV2RatingReadNeedsSelectedAddress,
   isHomeV2AppRecord,
   isHomeV2ChainReadAction,
+  isHomeV2ListAction,
   isHomeV2RatingReadAction,
   normalizeHomeV2Address,
   normalizeHomeV2AppAction,
@@ -1114,7 +1115,30 @@ export function createPortableNodeClient(
       // and they are already withheld from Android's SHOW_ACTIONS, so a
       // well-behaved app never reaches here. See
       // ANDROID_UNSUPPORTED_ACTIONS in home-v2-app-runtime.ts.
-      if (isHomeV2AndroidUnsupportedAction(action)) {
+      // The list family is in ANDROID_UNSUPPORTED_ACTIONS (so SHOW_ACTIONS
+      // never advertises it here), but a direct call still deserves the
+      // precise reason rather than the generic signing message below. Keep in
+      // step with resolveHomeV2ListNode in electron/home-v2-app-bridge.ts:
+      // the family — reads included — lives on the local Core that Home runs,
+      // reaches over loopback, and holds the administrative key for, and
+      // Android never runs one (readSettings rejects 'local'), exactly as in
+      // Home 1.x, where lists only ever worked in the emulator. Never a
+      // pretend-empty list.
+      // qdnRequest only: on qortalRequest the family is not implemented at
+      // all, and that case must keep its UNSUPPORTED_PROTOCOL answer from the
+      // generic gate below rather than a capability error naming the wrong
+      // network. (Round-2 review, residual 6.)
+      if (protocol === 'qdnRequest' && isHomeV2ListAction(action)) {
+        throw createHomeV2BridgeError(
+          'QDN lists live on the local Core that Home runs and reaches over loopback; Android has no local Core.',
+          { action, code: 'NODE_CAPABILITY_MISSING', network: 'qortium', retryable: false },
+        )
+      }
+      // List actions are also in ANDROID_UNSUPPORTED_ACTIONS (for the
+      // SHOW_ACTIONS filter), but their refusals are handled above for
+      // qdnRequest and by the generic implemented check below for
+      // qortalRequest — the signing message here would be wrong for both.
+      if (!isHomeV2ListAction(action) && isHomeV2AndroidUnsupportedAction(action)) {
         throw createHomeV2BridgeError(
           `${action} requires transaction signing, which is only available in Qortium Home desktop.`,
           {

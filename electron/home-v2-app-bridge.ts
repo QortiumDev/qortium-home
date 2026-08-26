@@ -102,10 +102,19 @@ import {
   HOME_V2_APP_LIMITS,
   homeV2ChainReadNeedsSelectedAddress,
   homeV2RatingReadNeedsSelectedAddress,
+  buildHomeV2ListPath,
+  buildHomeV2ListWriteBody,
   isHomeV2AppRecord,
   isHomeV2ChainReadAction,
+  isHomeV2ListAction,
+  isHomeV2ListWriteAction,
   isHomeV2RatingReadAction,
   normalizeHomeV2Address,
+  normalizeHomeV2ListItems,
+  normalizeHomeV2ListName,
+  normalizeHomeV2ListReadResult,
+  serializeHomeV2ListItemsForApproval,
+  type HomeV2ListWriteAction,
   normalizeHomeV2AppAction,
   normalizeHomeV2AppProtocol,
   normalizeHomeV2IdentityAddresses,
@@ -482,6 +491,7 @@ type AccountReadAction =
   | 'FORGET_PENDING_TRANSACTION'
   | 'UNLOCK_SELECTED_ACCOUNT'
   | HomeV2MintingWriteAction
+  | HomeV2ListWriteAction
 type PermissionDecision = {
   readonly approved: boolean
   readonly scope: 'always' | 'session' | 'single-request' | null
@@ -1233,6 +1243,15 @@ async function requireAccountReadPermission(
     readonly operationLabel: string
     readonly routeLabel: string
     readonly targetChainLabel: string
+  } | {
+    readonly kind: 'node-list'
+    // The Node/List/Items rows the prompt renders verbatim; the shell
+    // re-validates them before rendering, as it does homeSettingsDetails.
+    readonly listDetails: readonly { readonly label: string; readonly value: string }[]
+    readonly listName: string
+    readonly operationLabel: string
+    readonly routeLabel: string
+    readonly targetChainLabel: string
   },
 ) {
   if (!context.accountId) throw new Error('No account is selected for this tab.')
@@ -1266,6 +1285,8 @@ async function requireAccountReadPermission(
           ? `signature:${writeDetails.signature}`
         : writeDetails?.kind === 'minting'
           ? `minting:${writeDetails.mintingPublicKey ?? writeDetails.mintingAddress}`
+        : writeDetails?.kind === 'node-list'
+          ? `node-list:${writeDetails.listName}`
         : ''
   const grantKey = homeV2PermissionGrantKey({
     accountId: context.accountId,
@@ -1291,6 +1312,9 @@ async function requireAccountReadPermission(
     // Minting writes load or remove a key on the user's own node. Neither is
     // ever retained as a session or durable grant: every one asks again.
     writeDetails?.kind === 'minting' ||
+    // List writes change what the user's node stores, and what other apps
+    // then show. Every one asks again, exactly as 1.x prompted per request.
+    writeDetails?.kind === 'node-list' ||
     (writeDetails?.kind === 'group' || writeDetails?.kind === 'direct' || writeDetails?.kind === 'private-group') &&
     writeDetails.singleRequestOnly === true
   // A durable per-app chat-send grant ("always allow", revocable in QDN Apps
@@ -1453,6 +1477,17 @@ async function requireAccountReadPermission(
                 writeKind: 'minting',
                 writeMintingAddress: writeDetails.mintingAddress,
                 writeMintingPublicKey: writeDetails.mintingPublicKey ?? null,
+                writeOperationLabel: writeDetails.operationLabel,
+                writeRouteLabel: writeDetails.routeLabel,
+                writeSingleRequestOnly: true,
+                writeTargetChainLabel: writeDetails.targetChainLabel,
+              }
+          : writeDetails?.kind === 'node-list'
+            ? {
+                writeKind: 'node-list',
+                // The Node/List/Items rows. Plain label/value strings,
+                // re-validated in the shell before they are rendered.
+                nodeListDetails: writeDetails.listDetails.map((detail) => ({ ...detail })),
                 writeOperationLabel: writeDetails.operationLabel,
                 writeRouteLabel: writeDetails.routeLabel,
                 writeSingleRequestOnly: true,
@@ -6122,6 +6157,167 @@ async function showHomeV2DesktopContextMenu(
   })
 }
 
+// The response cap 1.x applied to both list reads (QDN_APP_DEFAULT_MAX_BYTES).
+const LIST_READ_MAX_BYTES = 2_097_152
+
+/**
+ * Lists are the node's own state, so the family shares minting's trusted-node
+ * rule: only the local Core Home runs, reaches over loopback, and holds the
+ * administrative key for. resolveHomeV2MintingNode is that resolver — the
+ * "minting" in its name is the family that introduced it, not a scope.
+ * 1.x enforced the same loopback rule for all four list actions
+ * (assertLocalWriteConnection), reads included.
+ */
+async function resolveHomeV2ListNode(action: string) {
+  const resolved = await resolveHomeV2MintingNode('qortium')
+  if (!resolved.trusted) {
+    throw createHomeV2BridgeError(
+      'QDN lists live on the local Core that Home runs and reaches over loopback; the selected node is not one.',
+      { action, code: 'NODE_CAPABILITY_MISSING', network: 'qortium', retryable: false },
+    )
+  }
+  return resolved
+}
+
+// postHomeV2ChatText's shape with the method open: REMOVE_FROM_LIST is the
+// one bridge write Core takes as a bodied DELETE.
+async function requestHomeV2ListText(
+  method: 'POST' | 'DELETE',
+  nodeApiUrl: string,
+  path: string,
+  body: string,
+  fallbackMessage: string,
+  apiKey: string,
+) {
+  const response = await nodeFetch(`${nodeApiUrl}${path}`, {
+    method,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(apiKey ? { 'X-API-KEY': apiKey } : {}),
+    },
+    body,
+    // The trusted-node gate proves the URL is loopback, but a redirect would
+    // let the RESPONDER choose a second URL the gate never saw — fetch
+    // preserves X-API-KEY across origins (it is not an Authorization header),
+    // and a 307/308 re-sends the method and body too. Refusing redirects
+    // outright keeps the administrative key pinned to the host the gate
+    // approved. (Security review 2026-08-26, finding 1.)
+    redirect: 'error',
+    signal: AbortSignal.timeout(CHAT_WRITE_TIMEOUT_MS),
+  })
+  // 'GET' only tells readBoundedResponse to read the body; it does not change
+  // the HTTP method actually sent above (see postHomeV2ChatText).
+  const result = await readBoundedResponse(response, 'GET', CHAT_SIGNING_RESPONSE_MAX_BYTES)
+  const text = result.body.trim()
+  if (!result.ok) {
+    throw Object.assign(
+      new Error(readableNodeErrorMessage(text, `${fallbackMessage} HTTP ${result.status}.`)),
+      { status: result.status },
+    )
+  }
+  return text
+}
+
+// The read twin of requestHomeV2ListText: readHomeV2ChatJson's shape with
+// redirects refused, because every list read carries the administrative key.
+// (The shared chat/minting readers predate this rule; hardening them is
+// tracked separately so this change stays scoped to the list family.)
+async function readHomeV2ListJson(
+  nodeApiUrl: string,
+  path: string,
+  label: string,
+  apiKey: string,
+) {
+  const response = await nodeFetch(`${nodeApiUrl}${path}`, {
+    headers: apiKey ? { 'X-API-KEY': apiKey } : undefined,
+    method: 'GET',
+    redirect: 'error',
+    signal: AbortSignal.timeout(15_000),
+  })
+  const result = await readBoundedResponse(response, 'GET', LIST_READ_MAX_BYTES)
+  if (!result.ok) {
+    throw Object.assign(new Error(`${label} returned HTTP ${result.status}.`), { status: result.status })
+  }
+  return result.data
+}
+
+/**
+ * Runs one list action on desktop.
+ *
+ * Reads answer with no prompt (permissionless family, like every other read);
+ * writes prompt on every request. The write result is Core's own text body —
+ * the string "true" or "false", exactly as 1.x returned it: "false" means Core
+ * declined to apply the batch, and 1.x deliberately did not convert that to an
+ * error, so apps that check the value keep working unchanged.
+ */
+async function handleHomeV2ListAction(
+  sender: WebContents,
+  context: QdnViewContext,
+  protocol: HomeV2AppBridgeProtocol,
+  action: string,
+  requestValue: Record<string, unknown>,
+) {
+  if (!isHomeV2ListWriteAction(action)) {
+    const path = action === 'GET_ALL_LISTS'
+      ? '/lists'
+      : buildHomeV2ListPath(normalizeHomeV2ListName(requestValue))
+    const { apiKey, node } = await resolveHomeV2ListNode(action)
+    try {
+      return await readHomeV2ListJson(
+        node.nodeApiUrl,
+        path,
+        action === 'GET_ALL_LISTS' ? 'Lists lookup' : 'List lookup',
+        apiKey,
+      )
+    } catch (error) {
+      // 1.x parity: a 404 on a named list is "no such list", answered as [].
+      // Current Core answers [] itself, so this is defense for older Cores.
+      if (action === 'GET_LIST' && (error as { status?: unknown }).status === 404) {
+        return normalizeHomeV2ListReadResult(404, null)
+      }
+      throw error
+    }
+  }
+  // Validate and serialize BEFORE prompting, so a malformed request can never
+  // raise a prompt, and a batch too large to display in full is refused
+  // rather than approved unseen (the 1.x 4000-character rule).
+  const listName = normalizeHomeV2ListName(requestValue)
+  const items = normalizeHomeV2ListItems(requestValue)
+  const serializedItems = serializeHomeV2ListItemsForApproval(items)
+  const before = await resolveHomeV2ListNode(action)
+  const operationLabel = action === 'ADD_TO_LIST'
+    ? 'Add to a list on this node'
+    : 'Remove from a list on this node'
+  await requireAccountReadPermission(sender, context, protocol, action, {
+    kind: 'node-list',
+    listDetails: [
+      { label: 'List', value: listName },
+      { label: 'Items', value: serializedItems },
+      { label: 'Node', value: before.node.nodeApiUrl },
+    ],
+    listName,
+    operationLabel,
+    routeLabel: `${before.node.mode} · ${before.node.nodeApiUrl}`,
+    targetChainLabel: 'Qortium',
+  })
+  const rateLimitDecision = chatSendRateLimiter.checkAndRecordSend(chatSendRateLimitKey(sender, context))
+  if (!rateLimitDecision.allowed) throw new Error(rateLimitDecision.message)
+  // Re-resolve after the prompt: the approval named one node, and the write
+  // must not follow the key to a different node selected mid-prompt.
+  const after = await resolveHomeV2ListNode(action)
+  if (after.node.nodeApiUrl !== before.node.nodeApiUrl) {
+    throw new Error('The selected Qortium route changed before the write could start.')
+  }
+  return requestHomeV2ListText(
+    action === 'ADD_TO_LIST' ? 'POST' : 'DELETE',
+    after.node.nodeApiUrl,
+    buildHomeV2ListPath(listName),
+    buildHomeV2ListWriteBody(items),
+    action === 'ADD_TO_LIST' ? 'Failed to add items to list.' : 'Failed to remove items from list.',
+    after.apiKey,
+  )
+}
+
 async function handleRequestWithRuntime(
   sender: WebContents,
   context: QdnViewContext,
@@ -6208,6 +6404,9 @@ async function handleRequestWithRuntime(
   }
   if (isHomeV2HomeSettingsAction(action)) {
     return handleHomeV2HomeSettingsAction(sender, context, protocol, action, requestValue)
+  }
+  if (isHomeV2ListAction(action)) {
+    return handleHomeV2ListAction(sender, context, protocol, action, requestValue)
   }
   if (action === 'NOTIFICATION_HAS_PERMISSION') {
     return {

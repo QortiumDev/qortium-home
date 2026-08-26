@@ -463,6 +463,14 @@ for (const action of [
   'LIST_MINTING_ACCOUNTS',
   'START_MINTING',
   'REMOVE_MINTING_ACCOUNT',
+  // The list reads pass the GET_ prefix rule but describe the user's own node
+  // too — which names the user blocks and follows is a behavioral profile of
+  // the person. The writes are excluded by the prefix rule; pinned so a
+  // rename cannot quietly admit them.
+  'GET_ALL_LISTS',
+  'GET_LIST',
+  'ADD_TO_LIST',
+  'REMOVE_FROM_LIST',
   // Same trap as the minting reads, and the reason the prefix rule needs a
   // denylist at all: GET_USER_WALLET matches /^GET_/ and its entire answer is
   // the selected account's address. It is GET_SELECTED_ACCOUNT by another
@@ -511,6 +519,13 @@ const androidActions = getHomeV2ContextualAppActions(
 assert.equal(androidActions.includes('OPEN_AS_WIDGET'), false)
 assert.equal(androidActions.some((action) => action.startsWith('WIDGET_')), false)
 assert.equal(androidActions.includes('SHOW_CONTEXT_MENU'), true)
+// The list family needs a local Core's administrative key and Android never
+// runs one, so all four are filtered from Android's SHOW_ACTIONS — an
+// advertised action that can never succeed would make the list lie. SEND_MESSAGE
+// is filtered for the same reason (no Android signing path).
+for (const action of ['GET_ALL_LISTS', 'GET_LIST', 'ADD_TO_LIST', 'REMOVE_FROM_LIST', 'SEND_MESSAGE']) {
+  assert.equal(androidActions.includes(action), false, `android must not advertise ${action}`)
+}
 
 // ---------------------------------------------------------------------------
 // The app-facing notification manager family.

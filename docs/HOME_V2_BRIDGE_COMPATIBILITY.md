@@ -130,6 +130,8 @@ request `notifications.manage`, and the assigned app gets no head start.
 | `SEARCH_GROUPS` | `qdnRequest` | Bare Core JSON array | Qortium-only — `/groups/search` does not exist on Qortal (verified absent from the Qortal master 6.1.5 and develop checkouts' `GroupsResource.java`); required non-negative-length `query`, `visibility` validated against Core's real `ALL`/`OPEN`/`CLOSED` enum (not Hub's `PUBLIC`/`PRIVATE` terminology), strict `prefixOnly`, 100-entry page cap | yes | yes |
 | `GET_MINTING_STATUS`, `LIST_MINTING_ACCOUNTS` | both | `{ address, hasRewardShare, isMinting, keyOnNode, nodeMintingPossible }`, or `{ accounts, available }` with `address`/`mintingAccount`/`publicKey`/`recipientAccount` per entry | No prompt (derived booleans and allowlisted fields only, never key material). `hasRewardShare` is a public read; the node-side fields are `null` and `available` is `false` unless the route is the local Core Home runs and holds the API key for, so they are always unavailable on public/custom nodes, on Qortal, and on Android. Never offered to a chromeless widget, which has no prompt surface and must not learn the selected identity | yes | yes (node-side always unavailable) |
 | `START_MINTING`, `REMOVE_MINTING_ACCOUNT` | both | `{ accepted, action, address, keyAdded }` plus `rewardSharePending`/`transactionSignature` when the on-chain self-share was submitted first, or `{ accepted, action, address, publicKey, removed }` | Single-request prompt each, never a session or durable grant, and one never satisfies the other. Requires an unlocked selected account and the local Core reached over loopback; refused with `NODE_CAPABILITY_MISSING` elsewhere and on Qortal. Removal takes no key from the app: Home resolves the selected account's own self-share key from the node's own list, before and again after the approval, and deletes only that, so no other minter can be touched and no app-supplied key-shaped value reaches the node. Errors from the key-bearing calls carry only an operation name and HTTP status | yes | no |
+| `GET_ALL_LISTS`, `GET_LIST` | `qdnRequest` | Core's sorted list-name array, or the named list's item array in stored order; a 404 answers as `[]` | No prompt (reads are permissionless), but node-gated like the minting family: lists are private state on the user's own node and every `/lists` route needs its administrative key, so both are refused with `NODE_CAPABILITY_MISSING` unless the route is the local Core Home runs, reaches over loopback, and holds the key for. 2 MiB response cap (1.x parity). Never offered to a chromeless widget — which names the user blocks and follows is a behavioral profile of the person | yes | no (filtered from Android's SHOW_ACTIONS — Android never runs a local Core, and 1.x lists only ever worked in the emulator) |
+| `ADD_TO_LIST`, `REMOVE_FROM_LIST` | `qdnRequest` | Core's own `text/plain` body — the string `"true"` or `"false"`, returned not thrown, exactly as in 1.x | Single-request `node.lists.write` prompt each, never a session or durable grant, showing the list, the node, and the complete serialized item batch (refused unprompted above 4,000 characters — an approval the user cannot read in full is not an approval). Same trusted-node rule as the reads; the route is re-resolved after approval and a mid-prompt change refuses the write. `listName` and `items` validate to the 1.x shapes, except that a batch with blank or non-string entries is refused whole where 1.x silently half-applied it, and a selected account is required (1.x prompted account-free; Home 2 write prompts are account-anchored) | yes | no (filtered from SHOW_ACTIONS) |
 | `GET_USER_WALLET` | both | `{ address, assetId: 0, assetName: "Native Asset", native: true }` | No prompt, and permissionless by a strictly-less argument: it returns the selected account's address plus three constants, where `GET_SELECTED_ACCOUNT` — already permissionless — returns that same address plus the account name and lock state. No node call, no key derivation, no unlocked account required. **Native asset only.** Accepts `assetId: 0` and the coin aliases `NATIVE`/`NATIVE_ASSET`/`ASSET_0`/`ASSET0`, plus `QORT`, which Home 1.x wrongly routed to the foreign path; an absent selector defaults to native. Any foreign coin is refused with the coded, non-retryable `FOREIGN_WALLET_UNAVAILABLE` rather than answered with the native address. Never offered to a chromeless widget, for the same reason `GET_SELECTED_ACCOUNT` is not | yes | yes |
 | `GET_BALANCE`, `GET_ACCOUNT_DATA` | both | Bare Core JSON | No prompt. An absent `address` now defaults to the selected account (Home 1.x behavior, lost in the first Home 2 tranche), and `GET_BALANCE` honors a non-negative integer `assetId` instead of silently answering with the native balance for every asset. Both defaults are neutral — the subject is the caller's own account, whose address it can already read — except in a chromeless widget, where the self-addressing default is withheld and an explicit `address` is required | yes | yes |
 | `GET_CROSSCHAIN_BLOCKCHAINS`, `GET_CROSSCHAIN_SERVER_INFO`, `GET_FOREIGN_FEE`, `GET_SERVER_CONNECTION_HISTORY` | both | Blockchain list with a projected `QORT` row and a `homeWallet` capability per row; bare server array; `{ fee, feePerKb }` or `{ fee }`; bare Core JSON | No prompt; zero-key bounded reads of the node's own `/crosschain` prefix. No wallet seed, key derivation, unlocked account or API key is involved. `coin` is resolved against a strict allowlist (BTC, LTC, DOGE, DGB, RVN, DASH, NMC, FIRO, ARRR) before it can become a URL path segment; `ARRR` is accepted here although Home cannot derive an ARRR wallet, because these reads need no key material and Home 1.x wrongly reused the HD-wallet coin list. `GET_FOREIGN_FEE` normalizes Core's per-kilobyte `feekb` to a per-byte `fee` with ceiling rounding, so a fee never rounds down below what the foreign chain requires | yes | yes |
@@ -201,7 +203,7 @@ and Android fixtures pass.
 | Risk family | Deferred pinned actions |
 | --- | --- |
 | More public reads/search | `GET_TX_ACTIVITY_SUMMARY` (an API-keyed POST that contacts foreign chains, not a bounded public read), `LINK_TO_QDN_RESOURCE` (navigation family) |
-| Lists, hosted data, files, viewers | `ADD_LIST_ITEMS`, `DELETE_HOSTED_DATA`, `DELETE_LIST_ITEM`, `GET_HOSTED_DATA`, `GET_LIST_ITEMS`, `PLAY_ENCRYPTED_MEDIA`, `SAVE_FILE`, `SHOW_PDF_READER` |
+| Lists, hosted data, files, viewers | `ADD_LIST_ITEMS`, `DELETE_HOSTED_DATA`, `DELETE_LIST_ITEM`, `GET_HOSTED_DATA`, `GET_LIST_ITEMS`, `PLAY_ENCRYPTED_MEDIA`, `SAVE_FILE`, `SHOW_PDF_READER` (the three list actions have the `qdnRequest` family implemented — see the table above — but these v3 forms stay deferred: every `/lists` route needs the node's administrative key, and Home holds one only for the Qortium Core it runs itself) |
 | Notification subscriptions and tab sessions | `LOCK_TAB`, `NOTIFICATION_ADD`, `NOTIFICATION_GET`, `NOTIFICATION_MARK_SEEN`, `NOTIFICATION_PERMISSION`, `NOTIFICATION_REMOVE`, `SESSION_PERMISSIONS`, `UNLOCK_TAB`, `UPDATE_SUBSCRIPTIONS`; Home 2's additive `NOTIFICATION_HAS_PERMISSION` and `SHOW_NOTIFICATION` contract is implemented separately, and transient authority is invalidated on account/node/navigation/tab lifecycle boundaries |
 | Names, groups, polls | `BUY_NAME`, `CANCEL_SELL_NAME`, `CREATE_GROUP`, `CREATE_POLL`, `REGISTER_NAME`, `SELL_NAME`, `UPDATE_GROUP`, `UPDATE_NAME`, `VOTE_ON_POLL` |
 | QDN writes | `PUBLISH_MULTIPLE_QDN_RESOURCES`, deletion, and legacy inline/path publishing; Home 2 single-resource `PUBLISH_QDN_RESOURCE` is implemented through its separate H5B source-token contract |
@@ -216,9 +218,10 @@ The complete retained legacy-bridge action-name source remains
 `electron/qdn-app-actions.ts`, and `SHOW_ACTIONS` is the runtime authority.
 This section is the explicit per-action ledger of that catalogue, replacing the
 earlier blanket "everything not listed above is deferred": verified against
-`getHomeV2AppActions('qdnRequest')` at 2.1.0 (main `4b69066`), **93 of the 149
-Home 1.x `qdnRequest` actions are advertised** (the implemented table above) and
-the 56 below are not — 17 superseded, 39 deferred.
+`getHomeV2AppActions('qdnRequest')` at 2.1.0 (the lists restoration, on top of
+main `43d9721`), **97 of the 149 Home 1.x `qdnRequest` actions are advertised**
+(the implemented table above) and the 52 below are not — 17 superseded, 35
+deferred.
 
 **Superseded (17) — the same operation exists on the `qortalRequest` global.**
 Home 1.x predates the second global, so it reached Qortal through
@@ -246,13 +249,12 @@ replacement is shipped:
 | `SEARCH_QORTAL_TRANSACTIONS` | `SEARCH_TRANSACTIONS` |
 | `SEND_QORTAL_GROUP_CHAT` | `SEND_CHAT_MESSAGE` |
 
-**Deferred (39) — planned by family, unadvertised until each family's
+**Deferred (35) — planned by family, unadvertised until each family's
 request/result/error, permission, denial, stale-context, malformed-input,
 desktop, and Android fixtures pass:**
 
 | Family | Deferred actions | Notes |
 | --- | --- | --- |
-| Lists | `ADD_TO_LIST`, `GET_ALL_LISTS`, `GET_LIST`, `REMOVE_FROM_LIST` | Matches the deferred Qortal list family above |
 | Payments and asset transfer | `PAYMENT`, `SEND_COIN`, `SEND_QORT`, `TRANSFER_ASSET` | Behind the Phase 5 signing boundary; `PAYMENT`/`SEND_COIN` were 1.x aliases of one coin transfer |
 | Name mutations | `BUY_NAME`, `CANCEL_SELL_NAME`, `REGISTER_NAME`, `SELL_NAME`, `UPDATE_NAME` | Identity READS are implemented |
 | Group mutations beyond the implemented set | `CREATE_GROUP`, `GROUP_APPROVAL`, `SET_GROUP`, `SET_GROUP_AVATAR`, `UPDATE_GROUP` | The participation and exact group-administration actions ARE implemented (see the table above) |
@@ -315,7 +317,7 @@ file-only today (`properties: ['openFile']`), so even a complete port would
 cover `.zip` and `.html` but not 1.x's directory sources. This belongs in its
 own change with the renderer work included.
 
-### No longer deferred: display settings and minting
+### No longer deferred: display settings, minting, and lists
 
 Home's own **display settings** are no longer deferred.
 `GET_HOME_SETTINGS_METADATA`, `GET_HOME_SETTINGS` and `UPDATE_HOME_SETTINGS`
@@ -333,6 +335,14 @@ Minting is no longer deferred. `GET_MINTING_STATUS`, `LIST_MINTING_ACCOUNTS`,
 the local-Core restriction. `LIST_MINTING_ACCOUNTS` is new in Home 2 — it is the
 scoped replacement for the raw `/admin/mintingaccounts` fetch Home 1.x apps fell
 back to, which Home 2's read allowlist refuses.
+
+The list family is no longer deferred. `GET_ALL_LISTS`, `GET_LIST`,
+`ADD_TO_LIST`, and `REMOVE_FROM_LIST` are implemented on `qdnRequest` over the
+same trusted-node rule the minting family uses; see
+[QDN bridge action notes](BRIDGE_ACTIONS.md) for their shapes, the
+single-request `node.lists.write` prompt, and the deliberate
+refuse-the-whole-batch divergence from 1.x's silent item dropping. The Qortal
+v3 list forms stay deferred, as the table above notes.
 
 ## Known limitations of this slice
 
