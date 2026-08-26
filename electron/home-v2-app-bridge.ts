@@ -6196,6 +6196,13 @@ async function requestHomeV2ListText(
       ...(apiKey ? { 'X-API-KEY': apiKey } : {}),
     },
     body,
+    // The trusted-node gate proves the URL is loopback, but a redirect would
+    // let the RESPONDER choose a second URL the gate never saw — fetch
+    // preserves X-API-KEY across origins (it is not an Authorization header),
+    // and a 307/308 re-sends the method and body too. Refusing redirects
+    // outright keeps the administrative key pinned to the host the gate
+    // approved. (Security review 2026-08-26, finding 1.)
+    redirect: 'error',
     signal: AbortSignal.timeout(CHAT_WRITE_TIMEOUT_MS),
   })
   // 'GET' only tells readBoundedResponse to read the body; it does not change
@@ -6209,6 +6216,29 @@ async function requestHomeV2ListText(
     )
   }
   return text
+}
+
+// The read twin of requestHomeV2ListText: readHomeV2ChatJson's shape with
+// redirects refused, because every list read carries the administrative key.
+// (The shared chat/minting readers predate this rule; hardening them is
+// tracked separately so this change stays scoped to the list family.)
+async function readHomeV2ListJson(
+  nodeApiUrl: string,
+  path: string,
+  label: string,
+  apiKey: string,
+) {
+  const response = await nodeFetch(`${nodeApiUrl}${path}`, {
+    headers: apiKey ? { 'X-API-KEY': apiKey } : undefined,
+    method: 'GET',
+    redirect: 'error',
+    signal: AbortSignal.timeout(15_000),
+  })
+  const result = await readBoundedResponse(response, 'GET', LIST_READ_MAX_BYTES)
+  if (!result.ok) {
+    throw Object.assign(new Error(`${label} returned HTTP ${result.status}.`), { status: result.status })
+  }
+  return result.data
 }
 
 /**
@@ -6233,12 +6263,11 @@ async function handleHomeV2ListAction(
       : buildHomeV2ListPath(normalizeHomeV2ListName(requestValue))
     const { apiKey, node } = await resolveHomeV2ListNode(action)
     try {
-      return await readHomeV2ChatJson(
+      return await readHomeV2ListJson(
         node.nodeApiUrl,
         path,
         action === 'GET_ALL_LISTS' ? 'Lists lookup' : 'List lookup',
         apiKey,
-        LIST_READ_MAX_BYTES,
       )
     } catch (error) {
       // 1.x parity: a 404 on a named list is "no such list", answered as [].

@@ -519,6 +519,13 @@ const androidActions = getHomeV2ContextualAppActions(
 assert.equal(androidActions.includes('OPEN_AS_WIDGET'), false)
 assert.equal(androidActions.some((action) => action.startsWith('WIDGET_')), false)
 assert.equal(androidActions.includes('SHOW_CONTEXT_MENU'), true)
+// The list family needs a local Core's administrative key and Android never
+// runs one, so all four are filtered from Android's SHOW_ACTIONS — an
+// advertised action that can never succeed would make the list lie. SEND_MESSAGE
+// is filtered for the same reason (no Android signing path).
+for (const action of ['GET_ALL_LISTS', 'GET_LIST', 'ADD_TO_LIST', 'REMOVE_FROM_LIST', 'SEND_MESSAGE']) {
+  assert.equal(androidActions.includes(action), false, `android must not advertise ${action}`)
+}
 
 // ---------------------------------------------------------------------------
 // The app-facing notification manager family.

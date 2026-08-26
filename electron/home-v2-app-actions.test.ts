@@ -1031,6 +1031,15 @@ assert.equal(buildHomeV2ListWriteBody(['a', 'b']), '{"items":["a","b"]}')
 // shown in full (4000 characters) is refused before any prompt is raised.
 assert.equal(serializeHomeV2ListItemsForApproval(['a']), '["a"]')
 assert.throws(() => serializeHomeV2ListItemsForApproval(['x'.repeat(4001)]), /4000/)
+// The displayed form is escaped to printable ASCII: a bidi override, a
+// Unicode separator, or any character past DEL becomes a visible \uXXXX
+// escape, so nothing invisible can make the prompt read differently from what
+// Core receives.
+assert.equal(
+  serializeHomeV2ListItemsForApproval([`a${String.fromCharCode(0x202e)}b`, `line${String.fromCharCode(0x2028)}two`]),
+  '["a\\u202eb","line\\u2028two"]',
+)
+assert.equal(/^[\u0020-\u007e]*$/.test(serializeHomeV2ListItemsForApproval([`\u00fcn${String.fromCharCode(0x85)}x`])), true)
 
 // GET_LIST 1.x parity: 404 answers as the empty list; a real answer passes
 // through untouched.

@@ -345,6 +345,36 @@ function isHomeSettingsDetailRows(
     typeof row.value === 'string')
 }
 
+/**
+ * The exact rows a node-list write prompt must carry: one List, one Items, one
+ * Node, in that order and nothing else. Stricter than the settings-rows
+ * validator on purpose (security review 2026-08-26, finding 2): a generic
+ * "any two-string rows" check would render a prompt missing the list or node
+ * identity, or carrying duplicate or misleading rows, as readily as a real
+ * one. The value caps mirror what the main process can actually produce — a
+ * list name is at most 120 characters, the serialized batch at most 4,000,
+ * and the batch is escaped to printable ASCII before it is sent, so a control
+ * character in any row is proof of a forged payload.
+ */
+function isNodeListDetailRows(
+  value: unknown,
+): value is readonly [
+  { label: 'List'; value: string },
+  { label: 'Items'; value: string },
+  { label: 'Node'; value: string },
+] {
+  if (!Array.isArray(value) || value.length !== 3) return false
+  const row = (candidate: unknown, label: string, maxLength: number) =>
+    isRecord(candidate) &&
+    Object.keys(candidate).length === 2 &&
+    candidate.label === label &&
+    typeof candidate.value === 'string' &&
+    candidate.value.length > 0 &&
+    candidate.value.length <= maxLength &&
+    !/[\u0000-\u001f\u007f]/.test(candidate.value)
+  return row(value[0], 'List', 120) && row(value[1], 'Items', 4_000) && row(value[2], 'Node', 500)
+}
+
 type HomeV2ReplaceTabTarget = ReplaceTabTarget
 
 /**
@@ -2894,13 +2924,13 @@ export function HomeV2LiveApp() {
             typeof value.writeTargetChainLabel !== 'string' ||
             value.writeSingleRequestOnly !== true))
         // List writes must always arrive as single-request prompts carrying
-        // the List/Items/Node rows: a prompt that cannot show the user exactly
-        // what would change on their node is refused rather than shown with
-        // blanks. The rows reuse the home-settings row validator — they are
-        // the same plain label/value strings.
+        // exactly the List, Items and Node rows, in that order: a prompt that
+        // cannot show the user exactly what would change on their node — or
+        // that carries extra rows a forger could mislead with — is refused
+        // rather than rendered.
         || (isHomeV2ListWriteAction(value.action) &&
           (value.writeKind !== 'node-list' ||
-            !isHomeSettingsDetailRows(value.nodeListDetails) ||
+            !isNodeListDetailRows(value.nodeListDetails) ||
             typeof value.writeOperationLabel !== 'string' ||
             typeof value.writeRouteLabel !== 'string' ||
             typeof value.writeTargetChainLabel !== 'string' ||

@@ -1392,8 +1392,20 @@ export function normalizeHomeV2ListItems(request: Record<string, unknown>) {
 // 1.x refused, before prompting, any write whose serialized item array could
 // not be displayed in full on the approval dialog (electron/qdn.ts, 4000-char
 // cap, same message). An approval the user cannot read is not an approval.
+//
+// The serialization is escaped to printable ASCII before display: JSON already
+// escapes C0 controls, and everything from DEL up is rewritten to \uXXXX here.
+// A bidi override (U+202E), a Unicode line/paragraph separator, or any other
+// invisible character can therefore never reorder or restyle what the user
+// reads against what Core receives — the app's raw strings still go to the
+// node untouched via buildHomeV2ListWriteBody; only the prompt shows the
+// escaped form. The 4000-char cap applies to the escaped form, because the
+// cap is about what can be DISPLAYED.
 export function serializeHomeV2ListItemsForApproval(items: readonly string[]) {
-  const serialized = JSON.stringify(items)
+  const serialized = JSON.stringify(items).replace(
+    /[\u007f-\uffff]/g,
+    (ch) => `\\u${ch.charCodeAt(0).toString(16).padStart(4, '0')}`,
+  )
   if (serialized.length > 4_000) {
     throw new Error('QDN write request data is too large to display safely for approval (4000 characters maximum).')
   }

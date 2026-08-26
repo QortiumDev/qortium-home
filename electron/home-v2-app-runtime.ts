@@ -267,6 +267,16 @@ export function homeV2WidgetWithholdsSelfSubject(action: string) {
  */
 const ANDROID_UNSUPPORTED_ACTIONS = new Set<string>([
   'SEND_MESSAGE',
+  // The list family needs the administrative key of a local Core, and Android
+  // never runs one — so unlike the minting reads (which still answer a useful
+  // degraded result there) these four can NEVER succeed on Android. Leaving
+  // them in SHOW_ACTIONS would make the result lie; the portable client also
+  // refuses direct calls with a precise coded error (node-client.ts) as
+  // defense in depth. (Security review 2026-08-26, finding 5.)
+  'GET_ALL_LISTS',
+  'GET_LIST',
+  'ADD_TO_LIST',
+  'REMOVE_FROM_LIST',
 ])
 
 export function isHomeV2AndroidUnsupportedAction(action: string) {
