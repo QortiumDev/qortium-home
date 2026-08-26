@@ -134,7 +134,12 @@ export interface HomeV2PrototypeProps {
   readonly onChainCoreUpdates?: HomeV2OnChainCoreUpdates
   readonly qdnAppsManagement?: HomeV2QdnSettingsManagement
   /** Current Home-profile manager revisions, seeded into each shown app view. */
-  readonly managerRevisions?: import('../../../electron/qdn-manager-events').QdnManagerRevisions | null
+  // Structural twin of electron/qdn-manager-events' QdnManagerRevisions —
+  // the renderer may not import from electron/ (escape-hatch scan).
+  readonly managerRevisions?: {
+    readonly bookmarkManager: number
+    readonly notificationManager: number
+  } | null
   readonly resolveAccountLabel?: (accountId: string) => string | null
   readonly notificationPolicy?: HomeV2NotificationPolicyState | null
   readonly windowBehavior?: HomeV2WindowBehaviorState | null

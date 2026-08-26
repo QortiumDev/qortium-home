@@ -21,7 +21,7 @@ const createdAt = '2026-08-20T12:00:00.000Z';
 // Real checksum-valid Qortal addresses plus one-character-mutated invalid
 // siblings, so masking is exercised against actual validation.
 const validAddress = 'QT4zHex8JEULmBhYmKd5UhpiNA46T5wUko';
-const otherValidAddress = 'QH143K2qjVdn864NSY7aNESo88ao1ZnALH';
+const otherValidAddress = 'QfETL5P9AdWNJFazqqigXVsu6Hx4iV8EUg';
 const invalidAddress = 'QT4zHex8JEULmBhYmKd5UhpiNA46T5wUkn';
 
 const rule = (
