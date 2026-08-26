@@ -1,6 +1,7 @@
 import {
   app,
   BrowserWindow,
+  clipboard,
   dialog,
   ipcMain,
   Menu,
@@ -33,6 +34,7 @@ import { prewarmRunningCoreApiKeyCache } from './local-api-key.js';
 import { registerNodeSettingsIpcHandlers } from './node-settings.js';
 import { registerHomeV2NodeBridgeIpcHandlers } from './home-v2-node-bridge.js';
 import { assertAuthorizedHomeV2Sender, authorizeHomeV2Sender } from './home-v2-authorized-senders.js';
+import { assertHomeV2ShellClipboardText } from './home-v2-shell-clipboard.js';
 import { sanitizeHomeV2WindowAddress } from './home-v2-window-startup.js';
 import { readHomeV2ShellState } from './home-v2-shell-store.js';
 import { homeWindowFocus } from './home-window-focus.js';
@@ -1084,6 +1086,18 @@ function registerHomeV2ZoomIpcHandlers() {
   });
 }
 
+function registerHomeV2ShellClipboardIpcHandlers() {
+  // Narrow Home 2 surface: write a short string to the system clipboard, and
+  // nothing else - no read, no formats, no images. The shell renderer cannot
+  // use navigator.clipboard at all because its session denies every permission
+  // request, so its copy actions arrive here instead. App views already copy
+  // through main the same way (home-v2-app-bridge.ts).
+  ipcMain.handle('home-v2-shell:copy-text', (event, value: unknown) => {
+    assertAuthorizedHomeV2Sender(event);
+    clipboard.writeText(assertHomeV2ShellClipboardText(value));
+  });
+}
+
 function registerZoomIpcHandlers() {
   ipcMain.handle('zoom:get', (event) => getZoomPercent(event.sender));
 
@@ -1230,6 +1244,7 @@ app.whenReady().then(async () => {
     registerHomeV2AppBridgeIpcHandlers();
     registerQdnViewIpcHandlers();
     registerHomeV2ZoomIpcHandlers();
+    registerHomeV2ShellClipboardIpcHandlers();
     registerHomeV2WindowIpcHandlers();
     // The application menu is what carries the browser keyboard accelerators
     // (new/close/reopen tab, back/forward, reload, focus address bar). Home 2

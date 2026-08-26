@@ -248,4 +248,82 @@ assert.match(
   'widget BrowserWindow must set an explicit transparent backgroundColor; transparent: true alone is not enough',
 )
 
+// The toolbar's "Open as widget" control is gated on an availability probe,
+// because the shell renderer's session blocks every network request and so
+// cannot read the app's widget.json itself. The probe must stay a *probe*:
+// discovery only, no permission prompt, no capacity check, no widget created.
+const probeStart = bridgeSource.indexOf("ipcMain.handle('home-v2-widgets:probe'")
+assert.notEqual(probeStart, -1, "the app bridge must register 'home-v2-widgets:probe'")
+const probeBody = bridgeSource.slice(probeStart, bridgeSource.indexOf('\n  })', probeStart))
+
+assert.match(
+  probeBody,
+  /assertAuthorizedHomeV2Sender\(event\)/,
+  'the probe channel must reject senders that are not the trusted Home shell',
+)
+assert.match(
+  probeBody,
+  /getQdnViewContextForTab\(event\.sender\.id, tabId\)/,
+  'the probe must resolve the tab through the same view map the open handler uses',
+)
+for (const forbidden of [
+  'requireWidgetPermission',
+  'assertWidgetCapacity',
+  'handleOpenAsWidget',
+  'prepareWidgetLaunch',
+]) {
+  assert.ok(
+    !probeBody.includes(forbidden),
+    `the availability probe must not call ${forbidden}; it answers a question, it does not launch`,
+  )
+}
+
+// The discovery helper the probe and the launch path share must not smuggle
+// the capacity check back in: "a widget for this resource is already open" is
+// not "this app has no widget", and conflating them would hide the control
+// for exactly the app the user just opened a widget for.
+const discoveryStart = bridgeSource.indexOf('async function discoverContextWidgetManifest')
+assert.notEqual(discoveryStart, -1, 'discoverContextWidgetManifest must exist in the app bridge')
+const discoveryBody = bridgeSource.slice(
+  discoveryStart,
+  bridgeSource.indexOf('\n}', discoveryStart),
+)
+assert.ok(
+  !discoveryBody.includes('assertWidgetCapacity'),
+  'widget discovery must not consult launch-time capacity',
+)
+assert.match(
+  bridgeSource,
+  /async function prepareWidgetLaunch[\s\S]{0,400}assertWidgetCapacity\(/,
+  'the launch path must still enforce capacity',
+)
+
+// A manifest that exists but cannot be parsed throws out of discovery. The
+// probe answers "available" for that case on purpose, so the real error is
+// worded on click instead of the control silently disappearing.
+assert.match(
+  probeBody,
+  /catch \{\s*\n\s*return \{ available: true \}/,
+  'a thrown manifest error must leave the toolbar control visible',
+)
+
+const preloadSource = readFileSync(
+  path.join(repoRoot, 'electron/home-v2-live-preload.cts'),
+  'utf8',
+)
+assert.match(
+  preloadSource,
+  /probeWidget: \(request: unknown\) => ipcRenderer\.invoke\('home-v2-widgets:probe', request\)/,
+  'the shell preload must expose the widget availability probe',
+)
+
+// Pending must render nothing rather than a button that is about to vanish,
+// so the gate is an explicit `=== true`, not a truthiness test.
+const chromeSource = readFileSync(path.join(repoRoot, 'src/v2/shell/BrowserChrome.tsx'), 'utf8')
+assert.match(
+  chromeSource,
+  /widgetAvailable === true/,
+  'BrowserChrome must render the widget control only on a confirmed yes',
+)
+
 console.log('widget-shell-contract tests passed')

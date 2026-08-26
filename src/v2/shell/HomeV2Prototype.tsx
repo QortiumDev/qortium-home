@@ -166,6 +166,8 @@ export interface HomeV2PrototypeProps {
   readonly onOpenApp?: (app: AppDescriptor) => void
   readonly onOpenAddress?: (address: string) => Promise<AddressOpenResult>
   readonly onOpenAsWidget?: (tabId: string) => Promise<string | null>
+  /** Undefined while the host is still asking main whether the app has one. */
+  readonly widgetAvailable?: boolean
   readonly onAppNavigationChanged?: (
     tabId: ProductState['tabs'][number]['id'],
     snapshot: AppTabNavigationSnapshot,
@@ -1027,6 +1029,7 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
         onNavigate={guardedNavigate}
         onOpenAddress={props.onOpenAddress}
         onOpenAsWidget={props.onOpenAsWidget}
+        widgetAvailable={props.widgetAvailable}
         canGoBack={props.canGoBack}
         canGoForward={props.canGoForward}
         onGoBack={props.onGoBack}

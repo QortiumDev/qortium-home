@@ -15,6 +15,7 @@ import { randomBytes, randomUUID } from 'node:crypto'
 import { writeFile } from 'node:fs/promises'
 import nodePath from 'node:path'
 import nacl from 'tweetnacl'
+import { assertAuthorizedHomeV2Sender } from './home-v2-authorized-senders.js'
 import {
   getHomeV2AppNodeState,
   getHomeV2ReadableNode,
@@ -343,6 +344,7 @@ import {
   buildWidgetRenderUrl,
   discoverWidgetManifest,
   parseWidgetResourceIdentity,
+  type WidgetResourceIdentity,
 } from './widget-discovery.js'
 import {
   endWidgetDrag,
@@ -2322,7 +2324,17 @@ type PreparedWidgetLaunch = {
   readonly renderUrl: string
 }
 
-async function prepareWidgetLaunch(context: QdnViewContext): Promise<PreparedWidgetLaunch> {
+type WidgetLaunchIdentity = {
+  readonly appName: string
+  readonly identity: WidgetResourceIdentity
+  readonly resourceUrl: string
+}
+
+// The two things that have to be true before an app can have a widget at all:
+// the tab is not itself a widget, and it is showing a published resource.
+// Identity comes from the resource address rather than anything the app sends,
+// so an app cannot ask for a widget pointed at someone else's resource.
+function resolveWidgetLaunchIdentity(context: QdnViewContext): WidgetLaunchIdentity {
   if (isWidgetTabId(context.tabId)) {
     throw new Error('A widget cannot open another widget.')
   }
@@ -2330,13 +2342,21 @@ async function prepareWidgetLaunch(context: QdnViewContext): Promise<PreparedWid
     throw new Error('Only a published app can be opened as a widget.')
   }
 
-  // Identity comes from the resource address rather than anything the app
-  // sends, so an app cannot ask for a widget pointed at someone else's resource.
   const identity = parseWidgetResourceIdentity(context.resourceUrl)
   const appName = identity.identifier ? `${identity.name}/${identity.identifier}` : identity.name
-  assertWidgetCapacity(context.resourceUrl)
+  return { appName, identity, resourceUrl: context.resourceUrl }
+}
 
-  const manifest = await discoverWidgetManifest(identity, async (routePath) => {
+// Discovery only. Deliberately does NOT call assertWidgetCapacity: capacity is
+// a launch-time limit ("this resource already has a widget open"), not a fact
+// about whether the app publishes a widget face, and the toolbar's probe asks
+// only the second question. Null means the app has no widget; a throw means a
+// manifest exists but cannot be trusted (see widget-discovery.ts).
+async function discoverContextWidgetManifest(
+  context: QdnViewContext,
+  identity: WidgetResourceIdentity,
+): Promise<WidgetManifest | null> {
+  return discoverWidgetManifest(identity, async (routePath) => {
     const response = await nodeFetch(`${context.nodeOrigin}${routePath}`, {
       method: 'GET',
       signal: AbortSignal.timeout(15_000),
@@ -2352,6 +2372,13 @@ async function prepareWidgetLaunch(context: QdnViewContext): Promise<PreparedWid
       text: result.body,
     }
   })
+}
+
+async function prepareWidgetLaunch(context: QdnViewContext): Promise<PreparedWidgetLaunch> {
+  const { appName, identity, resourceUrl } = resolveWidgetLaunchIdentity(context)
+  assertWidgetCapacity(resourceUrl)
+
+  const manifest = await discoverContextWidgetManifest(context, identity)
   if (!manifest) throw new Error('This app does not publish a widget.')
 
   const renderUrl = new URL(buildWidgetRenderUrl(context.nodeOrigin, identity, manifest.entry))
@@ -6044,6 +6071,40 @@ export function registerHomeV2AppBridgeIpcHandlers() {
       return { ok: true, widgetId }
     } catch (error) {
       return { ok: false, message: error instanceof Error ? error.message : String(error) }
+    }
+  })
+  // Availability for the toolbar control. Whether an app publishes a widget
+  // face is only knowable from its manifest on the node, and the shell
+  // renderer's session blocks every network request, so the shell has to ask
+  // main. This is discovery ONLY: no permission prompt, no capacity check, no
+  // widget created.
+  //
+  // A thrown manifest error answers `available: true` on purpose. A malformed
+  // manifest is a real problem the user should see, and hiding the control
+  // would silently downgrade it to "this app has no widget" - exactly the
+  // distinction widget-discovery.ts draws between null and a throw. Only a
+  // clean null (the node's 404 for a missing widget.json) hides the button.
+  ipcMain.handle('home-v2-widgets:probe', async (event, value: unknown) => {
+    assertAuthorizedHomeV2Sender(event)
+    const tabId = stringField(value, 'tabId')
+    if (!tabId) return { available: false }
+    // Resolved by tab through the same map 'home-v2-widgets:open' uses, so the
+    // probe can only ever describe what that tab is actually showing.
+    const context = getQdnViewContextForTab(event.sender.id, tabId)
+    if (!context) return { available: false }
+    // A widget tab, or a tab that is not showing a published resource, can
+    // never have a widget: that is a fact about the tab, not about a manifest,
+    // so it hides the control rather than reporting it as available.
+    let identity: WidgetResourceIdentity
+    try {
+      identity = resolveWidgetLaunchIdentity(context).identity
+    } catch {
+      return { available: false }
+    }
+    try {
+      return { available: (await discoverContextWidgetManifest(context, identity)) !== null }
+    } catch {
+      return { available: true }
     }
   })
   ipcMain.handle('home-v2-widgets:sync-state', async (_event, value: unknown) => {

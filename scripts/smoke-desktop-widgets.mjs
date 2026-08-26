@@ -378,6 +378,21 @@ async function assertPermissionGate(home, node, approve) {
   // The toolbar names a tab, and its request arrives on the Home shell's
   // webContents rather than the app view's. Re-resolving the shell as a QDN
   // view returns null, which made this throw for any app without a grant.
+  //
+  // This drives the IPC channel directly, so it is unaffected by the toolbar
+  // gate: the shell now only renders the control when 'home-v2-widgets:probe'
+  // says the tab's app publishes a widget. The fixture app does publish one.
+  const probe = await shell.evaluate(
+    "window.homeV2Apps.probeWidget({ tabId: 'smoke-app' })",
+    STEP_TIMEOUT_MS,
+  )
+  assert.equal(
+    probe.available,
+    true,
+    `The fixture app publishes a widget, so the toolbar gate must open: ${JSON.stringify(probe)}`,
+  )
+  log('widget availability probe reports the fixture app as widget-capable')
+
   const first = await shell.evaluate(
     "window.homeV2Apps.openAsWidget({ tabId: 'smoke-app' })",
     STEP_TIMEOUT_MS,

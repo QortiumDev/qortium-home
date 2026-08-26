@@ -1483,8 +1483,83 @@ export function HomeV2LiveApp() {
   )
 
   // Whether an app has a widget face is only knowable from the manifest it
-  // publishes, so the toolbar offers the action for any app tab and reports
-  // back here when the app turns out not to have one.
+  // publishes on the node, and the shell renderer cannot reach the node, so
+  // main answers it. The answer is cached per tab *and* resource - the same
+  // key shape androidAppStageKey uses - because a tab pointed at a different
+  // resource is a different question.
+  const [widgetAvailability, setWidgetAvailability] = useState<ReadonlyMap<string, boolean>>(
+    () => new Map(),
+  )
+  const widgetAvailabilityRef = useRef<ReadonlyMap<string, boolean>>(widgetAvailability)
+  widgetAvailabilityRef.current = widgetAvailability
+  const widgetProbesInFlight = useRef(new Set<string>())
+  const widgetProbeRetries = useRef(new Set<string>())
+
+  const probeWidgetAvailability = useCallback((tabId: string, key: string, retry = false) => {
+    const bridge = window.homeV2Apps
+    if (!bridge || typeof bridge.probeWidget !== 'function') return
+    if (widgetProbesInFlight.current.has(key)) return
+    if (widgetAvailabilityRef.current.has(key)) {
+      // Asked once per tab+resource: the answer is a property of the published
+      // resource, so re-asking on every in-app navigation would be a request
+      // per hash change for no new information. The one exception is a single
+      // retry of a "no" after the app view reports navigation, because a probe
+      // that lands before main has a view for the tab answers "no" for a tab
+      // whose app was simply not ready yet.
+      if (!retry || widgetAvailabilityRef.current.get(key) !== false) return
+      if (widgetProbeRetries.current.has(key)) return
+      widgetProbeRetries.current.add(key)
+    }
+    widgetProbesInFlight.current.add(key)
+    const record = (available: boolean) => {
+      widgetProbesInFlight.current.delete(key)
+      setWidgetAvailability((current) => {
+        const next = new Map(current)
+        next.set(key, available)
+        return next
+      })
+    }
+    void bridge
+      .probeWidget({ tabId })
+      .then((result) => record(result?.available === true))
+      // A failed probe leaves the control visible rather than hiding it: the
+      // click path already words the real error, and silently hiding it would
+      // read as "this app has no widget".
+      .catch(() => record(true))
+  }, [])
+
+  const activeWidgetTab =
+    productState.tabs.find((tab) => tab.id === productState.activeTabId) ?? null
+  const activeWidgetKey = activeWidgetTab
+    ? `${activeWidgetTab.id}:${activeWidgetTab.context.resourceLocation}`
+    : null
+
+  useEffect(() => {
+    if (!activeWidgetTab || !activeWidgetKey) return
+    probeWidgetAvailability(activeWidgetTab.id, activeWidgetKey)
+  }, [activeWidgetKey, activeWidgetTab, probeWidgetAvailability, widgetAvailability])
+
+  // The app view reporting navigation is the earliest reliable sign that main
+  // has a QDN view for that tab, so it is also when a probe that ran too early
+  // gets its one retry.
+  useEffect(() => {
+    const bridge = window.homeV2Apps
+    if (!bridge) return
+    return bridge.onNavigationChanged((value) => {
+      if (!isRecord(value) || typeof value.tabId !== 'string') return
+      const tab = productStateRef.current.tabs.find((candidate) => candidate.id === value.tabId)
+      if (!tab) return
+      probeWidgetAvailability(tab.id, `${tab.id}:${tab.context.resourceLocation}`, true)
+    })
+  }, [probeWidgetAvailability])
+
+  // Undefined while the probe is outstanding. The toolbar renders nothing in
+  // that window rather than a button that may be about to disappear.
+  const activeWidgetAvailable = activeWidgetKey ? widgetAvailability.get(activeWidgetKey) : undefined
+
+  // The launch itself. The probe above only says the app has a widget face;
+  // the grant, the one-per-resource limit and any manifest fault are answered
+  // here, and the message is what the toolbar shows on the button.
   const openTabAsWidget = useCallback(async (tabId: string): Promise<string | null> => {
     const bridge = window.homeV2Apps
     if (!bridge) return 'Widgets are only available on desktop.'
@@ -5630,6 +5705,7 @@ export function HomeV2LiveApp() {
       onOpenApp={openApp}
       onOpenAddress={openAddress}
       onOpenAsWidget={openTabAsWidget}
+      widgetAvailable={activeWidgetAvailable}
       onResolvePermission={resolveAccountPermission}
       canGoBack={activeNavigationPosition > 0}
       canGoForward={

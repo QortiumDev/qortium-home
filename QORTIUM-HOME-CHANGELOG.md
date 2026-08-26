@@ -34,6 +34,30 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-26 - fix(home-v2): the widget button only appears for apps that have a widget, and Copy actually copies
+
+Two small things in the app toolbar and its menus were quietly wrong.
+
+The "Open as widget" button in the toolbar used to appear for every open app.
+Most apps do not publish a widget face, so for most apps the button was an
+invitation to click something that could only answer "this app does not publish
+a widget." Home now asks its node whether the app you are looking at actually
+publishes one, and shows the button only when the answer is yes. While it is
+still asking, nothing is shown, so the button never appears and then vanishes
+under your pointer. An app that publishes a widget description Home cannot read
+keeps its button on purpose: that is a real problem worth reporting when you
+click, not something to hide behind a missing button.
+
+Copy in the Home window's own right-click menus — copying an address, a name or
+a link — did nothing on desktop. Home's own window runs with every browser
+permission switched off, which is deliberate and is what keeps a page in that
+window from reaching your microphone, camera, location or clipboard on its own;
+the side effect was that Home's own Copy went through the same blocked route and
+silently failed. Those copies are now performed by the application itself, the
+same way copying from inside an open app already worked. Copying on Android is
+unchanged, and the clipboard is still write-only to Home: nothing here lets Home
+or an app read what is already on your clipboard.
+
 ### 2026-08-26 - fix(home-v2): the dashboard Apps button opens Apps, and the bookmark strip shows names instead of addresses
 
 The "Apps" button on the dashboard used to open Explore. Explore is a resource

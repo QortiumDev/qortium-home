@@ -659,6 +659,7 @@ declare global {
       openAsWidget(request: { tabId: string }): Promise<
         { ok: true; widgetId: string } | { ok: false; message: string }
       >
+      probeWidget(request: { tabId: string }): Promise<{ available: boolean }>
       syncWidgets(request: unknown): Promise<void>
       resolvePermission(request: unknown): void
       show(request: unknown): Promise<void>

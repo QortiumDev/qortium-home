@@ -53,9 +53,14 @@ const { widgetId } = await qdnRequest({ action: 'OPEN_AS_WIDGET' })
 
 Home first confirms that the calling resource publishes a valid manifest, then
 asks the user whether that exact tab may create an always-on-top window. Home
-also offers an Open as widget control in the app toolbar. Version 1 permits one
-live widget per published resource; closing it allows the same resource to be
-opened again. Saved placement, size, and opacity are keyed to that resource.
+also offers an Open as widget control in the app toolbar, but only for a tab
+whose app actually publishes `widget.json`: Home asks the node for the manifest
+when the tab becomes active and hides the control when there is none. An app
+that publishes a manifest Home cannot parse keeps the control, so the manifest
+error is reported on click rather than hidden as "this app has no widget."
+Version 1 permits one live widget per published resource; closing it allows the
+same resource to be opened again. Saved placement, size, and opacity are keyed
+to that resource.
 
 ## Widget controls
 
