@@ -70,19 +70,6 @@ naming the file type twice — once in the response itself and once in an extra
 header — and Android's media player refuses a response that declares its type
 twice. The type now travels exactly once. This affected every app-embedded
 player on the phone; the separate viewer window has its own fix coming next.
-### 2026-08-26 - fix(home-v2): the phone toolbar keeps a usable address bar, and two small rough edges are smoothed
-
-Live phone testing found that with both networks enabled, the two account
-badges and the row of navigation buttons squeezed the address input down to a
-few pixels — taps meant for the address landed on the Go button instead. The
-toolbar now guarantees the address a usable minimum width on phones: the
-navigation buttons slim down, the account cluster tightens, and the decorative
-magnifying-glass glyph steps aside at phone width. Two cosmetic fixes ride
-along: a wrapped account address in the account menu now breaks into even
-halves instead of leaving a single stranded character on its own line, and the
-inline "Revoke" confirmation in QDN Apps settings puts its title, description,
-and buttons on their own lines instead of running the words together.
-
 ### 2026-08-26 - docs(home-v2): name every not-yet-carried app action instead of a blanket "everything else is deferred"
 
 The bridge compatibility ledger used to close with one sweeping sentence:
