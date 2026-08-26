@@ -858,6 +858,12 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
   const activeTab = productState.tabs.find(
     (tab) => tab.id === productState.activeTabId,
   )
+  // A toolbar popover is open. Deliberately separate from `appOverlayActive`:
+  // that one also disables navigation and forces the owning tab active, which
+  // is right for a trusted prompt and wrong for a menu. This reaches nothing
+  // but the app stage's `suspended`, because suspending the native view is the
+  // only way a menu can be seen over an app page at all.
+  const [chromeOverlayOpen, setChromeOverlayOpen] = useState(false)
   const permissionOverlayTabId = permissionState.pending[0]?.context.tabId
   const appOverlayActive =
     !!activeTab &&
@@ -1063,6 +1069,7 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
         onConfigureCustomNode={props.onConfigureCustomNode}
         onOpenCoreSettings={() => openSettingsSection('core')}
         onSetNodeMode={props.onSetNodeMode}
+        onOverlayOpenChange={setChromeOverlayOpen}
       />
       <main
         className="home-v2-page-viewport"
@@ -1113,7 +1120,7 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
                 nodeClient={props.nodeClient}
                 selectedAccountId={props.selectedAccountId}
                 reloadVersion={props.appReloadVersion}
-                suspended={appOverlayActive}
+                suspended={appOverlayActive || chromeOverlayOpen}
                 onNavigationChanged={props.onAppNavigationChanged}
                 onNavigationControllerChange={props.onAppNavigationControllerChange}
                 onOpenAddress={props.onOpenAddress}

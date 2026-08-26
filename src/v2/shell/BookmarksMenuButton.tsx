@@ -16,6 +16,8 @@ export interface BookmarksMenuButtonProps {
   readonly onSetToolbarVisibility?: (
     visibility: BookmarkToolbarVisibility,
   ) => void | Promise<void>
+  /** Reports the menu's open state so the chrome can suspend the app view. */
+  readonly onOpenChange?: (open: boolean) => void
 }
 
 /**
@@ -32,8 +34,10 @@ export function BookmarksMenuButton({
   onManage,
   toolbarVisibility,
   onSetToolbarVisibility,
+  onOpenChange,
 }: BookmarksMenuButtonProps) {
-  const { containerRef, open, setOpen } = useDismissablePopover<HTMLDivElement>()
+  const { containerRef, open, setOpen } =
+    useDismissablePopover<HTMLDivElement>(onOpenChange)
 
   const run = (action?: () => void | Promise<void>) => () => {
     setOpen(false)

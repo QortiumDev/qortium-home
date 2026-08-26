@@ -49,6 +49,8 @@ interface ChromeMenuProps {
    */
   readonly children: ReactNode | ((close: () => void) => ReactNode)
   readonly label: string
+  /** Reports the menu's open state so the chrome can suspend the app view. */
+  readonly onOpenChange?: (open: boolean) => void
   readonly trigger: (props: {
     readonly onClick: () => void
     readonly 'aria-expanded': boolean
@@ -56,8 +58,9 @@ interface ChromeMenuProps {
   }) => ReactNode
 }
 
-function ChromeMenu({ children, label, trigger }: ChromeMenuProps) {
-  const { containerRef, open, setOpen } = useDismissablePopover<HTMLDivElement>()
+function ChromeMenu({ children, label, onOpenChange, trigger }: ChromeMenuProps) {
+  const { containerRef, open, setOpen } =
+    useDismissablePopover<HTMLDivElement>(onOpenChange)
   return (
     <div className="home-v2-chrome-menu" ref={containerRef}>
       {trigger({
@@ -277,6 +280,8 @@ export interface NodeStatusMenuProps {
   readonly network: NetworkId
   readonly node: HomeV2Snapshot['nodes'][NetworkId]
   readonly tone: string
+  /** Reports the menu's open state so the chrome can suspend the app view. */
+  readonly onOpenChange?: (open: boolean) => void
   readonly onConfigureCustomNode?: (network: NetworkId) => void
   readonly onOpenCoreSettings?: () => void
   readonly onSetNodeMode?: (
@@ -297,6 +302,7 @@ export function NodeStatusMenu({
   network,
   node,
   onConfigureCustomNode,
+  onOpenChange,
   onOpenCoreSettings,
   onSetNodeMode,
   tone,
@@ -305,6 +311,7 @@ export function NodeStatusMenu({
   return (
     <ChromeMenu
       label={t('home2.node.connectionTitle', { network: networkLabels[network] })}
+      onOpenChange={onOpenChange}
       trigger={(triggerProps) => (
         <button
           {...triggerProps}
@@ -409,6 +416,8 @@ export interface AccountStatusMenuProps {
   readonly selectedAccountLookup?: DualIdentityLookupResult | null
   readonly loadVisibleAvatar?: VisibleAvatarLoader
   readonly onLockAccount?: () => void
+  /** Reports the menu's open state so the chrome can suspend the app view. */
+  readonly onOpenChange?: (open: boolean) => void
   readonly onUnlockAccount?: () => void
 }
 
@@ -444,6 +453,7 @@ export function AccountStatusMenu({
   selectedAccountLookup,
   loadVisibleAvatar,
   onLockAccount,
+  onOpenChange,
   onUnlockAccount,
 }: AccountStatusMenuProps) {
   const hasAccount = snapshot.account.state !== 'none'
@@ -466,6 +476,7 @@ export function AccountStatusMenu({
   return (
     <ChromeMenu
       label={t('home2.account.selected')}
+      onOpenChange={onOpenChange}
       trigger={(triggerProps) => (
         <button
           {...triggerProps}

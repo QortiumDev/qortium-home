@@ -34,6 +34,26 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-26 - fix(home-v2): toolbar menus no longer open behind the app you are looking at
+
+While an app was open, the toolbar's menus were invisible. Pressing the
+bookmarks button, a network status pill or the account button appeared to do
+nothing at all: the menu really did open, but it opened underneath the app page
+rather than over it, so nothing showed. The same went for the message the
+address bar shows when it cannot find what you typed. It only looked broken
+when an app was on screen — on the Dashboard and in Settings the menus were
+fine, which made it easy to mistake for a dead button.
+
+The reason is that app pages are not drawn by Home the way the rest of the
+window is; they are handed to the system and painted on top, so nothing Home
+draws can sit in front of one. Home 1.x already solved this, and Home 2 lost
+the solution when the old shell was retired. It is back now: while a toolbar
+menu is open, Home briefly freezes the app page, shows a still picture of it in
+the same place, and puts the menu over that. Close the menu and the app carries
+on where it was. The page is not reloaded and nothing you were doing in it is
+lost — the pause lasts exactly as long as the menu is open. If two menus are
+open at once, the page stays paused until you close the last one.
+
 ### 2026-08-25 - feat(home-v2): remember read-only account access, and say what private group prompts really ask for
 
 Most read-only account requests stopped asking permission in an earlier
