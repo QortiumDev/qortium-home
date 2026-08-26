@@ -4175,7 +4175,16 @@ export function HomeV2LiveApp() {
           (candidate) => candidate.id === context.selectedAccountId,
         )
         if (!account) throw new Error('The selected account is no longer available.')
-        const nodeBefore = parseHomeV2NodesSnapshot(await nodeClient.getSnapshot()).qortium
+        // Bind the route recheck to the network the REQUEST is on, not a fixed
+        // chain. UNLOCK is advertised on both protocols; a qortalRequest unlock
+        // establishes availability against the Qortal route, so the
+        // before/after snapshots must both read that same route. Snapshotting
+        // `.qortium` unconditionally missed a Qortal route change during the
+        // password dialog (a stale approval) and spuriously rejected a Qortal
+        // unlock whenever the unrelated Qortium route changed. `targetNetwork`
+        // is used at BOTH snapshot sites so they cannot disagree.
+        const targetNetwork: NetworkId = protocol === 'qortalRequest' ? 'qortal' : 'qortium'
+        const nodeBefore = parseHomeV2NodesSnapshot(await nodeClient.getSnapshot())[targetNetwork]
         const nodeRoute = `${nodeBefore.mode}|${nodeBefore.nodeApiUrl ?? ''}`
         const requestId = `android-unlock:${globalThis.crypto.randomUUID?.() ?? `${Date.now()}-${Math.random()}`}`
         setAccountDialogError(null)
@@ -4203,7 +4212,7 @@ export function HomeV2LiveApp() {
               const freshAccount = vaultCatalogue(state).accounts.find(
                 (candidate) => candidate.id === context.selectedAccountId,
               )
-              const nodeAfter = parseHomeV2NodesSnapshot(await nodeClient.getSnapshot()).qortium
+              const nodeAfter = parseHomeV2NodesSnapshot(await nodeClient.getSnapshot())[targetNetwork]
               if (
                 !freshTab ||
                 freshTab.context.resourceLocation !== context.resourceLocation ||

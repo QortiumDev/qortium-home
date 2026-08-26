@@ -2,23 +2,30 @@
 // the public internet rather than a Qortal/Qortium node.
 //
 // Security posture, stated plainly because this is the one exception:
-//   - The outbound request is a fixed CoinGecko `/simple/price` GET built
-//     entirely from an allowlist. `ids` comes from MARKET_PRICE_COIN_IDS,
-//     `vs_currencies` from MARKET_PRICE_CURRENCIES; a coin or currency outside
-//     those sets is rejected before any request is made
-//     (electron/market-prices.ts). Nothing app-supplied is interpolated raw.
+//   - The outbound request is ONE fixed CoinGecko `/simple/price` GET for a
+//     SUPERSET: every supported coin and currency, with 24h change
+//     (buildHomeV2MarketPriceSupersetUrl). The URL is a compile-time constant —
+//     no app input reaches it — so an app cannot vary coins, currencies, or the
+//     change flag to alter what leaves the machine. Each app's requested subset
+//     is projected locally out of the superset's response.
 //   - NO user data leaves the process. No address, no account id, no public
 //     key, no app identity, no node URL, no cookie, no custom header beyond
 //     `Accept: application/json`. CoinGecko learns that SOMEBODY behind this
-//     IP wanted a price — the same thing it learns from any price widget —
-//     and the cache below means it learns that at most once per TTL per
-//     distinct coin/currency set, no matter how many apps ask.
+//     IP wanted prices — the same thing it learns from any price widget — and
+//     because the request is a fixed superset it cannot learn WHICH coins or
+//     currencies any particular app cares about.
+//   - The cache is the rate bound as much as the reuse: at most ONE outbound
+//     request per TTL, globally. A minimum interval governs ATTEMPTS (not just
+//     successes), so even a run of failures cannot exceed one request per
+//     interval, and concurrent callers COALESCE onto one in-flight fetch. An
+//     app therefore cannot beacon CoinGecko on its own schedule by rotating
+//     subsets or firing concurrent identical calls.
 //   - It is therefore permissionless: there is no user data to gate.
 //
-// The response parsing, allowlists and cache-key derivation live in the pure
-// electron/market-prices.ts module (shared with Home 1.x). This file adds only
-// the fetch-and-cache orchestration, with the clock and the fetch injected so
-// the cache behavior is testable without a network or a real timer.
+// The response parsing and allowlists live in the pure electron/market-prices.ts
+// module (shared with Home 1.x). This file adds the single-superset
+// fetch-and-cache orchestration, with the clock and the fetch injected so the
+// cache behavior is testable without a network or a real timer.
 
 import {
   MARKET_PRICE_ALL_COINS,

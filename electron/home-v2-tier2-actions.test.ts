@@ -268,6 +268,43 @@ assert.ok(
   'contextual availability must be computed before the journal lookup call',
 )
 
+// The Android UNLOCK handler binds its route freshness recheck to the network
+// the REQUEST is on, not a fixed chain. UNLOCK is advertised on both protocols,
+// so a qortalRequest unlock must snapshot and recheck the QORTAL route, not
+// Qortium. This lives only in the React Android-host wrapper (not unit-testable
+// without rendering), so it is pinned by source: the handler must derive a
+// protocol-selected `targetNetwork` and both node snapshots inside it must read
+// `[targetNetwork]` rather than a hard-coded `.qortium`.
+{
+  const unlockHandler = sliceAfter(
+    liveAppSource,
+    "if (action === 'UNLOCK_SELECTED_ACCOUNT') {\n        // No protocol guard",
+    3400,
+    'android unlock handler',
+  )
+  assert.ok(
+    unlockHandler.includes("const targetNetwork: NetworkId = protocol === 'qortalRequest' ? 'qortal' : 'qortium'"),
+    'the Android unlock handler must derive its network from the request protocol',
+  )
+  const beforeSnapshot = unlockHandler.includes('parseHomeV2NodesSnapshot(await nodeClient.getSnapshot())[targetNetwork]')
+  assert.ok(beforeSnapshot, 'the unlock before-snapshot must read the protocol-selected network')
+  // Neither the before- nor the after-snapshot may hard-code a chain: every
+  // getSnapshot() read in this handler must be indexed by [targetNetwork].
+  assert.ok(
+    !/parseHomeV2NodesSnapshot\(await nodeClient\.getSnapshot\(\)\)\.qortium/.test(unlockHandler) &&
+      !/parseHomeV2NodesSnapshot\(await nodeClient\.getSnapshot\(\)\)\.qortal\b/.test(unlockHandler),
+    'the Android unlock handler must not snapshot a hard-coded chain route',
+  )
+  // Both the before and after snapshots use the same protocol-derived network.
+  const targetNetworkSnapshots = unlockHandler.match(
+    /parseHomeV2NodesSnapshot\(await nodeClient\.getSnapshot\(\)\)\[targetNetwork\]/g,
+  )
+  assert.ok(
+    targetNetworkSnapshots !== null && targetNetworkSnapshots.length >= 2,
+    'both the before- and after-approval unlock snapshots must read [targetNetwork]',
+  )
+}
+
 // ---------------------------------------------------------------------------
 // 3. GET_USER_WALLET native selectors
 

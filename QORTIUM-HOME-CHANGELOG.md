@@ -34,6 +34,21 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-26 - fix(home-v2): check the right network when an app unlocks your account on the phone
+
+Unlocking your account can be asked for by two kinds of app request, and Home
+now allows both. While the password box is open, Home watches whether the
+connection the request came in on has changed underneath it, and cancels the
+unlock if it has, so an approval never lands against a connection that quietly
+moved. On the phone that watch was looking at the wrong connection: it always
+watched the Qortium one, even for a request that came in on the Qortal side. So
+a real change to the Qortal connection could be missed, and an unrelated change
+to the Qortium connection could cancel a perfectly good Qortal unlock. The watch
+now follows the connection the request actually used, before and after, so it
+can neither miss the relevant change nor trip on an unrelated one. Also tidied
+the written docs so the unlock action is described the one way it now behaves —
+both request kinds, computer and phone.
+
 ### 2026-08-26 - fix(home-v2): close the SEND_MESSAGE payload gap and show the whole message before signing
 
 A review of the previous change turned up a sharp problem in the one action
