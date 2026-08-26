@@ -309,6 +309,24 @@ const userDenial = normalizeHomeV2BridgeError(new Error('Approval was denied.'),
 })
 assert.equal(userDenial.code, 'USER_CANCELLED')
 assert.equal(userDenial.retryable, true)
+// Every Home prompt refusal is a definitive pre-broadcast "no" and must carry
+// USER_CANCELLED — these previously fell through to HOME_BRIDGE_ERROR (only
+// "approval/permission was denied" matched), so an app could not tell a user
+// denial from a mid-broadcast failure, and qortium-chat journaled a denied
+// send as "outcome unknown; it may already have been sent".
+for (const refusal of [
+  'Account access was denied.',
+  'Account unlock was denied.',
+  'Home settings update was denied.',
+  'Opening a widget was denied.',
+  'QDN write request was denied.',
+]) {
+  const denial = normalizeHomeV2BridgeError(new Error(refusal), {
+    action: 'SEND_CHAT_MESSAGE',
+    network: 'qortium',
+  })
+  assert.equal(denial.code, 'USER_CANCELLED', refusal)
+}
 
 const qdnWithUnavailableQortal = getHomeV2AvailableAppActions('qdnRequest', {
   qortal: androidLocalInfo.route,

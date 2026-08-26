@@ -34,6 +34,20 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-26 - fix(home-v2): pressing Deny on a prompt now tells the app "the user said no" instead of "something went wrong"
+
+When you refuse an app's request — declining a chat send, an account read, a
+settings change, or any other Home approval dialog — Home refuses it before
+anything is signed or sent. But several of those refusals were reported to the
+app under a generic error code, so an app could not tell "the user said no"
+apart from "something broke midway". The chat app, for example, showed a denied
+send as "outcome unknown — it may already have been sent", which is the
+opposite of the truth. Every prompt refusal now carries the specific
+user-cancelled code on both computer and phone, and the app documentation now
+spells out that a refusal is always a definitive "nothing was sent". Apps pick
+this up without changes to Home's prompts; apps that classify errors can now
+show an honest "you declined this" message.
+
 ### 2026-08-26 - fix(home-v2): videos and audio from apps play on Android again
 
 Live phone testing found that any audio or video an app opened through Home's

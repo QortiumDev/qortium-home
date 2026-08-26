@@ -165,6 +165,14 @@ and the applicable `routeRevision`. Unknown internal errors remain
 non-retryable. A temporary route failure does not silently select the other
 protocol or advertise a permanently reduced host implementation.
 
+Every Home prompt refusal — the user pressing Deny on any approval dialog —
+rejects with `code: "USER_CANCELLED"`. A refusal happens strictly BEFORE
+anything is signed or broadcast, so it is a definitive "nothing was sent":
+apps must render it as the user's own decision, never journal it as an
+unknown-outcome broadcast, and never warn that the operation "may already have
+happened". (`retryable: true` — the app may ask again and the user may approve
+next time.)
+
 ## Current Q-App baseline status
 
 | App/workflow | Current state | Remaining boundary |
