@@ -55,6 +55,15 @@ export const HOME_V2_JOURNALED_MUTATIONS = Object.freeze([
   'CREATE_POLL',
   'UPDATE_POLL',
   'VOTE_ON_POLL',
+  // Name writes journal against the coarse operation target ON PURPOSE: an
+  // exact-name key is unsafe because UPDATE has both spellings, collisions
+  // use REDUCED names, and an unknown UPDATE outcome can affect either — so
+  // one unreconciled name write blocks this app's next one for the account.
+  'BUY_NAME',
+  'CANCEL_SELL_NAME',
+  'REGISTER_NAME',
+  'SELL_NAME',
+  'UPDATE_NAME',
   'SEND_PRIVATE_GROUP_CHAT_DELETE',
   'SEND_PRIVATE_GROUP_CHAT_EDIT',
   'SEND_PRIVATE_GROUP_CHAT_MESSAGE',

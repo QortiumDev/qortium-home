@@ -987,3 +987,64 @@ legacy transaction (pollName target, zero-based index, paid fee and a last
 reference, no builder) and mechanically translating it into the Qortium
 transaction would be wrong. Poll READS were never first-class actions in 1.x
 and remain reachable through `FETCH_NODE_API` `/polls/...` exactly as before.
+
+## Name actions (Home 2)
+
+Home 2 exposes the name write family on `qdnRequest` only: `REGISTER_NAME`,
+`UPDATE_NAME`, `SELL_NAME`, `CANCEL_SELL_NAME`, and `BUY_NAME`. Each signs
+exactly one fee-free Qortium transaction through Core's keyless
+`/names/public/*` builders (Core PR #269) on the poll-family pattern:
+validate locally, prompt single-request under the never-durable `name.write`
+capability, build, byte-assert the unsigned transaction against everything
+approved (five new verifiers, transaction types 3–7), MemoryPoW on-device,
+Ed25519-sign locally, broadcast. Ambiguous broadcasts journal against the
+coarse per-action operation target — deliberately, because an exact-name key
+would be unsafe: updates carry two spellings and collisions use REDUCED
+names — and block a duplicate until reconciled.
+
+**`BUY_NAME` is a payment.** A zero transaction fee does not mean zero
+financial effect: approving a buy transfers the sale amount from the
+selected account to the seller. Its prompt is payment-grade — the exact
+eight-decimal amount, who is paid, and any buyer restriction — and every
+value is resolved from the LIVE sale state: an app-supplied `seller` or
+`amount` must match the chain exactly or the request is refused, missing
+ones default to the live owner and price, a restricted sale is refused
+unless the selected account is the allowed buyer, and the sale state is
+re-read after approval so a mid-prompt change refuses the sign. `SELL_NAME`'s
+optional `recipient` is an **allowed buyer**, not a payee — the prompt says
+"Restricted — only Q… may buy" and states that proceeds always go to the
+owner.
+
+Amounts are Qortium's eight-decimal fixed point, parsed once into an exact
+atomic bigint plus a canonical decimal string; floating point never touches
+an amount after parsing, the builder receives the decimal string, and the
+byte-assert compares the atomic value. `UPDATE_NAME` keeps the 1.x wire
+semantics — an empty `newName` keeps the current name, an empty `newData`
+keeps the existing data (there is no transaction-level way to clear it), and
+an absent `primary` preserves the current primary status — and unlike 1.x
+the prompt shows every one of those rows explicitly, "(unchanged)" included.
+
+`GET /names/{name}` resolves by REDUCED name while the transactions demand
+the exact stored display name, so the lookup's answer must match the
+requested spelling exactly; a homoglyph- or case-equivalent request is
+refused with the stored spelling named rather than silently substituted.
+Home enforces byte limits locally (new names 3–40 UTF-8 bytes, data at most
+4,000) and leaves Core's Unicode normalization authoritative — an exotic
+name can still answer `NAME_NOT_NORMALIZED` from the builder.
+
+1.x aliases and payload nesting are preserved (`nameData`/`data`,
+`recipientAddress`, `isPrimary`, `payload[field] ?? request[field]`
+precedence, `poll`-style fee/group fields pinned to 0). Chain-derived
+addresses shown on a payment prompt are shape-validated before display, and
+name data is trimmed so a blank-looking value reads as unchanged. One valid
+name class is unsupported by design: a name created in a non-zero
+transaction group cannot be updated, because Home pins UPDATE to group 0 and
+`NameData` does not expose the original creation group. A public sale must
+have a price above zero and below the maximum; a restricted sale may be
+zero. The family requires
+a selected, unlocked account and a route exposing the public name builders
+(`NODE_CAPABILITY_MISSING` otherwise, probed via
+`/names/public/capabilities`). On Android all five are filtered out of
+`SHOW_ACTIONS` (no signing path — and `BUY_NAME` pays) with the signing
+refusal kept for direct `qdnRequest` calls and `UNSUPPORTED_PROTOCOL` on
+`qortalRequest`; the pinned Qortal v3 name forms stay deferred.

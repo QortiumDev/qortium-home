@@ -60,6 +60,12 @@ export type PermissionCapability =
   // and never 'account.read': single-request prompt only, like
   // 'contract.message.send' below and for the same reason.
   | 'poll.write'
+  // Registering, updating, selling, or buying a chain name (the five name
+  // actions). Signs one fee-free transaction per approval — and BUY_NAME
+  // additionally TRANSFERS the sale amount to the seller, which is why this
+  // capability is never durable and never reachable through any read grant:
+  // single-request prompt only, every time.
+  | 'name.write'
   // Signing one zero-fee, zero-payment chain MESSAGE to an AT (SEND_MESSAGE).
   // Deliberately NOT 'account.read' and not any 'chat.*' capability: durable
   // grants unify on the capability string, so a signing action must never be
@@ -146,6 +152,11 @@ export interface PermissionPrompt {
     | 'CREATE_POLL'
     | 'UPDATE_POLL'
     | 'VOTE_ON_POLL'
+    | 'REGISTER_NAME'
+    | 'UPDATE_NAME'
+    | 'SELL_NAME'
+    | 'CANCEL_SELL_NAME'
+    | 'BUY_NAME'
     | 'SEND_MESSAGE'
   readonly capability: PermissionCapability
   readonly appId: AppId

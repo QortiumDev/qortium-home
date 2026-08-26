@@ -283,6 +283,12 @@ const ANDROID_UNSUPPORTED_ACTIONS = new Set<string>([
   'CREATE_POLL',
   'UPDATE_POLL',
   'VOTE_ON_POLL',
+  // The name writes sign too (and BUY_NAME pays); same reason.
+  'BUY_NAME',
+  'CANCEL_SELL_NAME',
+  'REGISTER_NAME',
+  'SELL_NAME',
+  'UPDATE_NAME',
 ])
 
 export function isHomeV2AndroidUnsupportedAction(action: string) {

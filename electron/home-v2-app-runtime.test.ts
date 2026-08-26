@@ -483,6 +483,12 @@ for (const action of [
   'CREATE_POLL',
   'UPDATE_POLL',
   'VOTE_ON_POLL',
+  // And the name writes (BUY_NAME additionally pays).
+  'REGISTER_NAME',
+  'UPDATE_NAME',
+  'SELL_NAME',
+  'CANCEL_SELL_NAME',
+  'BUY_NAME',
 ]) {
   assert.equal(widgetActions.includes(action), false, `widget must not advertise ${action}`)
 }
@@ -528,8 +534,9 @@ assert.equal(androidActions.includes('SHOW_CONTEXT_MENU'), true)
 // advertised action that can never succeed would make the list lie. SEND_MESSAGE
 // is filtered for the same reason (no Android signing path).
 for (const action of ['GET_ALL_LISTS', 'GET_LIST', 'ADD_TO_LIST', 'REMOVE_FROM_LIST', 'SEND_MESSAGE',
-  // Poll writes sign transactions and Android has no signing path.
-  'CREATE_POLL', 'UPDATE_POLL', 'VOTE_ON_POLL']) {
+  // Poll and name writes sign transactions and Android has no signing path.
+  'CREATE_POLL', 'UPDATE_POLL', 'VOTE_ON_POLL',
+  'REGISTER_NAME', 'UPDATE_NAME', 'SELL_NAME', 'CANCEL_SELL_NAME', 'BUY_NAME']) {
   assert.equal(androidActions.includes(action), false, `android must not advertise ${action}`)
 }
 

@@ -2,10 +2,15 @@ import assert from 'node:assert/strict';
 
 import {
   assertPublicArbitraryTransaction,
+  assertPublicBuyNameTransaction,
+  assertPublicCancelSellNameTransaction,
   assertPublicChatTransaction,
   assertPublicCreatePollTransaction,
   assertPublicJoinGroupTransaction,
   assertPublicLeaveGroupTransaction,
+  assertPublicRegisterNameTransaction,
+  assertPublicSellNameTransaction,
+  assertPublicUpdateNameTransaction,
   assertPublicUpdatePollTransaction,
   assertPublicVoteOnPollTransaction,
 } from '../dist-electron/public-transaction-validation.js';
@@ -210,5 +215,82 @@ assert.throws(() => assertPublicArbitraryTransaction(
   arbitraryBytes({ method: 2 }),
   { ...arbitraryExpected, method: 2 },
 ), /non-tombstone/);
+
+// ---- The five name verifiers (types 3-7, Home 2.1 names restoration) ----
+
+// Exactly the 3-byte UTF-8 BOM as a sized field (int32(3) + EF BB BF).
+const bomField = concat(int32(3), encoder.encode('\uFEFF'));
+
+// REGISTER_NAME (type 3)
+const registerBytes = concat(common(3), sized('alice'), sized('{"a":1}'), int64(0));
+const registerExpected = { data: '{"a":1}', name: 'alice', publicKey, timestamp, txGroupId: 0 };
+assert.doesNotThrow(() => assertPublicRegisterNameTransaction(registerBytes, registerExpected));
+assert.throws(() => assertPublicRegisterNameTransaction(registerBytes, { ...registerExpected, name: 'bob' }), /name/);
+assert.throws(() => assertPublicRegisterNameTransaction(registerBytes, { ...registerExpected, data: '' }), /name data/);
+assert.throws(() => assertPublicRegisterNameTransaction(concat(registerBytes, new Uint8Array([0])), registerExpected), /trailing/);
+assert.throws(() => assertPublicRegisterNameTransaction(concat(common(4), sized('alice'), sized('{"a":1}'), int64(0)), registerExpected), /transaction type/);
+// A non-zero fee must be rejected.
+assert.throws(() => assertPublicRegisterNameTransaction(concat(common(3), sized('alice'), sized('{"a":1}'), int64(1)), registerExpected), /fee/);
+// BOM bypass: a builder that encoded U+FEFF into approved-empty data must be
+// caught — the decoder now preserves the BOM so the comparison fails.
+assert.throws(
+  () => assertPublicRegisterNameTransaction(concat(common(3), sized('alice'), bomField, int64(0)), { ...registerExpected, data: '' }),
+  /name data/,
+);
+
+// UPDATE_NAME (type 4) — optional primary presence + value bytes.
+const updateNoPrimary = concat(common(4), sized('alice'), sized(''), sized(''), new Uint8Array([0]), int64(0));
+const updateNoPrimaryExpected = { name: 'alice', newData: '', newName: '', primary: undefined, publicKey, timestamp, txGroupId: 0 };
+assert.doesNotThrow(() => assertPublicUpdateNameTransaction(updateNoPrimary, updateNoPrimaryExpected));
+// A hasPrimary=1 body must match an expected primary; presence mismatch fails.
+assert.throws(() => assertPublicUpdateNameTransaction(updateNoPrimary, { ...updateNoPrimaryExpected, primary: true }), /primary presence/);
+const updatePrimaryTrue = concat(common(4), sized('alice'), sized('new'), sized('{}'), new Uint8Array([1, 1]), int64(0));
+assert.doesNotThrow(() => assertPublicUpdateNameTransaction(updatePrimaryTrue, { name: 'alice', newData: '{}', newName: 'new', primary: true, publicKey, timestamp, txGroupId: 0 }));
+assert.throws(() => assertPublicUpdateNameTransaction(updatePrimaryTrue, { name: 'alice', newData: '{}', newName: 'new', primary: false, publicKey, timestamp, txGroupId: 0 }), /primary value/);
+// A flag byte of 2 (Core would treat as true) must be refused.
+assert.throws(() => assertPublicUpdateNameTransaction(concat(common(4), sized('alice'), sized(''), sized(''), new Uint8Array([2]), int64(0)), updateNoPrimaryExpected), /primary presence flag/);
+assert.throws(() => assertPublicUpdateNameTransaction(concat(common(4), sized('alice'), sized('new'), sized('{}'), new Uint8Array([1, 2]), int64(0)), { name: 'alice', newData: '{}', newName: 'new', primary: true, publicKey, timestamp, txGroupId: 0 }), /primary value/);
+// BOM in approved-unchanged newData is caught.
+assert.throws(() => assertPublicUpdateNameTransaction(concat(common(4), sized('alice'), sized(''), bomField, new Uint8Array([0]), int64(0)), updateNoPrimaryExpected), /new name data/);
+
+// SELL_NAME (type 5) — atomic amount + optional 25-byte recipient.
+const recipient = sequence(25, 200);
+const sellPublic = concat(common(5), sized('alice'), int64(150_000_000), new Uint8Array([0]), int64(0));
+assert.doesNotThrow(() => assertPublicSellNameTransaction(sellPublic, { amount: 150_000_000n, name: 'alice', publicKey, timestamp, txGroupId: 0 }));
+// A signed-negative int64 amount cannot compare equal to an approved positive.
+assert.throws(() => assertPublicSellNameTransaction(concat(common(5), sized('alice'), int64(-1), new Uint8Array([0]), int64(0)), { amount: 150_000_000n, name: 'alice', publicKey, timestamp, txGroupId: 0 }), /sale amount/);
+const sellRestricted = concat(common(5), sized('alice'), int64(0), new Uint8Array([1]), recipient, int64(0));
+assert.doesNotThrow(() => assertPublicSellNameTransaction(sellRestricted, { amount: 0n, name: 'alice', recipient, publicKey, timestamp, txGroupId: 0 }));
+// Presence-flag mismatch (recipient bytes present but none approved) fails.
+assert.throws(() => assertPublicSellNameTransaction(sellRestricted, { amount: 0n, name: 'alice', publicKey, timestamp, txGroupId: 0 }), /allowed-buyer presence/);
+assert.throws(() => assertPublicSellNameTransaction(sellRestricted, { amount: 0n, name: 'alice', recipient: sequence(25, 1), publicKey, timestamp, txGroupId: 0 }), /allowed buyer/);
+assert.throws(() => assertPublicSellNameTransaction(concat(common(5), sized('alice'), int64(0), new Uint8Array([2]), int64(0)), { amount: 0n, name: 'alice', publicKey, timestamp, txGroupId: 0 }), /recipient presence flag/);
+
+// Common-field binding: mutating type, timestamp, group, public key, or the
+// nonce must be rejected (checked on REGISTER, representative of readCommon).
+assert.throws(() => assertPublicRegisterNameTransaction(registerBytes, { ...registerExpected, timestamp: timestamp + 1 }), /timestamp/);
+assert.throws(() => assertPublicRegisterNameTransaction(registerBytes, { ...registerExpected, txGroupId: 1 }), /transaction group/);
+assert.throws(() => assertPublicRegisterNameTransaction(registerBytes, { ...registerExpected, publicKey: sequence(32, 9) }), /public key/);
+// A nonzero nonce (a non-canonical unsigned build) must be rejected.
+assert.throws(() => assertPublicRegisterNameTransaction(concat(int32(3), int64(timestamp), int32(0), publicKey, int32(1), sized('alice'), sized('{"a":1}'), int64(0)), registerExpected), /nonce/);
+// Per-action name mutations across the family.
+assert.throws(() => assertPublicUpdateNameTransaction(updatePrimaryTrue, { name: 'bob', newData: '{}', newName: 'new', primary: true, publicKey, timestamp, txGroupId: 0 }), /name/);
+assert.throws(() => assertPublicUpdateNameTransaction(updatePrimaryTrue, { name: 'alice', newData: '{}', newName: 'other', primary: true, publicKey, timestamp, txGroupId: 0 }), /new name/);
+assert.throws(() => assertPublicSellNameTransaction(sellPublic, { amount: 150_000_000n, name: 'bob', publicKey, timestamp, txGroupId: 0 }), /name/);
+
+// CANCEL_SELL_NAME (type 6)
+const cancelBytes = concat(common(6), sized('alice'), int64(0));
+assert.doesNotThrow(() => assertPublicCancelSellNameTransaction(cancelBytes, { name: 'alice', publicKey, timestamp, txGroupId: 0 }));
+assert.throws(() => assertPublicCancelSellNameTransaction(cancelBytes, { name: 'bob', publicKey, timestamp, txGroupId: 0 }), /name/);
+
+// BUY_NAME (type 7) — atomic amount + mandatory 25-byte seller.
+const seller = sequence(25, 90);
+const buyBytes = concat(common(7), sized('alice'), int64(1_250_000_000), seller, int64(0));
+assert.doesNotThrow(() => assertPublicBuyNameTransaction(buyBytes, { amount: 1_250_000_000n, name: 'alice', seller, publicKey, timestamp, txGroupId: 0 }));
+assert.throws(() => assertPublicBuyNameTransaction(buyBytes, { amount: 1_250_000_001n, name: 'alice', seller, publicKey, timestamp, txGroupId: 0 }), /purchase amount/);
+assert.throws(() => assertPublicBuyNameTransaction(buyBytes, { amount: 1_250_000_000n, name: 'alice', seller: sequence(25, 1), publicKey, timestamp, txGroupId: 0 }), /seller/);
+assert.throws(() => assertPublicBuyNameTransaction(buyBytes, { amount: 1_250_000_000n, name: 'bob', seller, publicKey, timestamp, txGroupId: 0 }), /name/);
+// Truncated (missing fee) fails.
+assert.throws(() => assertPublicBuyNameTransaction(concat(common(7), sized('alice'), int64(1_250_000_000), seller), { amount: 1_250_000_000n, name: 'alice', seller, publicKey, timestamp, txGroupId: 0 }), /malformed bytes|fee/);
 
 console.log('Public transaction validation tests passed.');

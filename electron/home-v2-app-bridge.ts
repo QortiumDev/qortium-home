@@ -111,8 +111,16 @@ import {
   isHomeV2RatingReadAction,
   normalizeHomeV2Address,
   canonicalHomeV2VoteSelection,
+  homeV2NameOperationLabel,
   homeV2PollOperationLabel,
+  isHomeV2NameWriteAction,
   isHomeV2PollWriteAction,
+  normalizeHomeV2BuyNameRequest,
+  normalizeHomeV2CancelSellNameRequest,
+  normalizeHomeV2RegisterNameRequest,
+  normalizeHomeV2SellNameRequest,
+  normalizeHomeV2UpdateNameRequest,
+  selectHomeV2NameTarget,
   normalizeHomeV2CreatePollRequest,
   normalizeHomeV2ListItems,
   normalizeHomeV2ListName,
@@ -122,6 +130,7 @@ import {
   selectHomeV2PollTarget,
   serializeHomeV2ListItemsForApproval,
   type HomeV2ListWriteAction,
+  type HomeV2NameWriteAction,
   type HomeV2PollWriteAction,
   normalizeHomeV2AppAction,
   normalizeHomeV2AppProtocol,
@@ -378,14 +387,20 @@ import { computeHomeV2ChatNonce } from './home-v2-chat-pow.js'
 import { readableNodeErrorMessage } from './node-error-body.js'
 import { getNodeConnection } from './node-settings.js'
 import {
+  assertPublicBuyNameTransaction,
+  assertPublicCancelSellNameTransaction,
   assertPublicChatTransaction,
   assertPublicCreatePollTransaction,
   assertPublicJoinGroupTransaction,
   assertPublicLeaveGroupTransaction,
+  assertPublicRegisterNameTransaction,
+  assertPublicSellNameTransaction,
+  assertPublicUpdateNameTransaction,
   assertPublicUpdatePollTransaction,
   assertPublicVoteOnPollTransaction,
 } from './public-transaction-validation.js'
 import { parsePublicPollCapabilities } from './public-poll-capabilities.js'
+import { parsePublicNameCapabilities } from './public-name-capabilities.js'
 import {
   buildUnsignedQortalDirectChatTransactionBytes,
   buildUnsignedQortalGroupChatTransactionBytes,
@@ -505,6 +520,7 @@ type AccountReadAction =
   | HomeV2MintingWriteAction
   | HomeV2ListWriteAction
   | HomeV2PollWriteAction
+  | HomeV2NameWriteAction
 type PermissionDecision = {
   readonly approved: boolean
   readonly scope: 'always' | 'session' | 'single-request' | null
@@ -1276,6 +1292,18 @@ async function requireAccountReadPermission(
     // 'poll:<id>' for vote/update, 'poll-create:<name>' for create.
     readonly target: string
     readonly targetChainLabel: string
+  } | {
+    readonly kind: 'name'
+    // The per-action rows, escaped to printable ASCII like the poll rows and
+    // re-validated in the shell before rendering. BUY_NAME's rows are
+    // payment-grade: the exact amount, who is paid, and any buyer
+    // restriction.
+    readonly nameDetails: readonly { readonly label: string; readonly value: string }[]
+    readonly operationLabel: string
+    readonly routeLabel: string
+    // 'name:<exact requested name>'.
+    readonly target: string
+    readonly targetChainLabel: string
   },
 ) {
   if (!context.accountId) throw new Error('No account is selected for this tab.')
@@ -1313,6 +1341,8 @@ async function requireAccountReadPermission(
           ? `node-list:${writeDetails.listName}`
         : writeDetails?.kind === 'poll'
           ? writeDetails.target
+        : writeDetails?.kind === 'name'
+          ? writeDetails.target
         : ''
   const grantKey = homeV2PermissionGrantKey({
     accountId: context.accountId,
@@ -1343,6 +1373,8 @@ async function requireAccountReadPermission(
     writeDetails?.kind === 'node-list' ||
     // Poll writes sign chain transactions. Never a session or durable grant.
     writeDetails?.kind === 'poll' ||
+    // Name writes sign chain transactions too — BUY_NAME moves coins.
+    writeDetails?.kind === 'name' ||
     (writeDetails?.kind === 'group' || writeDetails?.kind === 'direct' || writeDetails?.kind === 'private-group') &&
     writeDetails.singleRequestOnly === true
   // A durable per-app chat-send grant ("always allow", revocable in QDN Apps
@@ -1525,6 +1557,15 @@ async function requireAccountReadPermission(
             ? {
                 writeKind: 'poll',
                 pollDetails: writeDetails.pollDetails.map((detail) => ({ ...detail })),
+                writeOperationLabel: writeDetails.operationLabel,
+                writeRouteLabel: writeDetails.routeLabel,
+                writeSingleRequestOnly: true,
+                writeTargetChainLabel: writeDetails.targetChainLabel,
+              }
+          : writeDetails?.kind === 'name'
+            ? {
+                nameDetails: writeDetails.nameDetails.map((detail) => ({ ...detail })),
+                writeKind: 'name',
                 writeOperationLabel: writeDetails.operationLabel,
                 writeRouteLabel: writeDetails.routeLabel,
                 writeSingleRequestOnly: true,
@@ -6746,6 +6787,404 @@ async function handleHomeV2PollAction(
   }
 }
 
+// ---------------------------------------------------------------------------
+// Names (Home 2.1 restoration, Qortium qdnRequest only)
+//
+// REGISTER_NAME / UPDATE_NAME / SELL_NAME / CANCEL_SELL_NAME / BUY_NAME each
+// sign one fee-free chain transaction through Core\'s keyless /names/public/*
+// builders (qortium-core PR #269) on the poll-family pattern. Two things set
+// this family apart and shape everything below:
+//
+// 1. BUY_NAME IS A PAYMENT. A zero transaction fee does not mean zero
+//    financial effect — approving a buy transfers the sale amount from the
+//    selected account to the seller. Its prompt is payment-grade: the exact
+//    eight-decimal amount, who is paid, and any buyer restriction, resolved
+//    from the LIVE sale state, with app-supplied values required to match
+//    exactly rather than trusted.
+// 2. GET /names/{name} resolves by REDUCED name while the transactions
+//    demand the exact stored display name — so the fetched name must equal
+//    the requested spelling, and a mismatch refuses rather than silently
+//    substituting what would be signed. Amounts are exact atomic bigints;
+//    floating point never touches one.
+// ---------------------------------------------------------------------------
+
+function homeV2NameBuilderUnavailable(error: unknown) {
+  return isHomeV2AppRecord(error) && (error.status === 403 || error.status === 404)
+}
+
+async function readHomeV2NameTarget(action: HomeV2NameWriteAction, nodeApiUrl: string, name: string) {
+  let value: unknown
+  try {
+    // Keyless public read; the admin key never travels for a lookup.
+    value = await readHomeV2ChatJson(nodeApiUrl, `/names/${encodeURIComponent(name)}`, 'Name lookup', '')
+  } catch (error) {
+    if (isHomeV2AppRecord(error) && error.status === 404) {
+      throw createHomeV2BridgeError(`The name "${name}" does not exist.`, {
+        action,
+        code: 'TARGET_NOT_FOUND',
+        network: 'qortium',
+        retryable: false,
+      })
+    }
+    throw error
+  }
+  const target = selectHomeV2NameTarget(value)
+  if (target.name !== name) {
+    // The reduced-name lookup found a different stored spelling. Signing the
+    // requested spelling would fail NAME_DOES_NOT_EXIST, and signing the
+    // stored one would not be what the app asked for.
+    throw createHomeV2BridgeError(
+      `The name "${name}" is stored as "${target.name}"; request the exact stored spelling.`,
+      { action, code: 'TARGET_NOT_FOUND', network: 'qortium', retryable: false },
+    )
+  }
+  return target
+}
+
+type HomeV2NameTarget = Awaited<ReturnType<typeof readHomeV2NameTarget>>
+
+async function handleHomeV2NameAction(
+  sender: WebContents,
+  context: QdnViewContext,
+  protocol: HomeV2AppBridgeProtocol,
+  action: HomeV2NameWriteAction,
+  requestValue: Record<string, unknown>,
+) {
+  if (!context.accountId) throw new Error('No account is selected for this tab.')
+  const accountId = context.accountId
+  if (!isAccountUnlocked(accountId)) throw new Error('The selected account is locked.')
+  const node = await getHomeV2ReadableNode('qortium')
+  const apiKey = await getHomeV2TrustedWriteApiKey('qortium', node.nodeApiUrl)
+  const nodeRoute = `${node.mode}|${node.nodeApiUrl}`
+  const profile = await getAccountProfile(accountId)
+  const routeLabel = `${node.mode} · ${node.nodeApiUrl}`
+  const operationLabel = homeV2NameOperationLabel(action)
+
+  // Normalize BEFORE anything else: a malformed request must never raise a
+  // prompt, contact the node, or look like a capability problem.
+  const registerRequest = action === 'REGISTER_NAME' ? normalizeHomeV2RegisterNameRequest(requestValue) : null
+  const updateRequest = action === 'UPDATE_NAME' ? normalizeHomeV2UpdateNameRequest(requestValue) : null
+  const sellRequest = action === 'SELL_NAME' ? normalizeHomeV2SellNameRequest(requestValue) : null
+  const cancelRequest = action === 'CANCEL_SELL_NAME' ? normalizeHomeV2CancelSellNameRequest(requestValue) : null
+  const buyRequest = action === 'BUY_NAME' ? normalizeHomeV2BuyNameRequest(requestValue) : null
+  const subjectName = registerRequest?.name ?? updateRequest?.name ?? sellRequest?.name ??
+    cancelRequest?.name ?? buyRequest!.name
+
+  // Everything but REGISTER acts on live name state: read it, hold the
+  // prompt to it, and re-read after approval (validateNameTarget below).
+  const target = registerRequest ? null : await readHomeV2NameTarget(action, node.nodeApiUrl, subjectName)
+  if (target && (updateRequest || sellRequest || cancelRequest) && target.owner !== profile.address) {
+    throw createHomeV2BridgeError(
+      `The name "${subjectName}" is owned by ${target.owner}, not the selected account.`,
+      { action, code: 'TARGET_NOT_FOUND', network: 'qortium', retryable: false },
+    )
+  }
+  if (sellRequest && target?.isForSale) {
+    throw new Error(`The name "${subjectName}" is already for sale; cancel the current sale first.`)
+  }
+  if (cancelRequest && target && !target.isForSale) {
+    throw new Error(`The name "${subjectName}" is not for sale.`)
+  }
+  // BUY: resolve seller/amount/restriction from the LIVE sale, requiring any
+  // app-supplied value to match exactly. Core state is authoritative.
+  let buySeller: string | null = null
+  let buyAmountAtomic = 0n
+  let buyAmountDecimal = ''
+  if (buyRequest && target) {
+    if (!target.isForSale || target.salePrice === null) {
+      throw new Error(`The name "${subjectName}" is not for sale.`)
+    }
+    if (target.saleRecipient && target.saleRecipient !== profile.address) {
+      throw new Error(`The sale of "${subjectName}" is restricted to ${target.saleRecipient}.`)
+    }
+    if (target.owner === profile.address) {
+      throw new Error(`The selected account already owns "${subjectName}".`)
+    }
+    buySeller = buyRequest.seller ?? target.owner
+    if (buySeller !== target.owner) {
+      throw new Error(`The seller of "${subjectName}" is ${target.owner}, not ${buySeller}.`)
+    }
+    if (buyRequest.amount && buyRequest.amount.atomic !== target.salePrice.atomic) {
+      throw new Error(
+        `The sale price of "${subjectName}" is ${target.salePrice.decimal}, not ${buyRequest.amount.decimal}.`,
+      )
+    }
+    buyAmountAtomic = target.salePrice.atomic
+    buyAmountDecimal = target.salePrice.decimal
+  }
+
+  const nameDetails = registerRequest
+    ? [
+        { label: 'Name', value: homeV2PollApprovalText(registerRequest.name, 'The name') },
+        {
+          label: 'Name data',
+          value: registerRequest.data ? homeV2PollApprovalText(registerRequest.data, 'The name data') : '(none)',
+        },
+      ]
+    : updateRequest
+      ? [
+          { label: 'Name', value: homeV2PollApprovalText(updateRequest.name, 'The name') },
+          {
+            label: 'New name',
+            value: updateRequest.newName ? homeV2PollApprovalText(updateRequest.newName, 'The new name') : '(unchanged)',
+          },
+          {
+            label: 'New data',
+            value: updateRequest.newData
+              ? homeV2PollApprovalText(updateRequest.newData, 'The new name data')
+              : '(unchanged — existing data is kept)',
+          },
+          {
+            label: 'Primary',
+            value: updateRequest.primary === undefined
+              ? '(unchanged)'
+              : updateRequest.primary
+                ? 'Make this the account\'s primary name'
+                : 'Stop being the account\'s primary name',
+          },
+        ]
+      : sellRequest
+        ? [
+            { label: 'Name', value: homeV2PollApprovalText(sellRequest.name, 'The name') },
+            { label: 'Price', value: `${sellRequest.amount.decimal} coins` },
+            {
+              label: 'Sale type',
+              value: sellRequest.recipient
+                ? `Restricted — only ${sellRequest.recipient} may buy. The sale amount is always paid to you, the owner.`
+                : 'Public — any account may buy',
+            },
+          ]
+        : cancelRequest && target
+          ? [
+              { label: 'Name', value: homeV2PollApprovalText(cancelRequest.name, 'The name') },
+              { label: 'Price', value: target.salePrice ? `${target.salePrice.decimal} coins (current sale, being cancelled)` : '(current sale, being cancelled)' },
+            ]
+          : [
+              { label: 'Name', value: homeV2PollApprovalText(subjectName, 'The name') },
+              { label: 'You pay', value: `${buyAmountDecimal} coins` },
+              { label: 'Paid to', value: buySeller ?? '' },
+              ...(target?.saleRecipient
+                ? [{ label: 'Restriction', value: `This sale is restricted to ${target.saleRecipient} (the selected account)` }]
+                : []),
+            ]
+
+  await requireAccountReadPermission(sender, context, protocol, action, {
+    kind: 'name',
+    nameDetails,
+    operationLabel,
+    routeLabel,
+    target: `name:${subjectName}`,
+    targetChainLabel: 'Qortium',
+  })
+  const rateLimitDecision = chatSendRateLimiter.checkAndRecordSend(chatSendRateLimitKey(sender, context))
+  if (!rateLimitDecision.allowed) throw new Error(rateLimitDecision.message)
+  const signingKey = getAccountSecretKey(accountId)
+  if (signingKey.address !== profile.address) {
+    signingKey.secretKey.fill(0)
+    throw new Error('Selected account signing key changed before the name action could be signed.')
+  }
+  const isStillValid = async () => {
+    const freshContext = getQdnViewContextForWebContents(sender)
+    if (!freshContext || !sameViewContext(context, freshContext)) return false
+    if (!liveResourceMatchesGrant(freshContext) || !isAccountUnlocked(accountId)) return false
+    const nodeNow = await getHomeV2ReadableNode('qortium').catch(() => null)
+    return !!nodeNow &&
+      `${nodeNow.mode}|${nodeNow.nodeApiUrl}` === nodeRoute &&
+      (await getHomeV2TrustedWriteApiKey('qortium', node.nodeApiUrl).catch(() => null)) === apiKey
+  }
+  // The action means what it means only against the state the user SAW: the
+  // owner, sale flag, price, and restriction are re-read after approval and
+  // any relevant drift refuses the sign.
+  const validateNameTarget = async () => {
+    if (registerRequest) return
+    const current = await readHomeV2NameTarget(action, node.nodeApiUrl, subjectName)
+    if (
+      current.owner !== target!.owner ||
+      current.isForSale !== target!.isForSale ||
+      (current.salePrice?.atomic ?? null) !== (target!.salePrice?.atomic ?? null) ||
+      current.saleRecipient !== target!.saleRecipient
+    ) {
+      throw new Error(`The name "${subjectName}" changed before the name action could be signed.`)
+    }
+  }
+  try {
+    if (!(await isStillValid())) throw new Error('Account access context changed before approval completed.')
+    const timestamp = Date.now()
+    const buildPath = registerRequest
+      ? '/names/public/register'
+      : updateRequest
+        ? '/names/public/update'
+        : sellRequest
+          ? '/names/public/sell'
+          : cancelRequest
+            ? '/names/public/sell/cancel'
+            : '/names/public/buy'
+    const common = { fee: 0, timestamp, txGroupId: 0 }
+    const buildBody = JSON.stringify(
+      registerRequest
+        ? { ...common, data: registerRequest.data, name: registerRequest.name, registrantPublicKey: signingKey.publicKey58 }
+        : updateRequest
+          ? {
+              ...common,
+              name: updateRequest.name,
+              newData: updateRequest.newData,
+              newName: updateRequest.newName,
+              ownerPublicKey: signingKey.publicKey58,
+              ...(updateRequest.primary === undefined ? {} : { primary: updateRequest.primary }),
+            }
+          : sellRequest
+            ? {
+                ...common,
+                amount: sellRequest.amount.decimal,
+                name: sellRequest.name,
+                ownerPublicKey: signingKey.publicKey58,
+                ...(sellRequest.recipient === undefined ? {} : { recipient: sellRequest.recipient }),
+              }
+            : cancelRequest
+              ? { ...common, name: cancelRequest.name, ownerPublicKey: signingKey.publicKey58 }
+              : {
+                  ...common,
+                  amount: buyAmountDecimal,
+                  buyerPublicKey: signingKey.publicKey58,
+                  name: subjectName,
+                  seller: buySeller,
+                },
+    )
+    let unsignedText: string
+    try {
+      unsignedText = await postHomeV2ChatText(
+        node.nodeApiUrl,
+        buildPath,
+        buildBody,
+        'application/json',
+        `${operationLabel} transaction build failed.`,
+        apiKey,
+      )
+    } catch (error) {
+      if (homeV2NameBuilderUnavailable(error)) {
+        throw createHomeV2BridgeError(
+          'The selected Qortium node does not expose the public name builders.',
+          { action, code: 'NODE_CAPABILITY_MISSING', network: 'qortium', retryable: false },
+        )
+      }
+      throw error
+    }
+    const unsignedBytes = base58Decode(unsignedText)
+    const expectedCommon = {
+      publicKey: base58Decode(signingKey.publicKey58),
+      timestamp,
+      txGroupId: 0,
+    }
+    if (registerRequest) {
+      assertPublicRegisterNameTransaction(unsignedBytes, {
+        ...expectedCommon,
+        data: registerRequest.data,
+        name: registerRequest.name,
+      })
+    } else if (updateRequest) {
+      assertPublicUpdateNameTransaction(unsignedBytes, {
+        ...expectedCommon,
+        name: updateRequest.name,
+        newData: updateRequest.newData,
+        newName: updateRequest.newName,
+        primary: updateRequest.primary,
+      })
+    } else if (sellRequest) {
+      assertPublicSellNameTransaction(unsignedBytes, {
+        ...expectedCommon,
+        amount: sellRequest.amount.atomic,
+        name: sellRequest.name,
+        recipient: sellRequest.recipient === undefined ? undefined : base58Decode(sellRequest.recipient),
+      })
+    } else if (cancelRequest) {
+      assertPublicCancelSellNameTransaction(unsignedBytes, {
+        ...expectedCommon,
+        name: cancelRequest.name,
+      })
+    } else {
+      assertPublicBuyNameTransaction(unsignedBytes, {
+        ...expectedCommon,
+        amount: buyAmountAtomic,
+        name: subjectName,
+        seller: base58Decode(buySeller!),
+      })
+    }
+    let difficulty: number
+    try {
+      difficulty = parsePublicNameCapabilities(await readHomeV2ChatJson(
+        node.nodeApiUrl,
+        '/names/public/capabilities',
+        'MemoryPoW capability lookup',
+        apiKey,
+      )).mempowFeeAlternativeDifficulty
+    } catch (error) {
+      if (homeV2NameBuilderUnavailable(error) || (isHomeV2AppRecord(error) && error.code === 'QDN_PUBLIC_NAME_CAPABILITY_UNAVAILABLE')) {
+        throw createHomeV2BridgeError(
+          'The selected Qortium node does not advertise a compatible MemoryPoW name capability.',
+          { action, code: 'NODE_CAPABILITY_MISSING', network: 'qortium', retryable: false },
+        )
+      }
+      throw error
+    }
+    const nonce = await computeHomeV2ChatNonce(unsignedBytes, difficulty, isStillValid)
+    if (!(await isStillValid())) throw new Error('The signing context changed before the name action could be submitted.')
+    await validateNameTarget()
+    if (!(await isStillValid())) throw new Error('The signing context changed before the name action could be submitted.')
+    const signedBytes = signTransactionWithNonce(unsignedBytes, nonce, signingKey.secretKey)
+    const signature = getSignatureFromSignedTransactionBytes(signedBytes)
+    const identity = registerRequest
+      ? { name: registerRequest.name }
+      : updateRequest
+        ? { name: updateRequest.name, newName: updateRequest.newName || null }
+        : sellRequest
+          ? { amount: sellRequest.amount.decimal, name: sellRequest.name, recipient: sellRequest.recipient ?? null }
+          : cancelRequest
+            ? { name: cancelRequest.name }
+            : { amount: buyAmountDecimal, name: subjectName, seller: buySeller }
+    try {
+      const processText = await postHomeV2ChatText(
+        node.nodeApiUrl,
+        '/transactions/process?apiVersion=2',
+        base58Encode(signedBytes),
+        'text/plain',
+        `${operationLabel} transaction processing failed.`,
+        apiKey,
+      )
+      let processResult: unknown = processText
+      try { processResult = JSON.parse(processText) } catch { /* text answer stays text */ }
+      return Object.freeze({
+        accepted: true,
+        action,
+        ...identity,
+        network: 'qortium',
+        result: processResult,
+        signature,
+        timestamp,
+        transactionSignature: signature,
+      })
+    } catch (error) {
+      // Signed and submitted with an unclear answer: never invite an
+      // automatic retry. The generic journal wrapper retains this entry
+      // because outcome is 'unknown'.
+      return Object.freeze({
+        accepted: false,
+        action,
+        ...identity,
+        error: error instanceof Error ? error.message : String(error),
+        errorType: 'BROADCAST_OUTCOME_UNKNOWN',
+        network: 'qortium',
+        outcome: 'unknown',
+        retryable: false,
+        signature,
+        timestamp,
+        transactionSignature: signature,
+      })
+    }
+  } finally {
+    signingKey.secretKey.fill(0)
+  }
+}
+
 async function handleRequestWithRuntime(
   sender: WebContents,
   context: QdnViewContext,
@@ -6838,6 +7277,9 @@ async function handleRequestWithRuntime(
   }
   if (isHomeV2PollWriteAction(action)) {
     return handleHomeV2PollAction(sender, context, protocol, action, requestValue)
+  }
+  if (isHomeV2NameWriteAction(action)) {
+    return handleHomeV2NameAction(sender, context, protocol, action, requestValue)
   }
   if (action === 'NOTIFICATION_HAS_PERMISSION') {
     return {
