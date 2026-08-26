@@ -1741,9 +1741,16 @@ function homeV2FlattenPayloadRequest(request: Record<string, unknown>): Record<s
   const payload = request.payload
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return request
   const flattened: Record<string, unknown> = { ...request }
-  for (const [key, value] of Object.entries(payload as Record<string, unknown>)) {
-    if (key === 'action') continue
-    if (value !== undefined && value !== null) flattened[key] = value
+  for (const key of Object.keys(payload as Record<string, unknown>)) {
+    // `__proto__` is skipped and every field is written with defineProperty,
+    // never `flattened[key] = value`: a plain assignment of a "__proto__"
+    // key would invoke the prototype setter and let a crafted payload inject
+    // fields through the object's prototype. (Security review 2026-08-26.)
+    if (key === 'action' || key === '__proto__') continue
+    const value = (payload as Record<string, unknown>)[key]
+    if (value !== undefined && value !== null) {
+      Object.defineProperty(flattened, key, { configurable: true, enumerable: true, value, writable: true })
+    }
   }
   return flattened
 }
@@ -1787,12 +1794,28 @@ export type HomeV2CoinAmount = {
  * digits. Parsed into exact atomic units without floating point (a number
  * input is stringified first and must satisfy the same grammar).
  */
+// Expands a JS number's exponential string form (e.g. "1e-8", "5e-9") to
+// plain decimal WITHOUT rounding, so the grammar below can then reject
+// over-precision exactly as it does for a string input — never silently
+// rounding a monetary value. A non-exponential String() is returned as-is.
+function homeV2PlainDecimalString(value: number): string {
+  const str = String(value)
+  const match = /^(\d+)(?:\.(\d+))?[eE]([+-]?\d+)$/.exec(str)
+  if (!match) return str
+  const digits = match[1] + (match[2] ?? '')
+  const pointPos = match[1].length + Number(match[3])
+  if (pointPos <= 0) return `0.${'0'.repeat(-pointPos)}${digits}`
+  if (pointPos >= digits.length) return digits + '0'.repeat(pointPos - digits.length)
+  return `${digits.slice(0, pointPos)}.${digits.slice(pointPos)}`
+}
+
 export function parseHomeV2CoinAmount(value: unknown, label: string): HomeV2CoinAmount {
-  // A finite non-negative number is rendered in FIXED notation first, so a
-  // small value like 0.00000001 (whose String() is "1e-8") still matches the
-  // decimal grammar. toFixed(8) is exact for any 8-decimal value in range.
+  // A number and its string equivalent validate identically: both must be a
+  // non-negative amount with at most eight decimals. A number more precise
+  // than eight decimals is REFUSED, not rounded — a monetary value must
+  // never change silently between the request and what is signed.
   const text = typeof value === 'number' && Number.isFinite(value) && value >= 0
-    ? value.toFixed(8)
+    ? homeV2PlainDecimalString(value)
     : typeof value === 'string' ? value.trim() : null
   const match = text === null ? null : /^(0|[1-9][0-9]*)(?:\.([0-9]{1,8}))?$/.exec(text)
   if (!match) {

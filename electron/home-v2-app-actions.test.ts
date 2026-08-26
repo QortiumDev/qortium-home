@@ -1262,6 +1262,13 @@ assert.deepEqual(normalizeHomeV2BuyNameRequest({ payload: { name: 'alice' } }), 
 assert.throws(() => normalizeHomeV2RegisterNameRequest({ name: 'alice', payload: { fee: 5 } }))
 // A finite number more precise than String() renders (1e-8) still parses.
 assert.deepEqual(parseHomeV2CoinAmount(0.00000001, 'x'), { atomic: 1n, decimal: '0.00000001' })
+// A number more precise than eight decimals is REFUSED, not rounded — the
+// same behavior as the equivalent string input (monetary consistency).
+assert.throws(() => parseHomeV2CoinAmount(0.123456789, 'x'))
+assert.throws(() => parseHomeV2CoinAmount(0.000000005, 'x'))
+assert.throws(() => parseHomeV2CoinAmount('0.123456789', 'x'))
+// A crafted payload __proto__ key cannot inject a field through the flatten.
+assert.throws(() => normalizeHomeV2RegisterNameRequest(JSON.parse('{"payload":{"__proto__":{"name":"proto"}}}')))
 // A public sale (no recipient) must have a price above zero; a restricted one may be zero.
 assert.throws(() => normalizeHomeV2SellNameRequest({ amount: '0', name: 'alice' }), /public name sale/)
 assert.equal(normalizeHomeV2SellNameRequest({ amount: '0', name: 'alice', recipient: `Q${'b'.repeat(25)}` }).amount.atomic, 0n)
