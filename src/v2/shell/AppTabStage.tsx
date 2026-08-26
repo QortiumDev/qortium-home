@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { HomeV2Snapshot } from '../contracts'
-import type { QdnManagerRevisions } from '../../../electron/qdn-manager-events'
 import type { ProductState } from '../product-model'
 import { parseAppResourceLocation } from '../resource-location'
 import { isSameRenderResourcePath, resolveLaunchIdentifier } from './render-path-identity'
@@ -21,6 +20,16 @@ import {
   homeV2BridgeErrorPayload,
   normalizeHomeV2BridgeError,
 } from '../../home-v2-live/app-runtime'
+
+// Structural twin of electron/qdn-manager-events' QdnManagerRevisions. The
+// renderer may not import from electron/ (the foundation escape-hatch scan
+// forbids it), so the two-field shape is restated here; the preload validates
+// the real values with validateQdnManagerRevisions before they ever arrive.
+type QdnManagerRevisions = {
+  readonly bookmarkManager: number
+  readonly notificationManager: number
+}
+
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
