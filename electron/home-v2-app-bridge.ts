@@ -378,7 +378,6 @@ import {
 } from './home-v2-market-prices.js'
 import {
   homeV2AtMessageOperationLabel,
-  homeV2AtMessagePreview,
   isHomeV2AtMessageAction,
   normalizeHomeV2AtMessageRequest,
   QORTIUM_AT_MESSAGE_POW_DIFFICULTY,
@@ -2394,13 +2393,15 @@ async function sendHomeV2AtMessage(
   const profile = await getAccountProfile(accountId)
   const approvedSenderPublicKey = getAccountSigningPublicKey(accountId)
   // Reuses the 'direct' prompt payload shape because it already carries the
-  // two fields this prompt must show — a counterparty address and a message
-  // preview — and because the main-process singleRequestOnly rule already
-  // covers that kind. The action itself is ALSO named in that rule, so the
-  // single-request guarantee does not rest on this choice.
+  // two fields this prompt must show — a counterparty address and a message —
+  // and because the main-process singleRequestOnly rule already covers that
+  // kind. The action itself is ALSO named in that rule, so the single-request
+  // guarantee does not rest on this choice. The FULL message is passed, never
+  // a truncated preview: the renderer discloses exactly the bytes that will be
+  // signed, in a bounded scrollable field, with a byte count.
   await requireAccountReadPermission(sender, context, protocol, 'SEND_MESSAGE', {
     kind: 'direct',
-    messagePreview: homeV2AtMessagePreview(request.message),
+    messagePreview: request.message,
     operationLabel: homeV2AtMessageOperationLabel(),
     otherAddress: request.recipient,
     routeLabel: node.nodeApiUrl,
@@ -6429,7 +6430,25 @@ async function handleRequest(
         protocol: 'qdnRequest',
       }),
     }
-    if (context.accountId && isHomeV2JournaledMutation(action)) {
+    // Compute the contextual action surface FIRST, before any journal
+    // inspection. The journal conflict error names a retained signature, and a
+    // widget must never see one: SEND_MESSAGE is not in a widget's contextual
+    // list, but it IS a journaled mutation, so a widget calling a denied
+    // SEND_MESSAGE during an unresolved send would otherwise be handed the
+    // pending signature back — enough to recover the sender identity that
+    // widget self-subject withholding exists to protect. Gating the journal
+    // block on availability means an unavailable action skips it entirely and
+    // falls through to handleRequestWithRuntime, which throws the standard
+    // "not available in this context" error carrying no signature.
+    const contextualActions = getHomeV2ContextualAppActions(
+      getHomeV2AvailableAppActions(protocol, routes),
+      isWidgetTabId(context.tabId) ? 'widget' : 'tab',
+    )
+    if (
+      context.accountId &&
+      contextualActions.includes(action) &&
+      isHomeV2JournaledMutation(action)
+    ) {
       const pending = findStoredHomeV2PendingTransactionConflict(app.getPath('userData'), {
         accountId: context.accountId,
         action,
@@ -6458,10 +6477,7 @@ async function handleRequest(
       requestValue,
       action,
       hostInfo,
-      getHomeV2ContextualAppActions(
-        getHomeV2AvailableAppActions(protocol, routes),
-        isWidgetTabId(context.tabId) ? 'widget' : 'tab',
-      ),
+      contextualActions,
     )
     try {
       const entry = context.accountId

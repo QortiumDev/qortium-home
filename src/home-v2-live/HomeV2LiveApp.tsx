@@ -2839,7 +2839,7 @@ export function HomeV2LiveApp() {
           : value.action === 'REMOVE_MINTING_ACCOUNT'
             ? `${appTitle} wants to remove this account's own minting key from the local Core on this device. Home read the key off the node itself rather than taking it from the app, so no other minter on your node can be touched. Minting with it stops; nothing on chain changes.`
           : isAtMessage
-            ? `${appTitle} wants to sign and broadcast one message from the selected account to the contract below. It carries no payment and costs no fee — Home pays for it with proof-of-work on this device. The exact text being sent is shown below; the contract may act on it.`
+            ? `${appTitle} wants to sign and broadcast one message from the selected account to the contract below. It carries no payment and costs no fee — Home pays for it with proof-of-work on this device. The complete message text is shown below, exactly as it will be signed; read all of it, as the contract may act on it.`
           : isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment
           ? `${appTitle} wants to ${operationLabel.toLowerCase()} as the selected account.`
           : `${appTitle} wants to read the selected account address and public identity data.`,
@@ -2990,7 +2990,15 @@ export function HomeV2LiveApp() {
                 { label: 'Chain', value: String(value.writeTargetChainLabel) },
                 { label: 'Route', value: String(value.writeRouteLabel) },
                 { label: 'Contract (AT)', value: String(value.writeOtherAddress) },
-                { label: 'Message', value: String(value.chatMessagePreview) },
+                // The full message, never truncated — this is the text being
+                // signed, so all of it is disclosed. The 'scroll' variant keeps
+                // a long one from pushing the buttons off-screen; the byte
+                // count below makes the length unambiguous.
+                { label: 'Message', value: String(value.chatMessagePreview), variant: 'scroll' as const },
+                {
+                  label: 'Message size',
+                  value: `${new TextEncoder().encode(String(value.chatMessagePreview)).length.toLocaleString()} bytes (of 4,000 max)`,
+                },
                 { label: 'Payment', value: 'None — this message transfers nothing' },
                 { label: 'Fee', value: '0, paid with proof-of-work on this device' },
                 {
@@ -4156,7 +4164,12 @@ export function HomeV2LiveApp() {
         return true
       }
       if (action === 'UNLOCK_SELECTED_ACCOUNT') {
-        if (protocol !== 'qdnRequest') throw new Error('UNLOCK_SELECTED_ACCOUNT is only available to Qortium apps.')
+        // No protocol guard: unlocking is a Home-account operation with no
+        // chain semantics — the same wallet, the same password dialog, the
+        // same key, whichever global asked — and the legacy wallet app reaches
+        // it through qortalRequest. UNLOCK is advertised on Android on both
+        // protocols (home-v2-app-actions.ts / getHomeV2ContextualAppActions),
+        // so this handler must accept both too, or SHOW_ACTIONS would lie.
         if (!vaultClient || !context.selectedAccountId) throw new Error('No account is selected for this tab.')
         const account = accountCatalogueRef.current.accounts.find(
           (candidate) => candidate.id === context.selectedAccountId,

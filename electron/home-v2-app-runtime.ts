@@ -228,13 +228,40 @@ export function homeV2WidgetWithholdsSelfSubject(action: string) {
   return WIDGET_SELF_SUBJECT_ACTIONS.has(action)
 }
 
+/**
+ * Actions the Android host advertises in the desktop catalogue but cannot
+ * actually run, so they are filtered out of Android's SHOW_ACTIONS.
+ *
+ * SEND_MESSAGE signs a transaction, and Android has no signing path (the
+ * portable node client is read-only plus a few Home-mediated actions). Leaving
+ * it in SHOW_ACTIONS would make the result LIE: an app would try it and hit a
+ * rejection. The one signing action goes here; the portable client also
+ * rejects it explicitly (node-client.ts) as defense in depth.
+ *
+ * UNLOCK_SELECTED_ACCOUNT is deliberately NOT here: unlocking is a Home-account
+ * operation with no chain semantics, the Android host DOES implement it, and
+ * the legacy wallet reaches it through qortalRequest — so it stays advertised
+ * on Android on both protocols.
+ */
+const ANDROID_UNSUPPORTED_ACTIONS = new Set<string>([
+  'SEND_MESSAGE',
+])
+
+export function isHomeV2AndroidUnsupportedAction(action: string) {
+  return ANDROID_UNSUPPORTED_ACTIONS.has(action)
+}
+
 export function getHomeV2ContextualAppActions(
   availableActions: readonly string[],
   context: 'android' | 'tab' | 'widget',
 ): readonly string[] {
   const filtered = availableActions.filter((action) => {
     if (context === 'widget') return action !== 'OPEN_AS_WIDGET' && isWidgetPublicReadAction(action)
-    if (context === 'android') return action !== 'OPEN_AS_WIDGET' && !WIDGET_LOCAL_ACTIONS.has(action)
+    if (context === 'android') {
+      return action !== 'OPEN_AS_WIDGET' &&
+        !WIDGET_LOCAL_ACTIONS.has(action) &&
+        !ANDROID_UNSUPPORTED_ACTIONS.has(action)
+    }
     return !WIDGET_LOCAL_ACTIONS.has(action)
   })
   return Object.freeze(context === 'widget'

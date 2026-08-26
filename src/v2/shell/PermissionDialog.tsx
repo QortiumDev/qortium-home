@@ -75,7 +75,9 @@ export function PermissionDialog({
           {prompt.details.map((detail) => (
             <div key={detail.label}>
               <dt>{detail.label}</dt>
-              <dd>{detail.value}</dd>
+              <dd className={detail.variant === 'scroll' ? 'home-v2-permission-detail-scroll' : undefined}>
+                {detail.value}
+              </dd>
             </div>
           ))}
         </dl>

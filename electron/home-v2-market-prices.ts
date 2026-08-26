@@ -21,10 +21,11 @@
 // the cache behavior is testable without a network or a real timer.
 
 import {
+  MARKET_PRICE_ALL_COINS,
+  MARKET_PRICE_ALL_CURRENCIES,
   MARKET_PRICE_CACHE_TTL_MS,
   buildCoinGeckoSimplePricePath,
   buildMarketPriceResponse,
-  getMarketPriceCacheKey,
   normalizeMarketPriceCoins,
   normalizeMarketPriceCurrencies,
   type MarketPriceCoin,
@@ -76,7 +77,24 @@ export function buildHomeV2MarketPriceUrl(priceRequest: HomeV2MarketPriceRequest
   )}`
 }
 
-type CacheEntry = { expiresAt: number; response: MarketPriceResponse }
+/**
+ * The ONE URL the cache ever fetches: every supported coin, every supported
+ * currency, with 24h change. It is a compile-time constant — no app input
+ * reaches it — so the outbound request is byte-for-byte identical no matter
+ * what any app asks for. That is what makes the request itself impossible to
+ * use as a fingerprint or a beacon channel: an app cannot vary the coins,
+ * currencies, or change flag to change what leaves the machine. Every app's
+ * requested subset is projected locally out of this superset's response.
+ */
+export function buildHomeV2MarketPriceSupersetUrl() {
+  return `${HOME_V2_COINGECKO_ORIGIN}${HOME_V2_COINGECKO_BASE_PATH}${buildCoinGeckoSimplePricePath(
+    MARKET_PRICE_ALL_COINS as readonly MarketPriceCoin[],
+    MARKET_PRICE_ALL_CURRENCIES,
+    true,
+  )}`
+}
+
+type SupersetEntry = { expiresAt: number; fetchedAt: number; payload: unknown }
 
 export type HomeV2MarketPriceFetch = (url: string) => Promise<{
   ok: boolean
@@ -85,73 +103,121 @@ export type HomeV2MarketPriceFetch = (url: string) => Promise<{
 }>
 
 /**
- * A TTL cache in front of CoinGecko, shared by every app on every tab.
+ * The single CoinGecko gateway, shared by every app on every tab.
  *
- * Two jobs. The obvious one is not hammering a free public API. The less
- * obvious one is that the cache is the privacy control: without it, an app
- * could poll GET_MARKET_PRICES in a loop and turn Home into a beacon that
- * announces the user's IP to a third party on the app's schedule. With it,
- * outbound requests are bounded by the TTL regardless of how often apps ask.
+ * This is a privacy control first and a rate limiter second, and the earlier
+ * per-subset design was neither. Keying the cache on the requested
+ * coin/currency/change subset let an app rotate combinations to force a fresh
+ * outbound request on every call — and firing N concurrent identical calls
+ * fired N fetches — so the "bounded by the TTL" claim did not hold. An app
+ * could still beacon CoinGecko on its own schedule.
  *
- * On a fetch failure a still-cached response is served with `stale: true` and
- * a `staleReason` rather than failing the call outright — 1.x behavior
- * (electron/qdn.ts:2032-2043). A price a minute old beats no price.
+ * The fix removes the app's influence entirely:
+ *
+ *   - ONE fixed superset is fetched — every coin, every currency, with change
+ *     (buildHomeV2MarketPriceSupersetUrl). The outbound URL is a constant; no
+ *     app input reaches it. Each app's requested subset is projected locally
+ *     out of the superset's response.
+ *   - At most ONE outbound request per TTL, globally. A successful fetch is
+ *     reused until it expires; and a MINIMUM INTERVAL (the same TTL) governs
+ *     ATTEMPTS, so even a run of failures cannot fire more than one request
+ *     per interval — the cold-failure beacon the per-subset version left open.
+ *   - Concurrent callers COALESCE onto one in-flight fetch rather than each
+ *     starting their own.
+ *
+ * On failure a still-fresh-enough superset is projected as `stale: true` with
+ * a `staleReason` rather than failing the call (1.x behavior); with nothing
+ * cached, the error propagates rather than inventing a price.
  */
 export class HomeV2MarketPriceCache {
-  readonly #entries = new Map<string, CacheEntry>()
+  #entry: SupersetEntry | null = null
+  #inflight: Promise<void> | null = null
+  #lastAttemptAt: number | null = null
 
   constructor(
     private readonly now: () => number = Date.now,
     private readonly ttlMs = MARKET_PRICE_CACHE_TTL_MS,
+    // The floor between outbound ATTEMPTS, success or failure. Defaults to the
+    // TTL: a fresh fetch already suppresses attempts for a TTL, and matching
+    // the floor to it means a run of failures is bounded the same way.
+    private readonly minIntervalMs = MARKET_PRICE_CACHE_TTL_MS,
   ) {}
 
   async read(
     priceRequest: HomeV2MarketPriceRequest,
     fetchPrices: HomeV2MarketPriceFetch,
   ): Promise<MarketPriceResponse> {
-    const cacheKey = getMarketPriceCacheKey(
-      priceRequest.coins,
-      priceRequest.currencies,
-      priceRequest.include24hChange,
-    )
-    const cached = this.#entries.get(cacheKey)
-    if (cached && cached.expiresAt > this.now()) {
-      return { ...cached.response, cacheHit: true, stale: false }
+    const entry = this.#entry
+    if (entry && entry.expiresAt > this.now()) {
+      return this.#project(priceRequest, entry, { cacheHit: true, stale: false })
     }
     try {
-      const result = await fetchPrices(buildHomeV2MarketPriceUrl(priceRequest))
-      if (!result.ok) {
-        throw new Error(`CoinGecko request failed with HTTP ${result.status}.`)
-      }
-      const response = buildMarketPriceResponse({
-        ...priceRequest,
-        cacheHit: false,
-        fetchedAt: this.now(),
-        payload: result.payload,
-      })
-      this.#entries.set(cacheKey, {
-        expiresAt: response.fetchedAt + this.ttlMs,
-        response,
-      })
-      return response
+      await this.#refresh(fetchPrices)
     } catch (error) {
-      if (cached) {
-        return {
-          ...cached.response,
-          cacheHit: true,
-          stale: true,
-          staleReason: error instanceof Error ? error.message : String(error),
-        }
+      const reason = error instanceof Error ? error.message : String(error)
+      if (this.#entry) {
+        return this.#project(priceRequest, this.#entry, { cacheHit: true, stale: true, staleReason: reason })
       }
       throw error
     }
+    // #refresh either stored a fresh entry or awaited one another caller stored.
+    return this.#project(priceRequest, this.#entry as SupersetEntry, { cacheHit: false, stale: false })
+  }
+
+  // Ensures a fresh superset exists, coalescing concurrent callers and refusing
+  // to start an outbound attempt more than once per minimum interval. Throws
+  // when it cannot refresh (fetch failed, or the interval floor blocks a
+  // refresh) so read() can decide between serving stale and propagating.
+  async #refresh(fetchPrices: HomeV2MarketPriceFetch): Promise<void> {
+    if (this.#inflight) {
+      await this.#inflight
+      return
+    }
+    const now = this.now()
+    if (this.#lastAttemptAt !== null && now - this.#lastAttemptAt < this.minIntervalMs) {
+      throw new Error('Market prices were fetched too recently; a new request is rate-limited locally.')
+    }
+    this.#lastAttemptAt = now
+    const inflight = (async () => {
+      const result = await fetchPrices(buildHomeV2MarketPriceSupersetUrl())
+      if (!result.ok) {
+        throw new Error(`CoinGecko request failed with HTTP ${result.status}.`)
+      }
+      const fetchedAt = this.now()
+      this.#entry = { expiresAt: fetchedAt + this.ttlMs, fetchedAt, payload: result.payload }
+    })()
+    this.#inflight = inflight
+    try {
+      await inflight
+    } finally {
+      if (this.#inflight === inflight) this.#inflight = null
+    }
+  }
+
+  #project(
+    priceRequest: HomeV2MarketPriceRequest,
+    entry: SupersetEntry,
+    meta: { cacheHit: boolean; stale: boolean; staleReason?: string },
+  ): MarketPriceResponse {
+    return buildMarketPriceResponse({
+      cacheHit: meta.cacheHit,
+      coins: priceRequest.coins,
+      currencies: priceRequest.currencies,
+      fetchedAt: entry.fetchedAt,
+      include24hChange: priceRequest.include24hChange,
+      payload: entry.payload,
+      stale: meta.stale,
+      ...(meta.staleReason ? { staleReason: meta.staleReason } : {}),
+    })
   }
 
   clear() {
-    this.#entries.clear()
+    this.#entry = null
+    this.#inflight = null
+    this.#lastAttemptAt = null
   }
 
   get size() {
-    return this.#entries.size
+    return this.#entry ? 1 : 0
   }
 }

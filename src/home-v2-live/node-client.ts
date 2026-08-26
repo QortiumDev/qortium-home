@@ -90,6 +90,7 @@ import {
   getHomeV2AppRouteDescriptor,
   getHomeV2AvailableAppActions,
   getHomeV2ContextualAppActions,
+  isHomeV2AndroidUnsupportedAction,
   HOME_V2_ROUTE_INDEPENDENT_ACTIONS,
 } from '../../electron/home-v2-app-runtime'
 import { mergeHomeV2ShellGlobalState } from '../../electron/home-v2-window-startup'
@@ -1106,6 +1107,24 @@ export function createPortableNodeClient(
       }
       if (action === 'OPEN_AS_WIDGET' || action.startsWith('WIDGET_')) {
         throw new Error(`${action} is only available in Qortium Home desktop.`)
+      }
+      // Signing actions have no Android path (this client is read-only plus a
+      // few Home-mediated actions). Reject them explicitly with a clear reason
+      // rather than letting them fall to the generic "read-only mode" message —
+      // and they are already withheld from Android's SHOW_ACTIONS, so a
+      // well-behaved app never reaches here. See
+      // ANDROID_UNSUPPORTED_ACTIONS in home-v2-app-runtime.ts.
+      if (isHomeV2AndroidUnsupportedAction(action)) {
+        throw createHomeV2BridgeError(
+          `${action} requires transaction signing, which is only available in Qortium Home desktop.`,
+          {
+            action,
+            code: 'NODE_CAPABILITY_MISSING',
+            network: hostInfo.network,
+            retryable: false,
+            routeRevision: hostInfo.route.revision,
+          },
+        )
       }
       const implemented = getHomeV2AppActions(protocol).includes(action)
       const routeIndependent = (HOME_V2_ROUTE_INDEPENDENT_ACTIONS as readonly string[]).includes(action)

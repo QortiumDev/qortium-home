@@ -34,6 +34,41 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-26 - fix(home-v2): close the SEND_MESSAGE payload gap and show the whole message before signing
+
+A review of the previous change turned up a sharp problem in the one action
+that can sign something — the short message an app sends to a contract. Home
+refuses that message if it tries to smuggle a payment, an encryption request, or
+a transaction group, so an app can never believe it did something the contract
+will not actually see. But an app can send its request in two shapes, and the
+refusal only checked one of them: a forbidden field tucked inside the other
+shape slipped through and was silently dropped. Now every field is checked in
+both shapes, a field that appears in both places with two different values is
+refused as ambiguous, and a flag that is not a real yes/no is refused rather
+than guessed at.
+
+The approval box also used to shorten a long message before showing it, while
+telling you it was showing the exact text. A harmless-looking opening could
+therefore hide instructions further down that you would have signed without
+seeing. The box now shows the entire message, in a scrollable panel so a long
+one does not push the buttons off-screen, with its exact size in bytes beside
+it. What you approve is what gets signed, all of it.
+
+Two more places were tightened. Coin prices — the one thing Home fetches from
+the wider internet — are now fetched as a single fixed request covering
+everything, once per minute at most no matter how many apps ask or how they
+vary their questions; each app's answer is sliced from that one copy. Before,
+an app could vary its question to make Home reach out on the app's own
+schedule. And the phone version of Home no longer lists the sign-a-message
+action at all, because the phone cannot sign — listing it was a promise it
+could not keep. Unlocking your account, on the other hand, now works from the
+phone through either kind of app request, which is what the older wallet needs.
+
+Smaller safety fixes: a floating widget can no longer learn a hidden
+transaction identifier by asking for an action it is not allowed to run, and a
+foreign-chain fee that arrives as an over-large number is now refused rather
+than quietly rounded.
+
 ### 2026-08-26 - feat(home-v2): wallet apps show balances again, and apps can read ratings, moderation history, foreign-chain details and coin prices
 
 The wallet apps had been quietly broken. Both of them ask Home a simple

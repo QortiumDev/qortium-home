@@ -1072,4 +1072,25 @@ assert.throws(
   /too large/,
 )
 
+// FIX 4 — Android must not advertise or run what it cannot do. Both routes are
+// public here, so SHOW_ACTIONS returns the real available surface.
+await client.setMode('qortal', 'public')
+await client.setMode('qortium', 'public')
+const androidQdnActions = (await client.requestApp('qdnRequest', { action: 'SHOW_ACTIONS' }, appContext)) as string[]
+const androidQortalActions = (await client.requestApp('qortalRequest', { action: 'SHOW_ACTIONS' }, appContext)) as string[]
+// SEND_MESSAGE signs, which Android cannot do — it must be filtered out of
+// SHOW_ACTIONS so the result does not lie.
+assert.equal(androidQdnActions.includes('SEND_MESSAGE'), false, 'Android SHOW_ACTIONS must not advertise SEND_MESSAGE')
+assert.equal(androidQortalActions.includes('SEND_MESSAGE'), false)
+// UNLOCK_SELECTED_ACCOUNT is a Home-account operation and IS available on
+// Android — on both protocols, so the legacy wallet's qortalRequest works.
+assert.equal(androidQortalActions.includes('UNLOCK_SELECTED_ACCOUNT'), true, 'Android must advertise UNLOCK on qortalRequest')
+assert.equal(androidQdnActions.includes('UNLOCK_SELECTED_ACCOUNT'), true)
+// And calling the filtered signing action anyway is rejected with a clear
+// desktop-only reason, not the generic read-only message.
+await assert.rejects(
+  client.requestApp('qdnRequest', { action: 'SEND_MESSAGE', recipient: 'AG9QWs1tEBTmXoH2rrQXwV4LdMAM99o5WD', message: 'hi' }, appContext),
+  /only available in Qortium Home desktop/,
+)
+
 console.log('Home v2 portable node client tests passed.')

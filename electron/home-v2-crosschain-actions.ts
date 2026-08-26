@@ -159,7 +159,24 @@ function atomicAmountToCoinString(value: bigint) {
  * the transaction rejected by the foreign chain.
  */
 export function homeV2FeePerKbToFeePerByte(value: unknown) {
-  const text = typeof value === 'string' ? value.trim() : typeof value === 'number' || typeof value === 'bigint' ? String(value) : ''
+  // A JS number is only trusted when it is an exact integer. `String(1e21)`
+  // yields '1e+21' and any integer past Number.MAX_SAFE_INTEGER has already
+  // lost precision before we see it, so converting such a number to a fee
+  // string would silently sign off on a rounded value. A node reporting a huge
+  // fee must send it as a decimal string (which JSON preserves) or a bigint.
+  let text: string
+  if (typeof value === 'string') {
+    text = value.trim()
+  } else if (typeof value === 'bigint') {
+    text = value.toString()
+  } else if (typeof value === 'number') {
+    if (!Number.isSafeInteger(value)) {
+      throw new Error('Foreign fee number is not an exact integer; send it as a decimal string.')
+    }
+    text = String(value)
+  } else {
+    text = ''
+  }
   if (!/^(?:0|[1-9]\d*)$/.test(text)) {
     throw new Error('Foreign fee must be a non-negative integer of atomic units.')
   }

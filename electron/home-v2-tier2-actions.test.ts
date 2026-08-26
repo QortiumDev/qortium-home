@@ -54,16 +54,16 @@ import {
 } from './home-v2-crosschain-actions.js'
 import {
   buildHomeV2MarketPriceUrl,
+  buildHomeV2MarketPriceSupersetUrl,
   normalizeHomeV2MarketPriceRequest,
   HomeV2MarketPriceCache,
   HOME_V2_COINGECKO_ORIGIN,
 } from './home-v2-market-prices.js'
 import { MARKET_PRICE_CACHE_TTL_MS } from './market-prices.js'
 import {
-  homeV2AtMessagePreview,
+  homeV2AtMessageByteLength,
   isHomeV2AtMessageAction,
   normalizeHomeV2AtMessageRequest,
-  HOME_V2_AT_MESSAGE_PREVIEW_MAX_CHARS,
 } from './home-v2-at-message-actions.js'
 import { buildUnsignedQortiumAtMessageTransactionBytes } from './qdn-at-message.js'
 import { HOME_V2_PERMISSIONLESS_ACTIONS } from './home-v2-session-grants.js'
@@ -222,6 +222,50 @@ assert.ok(scopes.startsWith('allowedScopes: isAtMessage'), 'the SEND_MESSAGE sco
 assert.ok(
   scopes.includes("? ['single-request']"),
   'the SEND_MESSAGE prompt must offer single-request only',
+)
+
+// FIX 2 — the bridge must disclose the FULL message, never a truncated
+// preview: what the user approves must be exactly what is signed. The bridge
+// passes `request.message` unchanged, and the module no longer exports a
+// truncating preview helper.
+assert.ok(
+  /messagePreview: request\.message\b/.test(bridgeSource),
+  'the SEND_MESSAGE prompt must be given the full message, not a truncated preview',
+)
+const atMessageModule = readRepoSource('../electron/home-v2-at-message-actions.ts', './home-v2-at-message-actions.ts')
+assert.ok(
+  !/homeV2AtMessagePreview/.test(atMessageModule),
+  'the truncating preview helper must be gone',
+)
+assert.ok(
+  !/exact text being sent/.test(liveAppSource),
+  'the prompt summary must not claim to show the "exact text" — it now shows all of it',
+)
+// The Message row is disclosed in the bounded scrollable field, with a byte
+// count beside it, so a long message neither hides content nor buries the
+// buttons.
+assert.ok(
+  liveAppSource.includes("value: String(value.chatMessagePreview), variant: 'scroll'"),
+  'the SEND_MESSAGE Message row must use the scrollable variant',
+)
+assert.ok(
+  liveAppSource.includes("label: 'Message size'"),
+  'the prompt must show a message byte count',
+)
+
+// FIX 5 — the journal-conflict lookup must run only for an action the context
+// actually allows, so a widget calling a denied journaled mutation cannot be
+// handed a retained signature. The block is gated on the contextual action
+// list, which is computed before it.
+assert.ok(
+  /contextualActions\.includes\(action\) &&\s*isHomeV2JournaledMutation\(action\)/.test(bridgeSource),
+  'the journal-conflict block must be gated on contextual availability, before any signature is revealed',
+)
+assert.ok(
+  bridgeSource.indexOf('const contextualActions =') !== -1 &&
+    bridgeSource.indexOf('const contextualActions =') <
+      bridgeSource.indexOf('findStoredHomeV2PendingTransactionConflict(app.getPath'),
+  'contextual availability must be computed before the journal lookup call',
 )
 
 // ---------------------------------------------------------------------------
@@ -395,6 +439,20 @@ assert.throws(() => homeV2FeePerKbToFeePerByte('0'), /greater than zero/)
 assert.throws(() => homeV2FeePerKbToFeePerByte('-5'), /non-negative integer/)
 assert.throws(() => homeV2FeePerKbToFeePerByte('1.5'), /non-negative integer/)
 assert.throws(() => homeV2FeePerKbToFeePerByte(null), /non-negative integer/)
+// FIX 6 — a JS number is trusted only when it is an exact integer. A value
+// past MAX_SAFE_INTEGER has already lost precision, and String() on it would
+// produce exponent notation or a rounded figure; converting that to a fee
+// would silently sign off on the wrong number. Such a value must be sent as a
+// decimal string (JSON-lossless) or a bigint instead.
+assert.equal(homeV2FeePerKbToFeePerByte(9_007_199_254_740_991n), '90071.99254741', 'a bigint is accepted exactly')
+assert.equal(
+  homeV2FeePerKbToFeePerByte('90071992547409910000'),
+  '900719925.4740991',
+  'a large decimal string is accepted exactly',
+)
+assert.throws(() => homeV2FeePerKbToFeePerByte(9_007_199_254_740_993), /not an exact integer/, 'an unsafe integer number is refused')
+assert.throws(() => homeV2FeePerKbToFeePerByte(1e21), /not an exact integer/, 'exponent-scale numbers are refused')
+assert.throws(() => homeV2FeePerKbToFeePerByte(1.5), /not an exact integer/, 'a fractional number is refused')
 
 // Response projections.
 const feeProjection = projectHomeV2CrosschainReadResult('GET_FOREIGN_FEE', { coin: 'BTC', type: 'TRADE' }, '10000')
@@ -556,33 +614,55 @@ assert.equal(normalizeHomeV2MarketPriceRequest({ coin: 'BTC', include24hChange: 
 assert.throws(() => normalizeHomeV2MarketPriceRequest({ coin: 'NOTACOIN' }), /Unsupported market price coin/)
 assert.throws(() => normalizeHomeV2MarketPriceRequest({ coin: 'BTC', currency: 'xxx' }), /Unsupported market price currency/)
 
-// The outbound URL is built entirely from allowlisted values and carries NO
-// user data — no address, account id, public key, app identity or node URL.
+// The per-request URL builder still carries NO user data — no address,
+// account id, public key, app identity or node URL — but note the cache no
+// longer FETCHES it (see the superset URL below).
 const priceUrl = buildHomeV2MarketPriceUrl(normalizeHomeV2MarketPriceRequest({ coins: 'BTC', currencies: 'usd' }))
 assert.ok(priceUrl.startsWith(`${HOME_V2_COINGECKO_ORIGIN}/api/v3/simple/price?`))
 const priceParams = new URL(priceUrl).searchParams
 assert.deepEqual([...priceParams.keys()].sort(), ['ids', 'include_last_updated_at', 'vs_currencies'])
 assert.equal(priceParams.get('ids'), 'bitcoin')
 assert.equal(priceParams.get('vs_currencies'), 'usd')
+
+// FIX 3 — the cache fetches exactly ONE fixed superset URL, and that is the
+// only URL that ever leaves the machine. It is a compile-time constant: no app
+// input reaches it, so an app cannot vary coins/currencies/change to change
+// what is sent (a fingerprint/beacon channel the per-subset design left open).
+const supersetUrl = buildHomeV2MarketPriceSupersetUrl()
+assert.ok(supersetUrl.startsWith(`${HOME_V2_COINGECKO_ORIGIN}/api/v3/simple/price?`))
+assert.equal(buildHomeV2MarketPriceSupersetUrl(), supersetUrl, 'the superset URL is constant')
+const supersetParams = new URL(supersetUrl).searchParams
+assert.equal(supersetParams.get('include_24hr_change'), 'true', 'the superset always includes change')
+assert.ok(supersetParams.get('ids')!.split(',').length >= 15, 'the superset covers every supported coin')
+assert.ok(supersetParams.get('vs_currencies')!.split(',').length >= 30, 'the superset covers every supported currency')
 for (const leak of [ACCOUNT_ADDRESS, OTHER_ADDRESS, AT_ADDRESS, 'qdn://', 'accountId', 'publicKey']) {
-  assert.ok(!priceUrl.includes(leak), `the market price URL must not carry ${leak}`)
+  assert.ok(!priceUrl.includes(leak), `the per-request URL must not carry ${leak}`)
+  assert.ok(!supersetUrl.includes(leak), `the superset URL must not carry ${leak}`)
 }
 
 // Cache behavior, with an injected clock and an injected fetch so neither a
 // timer nor a network is involved.
 let now = 1_000_000
 let fetchCount = 0
+let lastFetchedUrl = ''
+// A superset payload: many coins, many currencies, with change fields.
+const payload = {
+  bitcoin: { usd: 100, eur: 90, usd_24h_change: 1.2, last_updated_at: 5 },
+  litecoin: { usd: 70, eur: 63, last_updated_at: 5 },
+}
 const cache = new HomeV2MarketPriceCache(() => now)
-const payload = { bitcoin: { usd: 100, last_updated_at: 5 } }
-const okFetch = async () => {
+const okFetch = async (url: string) => {
   fetchCount += 1
+  lastFetchedUrl = url
   return { ok: true, payload, status: 200 }
 }
 const first = await cache.read(priceRequest, okFetch)
 assert.equal(fetchCount, 1)
+assert.equal(lastFetchedUrl, supersetUrl, 'the cache fetches the superset URL, not the per-request one')
 assert.equal(first.cacheHit, false)
 assert.equal(first.stale, false)
 assert.equal(first.fetchedAt, 1_000_000)
+assert.equal(first.prices.BTC?.usd, 100)
 
 // A second read inside the TTL is served from cache: no second outbound call.
 const second = await cache.read(priceRequest, okFetch)
@@ -590,25 +670,50 @@ assert.equal(fetchCount, 1, 'a cached read must not reach the network')
 assert.equal(second.cacheHit, true)
 assert.equal(second.stale, false)
 
-// A different coin/currency set is a different cache key.
-await cache.read(normalizeHomeV2MarketPriceRequest({ coins: 'LTC' }), okFetch)
-assert.equal(fetchCount, 2)
+// The beacon fix: a DIFFERENT coin/currency subset is projected from the SAME
+// superset, with NO new outbound request. Under the old per-subset cache this
+// was a second fetch; rotating subsets was the beacon channel.
+const projected = await cache.read(normalizeHomeV2MarketPriceRequest({ coins: 'LTC', currencies: 'eur' }), okFetch)
+assert.equal(fetchCount, 1, 'rotating coins/currencies must NOT trigger a new fetch')
+assert.equal(projected.cacheHit, true)
+assert.equal(projected.prices.LTC?.eur, 63)
 
-// Past the TTL, it fetches again.
+// Concurrent identical-window reads coalesce onto ONE in-flight fetch.
 now += MARKET_PRICE_CACHE_TTL_MS + 1
-await cache.read(priceRequest, okFetch)
-assert.equal(fetchCount, 3)
+let concurrentFetches = 0
+const slowFetch = async (url: string) => {
+  concurrentFetches += 1
+  lastFetchedUrl = url
+  await new Promise((resolve) => setTimeout(resolve, 5))
+  return { ok: true, payload, status: 200 }
+}
+await Promise.all([
+  cache.read(priceRequest, slowFetch),
+  cache.read(normalizeHomeV2MarketPriceRequest({ coins: 'LTC' }), slowFetch),
+  cache.read(priceRequest, slowFetch),
+])
+assert.equal(concurrentFetches, 1, 'concurrent reads after expiry must share one fetch')
 
-// A failure with something cached serves the stale copy and says so, rather
-// than failing the app's call outright. The clock has to move past the TTL
-// first: inside it, the cache answers and the fetch is never attempted at all.
+// A failure with something cached serves the stale copy and says so.
 now += MARKET_PRICE_CACHE_TTL_MS + 1
-const stale = await cache.read(priceRequest, async () => {
+let failAttempts = 0
+const failFetch = async () => {
+  failAttempts += 1
   throw new Error('network down')
-})
+}
+const stale = await cache.read(priceRequest, failFetch)
+assert.equal(failAttempts, 1)
 assert.equal(stale.cacheHit, true)
 assert.equal(stale.stale, true)
-assert.equal(stale.staleReason, 'network down')
+assert.match(String(stale.staleReason), /network down/)
+
+// The global rate floor: a SECOND failing attempt within the interval is
+// suppressed entirely — the cold-failure beacon the per-subset cache left open
+// (an app could keep firing while CoinGecko was down). The stale copy is
+// served without a new outbound request.
+const stale2 = await cache.read(priceRequest, failFetch)
+assert.equal(failAttempts, 1, 'a repeated failing attempt within the interval must not fetch again')
+assert.equal(stale2.stale, true)
 
 // A non-2xx counts as a failure, not as an empty price list.
 now += MARKET_PRICE_CACHE_TTL_MS + 1
@@ -625,6 +730,14 @@ await assert.rejects(
   }),
   /network down/,
 )
+// And a cold cache under repeated failure fires only ONE outbound attempt per
+// interval, not one per call.
+now += MARKET_PRICE_CACHE_TTL_MS + 1
+let coldFailAttempts = 0
+const coldFailCache = new HomeV2MarketPriceCache(() => now)
+await assert.rejects(coldFailCache.read(priceRequest, async () => { coldFailAttempts += 1; throw new Error('x') }))
+await assert.rejects(coldFailCache.read(priceRequest, async () => { coldFailAttempts += 1; throw new Error('x') }))
+assert.equal(coldFailAttempts, 1, 'repeated cold failures within the interval fire one attempt')
 
 // ---------------------------------------------------------------------------
 // 9. SEND_MESSAGE validation
@@ -702,14 +815,78 @@ assert.equal(
   'hi',
 )
 
-// The MESSAGE byte layout, pinned because the bridge signs these bytes with
-// `signTransactionWithNonce`, which stamps the nonce at a HARD-CODED offset of
-// 48 (TRANSACTION_NONCE_OFFSET in accounts.ts). That offset is only correct
-// because MESSAGE's header is txType(4) + timestamp(8) + txGroupId(4) +
-// senderPublicKey(32) = 48, exactly like CHAT's. If the serializer ever grows
-// or reorders a header field, the nonce would be stamped into the middle of
-// the public key and Home would sign a transaction for the wrong sender —
-// silently, since nothing else checks. This test is that check.
+// A forbidden field hidden inside `payload` must be refused, not silently
+// dropped. recipient/message are read payload-first (getRequestValue), so a
+// top-level-only forbidden-field check let `{ payload: { amount, isEncrypted,
+// groupId } }` through — the app would believe it sent a paid/encrypted
+// message the serializer had quietly stripped. Every guard now reads both
+// locations.
+for (const field of ['amount', 'assetId', 'recipientPublicKey', 'chatReference', 'txGroupId', 'groupId']) {
+  assert.throws(
+    () => normalizeHomeV2AtMessageRequest('qdnRequest', { payload: { recipient: AT_ADDRESS, message: 'hi', [field]: 5 } }),
+    /SEND_MESSAGE/,
+    `${field} in payload must be refused`,
+  )
+}
+assert.throws(
+  () => normalizeHomeV2AtMessageRequest('qdnRequest', { payload: { recipient: AT_ADDRESS, message: 'hi', isEncrypted: true } }),
+  /plaintext only/,
+  'isEncrypted in payload must be refused',
+)
+assert.throws(
+  () => normalizeHomeV2AtMessageRequest('qdnRequest', { recipient: AT_ADDRESS, message: 'hi', encrypt: true }),
+  /plaintext only/,
+  'the encrypt alias must be refused',
+)
+assert.throws(
+  () => normalizeHomeV2AtMessageRequest('qdnRequest', { payload: { recipient: AT_ADDRESS, message: 'hi', isText: false } }),
+  /UTF-8 text only/,
+  'isText:false in payload must be refused',
+)
+assert.throws(
+  () => normalizeHomeV2AtMessageRequest('qdnRequest', { payload: { recipient: AT_ADDRESS, message: 'hi', fee: 3 } }),
+  /always fee 0/,
+  'a non-zero fee in payload must be refused',
+)
+// A string-boolean is not a boolean: `isEncrypted: 'true'` must not slip past
+// the `=== true` check as a truthy-but-not-true value.
+assert.throws(
+  () => normalizeHomeV2AtMessageRequest('qdnRequest', { recipient: AT_ADDRESS, message: 'hi', isEncrypted: 'true' }),
+  /must be a boolean/,
+  'a string boolean flag must be refused',
+)
+// A recipient given in BOTH places with different values is ambiguous: the
+// disclosed and signed value would silently be the payload one. Refuse it.
+assert.throws(
+  () => normalizeHomeV2AtMessageRequest('qdnRequest', {
+    recipient: AT_ADDRESS,
+    payload: { recipient: 'AG9QWs1tEBTmXoH2rrQXwV4LdMAM99o5WE', message: 'hi' },
+  }),
+  /twice with different values/,
+  'a conflicting duplicate recipient must be refused',
+)
+// The same field in both places with the SAME value is harmless.
+assert.equal(
+  normalizeHomeV2AtMessageRequest('qdnRequest', { recipient: AT_ADDRESS, payload: { recipient: AT_ADDRESS, message: 'hi' } }).message,
+  'hi',
+)
+// A whole request delivered through `payload` (no top-level fields) still works.
+assert.equal(
+  normalizeHomeV2AtMessageRequest('qdnRequest', { payload: { recipient: AT_ADDRESS, message: 'SMPL faucet claim' } }).recipient,
+  AT_ADDRESS,
+)
+
+// FIX 7 — full golden vector for the complete unsigned MESSAGE bytes.
+//
+// The bridge signs these bytes with `signTransactionWithNonce`, which stamps
+// the nonce at a HARD-CODED offset of 48 (TRANSACTION_NONCE_OFFSET,
+// accounts.ts). That offset is only correct because the header is
+// txType(4) + timestamp(8) + txGroupId(4) + senderPublicKey(32) = 48, exactly
+// like CHAT's. A field growing or reordering ahead of the nonce would stamp it
+// into the middle of the public key and sign for the WRONG sender, silently.
+// Pinning the entire vector — not just a prefix — makes any such drift fail
+// here. The expected hex was generated from the serializer and hand-decoded
+// against Core's MessageTransactionTransformer field order.
 {
   const senderPublicKey = '9NKfLpKvKJGVvLKQ6bYFa6VbTL3cRAHT2eGmSKA3Vd1B'
   const timestamp = 1_756_000_000_000
@@ -719,24 +896,35 @@ assert.equal(
     senderPublicKey,
     timestamp,
   })
+  const hex = Buffer.from(bytes).toString('hex')
+  const expected =
+    '00000011' + // int32 type = 17 (MESSAGE)
+    '00000198d9c19800' + // int64 timestamp = 1756000000000
+    '00000000' + // int32 txGroupId = 0
+    '7c53cae36ac7914adb83cd28636ba4c68a366eccd4748eca79b8bc6f2378573a' + // 32-byte sender public key
+    '00000000' + // int32 nonce placeholder — offset 48, stamped by signTransactionWithNonce
+    '01' + // has-recipient flag
+    '17041280b7e4e4d5106a7e03f562a3ea852c1e1f5e73ab1f5e' + // 25-byte recipient AT address (version 0x17 = 23)
+    '0000000000000000' + // int64 amount = 0 (no payment)
+    '00000011' + // int32 data length = 17
+    '534d504c2066617563657420636c61696d' + // "SMPL faucet claim"
+    '00' + // isEncrypted = 0
+    '01' + // isText = 1
+    '0000000000000000' // int64 fee = 0
+  assert.equal(hex, expected, 'the complete unsigned MESSAGE bytes must match the golden vector')
+  assert.equal(bytes.length, 117)
+  // The nonce offset the whole layout hinges on, asserted directly as well.
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
-  assert.equal(view.getInt32(0, false), 17, 'MESSAGE transaction type')
-  assert.equal(Number(view.getBigInt64(4, false)), timestamp)
-  assert.equal(view.getInt32(12, false), 0, 'MESSAGE is always sent outside a transaction group')
-  assert.equal(
-    view.getUint32(48, false),
-    0,
-    'the nonce placeholder must sit at offset 48, where signTransactionWithNonce stamps it',
-  )
-  assert.equal(bytes[52], 1, 'has-recipient flag follows the nonce')
-  assert.equal(bytes[53], 23, 'the recipient begins at 53 and carries AT address version 23')
+  assert.equal(view.getUint32(48, false), 0, 'nonce placeholder sits at offset 48')
 }
 
-// The prompt shows short messages whole and marks truncation of long ones.
-assert.equal(homeV2AtMessagePreview('SMPL faucet claim'), 'SMPL faucet claim')
-const longPreview = homeV2AtMessagePreview('x'.repeat(HOME_V2_AT_MESSAGE_PREVIEW_MAX_CHARS + 50))
-assert.equal(longPreview.length, HOME_V2_AT_MESSAGE_PREVIEW_MAX_CHARS + 1)
-assert.ok(longPreview.endsWith('…'), 'a truncated preview must say so')
+// FIX 2 — the message is disclosed in full, so the byte-length helper the
+// renderer echoes must count UTF-8 bytes (not code units): a multi-byte
+// character is more than one byte, and the 4,000-byte transaction limit is a
+// BYTE limit.
+assert.equal(homeV2AtMessageByteLength('SMPL faucet claim'), 17)
+assert.equal(homeV2AtMessageByteLength('héllo'), 6, 'é is two UTF-8 bytes')
+assert.equal(homeV2AtMessageByteLength('😀'), 4)
 
 // ---------------------------------------------------------------------------
 // 10. Source pins

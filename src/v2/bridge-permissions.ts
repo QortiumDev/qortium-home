@@ -49,6 +49,11 @@ export type PermissionCapability =
 export interface PermissionDetail {
   readonly label: string
   readonly value: string
+  // 'scroll' renders the value in a bounded, scrollable, wrapping block rather
+  // than a single line. Used for the SEND_MESSAGE prompt's Message row, which
+  // discloses the entire signed text (up to 4,000 bytes) — the user must see
+  // all of it, but it must not push the approve/deny buttons off-screen.
+  readonly variant?: 'scroll'
 }
 
 export interface PermissionPrompt {

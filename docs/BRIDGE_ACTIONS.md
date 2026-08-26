@@ -226,16 +226,19 @@ that prompts. `PREVIEW_QDN_PUBLISH_SOURCE` is deliberately NOT part of it — se
   what the foreign chain requires.
 - **`GET_MARKET_PRICES`** (both globals, no prompt) — the **only** bridge
   action that reaches outside the Qortal/Qortium node network. It calls
-  `api.coingecko.com`, built entirely from allowlisted coin ids and currency
-  codes, and sends no user data whatsoever: no address, account id, public key,
-  app identity, node URL, cookie, or custom header beyond `Accept`. A shared
-  TTL cache sits in front of it, which is a privacy control as much as a
-  rate-limit one — outbound calls are bounded by the TTL regardless of how
-  often apps ask, so no app can use it to beacon the user's IP on its own
-  schedule. On a fetch failure a cached answer comes back with `stale: true`
-  and a `staleReason`; with nothing cached the error propagates rather than
-  inventing a price. Route-independent: it answers even when every node route
-  is disabled.
+  `api.coingecko.com`. To make the outbound request impossible to use as a
+  fingerprint or beacon channel, Home fetches ONE fixed superset — every
+  supported coin, every supported currency, with 24h change — and projects each
+  app's requested subset locally from that one response. The outbound URL is a
+  compile-time constant: no app input reaches it, so an app cannot vary coins,
+  currencies, or the change flag to change what leaves the machine, and no user
+  data is sent (no address, account id, public key, app identity, node URL,
+  cookie, or custom header beyond `Accept`). At most one request goes out per
+  cache interval, globally — a minimum interval governs *attempts*, so even a
+  run of failures cannot exceed it — and concurrent callers share one in-flight
+  fetch. On a fetch failure a cached answer comes back with `stale: true` and a
+  `staleReason`; with nothing cached the error propagates rather than inventing
+  a price. Route-independent: it answers even when every node route is disabled.
 - **`GET_ACCOUNT_RATING` and `GET_RESOURCE_RATING`** (both globals, no prompt).
   Each combines two anonymous public reads — the subject's summary and this
   rater's own rating. A 404 on either half means "not rated yet" and becomes
@@ -614,10 +617,21 @@ staying correct.
 The approval is single-request, pinned on the action itself rather than only on
 the prompt payload, so no future change to how the prompt is assembled can let
 one approval cover a second signed message. The prompt shows the AT address and
-the message text in full (truncated with an ellipsis past 1,000 characters),
-and offers no session or durable scope. Sends are rate-limited alongside the
-chat sends, and the app/tab/account/route context is rechecked after the
-proof-of-work and before signing.
+the **entire** message text — never truncated, because what the user approves
+must be exactly what is signed — in a bounded scrollable panel with the message
+size in bytes beside it, and offers no session or durable scope. Sends are
+rate-limited alongside the chat sends, and the app/tab/account/route context is
+rechecked after the proof-of-work and before signing.
+
+**Forbidden fields are refused in both request shapes.** An app may send its
+fields at the top level or inside a `payload` object, and Home reads the
+recipient and message payload-first; so the forbidden-field, flag, and fee
+checks all look in both places. A payment, encryption request, transaction
+group, or non-zero fee hidden inside `payload` is refused exactly as it is at
+the top level — it cannot slip through to be silently dropped. A field present
+in both places with two different values is refused as ambiguous, and a flag
+whose value is not a real boolean (for example `isEncrypted: "true"`) is
+refused rather than coerced.
 
 When the broadcast outcome is unknown — signed, possibly landed — the result is
 the same non-retryable unknown-outcome shape the chat sends use, and it is
@@ -627,8 +641,12 @@ next one for that app and account regardless of which AT it addressed. That is
 deliberate — the shipped caller is a once-per-account faucet claim, where a
 duplicate is exactly what reconciliation exists to prevent.
 
-Signing is desktop-only; the Android host answers `SEND_MESSAGE` with
-"not available in Home v2 read-only mode".
+Signing is desktop-only. The Android host cannot sign, so it does not advertise
+`SEND_MESSAGE` in `SHOW_ACTIONS` at all, and rejects a direct call with a clear
+"only available in Qortium Home desktop" error rather than the generic
+read-only message. `UNLOCK_SELECTED_ACCOUNT`, by contrast, is a Home-account
+operation with no chain semantics and IS available on Android, on both
+`qdnRequest` and `qortalRequest`, which is what the legacy wallet needs.
 
 ## `FETCH_NODE_API` limits
 

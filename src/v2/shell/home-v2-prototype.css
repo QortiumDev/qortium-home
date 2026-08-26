@@ -2678,6 +2678,23 @@ body,
   overflow-wrap: anywhere;
 }
 
+/* The SEND_MESSAGE prompt's Message row: the ENTIRE signed text, disclosed in
+   full but bounded so a long message scrolls inside its own box instead of
+   pushing the approve/deny buttons out of reach. Monospace + pre-wrap so any
+   whitespace the contract will see is shown verbatim. */
+.home-v2-permission-details dd.home-v2-permission-detail-scroll {
+  max-height: 168px;
+  overflow: auto;
+  white-space: pre-wrap;
+  font-family: var(--v2-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 8px 10px;
+  border: 1px solid var(--v2-line);
+  border-radius: 8px;
+  background: rgb(127 127 127 / 8%);
+}
+
 .home-v2-permission-dialog__actions {
   display: flex;
   flex-wrap: wrap;
