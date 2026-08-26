@@ -342,6 +342,72 @@ async function testAndroidIframeSrcIncludesInitialHashWhileAuthorizationDropsIt(
   container.remove()
 }
 
+// R4-4: WEBSITE and GAME resources open as app tabs, so the render URL must
+// be built from the PARSED service. resolveRender used to hardcode
+// `/render/APP/`, which asked Core for an APP resource that does not exist
+// whenever the tab was a website or a game — the tab loaded nothing.
+async function testRenderUrlUsesTheParsedServiceNotAHardcodedApp(): Promise<void> {
+  const chat = fixtureApp(fixtureIds.chatApp)
+  // Same name and identifier as the Chat fixture, different SERVICE. The
+  // descriptor carries it too, because product-model's open-app now checks
+  // the service alongside the name, identifier and source network.
+  const website = {
+    ...chat,
+    resourceIdentity: { ...chat.resourceIdentity, service: 'WEBSITE' as const },
+  }
+  const websiteLocation = buildAppResourceLocation(
+    website.sourceNetwork,
+    website.resourceIdentity,
+  )
+
+  let state = createProductState()
+  state = reduceProductState(state, {
+    type: 'open-app',
+    app: website,
+    context: {
+      ...fixtureTabContext(chat, fixtureIds.chatTab),
+      resourceLocation: websiteLocation,
+    },
+    tabId: fixtureIds.chatTab,
+  })
+  state = reduceProductState(state, { type: 'activate-tab', tabId: fixtureIds.chatTab })
+
+  const container = document.createElement('div')
+  document.body.appendChild(container)
+  const root = createRoot(container)
+  const priorAuthorizeCallCount = recordedAuthorizeCalls.length
+
+  act(() => {
+    root.render(
+      React.createElement(AppTabStage, {
+        productState: state,
+        snapshot: homeV2Fixture,
+        requestApp: async () => null,
+        onOpenAddress: async () => undefined,
+      }),
+    )
+  })
+  await act(async () => {
+    await flushAsync()
+  })
+
+  const newCalls = recordedAuthorizeCalls.slice(priorAuthorizeCallCount)
+  assert.equal(newCalls.length, 1, 'exactly one native authorize() call should have been made')
+  const registeredUrl = String(newCalls[0]?.authorizedDocumentUrl)
+  assert.match(
+    new URL(registeredUrl).pathname,
+    /^\/render\/WEBSITE\/fixture-chat/,
+    'a WEBSITE tab must render through /render/WEBSITE/, not /render/APP/',
+  )
+  const src = String(container.querySelector('iframe.home-v2-app-frame')?.getAttribute('src'))
+  assert.match(new URL(src).pathname, /^\/render\/WEBSITE\/fixture-chat/)
+
+  await act(async () => {
+    root.unmount()
+  })
+  container.remove()
+}
+
 async function testDesktopTelemetryRefreshDoesNotHideOrReshowTheApp(): Promise<void> {
   const { withAActive } = openTwoTabProductState()
   const container = document.createElement('div')
@@ -522,6 +588,7 @@ async function main(): Promise<void> {
   testAndroidAppStageKeyChangesExactlyOnTabIdentityChange()
   await testTabSwitchNeverRendersAStaleIframeUnderTheNewTabsContext()
   await testAndroidIframeSrcIncludesInitialHashWhileAuthorizationDropsIt()
+  await testRenderUrlUsesTheParsedServiceNotAHardcodedApp()
   await testDesktopTelemetryRefreshDoesNotHideOrReshowTheApp()
   console.log('AppTabStage.test.tsx passed')
 }

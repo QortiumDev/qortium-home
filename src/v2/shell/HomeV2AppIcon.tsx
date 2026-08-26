@@ -6,6 +6,14 @@ import { rejectHomeV2Image, useHomeV2Image } from './useHomeV2Image'
 const APP_ICON_MAX_BYTES = 256 * 1024
 const APP_ICON_LOADING_MS = 6_000
 
+// R4-4: this used to fall back to a hand-rolled WEBSITE parser, because
+// parseAppResourceLocation rejected every service but APP and a pinned or
+// bookmarked qdn://WEBSITE/... address would otherwise have shown no icon.
+// The shared parser now accepts the whole browser-archive set and carries the
+// real service through, so that duplicate — which validated names and
+// identifiers with its own, subtly different rules and never handled GAME —
+// is gone. Callers (HomeV2PinnedApps, HomeV2BookmarkToolbar) only ever used
+// it as a nullable target, so nothing depended on the fallback's shape.
 export function getHomeV2AppIconTarget(displayUrl: string) {
   try {
     const parsed = parseAppResourceLocation(displayUrl)
@@ -13,37 +21,10 @@ export function getHomeV2AppIconTarget(displayUrl: string) {
       identifier: parsed.identity.identifier,
       name: parsed.identity.name,
       network: parsed.sourceNetwork,
-      service: 'APP' as const,
+      service: parsed.identity.service,
     } as const
   } catch {
-    try {
-      const parsed = new URL(displayUrl.trim())
-      const scheme = parsed.protocol.toLowerCase()
-      const service = decodeURIComponent(parsed.hostname).toUpperCase()
-      const segments = parsed.pathname.split('/').filter(Boolean)
-      const name = decodeURIComponent(segments[0] ?? '').trim()
-      const rawIdentifier = decodeURIComponent(segments[1] ?? 'default').trim()
-      if (
-        (scheme !== 'qdn:' && scheme !== 'qortal:') ||
-        service !== 'WEBSITE' ||
-        !name ||
-        name.length > 128 ||
-        !rawIdentifier ||
-        rawIdentifier.length > 128 ||
-        /[\u0000-\u001f\u007f]/.test(name) ||
-        /[\u0000-\u001f\u007f]/.test(rawIdentifier)
-      ) {
-        return null
-      }
-      return {
-        identifier: rawIdentifier === 'default' ? null : rawIdentifier,
-        name,
-        network: scheme === 'qdn:' ? 'qortium' as const : 'qortal' as const,
-        service: 'WEBSITE' as const,
-      }
-    } catch {
-      return null
-    }
+    return null
   }
 }
 

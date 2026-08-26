@@ -62,7 +62,13 @@ function resolveRender(productState: ProductState, snapshot: HomeV2Snapshot) {
     identity: resource.identity,
     nodeApiUrl: node.nodeApiUrl,
     tab,
-    url: `${node.nodeApiUrl}/render/APP/${encodeURIComponent(name)}${suffix}${resource.routePath}${queryString ? `?${queryString}` : ''}${resource.hash}`,
+    // The service comes from the parsed address (APP, WEBSITE or GAME — see
+    // APP_RESOURCE_SERVICES), never a hardcoded 'APP': a WEBSITE or GAME tab
+    // sent down the APP render path would ask Core for a resource that does
+    // not exist, and the tab loaded nothing. The value is a closed
+    // uppercase-ASCII set, so it needs no encoding of its own.
+    // (home-v2-foundation.test.tsx pins that this literal never comes back.)
+    url: `${node.nodeApiUrl}/render/${resource.identity.service}/${encodeURIComponent(name)}${suffix}${resource.routePath}${queryString ? `?${queryString}` : ''}${resource.hash}`,
   }
 }
 
@@ -441,6 +447,10 @@ function AndroidAppStage(props: AppTabStageProps) {
       // reusing resolved.identity rather than re-parsing resourceLocation.
       const launchIdentity = resolved
         ? {
+            // The launch SERVICE is pinned too (R4-4): a WEBSITE tab must not
+            // be able to drift onto the APP render path for the same name,
+            // which is a separately published resource with its own owner.
+            service: resolved.identity.service,
             name: resolved.identity.name,
             identifier: resolveLaunchIdentifier(resolved.identity.identifier, resolved.url),
           }

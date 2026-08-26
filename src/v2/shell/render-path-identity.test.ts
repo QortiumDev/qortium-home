@@ -22,7 +22,7 @@ const ORIGIN = 'https://n0123456789abcdef.qdn.androidplatform.net'
 // blocked, fail closed (Sol re-review finding 1 — this client cannot verify
 // a segment is a REAL published identifier the way Core can).
 {
-  const launch = { name: 'Chat', identifier: null }
+  const launch = { service: 'APP', name: 'Chat', identifier: null }
   assert.equal(isSameRenderResourcePath(`${ORIGIN}/render/APP/Chat`, launch), true)
   assert.equal(isSameRenderResourcePath(`${ORIGIN}/render/APP/Chat?x=1#h`, launch), true)
   assert.equal(
@@ -46,14 +46,18 @@ const ORIGIN = 'https://n0123456789abcdef.qdn.androidplatform.net'
     'a literal (case-insensitive) "default" first segment is never an identifier',
   )
   assert.equal(isSameRenderResourcePath(`${ORIGIN}/render/APP/OtherApp`, launch), false, 'different app name is blocked')
-  assert.equal(isSameRenderResourcePath(`${ORIGIN}/render/WEBSITE/Chat`, launch), false, 'non-APP service is blocked')
+  assert.equal(
+    isSameRenderResourcePath(`${ORIGIN}/render/WEBSITE/Chat`, launch),
+    false,
+    'a different service is blocked, even for the same name (R4-4: pinned against the LAUNCH service, not the APP literal)',
+  )
   assert.equal(isSameRenderResourcePath(`${ORIGIN}/not-render/APP/Chat`, launch), false)
   assert.equal(isSameRenderResourcePath('not a url', launch), false)
 }
 
 // Explicit (pinned) launch identifier must be preserved exactly.
 {
-  const launch = { name: 'MyApp', identifier: 'docs' }
+  const launch = { service: 'APP', name: 'MyApp', identifier: 'docs' }
   assert.equal(isSameRenderResourcePath(`${ORIGIN}/render/APP/MyApp/docs`, launch), true)
   assert.equal(isSameRenderResourcePath(`${ORIGIN}/render/APP/MyApp/docs/page-2`, launch), true)
   assert.equal(isSameRenderResourcePath(`${ORIGIN}/render/APP/MyApp/otherIdentifier`, launch), false)
@@ -138,6 +142,35 @@ for (const vector of candidateIdentifierVectors) {
     vector.expected,
     vector.description,
   )
+}
+
+// R4-4: WEBSITE and GAME tabs bind to their OWN service. Before this, every
+// in-view navigation of a WEBSITE tab was read as drift from the launch
+// resource and its bridge requests were refused.
+{
+  const website = { service: 'WEBSITE', name: 'Blog', identifier: null }
+  assert.equal(isSameRenderResourcePath(`${ORIGIN}/render/WEBSITE/Blog`, website), true)
+  assert.equal(isSameRenderResourcePath(`${ORIGIN}/render/WEBSITE/Blog?x=1#h`, website), true)
+  assert.equal(
+    isSameRenderResourcePath(`${ORIGIN}/render/APP/Blog`, website),
+    false,
+    'a WEBSITE tab must not bind to the same-named APP: two different published resources',
+  )
+  assert.equal(
+    isSameRenderResourcePath(`${ORIGIN}/render/WEBSITE/Blog/evil`, website),
+    false,
+    'the path-segment identifier spoof stays blocked for WEBSITE',
+  )
+
+  const game = { service: 'GAME', name: 'Arena', identifier: 'Arena' }
+  assert.equal(isSameRenderResourcePath(`${ORIGIN}/render/GAME/Arena/Arena`, game), true)
+  assert.equal(isSameRenderResourcePath(`${ORIGIN}/render/GAME/Arena/Arena/level-2`, game), true)
+  assert.equal(
+    isSameRenderResourcePath(`${ORIGIN}/render/GAME/Arena/Arena?identifier=evil`, game),
+    false,
+    'the ?identifier= override stays blocked for GAME',
+  )
+  assert.equal(isSameRenderResourcePath(`${ORIGIN}/render/WEBSITE/Arena/Arena`, game), false)
 }
 
 console.log('render-path-identity.test.ts passed')

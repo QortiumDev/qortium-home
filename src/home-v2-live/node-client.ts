@@ -54,6 +54,11 @@ import {
   getHomeV2AppIconContentType,
   HOME_V2_APP_ICON_MAX_BYTES,
 } from '../../electron/home-v2-app-icon'
+import {
+  QDN_BROWSER_ARCHIVE_SERVICES,
+  isQdnBrowserArchiveService,
+  type QdnBrowserArchiveService,
+} from '../../electron/qdn-browser-archive-services'
 import { getAvatarDescriptorFromHeaders } from '../../electron/qdn-group-avatar-input'
 import {
   createHomeV2BridgeError,
@@ -80,6 +85,9 @@ export interface HomeV2NodeClient {
   listAppResources(
     network: NetworkId,
     name: string,
+    // R4-4: the browser-archive service the address named. Optional so
+    // existing callers and stubs keep the historical APP-only behaviour.
+    service?: QdnBrowserArchiveService,
   ): Promise<readonly HomeV2AppResourceCandidate[]>
   readAvatar(
     network: NetworkId,
@@ -121,6 +129,9 @@ export interface HomeV2CoreOnChainUpdateStatus {
 export interface HomeV2AppResourceCandidate {
   readonly identifier: string | null
   readonly name: string
+  // R4-4: the candidate's REAL service. The caller rebuilds the qdn:// address
+  // from this, so a WEBSITE or GAME match can never be relabelled as an APP.
+  readonly service: QdnBrowserArchiveService
 }
 
 export type HomeV2AppBridgeProtocol = 'qdnRequest' | 'qortalRequest'
@@ -215,9 +226,16 @@ function normalizedAppResourceName(value: string) {
   return name
 }
 
-export function buildHomeV2AppResourceSearchPath(value: string) {
+// Renderer twin of electron/home-v2-app-resource-discovery.ts — the two MUST
+// change in lockstep or desktop and Android resolve the same app name
+// differently. See that module for why the search stays scoped to ONE service
+// instead of fanning out across the browser-archive set.
+export function buildHomeV2AppResourceSearchPath(
+  value: string,
+  service: QdnBrowserArchiveService = 'APP',
+) {
   const query = new URLSearchParams({
-    service: 'APP',
+    service,
     name: normalizedAppResourceName(value),
     exactmatchnames: 'true',
     mode: 'ALL',
@@ -244,7 +262,11 @@ export function parseHomeV2AppResourceCandidates(
     if (
       !candidateName ||
       candidateName.toLowerCase() !== name.toLowerCase() ||
-      service !== 'APP'
+      !service ||
+      // R4-4: accept the whole browser-archive set, not just APP. A
+      // service-scoped search should only ever return one of them, but the
+      // node is not trusted to honour that, so the filter is kept.
+      !isQdnBrowserArchiveService(service)
     ) {
       continue
     }
@@ -253,13 +275,25 @@ export function parseHomeV2AppResourceCandidates(
       !rawIdentifier || rawIdentifier.toLowerCase() === 'default'
         ? null
         : rawIdentifier
-    const key = identifier?.toLowerCase() ?? 'default'
+    // The dedupe key includes the service: an APP and a WEBSITE published
+    // under the same name with the same identifier are two DIFFERENT
+    // resources, and keying on the identifier alone silently dropped one.
+    const key = `${service}:${identifier?.toLowerCase() ?? 'default'}`
     if (!candidates.has(key)) {
-      candidates.set(key, { identifier, name: candidateName })
+      candidates.set(key, { identifier, name: candidateName, service })
     }
   }
+  // Deterministic order: browser-archive service order first (APP, then
+  // WEBSITE, then GAME — so an exact-name APP match always wins a tie), then
+  // the default identifier, then identifiers alphabetically.
   return Object.freeze(
     [...candidates.values()].sort((left, right) => {
+      if (left.service !== right.service) {
+        return (
+          QDN_BROWSER_ARCHIVE_SERVICES.indexOf(left.service) -
+          QDN_BROWSER_ARCHIVE_SERVICES.indexOf(right.service)
+        )
+      }
       if (left.identifier === null) return -1
       if (right.identifier === null) return 1
       return left.identifier.localeCompare(right.identifier)
@@ -1371,10 +1405,10 @@ export function createPortableNodeClient(
         await dependencies.getPreference(WALLET_STORE_KEY),
       )
     },
-    async listAppResources(network, name) {
+    async listAppResources(network, name, service) {
       const { nodeApiUrl } = await getReadableNode(network)
       const response = await dependencies.requestJson(
-        `${nodeApiUrl}${buildHomeV2AppResourceSearchPath(name)}`,
+        `${nodeApiUrl}${buildHomeV2AppResourceSearchPath(name, service)}`,
       )
       if (!response.ok) {
         throw new Error(`App resource search returned HTTP ${response.status}.`)

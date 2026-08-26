@@ -1,4 +1,5 @@
 import { buildHomeV2ResourcePath } from './home-v2-app-actions.js'
+import { isQdnBrowserArchiveService } from './qdn-browser-archive-services.js'
 
 export const HOME_V2_APP_ICON_MAX_BYTES = 256 * 1024
 
@@ -27,8 +28,12 @@ export function normalizeHomeV2AppIconReadRequest(value: unknown) {
       : requiredSegment(value.identifier, 'App resource identifier')
   const service =
     typeof value.service === 'string' ? value.service.trim().toUpperCase() : ''
-  if (service !== 'APP' && service !== 'WEBSITE') {
-    throw new Error('App icon resources must use APP or WEBSITE.')
+  // R4-4: GAME joined APP and WEBSITE here. Home opens all three as app tabs,
+  // and every tab surface (pin, bookmark, tab strip) asks this path for the
+  // resource's favicon.ico, so an allowlist narrower than the browser-archive
+  // set made GAME tabs throw instead of falling back to their monogram.
+  if (!isQdnBrowserArchiveService(service)) {
+    throw new Error('App icon resources must use APP, WEBSITE, or GAME.')
   }
   return { identifier, name, service }
 }

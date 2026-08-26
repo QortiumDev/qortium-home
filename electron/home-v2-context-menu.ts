@@ -3,6 +3,7 @@ import {
   type HomeV2AppBridgeProtocol,
   type HomeV2AppNetwork,
 } from './home-v2-app-actions.js'
+import { isQdnBrowserArchiveService } from './qdn-browser-archive-services.js'
 
 export const HOME_V2_CONTEXT_MENU_VERSION = 1 as const
 
@@ -237,7 +238,11 @@ export function getHomeV2ContextMenuItems(
     ])
   }
   return Object.freeze([
-    ...(target.service === 'APP'
+    // R4-4: 'Open in new tab' is offered for every QDN browser-archive
+    // service (APP, WEBSITE, GAME), because Home now opens all three as app
+    // tabs. Every OTHER service still gets copy-only: those are viewer
+    // content, and a later PR gives them their own viewer tab surface.
+    ...(isQdnBrowserArchiveService(target.service)
       ? [Object.freeze({ action: 'resource.open-new-tab' as const, group: 'open' as const, label: 'Open in new tab' })]
       : []),
     Object.freeze({ action: 'resource.copy-address', group: 'copy', label: 'Copy resource link' }),
@@ -256,7 +261,7 @@ export function getHomeV2ContextMenuOperation(
     if (action === 'group.copy-name' && target.name) return { kind: 'copy', value: target.name }
   } else {
     if (action === 'resource.copy-address') return { kind: 'copy', value: target.address }
-    if (action === 'resource.open-new-tab' && target.service === 'APP') {
+    if (action === 'resource.open-new-tab' && isQdnBrowserArchiveService(target.service)) {
       return { address: target.address, kind: 'open-new-tab' }
     }
   }

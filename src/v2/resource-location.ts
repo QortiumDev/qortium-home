@@ -1,10 +1,23 @@
 import type {
   AppResourceIdentity,
   AppResourceLocation,
+  AppResourceService,
   NetworkId,
 } from './contracts'
 
 export type AppResourceScheme = 'qdn' | 'qortal'
+
+// The QDN services Home opens as app tabs, in the canonical order used for
+// deterministic candidate ordering (see parseHomeV2AppResourceCandidates).
+// Runtime mirror of QDN_BROWSER_ARCHIVE_SERVICES in
+// electron/qdn-browser-archive-services.ts; see the AppResourceService doc
+// comment in ./contracts for why this is mirrored and not imported, and
+// home-v2-foundation.test.tsx for the drift pin that holds the two together.
+export const APP_RESOURCE_SERVICES = ['APP', 'WEBSITE', 'GAME'] as const
+
+export function isAppResourceService(value: string): value is AppResourceService {
+  return (APP_RESOURCE_SERVICES as readonly string[]).includes(value)
+}
 
 export interface ParsedAppResourceLocation {
   readonly identity: AppResourceIdentity
@@ -78,7 +91,10 @@ export function parseAppResourceLocation(
   }
   const scheme = rawScheme as AppResourceScheme
   const service = decodeSegment(parsed.hostname).toUpperCase()
-  if (service !== 'APP') {
+  // Only the browser-archive services are accepted here. Viewer-only services
+  // (IMAGE, VIDEO, DOCUMENT, ...) are deliberately still rejected with the
+  // SAME message — they are not app-tab content and get their own surface.
+  if (!isAppResourceService(service)) {
     throw new Error('The resource address does not identify an app.')
   }
   const rawSegments = parsed.pathname.split('/').filter(Boolean)
@@ -93,8 +109,11 @@ export function parseAppResourceLocation(
   const routeSegments = rawSegments.map((segment) =>
     validateSegment(decodeSegment(segment).trim(), 'App resource path segment'),
   )
+  // The REAL parsed service is carried through, not re-stamped as 'APP' —
+  // everything downstream (the /render/<service>/ URL, the rebuilt qdn://
+  // address, the icon fetch, the navigation-drift check) reads it from here.
   const identity = {
-    service: 'APP',
+    service,
     name,
     identifier: identifier === 'default' ? null : identifier,
   } as const

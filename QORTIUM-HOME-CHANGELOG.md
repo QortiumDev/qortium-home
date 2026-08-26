@@ -34,6 +34,35 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-26 - feat(home-v2): websites and games published on QDN open as tabs again, like apps
+
+QDN holds three kinds of published resource that are really just a bundle of
+web pages: apps, websites and games. Home has always been able to display all
+three, but the part of Home 2 that reads an address only ever accepted apps. A
+`qdn://WEBSITE/...` or `qdn://GAME/...` link was refused with "The resource
+address does not identify an app", even when Home already had everything it
+needed to show it — so a published website you had pinned or bookmarked simply
+would not open, right-clicking one never offered "Open in a new tab", and its
+icon never loaded.
+
+All three now open as ordinary tabs, and Home carries the real kind of resource
+all the way through instead of quietly relabelling everything as an app. That
+matters in more places than it first sounds: it is what asks your node for the
+right page, what fills in the address when you type just a name and let Home
+find the rest, what the tab's icon is fetched for, and what a permission you
+grant is remembered against. A website and an app that happen to share a name
+are two different things published by two different people, so Home keeps them
+apart everywhere — a tab opened for one can never drift onto the other, and a
+permission granted to one is never inherited by the other.
+
+Everything that was not one of those three kinds is unchanged and still refused
+here, with the same wording as before. Photos, videos and documents are not web
+pages, and they get their own viewing surface rather than being forced into an
+app tab. One thing does not travel with this change yet: opening a website or a
+game as a desktop widget still declines, because widgets record what they are
+showing in a form that predates any of this, and changing it deserves its own
+pass rather than being smuggled in here.
+
 ### 2026-08-26 - feat(home-v2): apps can check balances on Qortium again, open a page in the tab they are already in, and use the older viewer actions
 
 Five things apps used to be able to do in the older Home stopped working when
