@@ -214,6 +214,105 @@ function directNameState(
       }
 }
 
+/**
+ * Identity lookups are chatty and repetitive: one app icon can cost up to four
+ * round-trips (app-icon-loader.ts), a grid of icons published under the same
+ * name repeats every one of them, and the account chrome re-resolves the same
+ * address on every switch, unlock and relaunch. The answers barely move, so a
+ * small memo in front of the two public entry points removes almost all of it.
+ *
+ * Two things it deliberately does NOT do:
+ *  - cache a transient failure for more than a moment. An unavailable node is a
+ *    fact about right now, not about the identity; sticking it for five minutes
+ *    would keep a monogram on screen long after the node came back.
+ *  - key on the `read` it was given. Callers pass a closure over the current
+ *    node client, so a node-settings change can serve up to IDENTITY_CACHE_MS of
+ *    answers from the previous node. Call `clearIdentityLookupCache()` from any
+ *    future node-switch path.
+ */
+const IDENTITY_CACHE_MS = 5 * 60_000
+const IDENTITY_TRANSIENT_CACHE_MS = 15_000
+const MAX_IDENTITY_CACHE_ENTRIES = 100
+
+type IdentityCacheEntry<T> = {
+  expiresAt: number
+  inflight: Promise<T> | null
+  value: T | null
+}
+
+const identityCache = new Map<string, IdentityCacheEntry<unknown>>()
+let clock = () => Date.now()
+
+function touch(key: string, entry: IdentityCacheEntry<unknown>) {
+  // Re-inserting moves the key to the end, so plain iteration order is LRU.
+  identityCache.delete(key)
+  identityCache.set(key, entry)
+}
+
+function pruneIdentityCache() {
+  if (identityCache.size <= MAX_IDENTITY_CACHE_ENTRIES) return
+  for (const [key, entry] of identityCache) {
+    if (entry.inflight) continue
+    identityCache.delete(key)
+    if (identityCache.size <= MAX_IDENTITY_CACHE_ENTRIES) return
+  }
+}
+
+async function cachedLookup<T>(
+  key: string,
+  isTransient: (value: T) => boolean,
+  resolve: () => Promise<T>,
+): Promise<T> {
+  const existing = identityCache.get(key) as IdentityCacheEntry<T> | undefined
+  if (existing) {
+    // In-flight dedupe: concurrent identical lookups share one resolution, so
+    // ten icons for the same publisher make one set of node calls, not ten.
+    if (existing.inflight) {
+      touch(key, existing as IdentityCacheEntry<unknown>)
+      return existing.inflight
+    }
+    if (existing.value !== null && clock() < existing.expiresAt) {
+      touch(key, existing as IdentityCacheEntry<unknown>)
+      return existing.value
+    }
+  }
+  const entry: IdentityCacheEntry<T> = { expiresAt: 0, inflight: null, value: null }
+  // resolve() starts here, but the entry is registered below in the same tick,
+  // so any concurrent caller finds `inflight` before the first await resumes.
+  const inflight = resolve().then(
+    (value) => {
+      if (identityCache.get(key) === (entry as IdentityCacheEntry<unknown>)) {
+        entry.value = value
+        entry.expiresAt =
+          clock() + (isTransient(value) ? IDENTITY_TRANSIENT_CACHE_MS : IDENTITY_CACHE_MS)
+        entry.inflight = null
+      }
+      return value
+    },
+    (error: unknown) => {
+      // A thrown lookup is never cached at all.
+      if (identityCache.get(key) === (entry as IdentityCacheEntry<unknown>)) {
+        identityCache.delete(key)
+      }
+      throw error
+    },
+  )
+  entry.inflight = inflight
+  touch(key, entry as IdentityCacheEntry<unknown>)
+  pruneIdentityCache()
+  return inflight
+}
+
+/** Drop every memoized identity answer (node switched, or a test boundary). */
+export function clearIdentityLookupCache() {
+  identityCache.clear()
+}
+
+/** Test seam for the memo's TTLs; pass null to restore the real clock. */
+export function setIdentityLookupClockForTests(next: (() => number) | null) {
+  clock = next ?? (() => Date.now())
+}
+
 export function classifyIdentityLookupInput(input: string): IdentityLookupInputKind {
   return ADDRESS_PATTERN.test(input.trim()) ? 'address' : 'name'
 }
@@ -231,6 +330,18 @@ export async function resolveIdentityOnNetwork(
   read: IdentityRead,
 ): Promise<NetworkIdentityLookup> {
   const query = normalizeIdentityLookupInput(input)
+  return cachedLookup(
+    `${network}:${query}`,
+    (value: NetworkIdentityLookup) => value.state === 'unavailable',
+    () => resolveIdentityOnNetworkUncached(query, network, read),
+  )
+}
+
+async function resolveIdentityOnNetworkUncached(
+  query: string,
+  network: NetworkId,
+  read: IdentityRead,
+): Promise<NetworkIdentityLookup> {
   if (classifyIdentityLookupInput(query) === 'address') {
     return resolveAddressOnNetwork(read, network, query, false)
   }
@@ -256,6 +367,19 @@ export async function resolveDualIdentity(
   read: IdentityRead,
 ): Promise<DualIdentityLookupResult> {
   const query = normalizeIdentityLookupInput(input)
+  return cachedLookup(
+    `dual:${query}`,
+    // `partial` carries one unavailable network, so it is transient too.
+    (value: DualIdentityLookupResult) =>
+      value.state === 'unavailable' || value.state === 'partial',
+    () => resolveDualIdentityUncached(query, read),
+  )
+}
+
+async function resolveDualIdentityUncached(
+  query: string,
+  read: IdentityRead,
+): Promise<DualIdentityLookupResult> {
   const inputKind = classifyIdentityLookupInput(query)
   if (inputKind === 'address') {
     const [qortal, qortium] = await Promise.all([

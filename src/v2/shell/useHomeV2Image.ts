@@ -21,7 +21,19 @@ const MAX_PENDING_ATTEMPTS = 12
 const MAX_TRANSIENT_ATTEMPTS = 3
 const MAX_CACHE_ENTRIES = 200
 const MISSING_CACHE_MS = 5 * 60_000
-const READY_CACHE_MS = 5 * 60_000
+/**
+ * QDN content is immutable per publish, so a decoded image only goes stale when
+ * its owner publishes a new revision — not on a wall clock. Home 1.x kept ready
+ * images for the whole process lifetime and invalidated them content-addressed,
+ * by `latestSignature` (src/useQdnImageResource.ts). This hook has no revision
+ * feed yet, so it keeps a long TTL as the revalidation trigger and leans on
+ * MAX_CACHE_ENTRIES (LRU) as the real bound. A short TTL bought nothing: the
+ * refetch still runs when the entry expires, it only decided how often.
+ *
+ * The persistent disk cache lands in a later pass and moves invalidation onto
+ * `latestSignature`, at which point this TTL can go away entirely.
+ */
+const READY_CACHE_MS = 24 * 60 * 60_000
 const UNAVAILABLE_CACHE_MS = 30_000
 /** Types that carry no information, so the bytes decide. */
 const UNTYPED_CONTENT_TYPES = new Set(['application/octet-stream', 'binary/octet-stream'])
@@ -277,10 +289,19 @@ export function useHomeV2Image({
     readonly cacheKey: string | null
     readonly snapshot: ImageSnapshot
   }>(() => {
-    // A remount (a dashboard tab coming back) should paint a still-cached image
+    // A remount (a dashboard tab coming back) should paint a cached image
     // straight away instead of flashing the fallback until the effect runs.
+    //
+    // Stale-while-revalidate: seed from ANY ready snapshot, expired or not. The
+    // bytes are decoded and in hand, so painting them costs nothing and is very
+    // likely still correct; expiry only decides whether to revalidate, and the
+    // effect below subscribes either way — an expired entry still refetches and
+    // repaints when the fresh bytes land. Gating the seed on expiry meant every
+    // remount past the TTL painted a monogram for a frame with the right image
+    // sitting in the cache. Missing/unavailable keep their expiry semantics:
+    // those are absences, and re-asking is the whole point of their TTL.
     const cached = cacheKey ? entries.get(cacheKey) : undefined
-    return cached && cached.snapshot.status === 'ready' && Date.now() < cached.expiresAt
+    return cached && cached.snapshot.status === 'ready'
       ? { cacheKey, snapshot: cached.snapshot }
       : { cacheKey: null, snapshot: FALLBACK }
   })

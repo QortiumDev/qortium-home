@@ -6,7 +6,7 @@ import {
   VISIBLE_AVATAR_LOADING_MS,
   VisibleIdentityAvatar,
 } from './VisibleIdentityAvatar'
-import { clearHomeV2ImageCacheForTests } from './useHomeV2Image'
+import { clearHomeV2ImageCacheForTests, useHomeV2Image } from './useHomeV2Image'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -261,6 +261,85 @@ try {
     URL.createObjectURL = originalCreate
     act(() => octetRoot.unmount())
     octetContainer.remove()
+  }
+}
+
+// Stale-while-revalidate. A decoded image that is past its ready TTL is still
+// the right picture, so a remount must paint it on its FIRST render and refresh
+// behind it. Gating the seed on expiry meant every remount past the TTL showed a
+// monogram for a frame with the bytes already in hand.
+{
+  const staleContainer = document.createElement('div')
+  document.body.appendChild(staleContainer)
+  const originalDateNow = Date.now
+  const originalStaleCreate = URL.createObjectURL
+  const originalStaleRevoke = URL.revokeObjectURL
+  let clockOffset = 0
+  Date.now = () => originalDateNow() + clockOffset
+  URL.createObjectURL = (() => 'blob:stale-while-revalidate') as typeof URL.createObjectURL
+  URL.revokeObjectURL = (() => undefined) as typeof URL.revokeObjectURL
+
+  const observed: string[] = []
+  let staleLoaderCalls = 0
+  const staleLoad = async () => {
+    staleLoaderCalls += 1
+    return {
+      body: 'iVBORw0KGgo=',
+      contentLength: 8,
+      contentType: 'image/png',
+      status: 'ready' as const,
+    }
+  }
+  function StaleProbe() {
+    // Reading the hook directly is the only way to see the frame the fallback
+    // used to occupy: by the time the effects flush, the subscription has
+    // already delivered the cached snapshot.
+    const snapshot = useHomeV2Image({
+      cacheKey: 'qortal:stale-while-revalidate',
+      load: staleLoad,
+      loadingMs: 1,
+      maxBytes: 64_000,
+    })
+    observed.push(snapshot.status)
+    return null
+  }
+
+  try {
+    clearHomeV2ImageCacheForTests()
+    const firstRoot = createRoot(staleContainer)
+    await act(async () => {
+      firstRoot.render(<StaleProbe />)
+      await Promise.resolve()
+    })
+    assert.equal(staleLoaderCalls, 1)
+    assert.equal(observed.at(-1), 'ready', 'the first mount must resolve to a ready image')
+    await act(async () => firstRoot.unmount())
+
+    // A day later: past even the raised ready TTL.
+    clockOffset = 25 * 60 * 60_000
+    observed.length = 0
+    const secondRoot = createRoot(staleContainer)
+    await act(async () => {
+      secondRoot.render(<StaleProbe />)
+      await Promise.resolve()
+    })
+    assert.equal(
+      observed[0],
+      'ready',
+      'a remount past the ready TTL must paint the cached image on its first render',
+    )
+    assert.ok(
+      observed.every((status) => status === 'ready'),
+      'a stale-but-ready image must never drop to a placeholder while it revalidates',
+    )
+    assert.equal(staleLoaderCalls, 2, 'a stale entry must still be revalidated')
+    await act(async () => secondRoot.unmount())
+  } finally {
+    clearHomeV2ImageCacheForTests()
+    staleContainer.remove()
+    Date.now = originalDateNow
+    URL.createObjectURL = originalStaleCreate
+    URL.revokeObjectURL = originalStaleRevoke
   }
 }
 

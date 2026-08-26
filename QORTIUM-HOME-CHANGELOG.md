@@ -34,6 +34,36 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-26 - fix(home-v2): app icons and avatars stop flashing back to placeholder letters
+
+Pictures Home had already fetched kept being thrown away and asked for again.
+Opening a dashboard tab, switching accounts, or coming back to a window you had
+left alone for a few minutes would show a plain lettered placeholder where an
+app icon or an account picture belonged, and then a moment later the real
+picture would appear — even though nothing had changed and the picture was
+sitting in memory the whole time.
+
+Home now paints the picture it already has straight away, and quietly checks for
+a newer version behind it. If a newer version exists, it swaps in without a
+flash; if the check fails because a node is busy, the picture you were already
+looking at simply stays. Pictures are also kept for far longer than before,
+which is safe because published content never changes underneath a given
+version — a new picture is a new publication, and Home notices it on the next
+check.
+
+Two related bits of repeated work are gone as well. Looking up who owns a name
+or an address is now remembered for a few minutes and shared between everything
+asking at once, so a screen full of icons published by the same person makes one
+set of lookups instead of one set per icon. And re-selecting the account you are
+already using — after unlocking it, relaunching Home, or refreshing the account
+list — no longer blanks the name and picture in the toolbar while it re-checks
+something it already knows. Genuinely switching to a different account still
+clears them, because showing the previous account's name next to the new one
+would be worse than showing nothing.
+
+A node being briefly unreachable is deliberately never remembered for long, so
+a node that comes back is visible almost immediately rather than after a wait.
+
 ### 2026-08-26 - feat(home-v2): websites and games published on QDN open as tabs again, like apps
 
 QDN holds three kinds of published resource that are really just a bundle of
