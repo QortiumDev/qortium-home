@@ -1,9 +1,12 @@
 import {
   BrowserWindow,
+  Menu,
   WebContentsView,
+  clipboard,
   ipcMain,
   session,
   type IpcMainInvokeEvent,
+  type MenuItemConstructorOptions,
   type Rectangle,
   type WebContents,
 } from 'electron';
@@ -32,9 +35,16 @@ import { canReuseQdnViewEntry, getQdnViewPartition } from './qdn-view-security-c
 import { isWidgetTabId } from './widget-registry.js';
 import { resetZoom, zoomIn, zoomOut } from './zoom.js';
 import {
+  HOME_V2_CONTEXT_MENU_VERSION,
+  getHomeV2ContextMenuItems,
+  getHomeV2ContextMenuOperation,
   getHomeV2ContextMenuPopupPoint,
+  normalizeHomeV2ContextMenuRequest,
   type HomeV2ContextMenuAnchor,
+  type HomeV2ContextMenuOperation,
+  type HomeV2ContextMenuTarget,
 } from './home-v2-context-menu.js';
+import type { HomeV2AppBridgeProtocol } from './home-v2-app-actions.js';
 
 const TAB_ID_PATTERN = /^[a-z0-9._:-]{1,80}$/i;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -928,6 +938,51 @@ export function getQdnViewContextMenuPopupHost(
   return null
 }
 
+// One open Home context menu per app view, keyed by the view's webContents id.
+// Shared by the native right-click link menu (this module) and the app-invoked
+// SHOW_CONTEXT_MENU (home-v2-app-bridge) so the two mutually exclude and both
+// honour runtime invalidation (account change / lock / navigation), which
+// closes any open menu bound to the affected host+tab+network.
+export interface QdnViewContextMenuRegistration {
+  readonly hostWebContentsId: number
+  readonly menu: Menu
+  readonly tabId: string
+  // null for a network-agnostic menu (a plain selection copy); such a menu is
+  // closed by non-network-scoped invalidations but not by a network switch.
+  readonly targetNetwork: HomeV2ContextMenuTarget['network'] | null
+  readonly window: BrowserWindow
+}
+
+const qdnViewContextMenus = new Map<number, QdnViewContextMenuRegistration>()
+
+// Reserve the single menu slot for a view. Returns false when that view already
+// has an open menu, so the caller can decline to stack a second popup.
+export function reserveQdnViewContextMenu(
+  webContentsId: number,
+  registration: QdnViewContextMenuRegistration,
+): boolean {
+  if (qdnViewContextMenus.has(webContentsId)) return false
+  qdnViewContextMenus.set(webContentsId, registration)
+  return true
+}
+
+// Release the slot ONLY if it still holds the menu we registered — a later menu
+// on the same view must not be dropped by an earlier menu's dismissal callback.
+export function releaseQdnViewContextMenu(webContentsId: number, menu: Menu): void {
+  const current = qdnViewContextMenus.get(webContentsId)
+  if (current && current.menu === menu) qdnViewContextMenus.delete(webContentsId)
+}
+
+// Close every open menu the predicate selects (used by runtime invalidation).
+export function closeQdnViewContextMenus(
+  predicate: (registration: QdnViewContextMenuRegistration) => boolean,
+): void {
+  for (const registration of qdnViewContextMenus.values()) {
+    if (!predicate(registration)) continue
+    registration.menu.closePopup(registration.window)
+  }
+}
+
 // The "Open as widget" toolbar action is issued by the Home shell rather than
 // by the app, so the request names a tab instead of arriving on the app view's
 // own webContents. The host window is verified by the caller, so a shell can
@@ -997,6 +1052,169 @@ function sendTextSizeCommand(entry: QdnViewEntry, command: 'text-size-decrease' 
   }
 }
 
+// The native right-click menu on links inside an app view. This is a
+// main-process listener: the only inputs it acts on are `params.linkURL` and
+// `params.selectionText`, both supplied by Chromium on the trusted
+// `context-menu` event — never anything a page script could inject into the
+// menu template. The link scheme selects qdn vs qortal exactly as an app
+// choosing the qdnRequest/qortalRequest facade would; a resource address names
+// no account, so the link can never bind a tab to an account. Non-qdn/qortal
+// links (javascript:, data:, file:, http:, about:blank) resolve to no resource
+// target and get no open/copy action. The item list and the executed operation
+// both come from the shared Home-owned backend, so this menu is identical to
+// the app-invoked `SHOW_CONTEXT_MENU`, and the open action reuses the exact
+// `home-v2-app:open-address` path so the new tab inherits the selected Home
+// account and the resolved resource's own identity through `openAddress`.
+function protocolForQdnLinkScheme(linkURL: string): HomeV2AppBridgeProtocol | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(linkURL);
+  } catch {
+    return null;
+  }
+  const scheme = parsed.protocol.slice(0, -1).toLowerCase();
+  if (scheme === 'qdn') return 'qdnRequest';
+  if (scheme === 'qortal') return 'qortalRequest';
+  return null;
+}
+
+function resolveQdnLinkResourceTarget(linkURL: string): HomeV2ContextMenuTarget | null {
+  const protocol = protocolForQdnLinkScheme(linkURL);
+  if (!protocol) return null;
+  try {
+    return normalizeHomeV2ContextMenuRequest(protocol, {
+      target: { address: linkURL, kind: 'resource' },
+      version: HOME_V2_CONTEXT_MENU_VERSION,
+    }).target;
+  } catch {
+    // A malformed or disallowed qdn/qortal link (bad path, credentials, dot
+    // segments, over-length service) yields no actionable resource menu.
+    return null;
+  }
+}
+
+// A QDN page can select an arbitrarily large text node and then a user copy of
+// it flows to the synchronous main-process clipboard.writeText. Resource links
+// are already bounded (≤2,000 chars, sanitizeOptionalResourceUrl); bound the
+// selection the same way. Above this, the Copy item is omitted rather than
+// silently truncated, so the user is never handed a partial copy.
+const MAX_QDN_SELECTION_COPY_LENGTH = 100_000;
+
+function showQdnViewLinkContextMenu(entry: QdnViewEntry, params: Electron.ContextMenuParams) {
+  // Widget views and the shell renderer never get this menu; guarded by the
+  // caller, re-checked here so the helper is safe on its own.
+  if (entry.window.isDestroyed() || isWidgetTabId(entry.tabId)) return;
+
+  const linkURL = typeof params.linkURL === 'string' ? params.linkURL : '';
+  const selectionText = typeof params.selectionText === 'string' ? params.selectionText.trim() : '';
+
+  const template: MenuItemConstructorOptions[] = [];
+  let selectedOperation: HomeV2ContextMenuOperation | null = null;
+
+  const resourceTarget = linkURL ? resolveQdnLinkResourceTarget(linkURL) : null;
+  if (resourceTarget) {
+    let previousGroup: 'copy' | 'open' | null = null;
+    for (const item of getHomeV2ContextMenuItems(resourceTarget)) {
+      if (previousGroup && previousGroup !== item.group) template.push({ type: 'separator' });
+      const { action } = item;
+      template.push({
+        label: item.label,
+        click: () => {
+          selectedOperation = getHomeV2ContextMenuOperation(resourceTarget, action);
+        },
+      });
+      previousGroup = item.group;
+    }
+  } else if (selectionText && selectionText.length <= MAX_QDN_SELECTION_COPY_LENGTH) {
+    // No actionable link: offer to copy the current selection. The value is the
+    // real selection from the trusted event, not page-injected menu content,
+    // and is bounded so a giant selected node cannot force a huge synchronous
+    // main-process clipboard write.
+    template.push({
+      label: 'Copy',
+      click: () => {
+        selectedOperation = { kind: 'copy', value: selectionText };
+      },
+    });
+  }
+
+  // Plain page content with neither a qdn/qortal link nor a selection shows no
+  // menu at all — the app keeps its normal (menu-less) behavior.
+  if (template.length === 0) return;
+
+  const anchor: HomeV2ContextMenuAnchor | null =
+    Number.isFinite(params.x) && Number.isFinite(params.y) ? { x: params.x, y: params.y } : null;
+  const popupHost = getQdnViewContextMenuPopupHost(entry.view.webContents, anchor);
+  if (!popupHost) return;
+
+  // The resource identity the menu was built against; if the view navigates
+  // between the right-click and the user's selection, the operation is dropped.
+  const capturedResourceUrl = entry.resourceUrl;
+  const menu = Menu.buildFromTemplate(template);
+  // Share the single menu slot with the app-invoked SHOW_CONTEXT_MENU so the
+  // two never stack, and so runtime invalidation (account change / lock) can
+  // close this native menu too. Decline to open if a menu is already up.
+  const viewWebContentsId = entry.view.webContents.id;
+  if (
+    !reserveQdnViewContextMenu(viewWebContentsId, {
+      hostWebContentsId: entry.window.webContents.id,
+      menu,
+      tabId: entry.tabId,
+      targetNetwork: resourceTarget?.network ?? null,
+      window: popupHost.window,
+    })
+  ) {
+    return;
+  }
+  try {
+    menu.popup({
+    callback: () => {
+      // Clear the slot on every dismissal — but only if this menu still owns
+      // it, so a later menu on the same view is never dropped by our callback.
+      releaseQdnViewContextMenu(viewWebContentsId, menu);
+      const operation = selectedOperation;
+      if (!operation) return;
+      // Re-check the live view after native dismissal and before acting.
+      if (
+        entry.window.isDestroyed() ||
+        entry.view.webContents.isDestroyed() ||
+        !entry.window.isFocused() ||
+        !entry.view.getVisible() ||
+        entry.resourceUrl !== capturedResourceUrl
+      ) {
+        return;
+      }
+      if (operation.kind === 'copy') {
+        clipboard.writeText(operation.value);
+      } else {
+        // Reuse the exact app-invoked open path: the host window's openAddress
+        // binds the new tab to the originating tab's account and the resolved
+        // resource's own identity, and applies WEBSITE/GAME + viewer-alias
+        // routing. The address is the validated one, never the raw linkURL.
+        entry.window.webContents.send('home-v2-app:open-address', {
+          address: operation.address,
+          // Both come from this trusted view context, never the link/page.
+          // The renderer binds the new tab to the ORIGINATING tab's account
+          // (looked up by these two), not whatever account is globally
+          // selected now; `capturedResourceUrl` is the tab's own
+          // resourceLocation, so it is the compare half of that lookup.
+          sourceTabId: entry.tabId,
+          sourceResourceLocation: capturedResourceUrl,
+        });
+      }
+    },
+    window: popupHost.window,
+    x: popupHost.x,
+    y: popupHost.y,
+    });
+  } catch (error) {
+    // popup() threw before it could show: release the slot we reserved so the
+    // view is not left unable to open any future menu.
+    releaseQdnViewContextMenu(viewWebContentsId, menu);
+    throw error;
+  }
+}
+
 function applyViewGuards(entry: QdnViewEntry) {
   const sendNavigationSnapshot = () => {
     if (entry.window.isDestroyed() || !entry.resourceUrl) {
@@ -1050,6 +1268,20 @@ function applyViewGuards(entry: QdnViewEntry) {
   };
 
   entry.view.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  // Native right-click "Open in new tab"/"Copy" for links inside the app view.
+  // Only bound on app tabs (widgets and the shell renderer are excluded), and
+  // acts solely on the trusted main-process event params. See
+  // showQdnViewLinkContextMenu for the full security posture.
+  if (!isWidgetTabId(entry.tabId)) {
+    entry.view.webContents.on('context-menu', (_event, params) => {
+      if (entry.window.isDestroyed()) return;
+      try {
+        showQdnViewLinkContextMenu(entry, params);
+      } catch (error) {
+        console.warn('Unable to show the QDN app link context menu.', error);
+      }
+    });
+  }
   entry.view.webContents.on('before-input-event', (event, input) => {
     if (input.type !== 'keyDown' || entry.window.isDestroyed()) {
       return;

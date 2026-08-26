@@ -34,6 +34,19 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-26 - feat(home-v2): right-click a link inside an app to open or copy it
+
+Links inside a QDN app can now be right-clicked to open the resource they point
+at in a new tab, or to copy the link — and, where there is no link, to copy the
+selected text. Home only ever acts on the link and selection the browser hands
+it for the spot you clicked, never anything the page made up, and it only offers
+to open qdn:// and qortal:// resources — never web, file, or script addresses. A
+new tab opened this way runs under the same account as the app you opened it
+from, not whichever account happens to be selected in the toolbar, so an app can
+only ever open a resource under its own account. Copying a very large selection
+is declined rather than quietly shortened, and this right-click menu shares one
+slot with the menu apps can request, so the two can never both appear at once.
+
 ### 2026-08-26 - fix(home-v2): check the right network when an app unlocks your account on the phone
 
 Unlocking your account can be asked for by two kinds of app request, and Home

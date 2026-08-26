@@ -529,6 +529,18 @@ function vaultCatalogue(vault: HomeV2VaultState): HomeV2AccountCatalogue {
   }
 }
 
+// How a newly opened tab's account is chosen. A `string` binds it to that
+// Home account; `null`/`undefined` keep the historical "use the current global
+// account" behaviour; `HOME_V2_BIND_NO_ACCOUNT` binds it to an EXPLICIT
+// no-account state so an originating tab that had no account cannot be widened
+// to whatever account is globally selected now.
+const HOME_V2_BIND_NO_ACCOUNT = { bind: 'none' } as const
+type HomeV2AccountBinding =
+  | string
+  | typeof HOME_V2_BIND_NO_ACCOUNT
+  | null
+  | undefined
+
 function accountIdentity(
   account: HomeV2AccountCatalogueEntry,
   result?: DualIdentityLookupResult,
@@ -1733,13 +1745,23 @@ export function HomeV2LiveApp() {
     (
       app: AppDescriptor,
       requestedLocation?: AppTabContext['resourceLocation'],
-      requestedAccountId?: string | null,
+      requestedAccountId?: HomeV2AccountBinding,
     ) => {
       setShellNotice(null)
-      const requestedAccount = requestedAccountId
-        ? accountCatalogueRef.current.accounts.find((account) => account.id === requestedAccountId)
+      // Three-way: a concrete account id, an explicit no-account binding, or
+      // (null/undefined) the current global account.
+      const bindNoAccount =
+        typeof requestedAccountId === 'object' &&
+        requestedAccountId !== null &&
+        requestedAccountId.bind === 'none'
+      const requestedAccountId_ =
+        typeof requestedAccountId === 'string' ? requestedAccountId : undefined
+      const requestedAccount = requestedAccountId_
+        ? accountCatalogueRef.current.accounts.find(
+            (account) => account.id === requestedAccountId_,
+          )
         : null
-      if (requestedAccountId && !requestedAccount) {
+      if (requestedAccountId_ && !requestedAccount) {
         throw new Error('The saved Home account is no longer available.')
       }
       tabSequence.current += 1
@@ -1754,7 +1776,9 @@ export function HomeV2LiveApp() {
           appId: app.id,
           identityId: requestedAccount
             ? brand<IdentityId>(`home-v2:identity:${requestedAccount.id}`)
-            : snapshot.identity.id,
+            : bindNoAccount
+              ? brand<IdentityId>('home-v2:identity:none')
+              : snapshot.identity.id,
           resourceLocation:
             requestedLocation ??
             buildAppResourceLocation(app.sourceNetwork, app.resourceIdentity),
@@ -1762,7 +1786,9 @@ export function HomeV2LiveApp() {
           tabId,
           walletRef: requestedAccount
             ? brand<WalletRef>(`home-v2:wallet:${requestedAccount.walletId}`)
-            : snapshot.identity.selectedWallet,
+            : bindNoAccount
+              ? null
+              : snapshot.identity.selectedWallet,
         },
       })
     },
@@ -1914,7 +1940,7 @@ export function HomeV2LiveApp() {
   const openAddress = useCallback(
     async (
       address: string,
-      requestedAccountId?: string | null,
+      requestedAccountId?: HomeV2AccountBinding,
       // Set only by OPEN_CURRENT_TAB: replace this existing app tab's content
       // instead of opening another tab. Both fields come from the trusted
       // host's own view context for the requesting app — never from the
@@ -2132,14 +2158,73 @@ export function HomeV2LiveApp() {
     [androidContextMenu, openAddress, selectedAccountId],
   )
 
+  // Resolve the ORIGINATING app tab of an OPEN_NEW_TAB / native right-click
+  // "open in new tab" request to the account it is bound to, so the new tab
+  // inherits that binding rather than whatever account is globally selected
+  // now. Both `sourceTabId` and `sourceResourceLocation` come from the trusted
+  // host view context, never the app; we look them up in live product state
+  // and require the tab to still hold the same resource — the view's
+  // resourceUrl is set to the tab's own resourceLocation (AppTabStage.tsx), so
+  // the two compare exactly. Fail closed ('reject') if the originating tab is
+  // gone or has moved on: never silently fall back to the global account.
+  const resolveSourceTabAccountBinding = useCallback(
+    (
+      sourceTabId: unknown,
+      sourceResourceLocation: unknown,
+    ): HomeV2AccountBinding | 'reject' => {
+      if (typeof sourceTabId !== 'string' || !sourceTabId) return 'reject'
+      const tab = productStateRef.current.tabs.find(
+        (candidate) => candidate.id === sourceTabId,
+      )
+      if (!tab) return 'reject'
+      // Require the trusted origin resource and EXACT agreement, unconditionally:
+      // a request that omits it — or whose tab has since moved to another
+      // resource — must fail closed, never fall back to binding by tabId alone.
+      // Every real sender supplies it (the view's resourceUrl is the tab's own
+      // resourceLocation), so this never false-rejects a legitimate open.
+      if (
+        typeof sourceResourceLocation !== 'string' ||
+        !sourceResourceLocation ||
+        tab.context.resourceLocation !== sourceResourceLocation
+      ) {
+        return 'reject'
+      }
+      const prefix = 'home-v2:identity:'
+      const identityId = tab.context.identityId as string
+      const accountId = identityId.startsWith(prefix)
+        ? identityId.slice(prefix.length)
+        : ''
+      // Only a still-present real Home account is inherited as an account
+      // binding. `none`, an app-principal identity (`app:…`), or a stale id all
+      // collapse to an EXPLICIT no-account binding — never the global account.
+      const isRealAccount =
+        !!accountId &&
+        accountCatalogueRef.current.accounts.some((account) => account.id === accountId)
+      return isRealAccount ? accountId : HOME_V2_BIND_NO_ACCOUNT
+    },
+    [],
+  )
+
   useEffect(() => {
     const bridge = window.homeV2Apps
     if (!bridge) return
     return bridge.onOpenAddress((value) => {
       if (!isRecord(value) || typeof value.address !== 'string') return
-      void openAddress(value.address)
+      // Bind the new tab to the ORIGINATING tab's account (from the trusted
+      // sourceTabId/sourceResourceLocation), not the current global account —
+      // this covers both the app-invoked OPEN_NEW_TAB and the native
+      // right-click "open in new tab", which share this channel.
+      const binding = resolveSourceTabAccountBinding(
+        value.sourceTabId,
+        value.sourceResourceLocation,
+      )
+      if (binding === 'reject') {
+        setShellNotice('The tab that opened this link is no longer available.')
+        return
+      }
+      void openAddress(value.address, binding)
     })
-  }, [openAddress])
+  }, [openAddress, resolveSourceTabAccountBinding])
 
   useEffect(() => {
     const bridge = window.homeV2Apps

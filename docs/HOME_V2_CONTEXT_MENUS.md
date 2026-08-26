@@ -1,5 +1,16 @@
 # Home 2 context menus
 
+## Changelog
+
+### 2026-08-26 - feat(home-v2): native right-click link menu inside app views
+
+Added a Home-owned native right-click menu for links inside a running QDN app
+view (desktop). Right-clicking an `<a href="qdn://…">`/`qortal://…` link now
+offers "Open in new tab" (for browser-archive services) and "Copy resource
+link"; a text selection with no actionable link offers "Copy". This reuses the
+same validation, item set, and open path as the app-invoked
+`SHOW_CONTEXT_MENU`. See "Native link context menu" below.
+
 Home 2 exposes a versioned, Home-owned context menu through both app bridge
 facades. Apps provide a structured subject and an optional pointer anchor;
 Home validates the subject, chooses the fixed actions and labels, renders the
@@ -83,3 +94,45 @@ performing the selected operation.
 Normal click behavior remains app-owned. Apps should invoke the bridge from
 their `contextmenu`, keyboard Context Menu/Shift+F10, or touch long-press
 handling and use a small local fallback when `SHOW_ACTIONS` omits the action.
+
+## Native link context menu
+
+Everything above is the app-invoked menu: an app deliberately calls
+`SHOW_CONTEXT_MENU` about a subject it names. Separately, Home also provides a
+native right-click menu for **links the user right-clicks inside the app view**,
+so a plain `<a href="qdn://…">` behaves like a link in a browser without the app
+having to wire anything.
+
+This lives in the desktop view host (`electron/qdn-views.ts`,
+`showQdnViewLinkContextMenu`), attached to each app view's `webContents`
+`context-menu` event. It is deliberately narrow:
+
+- **Only app tabs.** It is never bound to widget views or the Home shell
+  renderer — only to full QDN app tabs.
+- **Acts only on trusted event params.** The menu is built from
+  `params.linkURL` and `params.selectionText`, both supplied by Chromium on the
+  main-process `context-menu` event. Nothing a page script can inject into a
+  menu is ever read. Menu labels and the executed operation come from the same
+  Home-owned backend (`getHomeV2ContextMenuItems` /
+  `getHomeV2ContextMenuOperation`) as the app-invoked menu, so the two menus
+  stay identical.
+- **Only qdn/qortal links are actionable.** The link scheme selects the network
+  (qdn → Qortium, qortal → Qortal), exactly as an app choosing the
+  `qdnRequest`/`qortalRequest` facade would. The link is validated through
+  `normalizeHomeV2ContextMenuRequest`; a `javascript:`, `data:`, `file:`,
+  `http(s):` or `about:blank` link resolves to no resource target and gets no
+  open or copy action.
+- **No account binding from the link.** A resource address names a
+  service/name/path only — never an account. "Open in new tab" reuses the exact
+  `home-v2-app:open-address` path the app-invoked "Open in new tab" uses, so the
+  new tab inherits the selected Home account and the resolved resource's own
+  identity through `openAddress`, and picks up WEBSITE/GAME + viewer-alias
+  routing. An app cannot open a tab bound to an account it does not own.
+- **Menu contents.** For a browser-archive service (`APP`, `WEBSITE`, `GAME`):
+  "Open in new tab" and "Copy resource link". For any other service: "Copy
+  resource link" only. For a non-link right-click with a text selection: "Copy".
+  For plain content with neither, no menu appears.
+- **Live re-check.** After native dismissal and before performing the selected
+  operation, Home re-checks that the view is still the same live, focused,
+  visible app tab on the same resource; a navigation between the right-click and
+  the selection drops the action.
