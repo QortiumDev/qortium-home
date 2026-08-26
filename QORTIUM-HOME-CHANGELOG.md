@@ -34,6 +34,21 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-26 - docs(home-v2): name every not-yet-carried app action instead of a blanket "everything else is deferred"
+
+The bridge compatibility ledger used to close with one sweeping sentence:
+anything not in the implemented table is deferred. That sentence had drifted —
+it still named families that have since shipped, and it repeated itself from an
+old bad merge. It is replaced by an explicit, verified list: of the 149 app
+actions the old Home offered, 93 are implemented in Home 2.1, 17 are superseded
+(their job is done by the equivalent action on the qortalRequest side, each
+named with its replacement), and 39 remain genuinely deferred, listed action by
+action in twelve families with a note on what nearby work IS already available.
+App authors can now look a specific action up instead of guessing which side of
+a blanket statement it fell on. No app-visible behavior changes; this is a
+documentation-only correction, and the counts were checked against the code's
+own advertised catalogue.
+
 ### 2026-08-26 - fix(home-v2): keep app icons and avatars on disk so they survive a restart
 
 Home already stopped throwing away pictures it had fetched during a session.
