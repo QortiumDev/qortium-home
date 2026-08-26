@@ -111,6 +111,7 @@ import {
   isHomeV2RatingReadAction,
   normalizeHomeV2Address,
   canonicalHomeV2VoteSelection,
+  homeV2PollOperationLabel,
   isHomeV2PollWriteAction,
   normalizeHomeV2CreatePollRequest,
   normalizeHomeV2ListItems,
@@ -6384,12 +6385,6 @@ async function handleHomeV2ListAction(
 // after approval: if its name or options changed while the prompt was open,
 // the vote no longer means what the user approved and is refused.
 // ---------------------------------------------------------------------------
-
-function homeV2PollOperationLabel(action: HomeV2PollWriteAction, removal = false) {
-  if (action === 'CREATE_POLL') return 'Create a poll'
-  if (action === 'UPDATE_POLL') return 'Update a poll'
-  return removal ? 'Remove a poll vote' : 'Vote on a poll'
-}
 
 function homeV2PollBuilderUnavailable(error: unknown) {
   return isHomeV2AppRecord(error) && (error.status === 403 || error.status === 404)

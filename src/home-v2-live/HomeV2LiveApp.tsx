@@ -204,7 +204,7 @@ import {
   isHomeV2PermissionlessAction,
 } from '../../electron/home-v2-session-grants'
 import { getHomeV2BridgeStateDetails } from '../../electron/home-v2-app-runtime'
-import { canonicalHomeV2AppAction, isHomeV2ListWriteAction, isHomeV2PollWriteAction } from '../../electron/home-v2-app-actions'
+import { canonicalHomeV2AppAction, homeV2PollOperationLabel, isHomeV2ListWriteAction, isHomeV2PollWriteAction } from '../../electron/home-v2-app-actions'
 import {
   homeV2NotificationChainLabel,
   homeV2NotificationSourceKey,
@@ -3007,7 +3007,13 @@ export function HomeV2LiveApp() {
             value.protocol !== 'qdnRequest' ||
             value.targetNetwork !== 'qortium' ||
             !isPollDetailRows(value.action, value.pollDetails) ||
-            typeof value.writeOperationLabel !== 'string' ||
+            // The caption is pinned to the action, so a forged payload cannot
+            // caption a vote as a harmless-sounding lookup or create. The two
+            // legitimate vote captions are the vote and removal labels.
+            (value.action === 'VOTE_ON_POLL'
+              ? value.writeOperationLabel !== homeV2PollOperationLabel('VOTE_ON_POLL', false) &&
+                value.writeOperationLabel !== homeV2PollOperationLabel('VOTE_ON_POLL', true)
+              : value.writeOperationLabel !== homeV2PollOperationLabel(value.action)) ||
             typeof value.writeRouteLabel !== 'string' ||
             value.writeTargetChainLabel !== 'Qortium' ||
             value.writeSingleRequestOnly !== true))

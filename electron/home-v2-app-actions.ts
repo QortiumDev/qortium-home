@@ -1468,6 +1468,15 @@ export const HOME_V2_POLL_WRITE_ACTIONS = Object.freeze([
 
 export type HomeV2PollWriteAction = (typeof HOME_V2_POLL_WRITE_ACTIONS)[number]
 
+// Shared between the bridge (which stamps it on the prompt) and the shell
+// (which refuses a prompt whose label does not match its action — a forged
+// payload must not be able to caption a vote as a harmless-sounding create).
+export function homeV2PollOperationLabel(action: HomeV2PollWriteAction, removal = false) {
+  if (action === 'CREATE_POLL') return 'Create a poll'
+  if (action === 'UPDATE_POLL') return 'Update a poll'
+  return removal ? 'Remove a poll vote' : 'Vote on a poll'
+}
+
 const POLL_WRITE_ACTIONS = new Set<string>(HOME_V2_POLL_WRITE_ACTIONS)
 
 export function isHomeV2PollWriteAction(action: string): action is HomeV2PollWriteAction {
@@ -1509,16 +1518,20 @@ function normalizeHomeV2PollDescription(value: unknown, label: string) {
   return description
 }
 
-function optionalHomeV2PollTime(value: unknown, key: string) {
+function optionalHomeV2PollTime(value: unknown, key: string, requireFuture: boolean) {
   if (value === undefined || value === null || value === '') return undefined
   const parsed = typeof value === 'number' ? value : typeof value === 'string' && value.trim() ? Number(value) : NaN
   if (!Number.isSafeInteger(parsed) || parsed < 0) {
     throw new Error(`${key} must be a non-negative safe integer.`)
   }
-  // Core requires each poll time to be later than the transaction timestamp,
-  // which is taken moments after this runs; a time already in the past can
-  // only ever fail there, so it is refused here with the actual rule.
-  if (parsed <= Date.now()) {
+  // Core requires a CREATE time (and an UPDATE's new end) to be later than
+  // the transaction timestamp, which is taken moments after this runs; a
+  // past value can only ever fail there, so it is refused here with the
+  // actual rule. An UPDATE's newStartTime is exempt: Core rejects a past
+  // start only when the start CHANGED, and a legitimate metadata update on a
+  // started, vote-free poll must resend its existing (past) start unchanged
+  // (security review 2026-08-26, round 2).
+  if (requireFuture && parsed <= Date.now()) {
     throw new Error(`${key} must be in the future (epoch milliseconds).`)
   }
   return parsed
@@ -1588,8 +1601,8 @@ export function normalizeHomeV2CreatePollRequest(
   if (!/^Q[1-9A-HJ-NP-Za-km-z]{20,}$/.test(ownerRaw)) {
     throw new Error('Owner address must be a Qortium address.')
   }
-  const startTime = optionalHomeV2PollTime(request.startTime ?? request.pollStartTime, 'startTime')
-  const endTime = optionalHomeV2PollTime(request.endTime ?? request.pollEndTime, 'endTime')
+  const startTime = optionalHomeV2PollTime(request.startTime ?? request.pollStartTime, 'startTime', true)
+  const endTime = optionalHomeV2PollTime(request.endTime ?? request.pollEndTime, 'endTime', true)
   if (startTime !== undefined && endTime !== undefined && startTime >= endTime) {
     throw new Error('startTime must be earlier than endTime.')
   }
@@ -1648,8 +1661,8 @@ export function normalizeHomeV2UpdatePollRequest(request: Record<string, unknown
   const newDescription = normalizeHomeV2PollDescription(request.newDescription ?? request.description, 'New description')
   const newPollOptions = getPollOptionsInput(request.newPollOptions ?? request.pollOptions ?? request.options)
     .map((option) => option.optionName)
-  const newStartTime = optionalHomeV2PollTime(request.newStartTime ?? request.startTime, 'newStartTime')
-  const newEndTime = optionalHomeV2PollTime(request.newEndTime ?? request.endTime, 'newEndTime')
+  const newStartTime = optionalHomeV2PollTime(request.newStartTime ?? request.startTime, 'newStartTime', false)
+  const newEndTime = optionalHomeV2PollTime(request.newEndTime ?? request.endTime, 'newEndTime', true)
   if (newStartTime !== undefined && newEndTime !== undefined && newStartTime >= newEndTime) {
     throw new Error('newStartTime must be earlier than newEndTime.')
   }

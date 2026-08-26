@@ -1173,6 +1173,15 @@ for (const bad of [
   assert.deepEqual([...updated.newPollOptions], ['A', 'B', 'C'])
 }
 assert.throws(() => normalizeHomeV2UpdatePollRequest({ pollId: 7, pollOptions: ['A', 'B'] })) // missing new name
+// An UPDATE may resend the poll's existing PAST start unchanged — Core
+// rejects a past start only when it CHANGED, and a metadata update on a
+// started, vote-free poll has to carry the old start (round-2 fix). A past
+// new END stays refused: Core always requires it in the future.
+assert.equal(
+  normalizeHomeV2UpdatePollRequest({ newPollName: 'Kept', newStartTime: 1_000, pollId: 7, pollOptions: ['A', 'B'] }).newStartTime,
+  1_000,
+)
+assert.throws(() => normalizeHomeV2UpdatePollRequest({ newEndTime: 1_000, newPollName: 'Kept', pollId: 7, pollOptions: ['A', 'B'] }))
 
 // The poll-target selector rejects unrecognized shapes and preserves option
 // ORDER — the order is part of what a one-based vote means.

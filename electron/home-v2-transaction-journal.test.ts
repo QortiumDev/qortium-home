@@ -67,6 +67,18 @@ assert.deepEqual(
   homeV2TransactionTargetFromRequest('SEND_DIRECT_CHAT_MESSAGE', { otherAddress: 'QdemoAddr111111111111111111111111', pollId: 7 }),
   { kind: 'direct', otherAddress: 'QdemoAddr111111111111111111111111' },
 )
+// ...nor a stray txGroupId, which the direct-chat normalizer ignores — the
+// round-2 residual: with the old field-priority derivation, txGroupId:1 then
+// txGroupId:2 gave the same direct message two different group conflict keys.
+assert.deepEqual(
+  homeV2TransactionTargetFromRequest('SEND_DIRECT_CHAT_MESSAGE', { otherAddress: 'QdemoAddr111111111111111111111111', txGroupId: 2 }),
+  { kind: 'direct', otherAddress: 'QdemoAddr111111111111111111111111' },
+)
+// Group admin actions own only groupId; a stray otherAddress/resource is inert.
+assert.deepEqual(
+  homeV2TransactionTargetFromRequest('GROUP_BAN', { groupId: 9, otherAddress: 'QdemoAddr111111111111111111111111' }),
+  { kind: 'group', groupId: 9 },
+)
 // ...and a stray conversation/txGroupId on a vote must not either.
 assert.deepEqual(
   homeV2TransactionTargetFromRequest('VOTE_ON_POLL', { conversation: { groupId: 9, kind: 'group' }, pollId: 7 }),
@@ -114,6 +126,36 @@ assert.equal(findHomeV2PendingTransactionConflict(journal, {
   network: entry.network,
   request: { otherAddress: `Q${'b'.repeat(20)}` },
 }, now), null)
+// A stray ignored field must not move the SAME send off its retained key
+// (round-2 residual): the conflict still matches with txGroupId attached.
+assert.equal(findHomeV2PendingTransactionConflict(journal, {
+  accountId: entry.accountId,
+  action: entry.action,
+  appIdentity: entry.appIdentity,
+  network: entry.network,
+  request: { otherAddress: entry.target.otherAddress, txGroupId: 2 },
+}, now)?.signature, signature)
+
+// GROUP_BAN and BAN_FROM_GROUP are 1.x aliases of one operation: a retained
+// entry under either spelling blocks the other (round-2 residual).
+const banEntry = createHomeV2PendingTransactionFromResult({
+  accountId: entry.accountId,
+  action: 'BAN_FROM_GROUP',
+  appIdentity: entry.appIdentity,
+  now,
+  protocol: entry.protocol,
+  request: { groupId: 9 },
+  result: { outcome: 'unknown', signature, timestamp: now },
+})
+if (!banEntry) throw new Error('ban entry must journal')
+const banJournal = { entries: [banEntry], version: 1 as const }
+assert.equal(findHomeV2PendingTransactionConflict(banJournal, {
+  accountId: entry.accountId,
+  action: 'GROUP_BAN',
+  appIdentity: entry.appIdentity,
+  network: entry.network,
+  request: { groupId: 9 },
+}, now)?.signature, signature)
 
 const keyAnnouncementEntry = createHomeV2PendingTransactionFromResult({
   accountId: entry.accountId,

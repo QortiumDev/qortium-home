@@ -1,4 +1,5 @@
 import { base58Decode, base58Encode } from './base58.js'
+import { canonicalHomeV2GroupAdminAction, type HomeV2GroupAdminAction } from './home-v2-group-admin-actions.js'
 import type {
   HomeV2AppBridgeProtocol,
   HomeV2AppNetwork,
@@ -270,15 +271,73 @@ export function toHomeV2PendingTransactionResult(
   })
 }
 
+// The action families whose journal keys come from specific request fields.
+// Membership here is the FIELD-OWNERSHIP map: an action derives its conflict
+// key only from the fields its own normalizer actually consumes, so a field
+// it ignores can never move it onto a different key.
+const DIRECT_CHAT_JOURNAL_ACTIONS = new Set<string>([
+  'SEND_DIRECT_CHAT_DELETE',
+  'SEND_DIRECT_CHAT_EDIT',
+  'SEND_DIRECT_CHAT_MESSAGE',
+  'SEND_DIRECT_CHAT_REACTION',
+])
+const PUBLIC_CHAT_JOURNAL_ACTIONS = new Set<string>([
+  'SEND_CHAT_DELETE',
+  'SEND_CHAT_EDIT',
+  'SEND_CHAT_MESSAGE',
+  'SEND_CHAT_REACTION',
+])
+const PRIVATE_GROUP_JOURNAL_ACTIONS = new Set<string>([
+  'REQUEST_PRIVATE_GROUP_CHAT_KEY',
+  'RESOLVE_PRIVATE_GROUP_CHAT_KEY_REQUESTS',
+  'ROTATE_PRIVATE_GROUP_CHAT_KEY',
+  'SEND_PRIVATE_GROUP_CHAT_DELETE',
+  'SEND_PRIVATE_GROUP_CHAT_EDIT',
+  'SEND_PRIVATE_GROUP_CHAT_MESSAGE',
+  'SEND_PRIVATE_GROUP_CHAT_REACTION',
+])
+const GROUP_TARGET_JOURNAL_ACTIONS = new Set<string>([
+  'ADD_GROUP_ADMIN',
+  'APPROVE_GROUP_JOIN_REQUEST',
+  'BAN_FROM_GROUP',
+  'CANCEL_GROUP_BAN',
+  'CANCEL_GROUP_INVITE',
+  'GROUP_BAN',
+  'GROUP_KICK',
+  'INVITE_TO_GROUP',
+  'JOIN_GROUP',
+  'KICK_FROM_GROUP',
+  'LEAVE_GROUP',
+  'REMOVE_GROUP_ADMIN',
+])
+const RESOURCE_JOURNAL_ACTIONS = new Set<string>([
+  'PUBLISH_CHAT_ATTACHMENT',
+  'PUBLISH_QDN_RESOURCE',
+])
+
+/**
+ * The action compared when matching a retained conflict. GROUP_BAN and
+ * BAN_FROM_GROUP (and the kick pair) are 1.x aliases of one operation —
+ * comparing raw names would let the alias spelling slip past the other
+ * spelling's retained unknown-outcome block (security review 2026-08-26,
+ * round 2).
+ */
+function journalConflictActionKey(action: string) {
+  return GROUP_TARGET_JOURNAL_ACTIONS.has(action)
+    ? canonicalHomeV2GroupAdminAction(action as HomeV2GroupAdminAction)
+    : action
+}
+
 /**
  * The conflict/recording key for one journaled mutation, derived ONLY from
  * the request fields that ACTION actually owns (security review 2026-08-26,
- * finding 3): with an action-blind derivation, an app could vary ignored
- * extra fields — a stray `pollId` on a chat send, a stray `conversation` on a
- * vote — to move the same logical operation onto a different conflict key and
- * slip past its retained unknown-outcome block. Poll actions therefore never
- * consult the chat/group/resource fields, and no other action consults the
- * poll fields.
+ * finding 3 and its round-2 residual): with an action-blind derivation, an
+ * app could vary an IGNORED extra field — a stray `pollId` on a chat send, a
+ * stray `txGroupId` on a DIRECT chat send, a stray `conversation` on a vote —
+ * to move the same logical operation onto a different conflict key and slip
+ * past its retained unknown-outcome block. Every family therefore names its
+ * own fields; an action with no field-derived key, and any field it does not
+ * own, lands on the coarse operation target.
  */
 export function homeV2TransactionTargetFromRequest(action: string, value: unknown): HomeV2TransactionTarget {
   if (!isRecord(value)) return Object.freeze({ kind: 'operation' })
@@ -295,16 +354,27 @@ export function homeV2TransactionTargetFromRequest(action: string, value: unknow
     }
     return Object.freeze({ kind: 'operation' })
   }
-  // CREATE_POLL has no id before it confirms: always the coarse operation
-  // target, whatever else the request carries.
-  if (action === 'CREATE_POLL') return Object.freeze({ kind: 'operation' })
   const conversation = isRecord(value.conversation) ? value.conversation : null
-  if (conversation?.kind === 'group') return normalizeTarget({ kind: 'group', groupId: conversation.groupId })
-  if (conversation?.kind === 'direct') return normalizeTarget({ kind: 'direct', otherAddress: conversation.otherAddress })
-  if (value.txGroupId !== undefined) return normalizeTarget({ kind: 'group', groupId: value.txGroupId })
-  if (value.groupId !== undefined) return normalizeTarget({ kind: 'group', groupId: value.groupId })
-  if (value.otherAddress !== undefined) return normalizeTarget({ kind: 'direct', otherAddress: value.otherAddress })
-  if (isRecord(value.resource)) {
+  if (DIRECT_CHAT_JOURNAL_ACTIONS.has(action)) {
+    if (conversation?.kind === 'direct') return normalizeTarget({ kind: 'direct', otherAddress: conversation.otherAddress })
+    if (value.otherAddress !== undefined) return normalizeTarget({ kind: 'direct', otherAddress: value.otherAddress })
+    return Object.freeze({ kind: 'operation' })
+  }
+  if (PUBLIC_CHAT_JOURNAL_ACTIONS.has(action)) {
+    if (conversation?.kind === 'group') return normalizeTarget({ kind: 'group', groupId: conversation.groupId })
+    if (value.txGroupId !== undefined) return normalizeTarget({ kind: 'group', groupId: value.txGroupId })
+    return Object.freeze({ kind: 'operation' })
+  }
+  if (PRIVATE_GROUP_JOURNAL_ACTIONS.has(action)) {
+    if (conversation?.kind === 'group') return normalizeTarget({ kind: 'group', groupId: conversation.groupId })
+    if (value.groupId !== undefined) return normalizeTarget({ kind: 'group', groupId: value.groupId })
+    return Object.freeze({ kind: 'operation' })
+  }
+  if (GROUP_TARGET_JOURNAL_ACTIONS.has(action)) {
+    if (value.groupId !== undefined) return normalizeTarget({ kind: 'group', groupId: value.groupId })
+    return Object.freeze({ kind: 'operation' })
+  }
+  if (RESOURCE_JOURNAL_ACTIONS.has(action) && isRecord(value.resource)) {
     return normalizeTarget({
       identifier: value.resource.identifier ?? null,
       kind: 'resource',
@@ -312,6 +382,8 @@ export function homeV2TransactionTargetFromRequest(action: string, value: unknow
       service: value.resource.service,
     })
   }
+  // SEND_MESSAGE, CREATE_POLL, and anything future land here: the coarse
+  // per-app-and-account operation target, which errs toward blocking.
   return Object.freeze({ kind: 'operation' })
 }
 
@@ -329,7 +401,7 @@ export function findHomeV2PendingTransactionConflict(
   if (!isHomeV2JournaledMutation(input.action)) return null
   const target = homeV2TransactionTargetFromRequest(input.action, input.request)
   return getHomeV2PendingTransactions(journal, input, now).find((entry) =>
-    entry.action === input.action &&
+    journalConflictActionKey(entry.action) === journalConflictActionKey(input.action) &&
     entry.stage !== 'key-announcement' &&
     JSON.stringify(entry.target) === JSON.stringify(target),
   ) ?? null
