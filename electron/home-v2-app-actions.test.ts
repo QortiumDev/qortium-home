@@ -3,6 +3,8 @@ import { existsSync, readFileSync } from 'node:fs'
 import {
   buildHomeV2AssetReadPath,
   buildHomeV2ChainReadPath,
+  buildHomeV2ListPath,
+  buildHomeV2ListWriteBody,
   buildHomeV2NamePath,
   buildHomeV2ResourcePath,
   buildHomeV2ResourceRenderPath,
@@ -11,6 +13,10 @@ import {
   homeV2AppAddressNamesIdentifier,
   HOME_V2_RESOURCE_VIEWER_ALIASES,
   normalizeHomeV2ChatMessageText,
+  normalizeHomeV2ListItems,
+  normalizeHomeV2ListName,
+  normalizeHomeV2ListReadResult,
+  serializeHomeV2ListItemsForApproval,
   normalizeHomeV2OpenAddress,
   normalizeHomeV2ReadMethod,
   normalizeHomeV2ReadPath,
@@ -987,5 +993,48 @@ for (const [name, source] of [
     `${name} must canonicalize compatibility aliases at its bridge entry point.`,
   )
 }
+
+// ---- The node-local list family (Home 2.1 restoration wave) ----
+
+// Advertised on qdnRequest only. The pinned Qortal v3 list actions
+// (GET_LIST_ITEMS, ADD_LIST_ITEMS, DELETE_LIST_ITEM) stay deferred: every
+// /lists route needs the node's administrative API key, and Home holds one
+// only for the Qortium Core it runs itself — an advertised action that can
+// never succeed would be worse than the ledger's honest "deferred".
+for (const action of ['GET_ALL_LISTS', 'GET_LIST', 'ADD_TO_LIST', 'REMOVE_FROM_LIST']) {
+  assert.equal(qdnActions.includes(action), true, `qdnRequest should advertise ${action}`)
+  assert.equal(qortalActions.includes(action), false, `qortalRequest must not advertise ${action}`)
+}
+
+// List names: the 1.x rule — start with a letter, then letters/digits/
+// underscore, at most 120 characters, surrounding whitespace trimmed.
+assert.equal(normalizeHomeV2ListName({ listName: 'followedNames' }), 'followedNames')
+assert.equal(normalizeHomeV2ListName({ listName: '  padded_1  ' }), 'padded_1')
+assert.equal(normalizeHomeV2ListName({ listName: 'x'.repeat(120) }), 'x'.repeat(120))
+for (const bad of [undefined, null, 42, '', '1digitfirst', '_underscorefirst', 'has space', 'has-hyphen', 'dot.name', 'sla/sh', 'x'.repeat(121)]) {
+  assert.throws(() => normalizeHomeV2ListName({ listName: bad }), `list name ${String(bad).slice(0, 20)} must be refused`)
+}
+
+// Items: non-empty array of non-empty strings, each trimmed. Stricter than
+// 1.x on purpose — 1.x silently DROPPED blank and non-string entries and
+// half-applied the batch; Home 2 refuses the whole request instead.
+assert.deepEqual([...normalizeHomeV2ListItems({ items: ['alice', ' bob '] })], ['alice', 'bob'])
+for (const bad of [undefined, null, 'alice', [], [''], ['   '], ['alice', 42], ['alice', null], ['alice', '']]) {
+  assert.throws(() => normalizeHomeV2ListItems({ items: bad }))
+}
+
+// Paths and body match what Core's /lists endpoints take.
+assert.equal(buildHomeV2ListPath('followedNames'), '/lists/followedNames')
+assert.equal(buildHomeV2ListWriteBody(['a', 'b']), '{"items":["a","b"]}')
+
+// The 1.x approval-display rule: a batch whose JSON serialization cannot be
+// shown in full (4000 characters) is refused before any prompt is raised.
+assert.equal(serializeHomeV2ListItemsForApproval(['a']), '["a"]')
+assert.throws(() => serializeHomeV2ListItemsForApproval(['x'.repeat(4001)]), /4000/)
+
+// GET_LIST 1.x parity: 404 answers as the empty list; a real answer passes
+// through untouched.
+assert.deepEqual(normalizeHomeV2ListReadResult(404, null), [])
+assert.deepEqual(normalizeHomeV2ListReadResult(200, ['a']), ['a'])
 
 console.log('Home v2 app action contract tests passed.')

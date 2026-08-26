@@ -463,6 +463,14 @@ for (const action of [
   'LIST_MINTING_ACCOUNTS',
   'START_MINTING',
   'REMOVE_MINTING_ACCOUNT',
+  // The list reads pass the GET_ prefix rule but describe the user's own node
+  // too — which names the user blocks and follows is a behavioral profile of
+  // the person. The writes are excluded by the prefix rule; pinned so a
+  // rename cannot quietly admit them.
+  'GET_ALL_LISTS',
+  'GET_LIST',
+  'ADD_TO_LIST',
+  'REMOVE_FROM_LIST',
   // Same trap as the minting reads, and the reason the prefix rule needs a
   // denylist at all: GET_USER_WALLET matches /^GET_/ and its entire answer is
   // the selected account's address. It is GET_SELECTED_ACCOUNT by another

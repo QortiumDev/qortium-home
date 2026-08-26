@@ -204,7 +204,7 @@ import {
   isHomeV2PermissionlessAction,
 } from '../../electron/home-v2-session-grants'
 import { getHomeV2BridgeStateDetails } from '../../electron/home-v2-app-runtime'
-import { canonicalHomeV2AppAction } from '../../electron/home-v2-app-actions'
+import { canonicalHomeV2AppAction, isHomeV2ListWriteAction } from '../../electron/home-v2-app-actions'
 import {
   homeV2NotificationChainLabel,
   homeV2NotificationSourceKey,
@@ -2819,6 +2819,7 @@ export function HomeV2LiveApp() {
             !isHomeV2PrivateGroupChatWriteAction(value.action) &&
             !isHomeV2GroupMembershipAction(value.action) &&
             !isHomeV2MintingWriteAction(value.action) &&
+            !isHomeV2ListWriteAction(value.action) &&
             !isHomeV2GroupAdminAction(value.action))) ||
         // The manager families and the Home-settings update act on Home-profile
         // data, not on an account, so they are prompted with no account selected
@@ -2888,6 +2889,18 @@ export function HomeV2LiveApp() {
             (value.action === 'REMOVE_MINTING_ACCOUNT'
               ? typeof value.writeMintingPublicKey !== 'string'
               : value.writeMintingPublicKey !== null) ||
+            typeof value.writeOperationLabel !== 'string' ||
+            typeof value.writeRouteLabel !== 'string' ||
+            typeof value.writeTargetChainLabel !== 'string' ||
+            value.writeSingleRequestOnly !== true))
+        // List writes must always arrive as single-request prompts carrying
+        // the List/Items/Node rows: a prompt that cannot show the user exactly
+        // what would change on their node is refused rather than shown with
+        // blanks. The rows reuse the home-settings row validator — they are
+        // the same plain label/value strings.
+        || (isHomeV2ListWriteAction(value.action) &&
+          (value.writeKind !== 'node-list' ||
+            !isHomeSettingsDetailRows(value.nodeListDetails) ||
             typeof value.writeOperationLabel !== 'string' ||
             typeof value.writeRouteLabel !== 'string' ||
             typeof value.writeTargetChainLabel !== 'string' ||
@@ -2997,6 +3010,7 @@ export function HomeV2LiveApp() {
       const isJournalRead = value.action === 'GET_PENDING_TRANSACTIONS'
       const isJournalForget = value.action === 'FORGET_PENDING_TRANSACTION'
       const isMintingWrite = isHomeV2MintingWriteAction(value.action)
+      const isListWrite = isHomeV2ListWriteAction(value.action)
       // A zero-fee chain MESSAGE to an AT. Its own prompt kind: it signs, so it
       // must never inherit the read-only account prompt's wording, its
       // 'account.read' grant family, or its session/always scopes.
@@ -3012,7 +3026,7 @@ export function HomeV2LiveApp() {
       // access". Splitting the GRANT is a separate decision, not made here.
       const accountReadPromptKind = homeV2AccountReadPromptKind(value.action)
       const isGenericAccountRead = accountReadPromptKind === 'account'
-      const operationLabel = isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment || isNotification || isBookmarkManager || isNotificationManager || isHomeSettingsUpdate || isJournalForget || isMintingWrite || isAtMessage
+      const operationLabel = isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment || isNotification || isBookmarkManager || isNotificationManager || isHomeSettingsUpdate || isJournalForget || isMintingWrite || isListWrite || isAtMessage
         ? String(value.writeOperationLabel)
         : ''
       const prompt = createPermissionPrompt({
@@ -3059,6 +3073,10 @@ export function HomeV2LiveApp() {
                 ? 'transactions.pending.read'
               : isMintingWrite
                 ? 'account.minting'
+              // Never durable and never 'account.read': single-request only,
+              // like 'home.settings.write' (see bridge-permissions.ts).
+              : isListWrite
+                ? 'node.lists.write'
               // Its own capability, never 'account.read': that string is what
               // bridge-permissions.ts unifies durable grants on, and a signing
               // action must not be reachable through a read grant.
@@ -3102,7 +3120,7 @@ export function HomeV2LiveApp() {
             ? 'Forget pending transaction?'
           : isAtMessage
             ? 'Send a message to a contract?'
-          : isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment || isMintingWrite
+          : isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment || isMintingWrite || isListWrite
           ? `Allow ${operationLabel.toLowerCase()}?`
           : 'Allow account access?',
         summary: isWidgetPrompt
@@ -3115,6 +3133,8 @@ export function HomeV2LiveApp() {
           ? `${appTitle} wants to review and change which OTHER apps may notify you on this device — muting them, deleting their notification rules, and revoking their notification permission. It cannot create a rule for any app, and it cannot notify you itself without asking separately.`
           : isHomeSettingsUpdate
           ? `${appTitle} wants to change the Home settings listed below. This approval covers this one change only — the app must ask again for the next one. It cannot read or change your accounts, node connections, or saved data.`
+          : isListWrite
+          ? `${appTitle} wants to change a named list stored on your own node. Apps on this node share these lists — they commonly drive blocking and following — so this change affects what other apps show you. This approval covers this one change only; nothing is signed and nothing on chain changes.`
           : accountReadPromptKind
           ? homeV2AccountReadPromptSummary(accountReadPromptKind, appTitle)
           : isJournalRead
@@ -3167,6 +3187,21 @@ export function HomeV2LiveApp() {
               ...(value.homeSettingsDetails as readonly { label: string; value: string }[])
                 .map((detail) => ({ label: detail.label, value: detail.value })),
               { label: 'Scope', value: 'This one change only' },
+            ]
+          : isListWrite
+          ? [
+              { label: 'App', value: appTitle },
+              // The List/Items/Node rows, re-checked by isHomeSettingsDetailRows
+              // above. Items is the full serialized batch (up to 4,000
+              // characters — anything larger was refused before prompting), so
+              // it renders in the bounded scrolling block the SEND_MESSAGE
+              // Message row uses: the user must be able to read all of it
+              // without it pushing the buttons off-screen.
+              ...(value.nodeListDetails as readonly { label: string; value: string }[])
+                .map((detail) => detail.label === 'Items'
+                  ? { label: detail.label, value: detail.value, variant: 'scroll' as const }
+                  : { label: detail.label, value: detail.value }),
+              { label: 'Scope', value: 'This one request only' },
             ]
           // Only the GENERIC account-read prompt keeps the generic detail
           // rows. The private-group and attachment reads now fall through to

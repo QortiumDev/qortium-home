@@ -48,6 +48,13 @@ export type PermissionCapability =
   // Loading or removing a minting key on the local Core. Always a
   // single-request approval; never retained as a grant.
   | 'account.minting'
+  // Adding to or removing from a named list stored on the user's own local
+  // Core (ADD_TO_LIST, REMOVE_FROM_LIST). Like 'home.settings.write' this
+  // capability is NEVER durable: single-request prompt only, never written to
+  // the grant store, no card in QDN Apps settings. The matching READS
+  // (GET_ALL_LISTS, GET_LIST) carry no capability at all — they never prompt,
+  // exactly as in Home 1.x.
+  | 'node.lists.write'
   // Signing one zero-fee, zero-payment chain MESSAGE to an AT (SEND_MESSAGE).
   // Deliberately NOT 'account.read' and not any 'chat.*' capability: durable
   // grants unify on the capability string, so a signing action must never be
@@ -128,6 +135,9 @@ export interface PermissionPrompt {
     | 'FORGET_PENDING_TRANSACTION'
     | 'START_MINTING'
     | 'REMOVE_MINTING_ACCOUNT'
+    // GET_ALL_LISTS and GET_LIST are deliberately absent: both are unprompted.
+    | 'ADD_TO_LIST'
+    | 'REMOVE_FROM_LIST'
     | 'SEND_MESSAGE'
   readonly capability: PermissionCapability
   readonly appId: AppId

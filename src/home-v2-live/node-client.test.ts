@@ -333,6 +333,23 @@ await assert.rejects(
   /outside Home v2 read-only scope/,
 )
 
+// The list family is advertised but can never qualify on Android: every
+// /lists route needs the administrative key of a local Core, and Android
+// never runs one. All four answer the coded refusal, never a pretend-empty
+// list — keep in step with resolveHomeV2ListNode in
+// electron/home-v2-app-bridge.ts.
+for (const listRequest of [
+  { action: 'GET_ALL_LISTS' },
+  { action: 'GET_LIST', listName: 'followedNames' },
+  { action: 'ADD_TO_LIST', listName: 'followedNames', items: ['alice'] },
+  { action: 'REMOVE_FROM_LIST', listName: 'followedNames', items: ['alice'] },
+]) {
+  await assert.rejects(
+    () => client.requestApp('qdnRequest', listRequest),
+    /Android has no local Core/,
+  )
+}
+
 assert.deepEqual(
   await client.requestApp('qortalRequest', {
     action: 'GET_AT',

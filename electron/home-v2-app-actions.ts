@@ -61,6 +61,7 @@ const QDN_ACTIONS = [
   'GET_HOME_SETTINGS',
   'UPDATE_HOME_SETTINGS',
   'ADD_GROUP_ADMIN',
+  'ADD_TO_LIST',
   'APPROVE_GROUP_JOIN_REQUEST',
   'CANCEL_GROUP_BAN',
   'CANCEL_GROUP_INVITE',
@@ -79,6 +80,7 @@ const QDN_ACTIONS = [
   'GET_ACCOUNT_RATING',
   'GET_ACTIVE_CHATS',
   'GET_ADMIN_GROUP_JOIN_REQUESTS',
+  'GET_ALL_LISTS',
   'GET_ASSET_BALANCES',
   'GET_ASSET_INFO',
   'GET_ASSET_TRANSFERS',
@@ -93,6 +95,7 @@ const QDN_ACTIONS = [
   'GET_GROUP_JOIN_REQUESTS',
   'GET_GROUP_KICKS',
   'GET_GROUP_MEMBERS',
+  'GET_LIST',
   ...HOME_V2_MARKET_PRICE_ACTIONS,
   'GET_MEMBER_BANS',
   'GET_MEMBER_KICKS',
@@ -117,6 +120,7 @@ const QDN_ACTIONS = [
   'LIST_MINTING_ACCOUNTS',
   'LIST_QDN_RESOURCES',
   'LEAVE_GROUP',
+  'REMOVE_FROM_LIST',
   'REMOVE_GROUP_ADMIN',
   'REMOVE_MINTING_ACCOUNT',
   'START_MINTING',
@@ -1302,6 +1306,118 @@ export function buildHomeV2RatingReadResult(
     rating: rating ?? null,
     summary: normalizedSummary,
   })
+}
+
+/**
+ * The node-local list family: GET_ALL_LISTS, GET_LIST, ADD_TO_LIST,
+ * REMOVE_FROM_LIST.
+ *
+ * Lists are private state on the user's own node (Core stores them on the
+ * node's disk and gates every /lists route behind the admin API key), so this
+ * family is nothing like the anonymous chain reads above: every call — reads
+ * included — needs a node Home holds the administrative key for. That is the
+ * same trusted-admin-node rule minting uses (isHomeV2TrustedMintingNode: the
+ * local Core Home runs itself, reached over loopback, key in hand). Android
+ * has no local mode, so the family answers there with the coded
+ * NODE_CAPABILITY_MISSING error rather than pretending an empty answer — the
+ * honest match for 1.x, whose lists only ever worked in the emulator.
+ *
+ * The two writes prompt (they change what the user's node stores, and apps
+ * commonly use lists for blocking — a silent write here silently changes what
+ * the user sees everywhere); the two reads are permissionless under the
+ * 2026-08-24 owner decision, the same trust boundary as every other read.
+ *
+ * Request shapes are 1.x parity (electron/qdn.ts getRequiredListName /
+ * getRequiredListItems), with one deliberate divergence: 1.x silently DROPPED
+ * non-string or empty entries from `items` and proceeded with the survivors,
+ * which turns an app bug into a half-applied write reported as success. Home 2
+ * refuses the whole request instead.
+ */
+export const HOME_V2_LIST_READ_ACTIONS = Object.freeze([
+  'GET_ALL_LISTS',
+  'GET_LIST',
+] as const)
+
+export const HOME_V2_LIST_WRITE_ACTIONS = Object.freeze([
+  'ADD_TO_LIST',
+  'REMOVE_FROM_LIST',
+] as const)
+
+export type HomeV2ListWriteAction = (typeof HOME_V2_LIST_WRITE_ACTIONS)[number]
+
+const LIST_READ_ACTIONS = new Set<string>(HOME_V2_LIST_READ_ACTIONS)
+const LIST_WRITE_ACTIONS = new Set<string>(HOME_V2_LIST_WRITE_ACTIONS)
+
+export function isHomeV2ListReadAction(action: string) {
+  return LIST_READ_ACTIONS.has(action)
+}
+
+export function isHomeV2ListWriteAction(action: string): action is HomeV2ListWriteAction {
+  return LIST_WRITE_ACTIONS.has(action)
+}
+
+export function isHomeV2ListAction(action: string) {
+  return LIST_READ_ACTIONS.has(action) || LIST_WRITE_ACTIONS.has(action)
+}
+
+// 1.x rule (electron/qdn.ts:9231-9239 plus the 120-char write check): a list
+// name starts with a letter and stays to letters, digits and underscores.
+// 1.x only enforced the length cap on the write path; Home 2 applies it to
+// reads too — a name that cannot be written cannot exist to be read.
+export function normalizeHomeV2ListName(request: Record<string, unknown>) {
+  const listName = requestString(request, 'listName', 'List name', 120)
+  if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(listName)) {
+    throw new Error('List name must start with a letter and contain only letters, numbers, or underscores.')
+  }
+  return listName
+}
+
+// 1.x trimmed every retained item, so a trailing-space variant of an existing
+// entry could never create a near-duplicate; keep that. Items are otherwise
+// exact, case-sensitive strings — Core stores and matches them verbatim.
+export function normalizeHomeV2ListItems(request: Record<string, unknown>) {
+  const items = request.items
+  if (!Array.isArray(items) || items.length === 0) {
+    throw new Error('Items must be a non-empty array.')
+  }
+  const itemStrings = items.map((item) => {
+    if (typeof item !== 'string' || item.trim() === '') {
+      throw new Error('Items must contain only non-empty strings.')
+    }
+    return item.trim()
+  })
+  return Object.freeze(itemStrings)
+}
+
+// 1.x refused, before prompting, any write whose serialized item array could
+// not be displayed in full on the approval dialog (electron/qdn.ts, 4000-char
+// cap, same message). An approval the user cannot read is not an approval.
+export function serializeHomeV2ListItemsForApproval(items: readonly string[]) {
+  const serialized = JSON.stringify(items)
+  if (serialized.length > 4_000) {
+    throw new Error('QDN write request data is too large to display safely for approval (4000 characters maximum).')
+  }
+  return serialized
+}
+
+export function buildHomeV2ListPath(listName: string) {
+  return `/lists/${encodeURIComponent(listName)}`
+}
+
+export function buildHomeV2ListWriteBody(items: readonly string[]) {
+  return JSON.stringify({ items })
+}
+
+/**
+ * GET_LIST parity: 1.x mapped an HTTP 404 to [] (electron/qdn.ts:9291-9293).
+ * Current Core does not actually 404 a missing list — it answers [] itself —
+ * but the defensive mapping is kept because "you have no such list" and "your
+ * list is empty" are the same answer to an app either way. Any other non-OK
+ * status is a real error and is NOT normalized here.
+ */
+export function normalizeHomeV2ListReadResult(status: number, data: unknown) {
+  if (status === 404) return []
+  return data
 }
 
 export function buildHomeV2AssetReadPath(action: string, request: Record<string, unknown>) {

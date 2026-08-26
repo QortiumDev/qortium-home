@@ -34,6 +34,22 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-26 - feat(home-v2): apps can read and change the lists on your own node again
+
+Restores the first deferred action family of the 2.1 catalogue: named lists.
+Lists live on your own node — apps commonly use them to remember what you
+block and follow, and every app on the node shares them. Apps can now read
+your lists without a prompt, exactly as before, but only through the local
+Core that Home itself runs and holds the key for; anywhere else, including
+Android phones (where this never actually worked), the app gets an honest
+"not available here" instead of a silently empty list. Changing a list always
+asks first: the approval shows the list's name, the node, and every item the
+app wants to add or remove — scrollable, in full — and covers that one change
+only. A request too large to display completely is refused rather than
+approved unseen, and a batch containing junk entries is refused whole instead
+of half-applied, which the old behavior reported as success. These lists are
+also never offered to frameless widgets, which have no surface to ask on.
+
 ### 2026-08-26 - fix(home-v2): Home's own resource viewer plays video and audio on Android
 
 The second half of the Android media pair. Opening a video or audio resource in

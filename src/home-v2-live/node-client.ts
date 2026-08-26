@@ -24,6 +24,7 @@ import {
   homeV2RatingReadNeedsSelectedAddress,
   isHomeV2AppRecord,
   isHomeV2ChainReadAction,
+  isHomeV2ListAction,
   isHomeV2RatingReadAction,
   normalizeHomeV2Address,
   normalizeHomeV2AppAction,
@@ -1226,6 +1227,20 @@ export function createPortableNodeClient(
           isUnlocked: account.isUnlocked,
           name: stringField(primary.data, 'name'),
         }
+      }
+      if (isHomeV2ListAction(action)) {
+        // Keep this in step with resolveHomeV2ListNode in
+        // electron/home-v2-app-bridge.ts: the list family — reads included —
+        // lives on the local Core that Home runs, reaches over loopback, and
+        // holds the administrative key for. Android never runs a local Core
+        // (readSettings rejects 'local'), so no node here can ever qualify,
+        // exactly as in Home 1.x, where lists only ever worked in the
+        // emulator. Answered with the same coded refusal the desktop bridge
+        // gives a non-local route, never with a pretend-empty list.
+        throw createHomeV2BridgeError(
+          'QDN lists live on the local Core that Home runs and reaches over loopback; Android has no local Core.',
+          { action, code: 'NODE_CAPABILITY_MISSING', network: 'qortium', retryable: false },
+        )
       }
       if (action === 'GET_NAME_DATA' || action === 'GET_ACCOUNT_NAMES' || action === 'GET_PRIMARY_NAME') {
         return (await requestData(
