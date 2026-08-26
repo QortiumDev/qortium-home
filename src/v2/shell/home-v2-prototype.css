@@ -635,12 +635,16 @@ body,
 }
 
 /* The address is the one string here that must stay character-exact, so it
-   gets a monospace line of its own. */
+   gets a monospace line of its own. `text-wrap: balance` splits a wrapped
+   address into even halves instead of leaving a one-character orphan line
+   (H-P6, seen at phone width: 33 characters + a dangling "d"); engines
+   without support keep the plain wrap. */
 .home-v2-chrome-menu__panel .home-v2-account-detail__address {
   overflow-wrap: anywhere;
   color: var(--v2-ink);
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
   font-size: calc(11px * var(--v2-type-scale));
+  text-wrap: balance;
 }
 
 .home-v2-chrome-menu__panel .home-v2-account-detail--state {
@@ -2452,6 +2456,34 @@ body,
   justify-content: flex-end;
 }
 
+/* The inline revoke confirmations in QDN Apps settings. Unstyled they render
+   as raw inline flow, so the bold "Revoke" label ran straight into the access
+   description ("RevokeRead the selected account…" — H-P6). Label and
+   description each take a full line; the Cancel/Revoke pair stays a row. */
+[data-qdn-revoke-confirm],
+[data-qdn-account-read-revoke-confirm],
+[data-qdn-bookmark-revoke-confirm],
+[data-qdn-chat-send-revoke-confirm],
+[data-qdn-notification-manager-revoke-confirm] {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px 10px;
+}
+
+[data-qdn-revoke-confirm] > strong,
+[data-qdn-account-read-revoke-confirm] > strong,
+[data-qdn-bookmark-revoke-confirm] > strong,
+[data-qdn-chat-send-revoke-confirm] > strong,
+[data-qdn-notification-manager-revoke-confirm] > strong,
+[data-qdn-revoke-confirm] > span,
+[data-qdn-account-read-revoke-confirm] > span,
+[data-qdn-bookmark-revoke-confirm] > span,
+[data-qdn-chat-send-revoke-confirm] > span,
+[data-qdn-notification-manager-revoke-confirm] > span {
+  flex-basis: 100%;
+}
+
 .home-v2-new-tab-setting {
   min-width: min(420px, 100%);
   align-items: stretch;
@@ -2981,17 +3013,40 @@ body,
 .home-v2-shell[data-layout='phone'] .home-v2-account-button {
   width: auto;
   min-width: 34px;
-  padding: 5px;
+  /* R4 phone pass (H-P4): tighter than desktop — with BOTH network avatars
+     plus the lock glyph this cluster was one of the fixed-width blocks
+     starving the address input at 360-390px viewports. */
+  gap: 3px;
+  padding: 3px 4px;
 }
 
 .home-v2-shell[data-layout='phone'] .home-v2-tab {
   min-width: 110px;
 }
 
+/* R4 phone pass (H-P4): with both networks enabled the account cluster plus
+   the five nav buttons squeezed the 1fr middle column until the address INPUT
+   was ~5px wide — taps landed on Go instead. Give the middle column a floor,
+   slim the nav buttons, and drop the decorative magnifier, so the input keeps
+   a tappable width at every phone viewport. */
 .home-v2-shell[data-layout='phone'] .home-v2-browser-toolbar {
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: auto minmax(88px, 1fr) auto;
   gap: 5px;
   padding-inline: 7px;
+}
+
+.home-v2-shell[data-layout='phone'] .home-v2-browser-controls button {
+  width: 28px;
+}
+
+.home-v2-shell[data-layout='phone'] .home-v2-address {
+  padding: 0 8px;
+}
+
+/* The ⌕ is aria-hidden decoration; at phone width its pixels belong to the
+   input. */
+.home-v2-shell[data-layout='phone'] .home-v2-address > span[aria-hidden] {
+  display: none;
 }
 
 .home-v2-shell[data-layout='phone'] .home-v2-bookmark-toolbar {
