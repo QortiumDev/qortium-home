@@ -2548,6 +2548,7 @@ export function HomeV2LiveApp() {
             value.action !== 'NOTIFICATION_MANAGER_REMOVE_RULES' &&
             value.action !== 'NOTIFICATION_MANAGER_REVOKE' &&
             value.action !== 'OPEN_AS_WIDGET' &&
+            value.action !== 'SEND_MESSAGE' &&
             !isHomeV2PublicChatAction(value.action) &&
             !isHomeV2DirectChatReadAction(value.action) &&
             !isHomeV2DirectChatWriteAction(value.action) &&
@@ -2626,6 +2627,24 @@ export function HomeV2LiveApp() {
             typeof value.writeRouteLabel !== 'string' ||
             typeof value.writeTargetChainLabel !== 'string' ||
             value.writeSingleRequestOnly !== true))
+        // SEND_MESSAGE signs a chain transaction, so its prompt must arrive
+        // fully specified or not at all. The recipient AT address and the
+        // message text are REQUIRED fields here — a prompt that cannot show
+        // the user what is about to be signed is refused rather than shown
+        // with blanks. The chain and protocol are pinned because the
+        // transaction serializer is Qortium-specific, and
+        // writeSingleRequestOnly must be true so single-request is structural
+        // rather than a property of how allowedScopes happens to compute.
+        || (value.action === 'SEND_MESSAGE' &&
+          (value.writeKind !== 'direct' ||
+            value.protocol !== 'qdnRequest' ||
+            value.targetNetwork !== 'qortium' ||
+            typeof value.writeOperationLabel !== 'string' ||
+            typeof value.writeOtherAddress !== 'string' ||
+            typeof value.chatMessagePreview !== 'string' ||
+            typeof value.writeRouteLabel !== 'string' ||
+            typeof value.writeTargetChainLabel !== 'string' ||
+            value.writeSingleRequestOnly !== true))
       ) {
         return
       }
@@ -2634,7 +2653,11 @@ export function HomeV2LiveApp() {
         ? accountCatalogueRef.current.accounts.find((candidate) => candidate.id === accountId)
         : undefined
       if (value.action === 'UNLOCK_SELECTED_ACCOUNT') {
-        if (!account || value.protocol !== 'qdnRequest') {
+        // The protocol check that used to live here is gone: unlocking is a
+        // Home-account operation, not a chain one, and UNLOCK_SELECTED_ACCOUNT
+        // is now advertised on both protocols (home-v2-app-actions.ts). A
+        // missing account is still a hard denial — there is nothing to unlock.
+        if (!account) {
           window.homeV2Apps?.resolvePermission({
             approved: false,
             requestId: value.requestId,
@@ -2693,6 +2716,10 @@ export function HomeV2LiveApp() {
       const isJournalRead = value.action === 'GET_PENDING_TRANSACTIONS'
       const isJournalForget = value.action === 'FORGET_PENDING_TRANSACTION'
       const isMintingWrite = isHomeV2MintingWriteAction(value.action)
+      // A zero-fee chain MESSAGE to an AT. Its own prompt kind: it signs, so it
+      // must never inherit the read-only account prompt's wording, its
+      // 'account.read' grant family, or its session/always scopes.
+      const isAtMessage = value.action === 'SEND_MESSAGE'
       // Wording-only refinement of the account-read prompt. The private-group
       // and attachment reads stay FULL members of the account.read grant
       // family: the `capability` below is deliberately still 'account.read'
@@ -2704,7 +2731,7 @@ export function HomeV2LiveApp() {
       // access". Splitting the GRANT is a separate decision, not made here.
       const accountReadPromptKind = homeV2AccountReadPromptKind(value.action)
       const isGenericAccountRead = accountReadPromptKind === 'account'
-      const operationLabel = isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment || isNotification || isBookmarkManager || isNotificationManager || isJournalForget || isMintingWrite
+      const operationLabel = isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment || isNotification || isBookmarkManager || isNotificationManager || isJournalForget || isMintingWrite || isAtMessage
         ? String(value.writeOperationLabel)
         : ''
       const prompt = createPermissionPrompt({
@@ -2749,6 +2776,11 @@ export function HomeV2LiveApp() {
                 ? 'transactions.pending.read'
               : isMintingWrite
                 ? 'account.minting'
+              // Its own capability, never 'account.read': that string is what
+              // bridge-permissions.ts unifies durable grants on, and a signing
+              // action must not be reachable through a read grant.
+              : isAtMessage
+                ? 'contract.message.send'
               : 'account.public.read',
         appId: brand<AppId>(`home-v2:permission-app:${appIdentityKey}`),
         appIdentityKey,
@@ -2783,6 +2815,8 @@ export function HomeV2LiveApp() {
             ? 'Allow pending transaction access?'
           : isJournalForget
             ? 'Forget pending transaction?'
+          : isAtMessage
+            ? 'Send a message to a contract?'
           : isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment || isMintingWrite
           ? `Allow ${operationLabel.toLowerCase()}?`
           : 'Allow account access?',
@@ -2804,6 +2838,8 @@ export function HomeV2LiveApp() {
             ? `${appTitle} wants to start minting with your account on this node. Home will load this account's minting key onto the local Core, and submit the on-chain authorization first if it does not exist yet. No key is given to the app.`
           : value.action === 'REMOVE_MINTING_ACCOUNT'
             ? `${appTitle} wants to remove this account's own minting key from the local Core on this device. Home read the key off the node itself rather than taking it from the app, so no other minter on your node can be touched. Minting with it stops; nothing on chain changes.`
+          : isAtMessage
+            ? `${appTitle} wants to sign and broadcast one message from the selected account to the contract below. It carries no payment and costs no fee — Home pays for it with proof-of-work on this device. The exact text being sent is shown below; the contract may act on it.`
           : isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment
           ? `${appTitle} wants to ${operationLabel.toLowerCase()} as the selected account.`
           : `${appTitle} wants to read the selected account address and public identity data.`,
@@ -2944,6 +2980,24 @@ export function HomeV2LiveApp() {
                 { label: 'Size', value: `${Number(value.publishSize).toLocaleString()} bytes` },
                 { label: 'SHA-256', value: String(value.publishContentHash) },
               ]
+          // The two rows that matter here are Contract and Message: they are
+          // what the user is actually authorizing. Both are validated as
+          // present by the guard above, so neither can render blank.
+          : isAtMessage
+            ? [
+                { label: 'Account', value: account?.label ?? accountId },
+                { label: 'Operation', value: operationLabel },
+                { label: 'Chain', value: String(value.writeTargetChainLabel) },
+                { label: 'Route', value: String(value.writeRouteLabel) },
+                { label: 'Contract (AT)', value: String(value.writeOtherAddress) },
+                { label: 'Message', value: String(value.chatMessagePreview) },
+                { label: 'Payment', value: 'None — this message transfers nothing' },
+                { label: 'Fee', value: '0, paid with proof-of-work on this device' },
+                {
+                  label: 'Not allowed',
+                  value: 'Sending to an ordinary account, attaching a payment, encrypting, or reusing this approval for a later message',
+                },
+              ]
             : [
               { label: 'Account', value: account?.label ?? accountId },
               { label: 'Data', value: 'Address, public key when available, lock state, and public name' },
@@ -2955,7 +3009,13 @@ export function HomeV2LiveApp() {
             ? [homeV2AccountReadAlwaysAllowDetail(account?.label ?? accountId)]
             : []),
         ],
-        allowedScopes: isWidgetPrompt
+        allowedScopes: isAtMessage
+          // Stated first and unconditionally, ahead of every other arm: one
+          // approval signs exactly one transaction. This does not depend on
+          // writeSingleRequestOnly reaching us intact, and the main process
+          // independently refuses to retain a grant for it.
+          ? ['single-request']
+          : isWidgetPrompt
           ? ['single-request', 'session']
           : isNotification
           ? ['always']

@@ -238,7 +238,9 @@ assert.equal(getHomeV2AppActions('qdnRequest').includes('GET_SELECTED_ACCOUNT'),
 assert.equal(getHomeV2AppActions('qdnRequest').includes('UNLOCK_SELECTED_ACCOUNT'), true)
 assert.equal(getHomeV2AppActions('qortalRequest').includes('GET_USER_ACCOUNT'), true)
 assert.equal(getHomeV2AppActions('qortalRequest').includes('GET_SELECTED_ACCOUNT'), false)
-assert.equal(getHomeV2AppActions('qortalRequest').includes('UNLOCK_SELECTED_ACCOUNT'), false)
+// Both protocols since R4 tier-2: unlocking is a Home-account operation, not a
+// chain one, and the legacy wallet app only knows the qortalRequest global.
+assert.equal(getHomeV2AppActions('qortalRequest').includes('UNLOCK_SELECTED_ACCOUNT'), true)
 await client.setMode('qortium', 'public')
 await client.setMode('qortium', 'disabled')
 const disabledAfterPublic = await client.getSnapshot() as Snapshot

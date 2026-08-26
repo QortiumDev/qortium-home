@@ -128,6 +128,14 @@ request `notifications.manage`, and the assigned app gets no head start.
 | `SEARCH_GROUPS` | `qdnRequest` | Bare Core JSON array | Qortium-only — `/groups/search` does not exist on Qortal (verified absent from the Qortal master 6.1.5 and develop checkouts' `GroupsResource.java`); required non-negative-length `query`, `visibility` validated against Core's real `ALL`/`OPEN`/`CLOSED` enum (not Hub's `PUBLIC`/`PRIVATE` terminology), strict `prefixOnly`, 100-entry page cap | yes | yes |
 | `GET_MINTING_STATUS`, `LIST_MINTING_ACCOUNTS` | both | `{ address, hasRewardShare, isMinting, keyOnNode, nodeMintingPossible }`, or `{ accounts, available }` with `address`/`mintingAccount`/`publicKey`/`recipientAccount` per entry | No prompt (derived booleans and allowlisted fields only, never key material). `hasRewardShare` is a public read; the node-side fields are `null` and `available` is `false` unless the route is the local Core Home runs and holds the API key for, so they are always unavailable on public/custom nodes, on Qortal, and on Android. Never offered to a chromeless widget, which has no prompt surface and must not learn the selected identity | yes | yes (node-side always unavailable) |
 | `START_MINTING`, `REMOVE_MINTING_ACCOUNT` | both | `{ accepted, action, address, keyAdded }` plus `rewardSharePending`/`transactionSignature` when the on-chain self-share was submitted first, or `{ accepted, action, address, publicKey, removed }` | Single-request prompt each, never a session or durable grant, and one never satisfies the other. Requires an unlocked selected account and the local Core reached over loopback; refused with `NODE_CAPABILITY_MISSING` elsewhere and on Qortal. Removal takes no key from the app: Home resolves the selected account's own self-share key from the node's own list, before and again after the approval, and deletes only that, so no other minter can be touched and no app-supplied key-shaped value reaches the node. Errors from the key-bearing calls carry only an operation name and HTTP status | yes | no |
+| `GET_USER_WALLET` | both | `{ address, assetId: 0, assetName: "Native Asset", native: true }` | No prompt, and permissionless by a strictly-less argument: it returns the selected account's address plus three constants, where `GET_SELECTED_ACCOUNT` — already permissionless — returns that same address plus the account name and lock state. No node call, no key derivation, no unlocked account required. **Native asset only.** Accepts `assetId: 0` and the coin aliases `NATIVE`/`NATIVE_ASSET`/`ASSET_0`/`ASSET0`, plus `QORT`, which Home 1.x wrongly routed to the foreign path; an absent selector defaults to native. Any foreign coin is refused with the coded, non-retryable `FOREIGN_WALLET_UNAVAILABLE` rather than answered with the native address. Never offered to a chromeless widget, for the same reason `GET_SELECTED_ACCOUNT` is not | yes | yes |
+| `GET_BALANCE`, `GET_ACCOUNT_DATA` | both | Bare Core JSON | No prompt. An absent `address` now defaults to the selected account (Home 1.x behavior, lost in the first Home 2 tranche), and `GET_BALANCE` honors a non-negative integer `assetId` instead of silently answering with the native balance for every asset. Both defaults are neutral — the subject is the caller's own account, whose address it can already read — except in a chromeless widget, where the self-addressing default is withheld and an explicit `address` is required | yes | yes |
+| `GET_CROSSCHAIN_BLOCKCHAINS`, `GET_CROSSCHAIN_SERVER_INFO`, `GET_FOREIGN_FEE`, `GET_SERVER_CONNECTION_HISTORY` | both | Blockchain list with a projected `QORT` row and a `homeWallet` capability per row; bare server array; `{ fee, feePerKb }` or `{ fee }`; bare Core JSON | No prompt; zero-key bounded reads of the node's own `/crosschain` prefix. No wallet seed, key derivation, unlocked account or API key is involved. `coin` is resolved against a strict allowlist (BTC, LTC, DOGE, DGB, RVN, DASH, NMC, FIRO, ARRR) before it can become a URL path segment; `ARRR` is accepted here although Home cannot derive an ARRR wallet, because these reads need no key material and Home 1.x wrongly reused the HD-wallet coin list. `GET_FOREIGN_FEE` normalizes Core's per-kilobyte `feekb` to a per-byte `fee` with ceiling rounding, so a fee never rounds down below what the foreign chain requires | yes | yes |
+| `GET_MARKET_PRICES` | both | `{ cacheHit, cacheTtlMs, coins, currencies, fetchedAt, missing, prices, source, stale, staleReason? }` | No prompt. **The only bridge action that leaves the Qortal/Qortium node network**, reaching `api.coingecko.com`. The request is built entirely from allowlists — coin ids from a fixed table, currencies from a fixed set — and carries no user data of any kind: no address, account id, public key, app identity, node URL, cookie, or custom header beyond `Accept`. A shared TTL cache is the privacy control as much as the rate-limit control: outbound requests are bounded by the TTL no matter how often apps ask, so an app cannot use this to beacon the user's IP on its own schedule. On a fetch failure a cached answer is returned with `stale: true` and a `staleReason`; with nothing cached the error propagates rather than inventing a price. Route-independent — a disabled or unreachable node route has no bearing on it | yes | yes |
+| `GET_ACCOUNT_RATING`, `GET_RESOURCE_RATING` | both | `{ action, target, category, rater, summary, ratings }` or `{ action, service, name, identifier, rater, summary, rating }` | No prompt; two bounded anonymous public reads combined (the subject's summary plus this rater's own rating). A 404 on either half means "not rated yet" and becomes `null`/`[]`, not an error, and Core's three empty shapes (`null`, `[]`, `{}`) all collapse to `null`. `rater` defaults to the selected account; in a chromeless widget that default is withheld, because the response echoes `rater` back and would otherwise disclose the selected identity with no chrome to announce it. The rating WRITES (`RATE_ACCOUNT`, `RATE_RESOURCE`) remain deferred | yes | yes |
+| `GET_GROUP_BANS`, `GET_GROUP_KICKS`, `GET_MEMBER_BANS`, `GET_MEMBER_KICKS` | both | Bare Core JSON | No prompt; bounded anonymous public reads of group moderation history, which Core serves to anyone. Positive-integer `groupId`, address regex, 100-entry page cap, and `before`/`after` validated against the same millisecond floor Core enforces for chat. The member-scoped pair defaults `address` to the selected account (1.x behavior), withheld in a widget. The moderation WRITES are signed transactions and never travel this GET passthrough | yes | yes |
+| `UNLOCK_SELECTED_ACCOUNT` | both | `{ address, avatarContract, avatarUrl, isUnlocked: true, name }` | Single-request prompt, never a session or durable grant; opens Home's own password dialog and asserts the unlock actually completed before returning. **Now advertised on both protocols**: unlocking is a Home-account operation, not a chain one — the same wallet, dialog and key whichever protocol asked — and the legacy wallet app only knows the `qortalRequest` global. Advertising it on both grants nothing extra | yes | no |
+| `SEND_MESSAGE` | `qdnRequest` | `{ accepted: true, action, fee: "0", recipient, signature, timestamp }`, or a signed non-retryable unknown-outcome result | Single-request prompt disclosing the AT address and the full message text, never a session or durable grant — pinned on the action itself, not only on the prompt payload. Deliberately narrow: **AT recipients only** (25 bytes, address version 23, valid checksum — an ordinary account address is refused), plaintext only, no payment, no transaction group, fee 0 paid with local MemoryPoW. A request carrying `amount`, `assetId`, `recipientPublicKey`, `chatReference`, `txGroupId`, `isEncrypted: true`, `isText: false`, or a non-zero `fee` is REFUSED rather than silently stripped, so an app can never believe it attached a payment that was dropped. The transaction is serialized field by field from the two validated inputs; the bridge never accepts raw transaction bytes. Requires an unlocked account, is rate-limited with the other sends, and rechecks app/tab/account/route context before signing. Qortium-only because the MESSAGE serializer mirrors Qortium Core's layout, which differs from Qortal's. Journaled like the chat sends when the broadcast outcome is unknown | yes | no (signing is desktop-only) |
 
 Q-Apps may also make an unchanged same-origin
 `GET /transactions/signature/{signature}` read. On Android this route requires
@@ -160,7 +168,7 @@ protocol or advertise a permanently reduced host implementation.
 
 | App/workflow | Current state | Remaining boundary |
 | --- | --- | --- |
-| Qortium Trust public browsing | Public ratings, names, identity batches, visible avatars, and Home-mediated account unlock have bridge coverage | `RATE_ACCOUNT` and other mutations remain deferred |
+| Qortium Trust public browsing | Names, identity batches, visible avatars, and Home-mediated account unlock have bridge coverage. Public RATING READS (`GET_ACCOUNT_RATING`, `GET_RESOURCE_RATING`) were claimed here before they existed; they are genuinely implemented as of the R4 tier-2 restoration | `RATE_ACCOUNT`, `RATE_RESOURCE`, and other mutations remain deferred |
 | Qortium Help public browsing | Search/list/fetch, identity, avatar, app-link navigation, and app-scoped notifications have bridge coverage | publish/delete and app-specific actions outside this slice remain deferred |
 | Qortal Q-Tube and similar QDN readers | Qortal resource search/list/fetch, resource URL/status, public account data, navigation, Home-owned bridge selection, and the exact transaction-signature read passed packaged desktop and Android acceptance | media/file helpers, publishing, and any app-specific action outside this slice remain deferred |
 | Chat | Public and private groups, direct messages, participation/administration, avatars, public resources, encrypted private attachments, notifications, lifecycle invalidation, and restart-safe unknown-outcome reconciliation now have fine-grained dual-chain Home contracts on desktop and Android. Crypto stays in Home, plaintext is not cached by the bridge, recipient/reference/membership/account/route context is rechecked, and uncertain signed broadcasts remain non-retryable and same-target blocked until reconciliation. | Chat must consume the new Home action families and complete its end-to-end route matrix. The later distinct RCHAT family remains separate. |
@@ -189,8 +197,8 @@ and Android fixtures pass.
 | Names, groups, polls | `BUY_NAME`, `CANCEL_SELL_NAME`, `CREATE_GROUP`, `CREATE_POLL`, `REGISTER_NAME`, `SELL_NAME`, `UPDATE_GROUP`, `UPDATE_NAME`, `VOTE_ON_POLL` |
 | QDN writes | `PUBLISH_MULTIPLE_QDN_RESOURCES`, deletion, and legacy inline/path publishing; Home 2 single-resource `PUBLISH_QDN_RESOURCE` is implemented through its separate H5B source-token contract |
 | Encryption and group keys | `DECRYPT_AESGCM`, `DECRYPT_DATA`, `DECRYPT_DATA_WITH_SHARING_KEY`, `DECRYPT_QORTAL_GROUP_DATA`, `ENCRYPT_DATA`, `ENCRYPT_DATA_WITH_SHARING_KEY`, `ENCRYPT_QORTAL_GROUP_DATA`, `REENCRYPT_GROUP_KEYS` |
-| Wallets, payments, signing | `GET_USER_WALLET`, `GET_USER_WALLET_INFO`, `GET_USER_WALLET_TRANSACTIONS`, `GET_WALLET_BALANCE`, `MULTI_ASSET_PAYMENT_WITH_PRIVATE_DATA`, `SEND_COIN`, `SIGN_FOREIGN_FEES`, `SIGN_TRANSACTION`, `TRANSFER_ASSET` |
-| Foreign chain and trading | `ADD_FOREIGN_SERVER`, `CANCEL_TRADE_SELL_ORDER`, `CREATE_TRADE_BUY_ORDER`, `CREATE_TRADE_SELL_ORDER`, `GET_ARRR_SYNC_STATUS`, `GET_CROSSCHAIN_SERVER_INFO`, `GET_FOREIGN_FEE`, `GET_SERVER_CONNECTION_HISTORY`, `REMOVE_FOREIGN_SERVER`, `SET_CURRENT_FOREIGN_SERVER`, `START_CROSSCHAIN_SERVER`, `UPDATE_FOREIGN_FEE` |
+| Wallets, payments, signing | `GET_USER_WALLET_INFO`, `GET_USER_WALLET_TRANSACTIONS`, `GET_WALLET_BALANCE`, `MULTI_ASSET_PAYMENT_WITH_PRIVATE_DATA`, `SEND_COIN`, `SIGN_FOREIGN_FEES`, `SIGN_TRANSACTION`, `TRANSFER_ASSET` (`GET_USER_WALLET` is implemented for the NATIVE asset only — see the wallet-family note below) |
+| Foreign chain and trading | `ADD_FOREIGN_SERVER`, `CANCEL_TRADE_SELL_ORDER`, `CREATE_TRADE_BUY_ORDER`, `CREATE_TRADE_SELL_ORDER`, `GET_ARRR_SYNC_STATUS`, `REMOVE_FOREIGN_SERVER`, `SET_CURRENT_FOREIGN_SERVER`, `START_CROSSCHAIN_SERVER`, `UPDATE_FOREIGN_FEE` (the four zero-key `/crosschain` READS are implemented) |
 | AT/admin and other host UI | `ADMIN_ACTION`, `CREATE_AND_COPY_EMBED_LINK`, `DEPLOY_AT`, `OPEN_USER_LOOKUP` |
 
 ## Deferred Qortium surface
@@ -198,12 +206,57 @@ and Android fixtures pass.
 The complete retained legacy-bridge action-name source remains
 `electron/qdn-app-actions.ts`. Every action not listed in the implemented table
 above is deferred and unadvertised in Home 2.0. In particular this includes
-multi-resource publishing/deletion, account/group/name/poll/rating mutations other than the
+multi-resource publishing/deletion, account/group/name/poll/rating MUTATIONS other than the
 implemented participation and exact group-administration actions, payments,
-foreign wallets, Home/node settings writes,
+FOREIGN wallets, Home/node settings writes,
 background notification subscriptions, legacy inline/path publishing, and Qortal-prefixed legacy
 helpers. These actions will be migrated by family; they will not be exposed by
 forwarding Home 2.0 apps into the broad v1 bridge.
+
+### Wallet family
+
+`GET_USER_WALLET` is implemented for the **native asset only**. Foreign wallet
+reads and foreign sends remain deferred pending the W3 foreign-wallet design.
+
+The distinction is not arbitrary. The native branch returns an address Home
+already knows and already hands out permissionlessly through
+`GET_SELECTED_ACCOUNT`. The foreign branch, as Home 1.x implemented it, derives
+a BTC/LTC/DOGE/DGB/RVN/DASH/NMC/FIRO HD wallet from the account seed — a
+different and much larger security boundary, with its own key-derivation code,
+its own xprv/xpub handling, and its own failure modes. Home 2 does not carry
+that code at all on this path: a foreign coin is refused with the coded
+`FOREIGN_WALLET_UNAVAILABLE`, never answered with the native address, because
+an app displaying a Qortium address as somebody's Bitcoin receive address is
+the dangerous failure here.
+
+When the W3 design lands it must NOT simply widen this handler. Foreign wallet
+access needs its own action, its own prompt, and its own review — and
+`GET_USER_WALLET`'s place in `HOME_V2_PERMISSIONLESS_ACTIONS` must be revisited
+at the same time, since the strictly-less-than-`GET_SELECTED_ACCOUNT` argument
+that justifies it today would no longer hold.
+
+### `PREVIEW_QDN_PUBLISH_SOURCE`
+
+Still deferred, and deliberately so rather than by oversight.
+
+In Home 1.x this action staged the already-selected source (a directory, a
+`.zip`, or a bare `.html`), POSTed it to a local Core's
+`/arbitrary/preview/WEBSITE`, and displayed the returned `/render/hash/...` URL
+in a v1-only preview surface. Home 2 has no equivalent surface: the resource
+viewer cannot show a website (it hard-refuses `APP`/`WEBSITE`/`GAME` and
+contains no frame), and the desktop shell's CSP is `frame-src 'none'`. The only
+component that can render a site is the app-tab `WebContentsView`, whose URL is
+derived from the tab's `AppResourceLocation` and cannot be set to a preview
+URL without threading a new field through `AppTabContext`, `parseAppEntry`, and
+the shell-state rehydrate path — plus a render-path identity rule, since
+in-view navigation is validated against `/render/SERVICE/name/identifier` and a
+`/render/hash/...` URL matches no such shape.
+
+A main-process-only port would return `true` and show the user nothing, which
+is worse than an honest "not implemented". The v2 publish-source picker is also
+file-only today (`properties: ['openFile']`), so even a complete port would
+cover `.zip` and `.html` but not 1.x's directory sources. This belongs in its
+own change with the renderer work included.
 
 Minting is no longer deferred. `GET_MINTING_STATUS`, `LIST_MINTING_ACCOUNTS`,
 `START_MINTING`, and `REMOVE_MINTING_ACCOUNT` are implemented on both protocols

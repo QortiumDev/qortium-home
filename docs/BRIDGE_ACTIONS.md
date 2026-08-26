@@ -101,12 +101,15 @@ actions they sit beside.
   the invoking global's network, so the Qortium half was a catalogue omission
   rather than a missing implementation — a Qortium app calling
   `qdnRequest({ action: 'GET_ACCOUNT_DATA', address })` reads Qortium, and the
-  `qortalRequest` behavior is unchanged. Both take an explicit, validated
-  address; neither selects an account or returns anything private. Note that
-  Home 2's `GET_BALANCE` is the plain `/addresses/balance/{address}` read: it
-  requires `address` and takes no `assetId`, unlike the Home 1.x action
-  described under "Balances and wallet capability discovery" below. Use
-  `GET_ASSET_BALANCES` for a specific asset.
+  `qortalRequest` behavior is unchanged. Both take a validated address and
+  neither returns anything private.
+
+  **Superseded by the tier-2 restoration below.** This bullet used to add that
+  Home 2's `GET_BALANCE` required an explicit `address` and took no `assetId`,
+  unlike the Home 1.x action described under "Balances and wallet capability
+  discovery". That is no longer true, and the gap it described is what broke
+  the wallet app's balance column: `address` is again optional and defaults to
+  the selected account, and `assetId` is again honored.
 - `FETCH_NODE_API` now allows the `/resource-ratings` prefix, alongside the
   `/account-ratings` prefix it already allowed. These are Core's anonymous
   resource-rating reads. The rating *write* is a signed `RATE_RESOURCE`
@@ -169,6 +172,85 @@ actions they sit beside.
   — and both lists are strict subsets of what `OPEN_QDN_RESOURCE_VIEWER`
   accepts. The legacy `filename` and `mimeType` hints are carried through.
   New apps should call `OPEN_QDN_RESOURCE_VIEWER` directly.
+
+### Tier-2 restoration (R4)
+
+A second batch of Home 1.x actions. Every one is a public read except
+`SEND_MESSAGE`, which is the only signing action in the batch and the only one
+that prompts. `PREVIEW_QDN_PUBLISH_SOURCE` is deliberately NOT part of it — see
+[Home 2 bridge compatibility](HOME_V2_BRIDGE_COMPATIBILITY.md) for why.
+
+- **`GET_USER_WALLET`** (both globals, no prompt). Native asset only:
+
+  ```js
+  const wallet = await qdnRequest({ action: 'GET_USER_WALLET', assetId: 0 });
+  // { address: 'Q...', assetId: 0, assetName: 'Native Asset', native: true }
+  ```
+
+  Native selectors are `assetId: 0`, the coin aliases `NATIVE`,
+  `NATIVE_ASSET`, `ASSET_0`, `ASSET0`, and `QORT`; an absent selector defaults
+  to native. `QORT` is a deliberate addition — Home 1.x sent it down the
+  foreign path, where it failed as an unsupported foreign coin, which is why
+  the legacy wallet's native row was broken. Any actual foreign coin is refused
+  with the coded, non-retryable error `FOREIGN_WALLET_UNAVAILABLE`; it is never
+  answered with the native address, because an app showing a Qortium address as
+  a Bitcoin receive address is the failure worth preventing. Permissionless
+  because it returns strictly less than `GET_SELECTED_ACCOUNT`, which already
+  is. Not offered to a chromeless widget.
+- **`GET_BALANCE` and `GET_ACCOUNT_DATA`** regain their Home 1.x defaults:
+  `address` is optional and falls back to the selected account, and
+  `GET_BALANCE` forwards a non-negative integer `assetId` as
+  `?assetId={id}` (including `0`). See "Balances and wallet capability
+  discovery" below, which now describes both bridges. In a chromeless widget
+  the self-addressing default is withheld and `address` is required.
+- **`UNLOCK_SELECTED_ACCOUNT`** is now advertised on `qortalRequest` as well as
+  `qdnRequest`. Unlocking is a Home-account operation, not a chain one — the
+  same wallet, the same password dialog, the same key — and the legacy wallet
+  app only knows the `qortalRequest` global. Still a single-request prompt that
+  opens Home's own dialog; nothing about the approval changed.
+- **`GET_CROSSCHAIN_BLOCKCHAINS`, `GET_CROSSCHAIN_SERVER_INFO`,
+  `GET_FOREIGN_FEE`, `GET_SERVER_CONNECTION_HISTORY`** (both globals, no
+  prompt). Zero-key reads of the node's own `/crosschain` prefix — no wallet
+  seed, key derivation, unlocked account, or API key. `coin` accepts BTC, LTC,
+  DOGE, DGB, RVN, DASH, NMC, FIRO and ARRR (plus the long names `BITCOIN`,
+  `LITECOIN`, `PIRATECHAIN`, …), resolved against a strict allowlist before it
+  can become a URL path segment. ARRR is accepted although Home cannot derive
+  an ARRR wallet: these reads need no key material, and 1.x wrongly gated them
+  on the HD-wallet coin list, which is why the only coin apps actually pass to
+  `GET_CROSSCHAIN_SERVER_INFO` was the one it rejected.
+  `GET_FOREIGN_FEE` accepts `type`/`feeType` of `TRADE`, `SEND`, `FEEKB`,
+  `FEEPERBYTE` (all → Core's `feekb`) or `FEECEILING`, `FEEREQUIRED` (→
+  `feerequired`); an absent type means `feekb`. For the `feekb` endpoint Home
+  converts Core's per-KILOBYTE figure to a per-byte one with **ceiling**
+  division and returns `{ fee, feePerKb }`, so a fee never rounds down below
+  what the foreign chain requires.
+- **`GET_MARKET_PRICES`** (both globals, no prompt) — the **only** bridge
+  action that reaches outside the Qortal/Qortium node network. It calls
+  `api.coingecko.com`, built entirely from allowlisted coin ids and currency
+  codes, and sends no user data whatsoever: no address, account id, public key,
+  app identity, node URL, cookie, or custom header beyond `Accept`. A shared
+  TTL cache sits in front of it, which is a privacy control as much as a
+  rate-limit one — outbound calls are bounded by the TTL regardless of how
+  often apps ask, so no app can use it to beacon the user's IP on its own
+  schedule. On a fetch failure a cached answer comes back with `stale: true`
+  and a `staleReason`; with nothing cached the error propagates rather than
+  inventing a price. Route-independent: it answers even when every node route
+  is disabled.
+- **`GET_ACCOUNT_RATING` and `GET_RESOURCE_RATING`** (both globals, no prompt).
+  Each combines two anonymous public reads — the subject's summary and this
+  rater's own rating. A 404 on either half means "not rated yet" and becomes
+  `null` (or `[]` for the account-rating list), and Core's three empty shapes
+  (`null`, `[]`, `{}`) all collapse to `null`. `rater` defaults to the selected
+  account, withheld in a widget because the response echoes `rater` back. See
+  "Rating actions" below for field details. The rating *writes* stay deferred.
+- **`GET_GROUP_BANS`, `GET_GROUP_KICKS`, `GET_MEMBER_BANS`,
+  `GET_MEMBER_KICKS`** (both globals, no prompt). Anonymous public reads of
+  group moderation history, with a positive-integer `groupId`, address regex,
+  a 100-entry page cap where Core has none, and `before`/`after` validated
+  against the same millisecond floor Core enforces for chat. The member-scoped
+  pair defaults `address` to the selected account, withheld in a widget. The
+  moderation *writes* are signed transactions and never travel this passthrough.
+- **`SEND_MESSAGE`** (`qdnRequest` only) — see its own section below.
 
 `OPEN_QDN_RESOURCE_VIEWER`, `GET_QDN_RESOURCE_STREAM_URL`, and
 `SAVE_QDN_RESOURCE` are read-only and available through both Home 2 globals in
@@ -434,7 +516,17 @@ or `directory`) and returns `{ canceled: true }` or a source result with
 
 Apps can show the selected source in Home before publishing it with
 `PREVIEW_QDN_PUBLISH_SOURCE`. First request a source from Home, then pass back
-only the opaque `sourceToken`:
+only the opaque `sourceToken`.
+
+> **Home 1.x only.** `PREVIEW_QDN_PUBLISH_SOURCE` is not implemented in the
+> Home 2 bridge and is not advertised on either global. Home 2 has no surface
+> that can display a website preview — its resource viewer refuses
+> `APP`/`WEBSITE`/`GAME` and contains no frame, and the shell's CSP is
+> `frame-src 'none'` — so a handler here would return `true` and show the user
+> nothing. `SELECT_QDN_PUBLISH_SOURCE` and `PUBLISH_QDN_RESOURCE` are both
+> implemented in Home 2; only the preview step is missing. See
+> [Home 2 bridge compatibility](HOME_V2_BRIDGE_COMPATIBILITY.md) for the full
+> reasoning and what a port would need.
 
 ```js
 const selected = await qdnRequest({
@@ -496,6 +588,47 @@ bytes to `/transactions/process`; the app never receives a private key and a
 public/network node never receives one. Because the bridge has this keyless
 local-sign path, `SHOW_ACTIONS` advertises `SEND_MESSAGE` in local, custom, and
 public/network modes.
+
+### Home 2 behavior
+
+The Home 2 bridge keeps every constraint above and tightens two things.
+
+**Forbidden fields are refused, not ignored.** A request carrying `amount`,
+`assetId`, `recipientPublicKey`, `chatReference`, `txGroupId`, `groupId`,
+`isEncrypted: true`, `isText: false`, or a non-zero `fee` fails with an error
+naming the problem. Home 1.x silently dropped them and returned success, which
+means an app could reasonably believe it had attached a payment that the
+serializer had in fact written as zero. A hard error is the only answer that
+cannot be misread.
+
+**It is `qdnRequest`-only.** The serializer mirrors Qortium Core's
+`MessageTransactionTransformer` — including the fact that Qortium's
+`BaseTransactionData` does not chain a last-reference field. Qortal's MESSAGE
+layout differs, so advertising this on `qortalRequest` would mean offering to
+sign bytes that the other chain reads differently. This is the same asymmetric
+catalogue pattern as `SEARCH_GROUPS`, for a stronger reason: there the endpoint
+is merely absent, here the wire format actually differs. The chain is asserted
+again inside the handler, so the guarantee does not rest on a catalogue entry
+staying correct.
+
+The approval is single-request, pinned on the action itself rather than only on
+the prompt payload, so no future change to how the prompt is assembled can let
+one approval cover a second signed message. The prompt shows the AT address and
+the message text in full (truncated with an ellipsis past 1,000 characters),
+and offers no session or durable scope. Sends are rate-limited alongside the
+chat sends, and the app/tab/account/route context is rechecked after the
+proof-of-work and before signing.
+
+When the broadcast outcome is unknown — signed, possibly landed — the result is
+the same non-retryable unknown-outcome shape the chat sends use, and it is
+journaled so the user can reconcile rather than blind-retry. The journal target
+is coarse (`{ kind: 'operation' }`): one unreconciled `SEND_MESSAGE` blocks the
+next one for that app and account regardless of which AT it addressed. That is
+deliberate — the shipped caller is a once-per-account faucet claim, where a
+duplicate is exactly what reconciliation exists to prevent.
+
+Signing is desktop-only; the Android host answers `SEND_MESSAGE` with
+"not available in Home v2 read-only mode".
 
 ## `FETCH_NODE_API` limits
 
@@ -601,6 +734,19 @@ and optional `rater` (an address). If `rater` is not provided, Home uses the
 currently selected account address. The response shape is
 `{ action, target, category, rater, summary, ratings }` where `summary` is `null`
 and `ratings` is an array (empty when no ratings are returned).
+
+Both READS are implemented in the Home 2 bridge as well, on both globals, with
+the same request fields and response shapes. Two Home 2 clarifications:
+
+- A 404 on either half is a normal answer meaning "not rated yet" — it becomes
+  `null` for a summary or a resource rating, and `[]` for the account-rating
+  list — rather than failing the call. Core's three ways of saying empty
+  (`null`, `[]`, `{}`) all collapse to `null` in `summary`.
+- The `rater` default is withheld in a chromeless widget. The response echoes
+  `rater` back, so defaulting it there would disclose the selected account's
+  address with no chrome to announce it; a widget must pass `rater` explicitly.
+
+`RATE_RESOURCE` and `RATE_ACCOUNT` remain deferred in Home 2.
 
 ## Minting actions (Home 2)
 

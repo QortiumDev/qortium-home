@@ -3,6 +3,12 @@ import {
   getAssetInfoPath,
   getAssetTransfersPath,
 } from './qdn-request-values.js'
+import {
+  HOME_V2_CROSSCHAIN_READ_ACTIONS,
+  buildHomeV2CrosschainReadPath,
+  isHomeV2CrosschainReadAction,
+} from './home-v2-crosschain-actions.js'
+import { HOME_V2_MARKET_PRICE_ACTIONS } from './home-v2-market-prices.js'
 
 export type HomeV2AppBridgeProtocol = 'qdnRequest' | 'qortalRequest'
 export type HomeV2AppNetwork = 'qortal' | 'qortium'
@@ -67,6 +73,7 @@ const QDN_ACTIONS = [
   'GET_ACCOUNT_GROUPS',
   'GET_ACCOUNT_GROUP_JOIN_REQUESTS',
   'GET_ACCOUNT_NAMES',
+  'GET_ACCOUNT_RATING',
   'GET_ACTIVE_CHATS',
   'GET_ADMIN_GROUP_JOIN_REQUESTS',
   'GET_ASSET_BALANCES',
@@ -77,9 +84,15 @@ const QDN_ACTIONS = [
   'GET_BALANCE',
   'GET_CHAT_MESSAGE',
   'GET_CHAT_ATTACHMENT_STREAM_URL',
+  ...HOME_V2_CROSSCHAIN_READ_ACTIONS,
   'GET_GROUP',
+  'GET_GROUP_BANS',
   'GET_GROUP_JOIN_REQUESTS',
+  'GET_GROUP_KICKS',
   'GET_GROUP_MEMBERS',
+  ...HOME_V2_MARKET_PRICE_ACTIONS,
+  'GET_MEMBER_BANS',
+  'GET_MEMBER_KICKS',
   'GET_MINTING_STATUS',
   'GET_NAME_DATA',
   'GET_PRIMARY_NAME',
@@ -91,7 +104,9 @@ const QDN_ACTIONS = [
   'GET_QDN_RESOURCE_STATUS',
   'GET_QDN_RESOURCE_STREAM_URL',
   'GET_QDN_RESOURCE_URL',
+  'GET_RESOURCE_RATING',
   'GET_SELECTED_ACCOUNT',
+  'GET_USER_WALLET',
   'INVITE_TO_GROUP',
   'JOIN_GROUP',
   'LIST_ATS',
@@ -125,6 +140,7 @@ const QDN_ACTIONS = [
   'SEND_DIRECT_CHAT_EDIT',
   'SEND_DIRECT_CHAT_MESSAGE',
   'SEND_DIRECT_CHAT_REACTION',
+  'SEND_MESSAGE',
   'REQUEST_PRIVATE_GROUP_CHAT_KEY',
   'RESOLVE_PRIVATE_GROUP_CHAT_KEY_REQUESTS',
   'ROTATE_PRIVATE_GROUP_CHAT_KEY',
@@ -155,6 +171,7 @@ const QORTAL_ACTIONS = [
   'GET_ACCOUNT_GROUPS',
   'GET_ACCOUNT_GROUP_JOIN_REQUESTS',
   'GET_ACCOUNT_NAMES',
+  'GET_ACCOUNT_RATING',
   'GET_ACTIVE_CHATS',
   'GET_ADMIN_GROUP_JOIN_REQUESTS',
   'GET_AT',
@@ -162,10 +179,16 @@ const QORTAL_ACTIONS = [
   'GET_BALANCE',
   'GET_CHAT_MESSAGE',
   'GET_CHAT_ATTACHMENT_STREAM_URL',
+  ...HOME_V2_CROSSCHAIN_READ_ACTIONS,
   'GET_DAY_SUMMARY',
   'GET_GROUP',
+  'GET_GROUP_BANS',
   'GET_GROUP_JOIN_REQUESTS',
+  'GET_GROUP_KICKS',
   'GET_GROUP_MEMBERS',
+  ...HOME_V2_MARKET_PRICE_ACTIONS,
+  'GET_MEMBER_BANS',
+  'GET_MEMBER_KICKS',
   'GET_MINTING_STATUS',
   'GET_NAME_DATA',
   'GET_PRICE',
@@ -178,7 +201,9 @@ const QORTAL_ACTIONS = [
   'GET_QDN_RESOURCE_STATUS',
   'GET_QDN_RESOURCE_STREAM_URL',
   'GET_QDN_RESOURCE_URL',
+  'GET_RESOURCE_RATING',
   'GET_USER_ACCOUNT',
+  'GET_USER_WALLET',
   'KICK_FROM_GROUP',
   'INVITE_TO_GROUP',
   'JOIN_GROUP',
@@ -220,6 +245,16 @@ const QORTAL_ACTIONS = [
   'SEND_PRIVATE_GROUP_CHAT_REACTION',
   'PUBLISH_QDN_RESOURCE',
   'PUBLISH_CHAT_ATTACHMENT',
+  // Unlocking is a HOME-account operation, not a chain one: the same wallet,
+  // the same password dialog, the same key, whichever protocol asked. It was
+  // qdnRequest-only in Phase 1 by omission rather than by design, which broke
+  // the legacy wallet app — walletium calls it on `qortalRequest`, the only
+  // bridge global it knows (walletium/src/components/wallet/CoinDetail.tsx:70-75,
+  // src/utils/addressBookQDN.ts:87-92). Advertising it on both protocols
+  // grants nothing extra: the user still types their password into Home's own
+  // dialog, and the unlock is asserted to have actually completed
+  // (assertHomeV2UnlockCompleted) before the action returns.
+  'UNLOCK_SELECTED_ACCOUNT',
 ] as const
 // SEARCH_GROUPS (Qortium-only): /groups/search does not exist on Qortal
 // (verified absent from both the Qortal master 6.1.5 and develop checkouts'
@@ -702,7 +737,7 @@ const GROUP_SEARCH_VISIBILITIES = new Set(['ALL', 'OPEN', 'CLOSED'])
 // families above before the request goes out.
 const GROUP_LIST_LIMIT_MAX = 100
 
-const CHAIN_READ_ACTIONS = new Set([
+const CHAIN_READ_ACTIONS = new Set<string>([
   'FETCH_BLOCK',
   'FETCH_BLOCK_RANGE',
   'GET_ACCOUNT_GROUPS',
@@ -714,8 +749,12 @@ const CHAIN_READ_ACTIONS = new Set([
   'GET_CHAT_MESSAGE',
   'GET_DAY_SUMMARY',
   'GET_GROUP',
+  'GET_GROUP_BANS',
   'GET_GROUP_JOIN_REQUESTS',
+  'GET_GROUP_KICKS',
   'GET_GROUP_MEMBERS',
+  'GET_MEMBER_BANS',
+  'GET_MEMBER_KICKS',
   'GET_PRICE',
   'LIST_ATS',
   'LIST_GROUPS',
@@ -723,7 +762,59 @@ const CHAIN_READ_ACTIONS = new Set([
   'SEARCH_GROUPS',
   'SEARCH_NAMES',
   'SEARCH_TRANSACTIONS',
+  // The four zero-key `/crosschain` GETs. They join this set rather than
+  // getting their own dispatch so they inherit the chain-read pipeline both
+  // hosts already share — one allowlist, one fetch, one response bound — and
+  // so the Android bridge picks them up with no extra wiring. Their path
+  // builders and the two 1.x response projections live in
+  // home-v2-crosschain-actions.ts.
+  ...HOME_V2_CROSSCHAIN_READ_ACTIONS,
 ])
+
+/**
+ * Chain reads whose `address` defaults to the selected account.
+ *
+ * Home 1.x resolved an absent address through getAddressForQdnRequest
+ * (electron/qdn.ts:8987-9005) for the member-scoped group reads. Both v2 hosts
+ * substitute the selected account's address before building the path, so the
+ * builder itself stays synchronous and account-free.
+ *
+ * Deliberately limited to the two actions restored here. The older
+ * member-scoped reads (GET_ACCOUNT_GROUPS, GET_ACCOUNT_GROUP_JOIN_REQUESTS,
+ * GET_ADMIN_GROUP_JOIN_REQUESTS, GET_ACTIVE_CHATS) already shipped in Home 2
+ * requiring an explicit address; widening them is a behavior change for
+ * already-published apps and belongs in its own review, not this one.
+ *
+ * Posture: the default is the caller's OWN address, which the app can already
+ * read with GET_SELECTED_ACCOUNT. It grants no reach it did not have.
+ */
+export const HOME_V2_SELF_DEFAULTING_ADDRESS_ACTIONS = Object.freeze([
+  'GET_MEMBER_BANS',
+  'GET_MEMBER_KICKS',
+] as const)
+
+const SELF_DEFAULTING_ADDRESS_ACTIONS = new Set<string>(HOME_V2_SELF_DEFAULTING_ADDRESS_ACTIONS)
+
+export function homeV2ChainReadNeedsSelectedAddress(
+  action: string,
+  request: Record<string, unknown>,
+) {
+  if (!SELF_DEFAULTING_ADDRESS_ACTIONS.has(action)) return false
+  const address = request.address
+  return address === undefined || address === null || address === ''
+}
+
+export function withHomeV2SelectedAddress(
+  request: Record<string, unknown>,
+  selectedAddress: string | null | undefined,
+) {
+  // No fallback offered: either no account is selected, or this is a widget,
+  // where self-addressing is withheld (homeV2WidgetWithholdsSelfSubject).
+  if (!selectedAddress) {
+    throw new Error('Address is required.')
+  }
+  return { ...request, address: normalizeHomeV2Address(selectedAddress, 'Selected account address') }
+}
 
 // Core rejects /chat/messages before/after bounds earlier than this
 // (a pre-2018 millisecond timestamp); Home pre-validates the same floor.
@@ -738,6 +829,16 @@ function optionalChatTimeBound(request: Record<string, unknown>, key: string) {
     throw new Error(`${key} must be a millisecond timestamp no earlier than ${CHAT_SEARCH_TIME_FLOOR_MS}.`)
   }
   return parsed
+}
+
+// `before`/`after` are millisecond timestamps on both /chat/messages and
+// /groups/kicks, and Core rejects the same pre-2018 floor on each, so the one
+// bound validator serves both families.
+function appendChatTimeBounds(query: URLSearchParams, request: Record<string, unknown>) {
+  const before = optionalChatTimeBound(request, 'before')
+  if (before !== undefined) query.set('before', String(before))
+  const after = optionalChatTimeBound(request, 'after')
+  if (after !== undefined) query.set('after', String(after))
 }
 
 function normalizeHomeV2ChatEncoding(value: unknown) {
@@ -792,6 +893,11 @@ function requiredPositiveInteger(value: unknown, key: string, max?: number) {
 }
 
 export function buildHomeV2ChainReadPath(action: string, request: Record<string, unknown>) {
+  // The `/crosschain` family validates its own coin against a strict allowlist
+  // before anything reaches the path; see home-v2-crosschain-actions.ts.
+  if (isHomeV2CrosschainReadAction(action)) {
+    return buildHomeV2CrosschainReadPath(action, request)
+  }
   if (action === 'SEARCH_NAMES') {
     const query = new URLSearchParams()
     query.set('query', requestString(request, 'query', 'Name search query', 256))
@@ -846,6 +952,40 @@ export function buildHomeV2ChainReadPath(action: string, request: Record<string,
   }
   if (action === 'GET_GROUP_JOIN_REQUESTS') {
     return `/groups/joinrequests/${requiredPositiveInteger(request.groupId, 'groupId')}`
+  }
+  // The four group ban/kick reads. Public group moderation history on both
+  // forks: Core serves them anonymously, they name no private data, and the
+  // WRITES that create these records (GROUP_BAN, GROUP_KICK, CANCEL_GROUP_BAN)
+  // are signed transactions that never travel through this GET passthrough.
+  // Path shapes ported from Home 1.x buildGroupBansPath / buildGroupKicksPath /
+  // buildMemberBansPath / buildMemberKicksPath (electron/qdn.ts:8922-8973).
+  if (action === 'GET_GROUP_BANS') {
+    return `/groups/bans/${requiredPositiveInteger(request.groupId, 'groupId')}`
+  }
+  if (action === 'GET_GROUP_KICKS') {
+    const groupId = requiredPositiveInteger(request.groupId, 'groupId')
+    const query = new URLSearchParams()
+    if (request.address !== undefined && request.address !== null && request.address !== '') {
+      query.set('address', normalizeHomeV2Address(request.address))
+    }
+    appendChatTimeBounds(query, request)
+    appendPageQuery(query, request, GROUP_LIST_LIMIT_MAX)
+    return `/groups/kicks/${groupId}${query.size ? `?${query.toString()}` : ''}`
+  }
+  if (action === 'GET_MEMBER_BANS') {
+    const query = new URLSearchParams()
+    query.set('address', normalizeHomeV2Address(request.address))
+    appendPageQuery(query, request, GROUP_LIST_LIMIT_MAX)
+    return `/groups/bans/member?${query.toString()}`
+  }
+  if (action === 'GET_MEMBER_KICKS') {
+    const query = new URLSearchParams()
+    query.set('address', normalizeHomeV2Address(request.address))
+    const groupId = optionalPageInteger(request, 'groupId')
+    if (groupId !== undefined) query.set('groupId', String(groupId))
+    appendChatTimeBounds(query, request)
+    appendPageQuery(query, request, GROUP_LIST_LIMIT_MAX)
+    return `/groups/kicks/member?${query.toString()}`
   }
   if (action === 'GET_ACCOUNT_GROUP_JOIN_REQUESTS') {
     return `/groups/joinrequests/address/${encodeURIComponent(normalizeHomeV2Address(request.address))}`
@@ -1016,6 +1156,135 @@ export function buildHomeV2ChainReadPath(action: string, request: Record<string,
     return `/chat/active/${encodeURIComponent(address)}?${query.toString()}`
   }
   throw new Error(`${action} is not a supported chain read.`)
+}
+
+/**
+ * The two trust reads: GET_ACCOUNT_RATING and GET_RESOURCE_RATING.
+ *
+ * They sit apart from the single-path chain reads because each answers with
+ * TWO node reads combined — the public summary for the subject, plus this
+ * rater's own rating of it — exactly as Home 1.x did
+ * (electron/qdn.ts:7712-7786).
+ *
+ * Both are anonymous public reads. `/account-ratings` and `/resource-ratings`
+ * are unauthenticated on both forks and are already in READ_PREFIXES; the
+ * rating WRITES (RATE_ACCOUNT, RATE_RESOURCE) are signed transactions and are
+ * NOT restored here. A 404 on either half is a normal answer — nobody has
+ * rated this subject yet — so the host maps it to the documented empty value
+ * rather than failing the call.
+ */
+export const HOME_V2_RATING_READ_ACTIONS = Object.freeze([
+  'GET_ACCOUNT_RATING',
+  'GET_RESOURCE_RATING',
+] as const)
+
+const RATING_READ_ACTIONS = new Set<string>(HOME_V2_RATING_READ_ACTIONS)
+
+export function isHomeV2RatingReadAction(action: string) {
+  return RATING_READ_ACTIONS.has(action)
+}
+
+export function homeV2RatingReadNeedsSelectedAddress(request: Record<string, unknown>) {
+  const rater = request.rater
+  return rater === undefined || rater === null || rater === ''
+}
+
+export type HomeV2RatingRead = {
+  readonly meta: Record<string, unknown>
+  readonly ratingFallback: unknown
+  readonly ratingPath: string
+  readonly summaryPath: string
+}
+
+export function buildHomeV2RatingRead(
+  action: string,
+  request: Record<string, unknown>,
+  raterAddress: string | null | undefined,
+): HomeV2RatingRead {
+  const explicitRater = request.rater
+  const rater = explicitRater !== undefined && explicitRater !== null && explicitRater !== ''
+    ? normalizeHomeV2Address(explicitRater, 'Rater address')
+    : raterAddress
+      ? normalizeHomeV2Address(raterAddress, 'Selected account address')
+      // No fallback offered: either no account is selected, or this is a
+      // widget, where self-addressing is withheld — a rating response echoes
+      // `rater` back, so defaulting it there would disclose the selected
+      // identity with no chrome to say so.
+      : (() => {
+          throw new Error('A rater address is required.')
+        })()
+
+  if (action === 'GET_RESOURCE_RATING') {
+    const { service, name } = normalizedResource(request)
+    // 1.x defaults a blank identifier to 'default', matching how Core keys an
+    // identifier-less resource.
+    const identifier = optionalRequestString(request, 'identifier') || 'default'
+    const summaryQuery = new URLSearchParams({ service, name, identifier })
+    const ratingQuery = new URLSearchParams({ service, name, identifier, rater })
+    return {
+      meta: { action, identifier, name, rater, service },
+      ratingFallback: null,
+      ratingPath: `/resource-ratings/rating?${ratingQuery.toString()}`,
+      summaryPath: `/resource-ratings/summary?${summaryQuery.toString()}`,
+    }
+  }
+
+  if (action === 'GET_ACCOUNT_RATING') {
+    const target = normalizeHomeV2Address(request.target, 'Target address')
+    const category = optionalRequestString(request, 'category')
+    const summaryQuery = new URLSearchParams({ target, ...(category ? { category } : {}) })
+    const ratingQuery = new URLSearchParams({ target, rater, ...(category ? { category } : {}) })
+    return {
+      meta: { action, category, rater, target },
+      // The account-rating half is a LIST, so its empty answer is [] rather
+      // than null (1.x qdn.ts:7776).
+      ratingFallback: [],
+      ratingPath: `/account-ratings?${ratingQuery.toString()}`,
+      summaryPath: `/account-ratings/summary?${summaryQuery.toString()}`,
+    }
+  }
+
+  throw new Error(`${action} is not a supported rating read.`)
+}
+
+/**
+ * Core answers "no ratings yet" three different ways depending on endpoint and
+ * fork — null, [], or {} — and an app should not have to tell them apart.
+ * Collapse all three to null. Ported from 1.x normalizeRatingSummary
+ * (electron/qdn.ts:7678-7692).
+ */
+export function normalizeHomeV2RatingSummary(summary: unknown) {
+  if (summary === null || summary === undefined) return null
+  if (Array.isArray(summary) && summary.length === 0) return null
+  if (
+    !!summary &&
+    typeof summary === 'object' &&
+    !Array.isArray(summary) &&
+    Object.keys(summary).length === 0
+  ) {
+    return null
+  }
+  return summary
+}
+
+export function buildHomeV2RatingReadResult(
+  read: HomeV2RatingRead,
+  summary: unknown,
+  rating: unknown,
+) {
+  const normalizedSummary = normalizeHomeV2RatingSummary(summary)
+  if (read.meta.action === 'GET_ACCOUNT_RATING') {
+    return Object.freeze({
+      ...read.meta,
+      ratings: Array.isArray(rating) ? rating : [],
+      summary: normalizedSummary,
+    })
+  }
+  return Object.freeze({
+    ...read.meta,
+    rating: rating ?? null,
+    summary: normalizedSummary,
+  })
 }
 
 export function buildHomeV2AssetReadPath(action: string, request: Record<string, unknown>) {

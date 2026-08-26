@@ -81,10 +81,27 @@ const ACCOUNT_READ_ACTIONS = new Set<string>(HOME_V2_ACCOUNT_READ_ACTIONS)
  * fields — never key material — and both report node-side state only for a
  * local Core the user already runs. The two minting WRITES are deliberately
  * absent: they always prompt.
+ *
+ * GET_USER_WALLET qualifies by a strictly-less argument (R4 tier-2). It
+ * returns the selected account's ADDRESS plus three constants: assetId 0, the
+ * native asset label, and native: true. GET_SELECTED_ACCOUNT — already
+ * permissionless, first in this list — returns that same address AND the
+ * account's registered name AND its lock state. Everything GET_USER_WALLET
+ * discloses is therefore already disclosed permissionlessly, and it discloses
+ * less besides. It calls no node, derives no key, and does not require an
+ * unlocked account (electron/home-v2-wallet-actions.ts).
+ *
+ * The FOREIGN branch of this action name — which in Home 1.x derived a BTC/LTC/…
+ * HD wallet from the account seed — is not implemented in Home 2 at all; it is
+ * refused with a coded error. So there is no key-derivation path sitting behind
+ * this name that could inherit permissionless status by accident. If the W3
+ * foreign-wallet design ever lands, it must NOT simply extend this handler:
+ * it needs its own action and its own prompt, and this entry must be revisited.
  */
 export const HOME_V2_PERMISSIONLESS_ACTIONS = Object.freeze([
   'GET_SELECTED_ACCOUNT',
   'GET_USER_ACCOUNT',
+  'GET_USER_WALLET',
   'GET_PENDING_TRANSACTIONS',
   'GET_PRIVATE_DIRECT_ACTIVE_CHATS',
   'SEARCH_PRIVATE_DIRECT_CHAT_MESSAGES',

@@ -124,8 +124,16 @@ assert.equal(store.size(), 1)
   // The minting reads (R3-11) are permissionless without being account reads:
   // they take an address rather than reaching into the selected account's
   // private data, so they are deliberately outside the account.read grant.
+  //
+  // GET_USER_WALLET (R4 tier-2) is the third. It stays OUT of
+  // HOME_V2_ACCOUNT_READ_ACTIONS on purpose: membership there would make it
+  // reachable through a durable `account.read` grant and give it that family's
+  // prompt wording, when in fact it needs no grant at all — its whole answer
+  // is the address GET_SELECTED_ACCOUNT already returns permissionlessly,
+  // minus the name and lock state.
+  //
   // Any OTHER permissionless action must still be an account read.
-  const permissionlessNonAccountReads = ['GET_MINTING_STATUS', 'LIST_MINTING_ACCOUNTS']
+  const permissionlessNonAccountReads = ['GET_MINTING_STATUS', 'GET_USER_WALLET', 'LIST_MINTING_ACCOUNTS']
   for (const action of permissionless) {
     assert.equal(
       isHomeV2PermissionlessAction(action),
@@ -205,15 +213,17 @@ assert.equal(store.size(), 1)
     )
   }
 
-  // The permissionless set is exactly identity, the app's own journal,
-  // direct-chat reads, and the two derived-only minting reads — every one a
-  // pure read that returns no key material.
+  // The permissionless set is exactly identity (now including the wallet-app
+  // spelling of it, GET_USER_WALLET), the app's own journal, direct-chat
+  // reads, and the two derived-only minting reads — every one a pure read that
+  // returns no key material.
   assert.deepEqual([...permissionless].sort(), [
     'GET_MINTING_STATUS',
     'GET_PENDING_TRANSACTIONS',
     'GET_PRIVATE_DIRECT_ACTIVE_CHATS',
     'GET_SELECTED_ACCOUNT',
     'GET_USER_ACCOUNT',
+    'GET_USER_WALLET',
     'LIST_MINTING_ACCOUNTS',
     'SEARCH_PRIVATE_DIRECT_CHAT_MESSAGES',
   ])

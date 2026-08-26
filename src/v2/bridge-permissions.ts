@@ -39,6 +39,12 @@ export type PermissionCapability =
   // Loading or removing a minting key on the local Core. Always a
   // single-request approval; never retained as a grant.
   | 'account.minting'
+  // Signing one zero-fee, zero-payment chain MESSAGE to an AT (SEND_MESSAGE).
+  // Deliberately NOT 'account.read' and not any 'chat.*' capability: durable
+  // grants unify on the capability string, so a signing action must never be
+  // reachable through a grant the user gave for a read or a chat send. Always
+  // a single-request approval; never retained.
+  | 'contract.message.send'
 
 export interface PermissionDetail {
   readonly label: string
@@ -104,6 +110,7 @@ export interface PermissionPrompt {
     | 'FORGET_PENDING_TRANSACTION'
     | 'START_MINTING'
     | 'REMOVE_MINTING_ACCOUNT'
+    | 'SEND_MESSAGE'
   readonly capability: PermissionCapability
   readonly appId: AppId
   readonly appIdentityKey: string

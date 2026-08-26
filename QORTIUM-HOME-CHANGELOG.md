@@ -34,6 +34,59 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-26 - feat(home-v2): wallet apps show balances again, and apps can read ratings, moderation history, foreign-chain details and coin prices
+
+The wallet apps had been quietly broken. Both of them ask Home a simple
+question — "what is my address?" — and Home's new interface did not answer it,
+so every coin row sat empty. The balance column was broken for a second reason:
+the wallet asks for a balance without naming an address, expecting Home to
+understand it means the account you already have selected, and the new
+interface insisted on being told one every time. It also ignored which coin the
+balance was for, so it would have quietly reported the wrong number for
+anything other than the native one. All three are fixed. Home now answers the
+address question for the native coin, treats a missing address as "the account
+you have selected", and reads the balance for the coin actually asked about.
+
+Foreign coins are a separate matter and stay unavailable for now. Rather than
+guess, Home refuses them with a clear message. The alternative — handing back
+your Qortium address when an app asked for your Bitcoin one — is the mistake
+worth avoiding, because an app could display it as a receive address and
+somebody could send real money to it.
+
+A group of read-only requests that Home 1 answered are back as well: the public
+ratings behind the Trust app, the ban and kick history of a group, the
+foreign-chain details a wallet shows (which servers a node is using, what a
+chain currently charges), and live coin prices. None of these asks you for
+anything or touches your keys — they read information that is already public.
+Coin prices are the one request in the whole bridge that reaches the wider
+internet rather than a Qortium or Qortal node, so it is worth being precise
+about it: nothing identifying you is sent, and Home keeps one shared,
+short-lived copy of the answer, which means an app cannot use it to repeatedly
+announce your connection to an outside service.
+
+Unlocking your account can now be asked for through either of the two request
+styles an app might use. Unlocking has never been about which network an app is
+talking to — it is your Home account, your password, your dialog — but the
+older wallet app only knows one of the two styles and so could not ask at all.
+Nothing about the approval changed: Home still asks you, in its own window.
+
+One new request can change something: an app can send a short message to a
+contract on the chain. This is how the casino's faucet claim works. It is
+deliberately hemmed in — it can only address a contract and never a person, it
+carries no payment, it costs no fee, and it cannot encrypt anything. Every send
+asks you first, showing the exact contract and the exact text, and each approval
+covers exactly one message; there is no "always allow" for it. If an app tries
+to attach a payment, Home refuses the whole request instead of quietly dropping
+it, so an app can never believe it paid something it did not.
+
+Two smaller notes. Floating widgets are held to a stricter line than tabs: a
+widget has no window furniture to show you a prompt, so the requests that would
+otherwise fall back to "the account you have selected" refuse in a widget and
+must be told an address outright. And previewing something before you publish
+it is still missing — Home's new interface has nowhere to display a website
+preview yet, and shipping a button that reports success while showing you
+nothing would be worse than leaving it out.
+
 ### 2026-08-26 - feat(home-v2): apps can manage notification permissions again
 
 Home lets each app ask permission to send you notifications, and lets apps save

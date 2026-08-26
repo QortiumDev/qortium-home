@@ -55,6 +55,12 @@ export const HOME_V2_ROUTE_INDEPENDENT_ACTIONS = Object.freeze([
   'BOOKMARKS_OPEN',
   'FORGET_PENDING_TRANSACTION',
   'GET_HOST_INFO',
+  // The one action that reads from outside the node network entirely (a
+  // cached CoinGecko price list), so a disabled or unreachable Qortal/Qortium
+  // route has no bearing on whether it can answer. Being route-independent is
+  // a statement about where the data comes from, not a privilege: it still
+  // returns nothing but public prices.
+  'GET_MARKET_PRICES',
   'GET_PENDING_TRANSACTIONS',
   'IS_USING_PUBLIC_NODE',
   'NOTIFICATION_HAS_PERMISSION',
@@ -186,8 +192,40 @@ function isWidgetPublicReadAction(action: string) {
     // through. Both are excluded for the same reason GET_SELECTED_ACCOUNT is,
     // even though they are permissionless in a normal tab.
     action === 'GET_MINTING_STATUS' ||
-    action === 'LIST_MINTING_ACCOUNTS'
+    action === 'LIST_MINTING_ACCOUNTS' ||
+    // Same reason again, and the reason this predicate is a DENYLIST behind a
+    // prefix test rather than a plain allowlist is exactly this trap:
+    // GET_USER_WALLET matches /^GET_/ and would have been admitted silently.
+    // Its entire answer is the selected account's address, so it is
+    // GET_SELECTED_ACCOUNT by another name and is excluded with it.
+    action === 'GET_USER_WALLET'
   )
+}
+
+/**
+ * Reads whose subject address DEFAULTS to the selected account.
+ *
+ * These stay available in a widget — with an EXPLICIT address, which is all
+ * they could ever do before — but the default must not apply there. The
+ * default is what turns a public read into an identity disclosure: a widget
+ * calling GET_ACCOUNT_DATA with no address would otherwise be handed a record
+ * containing the selected account's address, and GET_ACCOUNT_RATING would echo
+ * it back as `rater`, with no chrome to tell the user any of it happened.
+ *
+ * Callers pass a null selected address in widget context, so the request
+ * fails with "Address is required" instead of quietly self-addressing.
+ */
+const WIDGET_SELF_SUBJECT_ACTIONS = new Set<string>([
+  'GET_ACCOUNT_DATA',
+  'GET_ACCOUNT_RATING',
+  'GET_BALANCE',
+  'GET_MEMBER_BANS',
+  'GET_MEMBER_KICKS',
+  'GET_RESOURCE_RATING',
+])
+
+export function homeV2WidgetWithholdsSelfSubject(action: string) {
+  return WIDGET_SELF_SUBJECT_ACTIONS.has(action)
 }
 
 export function getHomeV2ContextualAppActions(
