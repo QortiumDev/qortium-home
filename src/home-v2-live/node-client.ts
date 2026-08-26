@@ -1124,13 +1124,21 @@ export function createPortableNodeClient(
       // Android never runs one (readSettings rejects 'local'), exactly as in
       // Home 1.x, where lists only ever worked in the emulator. Never a
       // pretend-empty list.
-      if (isHomeV2ListAction(action)) {
+      // qdnRequest only: on qortalRequest the family is not implemented at
+      // all, and that case must keep its UNSUPPORTED_PROTOCOL answer from the
+      // generic gate below rather than a capability error naming the wrong
+      // network. (Round-2 review, residual 6.)
+      if (protocol === 'qdnRequest' && isHomeV2ListAction(action)) {
         throw createHomeV2BridgeError(
           'QDN lists live on the local Core that Home runs and reaches over loopback; Android has no local Core.',
           { action, code: 'NODE_CAPABILITY_MISSING', network: 'qortium', retryable: false },
         )
       }
-      if (isHomeV2AndroidUnsupportedAction(action)) {
+      // List actions are also in ANDROID_UNSUPPORTED_ACTIONS (for the
+      // SHOW_ACTIONS filter), but their refusals are handled above for
+      // qdnRequest and by the generic implemented check below for
+      // qortalRequest — the signing message here would be wrong for both.
+      if (!isHomeV2ListAction(action) && isHomeV2AndroidUnsupportedAction(action)) {
         throw createHomeV2BridgeError(
           `${action} requires transaction signing, which is only available in Qortium Home desktop.`,
           {

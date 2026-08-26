@@ -3221,7 +3221,7 @@ export function HomeV2LiveApp() {
           : isListWrite
           ? [
               { label: 'App', value: appTitle },
-              // The List/Items/Node rows, re-checked by isHomeSettingsDetailRows
+              // The List/Items/Node rows, re-checked by isNodeListDetailRows
               // above. Items is the full serialized batch (up to 4,000
               // characters — anything larger was refused before prompting), so
               // it renders in the bounded scrolling block the SEND_MESSAGE

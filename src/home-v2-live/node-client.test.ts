@@ -333,11 +333,12 @@ await assert.rejects(
   /outside Home v2 read-only scope/,
 )
 
-// The list family is advertised but can never qualify on Android: every
-// /lists route needs the administrative key of a local Core, and Android
-// never runs one. All four answer the coded refusal, never a pretend-empty
-// list — keep in step with resolveHomeV2ListNode in
-// electron/home-v2-app-bridge.ts.
+// The list family is filtered from Android's SHOW_ACTIONS (it can never
+// qualify: every /lists route needs the administrative key of a local Core,
+// and Android never runs one), and a direct qdnRequest call still answers the
+// precise coded refusal, never a pretend-empty list — keep in step with
+// resolveHomeV2ListNode in electron/home-v2-app-bridge.ts. On qortalRequest
+// the family is simply not implemented.
 for (const listRequest of [
   { action: 'GET_ALL_LISTS' },
   { action: 'GET_LIST', listName: 'followedNames' },
@@ -347,6 +348,13 @@ for (const listRequest of [
   await assert.rejects(
     () => client.requestApp('qdnRequest', listRequest),
     /Android has no local Core/,
+  )
+  // Same request on qortalRequest: not implemented there at all, so the
+  // answer is the generic UNSUPPORTED_PROTOCOL refusal, never a Qortium
+  // capability error on a Qortal request.
+  await assert.rejects(
+    () => client.requestApp('qortalRequest', listRequest),
+    /is not implemented for qortalRequest/,
   )
 }
 
