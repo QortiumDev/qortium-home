@@ -6404,18 +6404,26 @@ function homeV2PollTimeRow(label: string, value: number | undefined) {
 // An approval the user cannot read in full is not an approval (the lists
 // rule). Options and descriptions are chain-limited to sizes that can exceed
 // any dialog, so the serialized display form is capped like a list batch.
+// The escape is INJECTIVE: backslashes are doubled FIRST, so a literal
+// six-character "\\u202e" in chain data and a real U+202E can never render
+// identically — and C0 controls are escaped too, so a legitimate multiline
+// description reaches the prompt as a visible "\\u000a" instead of being
+// refused by the renderer's control-character check and dying as a silent
+// 60-second timeout. (Security review 2026-08-26, findings 2 and 4.)
 function homeV2PollApprovalText(value: string, label: string) {
-  const escaped = value.replace(
-    /[\u007f-\uffff]/g,
-    (ch) => `\\u${ch.charCodeAt(0).toString(16).padStart(4, '0')}`,
-  )
+  const escaped = value
+    .replace(/\\/g, '\\\\')
+    .replace(
+      /[\u0000-\u001f\u007f-\uffff]/g,
+      (ch) => `\\u${ch.charCodeAt(0).toString(16).padStart(4, '0')}`,
+    )
   if (escaped.length > 4_000) {
     throw new Error(`${label} is too large to display safely for approval (4000 characters maximum).`)
   }
   return escaped
 }
 
-async function readHomeV2PollTarget(nodeApiUrl: string, pollId: number) {
+async function readHomeV2PollTarget(action: HomeV2PollWriteAction, nodeApiUrl: string, pollId: number) {
   let value: unknown
   try {
     // Keyless public read; the admin key never travels for a lookup.
@@ -6423,7 +6431,7 @@ async function readHomeV2PollTarget(nodeApiUrl: string, pollId: number) {
   } catch (error) {
     if (isHomeV2AppRecord(error) && error.status === 404) {
       throw createHomeV2BridgeError(`Poll ${pollId} does not exist.`, {
-        action: 'VOTE_ON_POLL',
+        action,
         code: 'TARGET_NOT_FOUND',
         network: 'qortium',
         retryable: false,
@@ -6461,7 +6469,7 @@ async function handleHomeV2PollAction(
 
   // The live poll a vote or update is about. Read before prompting so the
   // dialog can show real names and labels, and re-read after approval below.
-  const target = pollId === null ? null : await readHomeV2PollTarget(node.nodeApiUrl, pollId)
+  const target = pollId === null ? null : await readHomeV2PollTarget(action, node.nodeApiUrl, pollId)
   const selection = voteRequest ? canonicalHomeV2VoteSelection(voteRequest.optionInput) : null
   if (target && selection) {
     for (const index of selection) {
@@ -6475,9 +6483,12 @@ async function handleHomeV2PollAction(
   const pollDetails = createRequest
     ? [
         { label: 'Name', value: homeV2PollApprovalText(createRequest.pollName, 'The poll name') },
-        ...(createRequest.description
-          ? [{ label: 'Description', value: homeV2PollApprovalText(createRequest.description, 'The poll description') }]
-          : []),
+        {
+          label: 'Description',
+          value: createRequest.description
+            ? homeV2PollApprovalText(createRequest.description, 'The poll description')
+            : '(none)',
+        },
         { label: 'Options', value: homeV2PollApprovalText(JSON.stringify(createRequest.pollOptions), 'The poll option list') },
         { label: 'Owner', value: createRequest.owner },
         ...homeV2PollTimeRow('Starts', createRequest.startTime),
@@ -6500,12 +6511,30 @@ async function handleHomeV2PollAction(
         ? [
             { label: 'Poll', value: homeV2PollApprovalText(`#${updateRequest.pollId} · ${target.pollName}`, 'The poll name') },
             { label: 'New name', value: homeV2PollApprovalText(updateRequest.newPollName, 'The new poll name') },
-            ...(updateRequest.newDescription
-              ? [{ label: 'New description', value: homeV2PollApprovalText(updateRequest.newDescription, 'The new description') }]
-              : []),
+            // Every replacement field is shown EXPLICITLY: an update replaces
+            // the complete metadata, so an omitted description or time CLEARS
+            // the stored one, and a row the prompt silently dropped would hide
+            // exactly that destruction (security review 2026-08-26, finding 1).
+            // "(none)" is a row, not an absence.
+            {
+              label: 'New description',
+              value: updateRequest.newDescription
+                ? homeV2PollApprovalText(updateRequest.newDescription, 'The new description')
+                : '(none — clears any stored description)',
+            },
             { label: 'New options', value: homeV2PollApprovalText(JSON.stringify(updateRequest.newPollOptions), 'The new option list') },
-            ...homeV2PollTimeRow('New start', updateRequest.newStartTime),
-            ...homeV2PollTimeRow('New end', updateRequest.newEndTime),
+            {
+              label: 'New start',
+              value: updateRequest.newStartTime !== undefined
+                ? `${new Date(updateRequest.newStartTime).toISOString()} (${updateRequest.newStartTime})`
+                : '(none — clears any stored start time)',
+            },
+            {
+              label: 'New end',
+              value: updateRequest.newEndTime !== undefined
+                ? `${new Date(updateRequest.newEndTime).toISOString()} (${updateRequest.newEndTime})`
+                : '(none — clears any stored end time)',
+            },
           ]
         : []
   if (pollDetails.length === 0) throw new Error(`${action} is not a supported poll write.`)
@@ -6540,7 +6569,7 @@ async function handleHomeV2PollAction(
   // longer name the approved labels, and the action is refused.
   const validateTarget = async () => {
     if (pollId === null || !target) return
-    const currentTarget = await readHomeV2PollTarget(node.nodeApiUrl, pollId)
+    const currentTarget = await readHomeV2PollTarget(action, node.nodeApiUrl, pollId)
     if (
       currentTarget.pollName !== target.pollName ||
       JSON.stringify(currentTarget.optionNames) !== JSON.stringify(target.optionNames)

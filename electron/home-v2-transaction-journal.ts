@@ -270,18 +270,19 @@ export function toHomeV2PendingTransactionResult(
   })
 }
 
-export function homeV2TransactionTargetFromRequest(value: unknown): HomeV2TransactionTarget {
+/**
+ * The conflict/recording key for one journaled mutation, derived ONLY from
+ * the request fields that ACTION actually owns (security review 2026-08-26,
+ * finding 3): with an action-blind derivation, an app could vary ignored
+ * extra fields — a stray `pollId` on a chat send, a stray `conversation` on a
+ * vote — to move the same logical operation onto a different conflict key and
+ * slip past its retained unknown-outcome block. Poll actions therefore never
+ * consult the chat/group/resource fields, and no other action consults the
+ * poll fields.
+ */
+export function homeV2TransactionTargetFromRequest(action: string, value: unknown): HomeV2TransactionTarget {
   if (!isRecord(value)) return Object.freeze({ kind: 'operation' })
-  const conversation = isRecord(value.conversation) ? value.conversation : null
-  if (conversation?.kind === 'group') return normalizeTarget({ kind: 'group', groupId: conversation.groupId })
-  if (conversation?.kind === 'direct') return normalizeTarget({ kind: 'direct', otherAddress: conversation.otherAddress })
-  // Poll requests are checked BEFORE the txGroupId fallback: they may carry
-  // an explicit txGroupId:0 (a 1.x-parity field pinned to 0), and mapping
-  // that to {kind:'group', groupId:0} would give the same logical operation
-  // two different conflict keys depending on an optional field. CREATE_POLL
-  // carries pollName but no id, so it deliberately falls through to the
-  // coarse {kind:'operation'} target.
-  if (value.pollId !== undefined || value.poll !== undefined) {
+  if (action === 'VOTE_ON_POLL' || action === 'UPDATE_POLL') {
     // Lenient on purpose: this runs BEFORE the action handler validates the
     // request, and 1.x accepts string integers here. A malformed id falls to
     // the coarse operation target and the handler then refuses the request
@@ -294,7 +295,12 @@ export function homeV2TransactionTargetFromRequest(value: unknown): HomeV2Transa
     }
     return Object.freeze({ kind: 'operation' })
   }
-  if (value.pollName !== undefined) return Object.freeze({ kind: 'operation' })
+  // CREATE_POLL has no id before it confirms: always the coarse operation
+  // target, whatever else the request carries.
+  if (action === 'CREATE_POLL') return Object.freeze({ kind: 'operation' })
+  const conversation = isRecord(value.conversation) ? value.conversation : null
+  if (conversation?.kind === 'group') return normalizeTarget({ kind: 'group', groupId: conversation.groupId })
+  if (conversation?.kind === 'direct') return normalizeTarget({ kind: 'direct', otherAddress: conversation.otherAddress })
   if (value.txGroupId !== undefined) return normalizeTarget({ kind: 'group', groupId: value.txGroupId })
   if (value.groupId !== undefined) return normalizeTarget({ kind: 'group', groupId: value.groupId })
   if (value.otherAddress !== undefined) return normalizeTarget({ kind: 'direct', otherAddress: value.otherAddress })
@@ -321,7 +327,7 @@ export function findHomeV2PendingTransactionConflict(
   now = Date.now(),
 ): HomeV2PendingTransaction | null {
   if (!isHomeV2JournaledMutation(input.action)) return null
-  const target = homeV2TransactionTargetFromRequest(input.request)
+  const target = homeV2TransactionTargetFromRequest(input.action, input.request)
   return getHomeV2PendingTransactions(journal, input, now).find((entry) =>
     entry.action === input.action &&
     entry.stage !== 'key-announcement' &&
@@ -358,7 +364,7 @@ export function createHomeV2PendingTransactionFromResult(input: {
     ...(input.result.stage === 'key-announcement' && input.result.messageSubmitted === false
       ? { stage: 'key-announcement' as const }
       : {}),
-    target: homeV2TransactionTargetFromRequest(input.request),
+    target: homeV2TransactionTargetFromRequest(input.action, input.request),
     timestamp: input.result.timestamp,
   })
 }

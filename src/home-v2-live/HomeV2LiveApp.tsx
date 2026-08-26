@@ -376,53 +376,64 @@ function isNodeListDetailRows(
 }
 
 /**
- * The rows a poll write prompt may carry. Same posture as the node-list
- * validator: a fixed label allowlist, no duplicates, bounded printable
- * values — the main process escapes every user-derived value to printable
- * ASCII before emitting it, so a control character or an unknown label is
- * proof of a forged payload, and a prompt that cannot show the operation in
- * full is refused rather than rendered. Rows differ per action (a vote shows
- * Poll and Selection; create and update show the full metadata), so this
- * validates shape rather than one fixed sequence.
+ * The rows a poll write prompt must carry, validated per ACTION against the
+ * exact sequence the main process emits (security review 2026-08-26,
+ * finding 2: a family-wide label pool let a forged VOTE prompt render with a
+ * single benign-looking row and no selection at all). A vote is exactly
+ * Poll then Selection; a create is the full metadata with only the time rows
+ * optional; an update is the COMPLETE replacement — every row present, so a
+ * clearing "(none)" can never be hidden by omitting its row. Values are
+ * bounded printable strings: the main process escapes every user-derived
+ * value to printable ASCII (backslash-doubled first, so the escape is
+ * injective), which makes a control character proof of a forged payload.
  */
-const POLL_DETAIL_LABELS = new Set([
-  'Poll',
-  'Selection',
-  'Name',
-  'Description',
-  'Options',
-  'Owner',
-  'Starts',
-  'Ends',
-  'New name',
-  'New description',
-  'New options',
-  'New start',
-  'New end',
-])
+const POLL_DETAIL_SEQUENCES: Record<string, readonly { label: string; optional?: true }[]> = {
+  CREATE_POLL: [
+    { label: 'Name' },
+    { label: 'Description' },
+    { label: 'Options' },
+    { label: 'Owner' },
+    { label: 'Starts', optional: true },
+    { label: 'Ends', optional: true },
+  ],
+  UPDATE_POLL: [
+    { label: 'Poll' },
+    { label: 'New name' },
+    { label: 'New description' },
+    { label: 'New options' },
+    { label: 'New start' },
+    { label: 'New end' },
+  ],
+  VOTE_ON_POLL: [
+    { label: 'Poll' },
+    { label: 'Selection' },
+  ],
+}
 
 function isPollDetailRows(
+  action: string,
   value: unknown,
 ): value is readonly { label: string; value: string }[] {
-  if (!Array.isArray(value) || value.length < 1 || value.length > 10) return false
-  const seen = new Set<string>()
-  for (const candidate of value) {
-    if (
-      !isRecord(candidate) ||
-      Object.keys(candidate).length !== 2 ||
-      typeof candidate.label !== 'string' ||
-      !POLL_DETAIL_LABELS.has(candidate.label) ||
-      seen.has(candidate.label) ||
-      typeof candidate.value !== 'string' ||
-      candidate.value.length < 1 ||
-      candidate.value.length > 4_000 ||
-      /[\u0000-\u001f\u007f]/.test(candidate.value)
-    ) {
-      return false
+  const sequence = POLL_DETAIL_SEQUENCES[action]
+  if (!sequence || !Array.isArray(value) || value.length < 1) return false
+  let position = 0
+  for (const expected of sequence) {
+    const candidate = value[position] as unknown
+    const matches =
+      isRecord(candidate) &&
+      Object.keys(candidate).length === 2 &&
+      candidate.label === expected.label &&
+      typeof candidate.value === 'string' &&
+      candidate.value.length >= 1 &&
+      candidate.value.length <= 4_000 &&
+      !/[\u0000-\u001f\u007f]/.test(candidate.value)
+    if (matches) {
+      position += 1
+      continue
     }
-    seen.add(candidate.label)
+    if (!expected.optional) return false
   }
-  return true
+  return position === value.length
 }
 
 type HomeV2ReplaceTabTarget = ReplaceTabTarget
@@ -2988,13 +2999,17 @@ export function HomeV2LiveApp() {
             value.writeSingleRequestOnly !== true))
         // Poll writes sign chain transactions, so their prompts must arrive
         // fully specified single-request or not at all — same rule as
-        // SEND_MESSAGE, with the rows validated against the poll allowlist.
+        // SEND_MESSAGE, and pinned the same way: the protocol and chain are
+        // fixed because the transaction serializer is Qortium-specific, and
+        // the rows must be the exact per-action sequence the bridge emits.
         || (isHomeV2PollWriteAction(value.action) &&
           (value.writeKind !== 'poll' ||
-            !isPollDetailRows(value.pollDetails) ||
+            value.protocol !== 'qdnRequest' ||
+            value.targetNetwork !== 'qortium' ||
+            !isPollDetailRows(value.action, value.pollDetails) ||
             typeof value.writeOperationLabel !== 'string' ||
             typeof value.writeRouteLabel !== 'string' ||
-            typeof value.writeTargetChainLabel !== 'string' ||
+            value.writeTargetChainLabel !== 'Qortium' ||
             value.writeSingleRequestOnly !== true))
         // SEND_MESSAGE signs a chain transaction, so its prompt must arrive
         // fully specified or not at all. The recipient AT address and the

@@ -938,21 +938,39 @@ Core's `ALREADY_VOTED_FOR_THAT_OPTION`, exactly as in 1.x — Home deliberately
 does not map that to an idempotent success.
 
 Where 1.x prompts showed only an action and a name, these show the operation.
-A vote prompt fetches the poll and names it plus the selected option **labels**
-(an out-of-range index is refused before any prompt — never "option 3 of 2"),
-and the poll is re-read after approval: if its name or option list changed
-while the prompt was open, the approved indexes no longer name the approved
-labels and the action is refused. Create and update prompts show the complete
-metadata; user-derived text is escaped to printable ASCII, and anything too
-large to display in full (4,000 characters) is refused rather than approved
-unseen.
+A vote prompt fetches the poll and names it plus the selected option labels
+**as the configured node reports them** (an out-of-range index is refused
+before any prompt — never "option 3 of 2"), and the poll is re-read after
+approval: if its name or option list changed while the prompt was open, the
+approved indexes no longer name the approved labels and the action is refused.
+Two residuals are inherent and documented rather than solved: the labels come
+from the configured node, so a compromised node can misdescribe a poll — the
+signed transaction binds only the poll id and indexes, which is also why the
+lookup at least refuses an answer claiming a different poll id; and after the
+final re-read the chain can still order an owner's UPDATE ahead of the vote,
+re-labelling what the indexes mean — a protocol-level window that closes
+permanently once a poll has its first vote, because Core then freezes its
+options. Create and update prompts show the complete replacement metadata
+with every field explicit — an update that omits the description or a time
+CLEARS the stored one, and its prompt says "(none — clears …)" as a row
+rather than hiding the destruction by omission. User-derived text is escaped
+to printable ASCII (backslashes doubled first, so the escape is injective and
+a literal "\u202e" can never render like a real bidi override; C0 controls
+become visible escapes too, so a legitimate multiline description still
+prompts), and anything too large to display in full (4,000 characters) is
+refused rather than approved unseen.
 
 Request shapes are 1.x parity, including the aliases (`poll`/`pollId`,
 `option`/`optionIndex`, `options`/`pollOptions`, the `new*` update fields and
 their fallbacks), tightened to Core's real limits so a doomed request fails
 here with a named reason: names 3–400 UTF-8 bytes in Unicode normalized form,
 descriptions at most 4,000 bytes, 2–1000 options of 1–400 bytes each,
-case-sensitively unique. Three deliberate v2 divergences: `fee` and
+case-sensitively unique. The name rule approximates Core's
+`Unicode.normalize` (NFKC, no invisible or control characters, collapsed
+whitespace); Core remains the authority, so an exotic name that passes Home
+can still answer `NAME_NOT_NORMALIZED` from the builder. Poll times must be
+in the future, and poll ids are positive 32-bit integers. Three deliberate v2
+divergences: `fee` and
 `txGroupId`, when present, must be `0` (the fee-less MemoryPoW path is the
 only signing path Home 2 carries, and a fee the app believed it was paying
 must never be silently zeroed); `pollId` must be at least 1 (1.x accepted 0

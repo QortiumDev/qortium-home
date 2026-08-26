@@ -219,8 +219,8 @@ The complete retained legacy-bridge action-name source remains
 `electron/qdn-app-actions.ts`, and `SHOW_ACTIONS` is the runtime authority.
 This section is the explicit per-action ledger of that catalogue, replacing the
 earlier blanket "everything not listed above is deferred": verified against
-`getHomeV2AppActions('qdnRequest')` at 2.1.0 (the lists restoration, on top of
-main `43d9721`), **100 of the 149 Home 1.x `qdnRequest` actions are
+`getHomeV2AppActions('qdnRequest')` at 2.1.0 (the polls restoration, on top of
+main `8402315`), **100 of the 149 Home 1.x `qdnRequest` actions are
 advertised** (the implemented table above) and the 49 below are not — 17
 superseded, 32 deferred.
 

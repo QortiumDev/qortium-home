@@ -1099,12 +1099,14 @@ const SELECTED = 'Qdemo1111111111111111111111111111'
   assert.deepEqual([...created.pollOptions], ['Yes', 'No'])
   assert.equal(created.owner, SELECTED)
   assert.equal(created.startTime, undefined)
+  const futureStart = Date.now() + 60_000
+  const futureEnd = futureStart + 60_000
   const timed = normalizeHomeV2CreatePollRequest(
-    { endTime: '200', pollName: 'Timed', pollOptions: ['A', { optionName: 'B' }], pollStartTime: 100 },
+    { endTime: String(futureEnd), pollName: 'Timed', pollOptions: ['A', { optionName: 'B' }], pollStartTime: futureStart },
     SELECTED,
   )
-  assert.equal(timed.startTime, 100)
-  assert.equal(timed.endTime, 200)
+  assert.equal(timed.startTime, futureStart)
+  assert.equal(timed.endTime, futureEnd)
 }
 for (const bad of [
   { pollOptions: ['A', 'B'] },                                    // missing name
@@ -1115,9 +1117,18 @@ for (const bad of [
   { pollName: 'Poll', pollOptions: ['Only'] },                    // one option
   { pollName: 'Poll', pollOptions: ['A', 'A'] },                  // duplicate
   { owner: 'not-an-address', pollName: 'Poll', pollOptions: ['A', 'B'] },
-  { endTime: 100, pollName: 'Poll', pollOptions: ['A', 'B'], startTime: 100 }, // start >= end
+  // Both in the future but start >= end.
+  { endTime: Date.now() + 60_000, pollName: 'Poll', pollOptions: ['A', 'B'], startTime: Date.now() + 60_000 },
+  // Core requires poll times later than the transaction timestamp; a past
+  // time can only ever fail there, so it is refused with the real rule.
+  { endTime: 100, pollName: 'Poll', pollOptions: ['A', 'B'] },
   { fee: 1, pollName: 'Poll', pollOptions: ['A', 'B'] },          // nonzero fee
   { pollName: 'Poll', pollOptions: ['A', 'B'], txGroupId: 3 },    // nonzero group
+  // Core's normalization rule (NFKC + no invisibles + collapsed whitespace),
+  // approximated locally so the common cases fail with a named reason.
+  { pollName: '\uff21BC', pollOptions: ['A', 'B'] },              // fullwidth A (NFKC changes it)
+  { pollName: 'A  B', pollOptions: ['A', 'B'] },                  // repeated whitespace
+  { pollName: `Poll${String.fromCharCode(0x200b)}x`, pollOptions: ['A', 'B'] }, // zero-width
 ]) {
   assert.throws(() => normalizeHomeV2CreatePollRequest(bad, SELECTED))
 }
@@ -1138,6 +1149,7 @@ for (const removal of [{ optionIndex: 0, pollId: 7 }, { optionIndexes: [], pollI
 for (const bad of [
   { optionIndex: 1 },                                  // missing poll id
   { optionIndex: 1, pollId: 0 },                       // Core ids start at 1
+  { optionIndex: 1, pollId: 2_147_483_648 },           // beyond int32
   { pollId: 7 },                                       // no selection form at all
   { optionIndexes: [1, 1], pollId: 7 },                // duplicate
   { optionIndexes: [0, 2], pollId: 7 },                // remove mixed with real
@@ -1166,12 +1178,21 @@ assert.throws(() => normalizeHomeV2UpdatePollRequest({ pollId: 7, pollOptions: [
 // ORDER — the order is part of what a one-based vote means.
 assert.deepEqual(
   selectHomeV2PollTarget(
-    { owner: SELECTED, pollName: 'Snacks', pollOptions: [{ optionName: 'B' }, { optionName: 'A' }] },
+    { owner: SELECTED, pollId: 7, pollName: 'Snacks', pollOptions: [{ optionName: 'B' }, { optionName: 'A' }] },
     7,
   ),
   { optionNames: ['B', 'A'], owner: SELECTED, pollId: 7, pollName: 'Snacks' },
 )
 assert.throws(() => selectHomeV2PollTarget({ pollName: 'Snacks' }, 7))
 assert.throws(() => selectHomeV2PollTarget({ pollName: 'Snacks', pollOptions: ['bare-string'] }, 7))
+// The answer must CLAIM to be the poll that was asked for: a node answering
+// /polls/id/7 with a different poll's record is refused, not relabeled.
+assert.throws(
+  () => selectHomeV2PollTarget(
+    { owner: SELECTED, pollId: 999, pollName: 'Lie', pollOptions: [{ optionName: 'A' }, { optionName: 'B' }] },
+    7,
+  ),
+  /different poll/,
+)
 
 console.log('Home v2 app action contract tests passed.')

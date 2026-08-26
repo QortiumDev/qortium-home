@@ -55,19 +55,32 @@ assert.throws(
   () => normalizeHomeV2ForgetPendingTransactionRequest('qdnRequest', { network: 'qortal', signature }),
   /must match qdnRequest/,
 )
-assert.deepEqual(homeV2TransactionTargetFromRequest({ txGroupId: 12 }), { kind: 'group', groupId: 12 })
-// Poll requests derive their own stable target BEFORE the txGroupId fallback:
-// a vote pinned to txGroupId 0 must never key its conflicts on group 0.
-assert.deepEqual(homeV2TransactionTargetFromRequest({ pollId: 7, txGroupId: 0 }), { kind: 'poll', pollId: 7 })
-assert.deepEqual(homeV2TransactionTargetFromRequest({ poll: '7' }), { kind: 'poll', pollId: 7 })
+assert.deepEqual(homeV2TransactionTargetFromRequest('SEND_CHAT_MESSAGE', { txGroupId: 12 }), { kind: 'group', groupId: 12 })
+// The derivation is ACTION-AWARE (security review 2026-08-26, finding 3):
+// poll actions key only on their own poll fields, and no other action keys on
+// them — so an ignored extra field can never move a logical operation onto a
+// different conflict key and slip past its retained unknown-outcome block.
+assert.deepEqual(homeV2TransactionTargetFromRequest('VOTE_ON_POLL', { pollId: 7, txGroupId: 0 }), { kind: 'poll', pollId: 7 })
+assert.deepEqual(homeV2TransactionTargetFromRequest('UPDATE_POLL', { poll: '7' }), { kind: 'poll', pollId: 7 })
+// A stray pollId on a chat send must NOT change its conflict key...
+assert.deepEqual(
+  homeV2TransactionTargetFromRequest('SEND_DIRECT_CHAT_MESSAGE', { otherAddress: 'QdemoAddr111111111111111111111111', pollId: 7 }),
+  { kind: 'direct', otherAddress: 'QdemoAddr111111111111111111111111' },
+)
+// ...and a stray conversation/txGroupId on a vote must not either.
+assert.deepEqual(
+  homeV2TransactionTargetFromRequest('VOTE_ON_POLL', { conversation: { groupId: 9, kind: 'group' }, pollId: 7 }),
+  { kind: 'poll', pollId: 7 },
+)
 // Lenient before validation: a malformed id falls to the coarse operation
 // target; the action handler refuses the request with its own error later.
-assert.deepEqual(homeV2TransactionTargetFromRequest({ pollId: 'abc' }), { kind: 'operation' })
-assert.deepEqual(homeV2TransactionTargetFromRequest({ pollId: 0 }), { kind: 'operation' })
-// CREATE_POLL has no id before it confirms; pollName keeps it off the
-// txGroupId fallback and on the coarse operation target.
-assert.deepEqual(homeV2TransactionTargetFromRequest({ pollName: 'Snacks', txGroupId: 0 }), { kind: 'operation' })
-assert.deepEqual(homeV2TransactionTargetFromRequest({
+assert.deepEqual(homeV2TransactionTargetFromRequest('VOTE_ON_POLL', { pollId: 'abc' }), { kind: 'operation' })
+assert.deepEqual(homeV2TransactionTargetFromRequest('VOTE_ON_POLL', { pollId: 0 }), { kind: 'operation' })
+// CREATE_POLL has no id before it confirms: always the coarse operation
+// target, whatever extra fields the request carries.
+assert.deepEqual(homeV2TransactionTargetFromRequest('CREATE_POLL', { pollName: 'Snacks', txGroupId: 0 }), { kind: 'operation' })
+assert.deepEqual(homeV2TransactionTargetFromRequest('CREATE_POLL', { pollId: 7, pollName: 'Snacks' }), { kind: 'operation' })
+assert.deepEqual(homeV2TransactionTargetFromRequest('PUBLISH_QDN_RESOURCE', {
   resource: { service: 'IMAGE', name: 'Alice', identifier: 'chat-image' },
 }), { kind: 'resource', service: 'IMAGE', name: 'Alice', identifier: 'chat-image' })
 assert.deepEqual(createHomeV2PendingTransactionFromResult({

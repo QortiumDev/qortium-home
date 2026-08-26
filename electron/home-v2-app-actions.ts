@@ -1476,9 +1476,13 @@ export function isHomeV2PollWriteAction(action: string): action is HomeV2PollWri
 
 const POLL_TEXT_ENCODER = new TextEncoder()
 
-// Core: 3-400 UTF-8 bytes, and the stored name must equal its Unicode
-// normalized form (NAME_NOT_NORMALIZED otherwise) — enforced here so the
-// refusal names the rule instead of surfacing a Core enum.
+// Core: 3-400 UTF-8 bytes, and the stored name must equal Core's
+// Unicode.normalize() of itself (NAME_NOT_NORMALIZED otherwise). Core's rule
+// is NFKC plus removal of controls and zero-width/bidi characters plus
+// whitespace collapsing — approximated here so the common cases fail with a
+// named reason before any prompt; Core remains the authority, and an exotic
+// input that passes here can still answer NAME_NOT_NORMALIZED from the
+// builder. (Security review 2026-08-26, finding 4.)
 function normalizeHomeV2PollNameValue(value: unknown, label: string) {
   const name = typeof value === 'string' ? value.trim() : ''
   if (!name) throw new Error(`${label} is required.`)
@@ -1486,8 +1490,13 @@ function normalizeHomeV2PollNameValue(value: unknown, label: string) {
   if (byteLength < 3 || byteLength > 400) {
     throw new Error(`${label} must be 3 to 400 UTF-8 bytes.`)
   }
-  if (name !== name.normalize()) {
-    throw new Error(`${label} must be in Unicode normalized form.`)
+  if (
+    name !== name.normalize('NFKC') ||
+    /[\u0000-\u001f\u007f\u200b-\u200f\u202a-\u202e\u2060-\u2064\ufeff]/.test(name) ||
+    /\s{2,}/.test(name) ||
+    /[^\S ]/.test(name)
+  ) {
+    throw new Error(`${label} must be in Unicode normalized form (no compatibility characters, controls, invisible characters, or repeated whitespace).`)
   }
   return name
 }
@@ -1505,6 +1514,12 @@ function optionalHomeV2PollTime(value: unknown, key: string) {
   const parsed = typeof value === 'number' ? value : typeof value === 'string' && value.trim() ? Number(value) : NaN
   if (!Number.isSafeInteger(parsed) || parsed < 0) {
     throw new Error(`${key} must be a non-negative safe integer.`)
+  }
+  // Core requires each poll time to be later than the transaction timestamp,
+  // which is taken moments after this runs; a time already in the past can
+  // only ever fail there, so it is refused here with the actual rule.
+  if (parsed <= Date.now()) {
+    throw new Error(`${key} must be in the future (epoch milliseconds).`)
   }
   return parsed
 }
@@ -1544,9 +1559,10 @@ function requiredHomeV2PollId(request: Record<string, unknown>) {
   if (raw === undefined || raw === null || raw === '') throw new Error('Poll id is required.')
   const parsed = homeV2PollRequestInteger(raw)
   // 1.x accepted 0 and let Core reject the nonexistent poll; Core assigns ids
-  // from 1, so 0 is refused here with the real rule instead.
-  if (typeof parsed !== 'number' || parsed < 1) {
-    throw new Error('Poll id must be a positive integer.')
+  // from 1 and stores them as a signed 32-bit integer, so both bounds are
+  // enforced here with the real rule.
+  if (typeof parsed !== 'number' || parsed < 1 || parsed > 2_147_483_647) {
+    throw new Error('Poll id must be a positive 32-bit integer.')
   }
   return parsed
 }
@@ -1656,6 +1672,15 @@ export function normalizeHomeV2UpdatePollRequest(request: Record<string, unknown
 export function selectHomeV2PollTarget(value: unknown, pollId: number) {
   if (!isHomeV2AppRecord(value) || typeof value.pollName !== 'string' || !Array.isArray(value.pollOptions)) {
     throw new Error('The poll lookup answered with an unrecognized shape.')
+  }
+  // The answer must be about the poll that was asked for. Without this a
+  // node could answer /polls/id/7 with a different poll's record and have
+  // its name and labels presented as poll 7's (security review 2026-08-26,
+  // finding 2) — the node can still lie about poll 7's CONTENT, which is the
+  // documented untrusted-node residual, but it cannot substitute a record
+  // that does not even claim to be the target.
+  if (value.pollId !== pollId) {
+    throw new Error('The poll lookup answered about a different poll.')
   }
   const optionNames = value.pollOptions.map((entry) => {
     if (!isHomeV2AppRecord(entry) || typeof entry.optionName !== 'string') {
