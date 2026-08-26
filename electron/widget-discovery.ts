@@ -56,6 +56,13 @@ export function parseWidgetResourceIdentity(resourceUrl: unknown): WidgetResourc
   if (scheme !== 'qdn' && scheme !== 'qortal') {
     throw new Error('Use a complete qdn:// or qortal:// app resource address.')
   }
+  // Deliberately still APP-only after R4-4 widened app TABS to WEBSITE and
+  // GAME. Widgets are a separate surface: WidgetResourceIdentity carries no
+  // service, and buildWidgetManifestPath/buildWidgetRenderUrl below hardcode
+  // /arbitrary/APP and /render/APP, so accepting another service here would
+  // address the wrong resource rather than widen the feature. "Open as
+  // widget" on a WEBSITE or GAME tab fails closed with this message until
+  // widget records become service-aware.
   if (decodeSegment(parsed.hostname, 'App resource service').toUpperCase() !== 'APP') {
     throw new Error('The resource address does not identify an app.')
   }

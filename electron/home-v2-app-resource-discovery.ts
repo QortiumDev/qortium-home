@@ -1,9 +1,29 @@
+import {
+  QDN_BROWSER_ARCHIVE_SERVICES,
+  isQdnBrowserArchiveService,
+  type QdnBrowserArchiveService,
+} from './qdn-browser-archive-services.js'
+
 export interface HomeV2AppResourceCandidate {
   identifier: string | null
   name: string
+  // R4-4: the candidate's REAL service. The caller rebuilds the qdn:// address
+  // from this, so a WEBSITE or GAME match can never be relabelled as an APP.
+  service: QdnBrowserArchiveService
 }
 
 const APP_RESOURCE_LIMIT = 50
+
+export function normalizeHomeV2AppResourceService(value: unknown): QdnBrowserArchiveService {
+  // Defaults to APP: the search predates WEBSITE/GAME support, and the IPC
+  // argument is optional so an older renderer keeps its historical behaviour.
+  if (value === undefined || value === null) return 'APP'
+  const service = typeof value === 'string' ? value.trim().toUpperCase() : ''
+  if (!isQdnBrowserArchiveService(service)) {
+    throw new Error('App resource searches must use APP, WEBSITE, or GAME.')
+  }
+  return service
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
@@ -23,9 +43,14 @@ export function normalizeHomeV2AppResourceName(value: unknown) {
   return name
 }
 
-export function buildHomeV2AppResourceSearchPath(value: unknown) {
+// One request per service: Core's /arbitrary/resources/search takes a single
+// `service`, and dropping it to search every service at once would let an
+// unrelated service with many same-named resources (BLOG_POST, MAIL, ...)
+// fill the result limit and crowd the archive match out. The caller passes
+// the service its address named, so no fan-out is needed.
+export function buildHomeV2AppResourceSearchPath(value: unknown, serviceValue?: unknown) {
   const query = new URLSearchParams({
-    service: 'APP',
+    service: normalizeHomeV2AppResourceService(serviceValue),
     name: normalizeHomeV2AppResourceName(value),
     exactmatchnames: 'true',
     mode: 'ALL',
@@ -51,7 +76,11 @@ export function parseHomeV2AppResourceCandidates(
     if (
       !candidateName ||
       candidateName.toLowerCase() !== name.toLowerCase() ||
-      service !== 'APP'
+      !service ||
+      // R4-4: accept the whole browser-archive set, not just APP. A
+      // service-scoped search should only ever return one of them, but the
+      // node is not trusted to honour that, so the filter is kept.
+      !isQdnBrowserArchiveService(service)
     ) {
       continue
     }
@@ -60,13 +89,25 @@ export function parseHomeV2AppResourceCandidates(
       !rawIdentifier || rawIdentifier.toLowerCase() === 'default'
         ? null
         : rawIdentifier
-    const key = identifier?.toLowerCase() ?? 'default'
+    // The dedupe key includes the service: an APP and a WEBSITE published
+    // under the same name with the same identifier are two DIFFERENT
+    // resources, and keying on the identifier alone silently dropped one.
+    const key = `${service}:${identifier?.toLowerCase() ?? 'default'}`
     if (!candidates.has(key)) {
-      candidates.set(key, { identifier, name: candidateName })
+      candidates.set(key, { identifier, name: candidateName, service })
     }
   }
+  // Deterministic order: browser-archive service order first (APP, then
+  // WEBSITE, then GAME — so an exact-name APP match always wins a tie), then
+  // the default identifier, then identifiers alphabetically.
   return Object.freeze(
     [...candidates.values()].sort((left, right) => {
+      if (left.service !== right.service) {
+        return (
+          QDN_BROWSER_ARCHIVE_SERVICES.indexOf(left.service) -
+          QDN_BROWSER_ARCHIVE_SERVICES.indexOf(right.service)
+        )
+      }
       if (left.identifier === null) return -1
       if (right.identifier === null) return 1
       return left.identifier.localeCompare(right.identifier)

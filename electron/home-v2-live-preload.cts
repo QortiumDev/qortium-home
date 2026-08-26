@@ -95,8 +95,14 @@ contextBridge.exposeInMainWorld('homeV2Nodes', {
   saveShellGlobalState: (value: unknown) =>
     ipcRenderer.invoke('home-v2-shell:saveGlobalState', value),
   listAccounts: () => ipcRenderer.invoke('home-v2-accounts:list'),
-  listAppResources: (network: 'qortal' | 'qortium', name: string) =>
-    ipcRenderer.invoke('home-v2-nodes:listAppResources', network, name),
+  listAppResources: (
+    network: 'qortal' | 'qortium',
+    name: string,
+    // R4-4: the browser-archive service the address named. Optional on the
+    // wire so the main-side handler keeps its historical APP default.
+    service?: 'APP' | 'WEBSITE' | 'GAME',
+  ) =>
+    ipcRenderer.invoke('home-v2-nodes:listAppResources', network, name, service),
   readIdentity: (
     network: 'qortal' | 'qortium',
     request: {
@@ -126,7 +132,7 @@ contextBridge.exposeInMainWorld('homeV2Nodes', {
     request: {
       identifier: string | null
       name: string
-      service: 'APP' | 'WEBSITE'
+      service: 'APP' | 'WEBSITE' | 'GAME'
     },
   ) => ipcRenderer.invoke('home-v2-nodes:readAppIcon', network, request),
   setMode: (

@@ -1728,18 +1728,29 @@ export function HomeV2LiveApp() {
         let resourceLocation = parsed.location
         if (!parsed.identifierWasExplicit) {
           if (!nodeClient) throw new Error('App discovery is not available yet.')
+          // R4-4: discovery is scoped to the service the address named, so
+          // qdn://WEBSITE/Name resolves against published WEBSITE resources
+          // and qdn://APP/Name keeps its exact previous behaviour. It is
+          // deliberately NOT a cross-service search: a name that publishes
+          // both an APP and a WEBSITE would otherwise turn today's silent
+          // single-candidate open into an identifier prompt.
+          const requestedService = parsed.identity.service
           const candidates = await nodeClient.listAppResources(
             parsed.sourceNetwork,
             parsed.identity.name,
+            requestedService,
           )
           if (candidates.length === 0) {
             throw new Error(
-              `No APP resource named ${parsed.identity.name} was found on ${parsed.sourceNetwork === 'qortal' ? 'Qortal' : 'Qortium'}.`,
+              `No ${requestedService} resource named ${parsed.identity.name} was found on ${parsed.sourceNetwork === 'qortal' ? 'Qortal' : 'Qortium'}.`,
             )
           }
           const resolvedLocations = candidates.map((candidate) => ({
             address: `${buildAppResourceLocation(parsed.sourceNetwork, {
-              service: 'APP',
+              // The candidate's OWN service, never a hardcoded 'APP' — this
+              // address becomes the tab's resourceLocation, the render URL,
+              // and the key durable permission grants are stored under.
+              service: candidate.service,
               name: candidate.name,
               identifier: candidate.identifier,
             })}${parsed.routePath}${parsed.search}${parsed.hash}` as AppTabContext['resourceLocation'],
@@ -1747,7 +1758,7 @@ export function HomeV2LiveApp() {
           }))
           if (resolvedLocations.length > 1) {
             return {
-              message: `More than one APP resource is published under ${parsed.identity.name}. Choose an identifier.`,
+              message: `More than one ${requestedService} resource is published under ${parsed.identity.name}. Choose an identifier.`,
               options: resolvedLocations.map(({ address: optionAddress, candidate }) => ({
                 address: optionAddress,
                 label: candidate.identifier ?? 'Default resource',
@@ -1757,7 +1768,7 @@ export function HomeV2LiveApp() {
           }
           const resolved = resolvedLocations[0]
           resourceIdentity = {
-            service: 'APP',
+            service: resolved.candidate.service,
             name: resolved.candidate.name,
             identifier: resolved.candidate.identifier,
           }
@@ -1770,9 +1781,16 @@ export function HomeV2LiveApp() {
             assertHomeV2ReplaceableTab(productStateRef.current, replaceTarget)
           }
         }
+        // R4-4: the service is folded into the app id for WEBSITE and GAME so
+        // a WEBSITE and an APP published under the same name and identifier
+        // do not share one AppId. APP deliberately keeps the historical id
+        // shape, so already-open and already-persisted app tabs are
+        // unaffected by this change.
+        const appIdSuffix =
+          resourceIdentity.service === 'APP' ? '' : `:${resourceIdentity.service}`
         const app: AppDescriptor = {
           id: brand<AppId>(
-            `home-v2:app:${parsed.sourceNetwork}:${resourceIdentity.name}:${resourceIdentity.identifier ?? 'default'}`,
+            `home-v2:app:${parsed.sourceNetwork}:${resourceIdentity.name}:${resourceIdentity.identifier ?? 'default'}${appIdSuffix}`,
           ),
           title: resourceIdentity.name,
           description: `QDN app from ${parsed.sourceNetwork === 'qortal' ? 'Qortal' : 'Qortium'}.`,

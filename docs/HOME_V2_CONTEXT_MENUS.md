@@ -49,8 +49,14 @@ The initial safe action set is:
 | --- | --- |
 | Account | Copy address; copy supplied public name |
 | Group | Copy group ID; copy supplied public name |
-| `APP` resource | Open in a new tab; copy resource link |
+| `APP`, `WEBSITE` or `GAME` resource | Open in a new tab; copy resource link |
 | Other resource service | Copy resource link |
+
+`APP`, `WEBSITE` and `GAME` are the QDN browser-archive services — the ones
+Home can execute as browser content in an app tab. The canonical list lives in
+`electron/qdn-browser-archive-services.ts`; the menu gate reads it through
+`isQdnBrowserArchiveService` rather than naming services itself. Every other
+service is viewer content and stays copy-only here.
 
 Names are optional display/copy values, not authority. Home validates the
 address, group ID, protocol, resource scheme, service, path segments and

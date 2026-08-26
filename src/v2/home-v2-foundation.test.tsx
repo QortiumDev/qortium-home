@@ -27,9 +27,12 @@ import {
 } from './mock-bridge-adapters'
 import { executeWithNetworkPolicy, HomeV2PolicyError } from './policy'
 import {
+  APP_RESOURCE_SERVICES,
   buildAppResourceLocation,
+  isAppResourceService,
   parseAppResourceLocation,
 } from './resource-location'
+import { QDN_BROWSER_ARCHIVE_SERVICES } from '../../electron/qdn-browser-archive-services'
 import { DEFAULT_NEW_TAB_PREFERENCE } from './new-tab-preference'
 import {
   createProductState,
@@ -892,6 +895,79 @@ function testAppResourceSchemesStaySourceQualified(): void {
   assert.throws(() => parseAppResourceLocation('qdn://'))
   assert.throws(() => parseAppResourceLocation('qdn://qortal/APP/Chat'))
   assert.throws(() => parseAppResourceLocation('https://example.invalid/app'))
+}
+
+// R4-4: WEBSITE and GAME resources are published QDN browser archives, and
+// Home opens them as app tabs just like APP. The parser used to reject every
+// service but APP, so a qdn://WEBSITE/... address could not become a tab at
+// all. Viewer-only services stay rejected here — they get their own surface.
+function testBrowserArchiveResourcesParseAsAppTabs(): void {
+  // The renderer's mirrored list must not drift from the canonical one. This
+  // test file is exempt from the src/v2 '../electron' import ban (the scan in
+  // testRendererSourceHasNoRuntimeEscapeHatches skips .test.tsx files), which
+  // is exactly what lets this pin exist.
+  assert.deepEqual(
+    [...APP_RESOURCE_SERVICES],
+    [...QDN_BROWSER_ARCHIVE_SERVICES],
+    'APP_RESOURCE_SERVICES must mirror QDN_BROWSER_ARCHIVE_SERVICES exactly, in order',
+  )
+  assert.equal(isAppResourceService('APP'), true)
+  assert.equal(isAppResourceService('WEBSITE'), true)
+  assert.equal(isAppResourceService('GAME'), true)
+  assert.equal(isAppResourceService('IMAGE'), false)
+
+  // A bare qdn://WEBSITE/Name opens, and the identity carries WEBSITE — not
+  // a re-stamped 'APP', which is what built the wrong /render/APP/... URL.
+  assert.deepEqual(parseAppResourceLocation('qdn://WEBSITE/Blog'), {
+    identity: { service: 'WEBSITE', name: 'Blog', identifier: null },
+    identifierWasExplicit: false,
+    location: 'qdn://WEBSITE/Blog/default',
+    routePath: '',
+    search: '',
+    hash: '',
+    sourceNetwork: 'qortium',
+  })
+  assert.deepEqual(
+    parseAppResourceLocation('qdn://GAME/Arena/Arena/level%202?mode=coop#start'),
+    {
+      identity: { service: 'GAME', name: 'Arena', identifier: 'Arena' },
+      identifierWasExplicit: true,
+      location: 'qdn://GAME/Arena/Arena/level%202?mode=coop#start',
+      routePath: '/level%202',
+      search: '?mode=coop',
+      hash: '#start',
+      sourceNetwork: 'qortium',
+    },
+  )
+  // qortal:// carries the service the same way.
+  assert.deepEqual(parseAppResourceLocation('qortal://WEBSITE/Example/docs'), {
+    identity: { service: 'WEBSITE', name: 'Example', identifier: 'docs' },
+    identifierWasExplicit: true,
+    location: 'qortal://WEBSITE/Example/docs',
+    routePath: '',
+    search: '',
+    hash: '',
+    sourceNetwork: 'qortal',
+  })
+  // Round-trips through the builder without losing the service.
+  assert.equal(
+    buildAppResourceLocation('qortium', {
+      service: 'GAME',
+      name: 'Arena',
+      identifier: null,
+    }),
+    'qdn://GAME/Arena/default',
+  )
+
+  // Viewer services are NOT app-tab content in this PR, and must still be
+  // refused with the unchanged message.
+  for (const service of ['IMAGE', 'VIDEO', 'AUDIO', 'DOCUMENT', 'METADATA', 'BLOG_POST']) {
+    assert.throws(
+      () => parseAppResourceLocation(`qdn://${service}/Thing/thing`),
+      /The resource address does not identify an app\./,
+      `${service} must not open as an app tab`,
+    )
+  }
 }
 
 function testBridgeProtocolsStaySeparate(): void {
@@ -2383,6 +2459,16 @@ function testProductionHomeV2EntryIsCapabilityScoped(): void {
   }
 
   assert.equal(packageJson.build.appId, 'org.qortium.home')
+  // R4-4: the app-tab render URL must be built from the parsed service.
+  // AppTabStage.test.tsx proves the behaviour, but it runs under its own
+  // jsdom script (test:app-tab-stage-android), so this cheap source pin also
+  // holds in the main suite.
+  assert.doesNotMatch(
+    appStage,
+    /\/render\/APP\//,
+    'AppTabStage must not hardcode /render/APP/ — WEBSITE and GAME tabs need their own service',
+  )
+  assert.match(appStage, /\/render\/\$\{resource\.identity\.service\}\//)
   assert.doesNotMatch(
     homeV2LiveApp,
     /Account integration is not enabled in this build|Not connected in this build/,
@@ -3130,6 +3216,7 @@ testProductModelReplacesOneAppTabInPlace()
 testExplicitIdentifierVectorsMatchTheElectronTwin()
 testAndroidAppFrameMessagesStayBounded()
 testAppResourceSchemesStaySourceQualified()
+testBrowserArchiveResourcesParseAsAppTabs()
 testBridgeProtocolsStaySeparate()
 testPermissionBrokerScopesAndInvalidation()
 testDesktopAndPhoneContracts()

@@ -59,11 +59,23 @@ export function resolveCandidateIdentifier(queryIdentifier: string | null, parse
 }
 
 // Whether `candidateUrl` (a full render URL, so an `?identifier=` query can
-// be inspected too — not just its pathname) still identifies the same APP
+// be inspected too — not just its pathname) still identifies the same QDN
 // resource `launch` was resolved for.
+//
+// R4-4: the service is now pinned against the LAUNCH service rather than the
+// 'APP' literal, so WEBSITE and GAME tabs bind to their own service. This is
+// deliberately an exact match, not "any browser-archive service": treating
+// /render/APP/Chat and /render/WEBSITE/Chat as interchangeable would let a
+// tab drift between two independently published resources that merely share
+// a name. It mirrors electron/qdn-resource-identity.ts, which already
+// compares `parsedPath.service !== launch.service`.
 export function isSameRenderResourcePath(
   candidateUrl: string,
-  launch: { readonly name: string; readonly identifier: string | null },
+  launch: {
+    readonly service: string
+    readonly name: string
+    readonly identifier: string | null
+  },
 ): boolean {
   let url: URL
   try {
@@ -72,7 +84,11 @@ export function isSameRenderResourcePath(
     return false
   }
   const parsed = parseRenderPathIdentity(url.pathname)
-  if (!parsed || parsed.service !== 'APP' || parsed.name !== launch.name) return false
+  if (
+    !parsed ||
+    parsed.service !== launch.service.toUpperCase() ||
+    parsed.name !== launch.name
+  ) return false
   const candidateIdentifier = resolveCandidateIdentifier(url.searchParams.get('identifier'), parsed)
   return launch.identifier === null
     ? candidateIdentifier === null

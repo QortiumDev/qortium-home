@@ -41,6 +41,16 @@ function testCustomAddressValidation(): void {
     validateCustomNewTabAddress('qdn://APP/NameOnly'),
     'qdn://APP/NameOnly',
   )
+  // WEBSITE and GAME are browser-archive services and open as app tabs, so
+  // they are valid custom new-tab pages too.
+  assert.equal(
+    validateCustomNewTabAddress('qdn://WEBSITE/Example'),
+    'qdn://WEBSITE/Example',
+  )
+  assert.equal(
+    validateCustomNewTabAddress('qortal://GAME/Example'),
+    'qortal://GAME/Example',
+  )
 
   const rejected = [
     '',
@@ -58,7 +68,6 @@ function testCustomAddressValidation(): void {
     'https://example.invalid/app',
     'qdn://',
     'qdn://APP',
-    'qdn://WEBSITE/Example',
     'qdn://user:secret@APP/Example',
     'qdn://APP:1234/Example',
     `qdn://APP/${'a'.repeat(129)}`,

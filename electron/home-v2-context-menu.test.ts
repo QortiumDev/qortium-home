@@ -53,7 +53,16 @@ assert.deepEqual(
 
 for (const [protocol, address, expectedNetwork, expectedActions] of [
   ['qdnRequest', 'qdn://APP/Chat/Chat?group=42#latest', 'qortium', ['resource.open-new-tab', 'resource.copy-address']],
-  ['qortalRequest', 'qortal://WEBSITE/Example/default/page', 'qortal', ['resource.copy-address']],
+  // R4-4: WEBSITE and GAME are browser-archive services that Home now opens
+  // as app tabs, so they get 'Open in new tab' too. The qortal://WEBSITE row
+  // used to assert copy-only here — that was the bug, not the contract.
+  ['qortalRequest', 'qortal://WEBSITE/Example/default/page', 'qortal', ['resource.open-new-tab', 'resource.copy-address']],
+  ['qdnRequest', 'qdn://WEBSITE/Blog', 'qortium', ['resource.open-new-tab', 'resource.copy-address']],
+  ['qdnRequest', 'qdn://GAME/Arena/Arena', 'qortium', ['resource.open-new-tab', 'resource.copy-address']],
+  // Viewer-only services stay copy-only until they get their own tab surface.
+  ['qdnRequest', 'qdn://IMAGE/Gallery/photo', 'qortium', ['resource.copy-address']],
+  ['qdnRequest', 'qdn://VIDEO/Channel/clip', 'qortium', ['resource.copy-address']],
+  ['qdnRequest', 'qdn://DOCUMENT/Papers/spec', 'qortium', ['resource.copy-address']],
 ] as const) {
   const request = normalizeHomeV2ContextMenuRequest(protocol, {
     version: 1,
@@ -65,10 +74,20 @@ for (const [protocol, address, expectedNetwork, expectedActions] of [
     getHomeV2ContextMenuItems(request.target).map((item) => item.action),
     expectedActions,
   )
-  if (request.target.service === 'APP') {
+  // Widened to a readonly string[] so the per-row literal tuple types do not
+  // reject the lookup.
+  const opensInNewTab = (expectedActions as readonly string[]).includes('resource.open-new-tab')
+  if (opensInNewTab) {
     assert.deepEqual(
       getHomeV2ContextMenuOperation(request.target, 'resource.open-new-tab'),
       { address, kind: 'open-new-tab' },
+      `${address} should open in a new tab`,
+    )
+  } else {
+    assert.throws(
+      () => getHomeV2ContextMenuOperation(request.target, 'resource.open-new-tab'),
+      /not available for this target/,
+      `${address} must not be openable as an app tab`,
     )
   }
 }

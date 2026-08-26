@@ -54,6 +54,7 @@ import {
 import {
   buildHomeV2AppResourceSearchPath,
   normalizeHomeV2AppResourceName,
+  normalizeHomeV2AppResourceService,
   parseHomeV2AppResourceCandidates,
 } from './home-v2-app-resource-discovery.js'
 import {
@@ -525,15 +526,22 @@ export async function readHomeV2Identity(network: NetworkId, requestValue: unkno
   }
 }
 
-async function listAppResources(network: NetworkId, nameValue: unknown) {
+async function listAppResources(
+  network: NetworkId,
+  nameValue: unknown,
+  serviceValue?: unknown,
+) {
   const name = normalizeHomeV2AppResourceName(nameValue)
+  // Validated here (not just trusted from the renderer) because it is
+  // interpolated straight into the node search query.
+  const service = normalizeHomeV2AppResourceService(serviceValue)
   const snapshot = await getRecentSnapshot()
   const node = snapshot.nodes[network]
   if (!node.capabilities.read || !node.nodeApiUrl) {
     throw new Error(node.error ?? `${network} node is unavailable.`)
   }
   const response = await nodeFetch(
-    `${node.nodeApiUrl}${buildHomeV2AppResourceSearchPath(name)}`,
+    `${node.nodeApiUrl}${buildHomeV2AppResourceSearchPath(name, service)}`,
     { method: 'GET', signal: AbortSignal.timeout(5_000) },
   )
   const text = await readBoundedText(response)
@@ -815,9 +823,9 @@ export function registerHomeV2NodeBridgeIpcHandlers() {
   })
   ipcMain.handle(
     'home-v2-nodes:listAppResources',
-    (event, networkValue: unknown, nameValue: unknown) => {
+    (event, networkValue: unknown, nameValue: unknown, serviceValue?: unknown) => {
       assertAuthorizedHomeV2Sender(event)
-      return listAppResources(normalizeNetwork(networkValue), nameValue)
+      return listAppResources(normalizeNetwork(networkValue), nameValue, serviceValue)
     },
   )
   ipcMain.handle('home-v2-shell:getState', (event) => {

@@ -114,7 +114,9 @@ const APP_KEY_MAX_LENGTH = 2_048;
 const ROLE_ID_MAX_LENGTH = 120;
 const ROLE_LABEL_MAX_LENGTH = 80;
 const ROLE_DESCRIPTION_MAX_LENGTH = 280;
-const QDN_TARGET_PATTERN = /^qdn:\/\/(APP|WEBSITE)\/([^/?#]+)(?:\/([^/?#]+))?((?:\/[^?#]*)?(?:\?[^#]*)?(?:#.*)?)$/i;
+// R4-4: GAME joined APP and WEBSITE here for the same reason as
+// QDN_PRINCIPAL_PATTERN below — all three are app-tab content now.
+const QDN_TARGET_PATTERN = /^qdn:\/\/(APP|WEBSITE|GAME)\/([^/?#]+)(?:\/([^/?#]+))?((?:\/[^?#]*)?(?:\?[^#]*)?(?:#.*)?)$/i;
 const ROLE_ID_PATTERN = /^[a-z][a-z0-9]*(?:[._:/-][a-z0-9]+)*$/;
 const MAX_ASSIGNMENTS = 100;
 const UNSAFE_RECORD_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
@@ -174,8 +176,13 @@ export function sanitizeQdnManagerAppKey(value: unknown): string {
 // grant throw during persistence and fail the action the user had just
 // approved. The scheme is PRESERVED, so same-named resources on different
 // chains can never borrow each other's grants.
+// R4-4: GAME joined APP and WEBSITE. Home opens all three browser-archive
+// services as app tabs, so all three can reach a capability prompt; a pattern
+// narrower than the set made `sanitizeQdnCapabilityPrincipal` THROW when a
+// GAME app's grant was persisted, failing the action the user had just
+// approved (the same class of bug the qortal:// note above records).
 const QDN_PRINCIPAL_PATTERN =
-  /^(qdn|qortal):\/\/(APP|WEBSITE)\/([^/?#]+)(?:\/([^/?#]+))?(?:\/[^?#]*)?(\?[^#]*)?(?:#.*)?$/i;
+  /^(qdn|qortal):\/\/(APP|WEBSITE|GAME)\/([^/?#]+)(?:\/([^/?#]+))?(?:\/[^?#]*)?(\?[^#]*)?(?:#.*)?$/i;
 
 /**
  * Resolves the identifier the runtime would actually serve.
@@ -244,7 +251,7 @@ export function sanitizeQdnCapabilityPrincipal(value: unknown): string {
     /[\u0000-\u001f\u007f\s]/.test(url) ||
     !match
   ) {
-    throw new Error('Capability principal must be a valid QDN APP or WEBSITE resource URL.');
+    throw new Error('Capability principal must be a valid QDN APP, WEBSITE, or GAME resource URL.');
   }
   const scheme = match[1].toLowerCase();
   const type = match[2].toUpperCase();

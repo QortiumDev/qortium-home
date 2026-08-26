@@ -540,19 +540,33 @@ assert.equal(qortiumAvatarSearchUrl.pathname, qortalAvatarSearchUrl.pathname)
 assert.equal(qortiumAvatarSearchUrl.searchParams.get('identifier'), 'avatar')
 assert.equal(qortiumAvatarSearchUrl.searchParams.get('name'), 'Alice Smith')
 assert.match(buildHomeV2AppResourceSearchPath('Trust'), /name=Trust/)
+// R4-4: the renderer twin of electron/home-v2-app-resource-discovery.ts must
+// behave identically — same service scoping, same candidate shape, same
+// deterministic ordering — or desktop and Android resolve names differently.
+assert.match(buildHomeV2AppResourceSearchPath('Trust'), /service=APP/)
+assert.match(buildHomeV2AppResourceSearchPath('Blog', 'WEBSITE'), /service=WEBSITE/)
+assert.match(buildHomeV2AppResourceSearchPath('Arena', 'GAME'), /service=GAME/)
 assert.deepEqual(
   parseHomeV2AppResourceCandidates(
     [
       { identifier: 'Trust', name: 'Trust', service: 'APP' },
       { name: 'Trust', service: 'APP' },
       { identifier: 'Ignore', name: 'Other', service: 'APP' },
+      { identifier: 'Ignore', name: 'Trust', service: 'WEBSITE' },
+      { identifier: 'photo', name: 'Trust', service: 'IMAGE' },
     ],
     'trust',
   ),
   [
-    { identifier: null, name: 'Trust' },
-    { identifier: 'Trust', name: 'Trust' },
+    { identifier: null, name: 'Trust', service: 'APP' },
+    { identifier: 'Trust', name: 'Trust', service: 'APP' },
+    { identifier: 'Ignore', name: 'Trust', service: 'WEBSITE' },
   ],
+)
+// A bare name that resolves only to a WEBSITE candidate works.
+assert.deepEqual(
+  parseHomeV2AppResourceCandidates([{ name: 'Blog', service: 'WEBSITE' }], 'Blog'),
+  [{ identifier: null, name: 'Blog', service: 'WEBSITE' }],
 )
 
 const readyAvatar = parseHomeV2AvatarResponse({
@@ -789,7 +803,7 @@ await client.requestApp('qortalRequest', {
 })
 assert.match(lastRequestedUrl, /\/arbitrary\/resources\/search\?name=Q-Tube&service=APP$/)
 assert.deepEqual(await client.listAppResources('qortal', 'Trust'), [
-  { identifier: 'Trust', name: 'Trust' },
+  { identifier: 'Trust', name: 'Trust', service: 'APP' },
 ])
 
 const chatSignature =

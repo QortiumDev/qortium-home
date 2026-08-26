@@ -406,6 +406,11 @@ function assertAppTabTarget(
   if (
     context.sourceNetwork !== app.sourceNetwork ||
     parsedLocation.sourceNetwork !== app.sourceNetwork ||
+    // R4-4: the SERVICE is part of the resource's identity now that WEBSITE
+    // and GAME open as app tabs. Without this, an APP descriptor could be
+    // opened at a qdn://WEBSITE/<same name> location — a different published
+    // resource wearing the descriptor's title, icon and app id.
+    parsedLocation.identity.service !== app.resourceIdentity.service ||
     parsedLocation.identity.name !== app.resourceIdentity.name ||
     parsedLocation.identity.identifier !== app.resourceIdentity.identifier
   ) {

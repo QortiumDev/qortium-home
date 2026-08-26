@@ -69,10 +69,23 @@ export type VisibleAvatarLoader = (
   request: VisibleAvatarReadRequest,
 ) => Promise<VisibleAvatarReadResult>
 
+// The QDN services Home can execute as browser content inside an app tab.
+// This is the renderer-side mirror of QDN_BROWSER_ARCHIVE_SERVICES in
+// electron/qdn-browser-archive-services.ts (which is the canonical list) and
+// of APP_RESOURCE_SERVICES in ./resource-location, which carries the runtime
+// array and predicate. It is MIRRORED rather than imported because src/v2 is
+// pinned against relative imports out to the electron folder — see
+// testRendererSourceHasNoRuntimeEscapeHatches in home-v2-foundation.test.tsx,
+// which forbids that import token in every src/v2 source file (this comment
+// deliberately does not spell the token out, or it would trip that very
+// scan). That same test file pins these lists against each other so they
+// cannot drift.
+export type AppResourceService = 'APP' | 'WEBSITE' | 'GAME'
+
 export interface VisibleAppIconReadRequest {
   readonly identifier: string | null
   readonly name: string
-  readonly service: 'APP' | 'WEBSITE'
+  readonly service: AppResourceService
 }
 
 export type VisibleAppIconLoader = (
@@ -238,7 +251,12 @@ export interface NodeSummary {
 }
 
 export interface AppResourceIdentity {
-  readonly service: 'APP'
+  // Widened from the 'APP' literal in R4-4: WEBSITE and GAME resources are
+  // published QDN browser archives too, and Home opens them as app tabs. The
+  // REAL service is carried here (never re-stamped as 'APP') because it is
+  // what builds the /render/<service>/... URL, the qdn:// address a grant is
+  // keyed by, and the app-icon fetch.
+  readonly service: AppResourceService
   readonly name: string
   readonly identifier: string | null
 }

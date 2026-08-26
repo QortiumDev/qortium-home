@@ -49,6 +49,54 @@ import {
   }
 }
 
+// --- R4-4: GAME resources can hold a durable grant ---
+{
+  // Home opens APP, WEBSITE and GAME as app tabs, so all three can reach a
+  // capability prompt. The principal pattern used to allow only APP|WEBSITE,
+  // which made persisting a GAME app's grant THROW — failing the very action
+  // the user had just approved. Granting for a GAME app must not throw.
+  assert.equal(sanitizeQdnCapabilityPrincipal('qdn://GAME/Arena/Arena'), 'qdn://GAME/Arena/Arena')
+  assert.equal(sanitizeQdnCapabilityPrincipal('qdn://GAME/Arena/default'), 'qdn://GAME/Arena')
+  assert.equal(sanitizeQdnCapabilityPrincipal('qortal://GAME/Arena/Arena'), 'qortal://GAME/Arena/Arena')
+  assert.equal(sanitizeQdnCapabilityPrincipal('qdn://WEBSITE/Blog/default'), 'qdn://WEBSITE/Blog')
+
+  // The service stays part of the principal, so a GAME and an APP published
+  // under the same name never borrow each other's grants.
+  assert.notEqual(
+    sanitizeQdnCapabilityPrincipal('qdn://GAME/Arena/Arena'),
+    sanitizeQdnCapabilityPrincipal('qdn://APP/Arena/Arena'),
+  )
+
+  // A real durable grant round-trips for a GAME principal.
+  const store = grantQdnAccountCapability(
+    createDefaultQdnAppRolesStore(),
+    'qdn://GAME/Arena/Arena',
+    'wallet:QAAA',
+    'account.read',
+  )
+  assert.equal(
+    storeHoldsQdnAccountCapability(store, 'qdn://GAME/Arena/Arena', 'wallet:QAAA', 'account.read'),
+    true,
+  )
+  assert.equal(
+    storeHoldsQdnAccountCapability(store, 'qdn://APP/Arena/Arena', 'wallet:QAAA', 'account.read'),
+    false,
+    'a same-named APP must not inherit the GAME resource grant',
+  )
+  // And survives the store's own re-canonicalizing read-back.
+  const reloaded = sanitizeQdnAppRolesStore(JSON.parse(JSON.stringify(store)))
+  assert.equal(
+    storeHoldsQdnAccountCapability(reloaded, 'qdn://GAME/Arena/Arena', 'wallet:QAAA', 'account.read'),
+    true,
+  )
+
+  // Viewer services are still refused a principal outright.
+  assert.throws(
+    () => sanitizeQdnCapabilityPrincipal('qdn://IMAGE/Gallery/photo'),
+    /APP, WEBSITE, or GAME/,
+  )
+}
+
 // --- FIX 1: `?identifier=` must not be collapsed away ---
 {
   const base = sanitizeQdnCapabilityPrincipal('qdn://APP/Chat/default')
