@@ -1,0 +1,291 @@
+/**
+ * Parity and posture pins for the app-facing Home-settings bridge.
+ *
+ * Precedent: home-v2-notification-manager-parity.test.ts. Home has no test CI
+ * that can drive a real Electron window, so the properties a security review
+ * cares about — "the update is single-request and never durable", "the reads
+ * never prompt", "the app never touches the trusted policy IPC", "a read
+ * returns nothing but the seven keys" — are pinned against the source text of
+ * the two dispatchers. A refactor that removes one of these lines fails here
+ * rather than silently widening the surface.
+ */
+import assert from 'node:assert/strict';
+import { existsSync, readFileSync } from 'node:fs';
+import { QDN_HOME_SETTINGS_ACTIONS } from './qdn-app-actions.js';
+import {
+  HOME_V2_HOME_SETTINGS_ACTIONS,
+  HOME_V2_HOME_SETTINGS_PROMPTED_ACTION,
+  HOME_V2_HOME_SETTINGS_UNPROMPTED_ACTIONS,
+} from './home-v2-home-settings-contract.js';
+import { getHomeV2AppActions } from './home-v2-app-actions.js';
+import { HOME_V2_ROUTE_INDEPENDENT_ACTIONS } from './home-v2-app-runtime.js';
+import {
+  HOME_V2_ACCOUNT_READ_ACTIONS,
+  HOME_V2_PERMISSIONLESS_ACTIONS,
+  isHomeV2PermissionlessAction,
+} from './home-v2-session-grants.js';
+
+function readRepoSource(...candidates: string[]) {
+  const url = candidates.map((candidate) => new URL(candidate, import.meta.url)).find((each) => existsSync(each));
+  assert.ok(url, `source not found: tried ${candidates.join(', ')}`);
+  return readFileSync(url, 'utf8');
+}
+
+const desktopBridge = readRepoSource('../electron/home-v2-app-bridge.ts', './home-v2-app-bridge.ts');
+const androidHost = readRepoSource(
+  '../src/home-v2-live/HomeV2LiveApp.tsx',
+  './src/home-v2-live/HomeV2LiveApp.tsx',
+);
+const contract = readRepoSource(
+  '../electron/home-v2-home-settings-contract.ts',
+  './home-v2-home-settings-contract.ts',
+);
+const rendererClient = readRepoSource(
+  '../src/home-v2-live/home-settings-client.ts',
+  './src/home-v2-live/home-settings-client.ts',
+);
+const livePreload = readRepoSource('../electron/home-v2-live-preload.cts', './home-v2-live-preload.cts');
+const promptTypes = readRepoSource('../src/v2/bridge-permissions.ts', './src/v2/bridge-permissions.ts');
+const appRuntime = readRepoSource('../electron/home-v2-app-runtime.ts', './home-v2-app-runtime.ts');
+
+// ---------------------------------------------------------------------------
+// Parity: the v2 surface is EXACTLY the 1.x three, and no more.
+// ---------------------------------------------------------------------------
+
+assert.deepEqual(
+  [...HOME_V2_HOME_SETTINGS_ACTIONS].sort(),
+  [...QDN_HOME_SETTINGS_ACTIONS].sort(),
+  'Home 2 must expose exactly the Home settings actions Home 1.x exposed',
+);
+
+const qdnActions = getHomeV2AppActions('qdnRequest');
+const qortalActions = getHomeV2AppActions('qortalRequest');
+for (const action of HOME_V2_HOME_SETTINGS_ACTIONS) {
+  assert.ok(qdnActions.includes(action), `${action} must be advertised on qdnRequest`);
+  assert.ok(
+    !qortalActions.includes(action),
+    `${action} must NOT be advertised on qortalRequest: Home has one appearance, not one per chain`,
+  );
+  assert.ok(
+    (HOME_V2_ROUTE_INDEPENDENT_ACTIONS as readonly string[]).includes(action),
+    `${action} must be route-independent: it touches no node`,
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Posture: the update prompts, single-request only, and is never durable.
+// ---------------------------------------------------------------------------
+
+// Not permissionless. The two reads are answered without a prompt by their own
+// dispatch path, but the WRITE must never be able to fall through a
+// permissionless shortcut.
+assert.equal(isHomeV2PermissionlessAction(HOME_V2_HOME_SETTINGS_PROMPTED_ACTION), false);
+assert.ok(
+  !(HOME_V2_PERMISSIONLESS_ACTIONS as readonly string[]).includes('UPDATE_HOME_SETTINGS'),
+  'UPDATE_HOME_SETTINGS must not be listed as permissionless',
+);
+
+// None of the three belongs to the account-read grant family. They carry no
+// account data at all, and folding a read of the user's theme into the durable
+// account.read grant would make that grant mean something broader than its own
+// prompt says.
+for (const action of HOME_V2_HOME_SETTINGS_ACTIONS) {
+  assert.ok(
+    !(HOME_V2_ACCOUNT_READ_ACTIONS as readonly string[]).includes(action),
+    `${action} must not be part of the account-read family`,
+  );
+  assert.ok(
+    !(HOME_V2_PERMISSIONLESS_ACTIONS as readonly string[]).includes(action),
+    `${action} must not be listed in the account-scoped permissionless set`,
+  );
+}
+
+// Only the update is promptable. The prompt type union is the trusted shell's
+// own allowlist of actions a prompt may be raised for, so a read appearing here
+// would be a read that could raise a modal.
+assert.ok(
+  promptTypes.includes("| 'UPDATE_HOME_SETTINGS'"),
+  'UPDATE_HOME_SETTINGS must be a promptable action',
+);
+for (const action of HOME_V2_HOME_SETTINGS_UNPROMPTED_ACTIONS) {
+  assert.ok(
+    !promptTypes.includes(`| '${action}'`),
+    `${action} must never be a promptable action: it does not prompt`,
+  );
+}
+
+// The capability exists and is documented as never-durable.
+assert.ok(promptTypes.includes("| 'home.settings.write'"), 'the capability must be declared');
+
+// Single-request at BOTH ends: the desktop bridge refuses any other scope, and
+// the shell offers no other scope. Either line alone would be a gap.
+assert.ok(
+  /decision\.scope !== 'single-request'/.test(desktopBridge),
+  'the desktop bridge must accept only a single-request approval',
+);
+assert.ok(
+  desktopBridge.includes('writeSingleRequestOnly: true'),
+  'the desktop prompt must be marked single-request only',
+);
+assert.ok(
+  /isHomeSettingsUpdate\s*\?\s*\['single-request'\]/.test(androidHost),
+  'the shell must offer only the single-request scope for a Home settings update',
+);
+assert.ok(
+  /allowedScopes: \['single-request'\]/.test(androidHost),
+  'the Android prompt must offer only the single-request scope',
+);
+assert.ok(
+  /decision\.scope !== 'single-request'/.test(androidHost),
+  'the Android dispatch must accept only a single-request approval',
+);
+
+// No durable grant is ever stored for this capability. If any of these appear,
+// the "one approval, one patch" posture has been quietly abandoned.
+assert.ok(
+  !/grantQdnManagerPermission\([^)]*home\.settings/.test(desktopBridge),
+  'a Home settings approval must never write a durable manager grant',
+);
+assert.ok(
+  !/grantQdnManagerPermission\([^)]*home\.settings/.test(androidHost),
+  'a Home settings approval must never write a durable manager grant on Android',
+);
+assert.ok(
+  !/hasQdnManagerPermission\([^)]*home\.settings/.test(desktopBridge + androidHost),
+  'a Home settings request must never consult a durable grant store',
+);
+
+// The prompt must name what changes. A prompt carrying no per-key rows is
+// refused by the shell rather than rendered as a bare category.
+assert.ok(
+  desktopBridge.includes('homeSettingsDetails'),
+  'the desktop prompt must carry the per-key approval rows',
+);
+assert.ok(
+  androidHost.includes('isHomeSettingsDetailRows'),
+  'the shell must validate the per-key rows it renders',
+);
+assert.ok(
+  androidHost.includes('getHomeV2HomeSettingsApprovalDetails'),
+  'the Android prompt must derive its rows from the shared contract',
+);
+
+// Parsing happens before the prompt on both hosts, so a malformed patch cannot
+// be used to raise a prompt the user would otherwise never see.
+// The CALL site, not the definition, which appears earlier in the file.
+assert.ok(
+  desktopBridge.indexOf('parseHomeV2HomeSettingsRequest(action, requestValue)') <
+    desktopBridge.indexOf('await requestHomeV2HomeSettingsUpdateApproval('),
+  'the desktop bridge must parse before it prompts',
+);
+assert.ok(
+  androidHost.indexOf('parseHomeV2HomeSettingsRequest(') <
+    androidHost.indexOf("title: 'Allow this change to Home settings?'"),
+  'the Android host must parse before it prompts',
+);
+
+// Staleness is rechecked after approval and after the write, matching the
+// bookmark and notification-manager dispatches.
+assert.ok(
+  /Home settings request is stale because the app view changed before it could run/.test(desktopBridge),
+  'the desktop bridge must recheck staleness after approval',
+);
+assert.ok(
+  /Home settings request is stale because the app view changed while it was running/.test(desktopBridge),
+  'the desktop bridge must recheck staleness after the write',
+);
+assert.ok(
+  /Home settings request is stale because the app view changed before approval/.test(androidHost),
+  'the Android host must recheck staleness after approval',
+);
+
+// ---------------------------------------------------------------------------
+// Posture: the app never touches the trusted notification-policy IPC.
+// ---------------------------------------------------------------------------
+
+// The main process does not own these settings and must not read or write
+// them: it asks the shell. If the desktop bridge ever gained a direct policy or
+// appearance store call, the whole indirection would be gone.
+assert.ok(
+  desktopBridge.includes("hostWindow.webContents.send('home-v2-app:home-settings-request'"),
+  'the desktop bridge must ask the shell rather than reading settings itself',
+);
+assert.ok(
+  !/home-v2-notification-policy:(get|set)/.test(desktopBridge),
+  'the app bridge must never call the trusted notification-policy IPC',
+);
+// The renderer client reaches neither the preload nor an IPC channel: every
+// store it touches arrives as an injected dependency, which is what makes the
+// write path the same code on desktop and on Android.
+assert.ok(
+  !/ipcRenderer|window\./.test(rendererClient),
+  'the renderer client must not reach a bridge or IPC channel directly',
+);
+assert.ok(
+  rendererClient.includes('setNotificationPolicy:') &&
+    rendererClient.includes('applyAppearance:'),
+  'both stores must reach the renderer client as injected dependencies',
+);
+
+// The preload exposes the round-trip and NOTHING that reads or writes a
+// setting: it carries an opaque envelope in each direction.
+assert.ok(
+  livePreload.includes("ipcRenderer.on('home-v2-app:home-settings-request'"),
+  'the v2 preload must deliver the round-trip request',
+);
+assert.ok(
+  livePreload.includes("ipcRenderer.invoke('home-v2-app:resolveHomeSettingsRequest'"),
+  'the v2 preload must carry the round-trip reply',
+);
+
+// The live-change producer 1.x had and Home 2 lacked. Without this an app
+// listening for `qortium:home-settings-changed` hears nothing on Home 2.
+assert.ok(
+  livePreload.includes("ipcRenderer.invoke('qdn-views:broadcastHomeSettingsChanged'"),
+  'the v2 preload must expose broadcastHomeSettingsChanged',
+);
+assert.ok(
+  androidHost.includes('broadcastHomeSettingsChanged({'),
+  'the shell must announce Home settings changes to open app views',
+);
+
+// ---------------------------------------------------------------------------
+// Posture: a read discloses the seven keys and nothing else.
+// ---------------------------------------------------------------------------
+
+// The reply is built from the schema projection, not by spreading whatever the
+// renderer holds — the appearance object also carries resolvedTheme and
+// resolvedLanguage, and the shell holds node URLs and account state besides.
+assert.ok(
+  rendererClient.includes('projectHomeV2HomeSettings('),
+  'the renderer must build a reply from the schema projection',
+);
+assert.ok(
+  contract.includes('getWritableHomeSettings('),
+  'the projection must come from the 1.x schema, not a re-derived key list',
+);
+// Both ends validate the envelope, so neither trusts the other's shape.
+assert.ok(
+  desktopBridge.includes('parseHomeV2HomeSettingsRoundTripResponse('),
+  'the main process must validate the shell reply before forwarding it',
+);
+assert.ok(
+  androidHost.includes('parseHomeV2HomeSettingsRoundTripRequest('),
+  'the shell must validate the request main sent it',
+);
+
+// ---------------------------------------------------------------------------
+// Posture: widgets see none of it.
+// ---------------------------------------------------------------------------
+
+// Pinned in the source as well as behaviourally (home-v2-app-runtime.test.ts),
+// because the two reads match the GET_ prefix and would otherwise be admitted
+// by default rather than by decision.
+for (const action of HOME_V2_HOME_SETTINGS_UNPROMPTED_ACTIONS) {
+  assert.ok(
+    appRuntime.includes(`action === '${action}'`),
+    `${action} must be excluded from widget public reads explicitly`,
+  );
+}
+
+console.log('Home v2 Home settings parity and posture tests passed.');

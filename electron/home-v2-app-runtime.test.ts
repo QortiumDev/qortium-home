@@ -577,4 +577,84 @@ assert.equal(
   'the notification manager family must be advertised all-or-nothing',
 )
 
+// ---------------------------------------------------------------------------
+// The app-facing Home-settings family.
+// ---------------------------------------------------------------------------
+
+const homeSettingsActions = [
+  'GET_HOME_SETTINGS_METADATA',
+  'GET_HOME_SETTINGS',
+  'UPDATE_HOME_SETTINGS',
+] as const
+
+for (const action of homeSettingsActions) {
+  // Advertised on qdnRequest only. Home has ONE appearance, not a Qortal one
+  // and a Qortium one, so a qortalRequest copy would either mean the same thing
+  // twice or imply a per-chain appearance that does not exist.
+  assert.equal(
+    getHomeV2AvailableAppActions('qdnRequest', {
+      qortal: publicInfo.route,
+      qortium: publicInfo.route,
+    }).includes(action),
+    true,
+    `${action} must be advertised on qdnRequest`,
+  )
+  assert.equal(
+    getHomeV2AvailableAppActions('qortalRequest', {
+      qortal: publicInfo.route,
+      qortium: publicInfo.route,
+    }).includes(action),
+    false,
+    `${action} must not be advertised on qortalRequest`,
+  )
+  // Route-independent: no node is involved in reading or changing Home's own
+  // appearance, so the family stays callable with every route disabled...
+  assert.equal(
+    getHomeV2AvailableAppActions('qdnRequest', {
+      qortal: disabledRoute,
+      qortium: disabledRoute,
+    }).includes(action),
+    true,
+    `${action} must stay callable while the node route is disabled`,
+  )
+  // ...and while a configured route is unreachable.
+  assert.equal(
+    getHomeV2AvailableAppActions('qdnRequest', {
+      qortal: unreachableInfo.route,
+      qortium: unreachableInfo.route,
+    }).includes(action),
+    true,
+    `${action} must stay callable while the node route is unreachable`,
+  )
+  // Widgets are excluded, INCLUDING the two reads.
+  //
+  // This is the pin that matters most in this block. GET_HOME_SETTINGS and
+  // GET_HOME_SETTINGS_METADATA both match isWidgetPublicReadAction's GET_
+  // prefix and would be admitted to a widget by default. They are excluded
+  // explicitly because a widget has no trusted Home chrome to raise the
+  // UPDATE_HOME_SETTINGS prompt on, and shipping the read half of a read/write
+  // pair without the write half is an incoherent surface. The display subset a
+  // widget actually needs already reaches it as render-URL parameters.
+  assert.equal(widgetActions.includes(action), false, `widget must not advertise ${action}`)
+  // The widget exclusion must not be mistaken for the action being missing.
+  assert.equal(normalTabActions.includes(action), true, `tab should advertise ${action}`)
+  assert.equal(androidActions.includes(action), true, `android should advertise ${action}`)
+}
+
+// All-or-nothing on SHOW_ACTIONS: an app that feature-detects the family and
+// finds the reads but not the write would render a settings surface it cannot
+// save from.
+assert.equal(
+  homeSettingsActions.filter((action) => normalTabActions.includes(action)).length,
+  homeSettingsActions.length,
+  'the Home settings family must be advertised all-or-nothing',
+)
+
+// No widget may see any part of it, whatever else changes above.
+assert.equal(
+  homeSettingsActions.some((action) => widgetActions.includes(action)),
+  false,
+  'no Home settings action may reach a widget',
+)
+
 console.log('Home v2 app runtime contract tests passed.')

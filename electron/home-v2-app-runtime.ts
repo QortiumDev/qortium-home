@@ -75,6 +75,12 @@ export const HOME_V2_ROUTE_INDEPENDENT_ACTIONS = Object.freeze([
   'NOTIFICATION_MANAGER_REMOVE_RULES',
   'NOTIFICATION_MANAGER_REVOKE',
   'NOTIFICATION_MANAGER_SET_MUTED',
+  // Home's own appearance and notification toggle. No node is involved in
+  // reading or changing them, so an app can still theme itself to match Home —
+  // and still ask to change it — while every route is disabled or unreachable.
+  'GET_HOME_SETTINGS',
+  'GET_HOME_SETTINGS_METADATA',
+  'UPDATE_HOME_SETTINGS',
   'OPEN_NEW_TAB',
   'SHOW_CONTEXT_MENU',
   'SHOW_NOTIFICATION',
@@ -198,7 +204,17 @@ function isWidgetPublicReadAction(action: string) {
     // GET_USER_WALLET matches /^GET_/ and would have been admitted silently.
     // Its entire answer is the selected account's address, so it is
     // GET_SELECTED_ACCOUNT by another name and is excluded with it.
-    action === 'GET_USER_WALLET'
+    action === 'GET_USER_WALLET' ||
+    // The Home-settings reads match GET_ and would otherwise be admitted here.
+    // They are excluded because a widget has no trusted Home chrome to raise
+    // the UPDATE_HOME_SETTINGS prompt on, and shipping the read half of a
+    // read/write pair without the write half is an incoherent surface: an app
+    // would discover the settings and then find the only action that acts on
+    // them missing. The display subset a widget actually needs — theme, accent,
+    // language, text size, interface style — already reaches it as render-URL
+    // parameters, with no bridge call at all.
+    action === 'GET_HOME_SETTINGS' ||
+    action === 'GET_HOME_SETTINGS_METADATA'
   )
 }
 

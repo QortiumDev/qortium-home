@@ -237,6 +237,8 @@
     "test:local-notifications-patch": "node scripts/test-local-notifications-patch.mjs",
     "test:notification-manager": "node scripts/ensure-electron-build.mjs && node dist-electron/notification-manager.test.js",
     "test:home-v2-notification-manager": "node scripts/ensure-electron-build.mjs && node dist-electron/home-v2-notification-manager-contract.test.js && node dist-electron/home-v2-notification-manager-parity.test.js",
+    "test:home-v2-home-settings": "node scripts/ensure-electron-build.mjs && node dist-electron/home-v2-home-settings-contract.test.js && node dist-electron/home-v2-home-settings-parity.test.js",
+    "test:home-v2-home-settings-client": "esbuild src/home-v2-live/home-settings-client.test.ts --bundle --platform=node --format=esm --outfile=dist-electron/home-v2-home-settings-client.test.js && node dist-electron/home-v2-home-settings-client.test.js",
     "test:qdn-manager-permissions-panel": "esbuild src/qdnManagerPermissionsPanelModel.test.ts --bundle --platform=node --format=esm --outfile=dist-electron/qdn-manager-permissions-panel.test.js && node dist-electron/qdn-manager-permissions-panel.test.js",
     "test:settings-section-target": "esbuild src/settingsSectionTarget.test.ts --bundle --platform=node --format=esm --outfile=dist-electron/settings-section-target.test.js && node dist-electron/settings-section-target.test.js",
     "test:home-settings-bridge": "node scripts/ensure-electron-build.mjs && node dist-electron/home-settings-bridge.test.js",

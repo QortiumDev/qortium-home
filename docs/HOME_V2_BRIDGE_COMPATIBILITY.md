@@ -86,6 +86,8 @@ request `notifications.manage`, and the assigned app gets no head start.
 | `BOOKMARKS_HAS_PERMISSION`, `BOOKMARKS_GET`, `BOOKMARKS_APPLY`, `BOOKMARKS_OPEN` | `qdnRequest` | Permission state, validated saved-link snapshot, revision-CAS mutation result, or `true` after an account-aware open | Route-independent durable `bookmarks.manage` approval; invalid addresses, missing accounts, stale revisions, changed app contexts, and malformed saved data fail closed | yes | yes |
 | `NOTIFICATION_MANAGER_HAS_PERMISSION` | `qdnRequest` | `{ granted }` | Route-independent; never prompts, and answers from the capability store alone so it stays truthful while the notification store is degraded | yes | yes |
 | `NOTIFICATION_MANAGER_GET`, `NOTIFICATION_MANAGER_SET_MUTED`, `NOTIFICATION_MANAGER_REMOVE_RULES`, `NOTIFICATION_MANAGER_REVOKE` | `qdnRequest` | The 1.x-compatible `{ version: 1, revision, apps }` summary, with address-like filters exposed only when they validate and watch-only/signature filters masked | Route-independent durable `notifications.manage` approval, offered as "always" only; every mutation carries `expectedRevision` and a mismatch fails with `code: "HOME_DATA_STALE"`; a corrupt or unreadable store fails closed rather than reading as an empty profile; rule creation is not part of the surface | yes | yes |
+| `GET_HOME_SETTINGS_METADATA`, `GET_HOME_SETTINGS` | `qdnRequest` | The 1.x writable schema (with `writableValues` alongside `allowedValues`), and exactly the seven display keys `theme`/`accent`/`language`/`textSize`/`appZoom`/`ui`/`appNotifications` | Route-independent and **unprompted**, as in Home 1.x — the same display subset already reaches an app as render-URL parameters before its first line of script. Never returns node URLs, account data or API keys. Excluded from widgets. A corrupt or unreadable notification policy reports `appNotifications: false` | yes | yes |
+| `UPDATE_HOME_SETTINGS` | `qdnRequest` | The seven keys as they now stand after the change | Route-independent **single-request** `home.settings.write` approval showing per-key current-vs-proposed values; never session or always, and no durable grant is ever stored, so there is nothing to revoke in QDN Apps settings. Accent `clay` is readable but not writable. Excluded from widgets | yes | yes |
 | `GET_PENDING_TRANSACTIONS` | both | This app/account/chain's opaque unknown-outcome entries without Home-internal account or app keys; an automatic QPGC setup entry may include `stage: "key-announcement"` | Route-independent scoped `transactions.pending.read` approval; message and key material are never stored | yes | yes |
 | `FORGET_PENDING_TRANSACTION` | both | `{ forgotten, network, signature }` | Route-independent single-request `transactions.pending.forget` approval after app reconciliation | yes | yes |
 | `GET_NODE_INFO`, `GET_NODE_STATUS` | both | Bare Core JSON | Protocol selects Qortium or Qortal | yes | yes |
@@ -208,6 +210,7 @@ above is deferred and unadvertised in Home 2.0. In particular this includes
 multi-resource publishing/deletion, account/group/name/poll/rating MUTATIONS other than the
 implemented participation and exact group-administration actions, payments,
 FOREIGN wallets, Home/node settings writes,
+foreign wallets, node settings writes,
 background notification subscriptions, legacy inline/path publishing, and Qortal-prefixed legacy
 helpers. These actions will be migrated by family; they will not be exposed by
 forwarding Home 2.0 apps into the broad v1 bridge.
@@ -256,6 +259,15 @@ is worse than an honest "not implemented". The v2 publish-source picker is also
 file-only today (`properties: ['openFile']`), so even a complete port would
 cover `.zip` and `.html` but not 1.x's directory sources. This belongs in its
 own change with the renderer work included.
+Home's own **display settings** are no longer deferred.
+`GET_HOME_SETTINGS_METADATA`, `GET_HOME_SETTINGS` and `UPDATE_HOME_SETTINGS`
+are implemented on `qdnRequest` over the same seven-key surface Home 1.x
+exposed; see [Home settings QDN bridge](HOME_SETTINGS_BRIDGE.md). This is a
+narrow exception and does not widen the settings boundary: **node settings
+writes remain deferred and unadvertised**, as do wallet, update-policy,
+start-page and dashboard writes. The seven keys are theme, accent, language,
+text size, app zoom, interface style and the global app-notification toggle,
+and a read returns those seven and nothing else.
 
 Minting is no longer deferred. `GET_MINTING_STATUS`, `LIST_MINTING_ACCOUNTS`,
 `START_MINTING`, and `REMOVE_MINTING_ACCOUNT` are implemented on both protocols

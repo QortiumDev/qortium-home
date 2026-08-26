@@ -66,6 +66,17 @@ import {
   type HomeV2NotificationManagerAction,
 } from './home-v2-notification-manager-contract.js'
 import {
+  encodeHomeV2HomeSettingsRoundTripRequest,
+  getHomeV2HomeSettingsApprovalDetails,
+  getHomeV2HomeSettingsMetadata,
+  isHomeV2HomeSettingsAction,
+  parseHomeV2HomeSettingsRequest,
+  parseHomeV2HomeSettingsRoundTripResponse,
+  type HomeV2HomeSettings,
+  type HomeV2HomeSettingsAction,
+  type HomeV2HomeSettingsPatch,
+} from './home-v2-home-settings-contract.js'
+import {
   areQdnAppNotificationsEnabled,
   consumeQdnAppNotificationRateLimit,
 } from './qdn.js'
@@ -760,6 +771,205 @@ async function handleHomeV2NotificationManagerAction(
     throw new Error('QDN manager request is stale because the app view changed while it was running.')
   }
   return result
+}
+
+// ---------------------------------------------------------------------------
+// The app-facing Home-settings family: GET_HOME_SETTINGS_METADATA,
+// GET_HOME_SETTINGS, UPDATE_HOME_SETTINGS.
+//
+// ARCHITECTURE. The main process does NOT own these settings and deliberately
+// does not read or write them. Home 1.x resolved the same three in the RENDERER
+// via a host round-trip (requestHomeSettingsFromHostWindow, qdn.ts:904-940)
+// because the renderer owns display settings, and Home 2 keeps that shape: main
+// asks the shell window over 'home-v2-app:home-settings-request' and the shell
+// composes the answer from its appearance state and its notification-policy
+// client.
+//
+// POSTURE. The app never touches the trusted notification-policy IPC. Home
+// raises the prompt, and Home's own renderer performs the write — the same
+// indirection 1.x used, and the same one BOOKMARKS_* uses through the
+// collections bridge. What crosses this boundary from an app is a validated
+// seven-key patch and nothing else.
+//
+// The envelope in both directions is validated by the shared contract module,
+// so neither end trusts the other's shape and a renderer that grew an eighth
+// field could not have it forwarded to an app.
+// ---------------------------------------------------------------------------
+
+const HOME_SETTINGS_REQUEST_TIMEOUT_MS = 60_000
+
+const pendingHomeSettingsRequests = new Map<string, {
+  readonly hostWebContentsId: number
+  readonly reject: (error: Error) => void
+  readonly resolve: (settings: HomeV2HomeSettings) => void
+}>()
+
+/**
+ * Asks the shell window for the current settings, or to apply a patch.
+ *
+ * Structurally the same round-trip as requestHomeV2Collections in
+ * home-v2-collections-bridge.ts: a pending map keyed by request id, a timeout,
+ * cancellation when the host window closes, and a reply that is only accepted
+ * from the window the request was sent to.
+ */
+function requestHomeV2HomeSettings(
+  context: QdnViewContext,
+  operation: 'apply' | 'read',
+  patch?: HomeV2HomeSettingsPatch,
+) {
+  const hostWindow = getContextWindow(context)
+  if (!hostWindow || hostWindow.isDestroyed()) {
+    throw new Error('Home settings request does not belong to an active Home window.')
+  }
+  const requestId = randomUUID()
+  const envelope = encodeHomeV2HomeSettingsRoundTripRequest({
+    id: requestId,
+    operation,
+    patch: patch ?? null,
+  })
+  return new Promise<HomeV2HomeSettings>((resolve, reject) => {
+    let settled = false
+    const settle = (callback: () => void) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timeout)
+      hostWindow.removeListener('closed', handleClosed)
+      pendingHomeSettingsRequests.delete(requestId)
+      callback()
+    }
+    const timeout = setTimeout(
+      () => settle(() => reject(new Error('Home settings request timed out.'))),
+      HOME_SETTINGS_REQUEST_TIMEOUT_MS,
+    )
+    const handleClosed = () => settle(() => reject(new Error('Home settings request was cancelled.')))
+    pendingHomeSettingsRequests.set(requestId, {
+      hostWebContentsId: hostWindow.webContents.id,
+      reject: (error) => settle(() => reject(error)),
+      resolve: (settings) => settle(() => resolve(settings)),
+    })
+    hostWindow.once('closed', handleClosed)
+    try {
+      hostWindow.webContents.send('home-v2-app:home-settings-request', envelope)
+    } catch (error) {
+      settle(() => reject(error instanceof Error ? error : new Error('Home settings request failed.')))
+    }
+  })
+}
+
+/**
+ * The UPDATE_HOME_SETTINGS approval.
+ *
+ * SINGLE-REQUEST ONLY, and that is not an oversight to be "improved" later.
+ * Unlike bookmarks.manage or notifications.manage there is no durable
+ * capability here, nothing is written to the grant store, and nothing appears
+ * in Settings > QDN Apps — because a durable grant to rewrite the user's theme,
+ * language, zoom and notification toggle would produce effects the user sees
+ * with no way to attribute them to any app. One approval, one patch, and the
+ * next patch asks again.
+ *
+ * The prompt carries the per-key current-vs-proposed rows the shared contract
+ * derived, so the user is answering "change theme from system to dark", not
+ * "let this app change your settings".
+ */
+async function requestHomeV2HomeSettingsUpdateApproval(
+  sender: WebContents,
+  context: QdnViewContext,
+  protocol: HomeV2AppBridgeProtocol,
+  details: readonly { readonly label: string; readonly value: string }[],
+) {
+  if (!liveResourceMatchesGrant(context)) {
+    throw new Error('Home settings app context changed before approval completed.')
+  }
+  if (!isQdnViewVisible(context.windowId, context.tabId)) {
+    throw new Error('Open this app tab to review the requested Home settings change.')
+  }
+  const hostWindow = getContextWindow(context)
+  if (!hostWindow || hostWindow.isDestroyed()) {
+    throw new Error('The Home settings request does not belong to an active Home window.')
+  }
+  const appKey = homeV2AppIdentityKey(context)
+  const requestId = randomUUID()
+  const decision = await new Promise<PermissionDecision>((resolve) => {
+    const timeout = setTimeout(() => {
+      pendingAccountReads.delete(requestId)
+      resolve({ approved: false, scope: null })
+      if (!hostWindow.isDestroyed()) {
+        hostWindow.webContents.send('home-v2-app:permission-timeout', { requestId })
+      }
+    }, HOME_SETTINGS_REQUEST_TIMEOUT_MS)
+    pendingAccountReads.set(requestId, {
+      hostWebContentsId: hostWindow.webContents.id,
+      tabId: context.tabId,
+      resolve,
+      timeout,
+    })
+    hostWindow.webContents.send('home-v2-app:permission-request', {
+      accountId: context.accountId,
+      action: 'UPDATE_HOME_SETTINGS',
+      appIdentityKey: appKey,
+      appTitle: homeV2NotificationAppName(appKey),
+      // The per-key rows. Plain label/value strings, re-validated in the shell
+      // before they are rendered.
+      homeSettingsDetails: details.map((detail) => ({ ...detail })),
+      protocol,
+      requestId,
+      resourceUrl: context.resourceUrl,
+      tabId: context.tabId,
+      targetNetwork: 'qortium',
+      writeKind: 'home-settings',
+      writeOperationLabel: 'Change Home display settings',
+      // Refused as anything but single-request at BOTH ends: the shell offers
+      // only this scope, and the check below accepts only this scope.
+      writeSingleRequestOnly: true,
+    })
+  })
+  if (!decision.approved || decision.scope !== 'single-request') {
+    throw new Error('Home settings update was denied.')
+  }
+  const freshContext = getQdnViewContextForWebContents(sender)
+  if (!freshContext || !sameViewContext(context, freshContext) || !liveResourceMatchesGrant(freshContext)) {
+    throw new Error('Home settings app context changed before approval completed.')
+  }
+}
+
+/**
+ * Runs one Home-settings action on desktop.
+ *
+ * Reads and metadata answer with no prompt, exactly as 1.x did. The update is
+ * parsed BEFORE the prompt so a malformed patch cannot raise a prompt the user
+ * would otherwise never see, and the current settings are read before the
+ * prompt so the approval rows show real current values rather than assumptions.
+ */
+async function handleHomeV2HomeSettingsAction(
+  sender: WebContents,
+  context: QdnViewContext,
+  protocol: HomeV2AppBridgeProtocol,
+  action: HomeV2HomeSettingsAction,
+  requestValue: Record<string, unknown>,
+) {
+  const request = parseHomeV2HomeSettingsRequest(action, requestValue)
+  // Metadata is a pure constant: it never reaches the shell, never prompts, and
+  // stays answerable while every window is busy.
+  if (request.kind === 'metadata') return getHomeV2HomeSettingsMetadata()
+  if (request.kind === 'read') return requestHomeV2HomeSettings(context, 'read')
+
+  const current = await requestHomeV2HomeSettings(context, 'read')
+  await requestHomeV2HomeSettingsUpdateApproval(
+    sender,
+    context,
+    protocol,
+    getHomeV2HomeSettingsApprovalDetails(current, request.patch),
+  )
+  const freshContext = getQdnViewContextForWebContents(sender)
+  if (!freshContext || !sameViewContext(context, freshContext) || !liveResourceMatchesGrant(freshContext)) {
+    throw new Error('Home settings request is stale because the app view changed before it could run.')
+  }
+  const applied = await requestHomeV2HomeSettings(context, 'apply', request.patch)
+  const completedContext = getQdnViewContextForWebContents(sender)
+  if (!completedContext || !sameViewContext(context, completedContext) || !liveResourceMatchesGrant(completedContext)) {
+    throw new Error('Home settings request is stale because the app view changed while it was running.')
+  }
+  return applied
 }
 
 async function showHomeV2DesktopNotification(
@@ -5882,6 +6092,9 @@ async function handleRequestWithRuntime(
   if (isHomeV2NotificationManagerAction(action)) {
     return handleHomeV2NotificationManagerAction(sender, context, protocol, action, requestValue)
   }
+  if (isHomeV2HomeSettingsAction(action)) {
+    return handleHomeV2HomeSettingsAction(sender, context, protocol, action, requestValue)
+  }
   if (action === 'NOTIFICATION_HAS_PERMISSION') {
     return {
       granted: hasNotificationGrant(homeV2AppIdentityKey(context)),
@@ -6627,6 +6840,34 @@ export function registerHomeV2AppBridgeIpcHandlers() {
         ? 'session'
         : 'single-request'
     pending.resolve({ approved, scope: approved ? scope : null })
+  })
+  // The shell window's reply to a Home-settings round-trip. Mirrors
+  // 'qdn-app:resolveBookmarkManagerRequest' in home-v2-collections-bridge.ts:
+  // the reply is only accepted from the window the request was sent to, an
+  // error envelope is turned back into a coded rejection, and the settings
+  // payload is re-validated against the shared contract before it can reach an
+  // app.
+  ipcMain.handle('home-v2-app:resolveHomeSettingsRequest', (event, response: unknown) => {
+    assertAuthorizedHomeV2Sender(event)
+    if (!isHomeV2AppRecord(response) || typeof response.requestId !== 'string' || !response.requestId) {
+      throw new Error('Home settings response is required.')
+    }
+    const pending = pendingHomeSettingsRequests.get(response.requestId)
+    if (!pending) return
+    if (pending.hostWebContentsId !== event.sender.id) {
+      throw new Error('Home settings response came from the wrong window.')
+    }
+    if (typeof response.error === 'string' && response.error.trim()) {
+      pending.reject(Object.assign(new Error(response.error.trim()), {
+        code: typeof response.code === 'string' && response.code ? response.code : 'HOME_DATA_ERROR',
+      }))
+      return
+    }
+    try {
+      pending.resolve(parseHomeV2HomeSettingsRoundTripResponse(response).settings)
+    } catch (error) {
+      pending.reject(error instanceof Error ? error : new Error('Invalid Home settings response.'))
+    }
   })
   ipcMain.handle(
     'home-v2-app:request',

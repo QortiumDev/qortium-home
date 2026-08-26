@@ -736,6 +736,28 @@ declare global {
         managerRevisions: QdnManagerRevisions
         tabId: string
       }): Promise<void>
+      /**
+       * Pushes a Home-settings change to every app view in this window, so an
+       * app listening for `qortium:home-settings-changed` hears it. Optional for
+       * the same reason as updateManagerRevisions: a partially stubbed bridge
+       * (tests, the widget host) must stay assignable.
+       *
+       * The `lang`/`uiStyle` duplicates of `language`/`ui` are not redundancy to
+       * be tidied away — the main-process validator requires them to be present
+       * AND equal (sanitizeHomeSettingsBroadcastRequest in qdn-views.ts), because
+       * that is the event shape Home 1.x apps were written against.
+       */
+      broadcastHomeSettingsChanged?(detail: {
+        accent: string
+        appNotifications: boolean
+        appZoom: number
+        lang: string
+        language: string
+        textSize: string
+        theme: string
+        ui: string
+        uiStyle: string
+      }): Promise<void>
       openAsWidget(request: { tabId: string }): Promise<
         { ok: true; widgetId: string } | { ok: false; message: string }
       >

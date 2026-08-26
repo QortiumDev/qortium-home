@@ -435,6 +435,30 @@ contextBridge.exposeInMainWorld('homeV2Collections', {
   },
 })
 
+// The Home-settings round-trip. Structural twin of homeV2Collections above,
+// because it is the same pattern: the main process holds the app request but
+// the SHELL owns the data, so main asks and the shell answers.
+//
+// Nothing here reads or writes a setting. It carries an opaque envelope in each
+// direction, and both ends validate it against
+// electron/home-v2-home-settings-contract.ts.
+contextBridge.exposeInMainWorld('homeV2HomeSettings', {
+  onRequest: (listener: (request: unknown) => void) => {
+    const wrapped = (_event: unknown, request: unknown) => listener(request)
+    ipcRenderer.on('home-v2-app:home-settings-request', wrapped)
+    return () => ipcRenderer.removeListener('home-v2-app:home-settings-request', wrapped)
+  },
+  resolveRequest: (response: {
+    error?: { code?: string; message: string }
+    requestId: string
+    settings?: unknown
+  }) => ipcRenderer.invoke('home-v2-app:resolveHomeSettingsRequest', {
+    requestId: response.requestId,
+    settings: response.settings,
+    ...(response.error ? { code: response.error.code, error: response.error.message } : {}),
+  }),
+})
+
 contextBridge.exposeInMainWorld('homeV2Vault', {
   addAddress: (accountId: string) => ipcRenderer.invoke('home-v2-vault:addAddress', accountId),
   create: (request: unknown) => ipcRenderer.invoke('home-v2-vault:create', request),
@@ -483,6 +507,17 @@ contextBridge.exposeInMainWorld('homeV2Apps', {
   // a tabId this window does not own.
   updateManagerRevisions: (request: unknown) =>
     ipcRenderer.invoke('qdn-views:updateManagerRevisions', request),
+  // Live Home-settings delivery to open app views. Same story as
+  // updateManagerRevisions above: the qdn-views handler
+  // ('qdn-views:broadcastHomeSettingsChanged', qdn-views.ts) has always existed
+  // and Home 1.x's preload exposed it (electron/preload.cts), but Home 2's did
+  // not — so an app listening for `qortium:home-settings-changed` (which the
+  // shipped Notify app does) never heard a thing on Home 2, whether the change
+  // came from Home's own Appearance panel or from UPDATE_HOME_SETTINGS. The
+  // main-process handler re-validates the detail (sanitizeHomeSettingsBroadcastRequest)
+  // and only touches views belonging to the calling window.
+  broadcastHomeSettingsChanged: (detail: unknown) =>
+    ipcRenderer.invoke('qdn-views:broadcastHomeSettingsChanged', { detail }),
   show: (request: unknown) => ipcRenderer.invoke('qdn-views:show', request),
   openAsWidget: (request: unknown) => ipcRenderer.invoke('home-v2-widgets:open', request),
   // Availability only. The shell renderer's session blocks every network

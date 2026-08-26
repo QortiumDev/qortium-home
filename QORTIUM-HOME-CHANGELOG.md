@@ -136,6 +136,47 @@ must be told an address outright. And previewing something before you publish
 it is still missing — Home's new interface has nowhere to display a website
 preview yet, and shipping a button that reports success while showing you
 nothing would be worse than leaving it out.
+### 2026-08-26 - feat(home-v2): apps can read and ask to change Home's display settings again
+
+Home 1.x let a QDN app read a small, fixed set of your display preferences —
+theme, accent colour, language, text size, app zoom, interface style, and
+whether apps may notify you — and ask permission to change them. Apps used it to
+match Home's look, and to offer a settings page of their own. Home 2 never
+carried those three actions over, so an app that asked found nothing there and
+either rendered in the wrong theme or hid the feature entirely.
+
+All three are back, on desktop and Android, over exactly the same seven settings
+as before. Nothing was added to the list: no node connections, no wallets, no
+bookmarks, no update policies. An app that reads these gets those seven values
+and nothing else.
+
+Reading needs no approval, exactly as in Home 1.x — Home already hands every app
+its theme, language, text size, accent and interface style in the address it
+loads from, before the app has run a single line, so asking permission for the
+same information would be a prompt that protected nothing.
+
+Changing them always asks, and asks every time. The dialog names each setting
+being changed and shows what it is now next to what it would become — "Theme:
+dark, becoming light" rather than "this app wants to change your settings". The
+approval covers that one change only. There is deliberately no "always allow"
+here, unlike Home's saved-links and notification managers: a standing permission
+to keep changing your theme, language and zoom would produce changes you could
+see but not trace back to any app.
+
+Two smaller things came with it.
+
+Home 2 has an accent colour Home 1.x did not, "clay", which is also Home 2's
+default. Apps can now see it and show it, so an app can render the colour you
+are actually using. Apps still cannot set it — the change side stays exactly what
+Home 1.x apps were written against — and the published settings description now
+says which values are readable and which are writable, so an app knows the
+difference without having to be refused first.
+
+Home 1.x also told open apps whenever a display setting changed, so an app could
+re-theme itself immediately. Home 2 had the machinery for this but had never
+connected it, so nothing was ever announced — whether the change came from an
+app or from Home's own Appearance panel. It is connected now, and apps listening
+for that change hear it again.
 
 ### 2026-08-26 - feat(home-v2): apps can manage notification permissions again
 

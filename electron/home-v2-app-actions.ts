@@ -57,6 +57,9 @@ const QDN_ACTIONS = [
   'NOTIFICATION_MANAGER_SET_MUTED',
   'NOTIFICATION_MANAGER_REMOVE_RULES',
   'NOTIFICATION_MANAGER_REVOKE',
+  'GET_HOME_SETTINGS_METADATA',
+  'GET_HOME_SETTINGS',
+  'UPDATE_HOME_SETTINGS',
   'ADD_GROUP_ADMIN',
   'APPROVE_GROUP_JOIN_REQUEST',
   'CANCEL_GROUP_BAN',
@@ -274,6 +277,20 @@ const QORTAL_ACTIONS = [
 // qortalRequest would imply a second, chain-scoped copy of Home's one profile.
 // A Qortal-routed app that wants them calls them on qdnRequest; the durable
 // capability and the manager app key are protocol-independent already.
+
+// The Home-settings family (GET_HOME_SETTINGS_METADATA, GET_HOME_SETTINGS,
+// UPDATE_HOME_SETTINGS) is qdnRequest-only for exactly that argument, and it is
+// the cleanest case of it. These three read and write the user's theme, accent,
+// language, text size, zoom, interface style and notification toggle — one
+// Home-profile display setting each, none of them chain state, none of them
+// reaching a node. Home has ONE appearance, not a Qortal one and a Qortium one,
+// so a qortalRequest copy of these actions would have to either mean the same
+// thing twice or imply a per-chain appearance that does not exist. An app
+// routed at Qortal calls them on qdnRequest.
+//
+// The same argument is why the whole family is route-independent (see
+// HOME_V2_ROUTE_INDEPENDENT_ACTIONS): an app can read and change Home's
+// appearance while every node route is disabled or unreachable.
 
 // The minting family (GET_MINTING_STATUS, LIST_MINTING_ACCOUNTS,
 // START_MINTING, REMOVE_MINTING_ACCOUNT) is advertised on both protocols so
