@@ -30,6 +30,11 @@ function initialState() {
           label: 'Explore',
           url: 'qdn://APP/Explore/Explore',
         },
+        apps: {
+          description: 'App used when Home opens the app directory.',
+          label: 'Apps',
+          url: 'qdn://APP/Apps/Apps',
+        },
       },
       revision: 3,
       version: 2 as const,
@@ -266,7 +271,7 @@ assert.match(container.textContent ?? '', /assigned app still asks/i)
 assert.deepEqual(
   [...container.querySelectorAll('[data-qdn-assignment-role]')]
     .map((row) => row.getAttribute('data-qdn-assignment-role')),
-  ['bookmarks', 'notifications', 'explore'],
+  ['bookmarks', 'notifications', 'explore', 'apps'],
 )
 
 const exploreRow = container.querySelector('[data-qdn-assignment-role="explore"]') as HTMLElement

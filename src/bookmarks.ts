@@ -84,6 +84,13 @@ function createBookmarkId(seed: string, type: 'bookmark' | 'folder' = 'bookmark'
   return `${type}-${Date.now().toString(36)}-${seed.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 32)}`;
 }
 
+/**
+ * Links deliberately pass '' as the fallback. Baking the address into `title`
+ * makes "no title" indistinguishable from "the title happens to be the URL",
+ * so every display site was forced to show an address. Storing '' keeps the
+ * signal honest and lets each renderer derive its own short label. Folders keep
+ * a real fallback: they have no URL to derive one from.
+ */
 function normalizeTitle(title: unknown, fallback: string) {
   const normalized = typeof title === 'string' ? title.trim() : '';
   return normalized || fallback;
@@ -105,7 +112,7 @@ function normalizeBookmark(value: unknown): BookmarkLink | null {
     createdAt: typeof bookmark.createdAt === 'number' && Number.isFinite(bookmark.createdAt) ? bookmark.createdAt : Date.now(),
     displayUrl,
     id: typeof bookmark.id === 'string' && bookmark.id.trim() ? bookmark.id.trim() : createBookmarkId(displayUrl),
-    title: normalizeTitle(bookmark.title, displayUrl),
+    title: normalizeTitle(bookmark.title, ''),
     type: 'bookmark',
   };
 
@@ -353,7 +360,7 @@ export function addBookmark(
     createdAt: Date.now(),
     displayUrl,
     id: createBookmarkId(displayUrl),
-    title: normalizeTitle(request.title, displayUrl),
+    title: normalizeTitle(request.title, ''),
     type: 'bookmark',
   };
   const accountId = getSavedAccountContext(displayUrl, request.accountId);
@@ -424,7 +431,7 @@ export function updateBookmark(
     const nextBookmark: BookmarkLink = {
       ...item,
       displayUrl,
-      title: normalizeTitle(request.title, displayUrl),
+      title: normalizeTitle(request.title, ''),
     };
 
     const accountId = getSavedAccountContext(displayUrl, request.accountId);

@@ -9,8 +9,9 @@ Roles are stable lowercase identifiers such as `bookmarks`, `explore`, or
 `media.video-player`. Any app may propose a role; Home does not require a
 central registry. A role's label and description are user-visible metadata,
 while the identifier is the durable interoperability key. Home supplies the
-initial `bookmarks`, `notifications`, and `explore` assignments, but users and
-assignment-manager apps may add others.
+initial `bookmarks`, `notifications`, `explore`, and `apps` assignments, but
+users and assignment-manager apps may add others. The `apps` role is what the
+dashboard "Apps" button opens; it ships pointing at `qdn://APP/Apps/Apps`.
 
 The legacy app-facing bridge actions below remain the interoperability contract
 for the older shell. Home 2.1's first assignment-management slice is deliberately

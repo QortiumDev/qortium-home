@@ -25,6 +25,30 @@ const defaults = createDefaultQdnAppRolesStore();
 assert.equal(defaults.version, 2);
 assert.equal(defaults.assignments.bookmarks.url, 'qdn://APP/Bookmarks/Bookmarks');
 assert.equal(defaults.assignments.explore.url, 'qdn://APP/Explore/Explore');
+// Both segments: a bare qdn://APP/Apps would normalize to identifier `default`,
+// which is not published.
+assert.equal(defaults.assignments.apps.url, 'qdn://APP/Apps/Apps');
+
+// An existing v2 store written before the `apps` role gains it on read, because
+// sanitizeQdnAppRolesStore starts from the shipped defaults and overlays the
+// persisted assignments on top. No migration step is needed.
+const withoutApps = sanitizeQdnAppRolesStore({
+  accountCapabilityGrants: {},
+  assignments: {
+    bookmarks: { description: null, label: 'Bookmarks', url: 'qdn://APP/Mine/Bookmarks' },
+    explore: { description: null, label: 'Explore', url: 'qdn://APP/Explore/Explore' },
+    notifications: { description: null, label: 'Notifications', url: 'qdn://APP/Notify/Notify' },
+  },
+  capabilityGrants: {},
+  legacyMigrated: true,
+  revision: 4,
+  version: 2,
+});
+assert.equal(withoutApps.assignments.apps.url, 'qdn://APP/Apps/Apps');
+assert.equal(withoutApps.assignments.apps.label, 'Apps');
+// The user's own choices are untouched by the added default.
+assert.equal(withoutApps.assignments.bookmarks.url, 'qdn://APP/Mine/Bookmarks');
+assert.equal(withoutApps.revision, 4);
 
 const assigned = setQdnAppAssignment(defaults, {
   description: 'Play videos from any QDN app.',

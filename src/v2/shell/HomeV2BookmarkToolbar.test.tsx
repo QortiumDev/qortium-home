@@ -31,6 +31,24 @@ const nestedLink = {
   title: 'Help',
   type: 'bookmark' as const,
 }
+// Saved before the fix, when a missing title was persisted AS the address.
+const urlTitledLink = {
+  accountId: null,
+  createdAt: 4,
+  displayUrl: 'qdn://APP/Trust/Trust',
+  id: 'trust',
+  title: 'qdn://APP/Trust/Trust',
+  type: 'bookmark' as const,
+}
+// Saved after the fix: no title at all.
+const untitledLink = {
+  accountId: null,
+  createdAt: 5,
+  displayUrl: 'qdn://APP/Minting/Minting',
+  id: 'minting',
+  title: '',
+  type: 'bookmark' as const,
+}
 const snapshot: BookmarkManagerSnapshot = {
   activeAccountId: 'account-1',
   availableAccounts: [{ id: 'account-1', label: 'Main' }],
@@ -41,6 +59,8 @@ const snapshot: BookmarkManagerSnapshot = {
   startPages: [],
   toolbar: [
     link,
+    urlTitledLink,
+    untitledLink,
     {
       children: [
         {
@@ -108,6 +128,35 @@ try {
   assert.match(linkButton.textContent ?? '', /Chat/)
   act(() => linkButton.click())
   assert.deepEqual(opened, [{ accountId: 'account-1', id: 'chat' }])
+
+  // The label is the only unclassed span; the account chip and the app-icon
+  // monogram are classed and would otherwise pollute textContent.
+  const labelOf = (button: HTMLButtonElement) =>
+    [...button.querySelectorAll('span')]
+      .find((span) => !span.className)?.textContent?.trim() ?? ''
+
+  assert.equal(labelOf(linkButton), 'Chat', 'a real title is shown as-is')
+
+  // A stored title that is only the address is not a title: the strip shows the
+  // derived short label and keeps the address as the tooltip.
+  const urlTitledButton = container.querySelector<HTMLButtonElement>(
+    'button[data-bookmark-id="trust"]',
+  )
+  assert.ok(urlTitledButton)
+  assert.equal(labelOf(urlTitledButton), 'Trust')
+  assert.equal(
+    urlTitledButton.textContent?.includes('qdn://'),
+    false,
+    'a URL-shaped title must not be rendered as the label',
+  )
+  assert.equal(urlTitledButton.getAttribute('title'), 'qdn://APP/Trust/Trust')
+
+  // An empty title derives the same way, and never renders blank.
+  const untitledButton = container.querySelector<HTMLButtonElement>(
+    'button[data-bookmark-id="minting"]',
+  )
+  assert.ok(untitledButton)
+  assert.equal(labelOf(untitledButton), 'Minting')
 
   const folderButton = container.querySelector<HTMLButtonElement>(
     'button[data-bookmark-folder-id="tools"]',
