@@ -61,6 +61,16 @@ export type HomeV2QdnSettingsState = Readonly<{
     status: 'available' | 'corrupt' | 'unavailable'
     version: 1
   }>
+  /**
+   * Apps granted the durable notification-MANAGER capability ("always allow"):
+   * authority over every app's notification grants and rules. Not the same list
+   * as `notifications` above, which is the per-app permission to show one.
+   */
+  notificationsManage: Readonly<{
+    apps: readonly HomeV2QdnBookmarkGrant[]
+    revision: number
+    version: 1
+  }>
   revision: 1
   schema: 'home-v2-qdn-settings-state'
 }>
@@ -99,7 +109,7 @@ export type HomeV2QdnBookmarkRevokeRequest = Readonly<{
   // name one cannot identify a grant.
   accountId?: string
   appKey: string
-  capability?: 'account.read' | 'bookmarks.manage' | 'chat.send'
+  capability?: 'account.read' | 'bookmarks.manage' | 'chat.send' | 'notifications.manage'
   expectedAssignmentRevision: number
 }>
 
@@ -297,7 +307,7 @@ export function parseHomeV2QdnSettingsState(
 ): HomeV2QdnSettingsState {
   if (
     !isRecord(value) ||
-    !hasExactKeys(value, ['accountRead', 'assignments', 'bookmarks', 'chatSend', 'notifications', 'revision', 'schema']) ||
+    !hasExactKeys(value, ['accountRead', 'assignments', 'bookmarks', 'chatSend', 'notifications', 'notificationsManage', 'revision', 'schema']) ||
     value.schema !== 'home-v2-qdn-settings-state' ||
     value.revision !== 1 ||
     !isRecord(value.assignments) ||
@@ -314,6 +324,12 @@ export function parseHomeV2QdnSettingsState(
     value.chatSend.version !== 1 ||
     !safeGeneration(value.chatSend.revision) ||
     !Array.isArray(value.chatSend.apps) ||
+    !isRecord(value.notificationsManage) ||
+    !hasExactKeys(value.notificationsManage, ['apps', 'revision', 'version']) ||
+    value.notificationsManage.version !== 1 ||
+    !safeGeneration(value.notificationsManage.revision) ||
+    !Array.isArray(value.notificationsManage.apps) ||
+    value.notificationsManage.apps.length > 100 ||
     !isRecord(value.accountRead) ||
     !hasExactKeys(value.accountRead, ['apps', 'revision', 'version']) ||
     value.accountRead.version !== 1 ||
@@ -340,9 +356,13 @@ export function parseHomeV2QdnSettingsState(
   const apps = value.notifications.apps.map(parseGrant)
   const bookmarkApps = value.bookmarks.apps.map(parseBookmarkGrant)
   const chatSendApps = value.chatSend.apps.map(parseBookmarkGrant)
+  const notificationManagerApps = value.notificationsManage.apps.map(parseBookmarkGrant)
   const accountReadApps = value.accountRead.apps.map(parseAccountGrant)
   if (new Set(chatSendApps.map(({ appKey }) => appKey)).size !== chatSendApps.length) {
     throw new Error('Home 2 QDN settings contained duplicate chat-send grants.')
+  }
+  if (new Set(notificationManagerApps.map(({ appKey }) => appKey)).size !== notificationManagerApps.length) {
+    throw new Error('Home 2 QDN settings contained duplicate notification manager grants.')
   }
   // The identity of an account-scoped grant is the (app, account) PAIR: one
   // app legitimately appears once per account it holds a grant for.
@@ -397,6 +417,13 @@ export function parseHomeV2QdnSettingsState(
       ),
       revision: value.notifications.revision as number | null,
       status: value.notifications.status as HomeV2QdnSettingsState['notifications']['status'],
+      version: 1,
+    }),
+    notificationsManage: Object.freeze({
+      apps: Object.freeze(
+        [...notificationManagerApps].sort((left, right) => left.appKey.localeCompare(right.appKey)),
+      ),
+      revision: value.notificationsManage.revision,
       version: 1,
     }),
     revision: 1,
@@ -472,7 +499,7 @@ export interface PortableHomeV2QdnSettingsDependencies {
     appKey: string,
     expectedRevision: number,
     // Omitted means 'bookmarks.manage', preserving the original signature.
-    capability?: 'account.read' | 'bookmarks.manage' | 'chat.send',
+    capability?: 'account.read' | 'bookmarks.manage' | 'chat.send' | 'notifications.manage',
     // Present only for account-scoped capabilities.
     accountId?: string,
   ): Promise<unknown>
@@ -515,6 +542,8 @@ function projectPortableAssignments(value: unknown) {
   const bookmarkApps = grantsFor('bookmarks.manage')
   // Apps the user chose "always allow" for when sending chat.
   const chatSendApps = grantsFor('chat.send')
+  // Apps holding the durable notification-manager capability.
+  const notificationManagerApps = grantsFor('notifications.manage')
   // Apps the user chose "always allow" for read-only account access, one entry
   // per (app, account) pair. Read from accountCapabilityGrants, NOT from the
   // app-scoped capabilityGrants map.
@@ -544,6 +573,11 @@ function projectPortableAssignments(value: unknown) {
     },
     chatSend: {
       apps: chatSendApps,
+      revision: value.revision,
+      version: 1 as const,
+    },
+    notificationsManage: {
+      apps: notificationManagerApps,
       revision: value.revision,
       version: 1 as const,
     },
@@ -633,6 +667,7 @@ export function createPortableHomeV2QdnSettingsAdapter(
       bookmarks: assignments.bookmarks,
       chatSend: assignments.chatSend,
       notifications,
+      notificationsManage: assignments.notificationsManage,
       revision: 1,
       schema: 'home-v2-qdn-settings-state',
     })

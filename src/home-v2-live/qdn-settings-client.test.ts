@@ -57,6 +57,14 @@ const state = {
     revision: 3,
     version: 1,
   },
+  notificationsManage: {
+    apps: [{
+      appKey: 'qdn://APP/Notify/Notify',
+      grantedAt: '2026-08-22T16:00:00.000Z',
+    }],
+    revision: 3,
+    version: 1,
+  },
   accountRead: {
     apps: [{
       accountId: 'wallet:QAAA',
@@ -119,6 +127,30 @@ assert.throws(
     return parseHomeV2QdnSettingsState(withoutAccountRead)
   },
   /malformed/,
+)
+// Same reasoning for the durable notification-manager grants: an omitted list
+// would hide a live administrative grant from the only place it can be revoked.
+assert.throws(
+  () => {
+    const { notificationsManage: _omitted, ...withoutManagerGrants } = state
+    return parseHomeV2QdnSettingsState(withoutManagerGrants)
+  },
+  /malformed/,
+)
+assert.deepEqual(
+  parsed.notificationsManage.apps.map(({ appKey }) => appKey),
+  ['qdn://APP/Notify/Notify'],
+)
+assert.throws(
+  () => parseHomeV2QdnSettingsState({
+    ...state,
+    notificationsManage: {
+      apps: [...state.notificationsManage.apps, ...state.notificationsManage.apps],
+      revision: 3,
+      version: 1,
+    },
+  }),
+  /duplicate notification manager grants/,
 )
 assert.throws(
   () => parseHomeV2QdnSettingsState({

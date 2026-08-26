@@ -30,6 +30,9 @@ export type PermissionCapability =
   | 'group.membership'
   | 'group.administration'
   | 'notifications.show'
+  // Authority over EVERY app's notification grants and rules, not permission to
+  // show one. Durable, app-scoped, and revocable in QDN Apps settings.
+  | 'notifications.manage'
   | 'bookmarks.manage'
   | 'transactions.pending.read'
   | 'transactions.pending.forget'
@@ -91,6 +94,12 @@ export interface PermissionPrompt {
     | 'BOOKMARKS_GET'
     | 'BOOKMARKS_APPLY'
     | 'BOOKMARKS_OPEN'
+    // NOTIFICATION_MANAGER_HAS_PERMISSION is deliberately absent: it never
+    // prompts, so it can never be the action a prompt is raised for.
+    | 'NOTIFICATION_MANAGER_GET'
+    | 'NOTIFICATION_MANAGER_SET_MUTED'
+    | 'NOTIFICATION_MANAGER_REMOVE_RULES'
+    | 'NOTIFICATION_MANAGER_REVOKE'
     | 'GET_PENDING_TRANSACTIONS'
     | 'FORGET_PENDING_TRANSACTION'
     | 'START_MINTING'

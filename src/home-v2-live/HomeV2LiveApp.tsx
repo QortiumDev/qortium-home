@@ -226,11 +226,20 @@ import { sanitizeQdnManagerAppKey } from '../../electron/qdn-manager-permissions
 import {
   getNotificationStore,
   grantAppNotifications,
+  inspectNotificationStoreForManagement,
   onNotificationStoreChanged,
   readNotificationStoreForManagement,
   revokeAppNotifications,
   setAppNotificationMuted,
+  updateNotificationStore,
 } from '../notificationStore'
+import {
+  isHomeV2NotificationManagerAction,
+  parseHomeV2NotificationManagerRequest,
+  readHomeV2NotificationManagerSummary,
+  resolveHomeV2NotificationManagerMutation,
+  summarizeHomeV2NotificationManagerStore,
+} from '../../electron/home-v2-notification-manager-contract'
 import {
   grantQdnManagerPermission,
   grantQdnAccountCapabilityPermission,
@@ -1064,6 +1073,60 @@ export function HomeV2LiveApp() {
     snapshot.appearance.ui,
     snapshot.nodes,
   ])
+
+  // Home-profile manager revisions delivered to open app views.
+  //
+  // Home 1.x announced these; Home 2 shipped the delivery machinery in
+  // qdn-views.ts but never wired a producer, so an app that had just changed a
+  // notification rule — its own, or another app's through the new manager
+  // surface — was never told the profile had moved on, and kept CASing against
+  // a stale revision. The notification store's change broadcast (which trusted
+  // Settings already listens to) is the trigger; open app views are the second
+  // audience for it.
+  const [notificationManagerRevision, setNotificationManagerRevision] = useState(0)
+  useEffect(() => {
+    const client = qdnAppsManagement.client
+    if (!client) return
+    let cancelled = false
+    const read = () => {
+      void client.get().then((state) => {
+        if (cancelled) return
+        // A corrupt or unavailable store reports no revision. Hold the last
+        // known value rather than announcing a fabricated 0, which would make
+        // every open app think the profile had been reset.
+        if (state.notifications.status !== 'available') return
+        if (state.notifications.revision === null) return
+        setNotificationManagerRevision(state.notifications.revision)
+      }).catch(() => {
+        // Read failures are not fatal here: the app view simply keeps the
+        // revision it already has and re-reads on its next request.
+      })
+    }
+    read()
+    const unsubscribe = client.subscribe(read)
+    return () => {
+      cancelled = true
+      unsubscribe()
+    }
+  }, [qdnAppsManagement])
+
+  const managerRevisions = useMemo(() => ({
+    bookmarkManager: collectionsSnapshot?.revision ?? 0,
+    notificationManager: notificationManagerRevision,
+  }), [collectionsSnapshot?.revision, notificationManagerRevision])
+
+  useEffect(() => {
+    const bridge = window.homeV2Apps
+    if (!bridge) return
+    for (const tab of productState.tabs) {
+      void bridge.updateManagerRevisions?.({
+        managerRevisions,
+        tabId: tab.id,
+      })?.catch((error: unknown) => {
+        console.warn('Unable to announce Home data manager revisions.', error)
+      })
+    }
+  }, [managerRevisions, productState.tabs])
 
   const applyVaultState = useCallback((state: HomeV2VaultState) => {
     const catalogue = vaultCatalogue(state)
@@ -2480,6 +2543,10 @@ export function HomeV2LiveApp() {
             value.action !== 'BOOKMARKS_GET' &&
             value.action !== 'BOOKMARKS_APPLY' &&
             value.action !== 'BOOKMARKS_OPEN' &&
+            value.action !== 'NOTIFICATION_MANAGER_GET' &&
+            value.action !== 'NOTIFICATION_MANAGER_SET_MUTED' &&
+            value.action !== 'NOTIFICATION_MANAGER_REMOVE_RULES' &&
+            value.action !== 'NOTIFICATION_MANAGER_REVOKE' &&
             value.action !== 'OPEN_AS_WIDGET' &&
             !isHomeV2PublicChatAction(value.action) &&
             !isHomeV2DirectChatReadAction(value.action) &&
@@ -2489,10 +2556,16 @@ export function HomeV2LiveApp() {
             !isHomeV2GroupMembershipAction(value.action) &&
             !isHomeV2MintingWriteAction(value.action) &&
             !isHomeV2GroupAdminAction(value.action))) ||
+        // The manager families act on Home-profile data, not on an account, so
+        // they are prompted with no account selected and must not require one.
         (value.action !== 'SHOW_NOTIFICATION' &&
           value.action !== 'BOOKMARKS_GET' &&
           value.action !== 'BOOKMARKS_APPLY' &&
           value.action !== 'BOOKMARKS_OPEN' &&
+          value.action !== 'NOTIFICATION_MANAGER_GET' &&
+          value.action !== 'NOTIFICATION_MANAGER_SET_MUTED' &&
+          value.action !== 'NOTIFICATION_MANAGER_REMOVE_RULES' &&
+          value.action !== 'NOTIFICATION_MANAGER_REVOKE' &&
           value.action !== 'OPEN_AS_WIDGET' &&
           typeof value.accountId !== 'string') ||
         typeof value.tabId !== 'string' ||
@@ -2611,6 +2684,12 @@ export function HomeV2LiveApp() {
       const isBookmarkManager = value.action === 'BOOKMARKS_GET' ||
         value.action === 'BOOKMARKS_APPLY' ||
         value.action === 'BOOKMARKS_OPEN'
+      // The administrative notification surface. NOTIFICATION_MANAGER_HAS_PERMISSION
+      // is absent by construction: it never reaches a prompt.
+      const isNotificationManager = value.action === 'NOTIFICATION_MANAGER_GET' ||
+        value.action === 'NOTIFICATION_MANAGER_SET_MUTED' ||
+        value.action === 'NOTIFICATION_MANAGER_REMOVE_RULES' ||
+        value.action === 'NOTIFICATION_MANAGER_REVOKE'
       const isJournalRead = value.action === 'GET_PENDING_TRANSACTIONS'
       const isJournalForget = value.action === 'FORGET_PENDING_TRANSACTION'
       const isMintingWrite = isHomeV2MintingWriteAction(value.action)
@@ -2625,7 +2704,7 @@ export function HomeV2LiveApp() {
       // access". Splitting the GRANT is a separate decision, not made here.
       const accountReadPromptKind = homeV2AccountReadPromptKind(value.action)
       const isGenericAccountRead = accountReadPromptKind === 'account'
-      const operationLabel = isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment || isNotification || isBookmarkManager || isJournalForget || isMintingWrite
+      const operationLabel = isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment || isNotification || isBookmarkManager || isNotificationManager || isJournalForget || isMintingWrite
         ? String(value.writeOperationLabel)
         : ''
       const prompt = createPermissionPrompt({
@@ -2662,6 +2741,8 @@ export function HomeV2LiveApp() {
                 ? 'notifications.show'
               : isBookmarkManager
                 ? 'bookmarks.manage'
+              : isNotificationManager
+                ? 'notifications.manage'
               : isJournalForget
                 ? 'transactions.pending.forget'
               : isJournalRead
@@ -2678,7 +2759,7 @@ export function HomeV2LiveApp() {
             ? `home-v2:identity:none`
             : isNotification
             ? `home-v2:identity:app:${appIdentityKey}`
-            : isBookmarkManager
+            : isBookmarkManager || isNotificationManager
             ? `home-v2:identity:app:${appIdentityKey}`
             : `home-v2:identity:${accountId}`),
           nodeProfileRef: snapshot.nodes[value.targetNetwork].ref,
@@ -2694,6 +2775,8 @@ export function HomeV2LiveApp() {
           ? 'Allow app notifications?'
           : isBookmarkManager
           ? 'Allow saved-link management?'
+          : isNotificationManager
+          ? 'Allow notification permission management?'
           : accountReadPromptKind
           ? homeV2AccountReadPromptTitle(accountReadPromptKind)
           : isJournalRead
@@ -2709,6 +2792,8 @@ export function HomeV2LiveApp() {
           ? `${appTitle} wants to show system notifications until revoked in Settings.`
           : isBookmarkManager
           ? `${appTitle} wants to manage bookmarks, toolbar links, dashboard pins, and start pages on this device.`
+          : isNotificationManager
+          ? `${appTitle} wants to review and change which OTHER apps may notify you on this device — muting them, deleting their notification rules, and revoking their notification permission. It cannot create a rule for any app, and it cannot notify you itself without asking separately.`
           : accountReadPromptKind
           ? homeV2AccountReadPromptSummary(accountReadPromptKind, appTitle)
           : isJournalRead
@@ -2738,6 +2823,14 @@ export function HomeV2LiveApp() {
           ? [
               { label: 'App', value: appTitle },
               { label: 'Access', value: 'All saved Home links on this device' },
+              { label: 'Scope', value: 'Until revoked in Settings' },
+            ]
+          : isNotificationManager
+          ? [
+              { label: 'App', value: appTitle },
+              { label: 'Access', value: 'Every app’s notification permission and rules on this device' },
+              { label: 'Can do', value: 'Mute an app, delete its notification rules, revoke its notification permission' },
+              { label: 'Cannot do', value: 'Create a rule, notify you, or read any masked address, key or signature in a rule' },
               { label: 'Scope', value: 'Until revoked in Settings' },
             ]
           // Only the GENERIC account-read prompt keeps the generic detail
@@ -2867,6 +2960,11 @@ export function HomeV2LiveApp() {
           : isNotification
           ? ['always']
           : isBookmarkManager
+          ? ['always']
+          // Durable-only, exactly like the bookmark manager. A session-scoped
+          // answer to an administrative capability would be a grant the user
+          // could neither see nor revoke in Settings.
+          : isNotificationManager
           ? ['always']
           // The read-only account family may be granted persistently so a
           // trusted app stops asking every session (owner decision, R3-10);
@@ -3183,6 +3281,85 @@ export function HomeV2LiveApp() {
         const opened = await openAddress(openRequest.address, openAccountId)
         if (opened.status !== 'opened') throw new Error(opened.message ?? 'Saved Home link could not be opened.')
         return true
+      }
+      // The app-facing notification MANAGER family. Android's twin of the
+      // desktop dispatch in electron/home-v2-app-bridge.ts: same shared
+      // contract module, same durable 'notifications.manage' capability, same
+      // always-only prompt, same fail-closed store gate, same revision CAS.
+      //
+      // qdnRequest-only, matching the bookmarks branch above: this data is
+      // Home's profile, not a chain's, so there is no qortalRequest variant of
+      // it to intercept.
+      if (isAndroidHost && protocol === 'qdnRequest' && isHomeV2NotificationManagerAction(action)) {
+        // Parsed BEFORE the permission gate so a malformed request cannot raise
+        // a prompt the user would otherwise never see.
+        const managerRequest = parseHomeV2NotificationManagerRequest(action, isRecord(requestValue) ? requestValue : {})
+        const parsedApp = resolveAppIdentity()
+        if (managerRequest.kind === 'has-permission') {
+          // Never prompts and never reads the notification store.
+          return { granted: await hasQdnManagerPermission(parsedApp.identityKey, 'notifications.manage') }
+        }
+        if (!await hasQdnManagerPermission(parsedApp.identityKey, 'notifications.manage')) {
+          const targetNetwork: NetworkId = 'qortium'
+          const appId = brand<AppId>(`home-v2:permission-app:${parsedApp.identityKey}`)
+          const prompt = createPermissionPrompt({
+            id: brand<PermissionRequestId>(globalThis.crypto.randomUUID()),
+            protocol,
+            // managerRequest.action, not `action`: the parsed request's type has
+            // already excluded NOTIFICATION_MANAGER_HAS_PERMISSION, which is not
+            // a promptable action.
+            action: managerRequest.action,
+            capability: 'notifications.manage',
+            appId,
+            appIdentityKey: parsedApp.identityKey,
+            appTitle: parsedApp.title,
+            context: {
+              appId,
+              identityId: brand<IdentityId>(`home-v2:identity:app:${parsedApp.identityKey}`),
+              nodeProfileRef: snapshot.nodes[targetNetwork].ref,
+              tabId: brand<TabId>(context.tabId),
+              targetNetwork,
+              walletRef: null,
+            },
+            title: 'Allow notification permission management?',
+            summary: `${parsedApp.title} wants to review and change which OTHER apps may notify you on this device — muting them, deleting their notification rules, and revoking their notification permission. It cannot create a rule for any app, and it cannot notify you itself without asking separately.`,
+            details: [
+              { label: 'App', value: parsedApp.title },
+              { label: 'Access', value: 'Every app’s notification permission and rules on this device' },
+              { label: 'Can do', value: 'Mute an app, delete its notification rules, revoke its notification permission' },
+              { label: 'Cannot do', value: 'Create a rule, notify you, or read any masked address, key or signature in a rule' },
+            ],
+            allowedScopes: ['always'],
+          })
+          const decision = await queueAndroidPermissionPrompt(prompt, context.tabId)
+          if (!decision.approved || decision.scope !== 'always') {
+            throw new Error('Home data manager permission was denied.')
+          }
+          const approvedTab = productStateRef.current.tabs.find((tab) => tab.id === context.tabId)
+          if (!approvedTab || approvedTab.context.resourceLocation !== context.resourceLocation) {
+            throw new Error('QDN manager request is stale because the app view changed before approval.')
+          }
+          await grantQdnManagerPermission(parsedApp.identityKey, 'notifications.manage')
+        }
+        const currentTab = productStateRef.current.tabs.find((tab) => tab.id === context.tabId)
+        if (!currentTab || currentTab.context.resourceLocation !== context.resourceLocation) {
+          throw new Error('QDN manager request is stale because the app view changed before it could run.')
+        }
+        const inspection = await inspectNotificationStoreForManagement()
+        const result = managerRequest.kind === 'get'
+          ? readHomeV2NotificationManagerSummary(inspection)
+          // updateNotificationStore re-checks expectedRevision inside its own
+          // serialized write chain, so the CAS holds even if another writer
+          // lands between the inspection above and the write below.
+          : summarizeHomeV2NotificationManagerStore(await updateNotificationStore(
+              () => resolveHomeV2NotificationManagerMutation(inspection, managerRequest),
+              managerRequest.expectedRevision,
+            ))
+        const completedTab = productStateRef.current.tabs.find((tab) => tab.id === context.tabId)
+        if (!completedTab || completedTab.context.resourceLocation !== context.resourceLocation) {
+          throw new Error('QDN manager request is stale because the app view changed while it was running.')
+        }
+        return result
       }
       if (isAndroidHost && (action === 'NOTIFICATION_HAS_PERMISSION' || action === 'SHOW_NOTIFICATION')) {
         const targetNetwork: NetworkId = protocol === 'qortalRequest' ? 'qortal' : 'qortium'
@@ -5743,6 +5920,7 @@ export function HomeV2LiveApp() {
         onRetry: refreshDashboardPins,
       }}
       qdnAppsManagement={qdnAppsManagement}
+      managerRevisions={managerRevisions}
       resolveAccountLabel={resolveGrantAccountLabel}
       requestApp={requestApp}
       onActivateTab={(tabId) =>

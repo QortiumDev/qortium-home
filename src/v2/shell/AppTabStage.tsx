@@ -21,6 +21,16 @@ import {
   normalizeHomeV2BridgeError,
 } from '../../home-v2-live/app-runtime'
 
+// Structural twin of electron/qdn-manager-events' QdnManagerRevisions. The
+// renderer may not import from electron/ (the foundation escape-hatch scan
+// forbids it), so the two-field shape is restated here; the preload validates
+// the real values with validateQdnManagerRevisions before they ever arrive.
+type QdnManagerRevisions = {
+  readonly bookmarkManager: number
+  readonly notificationManager: number
+}
+
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
 }
@@ -125,6 +135,11 @@ function DesktopAppStage(props: AppTabStageProps) {
   const hostRef = useRef<HTMLDivElement>(null)
   const suspendedRef = useRef(props.suspended === true)
   const resolvedTabIdRef = useRef<string | null>(null)
+  // A ref, not a dependency: the `show` effect is re-run by resize and
+  // suspension, and re-showing with a captured older revision pair would make
+  // qdn-views re-announce a change that already happened.
+  const managerRevisionsRef = useRef(props.managerRevisions)
+  managerRevisionsRef.current = props.managerRevisions
   const [runtimeError, setRuntimeError] = useState<string | null>(null)
   const [snapshotUrl, setSnapshotUrl] = useState('')
   const resolution = useResolvedRender(
@@ -215,6 +230,12 @@ function DesktopAppStage(props: AppTabStageProps) {
           theme: props.snapshot.appearance.resolvedTheme,
           ui: props.snapshot.appearance.ui,
         },
+        // Seeds the view with the CURRENT Home-profile manager revisions so an
+        // app that opens after a change is not told about a "change" that had
+        // already happened before it existed. Omitted when the shell has not
+        // resolved them yet; sanitizeShowRequest treats that as "unknown", not
+        // as zero.
+        ...(managerRevisionsRef.current ? { managerRevisions: managerRevisionsRef.current } : {}),
         nodeApiUrl: resolved.nodeApiUrl,
         renderUrl: resolved.url,
         resourceUrl: resolved.tab.context.resourceLocation,
@@ -608,6 +629,11 @@ export interface AppTabNavigationController {
 export interface AppTabStageProps {
   readonly productState: ProductState
   readonly snapshot: HomeV2Snapshot
+  /**
+   * Current Home-profile manager revisions. Seeds a newly shown desktop view;
+   * later changes are pushed with homeV2Apps.updateManagerRevisions.
+   */
+  readonly managerRevisions?: QdnManagerRevisions | null
   readonly translationVersion?: number
   readonly nodeClient?: HomeV2NodeClient | null
   readonly selectedAccountId?: string | null
@@ -704,6 +730,12 @@ declare global {
       reload(request: { tabId: string }): Promise<boolean>
       updateAccountState(request: { accountId: string; isUnlocked: boolean; tabId: string }): Promise<void>
       updateBridgeStates(request: unknown): Promise<void>
+      // Optional so a partially stubbed bridge (tests, the widget host) stays
+      // assignable; every real preload provides it.
+      updateManagerRevisions?(request: {
+        managerRevisions: QdnManagerRevisions
+        tabId: string
+      }): Promise<void>
       openAsWidget(request: { tabId: string }): Promise<
         { ok: true; widgetId: string } | { ok: false; message: string }
       >

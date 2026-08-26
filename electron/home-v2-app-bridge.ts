@@ -53,8 +53,18 @@ import {
 import {
   grantAppNotifications,
   hasNotificationGrant,
+  inspectNotificationStore,
   readNotificationStore,
+  replaceNotificationStore,
 } from './notification-store.js'
+import {
+  isHomeV2NotificationManagerAction,
+  parseHomeV2NotificationManagerRequest,
+  readHomeV2NotificationManagerSummary,
+  resolveHomeV2NotificationManagerMutation,
+  summarizeHomeV2NotificationManagerStore,
+  type HomeV2NotificationManagerAction,
+} from './home-v2-notification-manager-contract.js'
 import {
   areQdnAppNotificationsEnabled,
   consumeQdnAppNotificationRateLimit,
@@ -584,6 +594,133 @@ async function requireHomeV2BookmarkManagerPermission(
     throw new Error('Bookmark manager app context changed before approval completed.')
   }
   grantQdnManagerPermission(appKey, 'bookmarks.manage')
+}
+
+/**
+ * The gate for the whole NOTIFICATION_MANAGER_* family.
+ *
+ * A deliberate structural copy of requireHomeV2BookmarkManagerPermission above.
+ * Three things about it are load-bearing and are why it is not folded into a
+ * shared helper with a capability parameter — the divergence risk of a
+ * near-identical second copy is real, but so is the risk of a "generalize it"
+ * refactor quietly widening the bookmark gate:
+ *
+ * - The principal is homeV2AppIdentityKey -> sanitizeQdnManagerAppKey, NOT
+ *   sanitizeQdnCapabilityPrincipal. The store keys capabilityGrants by the
+ *   manager key; rekeying this family onto the canonical principal would drop
+ *   every live 1.x grant on upgrade and silently re-prompt.
+ * - Only 'always' is offered and only 'always' is accepted. A session-scoped
+ *   answer to an administrative capability would be a grant the user cannot
+ *   see or revoke in Settings.
+ * - The app ASSIGNMENT (`notifications` -> Notify) grants nothing. Any app may
+ *   request this capability, and the assigned app has no head start; see the
+ *   header of qdn-manager-permissions.ts.
+ */
+async function requireHomeV2NotificationManagerPermission(
+  sender: WebContents,
+  context: QdnViewContext,
+  protocol: HomeV2AppBridgeProtocol,
+  // Deliberately excludes NOTIFICATION_MANAGER_HAS_PERMISSION: that action never
+  // reaches this gate, and the trusted shell's prompt renderer does not accept
+  // it as a promptable action.
+  action: Exclude<HomeV2NotificationManagerAction, 'NOTIFICATION_MANAGER_HAS_PERMISSION'>,
+) {
+  if (!liveResourceMatchesGrant(context)) {
+    throw new Error('Notification manager app context changed before approval completed.')
+  }
+  const appKey = homeV2AppIdentityKey(context)
+  if (hasQdnManagerPermission(appKey, 'notifications.manage')) return appKey
+  if (!isQdnViewVisible(context.windowId, context.tabId)) {
+    throw new Error('Open this app tab to review the requested notification manager permission.')
+  }
+  const hostWindow = getContextWindow(context)
+  if (!hostWindow || hostWindow.isDestroyed()) {
+    throw new Error('The notification manager request does not belong to an active Home window.')
+  }
+  const grantKey = `notifications-manage|${context.windowId}|${context.tabId}|${appKey}|${protocol}`
+  if (Array.from(pendingAccountReads.values()).some(
+    (pending) => pending.hostWebContentsId === hostWindow.webContents.id && pending.grantKey === grantKey,
+  )) {
+    throw new Error('This notification manager permission request is already pending for the app tab.')
+  }
+  const requestId = randomUUID()
+  const decision = await new Promise<PermissionDecision>((resolve) => {
+    const timeout = setTimeout(() => {
+      pendingAccountReads.delete(requestId)
+      resolve({ approved: false, scope: null })
+      if (!hostWindow.isDestroyed()) {
+        hostWindow.webContents.send('home-v2-app:permission-timeout', { requestId })
+      }
+    }, 60_000)
+    pendingAccountReads.set(requestId, {
+      grantKey,
+      hostWebContentsId: hostWindow.webContents.id,
+      tabId: context.tabId,
+      resolve,
+      timeout,
+    })
+    hostWindow.webContents.send('home-v2-app:permission-request', {
+      accountId: context.accountId,
+      action,
+      appIdentityKey: appKey,
+      appTitle: homeV2NotificationAppName(appKey),
+      protocol,
+      requestId,
+      resourceUrl: context.resourceUrl,
+      tabId: context.tabId,
+      targetNetwork: 'qortium',
+      writeKind: 'notifications-manage',
+      writeOperationLabel: 'Manage app notification permissions',
+    })
+  })
+  if (!decision.approved || decision.scope !== 'always') {
+    throw new Error('Home data manager permission was denied.')
+  }
+  const freshContext = getQdnViewContextForWebContents(sender)
+  if (!freshContext || !sameViewContext(context, freshContext) || !liveResourceMatchesGrant(freshContext)) {
+    throw new Error('Notification manager app context changed before approval completed.')
+  }
+  grantQdnManagerPermission(appKey, 'notifications.manage')
+  return appKey
+}
+
+/**
+ * Runs one NOTIFICATION_MANAGER_* action on the desktop store.
+ *
+ * The request is parsed BEFORE the permission gate, so a malformed request
+ * cannot be used to raise a prompt the user would otherwise never see, and so a
+ * denial and a validation failure are not distinguishable by whether a prompt
+ * appeared. Staleness is rechecked after the prompt and again after the write,
+ * matching the bookmark dispatch.
+ */
+async function handleHomeV2NotificationManagerAction(
+  sender: WebContents,
+  context: QdnViewContext,
+  protocol: HomeV2AppBridgeProtocol,
+  action: HomeV2NotificationManagerAction,
+  requestValue: Record<string, unknown>,
+) {
+  const request = parseHomeV2NotificationManagerRequest(action, requestValue)
+  if (request.kind === 'has-permission') {
+    // Never prompts, never touches the notification store: an app must be able
+    // to discover that it holds nothing without raising a modal.
+    return { granted: hasQdnManagerPermission(homeV2AppIdentityKey(context), 'notifications.manage') }
+  }
+  await requireHomeV2NotificationManagerPermission(sender, context, protocol, request.action)
+  const freshContext = getQdnViewContextForWebContents(sender)
+  if (!freshContext || !sameViewContext(context, freshContext) || !liveResourceMatchesGrant(freshContext)) {
+    throw new Error('QDN manager request is stale because the app view changed before it could run.')
+  }
+  const result = request.kind === 'get'
+    ? readHomeV2NotificationManagerSummary(inspectNotificationStore())
+    : summarizeHomeV2NotificationManagerStore(replaceNotificationStore(
+        resolveHomeV2NotificationManagerMutation(inspectNotificationStore(), request),
+      ))
+  const completedContext = getQdnViewContextForWebContents(sender)
+  if (!completedContext || !sameViewContext(context, completedContext) || !liveResourceMatchesGrant(completedContext)) {
+    throw new Error('QDN manager request is stale because the app view changed while it was running.')
+  }
+  return result
 }
 
 async function showHomeV2DesktopNotification(
@@ -5532,6 +5669,9 @@ async function handleRequestWithRuntime(
       throw new Error('QDN manager request is stale because the app view changed while it was running.')
     }
     return result
+  }
+  if (isHomeV2NotificationManagerAction(action)) {
+    return handleHomeV2NotificationManagerAction(sender, context, protocol, action, requestValue)
   }
   if (action === 'NOTIFICATION_HAS_PERMISSION') {
     return {

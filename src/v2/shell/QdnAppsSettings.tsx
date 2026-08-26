@@ -289,6 +289,10 @@ const GRANT_CARD_ACCESS_LABEL_KEYS = {
   'account.read': 'managerPermissions.access.accountRead',
   'bookmarks.manage': 'managerPermissions.access.bookmarks',
   'chat.send': 'managerPermissions.access.chatSend',
+  // Deliberately worded as authority over OTHER apps' notification rules. The
+  // per-app "may show notifications" grant is the separate section below, and
+  // the two must never read as the same thing.
+  'notifications.manage': 'managerPermissions.access.notifications',
 } as const
 
 type GrantCardCapability = keyof typeof GRANT_CARD_ACCESS_LABEL_KEYS
@@ -326,6 +330,7 @@ function BookmarkGrantCard<Grant extends HomeV2QdnBookmarkGrant>({
       data-qdn-account-read-grant={capability === 'account.read' ? grant.appKey : undefined}
       data-qdn-bookmark-grant={capability === 'bookmarks.manage' ? grant.appKey : undefined}
       data-qdn-chat-send-grant={capability === 'chat.send' ? grant.appKey : undefined}
+      data-qdn-notification-manager-grant={capability === 'notifications.manage' ? grant.appKey : undefined}
     >
       <AppIdentityCopy
         appKey={grant.appKey}
@@ -346,6 +351,7 @@ function BookmarkGrantCard<Grant extends HomeV2QdnBookmarkGrant>({
             data-qdn-account-read-revoke-confirm={capability === 'account.read' ? 'true' : undefined}
             data-qdn-bookmark-revoke-confirm={capability === 'bookmarks.manage' ? 'true' : undefined}
             data-qdn-chat-send-revoke-confirm={capability === 'chat.send' ? 'true' : undefined}
+            data-qdn-notification-manager-revoke-confirm={capability === 'notifications.manage' ? 'true' : undefined}
             role="alert"
           >
             <strong>{t('notifications.revoke')}</strong>
@@ -519,6 +525,19 @@ export function QdnAppsSettings({
       }))
   }
 
+  // Revoking the notification-MANAGER capability takes back one app's authority
+  // over every other app's notification rules. It deletes no rule and revokes no
+  // managed app's own notification grant — those stay in the section below.
+  const revokeNotificationsManage = async (grant: HomeV2QdnBookmarkGrant) => {
+    if (!snapshot) return
+    await applyMutation(`notificationsManage:${grant.appKey}`, () =>
+      client.revokeBookmarks({
+        appKey: grant.appKey,
+        capability: 'notifications.manage',
+        expectedAssignmentRevision: snapshot.notificationsManage.revision,
+      }))
+  }
+
   const actionsDisabled = loading || stale || snapshot === null
 
   return (
@@ -626,6 +645,28 @@ export function QdnAppsSettings({
               key={grant.appKey}
               loadVisibleAppIcon={loadVisibleAppIcon}
               onRevoke={revokeBookmarks}
+            />
+          ))}
+        </section>
+      ) : null}
+
+      {snapshot?.notificationsManage.apps.length ? (
+        <section aria-labelledby="home-v2-qdn-notification-manager-controls-title">
+          <div className="home-v2-settings-panel__heading">
+            <h3 id="home-v2-qdn-notification-manager-controls-title">
+              {t('managerPermissions.action.notifications')}
+            </h3>
+            <p>{t('managerPermissions.access.notifications')}</p>
+          </div>
+          {snapshot.notificationsManage.apps.map((grant) => (
+            <BookmarkGrantCard
+              busy={busy === `notificationsManage:${grant.appKey}`}
+              capability="notifications.manage"
+              disabled={actionsDisabled || busy !== null}
+              grant={grant}
+              key={grant.appKey}
+              loadVisibleAppIcon={loadVisibleAppIcon}
+              onRevoke={revokeNotificationsManage}
             />
           ))}
         </section>

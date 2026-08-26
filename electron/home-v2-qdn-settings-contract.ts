@@ -57,6 +57,18 @@ export type HomeV2QdnSettingsState = {
     version: 1
   }>
   readonly notifications: HomeV2QdnNotificationState
+  /**
+   * Apps holding the durable notification-MANAGER capability: authority over
+   * every app's notification grants and rules. Deliberately a separate list
+   * from `notifications` above, which is the per-app permission to SHOW a
+   * notification — one is administrative, the other is not, and collapsing
+   * them in the UI would let a user revoke the wrong thing.
+   */
+  readonly notificationsManage: Readonly<{
+    apps: readonly Readonly<{ appKey: string; grantedAt: string }>[]
+    revision: number
+    version: 1
+  }>
   readonly revision: 1
   readonly schema: 'home-v2-qdn-settings-state'
 }
@@ -162,7 +174,19 @@ function parseRevoke(value: unknown) {
 // 'account.read' is the durable read-only account grant an "always allow"
 // creates (owner decision, R3-10). A durable grant that cannot be taken back
 // would be a one-way door, so it is revocable from the moment it is grantable.
-const REVOCABLE_CAPABILITIES = ['account.read', 'bookmarks.manage', 'chat.send'] as const
+//
+// 'notifications.manage' is the durable app-facing notification-manager grant.
+// It is listed here for the same reason: Home 2 now grants it from an app
+// prompt, so it must be takeable back from the moment it is grantable. Revoking
+// it removes only the MANAGER's authority over other apps' notification rules —
+// it does not touch any managed app's own notification grant, and it does not
+// delete a single rule.
+const REVOCABLE_CAPABILITIES = [
+  'account.read',
+  'bookmarks.manage',
+  'chat.send',
+  'notifications.manage',
+] as const
 export type HomeV2RevocableCapability = (typeof REVOCABLE_CAPABILITIES)[number]
 // The subset stored per (app principal, account). Revoking one of these
 // must name the account, and only that account's grant is dropped.
@@ -239,6 +263,7 @@ export function redactHomeV2QdnSettingsState(
   const accountReadApps = listQdnAccountCapabilityGrants(assignmentsStore, 'account.read')
   const bookmarkApps = grantsFor('bookmarks.manage')
   const chatSendApps = grantsFor('chat.send')
+  const notificationManagerApps = grantsFor('notifications.manage')
   const apps = notificationStore ? Object.entries(notificationStore.grants)
     .map(([appKey, grant]) => {
       const rules = notificationStore.rules[appKey] ?? []
@@ -276,6 +301,11 @@ export function redactHomeV2QdnSettingsState(
       apps,
       revision: notificationStore?.revision ?? null,
       status: notificationInspection.status,
+      version: 1,
+    },
+    notificationsManage: {
+      apps: notificationManagerApps,
+      revision: assignmentsStore.revision,
       version: 1,
     },
     revision: 1,

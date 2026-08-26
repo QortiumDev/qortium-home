@@ -20,9 +20,13 @@ let assignments = grantQdnAccountCapability(
   grantQdnAccountCapability(
     grantQdnAppCapability(
       grantQdnAppCapability(
-        createDefaultQdnAppRolesStore(),
-        'qdn://APP/Bookmarks/Bookmarks',
-        'bookmarks.manage',
+        grantQdnAppCapability(
+          createDefaultQdnAppRolesStore(),
+          'qdn://APP/Bookmarks/Bookmarks',
+          'bookmarks.manage',
+        ),
+        'qdn://APP/Notify/Notify',
+        'notifications.manage',
       ),
       'qdn://APP/Reader/Reader',
       'assignments.read',
@@ -153,6 +157,14 @@ const serializedInitial = JSON.stringify(initial)
 for (const secret of ['capabilityGrants', 'Q-secret-account', 'secret-xpub', 'filters', 'notificationId']) {
   assert.equal(serializedInitial.includes(secret), false, `state must redact ${secret}`)
 }
+
+// The durable notification-MANAGER grant is listed separately from the per-app
+// permission to SHOW a notification: one is authority over every other app's
+// rules, the other is not, and a user must be able to revoke them separately.
+assert.deepEqual(initial.notificationsManage.apps.map(({ appKey }) => appKey), [
+  'qdn://APP/Notify/Notify',
+])
+assert.equal(initial.notificationsManage.revision, assignments.revision)
 
 assert.throws(() => service.get({ ...getRequest, extra: true }), /exact/)
 assert.throws(() => service.get([]), /exact/)
@@ -298,6 +310,27 @@ for (const capability of ['account.minting', 'chat.private-group.read', 'assignm
     revision: 1,
     schema: 'home-v2-qdn-settings-revoke-bookmarks-request',
   }), /cannot be revoked/)
+}
+
+// Revoking the notification-MANAGER capability takes back one app's authority
+// over every other app's rules. It must not touch that app's own permission to
+// show a notification, nor delete a single rule.
+{
+  const notificationsBefore = JSON.stringify(notifications)
+  const managerRevoked = service.revokeBookmarks({
+    appKey: 'qdn://APP/Notify/Notify#/apps',
+    capability: 'notifications.manage',
+    expectedAssignmentRevision: assignments.revision,
+    revision: 1,
+    schema: 'home-v2-qdn-settings-revoke-bookmarks-request',
+  })
+  assert.deepEqual(managerRevoked.notificationsManage.apps, [])
+  assert.equal(JSON.stringify(notifications), notificationsBefore, 'no rule or grant may be deleted')
+  assert.deepEqual(managerRevoked.notifications.apps.map(({ appKey }) => appKey), [
+    'qdn://APP/Notify/Notify',
+  ])
+  // Re-granting it restores the row, so the fixture below is unaffected.
+  assignments = grantQdnAppCapability(assignments, 'qdn://APP/Notify/Notify', 'notifications.manage')
 }
 
 // A Qortal-routed app can hold and revoke a durable read grant. The capability

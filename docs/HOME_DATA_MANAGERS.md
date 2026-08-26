@@ -25,9 +25,20 @@ as the final commit marker.
 
 Manager permissions are separate from account permissions, from an app's
 assignment to a Home role, and from permission to send notifications. Home 2
-lists durable bookmark-manager grants in the trusted QDN Apps Settings surface
-and revokes them with an exact store-revision check. Revocation does not delete
-the user's saved links. Manager permissions are keyed by the calling app's stable
+lists both durable manager grants — `bookmarks.manage` and
+`notifications.manage` — in the trusted QDN Apps Settings surface and revokes
+them with an exact store-revision check. Revocation does not delete the user's
+saved links, and revoking `notifications.manage` deletes no notification rule
+and revokes no app's own notification permission: it takes back only the
+manager's authority over other apps. The notification-manager grant is listed
+in its own section, distinct from the per-app "may show notifications" list
+below it, so the two cannot be confused for one another.
+
+Both manager capabilities are offered as an "always allow" answer only. A
+session-scoped answer to an administrative capability would be a grant the user
+could neither see nor revoke in Settings, so the prompt does not offer one.
+
+Manager permissions are keyed by the calling app's stable
 `qdn://SERVICE/name/identifier` resource base (not its current deep-link path,
 query, or fragment) and persist as app-scoped capabilities until the user
 revokes them.
@@ -187,6 +198,26 @@ The existing `NOTIFICATION_ADD`, `NOTIFICATION_GET`, and
 manager actions below administer all apps but deliberately cannot create or
 replace another app's rules.
 
+Both halves of this document are live in Home 2 as of the 2.1 line: the
+bookmark manager shipped first, and the notification manager is now app-facing
+on Home 2 desktop and Android as well as on Home 1.x. Desktop and Android share
+one validator (`electron/home-v2-notification-manager-contract.ts`) and reuse
+the 1.x summary and mutation implementation unchanged, so a manager app sees
+byte-identical responses on every host.
+
+Home 2 adds one behavior 1.x did not have, and it is a refusal rather than a
+new capability: when the notification store is corrupt or cannot be read, the
+manager actions fail with `HOME_NOTIFICATION_STORE_CORRUPT` or
+`HOME_NOTIFICATION_STORE_UNAVAILABLE` instead of reporting an empty profile. A
+manager must not be able to mistake "I cannot read this" for "you have granted
+nothing" and then write over the damaged record. An empty but healthy store
+still answers normally, with `apps: []`.
+
+Home 2 does NOT implement `NOTIFICATION_ADD`, `NOTIFICATION_GET`, or
+`NOTIFICATION_REMOVE`. See
+[Home 2 app notifications](HOME_V2_APP_NOTIFICATIONS.md) for why rule creation
+is deferred; the manager surface below can delete a rule but never add one.
+
 `NOTIFICATION_MANAGER_GET` returns a sanitized summary:
 
 ```js
@@ -280,6 +311,14 @@ rules, account data, or notification filters. Refetch the relevant manager
 snapshot when the revision differs from the one currently displayed. Home may
 coalesce quick consecutive changes, so apps must treat the number as a version,
 not as an event count.
+
+Home 2 desktop announces these to open app views as of the 2.1 line. A view is
+seeded with the current revisions when it is shown, and the shell pushes an
+update whenever the profile changes — including a change one app view made
+through the manager surface, which reaches both the trusted Settings page and
+every other open view. Home 2 on Android does not announce them yet: an Android
+manager app should refetch on its own schedule and rely on the
+`HOME_DATA_STALE` retry path.
 
 ## Android request timing
 
