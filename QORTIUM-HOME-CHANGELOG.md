@@ -34,6 +34,16 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-26 - fix(home-v2): videos and audio from apps play on Android again
+
+Live phone testing found that any audio or video an app opened through Home's
+streaming path failed on Android with a format error, even though the bytes
+arriving were a perfectly good file. The proxy that serves those streams was
+naming the file type twice — once in the response itself and once in an extra
+header — and Android's media player refuses a response that declares its type
+twice. The type now travels exactly once. This affected every app-embedded
+player on the phone; the separate viewer window has its own fix coming next.
+
 ### 2026-08-26 - docs(home-v2): name every not-yet-carried app action instead of a blanket "everything else is deferred"
 
 The bridge compatibility ledger used to close with one sweeping sentence:

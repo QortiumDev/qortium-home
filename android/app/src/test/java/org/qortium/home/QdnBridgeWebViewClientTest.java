@@ -564,6 +564,27 @@ public class QdnBridgeWebViewClientTest {
     }
 
     @Test
+    public void contentTypeTravelsOnlyAsTheConstructorMimeNeverAsAHeader() {
+        // The mime is passed to WebResourceResponse separately; a Content-Type
+        // left in the header map makes WebView emit BOTH, and the renderer's
+        // media stack refuses the merged "video/mp4, video/mp4" with a format
+        // error (2026-08-26 phone-pass finding H-P1).
+        Map<String, String> headers = new HashMap<>();
+        headers.put("Content-Type", "video/mp4");
+        headers.put("content-type", "video/mp4");
+        headers.put("Accept-Ranges", "bytes");
+        headers.put("Content-Range", "bytes 0-1023/4515250");
+
+        Map<String, String> sanitized = QdnBridgeWebViewClient.withoutContentTypeHeader(headers);
+
+        assertFalse(sanitized.containsKey("Content-Type"));
+        assertFalse(sanitized.containsKey("content-type"));
+        assertEquals("bytes", sanitized.get("Accept-Ranges"));
+        assertEquals("bytes 0-1023/4515250", sanitized.get("Content-Range"));
+        assertEquals(2, sanitized.size());
+    }
+
+    @Test
     public void proxyCompatibilityReadsRemainGetOnly() {
         assertTrue(QdnBridgeWebViewClient.isAllowedProxyMethod("GET"));
         assertTrue(QdnBridgeWebViewClient.isAllowedProxyMethod("get"));
