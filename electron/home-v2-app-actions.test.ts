@@ -1046,4 +1046,29 @@ assert.equal(/^[\u0020-\u007e]*$/.test(serializeHomeV2ListItemsForApproval([`\u0
 assert.deepEqual(normalizeHomeV2ListReadResult(404, null), [])
 assert.deepEqual(normalizeHomeV2ListReadResult(200, ['a']), ['a'])
 
+// Every helper in the desktop bridge that can carry the node's administrative
+// API key (or, worse, account key material) must refuse HTTP redirects:
+// fetch preserves X-API-KEY across origins — it is not an Authorization
+// header — and 307/308 re-send the method and body, so a redirecting
+// responder could carry the credential to a host no gate ever vetted.
+// Pinned per function so a new key-bearing helper cannot quietly ship
+// without the refusal. (List-family security review, 2026-08-26.)
+for (const helper of [
+  'async function postHomeV2ChatText(',
+  'async function readHomeV2ChatJson(',
+  'async function deleteHomeV2MintingKey(',
+  'async function requestHomeV2ListText(',
+  'async function readHomeV2ListJson(',
+  'async function readHomeV2PrivateAttachmentCiphertext(',
+]) {
+  const start = openTabBridgeSource.indexOf(helper)
+  assert.notEqual(start, -1, `${helper} must exist in home-v2-app-bridge.ts`)
+  const body = openTabBridgeSource.slice(start, openTabBridgeSource.indexOf('\nasync function', start + 1))
+  assert.equal(
+    body.includes("redirect: 'error'"),
+    true,
+    `${helper} sends X-API-KEY and must refuse redirects`,
+  )
+}
+
 console.log('Home v2 app action contract tests passed.')

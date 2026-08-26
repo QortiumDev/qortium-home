@@ -34,6 +34,19 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-26 - fix(home-v2): requests that carry your node's key no longer follow redirects
+
+Hardening carried over from the lists security review. When Home talks to a
+node with the node's administrative key attached — building or broadcasting a
+signed message, managing minting keys, deriving a minting key from the
+account key — the web machinery underneath would quietly follow an HTTP
+redirect if the responder sent one, and that key would travel along to
+whatever address the redirect named. No honest Qortium Core ever redirects
+these calls, so Home now refuses redirects on every key-bearing request
+outright (the lists feature already shipped with this rule; this extends it
+to the older chat and minting helpers). A test now pins the rule to every
+key-carrying helper so a future one cannot ship without it.
+
 ### 2026-08-26 - feat(home-v2): apps can read and change the lists on your own node again
 
 Restores the first deferred action family of the 2.1 catalogue: named lists.

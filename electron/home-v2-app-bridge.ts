@@ -2455,6 +2455,13 @@ async function postHomeV2ChatText(
       ...(apiKey ? { 'X-API-KEY': apiKey } : {}),
     },
     body,
+    // A redirect would let the responder pick a second host this call's
+    // callers never vetted — and this helper carries the admin API key, whole
+    // transaction bodies, and (via postHomeV2MintingText's rewardsharekey
+    // call) an account PRIVATE key. Fetch preserves X-API-KEY across origins,
+    // and 307/308 re-send the method and body. Core's API never legitimately
+    // redirects; refuse outright. (List-family review follow-up, 2026-08-26.)
+    redirect: 'error',
     signal: AbortSignal.timeout(CHAT_WRITE_TIMEOUT_MS),
   })
   // Bounded like the read-only actions below (FIX #4, security review): a
@@ -2505,6 +2512,10 @@ async function readHomeV2ChatJson(
   const response = await nodeFetch(`${nodeApiUrl}${path}`, {
     headers: apiKey ? { 'X-API-KEY': apiKey } : undefined,
     method: 'GET',
+    // Same rule as postHomeV2ChatText above: this reader is handed the admin
+    // API key on the minting and signing paths, and a redirect would carry it
+    // to a host nothing vetted. (List-family review follow-up, 2026-08-26.)
+    redirect: 'error',
     signal: AbortSignal.timeout(15_000),
   })
   const result = await readBoundedResponse(response, 'GET', maxBytes)
@@ -5677,6 +5688,9 @@ async function deleteHomeV2MintingKey(
   try {
     const response = await nodeFetch(`${nodeApiUrl}${MINTING_ACCOUNTS_PATH}`, {
       method: 'DELETE',
+      // Key-bearing DELETE: same redirect refusal as every other
+      // authenticated call. (List-family review follow-up, 2026-08-26.)
+      redirect: 'error',
       headers: {
         'Content-Type': 'text/plain',
         ...(apiKey ? { 'X-API-KEY': apiKey } : {}),
@@ -6220,8 +6234,8 @@ async function requestHomeV2ListText(
 
 // The read twin of requestHomeV2ListText: readHomeV2ChatJson's shape with
 // redirects refused, because every list read carries the administrative key.
-// (The shared chat/minting readers predate this rule; hardening them is
-// tracked separately so this change stays scoped to the list family.)
+// (The shared chat/minting helpers now refuse redirects too; this stays
+// separate for its list-specific response cap and error shape.)
 async function readHomeV2ListJson(
   nodeApiUrl: string,
   path: string,
