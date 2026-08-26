@@ -26,6 +26,7 @@ import {
   normalizeHomeV2OpenAddress,
   normalizeHomeV2ReadMethod,
   normalizeHomeV2ReadPath,
+  normalizeHomeV2ReplaceTabAddress,
   normalizeHomeV2ResponseMaxBytes,
 } from '../../electron/home-v2-app-actions'
 import {
@@ -1064,12 +1065,16 @@ export function createPortableNodeClient(
       if (action === 'OPEN_NEW_TAB') {
         return { address: normalizeHomeV2OpenAddress(request), openIn: 'new-tab' }
       }
-      // Same validator, same descriptor shape as OPEN_NEW_TAB. This host has
-      // no tab strip of its own, so it only says WHERE the address should go;
-      // the shell relaying this result supplies WHICH tab, from its own view
-      // context. Nothing an app sends can name a tab.
+      // Same descriptor shape as OPEN_NEW_TAB. This host has no tab strip of
+      // its own, so it only says WHERE the address should go; the shell
+      // relaying this result supplies WHICH tab, from its own view context.
+      // Nothing an app sends can name a tab.
+      //
+      // The stricter replacement validator, not the plain open one: a bare app
+      // name or a Home page can never replace a tab, and both hosts must say
+      // so at the bridge call rather than appearing to succeed.
       if (action === 'OPEN_CURRENT_TAB') {
-        return { address: normalizeHomeV2OpenAddress(request), openIn: 'current-tab' }
+        return { address: normalizeHomeV2ReplaceTabAddress(request), openIn: 'current-tab' }
       }
       if (action === 'IS_USING_PUBLIC_NODE') {
         return hostInfo.route.configuredKind === 'public'

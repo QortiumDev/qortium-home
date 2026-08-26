@@ -1,26 +1,66 @@
+import { createHash } from 'node:crypto';
 import { sanitizeQdnCapabilityPrincipal } from './qdn-manager-permissions.js';
+
+/**
+ * The identity a partition is derived from, as an unambiguous string.
+ *
+ * Built from the canonical app PRINCIPAL rather than the raw resource URL, so
+ * two URLs naming the same app (differing only by an in-app route, a hash, or
+ * a query the principal drops) keep one storage partition — exactly as they
+ * already share one durable grant.
+ *
+ * When a principal cannot be derived — no resource URL at all, or one that is
+ * not a parseable APP/WEBSITE resource — the RAW value is used instead, tagged
+ * so it can never equal a canonical principal. That is fail-closed: two
+ * different unparseable URLs still get different partitions rather than
+ * collapsing onto a shared one.
+ *
+ * JSON-encoded rather than joined with a delimiter, because that is
+ * unambiguous for free: no origin or principal can be crafted so that one pair
+ * of inputs serializes identically to a different pair.
+ */
+function qdnViewPartitionIdentity(nodeOrigin: string, resourceUrl: string | null): string {
+  const principal = qdnViewPrincipal(resourceUrl);
+  const resource: readonly [string, string] = principal !== null
+    ? ['principal', principal]
+    : resourceUrl === null
+      ? ['none', '']
+      : ['raw', resourceUrl];
+  return JSON.stringify([nodeOrigin, ...resource]);
+}
 
 /**
  * The Chromium partition a QDN app view runs in.
  *
  * This is the real browser-storage boundary: cookies, localStorage,
  * sessionStorage and IndexedDB all belong to the partition, not to the tab or
- * the window. Two views in the same partition can read each other's storage
- * under the same origin.
+ * the window. Two views sharing a partition can read each other's storage
+ * under the same origin, so two different apps must never be handed the same
+ * partition name.
  *
- * Keyed by the node origin AND the app's stable QDN resource URL (e.g.
- * "qdn://APP/walletium/default"), so one app keeps its storage across tabs,
- * windows and restarts while a different app never sees it.
+ * The name is a SHA-256 digest of the identity above. It used to be that
+ * identity run through a character replacement and truncated to 60 characters,
+ * which is not injective: two different apps could land on one partition name
+ * either by agreeing on their first 60 characters, or by differing only in
+ * characters the replacement folded onto the same '_'. Either collision puts
+ * two apps in one storage jar. A digest cannot collide by construction, and
+ * nothing here needs the name to be readable.
+ *
+ * The full 256-bit hex digest is used. Do not truncate it below 128 bits, and
+ * do not move any part of the identity into the readable `persist:qdn-`
+ * prefix: the prefix names the scheme, the digest carries all the uniqueness.
+ *
+ * CONSEQUENCE, accepted deliberately: this changes every existing partition
+ * name once, so apps lose their site storage (localStorage, cookies,
+ * IndexedDB) a single time when a user moves onto this build. Home 2.1 is
+ * pre-release, and a correct isolation boundary outranks storage continuity;
+ * one reset is the whole cost.
  */
 export function getQdnViewPartition(nodeOrigin: string, resourceUrl: string | null): string {
-  const safeOrigin = nodeOrigin.replace(/[^a-z0-9:.-]/gi, '_').slice(0, 40);
-  if (resourceUrl) {
-    // resourceUrl is a stable QDN URL (e.g. "qdn://APP/walletium/default")
-    // that identifies the app regardless of which tab or window opened it.
-    const safeResource = resourceUrl.replace(/[^a-z0-9:/._-]/gi, '_').slice(0, 60);
-    return `persist:qortium-home-${safeOrigin}-${safeResource}`;
-  }
-  return `persist:qortium-home-${safeOrigin}`;
+  const digest = createHash('sha256')
+    .update(qdnViewPartitionIdentity(nodeOrigin, resourceUrl), 'utf8')
+    .digest('hex');
+  return `persist:qdn-${digest}`;
 }
 
 /**
@@ -56,8 +96,17 @@ function qdnViewPrincipal(resourceUrl: string | null): string | null {
  *
  * Reuse therefore requires all of:
  * - the same node origin,
- * - the same partition a freshly created view would be given, and
- * - the same provable canonical app principal.
+ * - the same provable canonical app principal (the PRIMARY check: it is the
+ *   identity permissions are keyed by, so a view is never reused across a
+ *   boundary the permission system treats as two different apps), and
+ * - the same partition a freshly created view would be given.
+ *
+ * The partition check is now implied by the principal check, since the
+ * partition is derived from that principal — it is kept as a standing
+ * assertion that the two never drift apart, and it is only sound BECAUSE the
+ * partition name is a digest. While partition names were truncated strings it
+ * could pass for two genuinely different apps, so it must never be relied on
+ * as the primary test.
  *
  * Fails closed: anything it cannot prove identical — an absent, unparseable, or
  * merely different resource URL — is treated as a new security context, so the
@@ -71,12 +120,12 @@ export function canReuseQdnViewEntry(
 ): boolean {
   if (existing.nodeOrigin !== request.nodeOrigin) return false;
   if (existing.resourceUrl === request.resourceUrl) return true;
-  if (
-    getQdnViewPartition(existing.nodeOrigin, existing.resourceUrl) !==
-    getQdnViewPartition(request.nodeOrigin, request.resourceUrl)
-  ) {
+  const existingPrincipal = qdnViewPrincipal(existing.resourceUrl);
+  if (existingPrincipal === null || existingPrincipal !== qdnViewPrincipal(request.resourceUrl)) {
     return false;
   }
-  const existingPrincipal = qdnViewPrincipal(existing.resourceUrl);
-  return existingPrincipal !== null && existingPrincipal === qdnViewPrincipal(request.resourceUrl);
+  return (
+    getQdnViewPartition(existing.nodeOrigin, existing.resourceUrl) ===
+    getQdnViewPartition(request.nodeOrigin, request.resourceUrl)
+  );
 }

@@ -822,6 +822,27 @@ function testAndroidAppFrameMessagesStayBounded(): void {
   )
 }
 
+// OPEN_CURRENT_TAB refuses a bare app name, and that refusal is enforced in
+// the trusted host — homeV2AppAddressNamesIdentifier in
+// electron/home-v2-app-actions.ts — because a renderer-only refusal is
+// discarded by the fire-and-forget desktop transport. Electron cannot import
+// this module, so the rule exists twice; these vectors are the contract both
+// halves are held to. The electron half runs the SAME file, in
+// electron/home-v2-app-actions.test.ts.
+function testExplicitIdentifierVectorsMatchTheElectronTwin(): void {
+  const vectors = JSON.parse(
+    readFileSync('src/shared-fixtures/app-address-explicit-identifier-vectors.json', 'utf8'),
+  ) as readonly { description: string; address: string; explicitIdentifier: boolean }[]
+  assert.ok(vectors.length >= 10, 'the shared identifier fixture must stay meaningful')
+  for (const vector of vectors) {
+    assert.equal(
+      parseAppResourceLocation(vector.address).identifierWasExplicit,
+      vector.explicitIdentifier,
+      `${vector.address} — ${vector.description}`,
+    )
+  }
+}
+
 function testAppResourceSchemesStaySourceQualified(): void {
   const qdn = buildAppResourceLocation('qortium', {
     service: 'APP',
@@ -3106,6 +3127,7 @@ await testPlatformFixtureHostsFailClosed()
 testWrongNetworkStopsBeforeAdapter()
 testProductModelKeepsSourceQualifiedTabs()
 testProductModelReplacesOneAppTabInPlace()
+testExplicitIdentifierVectorsMatchTheElectronTwin()
 testAndroidAppFrameMessagesStayBounded()
 testAppResourceSchemesStaySourceQualified()
 testBridgeProtocolsStaySeparate()

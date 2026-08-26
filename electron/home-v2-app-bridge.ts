@@ -78,6 +78,7 @@ import {
   normalizeHomeV2IdentityAddresses,
   normalizeHomeV2OpenAddress,
   normalizeHomeV2ReadMethod,
+  normalizeHomeV2ReplaceTabAddress,
   normalizeHomeV2ReadPath,
   normalizeHomeV2ResponseMaxBytes,
   type HomeV2AppBridgeProtocol,
@@ -5712,7 +5713,12 @@ async function handleRequestWithRuntime(
   // caller-supplied tab field to validate. (Home 1.x bound the same way; see
   // electron/qdn.ts:9771.)
   if (action === 'OPEN_CURRENT_TAB') {
-    const address = normalizeHomeV2OpenAddress(requestValue)
+    // The same shared address validator OPEN_NEW_TAB uses, plus the two rules
+    // a replacement adds: it must be an app resource, and it must name its
+    // identifier. Both are checked HERE so the bridge call itself fails —
+    // enforcing them in the renderer alone means the refusal is discarded and
+    // the app is told `true` for a replacement that never happened.
+    const address = normalizeHomeV2ReplaceTabAddress(requestValue)
     const hostWindow = getContextWindow(context)
     if (!hostWindow || hostWindow.isDestroyed()) {
       throw new Error('The app request does not belong to an active Home window.')

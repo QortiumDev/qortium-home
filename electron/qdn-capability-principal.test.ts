@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -443,6 +444,83 @@ import {
   assert.equal(getQdnViewPartition(node, chat), getQdnViewPartition(node, chat))
 }
 
+// --- Partition names are digests, so they cannot collide ---
+//
+// The partition name used to be the resource URL with unsafe characters
+// replaced by '_' and the result truncated to 60 characters. Neither step is
+// injective, so two DIFFERENT apps could be handed one partition name — and a
+// shared partition is a shared cookie jar, localStorage and IndexedDB. These
+// are the two collision shapes that construction allowed.
+{
+  const node = 'http://127.0.0.1:24891'
+  const chatUrl = 'qdn://APP/Alice/chat'
+  const partitionOf = (resourceUrl: string) => getQdnViewPartition(node, resourceUrl)
+
+  // 1. TRUNCATION. 'qdn://APP/' is 10 characters, so a 50-character name fills
+  //    the old 60-character budget exactly, and everything after it — the part
+  //    saying WHICH resource — used to be cut off.
+  const longName = 'a'.repeat(50)
+  const truncatedOne = `qdn://APP/${longName}/one`
+  const truncatedTwo = `qdn://APP/${longName}/two`
+  assert.equal(
+    truncatedOne.slice(0, 60),
+    truncatedTwo.slice(0, 60),
+    'fixture check: these two differ only past the old 60-character cut',
+  )
+  assert.notEqual(
+    partitionOf(truncatedOne),
+    partitionOf(truncatedTwo),
+    'apps differing only past the old truncation point must not share a partition',
+  )
+
+  // 2. CHARACTER REPLACEMENT. '~' and '!' were both outside the old safe set
+  //    and both rewritten to '_', collapsing two distinct identifiers onto one
+  //    name.
+  const foldedOne = 'qdn://APP/Alice/a~b'
+  const foldedTwo = 'qdn://APP/Alice/a!b'
+  const oldFold = (value: string) => value.replace(/[^a-z0-9:/._-]/gi, '_').slice(0, 60)
+  assert.equal(
+    oldFold(foldedOne),
+    oldFold(foldedTwo),
+    'fixture check: these two folded onto one name under the old scheme',
+  )
+  assert.notEqual(
+    partitionOf(foldedOne),
+    partitionOf(foldedTwo),
+    'apps differing only in characters the old scheme folded must not share a partition',
+  )
+
+  // Stability: the same app on the same node keeps one partition across tabs,
+  // windows and restarts, or apps would lose their storage constantly.
+  assert.equal(partitionOf(chatUrl), partitionOf(chatUrl))
+  // ...and the node origin still separates partitions.
+  assert.notEqual(
+    getQdnViewPartition(node, chatUrl),
+    getQdnViewPartition('http://127.0.0.1:12391', chatUrl),
+  )
+  // Derived from the canonical PRINCIPAL, so an app navigating within itself
+  // (same resource, different route) keeps its storage — the same rule that
+  // keeps its durable grant.
+  assert.equal(
+    partitionOf('qdn://APP/Alice/apps'),
+    partitionOf('qdn://APP/Alice/apps/browse?tab=1#/x'),
+  )
+
+  // The name is exactly a SHA-256 over the JSON-encoded identity, recomputed
+  // here independently: this pins the derivation, not merely its shape.
+  const expected = createHash('sha256')
+    .update(JSON.stringify([node, 'principal', 'qdn://APP/Alice/apps']), 'utf8')
+    .digest('hex')
+  assert.equal(partitionOf('qdn://APP/Alice/apps'), `persist:qdn-${expected}`)
+  // Full 256-bit digest: 64 hex characters, never truncated below 128 bits.
+  assert.match(partitionOf(chatUrl), /^persist:qdn-[0-9a-f]{64}$/)
+  // A resource URL that cannot be canonicalized is tagged apart from a
+  // principal, so a raw URL can never be crafted to hash into an app's
+  // partition, and two different unparseable URLs stay apart.
+  assert.notEqual(partitionOf('qdn://APP/Alice/apps'), getQdnViewPartition(node, null))
+  assert.notEqual(partitionOf('not-a-qdn-url'), partitionOf('also-not-a-qdn-url'))
+}
+
 // The replacement path must route through view DESTRUCTION, not a partial
 // state reset: a reused view keeps its partition no matter what is later
 // assigned to entry.resourceUrl.
@@ -468,6 +546,34 @@ import {
     views,
     /existingEntry\.nodeOrigin === request\.nodeOrigin/,
     'node origin alone must no longer decide view reuse',
+  )
+}
+
+// The partition name must stay a digest. A readable name is what allowed the
+// truncation and character-folding collisions above.
+{
+  const securityContextUrl = [
+    '../electron/qdn-view-security-context.ts',
+    './qdn-view-security-context.ts',
+  ]
+    .map((candidate) => new URL(candidate, import.meta.url))
+    .find((candidate) => existsSync(candidate))
+  assert.ok(securityContextUrl, 'the view security-context source must be readable')
+  const securityContext = readFileSync(securityContextUrl, 'utf8')
+  assert.match(
+    securityContext,
+    /createHash\('sha256'\)/,
+    'the partition name must be a SHA-256 digest',
+  )
+  assert.match(
+    securityContext,
+    /\.digest\('hex'\)/,
+    'the digest must be used in full hex, never truncated',
+  )
+  assert.doesNotMatch(
+    securityContext,
+    /\.slice\(0, \d+\)/,
+    'nothing in the partition derivation may truncate — that was the original collision',
   )
 }
 

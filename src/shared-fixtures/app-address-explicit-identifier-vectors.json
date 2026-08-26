@@ -1,0 +1,62 @@
+[
+  {
+    "description": "bare app name — the ambiguous case OPEN_CURRENT_TAB refuses",
+    "address": "qdn://APP/Alice",
+    "explicitIdentifier": false
+  },
+  {
+    "description": "bare app name with a trailing slash is still bare (empty segments are dropped)",
+    "address": "qdn://APP/Alice/",
+    "explicitIdentifier": false
+  },
+  {
+    "description": "explicit identifier",
+    "address": "qdn://APP/Alice/apps",
+    "explicitIdentifier": true
+  },
+  {
+    "description": "the literal 'default' identifier is still explicitly named in the path",
+    "address": "qdn://APP/Alice/default",
+    "explicitIdentifier": true
+  },
+  {
+    "description": "explicit identifier plus an in-app route",
+    "address": "qdn://APP/Alice/apps/browse/games",
+    "explicitIdentifier": true
+  },
+  {
+    "description": "a query identifier is NOT a path identifier and must not count",
+    "address": "qdn://APP/Alice?identifier=apps",
+    "explicitIdentifier": false
+  },
+  {
+    "description": "a bare name with a query and hash is still bare",
+    "address": "qdn://APP/Alice?tab=1#/settings",
+    "explicitIdentifier": false
+  },
+  {
+    "description": "explicit identifier followed by query and hash",
+    "address": "qdn://APP/Alice/apps?tab=1#/settings",
+    "explicitIdentifier": true
+  },
+  {
+    "description": "qortal scheme behaves identically",
+    "address": "qortal://APP/Q-Tube/default",
+    "explicitIdentifier": true
+  },
+  {
+    "description": "qortal scheme, bare name",
+    "address": "qortal://APP/Q-Tube",
+    "explicitIdentifier": false
+  },
+  {
+    "description": "percent-encoded identifier segment still counts as present",
+    "address": "qdn://APP/Alice/my%20app",
+    "explicitIdentifier": true
+  },
+  {
+    "description": "uppercase scheme and service are accepted",
+    "address": "QDN://app/Alice/apps",
+    "explicitIdentifier": true
+  }
+]

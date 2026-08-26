@@ -1034,6 +1034,69 @@ export function normalizeHomeV2OpenAddress(request: Record<string, unknown>) {
   return address
 }
 
+/**
+ * Whether an app address names its resource identifier explicitly.
+ *
+ * A deliberate twin of `identifierWasExplicit` in
+ * src/v2/resource-location.ts, which computes exactly this: parse the address
+ * as a URL, take the non-empty path segments, drop the first (the app name),
+ * and ask whether anything is left. Electron code cannot import from src/, so
+ * the rule is restated here rather than re-derived — and the two are pinned
+ * against one shared fixture,
+ * src/shared-fixtures/app-address-explicit-identifier-vectors.json, so they
+ * can never drift apart on what "explicit" means.
+ *
+ * Returns false for anything that is not a qdn:// or qortal:// APP address:
+ * those are not app resources, and the caller refuses them separately.
+ */
+export function homeV2AppAddressNamesIdentifier(address: string): boolean {
+  let parsed: URL
+  try {
+    parsed = new URL(address.trim())
+  } catch {
+    return false
+  }
+  const scheme = parsed.protocol.slice(0, -1).toLowerCase()
+  if (scheme !== 'qdn' && scheme !== 'qortal') return false
+  if (parsed.hostname.toUpperCase() !== 'APP') return false
+  // Query and hash are excluded because `pathname` excludes them, matching the
+  // twin: `?identifier=` is NOT an explicit path identifier.
+  const segments = parsed.pathname.split('/').filter(Boolean)
+  return segments.length > 1
+}
+
+/**
+ * OPEN_CURRENT_TAB's address rule, enforced in the trusted host.
+ *
+ * OPEN_NEW_TAB can accept a bare app name, because the shell resolves it and,
+ * when it turns out to match more than one published resource, asks the user
+ * which they meant. A bridge call has nobody to ask. The shell therefore
+ * refuses a bare name for a replacement — but the desktop transport is
+ * fire-and-forget, so a refusal made only in the renderer is discarded and the
+ * app is told `true` for a replacement that never happened. Requiring the
+ * identifier HERE, synchronously, makes the bridge call itself fail with a
+ * clear error on both transports.
+ *
+ * Non-app addresses are refused outright for the same reason: `home://` and
+ * friends parse fine but can never replace an app tab (Home's own pages must
+ * not be takeable over from inside one), so accepting them here would be the
+ * same silent `true`.
+ */
+export function normalizeHomeV2ReplaceTabAddress(request: Record<string, unknown>) {
+  const address = normalizeHomeV2OpenAddress(request)
+  if (!/^(qdn|qortal):\/\//i.test(address)) {
+    throw new Error(
+      'OPEN_CURRENT_TAB can only replace a tab with a qdn:// or qortal:// app resource; use OPEN_NEW_TAB for Home pages.',
+    )
+  }
+  if (!homeV2AppAddressNamesIdentifier(address)) {
+    throw new Error(
+      'OPEN_CURRENT_TAB needs an explicit resource identifier: a bare app name can match more than one published resource. Use OPEN_NEW_TAB to let the user choose.',
+    )
+  }
+  return address
+}
+
 export const HOME_V2_APP_LIMITS = Object.freeze({
   avatarBytes: AVATAR_MAX_BYTES,
   responseBytes: RESPONSE_MAX_BYTES,

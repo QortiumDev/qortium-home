@@ -8,11 +8,13 @@ import {
   buildHomeV2ResourceRenderPath,
   canonicalHomeV2AppAction,
   getHomeV2AppActions,
+  homeV2AppAddressNamesIdentifier,
   HOME_V2_RESOURCE_VIEWER_ALIASES,
   normalizeHomeV2ChatMessageText,
   normalizeHomeV2OpenAddress,
   normalizeHomeV2ReadMethod,
   normalizeHomeV2ReadPath,
+  normalizeHomeV2ReplaceTabAddress,
   normalizeHomeV2ResponseMaxBytes,
   normalizeHomeV2SendTxGroupId,
 } from './home-v2-app-actions.js'
@@ -727,6 +729,56 @@ assert.equal(normalizeHomeV2OpenAddress({ address: 'home://settings' }), 'home:/
 assert.throws(() => normalizeHomeV2OpenAddress({ address: 'core://settings' }), /only accepts/)
 assert.throws(() => normalizeHomeV2OpenAddress({}), /Address is required/)
 
+// OPEN_CURRENT_TAB's extra rules are enforced in the TRUSTED HOST, not only in
+// the shell: the desktop transport is fire-and-forget, so a refusal made in
+// the renderer alone is discarded and the app is told `true` for a replacement
+// that never happened.
+assert.equal(
+  normalizeHomeV2ReplaceTabAddress({ address: 'qdn://APP/Alice/apps' }),
+  'qdn://APP/Alice/apps',
+)
+assert.throws(
+  () => normalizeHomeV2ReplaceTabAddress({ address: 'qdn://APP/Alice' }),
+  /needs an explicit resource identifier/,
+)
+// A Home page parses as an address but can never replace an app tab, so it is
+// refused here too rather than accepted and then silently dropped by the shell.
+assert.throws(
+  () => normalizeHomeV2ReplaceTabAddress({ address: 'home://settings' }),
+  /only replace a tab with a qdn:\/\/ or qortal:\/\/ app resource/,
+)
+// It still inherits the shared validator's scheme and presence rules.
+assert.throws(
+  () => normalizeHomeV2ReplaceTabAddress({ address: 'core://settings' }),
+  /only accepts/,
+)
+assert.throws(() => normalizeHomeV2ReplaceTabAddress({}), /Address is required/)
+// A query identifier is not a path identifier: `?identifier=` does not make a
+// bare name unambiguous, and accepting it here would disagree with the shell.
+assert.throws(
+  () => normalizeHomeV2ReplaceTabAddress({ address: 'qdn://APP/Alice?identifier=apps' }),
+  /needs an explicit resource identifier/,
+)
+
+// homeV2AppAddressNamesIdentifier is a hand-written twin of
+// identifierWasExplicit in src/v2/resource-location.ts, which electron cannot
+// import. Both halves are pinned to ONE shared fixture so they can never drift
+// apart on what "explicit" means; the src half runs the same file, in
+// src/v2/home-v2-foundation.test.tsx.
+{
+  const vectors = JSON.parse(
+    readRepoSource('../src/shared-fixtures/app-address-explicit-identifier-vectors.json'),
+  ) as readonly { description: string; address: string; explicitIdentifier: boolean }[]
+  assert.ok(vectors.length >= 10, 'the shared identifier fixture must stay meaningful')
+  for (const vector of vectors) {
+    assert.equal(
+      homeV2AppAddressNamesIdentifier(vector.address),
+      vector.explicitIdentifier,
+      `${vector.address} — ${vector.description}`,
+    )
+  }
+}
+
 // The legacy viewer actions are advertised, but they are ALIASES: each one
 // canonicalizes to OPEN_QDN_RESOURCE_VIEWER before dispatch, so neither
 // becomes a separate capability with its own grant identity.
@@ -853,22 +905,35 @@ assert(
 // the trusted view context — never from the request. An app may not navigate a
 // tab it does not own, nor claim which app was in it.
 assert(
-  /action === 'OPEN_CURRENT_TAB'[\s\S]{0,900}home-v2-app:open-address-in-tab'[\s\S]{0,700}tabId: context\.tabId/.test(
+  /action === 'OPEN_CURRENT_TAB'[\s\S]{0,1500}home-v2-app:open-address-in-tab'[\s\S]{0,900}tabId: context\.tabId/.test(
     openTabBridgeSource,
   ),
   'OPEN_CURRENT_TAB must bind to context.tabId.',
 )
 assert(
-  /action === 'OPEN_CURRENT_TAB'[\s\S]{0,900}home-v2-app:open-address-in-tab'[\s\S]{0,700}fromResourceLocation: context\.resourceUrl/.test(
+  /action === 'OPEN_CURRENT_TAB'[\s\S]{0,1500}home-v2-app:open-address-in-tab'[\s\S]{0,900}fromResourceLocation: context\.resourceUrl/.test(
     openTabBridgeSource,
   ),
   'OPEN_CURRENT_TAB must compare against context.resourceUrl, the trusted app identity.',
 )
 assert(
-  !/action === 'OPEN_CURRENT_TAB'[\s\S]{0,1200}requestValue\.(tabId|fromResourceLocation|resourceUrl)/.test(
+  !/action === 'OPEN_CURRENT_TAB'[\s\S]{0,2400}requestValue\.(tabId|fromResourceLocation|resourceUrl)/.test(
     openTabBridgeSource,
   ),
   'OPEN_CURRENT_TAB must never read a tab id or source app out of the request.',
+)
+// The stricter replacement validator, not the plain open one: enforcing the
+// app-resource and explicit-identifier rules only in the renderer would let the
+// fire-and-forget desktop transport answer `true` to a refused replacement.
+assert(
+  /action === 'OPEN_CURRENT_TAB'[\s\S]{0,600}normalizeHomeV2ReplaceTabAddress\(requestValue\)/.test(
+    openTabBridgeSource,
+  ),
+  'the desktop bridge must validate OPEN_CURRENT_TAB with normalizeHomeV2ReplaceTabAddress.',
+)
+assert(
+  openTabPortableSource.includes('normalizeHomeV2ReplaceTabAddress(request)'),
+  'the portable host must validate OPEN_CURRENT_TAB with normalizeHomeV2ReplaceTabAddress.',
 )
 // The renderer must not treat the compare-and-swap as optional: a replacement
 // dispatch always carries the trusted source location the reducer checks.

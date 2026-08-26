@@ -132,12 +132,15 @@ actions they sit beside.
 
   Three further rules, which `OPEN_NEW_TAB` does not share:
 
-  - **An explicit resource identifier is required.** `qdn://APP/Alice/Apps`
-    works; a bare `qdn://APP/Alice` is rejected. A bare name can match more
-    than one published resource, and the address bar resolves that by asking
-    the user which one they meant — but there is nobody to ask on a bridge
-    call, and reporting success while doing nothing would be a lie. Use
-    `OPEN_NEW_TAB` if you want the chooser.
+  - **An explicit resource identifier is required, and the address must name an
+    app resource.** `qdn://APP/Alice/Apps` works; a bare `qdn://APP/Alice` and
+    a `home://` page each fail the bridge call itself, with an error, on both
+    transports. A bare name can match more than one published resource, and the
+    address bar resolves that by asking the user which one they meant — but
+    there is nobody to ask on a bridge call, and reporting success while doing
+    nothing would be a lie. `?identifier=` is a query, not a path identifier,
+    and does not satisfy this. Use `OPEN_NEW_TAB` if you want the chooser, or
+    to open a Home page.
   - **The replacement is a compare-and-swap.** Home records which app held the
     tab when the request arrived and refuses the write if the tab has since
     closed or moved on to something else. A slow replacement can never land on
@@ -147,7 +150,9 @@ actions they sit beside.
     old app view down and builds a new one, exactly as closing the tab and
     opening the new app would: on desktop the incoming app gets its own
     browser-storage partition and never inherits the outgoing app's cookies,
-    `localStorage` or IndexedDB. The replaced tab keeps its account binding —
+    `localStorage` or IndexedDB. Each app's desktop partition is named by a
+    SHA-256 digest of its node origin and canonical resource identity, so two
+    different apps can never be given the same storage. The replaced tab keeps its account binding —
     `OPEN_CURRENT_TAB` cannot change accounts — and every tab-scoped approval
     the outgoing app held is dropped. (On Android every app on a node already
     shares one proxy origin, so a replacement is neither better nor worse than

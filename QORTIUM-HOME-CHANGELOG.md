@@ -71,8 +71,22 @@ change which app is loaded, never which account it speaks for. Home also checks,
 at the exact moment it makes the swap, that the app asking is still the one in
 the tab, so a slow request cannot land on top of something you opened in the
 meantime. And an app has to say exactly which published resource it means — if a
-name on its own could match more than one, Home says so plainly instead of
-guessing or quietly doing nothing.
+name on its own could match more than one, the request now fails with a clear
+message instead of Home guessing, or quietly doing nothing while telling the app
+it had worked.
+
+Fixing that handover turned up an older problem worth naming on its own. Each
+desktop app gets its own private store for the data a web page keeps — cookies,
+saved settings and the like — and the name Home gave that store was built by
+trimming and rewriting the app's address. Two different apps with long or
+unusual addresses could end up with the same name, and so with the same store,
+which is precisely what the store exists to prevent. Home now names each store
+with a fingerprint of the app's identity, which cannot come out the same for two
+different apps. The one visible cost is that every existing store gets a new
+name, so apps will have forgotten whatever they had saved in your browser
+storage the first time you run this build, and start fresh from there. That is a
+deliberate trade: Home 2.1 is still pre-release, and keeping apps properly
+separated matters more than carrying that data across one upgrade.
 
 Finally, the two older ways of asking Home to show a media file or a document
 work again. They are simply other names for the resource viewer Home 2 already
