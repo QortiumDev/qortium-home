@@ -542,6 +542,59 @@ assert.ok(
 );
 
 // ---------------------------------------------------------------------------
+// Posture: the confined GET_HOME_SETTINGS reply revalidates at completion.
+// ---------------------------------------------------------------------------
+//
+// appZoom and appNotifications are withheld from the broadcast and pointed at
+// GET_HOME_SETTINGS as their confined channel, so that reply must not itself
+// leak them across the response-navigation race: event.source is a WindowProxy
+// that follows the frame across a hard navigation, so an app that reads then
+// navigates would have the values delivered to whatever now holds the frame.
+// The Android response path revalidates the requesting document at COMPLETION
+// against the launch-resource signal, and posts to the proxy origin, not '*'.
+assert.ok(
+  /HOME_SETTINGS_VALUE_RESPONSE_ACTIONS\s*=\s*new Set\(\[[\s\S]*?'GET_HOME_SETTINGS'[\s\S]*?'UPDATE_HOME_SETTINGS'/
+    .test(appTabStage),
+  'the value-bearing Home settings responses must be identified for revalidation',
+);
+// The completion-time gate: for those actions, a drifted launch resource yields
+// a coded error and never the result. Sliced from the success-post region so it
+// is the response gate, not the request gate above it.
+const androidResponseStart = appTabStage.indexOf('Completion-time document revalidation');
+const androidResponse = appTabStage.slice(
+  androidResponseStart,
+  // Search for the catch AFTER the block start: an earlier effect in this file
+  // has its own `.catch((cause…` that would otherwise slice to nothing.
+  appTabStage.indexOf('.catch(', androidResponseStart),
+);
+assert.ok(androidResponse.length > 0, 'the Android response revalidation block must exist');
+assert.ok(
+  /HOME_SETTINGS_VALUE_RESPONSE_ACTIONS\.has\(requestAction\)[\s\S]*?!isSameRenderResourcePath\(live, launchIdentity\)/
+    .test(androidResponse),
+  'the Home settings reply must revalidate the requesting document at completion',
+);
+assert.ok(
+  /navigated away before its Home settings could be returned/.test(androidResponse),
+  'a drifted Home settings reply must return a coded error, not the values',
+);
+// The reply target is the specific proxy origin for these actions, never '*'.
+assert.ok(
+  /HOME_SETTINGS_VALUE_RESPONSE_ACTIONS\.has\(requestAction\)\s*\?\s*new URL\(source\)\.origin\s*:\s*'\*'/
+    .test(androidResponse),
+  'the Home settings reply must post to the proxy origin, not the wildcard',
+);
+// The channel-wide race is recorded as a known, pre-existing limitation.
+const compatLedger = readRepoSource(
+  '../docs/HOME_V2_BRIDGE_COMPATIBILITY.md',
+  './docs/HOME_V2_BRIDGE_COMPATIBILITY.md',
+);
+assert.ok(
+  /navigate-during-async race/.test(compatLedger) &&
+    /channel-wide/i.test(compatLedger),
+  'the response-channel race must be documented as a channel-wide known limitation',
+);
+
+// ---------------------------------------------------------------------------
 // The documented appearance-persistence window.
 // ---------------------------------------------------------------------------
 

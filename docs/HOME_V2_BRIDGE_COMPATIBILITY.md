@@ -407,3 +407,39 @@ back to, which Home 2's read allowlist refuses.
   handshake between the app document and Home. Neither is in scope for this
   hardening pass; this residual is owner-accepted and tracked separately from
   the cross-app grant-theft closure above.
+- **Response-channel navigate-during-async race (Android, channel-wide,
+  pre-existing).** A read reply on Android is posted back to the requesting
+  document through the `event.source` WindowProxy of the app frame. A
+  WindowProxy follows its browsing context across a navigation, so if the
+  document that issued a read hard-navigates within the shared proxy origin
+  before the asynchronous answer is ready, the reply is delivered to whatever
+  document then occupies the frame — including a non-APP same-origin document
+  that installs a plain `message` listener and never passed the exact-URL gate.
+  This is a property of the **whole** `qdnRequest`/`qortalRequest` response
+  channel, not of any one action: **every** read is delivered this way, so
+  `GET_SELECTED_ACCOUNT`'s address, `GET_USER_ACCOUNT`, private chat reads and
+  the rest all share it. It is the same shared-origin + WindowProxy exposure as
+  the residual above, seen on the reply leg rather than the request leg, and it
+  is likewise owner-accepted here. Closing it channel-wide — which needs a
+  non-cooperative "the frame navigated since this request" signal the shell does
+  not currently have (the self-reported navigation signal cannot see a silent
+  hard navigation to a non-bridged document, and iframe-load timing on Android
+  WebView is unverified) — is a separate security project, not this pass.
+
+  One action is hardened now, because a security claim was made about it:
+  `GET_HOME_SETTINGS`/`UPDATE_HOME_SETTINGS` are the confined channel an app is
+  told to use for `appZoom` and `appNotifications` (the two settings withheld
+  from the live broadcast — see [Home settings QDN bridge](HOME_SETTINGS_BRIDGE.md)).
+  Their reply now **revalidates the requesting document at completion** against
+  the same launch-resource signal the request gate uses, and posts to the
+  specific proxy origin rather than `*`, so an app that reported drifting to
+  another resource gets a coded error instead of the values. This closes the
+  app's own reported drift; the silent-hard-navigation residual is the
+  channel-wide item above and is not claimed closed. This hardening is on the
+  Home 2 bridge (`src/v2/shell/AppTabStage.tsx`). The Home 1 bridge
+  (`src/QdnViewer.tsx`) is not part of this confined-channel claim — Home 2 apps
+  never run under it — and it already replies to the specific `event.origin`
+  rather than `*`; adding the same completion revalidation there would require
+  new plumbing it does not have today (it forwards the self-reported navigation
+  snapshot to a callback without retaining a live current-document URL to
+  compare), so the 1.x path is left to the channel-wide follow-up.

@@ -35,6 +35,19 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
 }
 
+// The Home-settings reads whose RESPONSE carries appZoom and appNotifications —
+// the two settings deliberately withheld from the live broadcast because this
+// response is their confined channel. Their response gets a completion-time
+// document revalidation the generic read path does not (see the response post
+// in AndroidAppStage). Kept as a local literal, not imported from
+// electron/home-v2-home-settings-contract, because the renderer may not import
+// from electron/ (the foundation escape-hatch scan). GET_HOME_SETTINGS_METADATA
+// is absent: it returns the static schema, never a user value.
+const HOME_SETTINGS_VALUE_RESPONSE_ACTIONS = new Set([
+  'GET_HOME_SETTINGS',
+  'UPDATE_HOME_SETTINGS',
+])
+
 function waitForAnimationFrames(count: number) {
   return new Promise<void>((resolve) => {
     const next = (remaining: number) => {
@@ -575,6 +588,9 @@ function AndroidAppStage(props: AppTabStageProps) {
       }
 
       const protocol = data.protocol === 'qortalRequest' ? 'qortalRequest' : 'qdnRequest'
+      const requestAction = isRecord(data.request) && typeof data.request.action === 'string'
+        ? data.request.action.trim().toUpperCase()
+        : ''
       const identityId = String(resolved?.tab.context.identityId ?? '')
       const launchAccountId = identityId.startsWith('home-v2:identity:')
         ? identityId.slice('home-v2:identity:'.length)
@@ -623,13 +639,48 @@ function AndroidAppStage(props: AppTabStageProps) {
           }
           result = true
         }
+        // Completion-time document revalidation for the Home-settings value
+        // reads. Their response carries appZoom and appNotifications, the two
+        // fields kept off the live broadcast precisely because this response is
+        // the confined channel for them. But the response is async, and
+        // event.source is a WindowProxy that follows the frame across a
+        // navigation — so a document that issued GET_HOME_SETTINGS and then
+        // hard-navigated within the shared proxy origin would have the values
+        // delivered to whatever now occupies the frame. Re-check, at COMPLETION
+        // this time, the same self-reported launch-resource signal the request
+        // gate above used, and refuse to post the values if the app has drifted;
+        // the newly-loaded document gets only a coded error.
+        //
+        // BOUNDED and honest: this closes the app's own reported drift (case c
+        // in the liveResourcePathRef doc comment above). It cannot, on its own,
+        // catch a SILENT hard navigation to a non-bridged same-origin document —
+        // that document sends no navigation message, so liveResourcePathRef goes
+        // stale — because the shell has no non-cooperative "the frame navigated"
+        // signal here (no iframe-load tracking, whose Android WebView timing is
+        // unverifiable). That residual is a property of the WHOLE response
+        // channel: EVERY read (GET_SELECTED_ACCOUNT, GET_USER_ACCOUNT, chat
+        // reads, ...) is delivered through this same post and shares it. Closing
+        // it channel-wide is a separate security project recorded in
+        // docs/HOME_V2_BRIDGE_COMPATIBILITY.md; this is the home-settings-scoped
+        // mitigation the confined-channel claim needs.
+        const responseOrigin = HOME_SETTINGS_VALUE_RESPONSE_ACTIONS.has(requestAction)
+          ? new URL(source).origin
+          : '*'
+        if (HOME_SETTINGS_VALUE_RESPONSE_ACTIONS.has(requestAction)) {
+          const live = liveResourcePathRef.current
+          if (!launchIdentity || !live || !isSameRenderResourcePath(live, launchIdentity)) {
+            ;(event.source as Window | null)?.postMessage({
+              type: 'qortium:qdn-response', bridgeToken: token, requestId: data.requestId,
+              error: { message: 'The app view navigated away before its Home settings could be returned.' },
+            }, responseOrigin)
+            return
+          }
+        }
         ;(event.source as Window | null)?.postMessage({
           type: 'qortium:qdn-response', bridgeToken: token, requestId: data.requestId, result,
-        }, '*')
+        }, responseOrigin)
       }).catch((cause: unknown) => {
-        const rawAction = isRecord(data.request) && typeof data.request.action === 'string'
-          ? data.request.action.trim().toUpperCase()
-          : 'UNKNOWN'
+        const rawAction = requestAction || 'UNKNOWN'
         const network = getHomeV2AppNetwork(protocol, rawAction)
         const route = getHomeV2AppRouteDescriptor({
           accountId: context.selectedAccountId,

@@ -211,9 +211,12 @@ other setting in the announcement (theme, accent, text size, language, interface
 style) is already part of the address the page was opened with, so overhearing
 it reveals nothing new; zoom and the notification toggle are the only two that
 are not, so those two are simply left out of the Android announcement. An app
-that needs them asks Home for them directly, which Home answers only to the real
-app page. On desktop, where each app runs in its own isolated view with no shared
-address, the announcement is unchanged and still includes everything.
+that needs them asks Home for them directly. And when it does, Home now checks —
+at the moment it has the answer ready — that the page asking is still the app it
+was, and sends the answer only to that app's own address, so a page the app
+jumped to in the meantime cannot pick up your zoom or notification setting from
+the reply. On desktop, where each app runs in its own isolated view with no
+shared address, the announcement is unchanged and still includes everything.
 
 ### 2026-08-26 - feat(home-v2): apps can manage notification permissions again
 
