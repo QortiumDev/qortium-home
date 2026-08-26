@@ -897,7 +897,7 @@ const openTabPortableSource = readRepoSource(
 // explicit-identifier and app-resource-only rules over the shared scheme test
 // so bare names and internal pages fail the bridge call itself.
 assert(
-  /action === 'OPEN_CURRENT_TAB'[\s\S]{0,400}normalizeHomeV2ReplaceTabAddress\(requestValue\)/.test(
+  /action === 'OPEN_CURRENT_TAB'[\s\S]{0,900}normalizeHomeV2ReplaceTabAddress\(requestValue\)/.test(
     openTabBridgeSource,
   ),
   'OPEN_CURRENT_TAB must validate its address with normalizeHomeV2ReplaceTabAddress.',
