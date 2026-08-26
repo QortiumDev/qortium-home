@@ -74,14 +74,19 @@ import {
   buildHomeV2AssetReadPath,
   buildHomeV2ChainReadPath,
   buildHomeV2NamePath,
+  buildHomeV2RatingRead,
+  buildHomeV2RatingReadResult,
   buildHomeV2ResourcePath,
   buildHomeV2ResourceRenderPath,
   canonicalHomeV2AppAction,
   getHomeV2AppActions,
   getHomeV2AppNetwork,
   HOME_V2_APP_LIMITS,
+  homeV2ChainReadNeedsSelectedAddress,
+  homeV2RatingReadNeedsSelectedAddress,
   isHomeV2AppRecord,
   isHomeV2ChainReadAction,
+  isHomeV2RatingReadAction,
   normalizeHomeV2Address,
   normalizeHomeV2AppAction,
   normalizeHomeV2AppProtocol,
@@ -91,6 +96,7 @@ import {
   normalizeHomeV2ReplaceTabAddress,
   normalizeHomeV2ReadPath,
   normalizeHomeV2ResponseMaxBytes,
+  withHomeV2SelectedAddress,
   type HomeV2AppBridgeProtocol,
   type HomeV2AppNetwork,
 } from './home-v2-app-actions.js'
@@ -299,6 +305,7 @@ import {
   getHomeV2AppRouteDescriptor,
   getHomeV2AvailableAppActions,
   getHomeV2ContextualAppActions,
+  homeV2WidgetWithholdsSelfSubject,
   normalizeHomeV2BridgeError,
   type HomeV2AppHostInfo,
 } from './home-v2-app-runtime.js'
@@ -351,6 +358,31 @@ import {
   appendSignatureToTransactionBytes,
   getSignatureFromSignedTransactionBytes,
 } from './qortal-payment.js'
+import {
+  isHomeV2CrosschainReadAction,
+  projectHomeV2CrosschainReadResult,
+} from './home-v2-crosschain-actions.js'
+import {
+  buildHomeV2AccountBalancePath,
+  buildHomeV2AccountDataPath,
+  buildHomeV2UserWalletResult,
+  homeV2ForeignWalletUnavailableError,
+  isHomeV2NativeWalletRequest,
+  resolveHomeV2AccountReadAddress,
+} from './home-v2-wallet-actions.js'
+import {
+  HomeV2MarketPriceCache,
+  HOME_V2_MARKET_PRICE_MAX_BYTES,
+  HOME_V2_MARKET_PRICE_TIMEOUT_MS,
+  normalizeHomeV2MarketPriceRequest,
+} from './home-v2-market-prices.js'
+import {
+  homeV2AtMessageOperationLabel,
+  isHomeV2AtMessageAction,
+  normalizeHomeV2AtMessageRequest,
+  QORTIUM_AT_MESSAGE_POW_DIFFICULTY,
+} from './home-v2-at-message-actions.js'
+import { buildUnsignedQortiumAtMessageTransactionBytes } from './qdn-at-message.js'
 
 import {
   buildWidgetRenderUrl,
@@ -407,6 +439,13 @@ const PRIVATE_GROUP_CHAT_READ_RESPONSE_MAX_BYTES = 2 * 1024 * 1024
 type AccountReadAction =
   | 'GET_SELECTED_ACCOUNT'
   | 'GET_USER_ACCOUNT'
+  // Permissionless (home-v2-session-grants.ts); it appears here only because
+  // it shares the GET_SELECTED_ACCOUNT handler and so passes through the same
+  // gate, which returns immediately for permissionless actions.
+  | 'GET_USER_WALLET'
+  // The one SIGNING member of this union. It is never permissionless and never
+  // grantable; see the singleRequestOnly rule below.
+  | 'SEND_MESSAGE'
   | 'GET_PRIVATE_DIRECT_ACTIVE_CHATS'
   | 'SEARCH_PRIVATE_DIRECT_CHAT_MESSAGES'
   | 'SEND_CHAT_DELETE'
@@ -922,6 +961,13 @@ async function requireAccountReadPermission(
     target: grantTarget,
   })
   const singleRequestOnly = action === 'UNLOCK_SELECTED_ACCOUNT' ||
+    // SEND_MESSAGE signs a chain transaction. Pinned to the ACTION rather than
+    // to writeDetails.kind on purpose: it reuses the 'direct' write kind for
+    // its prompt payload, and the 'direct' arm below only forces
+    // single-request when the caller remembers to pass singleRequestOnly.
+    // Naming the action here means no future edit to that payload can make one
+    // approval cover a second signed message.
+    action === 'SEND_MESSAGE' ||
     (!isHomeV2AccountReadAction(action) && writeDetails?.kind === 'publish') ||
     writeDetails?.kind === 'journal' ||
     // Minting writes load or remove a key on the user's own node. Neither is
@@ -2279,6 +2325,160 @@ async function sendHomeV2QortalChatMessage(
     return { signature, timestamp }
   } catch (error) {
     return createHomeV2UnknownChatBroadcastResult(error, signature, timestamp)
+  }
+}
+
+// One process-wide price cache, deliberately not per-app and not per-tab: the
+// whole point is that the number of outbound requests is bounded by the TTL
+// rather than by how many apps are asking. See home-v2-market-prices.ts for
+// the full posture note — this is the one bridge action that leaves the
+// Qortal/Qortium node network.
+const homeV2MarketPrices = new HomeV2MarketPriceCache()
+
+async function readHomeV2MarketPrices(requestValue: Record<string, unknown>) {
+  const priceRequest = normalizeHomeV2MarketPriceRequest(requestValue)
+  return homeV2MarketPrices.read(priceRequest, async (url) => {
+    // Plain global fetch, NOT nodeFetch: nodeFetch carries Home's node TLS
+    // pinning and trust decisions, which are meaningless for a public API and
+    // must not be extended to one.
+    const response = await fetch(url, {
+      headers: { Accept: 'application/json' },
+      signal: AbortSignal.timeout(HOME_V2_MARKET_PRICE_TIMEOUT_MS),
+    })
+    // Bounded like every other response this file reads.
+    const result = await readBoundedResponse(response, 'GET', HOME_V2_MARKET_PRICE_MAX_BYTES)
+    return { ok: result.ok, payload: result.data, status: result.status }
+  })
+}
+
+/**
+ * SEND_MESSAGE: sign and broadcast one zero-fee, zero-payment chain MESSAGE to
+ * an AT.
+ *
+ * Ordering matters and mirrors the chat send path exactly:
+ *   validate → require an unlocked account → resolve the node route →
+ *   PROMPT (single-request, disclosing the AT address and the message text) →
+ *   rate limit → take the signing key → serialize → proof-of-work →
+ *   revalidate the context → sign → broadcast → zero the key.
+ *
+ * The bytes are built field by field by buildUnsignedQortiumAtMessageTransactionBytes
+ * from exactly two validated inputs. Nothing app-supplied is signed verbatim,
+ * and unlike the chat path there are no node-provided bytes to re-verify
+ * because Core has no build endpoint for MESSAGE — which is also why the
+ * nonce must be computed locally: it lives inside the signed bytes.
+ */
+async function sendHomeV2AtMessage(
+  sender: WebContents,
+  context: QdnViewContext,
+  protocol: HomeV2AppBridgeProtocol,
+  network: HomeV2AppNetwork,
+  requestValue: Record<string, unknown>,
+) {
+  if (!context.accountId) throw new Error('No account is selected for this tab.')
+  // Defense in depth. The catalogue already withholds SEND_MESSAGE from
+  // qortalRequest and normalizeHomeV2AtMessageRequest refuses that protocol,
+  // but the serializer is Qortium-specific, so the chain is asserted here too:
+  // a signing path must not depend on a catalogue entry staying correct.
+  if (network !== 'qortium') {
+    throw new Error('SEND_MESSAGE is a Qortium action; it is not available on Qortal.')
+  }
+  const accountId = context.accountId
+  const request = normalizeHomeV2AtMessageRequest(protocol, requestValue)
+  if (!isAccountUnlocked(accountId)) {
+    throw new Error('The selected account is locked.')
+  }
+  const node = await getHomeV2ReadableNode(network)
+  const nodeApiKey = await getHomeV2TrustedWriteApiKey(network, node.nodeApiUrl)
+  const nodeRoute = `${node.mode}|${node.nodeApiUrl}`
+  const profile = await getAccountProfile(accountId)
+  const approvedSenderPublicKey = getAccountSigningPublicKey(accountId)
+  // Reuses the 'direct' prompt payload shape because it already carries the
+  // two fields this prompt must show — a counterparty address and a message —
+  // and because the main-process singleRequestOnly rule already covers that
+  // kind. The action itself is ALSO named in that rule, so the single-request
+  // guarantee does not rest on this choice. The FULL message is passed, never
+  // a truncated preview: the renderer discloses exactly the bytes that will be
+  // signed, in a bounded scrollable field, with a byte count.
+  await requireAccountReadPermission(sender, context, protocol, 'SEND_MESSAGE', {
+    kind: 'direct',
+    messagePreview: request.message,
+    operationLabel: homeV2AtMessageOperationLabel(),
+    otherAddress: request.recipient,
+    routeLabel: node.nodeApiUrl,
+    singleRequestOnly: true,
+    targetChainLabel: 'Qortium',
+  })
+  // Same bound as every other send: an approved tab cannot queue an unbounded
+  // run of signed transactions back to back.
+  const rateLimitDecision = chatSendRateLimiter.checkAndRecordSend(chatSendRateLimitKey(sender, context))
+  if (!rateLimitDecision.allowed) {
+    throw new Error(rateLimitDecision.message)
+  }
+  const signingKey = getAccountSecretKey(accountId)
+  if (signingKey.address !== profile.address || signingKey.publicKey58 !== approvedSenderPublicKey) {
+    signingKey.secretKey.fill(0)
+    throw new Error('Selected account signing key changed before the message could be signed.')
+  }
+  const isStillValid = async () => {
+    const freshContext = getQdnViewContextForWebContents(sender)
+    if (!freshContext || !sameViewContext(context, freshContext)) return false
+    if (!liveResourceMatchesGrant(freshContext)) return false
+    if (!isAccountUnlocked(accountId)) return false
+    const nodeNow = await getHomeV2ReadableNode(network).catch(() => null)
+    return !!nodeNow &&
+      `${nodeNow.mode}|${nodeNow.nodeApiUrl}` === nodeRoute &&
+      (await getHomeV2TrustedWriteApiKey(network, node.nodeApiUrl).catch(() => null)) === nodeApiKey
+  }
+  try {
+    if (!(await isStillValid())) {
+      throw new Error('Account access context changed before approval completed.')
+    }
+    const timestamp = Date.now()
+    const unsignedBytes = buildUnsignedQortiumAtMessageTransactionBytes({
+      message: request.message,
+      recipient: request.recipient,
+      senderPublicKey: signingKey.publicKey58,
+      timestamp,
+    })
+    // MESSAGE puts its nonce at the same offset CHAT does — txType(4) +
+    // timestamp(8) + txGroupId(4) + senderPublicKey(32) = 48 — so the shared
+    // stampTransactionNonce/signTransactionWithNonce pair applies unchanged.
+    const nonce = await computeHomeV2ChatNonce(
+      unsignedBytes,
+      QORTIUM_AT_MESSAGE_POW_DIFFICULTY,
+      isStillValid,
+    )
+    if (!(await isStillValid())) {
+      throw new Error('The signing context changed before the message could be submitted.')
+    }
+    const signedBytes = signTransactionWithNonce(unsignedBytes, nonce, signingKey.secretKey)
+    const signature = getSignatureFromSignedTransactionBytes(signedBytes)
+    try {
+      await postHomeV2ChatText(
+        node.nodeApiUrl,
+        '/transactions/process?apiVersion=2',
+        base58Encode(signedBytes),
+        'text/plain',
+        'MESSAGE transaction processing failed.',
+        nodeApiKey,
+      )
+      return Object.freeze({
+        accepted: true as const,
+        action: 'SEND_MESSAGE' as const,
+        fee: '0',
+        recipient: request.recipient,
+        signature,
+        timestamp,
+      })
+    } catch (error) {
+      // Signed, possibly broadcast, outcome unknown. Same shape the chat sends
+      // return, which is what the journal records against so the user can
+      // reconcile it instead of blind-retrying a transaction that may have
+      // landed.
+      return createHomeV2UnknownChatBroadcastResult(error, signature, timestamp)
+    }
+  } finally {
+    signingKey.secretKey.fill(0)
   }
 }
 
@@ -5629,6 +5829,15 @@ async function handleRequestWithRuntime(
     return showHomeV2DesktopContextMenu(sender, context, protocol, requestValue)
   }
   const network = getHomeV2AppNetwork(protocol, action)
+  // The selected account's address, for the reads that use it as a default
+  // subject — and null in a widget for those same reads, because a chromeless
+  // widget has no surface on which to disclose that it just self-addressed.
+  // See homeV2WidgetWithholdsSelfSubject.
+  const selectedSubjectAddress = async () => (
+    context.accountId && !(isWidgetTabId(context.tabId) && homeV2WidgetWithholdsSelfSubject(action))
+      ? (await getAccountProfile(context.accountId)).address
+      : null
+  )
   if (action === 'BOOKMARKS_HAS_PERMISSION') {
     return { granted: hasQdnManagerPermission(homeV2AppIdentityKey(context), 'bookmarks.manage') }
   }
@@ -5878,6 +6087,21 @@ async function handleRequestWithRuntime(
     })
     return true
   }
+  // Beside GET_SELECTED_ACCOUNT because that is exactly what it is: the same
+  // address, relabelled for wallet apps. No node call, no key derivation, no
+  // unlocked account. The FOREIGN branch Home 1.x had here — which derived a
+  // BTC/LTC/… HD wallet from the account seed — is deliberately absent, and
+  // refused with a coded error rather than silently returning the native
+  // address for a foreign coin, which would be the dangerous failure: an app
+  // showing a Qortium address as somebody's Bitcoin receive address.
+  if (action === 'GET_USER_WALLET') {
+    await requireAccountReadPermission(sender, context, protocol, action)
+    if (!isHomeV2NativeWalletRequest(requestValue)) {
+      throw homeV2ForeignWalletUnavailableError(requestValue.coin ?? requestValue.blockchain)
+    }
+    const profile = await getAccountProfile(context.accountId as string)
+    return buildHomeV2UserWalletResult(profile.address)
+  }
   if (action === 'GET_SELECTED_ACCOUNT' || action === 'GET_USER_ACCOUNT') {
     await requireAccountReadPermission(sender, context, protocol, action)
     const profile = await getAccountProfile(context.accountId as string)
@@ -5952,10 +6176,16 @@ async function handleRequestWithRuntime(
     return responseDataOrThrow(result, `${action} request`)
   }
   if (action === 'GET_ACCOUNT_DATA' || action === 'GET_BALANCE') {
-    const address = normalizeHomeV2Address(requestValue.address)
+    // Two Home 1.x behaviors restored (see home-v2-wallet-actions.ts):
+    //   - an absent address means "the selected account", instead of failing;
+    //   - GET_BALANCE honors `assetId` instead of silently answering with the
+    //     native balance for every asset.
+    // Both are neutral: the default subject is the caller's own account, whose
+    // address the app can already read permissionlessly.
+    const address = resolveHomeV2AccountReadAddress(requestValue, await selectedSubjectAddress())
     const path = action === 'GET_BALANCE'
-      ? `/addresses/balance/${encodeURIComponent(address)}`
-      : `/addresses/${encodeURIComponent(address)}`
+      ? buildHomeV2AccountBalancePath(address, requestValue)
+      : buildHomeV2AccountDataPath(address)
     const { result } = await fetchRead(
       network,
       path,
@@ -5963,6 +6193,31 @@ async function handleRequestWithRuntime(
       normalizeHomeV2ResponseMaxBytes(requestValue.maxBytes),
     )
     return responseDataOrThrow(result, `${action} request`)
+  }
+  // The two trust reads. Each combines a public summary with this rater's own
+  // rating; a 404 on either half means "not rated yet", not an error.
+  if (isHomeV2RatingReadAction(action)) {
+    const read = buildHomeV2RatingRead(
+      action,
+      requestValue,
+      homeV2RatingReadNeedsSelectedAddress(requestValue) ? await selectedSubjectAddress() : null,
+    )
+    const maxBytes = normalizeHomeV2ResponseMaxBytes(requestValue.maxBytes)
+    const [summary, rating] = await Promise.all([
+      fetchRead(network, read.summaryPath, 'GET', maxBytes)
+        .then(({ result }) => (result.status === 404 ? null : responseDataOrThrow(result, `${action} summary`))),
+      fetchRead(network, read.ratingPath, 'GET', maxBytes)
+        .then(({ result }) => (
+          result.status === 404 ? read.ratingFallback : responseDataOrThrow(result, `${action} rating`)
+        )),
+    ])
+    return buildHomeV2RatingReadResult(read, summary, rating)
+  }
+  if (isHomeV2AtMessageAction(action)) {
+    return sendHomeV2AtMessage(sender, context, protocol, network, requestValue)
+  }
+  if (action === 'GET_MARKET_PRICES') {
+    return readHomeV2MarketPrices(requestValue)
   }
   if (
     action === 'GET_ASSET_INFO' ||
@@ -5978,13 +6233,29 @@ async function handleRequestWithRuntime(
     return responseDataOrThrow(result, `${action} request`)
   }
   if (isHomeV2ChainReadAction(action)) {
-    const path = buildHomeV2ChainReadPath(action, requestValue)
+    // GET_MEMBER_BANS / GET_MEMBER_KICKS default their address to the selected
+    // account, the way Home 1.x did. Resolved lazily so no other chain read
+    // pays for an account lookup it does not use.
+    const chainReadRequest = homeV2ChainReadNeedsSelectedAddress(action, requestValue)
+      ? withHomeV2SelectedAddress(requestValue, await selectedSubjectAddress())
+      : requestValue
+    const path = buildHomeV2ChainReadPath(action, chainReadRequest)
     const { result } = await fetchRead(
       network,
       path,
       'GET',
       normalizeHomeV2ResponseMaxBytes(requestValue.maxBytes),
     )
+    if (isHomeV2CrosschainReadAction(action)) {
+      // The `/crosschain` family keeps the two 1.x response projections: the
+      // QORT row added to the blockchain list, and feekb normalized to a
+      // per-byte fee.
+      return projectHomeV2CrosschainReadResult(
+        action,
+        chainReadRequest,
+        responseDataOrThrow(result, `${action} request`),
+      )
+    }
     // Both cores answer a valid-but-absent AT with an empty 2xx body (Qortal
     // 204s); normalize that to one documented error instead of returning ''.
     if (
@@ -6159,7 +6430,25 @@ async function handleRequest(
         protocol: 'qdnRequest',
       }),
     }
-    if (context.accountId && isHomeV2JournaledMutation(action)) {
+    // Compute the contextual action surface FIRST, before any journal
+    // inspection. The journal conflict error names a retained signature, and a
+    // widget must never see one: SEND_MESSAGE is not in a widget's contextual
+    // list, but it IS a journaled mutation, so a widget calling a denied
+    // SEND_MESSAGE during an unresolved send would otherwise be handed the
+    // pending signature back — enough to recover the sender identity that
+    // widget self-subject withholding exists to protect. Gating the journal
+    // block on availability means an unavailable action skips it entirely and
+    // falls through to handleRequestWithRuntime, which throws the standard
+    // "not available in this context" error carrying no signature.
+    const contextualActions = getHomeV2ContextualAppActions(
+      getHomeV2AvailableAppActions(protocol, routes),
+      isWidgetTabId(context.tabId) ? 'widget' : 'tab',
+    )
+    if (
+      context.accountId &&
+      contextualActions.includes(action) &&
+      isHomeV2JournaledMutation(action)
+    ) {
       const pending = findStoredHomeV2PendingTransactionConflict(app.getPath('userData'), {
         accountId: context.accountId,
         action,
@@ -6188,10 +6477,7 @@ async function handleRequest(
       requestValue,
       action,
       hostInfo,
-      getHomeV2ContextualAppActions(
-        getHomeV2AvailableAppActions(protocol, routes),
-        isWidgetTabId(context.tabId) ? 'widget' : 'tab',
-      ),
+      contextualActions,
     )
     try {
       const entry = context.accountId

@@ -35,6 +35,16 @@ export const HOME_V2_JOURNALED_MUTATIONS = Object.freeze([
   'SEND_DIRECT_CHAT_EDIT',
   'SEND_DIRECT_CHAT_MESSAGE',
   'SEND_DIRECT_CHAT_REACTION',
+  // A zero-fee MESSAGE to an AT is signed locally and broadcast to a node that
+  // may or may not have accepted it, so it has the same ambiguous-outcome
+  // problem as a chat send and gets the same treatment. Its journal target is
+  // {kind:'operation'} (homeV2TransactionTargetFromRequest sees only a
+  // `recipient` key, which no target kind claims), so the conflict check is
+  // deliberately COARSE: one unreconciled SEND_MESSAGE blocks the next one for
+  // this app and account regardless of which AT it addressed. Erring toward
+  // blocking is right here — the shipped caller is a once-per-account faucet
+  // claim, where a duplicate is exactly what reconciliation exists to prevent.
+  'SEND_MESSAGE',
   'SEND_PRIVATE_GROUP_CHAT_DELETE',
   'SEND_PRIVATE_GROUP_CHAT_EDIT',
   'SEND_PRIVATE_GROUP_CHAT_MESSAGE',

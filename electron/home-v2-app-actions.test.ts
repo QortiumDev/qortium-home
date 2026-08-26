@@ -41,7 +41,15 @@ assert.equal(qdnActions.includes('GET_ASSET_TRANSFERS'), true)
 assert.equal(qdnActions.includes('GET_USER_ACCOUNT'), false)
 assert.equal(qortalActions.includes('GET_USER_ACCOUNT'), true)
 assert.equal(qortalActions.includes('GET_SELECTED_ACCOUNT'), false)
-assert.equal(qortalActions.includes('UNLOCK_SELECTED_ACCOUNT'), false)
+// Both protocols since the R4 tier-2 restoration. Unlocking is a HOME-account
+// operation, not a chain one — the same wallet, the same password dialog, the
+// same key, whichever protocol asked — and the legacy wallet app only knows
+// the `qortalRequest` global (walletium/src/components/wallet/CoinDetail.tsx:70-75,
+// src/utils/addressBookQDN.ts:87-92). Advertising it on both grants nothing
+// extra: the user still types their password into Home's own dialog and the
+// unlock is asserted to have completed before the action returns.
+assert.equal(qortalActions.includes('UNLOCK_SELECTED_ACCOUNT'), true)
+assert.equal(qdnActions.includes('UNLOCK_SELECTED_ACCOUNT'), true)
 assert.equal(qortalActions.includes('FETCH_QDN_RESOURCE'), true)
 for (const action of ['FETCH_ACCOUNT_AVATAR', 'FETCH_GROUP_AVATAR']) {
   assert.equal(qdnActions.includes(action), true)
@@ -145,8 +153,15 @@ for (const chainReadAction of [
   assert.equal(qdnActions.includes(chainReadAction), true)
   assert.equal(qortalActions.includes(chainReadAction), true)
 }
-// Qortal-only by public-node policy: Qortium Previewnet seeds do not expose
-// /admin/summary or /crosschain/price, so these stay off the qdnRequest facade.
+// Qortal-only by public-node policy: Qortium Previewnet seeds expose neither
+// /admin/summary nor the /crosschain/price TRADE-history endpoint, so these
+// two stay off the qdnRequest facade.
+//
+// This is an endpoint-by-endpoint policy, not a blanket "no /crosschain on
+// qdnRequest" rule — the four zero-key cross-chain reads restored in R4 tier-2
+// (GET_CROSSCHAIN_BLOCKCHAINS, GET_CROSSCHAIN_SERVER_INFO, GET_FOREIGN_FEE,
+// GET_SERVER_CONNECTION_HISTORY) ARE on both protocols, pinned in
+// home-v2-tier2-actions.test.ts.
 for (const qortalOnlyAction of ['GET_DAY_SUMMARY', 'GET_PRICE']) {
   assert.equal(qdnActions.includes(qortalOnlyAction), false)
   assert.equal(qortalActions.includes(qortalOnlyAction), true)

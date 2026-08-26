@@ -7,6 +7,7 @@ import {
   getHomeV2AvailableAppActions,
   getHomeV2ContextualAppActions,
   homeV2BridgeErrorPayload,
+  homeV2WidgetWithholdsSelfSubject,
   normalizeHomeV2BridgeError,
 } from './home-v2-app-runtime.js'
 import { HOME_V2_RUNTIME_INVALIDATION_KINDS } from './home-v2-runtime-invalidation.js'
@@ -141,6 +142,11 @@ assert.deepEqual(getHomeV2AvailableAppActions('qortalRequest', {
   'SHOW_NOTIFICATION',
   'SHOW_ACTIONS',
   'WHICH_UI',
+  // Last because it is not one of the COMMON_ACTIONS this list is otherwise
+  // made of. It survives an unavailable route because it reads a cached
+  // third-party price list rather than a node — see the note beside it in
+  // HOME_V2_ROUTE_INDEPENDENT_ACTIONS.
+  'GET_MARKET_PRICES',
 ])
 
 const authenticatedCustomInfo = getHomeV2AppHostInfo({
@@ -439,8 +445,38 @@ for (const action of [
   'LIST_MINTING_ACCOUNTS',
   'START_MINTING',
   'REMOVE_MINTING_ACCOUNT',
+  // Same trap as the minting reads, and the reason the prefix rule needs a
+  // denylist at all: GET_USER_WALLET matches /^GET_/ and its entire answer is
+  // the selected account's address. It is GET_SELECTED_ACCOUNT by another
+  // name and is excluded with it.
+  'GET_USER_WALLET',
+  // SEND_MESSAGE signs; the prefix rule already excludes it, pinned so a
+  // rename cannot quietly admit a signing action to a surface with no prompt.
+  'SEND_MESSAGE',
 ]) {
   assert.equal(widgetActions.includes(action), false, `widget must not advertise ${action}`)
+}
+// The public reads restored in R4 tier-2 DO reach a widget — they are
+// anonymous chain or price reads — but the ones whose subject address defaults
+// to the selected account must withhold that default there, or the answer
+// becomes an identity disclosure with no chrome to announce it.
+for (const action of [
+  'GET_ACCOUNT_DATA',
+  'GET_ACCOUNT_RATING',
+  'GET_BALANCE',
+  'GET_MEMBER_BANS',
+  'GET_MEMBER_KICKS',
+  'GET_RESOURCE_RATING',
+]) {
+  assert.equal(
+    homeV2WidgetWithholdsSelfSubject(action),
+    true,
+    `${action} must not self-address in a widget`,
+  )
+}
+// A read with no self-addressing default is unaffected by that rule.
+for (const action of ['GET_GROUP_BANS', 'GET_CROSSCHAIN_BLOCKCHAINS', 'GET_MARKET_PRICES']) {
+  assert.equal(homeV2WidgetWithholdsSelfSubject(action), false)
 }
 // The same actions stay available in a normal tab: the widget exclusion must
 // not be mistaken for the action being unimplemented.

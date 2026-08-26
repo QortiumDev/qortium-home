@@ -34,6 +34,109 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-26 - fix(home-v2): check the right network when an app unlocks your account on the phone
+
+Unlocking your account can be asked for by two kinds of app request, and Home
+now allows both. While the password box is open, Home watches whether the
+connection the request came in on has changed underneath it, and cancels the
+unlock if it has, so an approval never lands against a connection that quietly
+moved. On the phone that watch was looking at the wrong connection: it always
+watched the Qortium one, even for a request that came in on the Qortal side. So
+a real change to the Qortal connection could be missed, and an unrelated change
+to the Qortium connection could cancel a perfectly good Qortal unlock. The watch
+now follows the connection the request actually used, before and after, so it
+can neither miss the relevant change nor trip on an unrelated one. Also tidied
+the written docs so the unlock action is described the one way it now behaves —
+both request kinds, computer and phone.
+
+### 2026-08-26 - fix(home-v2): close the SEND_MESSAGE payload gap and show the whole message before signing
+
+A review of the previous change turned up a sharp problem in the one action
+that can sign something — the short message an app sends to a contract. Home
+refuses that message if it tries to smuggle a payment, an encryption request, or
+a transaction group, so an app can never believe it did something the contract
+will not actually see. But an app can send its request in two shapes, and the
+refusal only checked one of them: a forbidden field tucked inside the other
+shape slipped through and was silently dropped. Now every field is checked in
+both shapes, a field that appears in both places with two different values is
+refused as ambiguous, and a flag that is not a real yes/no is refused rather
+than guessed at.
+
+The approval box also used to shorten a long message before showing it, while
+telling you it was showing the exact text. A harmless-looking opening could
+therefore hide instructions further down that you would have signed without
+seeing. The box now shows the entire message, in a scrollable panel so a long
+one does not push the buttons off-screen, with its exact size in bytes beside
+it. What you approve is what gets signed, all of it.
+
+Two more places were tightened. Coin prices — the one thing Home fetches from
+the wider internet — are now fetched as a single fixed request covering
+everything, once per minute at most no matter how many apps ask or how they
+vary their questions; each app's answer is sliced from that one copy. Before,
+an app could vary its question to make Home reach out on the app's own
+schedule. And the phone version of Home no longer lists the sign-a-message
+action at all, because the phone cannot sign — listing it was a promise it
+could not keep. Unlocking your account, on the other hand, now works from the
+phone through either kind of app request, which is what the older wallet needs.
+
+Smaller safety fixes: a floating widget can no longer learn a hidden
+transaction identifier by asking for an action it is not allowed to run, and a
+foreign-chain fee that arrives as an over-large number is now refused rather
+than quietly rounded.
+
+### 2026-08-26 - feat(home-v2): wallet apps show balances again, and apps can read ratings, moderation history, foreign-chain details and coin prices
+
+The wallet apps had been quietly broken. Both of them ask Home a simple
+question — "what is my address?" — and Home's new interface did not answer it,
+so every coin row sat empty. The balance column was broken for a second reason:
+the wallet asks for a balance without naming an address, expecting Home to
+understand it means the account you already have selected, and the new
+interface insisted on being told one every time. It also ignored which coin the
+balance was for, so it would have quietly reported the wrong number for
+anything other than the native one. All three are fixed. Home now answers the
+address question for the native coin, treats a missing address as "the account
+you have selected", and reads the balance for the coin actually asked about.
+
+Foreign coins are a separate matter and stay unavailable for now. Rather than
+guess, Home refuses them with a clear message. The alternative — handing back
+your Qortium address when an app asked for your Bitcoin one — is the mistake
+worth avoiding, because an app could display it as a receive address and
+somebody could send real money to it.
+
+A group of read-only requests that Home 1 answered are back as well: the public
+ratings behind the Trust app, the ban and kick history of a group, the
+foreign-chain details a wallet shows (which servers a node is using, what a
+chain currently charges), and live coin prices. None of these asks you for
+anything or touches your keys — they read information that is already public.
+Coin prices are the one request in the whole bridge that reaches the wider
+internet rather than a Qortium or Qortal node, so it is worth being precise
+about it: nothing identifying you is sent, and Home keeps one shared,
+short-lived copy of the answer, which means an app cannot use it to repeatedly
+announce your connection to an outside service.
+
+Unlocking your account can now be asked for through either of the two request
+styles an app might use. Unlocking has never been about which network an app is
+talking to — it is your Home account, your password, your dialog — but the
+older wallet app only knows one of the two styles and so could not ask at all.
+Nothing about the approval changed: Home still asks you, in its own window.
+
+One new request can change something: an app can send a short message to a
+contract on the chain. This is how the casino's faucet claim works. It is
+deliberately hemmed in — it can only address a contract and never a person, it
+carries no payment, it costs no fee, and it cannot encrypt anything. Every send
+asks you first, showing the exact contract and the exact text, and each approval
+covers exactly one message; there is no "always allow" for it. If an app tries
+to attach a payment, Home refuses the whole request instead of quietly dropping
+it, so an app can never believe it paid something it did not.
+
+Two smaller notes. Floating widgets are held to a stricter line than tabs: a
+widget has no window furniture to show you a prompt, so the requests that would
+otherwise fall back to "the account you have selected" refuse in a widget and
+must be told an address outright. And previewing something before you publish
+it is still missing — Home's new interface has nowhere to display a website
+preview yet, and shipping a button that reports success while showing you
+nothing would be worse than leaving it out.
+
 ### 2026-08-26 - feat(home-v2): apps can manage notification permissions again
 
 Home lets each app ask permission to send you notifications, and lets apps save

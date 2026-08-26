@@ -82,6 +82,15 @@ const MARKET_PRICE_CURRENCIES = new Set([
   'zar',
 ]);
 
+// The complete coin and currency sets, exported so the Home v2 cache can fetch
+// ONE fixed superset per TTL and project each app's requested subset locally —
+// see electron/home-v2-market-prices.ts. Sorted and frozen so the superset URL
+// is byte-for-byte constant regardless of any app input.
+export const MARKET_PRICE_ALL_COINS = Object.freeze(
+  (Object.keys(MARKET_PRICE_COIN_IDS) as MarketPriceCoin[]).slice().sort(),
+);
+export const MARKET_PRICE_ALL_CURRENCIES = Object.freeze([...MARKET_PRICE_CURRENCIES].sort());
+
 function getString(value: unknown) {
   return typeof value === 'string' ? value.trim() : '';
 }

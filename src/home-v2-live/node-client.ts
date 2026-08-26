@@ -13,13 +13,18 @@ import {
   buildHomeV2AssetReadPath,
   buildHomeV2ChainReadPath,
   buildHomeV2NamePath,
+  buildHomeV2RatingRead,
+  buildHomeV2RatingReadResult,
   buildHomeV2ResourcePath,
   buildHomeV2ResourceRenderPath,
   canonicalHomeV2AppAction,
   getHomeV2AppActions,
   getHomeV2AppNetwork,
+  homeV2ChainReadNeedsSelectedAddress,
+  homeV2RatingReadNeedsSelectedAddress,
   isHomeV2AppRecord,
   isHomeV2ChainReadAction,
+  isHomeV2RatingReadAction,
   normalizeHomeV2Address,
   normalizeHomeV2AppAction,
   normalizeHomeV2IdentityAddresses,
@@ -28,7 +33,26 @@ import {
   normalizeHomeV2ReadPath,
   normalizeHomeV2ReplaceTabAddress,
   normalizeHomeV2ResponseMaxBytes,
+  withHomeV2SelectedAddress,
 } from '../../electron/home-v2-app-actions'
+import {
+  isHomeV2CrosschainReadAction,
+  projectHomeV2CrosschainReadResult,
+} from '../../electron/home-v2-crosschain-actions'
+import {
+  buildHomeV2AccountBalancePath,
+  buildHomeV2AccountDataPath,
+  buildHomeV2UserWalletResult,
+  homeV2ForeignWalletUnavailableError,
+  isHomeV2NativeWalletRequest,
+  resolveHomeV2AccountReadAddress,
+} from '../../electron/home-v2-wallet-actions'
+import {
+  HomeV2MarketPriceCache,
+  HOME_V2_MARKET_PRICE_MAX_BYTES,
+  HOME_V2_MARKET_PRICE_TIMEOUT_MS,
+  normalizeHomeV2MarketPriceRequest,
+} from '../../electron/home-v2-market-prices'
 import {
   buildHomeV2SelfRewardSharesPath,
   createHomeV2MintingAccountsResult,
@@ -66,6 +90,7 @@ import {
   getHomeV2AppRouteDescriptor,
   getHomeV2AvailableAppActions,
   getHomeV2ContextualAppActions,
+  isHomeV2AndroidUnsupportedAction,
   HOME_V2_ROUTE_INDEPENDENT_ACTIONS,
 } from '../../electron/home-v2-app-runtime'
 import { mergeHomeV2ShellGlobalState } from '../../electron/home-v2-window-startup'
@@ -207,6 +232,11 @@ const CORE_UPDATE_STATUS_MAX_BYTES = 128 * 1024
 const API_KEY_MAX_LENGTH = 512
 const QORTIUM_CORE_API_KEY_SECRET = 'home-v2-qortium-node-api-key-v1'
 const RESOURCE_SAVE_MAX_BYTES = 100 * 1024 * 1024
+// The Android twin of the desktop bridge's price cache. GET_MARKET_PRICES is
+// the only app action on either host that leaves the Qortal/Qortium node
+// network; the TTL cache is what bounds how often it does, no matter how often
+// apps ask. See electron/home-v2-market-prices.ts for the full posture note.
+const androidMarketPrices = new HomeV2MarketPriceCache()
 
 function sanitizePortableResourceFilename(value: unknown, fallback: string) {
   const requested = typeof value === 'string' ? value.trim() : ''
@@ -1078,6 +1108,24 @@ export function createPortableNodeClient(
       if (action === 'OPEN_AS_WIDGET' || action.startsWith('WIDGET_')) {
         throw new Error(`${action} is only available in Qortium Home desktop.`)
       }
+      // Signing actions have no Android path (this client is read-only plus a
+      // few Home-mediated actions). Reject them explicitly with a clear reason
+      // rather than letting them fall to the generic "read-only mode" message —
+      // and they are already withheld from Android's SHOW_ACTIONS, so a
+      // well-behaved app never reaches here. See
+      // ANDROID_UNSUPPORTED_ACTIONS in home-v2-app-runtime.ts.
+      if (isHomeV2AndroidUnsupportedAction(action)) {
+        throw createHomeV2BridgeError(
+          `${action} requires transaction signing, which is only available in Qortium Home desktop.`,
+          {
+            action,
+            code: 'NODE_CAPABILITY_MISSING',
+            network: hostInfo.network,
+            retryable: false,
+            routeRevision: hostInfo.route.revision,
+          },
+        )
+      }
       const implemented = getHomeV2AppActions(protocol).includes(action)
       const routeIndependent = (HOME_V2_ROUTE_INDEPENDENT_ACTIONS as readonly string[]).includes(action)
       if (!implemented || (!routeIndependent && !hostInfo.route.available)) {
@@ -1127,6 +1175,30 @@ export function createPortableNodeClient(
         if (!response.ok) throw new Error(`Node request returned HTTP ${response.status}.`)
         return { data: response.data, nodeApiUrl }
       }
+      // Same read the account actions do, factored out because four of the
+      // restored tier-2 actions default a subject address to the selected
+      // account. Returns null rather than throwing so each caller decides
+      // whether "no account selected" is fatal for it.
+      const selectedAccountAddress = async () => {
+        if (!context?.selectedAccountId) return null
+        const catalogue = parseHomeV2AccountCatalogueStore(
+          await dependencies.getPreference(WALLET_STORE_KEY),
+        )
+        return catalogue.accounts.find(
+          (candidate) => candidate.id === context.selectedAccountId,
+        )?.address ?? null
+      }
+      // Mirrors the desktop handler in electron/home-v2-app-bridge.ts: native
+      // asset only, no node call, no key material, foreign coins refused with
+      // a coded error rather than answered with the native address.
+      if (action === 'GET_USER_WALLET') {
+        if (!isHomeV2NativeWalletRequest(request)) {
+          throw homeV2ForeignWalletUnavailableError(request.coin ?? request.blockchain)
+        }
+        const address = await selectedAccountAddress()
+        if (!address) throw new Error('No account is selected for this tab.')
+        return buildHomeV2UserWalletResult(address)
+      }
       if (action === 'GET_SELECTED_ACCOUNT' || action === 'GET_USER_ACCOUNT') {
         if (!context?.selectedAccountId) throw new Error('No account is selected for this tab.')
         const catalogue = parseHomeV2AccountCatalogueStore(
@@ -1163,15 +1235,67 @@ export function createPortableNodeClient(
         )).data
       }
       if (action === 'GET_ACCOUNT_DATA' || action === 'GET_BALANCE') {
-        const address = normalizeHomeV2Address(request.address)
+        // Twin of the desktop handler: an absent address means the selected
+        // account, and GET_BALANCE honors `assetId`.
+        const address = resolveHomeV2AccountReadAddress(request, await selectedAccountAddress())
         const path = action === 'GET_BALANCE'
-          ? `/addresses/balance/${encodeURIComponent(address)}`
-          : `/addresses/${encodeURIComponent(address)}`
+          ? buildHomeV2AccountBalancePath(address, request)
+          : buildHomeV2AccountDataPath(address)
         return (await requestData(
           network,
           path,
           normalizeHomeV2ResponseMaxBytes(request.maxBytes),
         )).data
+      }
+      // The two trust reads, combining a public summary with this rater's own
+      // rating. A 404 means "not rated yet" and becomes the documented empty
+      // value; every OTHER failure still propagates, so a network problem is
+      // never reported to the app as "unrated". Mirrors the desktop bridge,
+      // which checks result.status the same way — hence a dedicated read here
+      // rather than requestData, which throws on any non-2xx alike.
+      if (isHomeV2RatingReadAction(action)) {
+        const read = buildHomeV2RatingRead(
+          action,
+          request,
+          homeV2RatingReadNeedsSelectedAddress(request) ? await selectedAccountAddress() : null,
+        )
+        const maxBytes = normalizeHomeV2ResponseMaxBytes(request.maxBytes)
+        const optionalRead = async (path: string, notFoundValue: unknown) => {
+          const { nodeApiUrl } = await getReadableNode(network)
+          const response = await dependencies.requestJson(
+            `${nodeApiUrl}${path}`,
+            'GET',
+            APP_READ_TIMEOUT_MS,
+          )
+          if (response.status === 404) return notFoundValue
+          const body = JSON.stringify(response.data ?? null)
+          if (new TextEncoder().encode(body).byteLength > maxBytes) {
+            throw new Error('Node API response exceeded the requested size limit.')
+          }
+          if (!response.ok) throw new Error(`Node request returned HTTP ${response.status}.`)
+          return response.data
+        }
+        const [summary, rating] = await Promise.all([
+          optionalRead(read.summaryPath, null),
+          optionalRead(read.ratingPath, read.ratingFallback),
+        ])
+        return buildHomeV2RatingReadResult(read, summary, rating)
+      }
+      if (action === 'GET_MARKET_PRICES') {
+        const priceRequest = normalizeHomeV2MarketPriceRequest(request)
+        return androidMarketPrices.read(priceRequest, async (url) => {
+          const response = await dependencies.requestJson(
+            url,
+            'GET',
+            HOME_V2_MARKET_PRICE_TIMEOUT_MS,
+            { Accept: 'application/json' },
+          )
+          const body = JSON.stringify(response.data ?? null)
+          if (new TextEncoder().encode(body).byteLength > HOME_V2_MARKET_PRICE_MAX_BYTES) {
+            throw new Error('Market price response exceeded the size limit.')
+          }
+          return { ok: response.ok, payload: response.data, status: response.status }
+        })
       }
       if (isHomeV2MintingReadAction(action)) {
         // Android never runs a local Core (readSettings rejects 'local'), so
@@ -1217,11 +1341,19 @@ export function createPortableNodeClient(
         )).data
       }
       if (isHomeV2ChainReadAction(action)) {
+        // GET_MEMBER_BANS / GET_MEMBER_KICKS default their address to the
+        // selected account, as on desktop.
+        const chainReadRequest = homeV2ChainReadNeedsSelectedAddress(action, request)
+          ? withHomeV2SelectedAddress(request, await selectedAccountAddress())
+          : request
         const { data } = await requestData(
           network,
-          buildHomeV2ChainReadPath(action, request),
+          buildHomeV2ChainReadPath(action, chainReadRequest),
           normalizeHomeV2ResponseMaxBytes(request.maxBytes),
         )
+        if (isHomeV2CrosschainReadAction(action)) {
+          return projectHomeV2CrosschainReadResult(action, chainReadRequest, data)
+        }
         // Both cores answer a valid-but-absent AT with an empty 2xx body;
         // normalize that to the same documented error the desktop bridge uses.
         if (
