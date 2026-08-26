@@ -25,6 +25,7 @@ import {
   isHomeV2AppRecord,
   isHomeV2ChainReadAction,
   isHomeV2ListAction,
+  isHomeV2NameWriteAction,
   isHomeV2PollWriteAction,
   isHomeV2RatingReadAction,
   normalizeHomeV2Address,
@@ -1135,11 +1136,11 @@ export function createPortableNodeClient(
           { action, code: 'NODE_CAPABILITY_MISSING', network: 'qortium', retryable: false },
         )
       }
-      // Poll writes carry the signing refusal on their own protocol only: on
-      // qortalRequest the family is not implemented at all, and that case
-      // must keep its UNSUPPORTED_PROTOCOL answer from the generic gate
+      // Poll and name writes carry the signing refusal on their own protocol
+      // only: on qortalRequest neither family is implemented at all, and that
+      // case must keep its UNSUPPORTED_PROTOCOL answer from the generic gate
       // below rather than a signing error naming the wrong network.
-      if (protocol === 'qdnRequest' && isHomeV2PollWriteAction(action)) {
+      if (protocol === 'qdnRequest' && (isHomeV2PollWriteAction(action) || isHomeV2NameWriteAction(action))) {
         throw createHomeV2BridgeError(
           `${action} requires transaction signing, which is only available in Qortium Home desktop.`,
           {
@@ -1151,11 +1152,12 @@ export function createPortableNodeClient(
           },
         )
       }
-      // List and poll actions are also in ANDROID_UNSUPPORTED_ACTIONS (for
-      // the SHOW_ACTIONS filter), but their refusals are handled above for
-      // qdnRequest and by the generic implemented check below for
+      // List, poll, and name actions are also in ANDROID_UNSUPPORTED_ACTIONS
+      // (for the SHOW_ACTIONS filter), but their refusals are handled above
+      // for qdnRequest and by the generic implemented check below for
       // qortalRequest — the signing message here would be wrong for them.
-      if (!isHomeV2ListAction(action) && !isHomeV2PollWriteAction(action) && isHomeV2AndroidUnsupportedAction(action)) {
+      if (!isHomeV2ListAction(action) && !isHomeV2PollWriteAction(action) && !isHomeV2NameWriteAction(action) &&
+          isHomeV2AndroidUnsupportedAction(action)) {
         throw createHomeV2BridgeError(
           `${action} requires transaction signing, which is only available in Qortium Home desktop.`,
           {

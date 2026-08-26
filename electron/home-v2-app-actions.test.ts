@@ -14,7 +14,14 @@ import {
   HOME_V2_RESOURCE_VIEWER_ALIASES,
   normalizeHomeV2ChatMessageText,
   canonicalHomeV2VoteSelection,
+  normalizeHomeV2BuyNameRequest,
+  normalizeHomeV2CancelSellNameRequest,
   normalizeHomeV2CreatePollRequest,
+  normalizeHomeV2RegisterNameRequest,
+  normalizeHomeV2SellNameRequest,
+  normalizeHomeV2UpdateNameRequest,
+  parseHomeV2CoinAmount,
+  selectHomeV2NameTarget,
   normalizeHomeV2ListItems,
   normalizeHomeV2ListName,
   normalizeHomeV2ListReadResult,
@@ -1203,5 +1210,68 @@ assert.throws(
   ),
   /different poll/,
 )
+
+// ---- The name write family (Home 2.1 restoration wave) ----
+
+for (const action of ['REGISTER_NAME', 'UPDATE_NAME', 'SELL_NAME', 'CANCEL_SELL_NAME', 'BUY_NAME']) {
+  assert.equal(qdnActions.includes(action), true, `qdnRequest should advertise ${action}`)
+  assert.equal(qortalActions.includes(action), false, `qortalRequest must not advertise ${action}`)
+}
+
+// Amounts: exact eight-decimal fixed point, no floating point after parsing.
+assert.deepEqual(parseHomeV2CoinAmount('1.5', 'x'), { atomic: 150_000_000n, decimal: '1.50000000' })
+assert.deepEqual(parseHomeV2CoinAmount('12.50000000', 'x'), { atomic: 1_250_000_000n, decimal: '12.50000000' })
+assert.deepEqual(parseHomeV2CoinAmount(0, 'x'), { atomic: 0n, decimal: '0.00000000' })
+assert.deepEqual(parseHomeV2CoinAmount('0.00000001', 'x'), { atomic: 1n, decimal: '0.00000001' })
+for (const bad of [undefined, null, '', '-1', '1.234567890', '01.5', '1.', '.5', 'abc', NaN, -0.5, Infinity]) {
+  assert.throws(() => parseHomeV2CoinAmount(bad, 'x'))
+}
+
+// REGISTER: 3-40 byte new names, data <= 4000, fee/txGroupId pinned to 0.
+assert.deepEqual(
+  normalizeHomeV2RegisterNameRequest({ name: ' alice ', nameData: '{"a":1}' }),
+  { data: '{"a":1}', name: 'alice' },
+)
+for (const bad of [
+  { name: 'ab' },                                   // < 3 bytes
+  { name: 'x'.repeat(41) },                         // > 40 bytes
+  { data: 'y'.repeat(4001), name: 'alice' },
+  { fee: 1, name: 'alice' },
+  { name: 'alice', txGroupId: 3 },
+]) {
+  assert.throws(() => normalizeHomeV2RegisterNameRequest(bad))
+}
+
+// UPDATE: empty newName/newData mean "keep", primary tri-state via aliases.
+{
+  const updated = normalizeHomeV2UpdateNameRequest({ isPrimary: true, name: 'alice' })
+  assert.deepEqual(updated, { name: 'alice', newData: '', newName: '', primary: true })
+  assert.equal(normalizeHomeV2UpdateNameRequest({ name: 'alice' }).primary, undefined)
+  assert.equal(normalizeHomeV2UpdateNameRequest({ data: 'd', name: 'alice' }).newData, 'd')
+}
+assert.throws(() => normalizeHomeV2UpdateNameRequest({ name: 'alice', newName: 'xy' })) // new name < 3 bytes
+
+// SELL / CANCEL / BUY.
+assert.deepEqual(
+  normalizeHomeV2SellNameRequest({ amount: '2', name: 'alice', recipientAddress: `Q${'b'.repeat(25)}` }),
+  { amount: { atomic: 200_000_000n, decimal: '2.00000000' }, name: 'alice', recipient: `Q${'b'.repeat(25)}` },
+)
+assert.throws(() => normalizeHomeV2SellNameRequest({ amount: 'x', name: 'alice' }))
+assert.throws(() => normalizeHomeV2SellNameRequest({ amount: '1', name: 'alice', recipient: 'bogus' }))
+assert.deepEqual(normalizeHomeV2CancelSellNameRequest({ name: 'alice' }), { name: 'alice' })
+assert.deepEqual(normalizeHomeV2BuyNameRequest({ name: 'alice' }), { name: 'alice' })
+assert.deepEqual(
+  normalizeHomeV2BuyNameRequest({ amount: 1.5, name: 'alice', seller: `Q${'c'.repeat(25)}` }),
+  { amount: { atomic: 150_000_000n, decimal: '1.50000000' }, name: 'alice', seller: `Q${'c'.repeat(25)}` },
+)
+
+// The name-target selector: sale price parsed exactly; unrecognized shapes
+// refused. The caller compares the stored spelling itself (GET resolves by
+// REDUCED name), so the selector faithfully passes the stored one through.
+assert.deepEqual(
+  selectHomeV2NameTarget({ isForSale: true, name: 'Alice', owner: `Q${'d'.repeat(25)}`, salePrice: '12.5' }),
+  { isForSale: true, name: 'Alice', owner: `Q${'d'.repeat(25)}`, salePrice: { atomic: 1_250_000_000n, decimal: '12.50000000' }, saleRecipient: null },
+)
+assert.throws(() => selectHomeV2NameTarget({ owner: 'x' }))
 
 console.log('Home v2 app action contract tests passed.')

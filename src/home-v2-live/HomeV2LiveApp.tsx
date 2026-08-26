@@ -204,7 +204,7 @@ import {
   isHomeV2PermissionlessAction,
 } from '../../electron/home-v2-session-grants'
 import { getHomeV2BridgeStateDetails } from '../../electron/home-v2-app-runtime'
-import { canonicalHomeV2AppAction, homeV2PollOperationLabel, isHomeV2ListWriteAction, isHomeV2PollWriteAction } from '../../electron/home-v2-app-actions'
+import { canonicalHomeV2AppAction, homeV2NameOperationLabel, homeV2PollOperationLabel, isHomeV2ListWriteAction, isHomeV2NameWriteAction, isHomeV2PollWriteAction } from '../../electron/home-v2-app-actions'
 import {
   homeV2NotificationChainLabel,
   homeV2NotificationSourceKey,
@@ -408,6 +408,59 @@ const POLL_DETAIL_SEQUENCES: Record<string, readonly { label: string; optional?:
     { label: 'Poll' },
     { label: 'Selection' },
   ],
+}
+
+const NAME_DETAIL_SEQUENCES: Record<string, readonly { label: string; optional?: true }[]> = {
+  BUY_NAME: [
+    { label: 'Name' },
+    { label: 'You pay' },
+    { label: 'Paid to' },
+    { label: 'Restriction', optional: true },
+  ],
+  CANCEL_SELL_NAME: [
+    { label: 'Name' },
+    { label: 'Price' },
+  ],
+  REGISTER_NAME: [
+    { label: 'Name' },
+    { label: 'Name data' },
+  ],
+  SELL_NAME: [
+    { label: 'Name' },
+    { label: 'Price' },
+    { label: 'Sale type' },
+  ],
+  UPDATE_NAME: [
+    { label: 'Name' },
+    { label: 'New name' },
+    { label: 'New data' },
+    { label: 'Primary' },
+  ],
+}
+
+function isSequencedDetailRows(
+  sequence: readonly { label: string; optional?: true }[] | undefined,
+  value: unknown,
+): value is readonly { label: string; value: string }[] {
+  if (!sequence || !Array.isArray(value) || value.length < 1) return false
+  let position = 0
+  for (const expected of sequence) {
+    const candidate = value[position] as unknown
+    const matches =
+      isRecord(candidate) &&
+      Object.keys(candidate).length === 2 &&
+      candidate.label === expected.label &&
+      typeof candidate.value === 'string' &&
+      candidate.value.length >= 1 &&
+      candidate.value.length <= 4_000 &&
+      !/[\u0000-\u001f\u007f]/.test(candidate.value)
+    if (matches) {
+      position += 1
+      continue
+    }
+    if (!expected.optional) return false
+  }
+  return position === value.length
 }
 
 function isPollDetailRows(
@@ -2912,6 +2965,7 @@ export function HomeV2LiveApp() {
             !isHomeV2MintingWriteAction(value.action) &&
             !isHomeV2ListWriteAction(value.action) &&
             !isHomeV2PollWriteAction(value.action) &&
+            !isHomeV2NameWriteAction(value.action) &&
             !isHomeV2GroupAdminAction(value.action))) ||
         // The manager families and the Home-settings update act on Home-profile
         // data, not on an account, so they are prompted with no account selected
@@ -3002,6 +3056,18 @@ export function HomeV2LiveApp() {
         // SEND_MESSAGE, and pinned the same way: the protocol and chain are
         // fixed because the transaction serializer is Qortium-specific, and
         // the rows must be the exact per-action sequence the bridge emits.
+        // Name writes sign chain transactions and BUY_NAME pays: prompts
+        // must arrive fully specified single-request, protocol/chain-pinned,
+        // caption-pinned, with exactly the per-action row sequence.
+        || (isHomeV2NameWriteAction(value.action) &&
+          (value.writeKind !== 'name' ||
+            value.protocol !== 'qdnRequest' ||
+            value.targetNetwork !== 'qortium' ||
+            !isSequencedDetailRows(NAME_DETAIL_SEQUENCES[value.action], value.nameDetails) ||
+            value.writeOperationLabel !== homeV2NameOperationLabel(value.action) ||
+            typeof value.writeRouteLabel !== 'string' ||
+            value.writeTargetChainLabel !== 'Qortium' ||
+            value.writeSingleRequestOnly !== true))
         || (isHomeV2PollWriteAction(value.action) &&
           (value.writeKind !== 'poll' ||
             value.protocol !== 'qdnRequest' ||
@@ -3124,6 +3190,7 @@ export function HomeV2LiveApp() {
       const isMintingWrite = isHomeV2MintingWriteAction(value.action)
       const isListWrite = isHomeV2ListWriteAction(value.action)
       const isPollWrite = isHomeV2PollWriteAction(value.action)
+      const isNameWrite = isHomeV2NameWriteAction(value.action)
       // A zero-fee chain MESSAGE to an AT. Its own prompt kind: it signs, so it
       // must never inherit the read-only account prompt's wording, its
       // 'account.read' grant family, or its session/always scopes.
@@ -3139,7 +3206,7 @@ export function HomeV2LiveApp() {
       // access". Splitting the GRANT is a separate decision, not made here.
       const accountReadPromptKind = homeV2AccountReadPromptKind(value.action)
       const isGenericAccountRead = accountReadPromptKind === 'account'
-      const operationLabel = isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment || isNotification || isBookmarkManager || isNotificationManager || isHomeSettingsUpdate || isJournalForget || isMintingWrite || isListWrite || isPollWrite || isAtMessage
+      const operationLabel = isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment || isNotification || isBookmarkManager || isNotificationManager || isHomeSettingsUpdate || isJournalForget || isMintingWrite || isListWrite || isPollWrite || isNameWrite || isAtMessage
         ? String(value.writeOperationLabel)
         : ''
       const prompt = createPermissionPrompt({
@@ -3194,6 +3261,10 @@ export function HomeV2LiveApp() {
               // 'account.read', single-request only (see bridge-permissions).
               : isPollWrite
                 ? 'poll.write'
+              // Signs — and for BUY_NAME pays — so its own capability, never
+              // 'account.read', single-request only (see bridge-permissions).
+              : isNameWrite
+                ? 'name.write'
               // Its own capability, never 'account.read': that string is what
               // bridge-permissions.ts unifies durable grants on, and a signing
               // action must not be reachable through a read grant.
@@ -3237,7 +3308,7 @@ export function HomeV2LiveApp() {
             ? 'Forget pending transaction?'
           : isAtMessage
             ? 'Send a message to a contract?'
-          : isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment || isMintingWrite || isListWrite || isPollWrite
+          : isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment || isMintingWrite || isListWrite || isPollWrite || isNameWrite
           ? `Allow ${operationLabel.toLowerCase()}?`
           : 'Allow account access?',
         summary: isWidgetPrompt
@@ -3254,6 +3325,10 @@ export function HomeV2LiveApp() {
           ? `${appTitle} wants to change a named list stored on your own node. Apps on this node share these lists — they commonly drive blocking and following — so this change affects what other apps show you. This approval covers this one change only; nothing is signed and nothing on chain changes.`
           : isPollWrite
           ? `${appTitle} wants to sign and broadcast one poll transaction from the selected account. It carries no payment and costs no fee — Home pays for it with proof-of-work on this device. Everything it does is shown below, exactly as it will be signed; this approval covers this one transaction only.`
+          : isNameWrite
+          ? value.action === 'BUY_NAME'
+            ? `${appTitle} wants to buy a name with the selected account. Approving PAYS the amount shown below from this account to the seller — the transaction fee is zero, but the payment is real. Everything is shown exactly as it will be signed; this approval covers this one purchase only.`
+            : `${appTitle} wants to sign and broadcast one name transaction from the selected account. It costs no fee — Home pays for it with proof-of-work on this device. Everything it does is shown below, exactly as it will be signed; this approval covers this one transaction only.`
           : accountReadPromptKind
           ? homeV2AccountReadPromptSummary(accountReadPromptKind, appTitle)
           : isJournalRead
@@ -3321,6 +3396,23 @@ export function HomeV2LiveApp() {
                   ? { label: detail.label, value: detail.value, variant: 'scroll' as const }
                   : { label: detail.label, value: detail.value }),
               { label: 'Scope', value: 'This one request only' },
+            ]
+          : isNameWrite
+          ? [
+              { label: 'Account', value: account?.label ?? accountId },
+              { label: 'Operation', value: operationLabel },
+              // The per-action rows, re-checked against the exact sequence
+              // above. Long user-derived rows scroll like the poll rows do.
+              ...(value.nameDetails as readonly { label: string; value: string }[])
+                .map((detail) =>
+                  detail.label === 'Name data' || detail.label === 'New data'
+                    ? { label: detail.label, value: detail.value, variant: 'scroll' as const }
+                    : { label: detail.label, value: detail.value }),
+              { label: 'Chain', value: String(value.writeTargetChainLabel) },
+              {
+                label: 'Scope',
+                value: value.action === 'BUY_NAME' ? 'This one purchase only' : 'This one transaction only',
+              },
             ]
           : isPollWrite
           ? [

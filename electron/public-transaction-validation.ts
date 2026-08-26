@@ -1,3 +1,8 @@
+const TYPE_REGISTER_NAME = 3;
+const TYPE_UPDATE_NAME = 4;
+const TYPE_SELL_NAME = 5;
+const TYPE_CANCEL_SELL_NAME = 6;
+const TYPE_BUY_NAME = 7;
 const TYPE_CREATE_POLL = 8;
 const TYPE_VOTE_ON_POLL = 9;
 const TYPE_ARBITRARY = 10;
@@ -250,6 +255,110 @@ export function assertPublicUpdatePollTransaction(bytes: Uint8Array, expected: U
   const times = readPollTimes(reader, label);
   assertEqual(times.startTime, expected.startTime, 'start time', label);
   assertEqual(times.endTime, expected.endTime, 'end time', label);
+  assertEqual(reader.readInt64('fee'), 0n, 'fee', label);
+  reader.finish();
+}
+
+/**
+ * The five name-transaction verifiers (types 3-7). Amounts are compared as
+ * exact atomic bigints — never through floating point — and presence flags
+ * must be exactly 0 or 1 even though Core\'s reader would accept any nonzero
+ * byte as true: the byte the user approves is the byte that is signed.
+ */
+export type RegisterNameExpected = CommonExpected & {
+  data: string;
+  name: string;
+};
+
+export function assertPublicRegisterNameTransaction(bytes: Uint8Array, expected: RegisterNameExpected) {
+  const label = 'REGISTER_NAME';
+  const reader = new Reader(bytes, label);
+  readCommon(reader, TYPE_REGISTER_NAME, expected, label);
+  assertEqual(reader.readString('name', 400), expected.name, 'name', label);
+  assertEqual(reader.readString('data', 4000), expected.data, 'name data', label);
+  assertEqual(reader.readInt64('fee'), 0n, 'fee', label);
+  reader.finish();
+}
+
+export type UpdateNameExpected = CommonExpected & {
+  name: string;
+  newData: string;
+  newName: string;
+  primary?: boolean;
+};
+
+export function assertPublicUpdateNameTransaction(bytes: Uint8Array, expected: UpdateNameExpected) {
+  const label = 'UPDATE_NAME';
+  const reader = new Reader(bytes, label);
+  readCommon(reader, TYPE_UPDATE_NAME, expected, label);
+  assertEqual(reader.readString('name', 400), expected.name, 'name', label);
+  assertEqual(reader.readString('new name', 400), expected.newName, 'new name', label);
+  assertEqual(reader.readString('new data', 4000), expected.newData, 'new name data', label);
+  const hasPrimary = reader.readByte('primary flag');
+  if (hasPrimary !== 0 && hasPrimary !== 1) {
+    throw new Error('Public UPDATE_NAME builder returned an invalid primary presence flag.');
+  }
+  assertEqual(hasPrimary === 1, expected.primary !== undefined, 'primary presence', label);
+  if (hasPrimary === 1) {
+    const primary = reader.readByte('primary value');
+    if (primary !== 0 && primary !== 1) {
+      throw new Error('Public UPDATE_NAME builder returned an invalid primary value.');
+    }
+    assertEqual(primary === 1, expected.primary, 'primary value', label);
+  }
+  assertEqual(reader.readInt64('fee'), 0n, 'fee', label);
+  reader.finish();
+}
+
+export type SellNameExpected = CommonExpected & {
+  // Exact atomic units (1e8 per coin), compared as bigint.
+  amount: bigint;
+  name: string;
+  recipient?: Uint8Array;
+};
+
+export function assertPublicSellNameTransaction(bytes: Uint8Array, expected: SellNameExpected) {
+  const label = 'SELL_NAME';
+  const reader = new Reader(bytes, label);
+  readCommon(reader, TYPE_SELL_NAME, expected, label);
+  assertEqual(reader.readString('name', 400), expected.name, 'name', label);
+  assertEqual(reader.readInt64('amount'), expected.amount, 'sale amount', label);
+  const hasRecipient = reader.readByte('recipient flag');
+  if (hasRecipient !== 0 && hasRecipient !== 1) {
+    throw new Error('Public SELL_NAME builder returned an invalid recipient presence flag.');
+  }
+  assertEqual(hasRecipient === 1, expected.recipient !== undefined, 'allowed-buyer presence', label);
+  if (hasRecipient === 1) {
+    assertBytes(reader.readBytes(ADDRESS_LENGTH, 'recipient'), expected.recipient!, 'allowed buyer', label);
+  }
+  assertEqual(reader.readInt64('fee'), 0n, 'fee', label);
+  reader.finish();
+}
+
+export type CancelSellNameExpected = CommonExpected & { name: string };
+
+export function assertPublicCancelSellNameTransaction(bytes: Uint8Array, expected: CancelSellNameExpected) {
+  const label = 'CANCEL_SELL_NAME';
+  const reader = new Reader(bytes, label);
+  readCommon(reader, TYPE_CANCEL_SELL_NAME, expected, label);
+  assertEqual(reader.readString('name', 400), expected.name, 'name', label);
+  assertEqual(reader.readInt64('fee'), 0n, 'fee', label);
+  reader.finish();
+}
+
+export type BuyNameExpected = CommonExpected & {
+  amount: bigint;
+  name: string;
+  seller: Uint8Array;
+};
+
+export function assertPublicBuyNameTransaction(bytes: Uint8Array, expected: BuyNameExpected) {
+  const label = 'BUY_NAME';
+  const reader = new Reader(bytes, label);
+  readCommon(reader, TYPE_BUY_NAME, expected, label);
+  assertEqual(reader.readString('name', 400), expected.name, 'name', label);
+  assertEqual(reader.readInt64('amount'), expected.amount, 'purchase amount', label);
+  assertBytes(reader.readBytes(ADDRESS_LENGTH, 'seller'), expected.seller, 'seller', label);
   assertEqual(reader.readInt64('fee'), 0n, 'fee', label);
   reader.finish();
 }

@@ -376,6 +376,25 @@ for (const pollRequest of [
   )
 }
 
+// Same posture for the name writes (and BUY_NAME additionally pays, so there
+// is definitely no Android path until a signing story exists there).
+for (const nameRequest of [
+  { action: 'REGISTER_NAME', name: 'droid' },
+  { action: 'UPDATE_NAME', name: 'droid', newName: 'droid2' },
+  { action: 'SELL_NAME', amount: '1.5', name: 'droid' },
+  { action: 'CANCEL_SELL_NAME', name: 'droid' },
+  { action: 'BUY_NAME', name: 'droid' },
+]) {
+  await assert.rejects(
+    () => client.requestApp('qdnRequest', nameRequest),
+    /requires transaction signing/,
+  )
+  await assert.rejects(
+    () => client.requestApp('qortalRequest', nameRequest),
+    /is not implemented for qortalRequest/,
+  )
+}
+
 assert.deepEqual(
   await client.requestApp('qortalRequest', {
     action: 'GET_AT',

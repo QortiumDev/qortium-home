@@ -69,8 +69,10 @@ const QDN_ACTIONS = [
   'ADD_GROUP_ADMIN',
   'ADD_TO_LIST',
   'APPROVE_GROUP_JOIN_REQUEST',
+  'BUY_NAME',
   'CANCEL_GROUP_BAN',
   'CANCEL_GROUP_INVITE',
+  'CANCEL_SELL_NAME',
   'CREATE_POLL',
   'FETCH_ACCOUNT_AVATAR',
   'FETCH_GROUP_AVATAR',
@@ -127,6 +129,7 @@ const QDN_ACTIONS = [
   'LIST_MINTING_ACCOUNTS',
   'LIST_QDN_RESOURCES',
   'LEAVE_GROUP',
+  'REGISTER_NAME',
   'REMOVE_FROM_LIST',
   'REMOVE_GROUP_ADMIN',
   'REMOVE_MINTING_ACCOUNT',
@@ -164,7 +167,9 @@ const QDN_ACTIONS = [
   'SEND_PRIVATE_GROUP_CHAT_REACTION',
   'PUBLISH_QDN_RESOURCE',
   'PUBLISH_CHAT_ATTACHMENT',
+  'SELL_NAME',
   'UNLOCK_SELECTED_ACCOUNT',
+  'UPDATE_NAME',
   'UPDATE_POLL',
   'VOTE_ON_POLL',
 ] as const
@@ -1537,15 +1542,15 @@ function optionalHomeV2PollTime(value: unknown, key: string, requireFuture: bool
   return parsed
 }
 
-// The fee-less MemoryPoW path is the only signing path Home 2 carries, and
-// VOTE_ON_POLL is not an approval-capable type on Core anyway. An app may
-// still SEND the 1.x fields; any value other than 0 is refused, never
-// silently zeroed — a fee the app believed it was paying must not vanish.
-function assertHomeV2PollFeeAndGroup(request: Record<string, unknown>) {
+// The fee-less MemoryPoW path is the only signing path Home 2 carries. An
+// app may still SEND the 1.x fee/group fields; any value other than 0 is
+// refused, never silently zeroed — a fee the app believed it was paying
+// must not vanish.
+function assertHomeV2SignedWriteFeeAndGroup(request: Record<string, unknown>, family: string) {
   for (const key of ['fee'] as const) {
     const value = request[key]
     if (value !== undefined && value !== null && value !== 0) {
-      throw new Error('Home 2 signs poll transactions fee-free; fee, when present, must be 0.')
+      throw new Error(`Home 2 signs ${family} transactions fee-free; fee, when present, must be 0.`)
     }
   }
   for (const key of ['txGroupId', 'feeGroupId'] as const) {
@@ -1553,9 +1558,13 @@ function assertHomeV2PollFeeAndGroup(request: Record<string, unknown>) {
     if (value === undefined || value === null) continue
     const parsed = typeof value === 'number' ? value : typeof value === 'string' && value.trim() ? Number(value) : NaN
     if (parsed !== 0) {
-      throw new Error('Home 2 poll transactions use transaction group 0; txGroupId, when present, must be 0.')
+      throw new Error(`Home 2 ${family} transactions use transaction group 0; txGroupId, when present, must be 0.`)
     }
   }
+}
+
+function assertHomeV2PollFeeAndGroup(request: Record<string, unknown>) {
+  assertHomeV2SignedWriteFeeAndGroup(request, 'poll')
 }
 
 function homeV2PollRequestInteger(value: unknown): number | undefined {
@@ -1706,6 +1715,219 @@ export function selectHomeV2PollTarget(value: unknown, pollId: number) {
     owner: typeof value.owner === 'string' ? value.owner : '',
     pollId,
     pollName: value.pollName,
+  })
+}
+
+/**
+ * The name write family: REGISTER_NAME, UPDATE_NAME, SELL_NAME,
+ * CANCEL_SELL_NAME, BUY_NAME — Qortium qdnRequest only, each one fee-free
+ * signed transaction through Core\'s keyless /names/public/* builders on the
+ * poll-family pattern.
+ *
+ * Amounts are Qortium\'s eight-decimal fixed point. They are parsed once into
+ * an exact ATOMIC bigint plus a canonical decimal string, and every later
+ * comparison — prompt, builder body, byte-assert — uses those two forms;
+ * floating point never touches an amount after parsing. BUY_NAME transfers
+ * the sale amount to the seller, so its prompt is payment-grade.
+ *
+ * Core\'s Unicode rules stay authoritative: Home enforces byte limits and
+ * exact-string display only, and never substitutes a reduced or normalized
+ * spelling for what the user approved.
+ */
+export const HOME_V2_NAME_WRITE_ACTIONS = Object.freeze([
+  'BUY_NAME',
+  'CANCEL_SELL_NAME',
+  'REGISTER_NAME',
+  'SELL_NAME',
+  'UPDATE_NAME',
+] as const)
+
+export type HomeV2NameWriteAction = (typeof HOME_V2_NAME_WRITE_ACTIONS)[number]
+
+const NAME_WRITE_ACTIONS = new Set<string>(HOME_V2_NAME_WRITE_ACTIONS)
+
+export function isHomeV2NameWriteAction(action: string): action is HomeV2NameWriteAction {
+  return NAME_WRITE_ACTIONS.has(action)
+}
+
+// Shared between the bridge (which stamps it on the prompt) and the shell
+// (which refuses a prompt whose label does not match its action).
+export function homeV2NameOperationLabel(action: HomeV2NameWriteAction) {
+  if (action === 'REGISTER_NAME') return 'Register a name'
+  if (action === 'UPDATE_NAME') return 'Update a name'
+  if (action === 'SELL_NAME') return 'Offer a name for sale'
+  if (action === 'CANCEL_SELL_NAME') return 'Cancel a name sale'
+  return 'Buy a name'
+}
+
+export type HomeV2CoinAmount = {
+  // Exact atomic units (1e8 per coin).
+  readonly atomic: bigint
+  // Canonical eight-decimal display/builder form, e.g. "12.50000000".
+  readonly decimal: string
+}
+
+/**
+ * 1.x amount rule, exactly: a finite non-negative number, or a string that is
+ * a canonical non-negative integer or a decimal with one to eight fractional
+ * digits. Parsed into exact atomic units without floating point (a number
+ * input is stringified first and must satisfy the same grammar).
+ */
+export function parseHomeV2CoinAmount(value: unknown, label: string): HomeV2CoinAmount {
+  const text = typeof value === 'number' && Number.isFinite(value) && value >= 0
+    ? String(value)
+    : typeof value === 'string' ? value.trim() : null
+  const match = text === null ? null : /^(0|[1-9][0-9]*)(?:\.([0-9]{1,8}))?$/.exec(text)
+  if (!match) {
+    throw new Error(`${label} must be a non-negative amount with up to 8 decimal places.`)
+  }
+  const whole = BigInt(match[1])
+  const fraction = BigInt((match[2] ?? '').padEnd(8, '0') || '0')
+  const atomic = whole * 100_000_000n + fraction
+  if (atomic > 0x7fff_ffff_ffff_ffffn) {
+    throw new Error(`${label} exceeds the maximum representable amount.`)
+  }
+  return Object.freeze({ atomic, decimal: `${whole.toString()}.${(match[2] ?? '').padEnd(8, '0')}` })
+}
+
+function requiredHomeV2NameField(request: Record<string, unknown>, key: string, label: string) {
+  const value = typeof request[key] === 'string' ? request[key].trim() : ''
+  if (!value) throw new Error(`${label} is required.`)
+  // Referencing an existing name: byte-bounded only; Core validates content.
+  if (POLL_TEXT_ENCODER.encode(value).byteLength > 400) {
+    throw new Error(`${label} must be at most 400 UTF-8 bytes.`)
+  }
+  return value
+}
+
+// A NEW Qortium name: Core enforces 3-40 UTF-8 bytes and its Unicode
+// normalization; the byte bounds are checked here so the refusal is named,
+// and normalization stays Core\'s call (NAME_NOT_NORMALIZED can still answer).
+function newHomeV2NameValue(value: string, label: string) {
+  const byteLength = POLL_TEXT_ENCODER.encode(value).byteLength
+  if (byteLength < 3 || byteLength > 40) {
+    throw new Error(`${label} must be 3 to 40 UTF-8 bytes.`)
+  }
+  return value
+}
+
+function optionalHomeV2NameData(request: Record<string, unknown>, keys: readonly string[], label: string) {
+  for (const key of keys) {
+    const value = request[key]
+    if (typeof value === 'string' && value !== '') {
+      if (POLL_TEXT_ENCODER.encode(value).byteLength > 4_000) {
+        throw new Error(`${label} must be at most 4000 UTF-8 bytes.`)
+      }
+      return value
+    }
+  }
+  return ''
+}
+
+function optionalHomeV2QortiumAddress(value: unknown, label: string) {
+  if (value === undefined || value === null || value === '') return undefined
+  const address = typeof value === 'string' ? value.trim() : ''
+  if (!/^Q[1-9A-HJ-NP-Za-km-z]{20,}$/.test(address)) {
+    throw new Error(`${label} must be a Qortium address.`)
+  }
+  return address
+}
+
+export type HomeV2RegisterNameRequest = {
+  readonly data: string
+  readonly name: string
+}
+
+export function normalizeHomeV2RegisterNameRequest(request: Record<string, unknown>): HomeV2RegisterNameRequest {
+  assertHomeV2SignedWriteFeeAndGroup(request, 'name')
+  const name = newHomeV2NameValue(requiredHomeV2NameField(request, 'name', 'Name'), 'Name')
+  const data = optionalHomeV2NameData(request, ['data', 'nameData'], 'Name data')
+  return Object.freeze({ data, name })
+}
+
+export type HomeV2UpdateNameRequest = {
+  readonly name: string
+  // '' means "keep the current name"; '' newData means "keep the current
+  // data" (1.x and wire semantics — empty is NOT a clear).
+  readonly newData: string
+  readonly newName: string
+  readonly primary?: boolean
+}
+
+export function normalizeHomeV2UpdateNameRequest(request: Record<string, unknown>): HomeV2UpdateNameRequest {
+  assertHomeV2SignedWriteFeeAndGroup(request, 'name')
+  const name = requiredHomeV2NameField(request, 'name', 'Name')
+  const newNameRaw = typeof request.newName === 'string' ? request.newName.trim() : ''
+  const newName = newNameRaw === '' ? '' : newHomeV2NameValue(newNameRaw, 'New name')
+  const newData = optionalHomeV2NameData(request, ['newData', 'data', 'nameData'], 'New name data')
+  const primaryRaw = typeof request.primary === 'boolean'
+    ? request.primary
+    : typeof request.isPrimary === 'boolean' ? request.isPrimary : undefined
+  return Object.freeze({ name, newData, newName, ...(primaryRaw === undefined ? {} : { primary: primaryRaw }) })
+}
+
+export type HomeV2SellNameRequest = {
+  readonly amount: HomeV2CoinAmount
+  readonly name: string
+  readonly recipient?: string
+}
+
+export function normalizeHomeV2SellNameRequest(request: Record<string, unknown>): HomeV2SellNameRequest {
+  assertHomeV2SignedWriteFeeAndGroup(request, 'name')
+  const name = requiredHomeV2NameField(request, 'name', 'Name')
+  const amount = parseHomeV2CoinAmount(request.amount, 'Name sale amount')
+  const recipient = optionalHomeV2QortiumAddress(request.recipient ?? request.recipientAddress, 'Recipient address')
+  return Object.freeze({ amount, name, ...(recipient === undefined ? {} : { recipient }) })
+}
+
+export type HomeV2CancelSellNameRequest = { readonly name: string }
+
+export function normalizeHomeV2CancelSellNameRequest(request: Record<string, unknown>): HomeV2CancelSellNameRequest {
+  assertHomeV2SignedWriteFeeAndGroup(request, 'name')
+  return Object.freeze({ name: requiredHomeV2NameField(request, 'name', 'Name') })
+}
+
+export type HomeV2BuyNameRequest = {
+  // Absent means "the live sale price"; resolved against authoritative name
+  // state in the bridge, and an explicit value must match it exactly.
+  readonly amount?: HomeV2CoinAmount
+  readonly name: string
+  // Absent means "the live owner"; same resolution rule.
+  readonly seller?: string
+}
+
+export function normalizeHomeV2BuyNameRequest(request: Record<string, unknown>): HomeV2BuyNameRequest {
+  assertHomeV2SignedWriteFeeAndGroup(request, 'name')
+  const name = requiredHomeV2NameField(request, 'name', 'Name')
+  const amount = request.amount === undefined ? undefined : parseHomeV2CoinAmount(request.amount, 'Name purchase amount')
+  const seller = optionalHomeV2QortiumAddress(request.seller, 'Seller address')
+  return Object.freeze({
+    name,
+    ...(amount === undefined ? {} : { amount }),
+    ...(seller === undefined ? {} : { seller }),
+  })
+}
+
+/**
+ * The subject name as the prompt and the pre-sign revalidation need it,
+ * selected from Core\'s GET /names/{name} answer. GET resolves by REDUCED
+ * name while the transactions demand the exact stored display name, so the
+ * caller must compare `name` here against what it asked for and refuse a
+ * mismatch rather than silently substituting the stored spelling.
+ */
+export function selectHomeV2NameTarget(value: unknown) {
+  if (!isHomeV2AppRecord(value) || typeof value.name !== 'string' || typeof value.owner !== 'string') {
+    throw new Error('The name lookup answered with an unrecognized shape.')
+  }
+  const salePrice = value.salePrice === undefined || value.salePrice === null
+    ? null
+    : parseHomeV2CoinAmount(value.salePrice, 'Name sale price')
+  return Object.freeze({
+    isForSale: value.isForSale === true,
+    name: value.name,
+    owner: value.owner,
+    salePrice,
+    saleRecipient: typeof value.saleRecipient === 'string' && value.saleRecipient ? value.saleRecipient : null,
   })
 }
 

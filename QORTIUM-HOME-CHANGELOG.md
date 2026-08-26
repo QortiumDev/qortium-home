@@ -34,6 +34,24 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-26 - feat(home-v2): apps can register, update, sell, and buy names again
+
+Restores the third deferred action family: on-chain names. An app can now ask
+to register a name, update one, offer it for sale, cancel a sale, or buy one —
+each a single fee-free signed transaction, each asking you first, every time.
+Buying is treated as what it is: a payment. The approval shows the exact
+amount that will leave your account, exactly who receives it, and any
+restriction on the sale — all read live from the chain, never taken from the
+app's word — and if the sale changes while the approval is open, Home refuses
+to sign. Selling makes the old confusion impossible: the optional "recipient"
+is labelled as the only account ALLOWED TO BUY, with proceeds always going to
+you. Updates finally show everything they touch, including what stays
+unchanged. As with polls, your account key never leaves Home, the unsigned
+transaction is verified byte-for-byte against what you approved before local
+signing, and an unclear submission is remembered and blocks an accidental
+duplicate. Desktop only for now, and the matching Core release (1.7.3+)
+must expose the new public name builders.
+
 ### 2026-08-26 - feat(home-v2): apps can create polls, vote, and update polls again
 
 Restores the second deferred action family: on-chain polls. An app can now ask
