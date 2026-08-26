@@ -1,4 +1,5 @@
 import { base58Decode, base58Encode } from './base58.js'
+import { canonicalHomeV2GroupAdminAction, type HomeV2GroupAdminAction } from './home-v2-group-admin-actions.js'
 import type {
   HomeV2AppBridgeProtocol,
   HomeV2AppNetwork,
@@ -45,6 +46,15 @@ export const HOME_V2_JOURNALED_MUTATIONS = Object.freeze([
   // blocking is right here — the shipped caller is a once-per-account faucet
   // claim, where a duplicate is exactly what reconciliation exists to prevent.
   'SEND_MESSAGE',
+  // Poll writes sign and broadcast like a chat send and share its ambiguous-
+  // outcome problem. VOTE_ON_POLL and UPDATE_POLL journal against the stable
+  // {kind:'poll', pollId} target; CREATE_POLL has no id before it confirms,
+  // so it takes the same coarse {kind:'operation'} treatment as SEND_MESSAGE —
+  // one unreconciled create blocks this app's next create for the account,
+  // which errs toward preventing the duplicate poll reconciliation exists for.
+  'CREATE_POLL',
+  'UPDATE_POLL',
+  'VOTE_ON_POLL',
   'SEND_PRIVATE_GROUP_CHAT_DELETE',
   'SEND_PRIVATE_GROUP_CHAT_EDIT',
   'SEND_PRIVATE_GROUP_CHAT_MESSAGE',
@@ -56,6 +66,7 @@ export type HomeV2JournaledMutation = (typeof HOME_V2_JOURNALED_MUTATIONS)[numbe
 export type HomeV2TransactionTarget =
   | { readonly kind: 'direct'; readonly otherAddress: string }
   | { readonly kind: 'group'; readonly groupId: number }
+  | { readonly kind: 'poll'; readonly pollId: number }
   | {
       readonly kind: 'resource'
       readonly identifier: string | null
@@ -69,6 +80,13 @@ export interface HomeV2PendingTransaction {
   readonly action: HomeV2JournaledMutation
   readonly appIdentity: string
   readonly createdAt: number
+  // The target-derivation revision the entry was recorded under. Version 2 is
+  // the per-normalizer field-ownership derivation (2026-08-26); an entry
+  // WITHOUT the stamp predates it, and its stored target may have been moved
+  // by a decoy field the old derivation trusted — so conflict matching treats
+  // unstamped entries as coarse for their whole action (see
+  // journalTargetsConflict). Absent on legacy entries by definition.
+  readonly derivation?: 2
   readonly network: HomeV2AppNetwork
   readonly protocol: HomeV2AppBridgeProtocol
   readonly signature: string
@@ -121,10 +139,22 @@ function normalizeTarget(value: unknown): HomeV2TransactionTarget {
   if (!isRecord(value)) throw new Error('Pending transaction target is invalid.')
   if (value.kind === 'operation') return Object.freeze({ kind: 'operation' })
   if (value.kind === 'group') {
+    // 0 stays legal (public chat's General chat), and there is deliberately
+    // NO int32 upper bound: entries recorded before this revision could
+    // legally store any safe integer here, and the journal store fails
+    // CLOSED on a single unreadable entry — a new bound would brick every
+    // pre-existing journal containing one. An oversized stored key is
+    // harmless: it can only ever block, never loosen.
     if (!Number.isSafeInteger(value.groupId) || Number(value.groupId) < 0) {
       throw new Error('Pending transaction group target is invalid.')
     }
     return Object.freeze({ kind: 'group', groupId: Number(value.groupId) })
+  }
+  if (value.kind === 'poll') {
+    if (!Number.isSafeInteger(value.pollId) || Number(value.pollId) < 1 || Number(value.pollId) > 2_147_483_647) {
+      throw new Error('Pending transaction poll target is invalid.')
+    }
+    return Object.freeze({ kind: 'poll', pollId: Number(value.pollId) })
   }
   if (value.kind === 'direct') {
     const otherAddress = boundedString(value.otherAddress, 'Pending transaction direct target', 128)
@@ -166,6 +196,10 @@ export function sanitizeHomeV2PendingTransaction(value: unknown): HomeV2PendingT
     action: value.action,
     appIdentity: boundedString(value.appIdentity, 'Pending transaction app identity', 2_048),
     createdAt: safeTimestamp(value.createdAt, 'Pending transaction creation time'),
+    // Anything other than the exact current revision is dropped, so a stored
+    // entry can only ever carry a stamp the running code actually issued —
+    // a forged higher number cannot pre-claim trust in its target.
+    ...(value.derivation === 2 ? { derivation: 2 as const } : {}),
     network,
     protocol,
     signature: canonicalSignature(value.signature),
@@ -254,23 +288,166 @@ export function toHomeV2PendingTransactionResult(
   })
 }
 
-export function homeV2TransactionTargetFromRequest(value: unknown): HomeV2TransactionTarget {
-  if (!isRecord(value)) return Object.freeze({ kind: 'operation' })
-  const conversation = isRecord(value.conversation) ? value.conversation : null
-  if (conversation?.kind === 'group') return normalizeTarget({ kind: 'group', groupId: conversation.groupId })
-  if (conversation?.kind === 'direct') return normalizeTarget({ kind: 'direct', otherAddress: conversation.otherAddress })
-  if (value.txGroupId !== undefined) return normalizeTarget({ kind: 'group', groupId: value.txGroupId })
-  if (value.groupId !== undefined) return normalizeTarget({ kind: 'group', groupId: value.groupId })
-  if (value.otherAddress !== undefined) return normalizeTarget({ kind: 'direct', otherAddress: value.otherAddress })
-  if (isRecord(value.resource)) {
-    return normalizeTarget({
-      identifier: value.resource.identifier ?? null,
-      kind: 'resource',
-      name: value.resource.name,
-      service: value.resource.service,
-    })
+// The action families whose journal keys come from specific request fields.
+// Membership here is the FIELD-OWNERSHIP map: an action derives its conflict
+// key only from the fields its own normalizer actually consumes, so a field
+// it ignores can never move it onto a different key.
+const DIRECT_CHAT_JOURNAL_ACTIONS = new Set<string>([
+  'SEND_DIRECT_CHAT_DELETE',
+  'SEND_DIRECT_CHAT_EDIT',
+  'SEND_DIRECT_CHAT_MESSAGE',
+  'SEND_DIRECT_CHAT_REACTION',
+])
+const PUBLIC_CHAT_JOURNAL_ACTIONS = new Set<string>([
+  'SEND_CHAT_DELETE',
+  'SEND_CHAT_EDIT',
+  'SEND_CHAT_MESSAGE',
+  'SEND_CHAT_REACTION',
+])
+const PRIVATE_GROUP_JOURNAL_ACTIONS = new Set<string>([
+  'REQUEST_PRIVATE_GROUP_CHAT_KEY',
+  'RESOLVE_PRIVATE_GROUP_CHAT_KEY_REQUESTS',
+  'ROTATE_PRIVATE_GROUP_CHAT_KEY',
+  'SEND_PRIVATE_GROUP_CHAT_DELETE',
+  'SEND_PRIVATE_GROUP_CHAT_EDIT',
+  'SEND_PRIVATE_GROUP_CHAT_MESSAGE',
+  'SEND_PRIVATE_GROUP_CHAT_REACTION',
+])
+const GROUP_TARGET_JOURNAL_ACTIONS = new Set<string>([
+  'ADD_GROUP_ADMIN',
+  'APPROVE_GROUP_JOIN_REQUEST',
+  'BAN_FROM_GROUP',
+  'CANCEL_GROUP_BAN',
+  'CANCEL_GROUP_INVITE',
+  'GROUP_BAN',
+  'GROUP_KICK',
+  'INVITE_TO_GROUP',
+  'JOIN_GROUP',
+  'KICK_FROM_GROUP',
+  'LEAVE_GROUP',
+  'REMOVE_GROUP_ADMIN',
+])
+/**
+ * The action compared when matching a retained conflict. GROUP_BAN and
+ * BAN_FROM_GROUP (and the kick pair) are 1.x aliases of one operation —
+ * comparing raw names would let the alias spelling slip past the other
+ * spelling's retained unknown-outcome block (security review 2026-08-26,
+ * round 2).
+ */
+function journalConflictActionKey(action: string) {
+  return GROUP_TARGET_JOURNAL_ACTIONS.has(action)
+    ? canonicalHomeV2GroupAdminAction(action as HomeV2GroupAdminAction)
+    : action
+}
+
+const OPERATION_TARGET = Object.freeze({ kind: 'operation' } as const)
+
+// Lenient wrapper: derivation runs BEFORE the action handler validates the
+// request, so a value the journal's own validator rejects falls to the
+// coarse operation target and the handler then refuses the request with its
+// own named error — the journal must never be the thing that rejects it
+// first. (The pre-polls derivation threw instead; falling coarse only ever
+// blocks MORE.) The journal validator is deliberately looser than the
+// handlers on a few bounds — e.g. a group id of 0 is a valid PUBLIC-chat key
+// — so a value it accepts can still be one a handler refuses; the handler
+// remains the authority, and a specific-but-doomed key blocks no less than a
+// coarse one for that request.
+function derivedTarget(candidate: unknown): HomeV2TransactionTarget {
+  try {
+    return normalizeTarget(candidate)
+  } catch {
+    return OPERATION_TARGET
   }
-  return Object.freeze({ kind: 'operation' })
+}
+
+/**
+ * The conflict/recording key for one journaled mutation, derived from
+ * EXACTLY the request fields that ACTION's own normalizer consumes, in the
+ * same precedence (security review 2026-08-26, finding 3 through round 3):
+ * with any looser derivation, an app could vary an IGNORED field — a stray
+ * `pollId` or `txGroupId` on a direct send, a stray `conversation` on a chat
+ * send, a decoy nested `resource` on a publish — to move the same logical
+ * operation onto a different conflict key and slip past its retained
+ * unknown-outcome block. The per-family field reads below each cite the
+ * normalizer they mirror; keep them in lockstep.
+ */
+export function homeV2TransactionTargetFromRequest(action: string, value: unknown): HomeV2TransactionTarget {
+  if (!isRecord(value)) return OPERATION_TARGET
+  if (action === 'VOTE_ON_POLL' || action === 'UPDATE_POLL') {
+    // normalizeHomeV2VoteOnPollRequest / UpdatePoll: pollId ?? poll.
+    const raw = value.pollId ?? value.poll
+    const pollId = typeof raw === 'number' ? raw : typeof raw === 'string' && raw.trim() ? Number(raw.trim()) : NaN
+    if (Number.isSafeInteger(pollId) && pollId >= 1) {
+      return derivedTarget({ kind: 'poll', pollId })
+    }
+    return OPERATION_TARGET
+  }
+  if (DIRECT_CHAT_JOURNAL_ACTIONS.has(action)) {
+    // normalizeHomeV2DirectChatWriteRequest: otherAddress ?? recipientAddress.
+    const address = value.otherAddress ?? value.recipientAddress
+    return address !== undefined ? derivedTarget({ kind: 'direct', otherAddress: address }) : OPERATION_TARGET
+  }
+  if (PUBLIC_CHAT_JOURNAL_ACTIONS.has(action)) {
+    // normalizeHomeV2PublicChatRequest: txGroupId (top-level only).
+    return value.txGroupId !== undefined
+      ? derivedTarget({ kind: 'group', groupId: value.txGroupId })
+      : OPERATION_TARGET
+  }
+  if (PRIVATE_GROUP_JOURNAL_ACTIONS.has(action)) {
+    // home-v2-private-group-chat-contract normalizeGroupId: groupId ?? txGroupId.
+    const raw = value.groupId ?? value.txGroupId
+    return raw !== undefined ? derivedTarget({ kind: 'group', groupId: raw }) : OPERATION_TARGET
+  }
+  if (GROUP_TARGET_JOURNAL_ACTIONS.has(action)) {
+    // The membership/admin normalizers read groupId.
+    return value.groupId !== undefined
+      ? derivedTarget({ kind: 'group', groupId: value.groupId })
+      : OPERATION_TARGET
+  }
+  if (action === 'PUBLISH_CHAT_ATTACHMENT') {
+    // normalizeHomeV2PrivateAttachmentPublishRequest requires `conversation`.
+    const conversation = isRecord(value.conversation) ? value.conversation : null
+    if (conversation?.kind === 'group') return derivedTarget({ kind: 'group', groupId: conversation.groupId })
+    if (conversation?.kind === 'direct') return derivedTarget({ kind: 'direct', otherAddress: conversation.otherAddress })
+    return OPERATION_TARGET
+  }
+  if (action === 'PUBLISH_QDN_RESOURCE') {
+    // getQdnWriteResourceRequest reads flat service/name/identifier with the
+    // payload fallback (qdn-request-values getRequestValue).
+    const payload = isRecord(value.payload) ? value.payload : null
+    const service = payload?.service ?? value.service
+    const name = payload?.name ?? value.name
+    const identifier = payload?.identifier ?? value.identifier
+    if (typeof service === 'string' && service && typeof name === 'string' && name) {
+      return derivedTarget({
+        identifier: typeof identifier === 'string' && identifier ? identifier : null,
+        kind: 'resource',
+        name,
+        service,
+      })
+    }
+    return OPERATION_TARGET
+  }
+  // SEND_MESSAGE, CREATE_POLL, and anything future land here: the coarse
+  // per-app-and-account operation target, which errs toward blocking.
+  return OPERATION_TARGET
+}
+
+/**
+ * Whether a retained entry blocks a request deriving `derived`. An operation
+ * target is coarse BY DEFINITION — it blocks every request of its action —
+ * and an entry recorded under a PRE-version-2 derivation is treated the same
+ * way: its stored target may have been moved by a decoy field the old
+ * derivation trusted, so its true subject is unknowable and the whole action
+ * blocks until it is reconciled or expires. Blocking more is the safe
+ * direction; reconciliation (GET_PENDING_TRANSACTIONS +
+ * FORGET_PENDING_TRANSACTION by signature) and the 30-day expiry clear such
+ * entries exactly as before. (Security review 2026-08-26, round 4.)
+ */
+function journalTargetsConflict(entry: HomeV2PendingTransaction, derived: HomeV2TransactionTarget) {
+  if (entry.derivation !== 2) return true
+  if (entry.target.kind === 'operation' || derived.kind === 'operation') return true
+  return JSON.stringify(entry.target) === JSON.stringify(derived)
 }
 
 export function findHomeV2PendingTransactionConflict(
@@ -285,11 +462,11 @@ export function findHomeV2PendingTransactionConflict(
   now = Date.now(),
 ): HomeV2PendingTransaction | null {
   if (!isHomeV2JournaledMutation(input.action)) return null
-  const target = homeV2TransactionTargetFromRequest(input.request)
+  const target = homeV2TransactionTargetFromRequest(input.action, input.request)
   return getHomeV2PendingTransactions(journal, input, now).find((entry) =>
-    entry.action === input.action &&
+    journalConflictActionKey(entry.action) === journalConflictActionKey(input.action) &&
     entry.stage !== 'key-announcement' &&
-    JSON.stringify(entry.target) === JSON.stringify(target),
+    journalTargetsConflict(entry, target),
   ) ?? null
 }
 
@@ -316,13 +493,14 @@ export function createHomeV2PendingTransactionFromResult(input: {
     action: input.action,
     appIdentity: input.appIdentity,
     createdAt: input.now ?? Date.now(),
+    derivation: 2,
     network: input.protocol === 'qortalRequest' ? 'qortal' : 'qortium',
     protocol: input.protocol,
     signature,
     ...(input.result.stage === 'key-announcement' && input.result.messageSubmitted === false
       ? { stage: 'key-announcement' as const }
       : {}),
-    target: homeV2TransactionTargetFromRequest(input.request),
+    target: homeV2TransactionTargetFromRequest(input.action, input.request),
     timestamp: input.result.timestamp,
   })
 }

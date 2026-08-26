@@ -913,3 +913,77 @@ too — 1.x checked it only on writes); `items` is a non-empty array of
 non-empty strings, each trimmed. One deliberate divergence: 1.x silently
 dropped blank and non-string entries and applied the survivors, reporting
 success for a half-applied batch. Home 2 refuses the whole request instead.
+
+## Poll actions (Home 2)
+
+Home 2 exposes the poll write family on `qdnRequest` only: `CREATE_POLL`,
+`VOTE_ON_POLL`, and `UPDATE_POLL`. Each signs exactly one fee-free Qortium
+chain transaction through Core's keyless `/polls/public/*` builders, following
+the group-membership pattern: validate locally, prompt single-request under the
+never-durable `poll.write` capability, build, byte-assert the unsigned
+transaction against everything the user approved
+(`assertPublicCreatePollTransaction` and friends), MemoryPoW on this device,
+Ed25519-sign locally, broadcast. A broadcast whose outcome is unclear is
+retained in the pending-transaction journal (`VOTE_ON_POLL`/`UPDATE_POLL`
+against their stable `{kind:'poll', pollId}` target; `CREATE_POLL`, which has
+no id before it confirms, against the coarse operation target) and blocks a
+duplicate until reconciled.
+
+Poll votes are by **`pollId` only** and option indexes are **one-based**: `0`,
+`[0]`, or `[]` means "remove my vote" and cannot be combined with real
+selections. Multi-option selections are sorted into Core's canonical ascending
+order before building. Changing an existing vote is allowed; repeating the
+exact current selection (or removing a vote that does not exist) fails with
+Core's `ALREADY_VOTED_FOR_THAT_OPTION`, exactly as in 1.x — Home deliberately
+does not map that to an idempotent success.
+
+Where 1.x prompts showed only an action and a name, these show the operation.
+A vote prompt fetches the poll and names it plus the selected option labels
+**as the configured node reports them** (an out-of-range index is refused
+before any prompt — never "option 3 of 2"), and the poll is re-read after
+approval: if its name or option list changed while the prompt was open, the
+approved indexes no longer name the approved labels and the action is refused.
+Two residuals are inherent and documented rather than solved: the labels come
+from the configured node, so a compromised node can misdescribe a poll — the
+signed transaction binds only the poll id and indexes, which is also why the
+lookup at least refuses an answer claiming a different poll id; and after the
+final re-read the chain can still order an owner's UPDATE ahead of the vote,
+re-labelling what the indexes mean — a protocol-level window that closes
+permanently once a poll has its first vote, because Core then freezes its
+options. Create and update prompts show the complete replacement metadata
+with every field explicit — an update that omits the description or a time
+CLEARS the stored one, and its prompt says "(none — clears …)" as a row
+rather than hiding the destruction by omission. User-derived text is escaped
+to printable ASCII (backslashes doubled first, so the escape is injective and
+a literal "\u202e" can never render like a real bidi override; C0 controls
+become visible escapes too, so a legitimate multiline description still
+prompts), and anything too large to display in full (4,000 characters) is
+refused rather than approved unseen.
+
+Request shapes are 1.x parity, including the aliases (`poll`/`pollId`,
+`option`/`optionIndex`, `options`/`pollOptions`, the `new*` update fields and
+their fallbacks), tightened to Core's real limits so a doomed request fails
+here with a named reason: names 3–400 UTF-8 bytes in Unicode normalized form,
+descriptions at most 4,000 bytes, 2–1000 options of 1–400 bytes each,
+case-sensitively unique. The name rule approximates Core's
+`Unicode.normalize` (NFKC, no invisible or control characters, collapsed
+whitespace); Core remains the authority, so an exotic name that passes Home
+can still answer `NAME_NOT_NORMALIZED` from the builder. Poll times must be
+in the future, and poll ids are positive 32-bit integers. Three deliberate v2
+divergences: `fee` and
+`txGroupId`, when present, must be `0` (the fee-less MemoryPoW path is the
+only signing path Home 2 carries, and a fee the app believed it was paying
+must never be silently zeroed); `pollId` must be at least 1 (1.x accepted 0
+and let Core reject it); and requests are read from top-level fields only, the
+established Home 2 convention.
+
+The family requires a selected, unlocked account, and works against any
+reachable Qortium route that exposes the public poll builders — a node without
+them answers `NODE_CAPABILITY_MISSING`. On Android all three are filtered out
+of `SHOW_ACTIONS` (`ANDROID_UNSUPPORTED_ACTIONS` — Android has no transaction
+signing path) and a direct call is refused with that reason; the pinned Qortal
+v3 poll forms stay deferred, because Hub's contract is a genuinely different
+legacy transaction (pollName target, zero-based index, paid fee and a last
+reference, no builder) and mechanically translating it into the Qortium
+transaction would be wrong. Poll READS were never first-class actions in 1.x
+and remain reachable through `FETCH_NODE_API` `/polls/...` exactly as before.

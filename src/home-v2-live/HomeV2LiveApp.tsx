@@ -204,7 +204,7 @@ import {
   isHomeV2PermissionlessAction,
 } from '../../electron/home-v2-session-grants'
 import { getHomeV2BridgeStateDetails } from '../../electron/home-v2-app-runtime'
-import { canonicalHomeV2AppAction, isHomeV2ListWriteAction } from '../../electron/home-v2-app-actions'
+import { canonicalHomeV2AppAction, homeV2PollOperationLabel, isHomeV2ListWriteAction, isHomeV2PollWriteAction } from '../../electron/home-v2-app-actions'
 import {
   homeV2NotificationChainLabel,
   homeV2NotificationSourceKey,
@@ -373,6 +373,67 @@ function isNodeListDetailRows(
     candidate.value.length <= maxLength &&
     !/[\u0000-\u001f\u007f]/.test(candidate.value)
   return row(value[0], 'List', 120) && row(value[1], 'Items', 4_000) && row(value[2], 'Node', 500)
+}
+
+/**
+ * The rows a poll write prompt must carry, validated per ACTION against the
+ * exact sequence the main process emits (security review 2026-08-26,
+ * finding 2: a family-wide label pool let a forged VOTE prompt render with a
+ * single benign-looking row and no selection at all). A vote is exactly
+ * Poll then Selection; a create is the full metadata with only the time rows
+ * optional; an update is the COMPLETE replacement — every row present, so a
+ * clearing "(none)" can never be hidden by omitting its row. Values are
+ * bounded printable strings: the main process escapes every user-derived
+ * value to printable ASCII (backslash-doubled first, so the escape is
+ * injective), which makes a control character proof of a forged payload.
+ */
+const POLL_DETAIL_SEQUENCES: Record<string, readonly { label: string; optional?: true }[]> = {
+  CREATE_POLL: [
+    { label: 'Name' },
+    { label: 'Description' },
+    { label: 'Options' },
+    { label: 'Owner' },
+    { label: 'Starts', optional: true },
+    { label: 'Ends', optional: true },
+  ],
+  UPDATE_POLL: [
+    { label: 'Poll' },
+    { label: 'New name' },
+    { label: 'New description' },
+    { label: 'New options' },
+    { label: 'New start' },
+    { label: 'New end' },
+  ],
+  VOTE_ON_POLL: [
+    { label: 'Poll' },
+    { label: 'Selection' },
+  ],
+}
+
+function isPollDetailRows(
+  action: string,
+  value: unknown,
+): value is readonly { label: string; value: string }[] {
+  const sequence = POLL_DETAIL_SEQUENCES[action]
+  if (!sequence || !Array.isArray(value) || value.length < 1) return false
+  let position = 0
+  for (const expected of sequence) {
+    const candidate = value[position] as unknown
+    const matches =
+      isRecord(candidate) &&
+      Object.keys(candidate).length === 2 &&
+      candidate.label === expected.label &&
+      typeof candidate.value === 'string' &&
+      candidate.value.length >= 1 &&
+      candidate.value.length <= 4_000 &&
+      !/[\u0000-\u001f\u007f]/.test(candidate.value)
+    if (matches) {
+      position += 1
+      continue
+    }
+    if (!expected.optional) return false
+  }
+  return position === value.length
 }
 
 type HomeV2ReplaceTabTarget = ReplaceTabTarget
@@ -2850,6 +2911,7 @@ export function HomeV2LiveApp() {
             !isHomeV2GroupMembershipAction(value.action) &&
             !isHomeV2MintingWriteAction(value.action) &&
             !isHomeV2ListWriteAction(value.action) &&
+            !isHomeV2PollWriteAction(value.action) &&
             !isHomeV2GroupAdminAction(value.action))) ||
         // The manager families and the Home-settings update act on Home-profile
         // data, not on an account, so they are prompted with no account selected
@@ -2934,6 +2996,26 @@ export function HomeV2LiveApp() {
             typeof value.writeOperationLabel !== 'string' ||
             typeof value.writeRouteLabel !== 'string' ||
             typeof value.writeTargetChainLabel !== 'string' ||
+            value.writeSingleRequestOnly !== true))
+        // Poll writes sign chain transactions, so their prompts must arrive
+        // fully specified single-request or not at all — same rule as
+        // SEND_MESSAGE, and pinned the same way: the protocol and chain are
+        // fixed because the transaction serializer is Qortium-specific, and
+        // the rows must be the exact per-action sequence the bridge emits.
+        || (isHomeV2PollWriteAction(value.action) &&
+          (value.writeKind !== 'poll' ||
+            value.protocol !== 'qdnRequest' ||
+            value.targetNetwork !== 'qortium' ||
+            !isPollDetailRows(value.action, value.pollDetails) ||
+            // The caption is pinned to the action, so a forged payload cannot
+            // caption a vote as a harmless-sounding lookup or create. The two
+            // legitimate vote captions are the vote and removal labels.
+            (value.action === 'VOTE_ON_POLL'
+              ? value.writeOperationLabel !== homeV2PollOperationLabel('VOTE_ON_POLL', false) &&
+                value.writeOperationLabel !== homeV2PollOperationLabel('VOTE_ON_POLL', true)
+              : value.writeOperationLabel !== homeV2PollOperationLabel(value.action)) ||
+            typeof value.writeRouteLabel !== 'string' ||
+            value.writeTargetChainLabel !== 'Qortium' ||
             value.writeSingleRequestOnly !== true))
         // SEND_MESSAGE signs a chain transaction, so its prompt must arrive
         // fully specified or not at all. The recipient AT address and the
@@ -3041,6 +3123,7 @@ export function HomeV2LiveApp() {
       const isJournalForget = value.action === 'FORGET_PENDING_TRANSACTION'
       const isMintingWrite = isHomeV2MintingWriteAction(value.action)
       const isListWrite = isHomeV2ListWriteAction(value.action)
+      const isPollWrite = isHomeV2PollWriteAction(value.action)
       // A zero-fee chain MESSAGE to an AT. Its own prompt kind: it signs, so it
       // must never inherit the read-only account prompt's wording, its
       // 'account.read' grant family, or its session/always scopes.
@@ -3056,7 +3139,7 @@ export function HomeV2LiveApp() {
       // access". Splitting the GRANT is a separate decision, not made here.
       const accountReadPromptKind = homeV2AccountReadPromptKind(value.action)
       const isGenericAccountRead = accountReadPromptKind === 'account'
-      const operationLabel = isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment || isNotification || isBookmarkManager || isNotificationManager || isHomeSettingsUpdate || isJournalForget || isMintingWrite || isListWrite || isAtMessage
+      const operationLabel = isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment || isNotification || isBookmarkManager || isNotificationManager || isHomeSettingsUpdate || isJournalForget || isMintingWrite || isListWrite || isPollWrite || isAtMessage
         ? String(value.writeOperationLabel)
         : ''
       const prompt = createPermissionPrompt({
@@ -3107,6 +3190,10 @@ export function HomeV2LiveApp() {
               // like 'home.settings.write' (see bridge-permissions.ts).
               : isListWrite
                 ? 'node.lists.write'
+              // Signs a chain transaction: its own capability, never
+              // 'account.read', single-request only (see bridge-permissions).
+              : isPollWrite
+                ? 'poll.write'
               // Its own capability, never 'account.read': that string is what
               // bridge-permissions.ts unifies durable grants on, and a signing
               // action must not be reachable through a read grant.
@@ -3150,7 +3237,7 @@ export function HomeV2LiveApp() {
             ? 'Forget pending transaction?'
           : isAtMessage
             ? 'Send a message to a contract?'
-          : isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment || isMintingWrite || isListWrite
+          : isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment || isMintingWrite || isListWrite || isPollWrite
           ? `Allow ${operationLabel.toLowerCase()}?`
           : 'Allow account access?',
         summary: isWidgetPrompt
@@ -3165,6 +3252,8 @@ export function HomeV2LiveApp() {
           ? `${appTitle} wants to change the Home settings listed below. This approval covers this one change only — the app must ask again for the next one. It cannot read or change your accounts, node connections, or saved data.`
           : isListWrite
           ? `${appTitle} wants to change a named list stored on your own node. Apps on this node share these lists — they commonly drive blocking and following — so this change affects what other apps show you. This approval covers this one change only; nothing is signed and nothing on chain changes.`
+          : isPollWrite
+          ? `${appTitle} wants to sign and broadcast one poll transaction from the selected account. It carries no payment and costs no fee — Home pays for it with proof-of-work on this device. Everything it does is shown below, exactly as it will be signed; this approval covers this one transaction only.`
           : accountReadPromptKind
           ? homeV2AccountReadPromptSummary(accountReadPromptKind, appTitle)
           : isJournalRead
@@ -3232,6 +3321,26 @@ export function HomeV2LiveApp() {
                   ? { label: detail.label, value: detail.value, variant: 'scroll' as const }
                   : { label: detail.label, value: detail.value }),
               { label: 'Scope', value: 'This one request only' },
+            ]
+          : isPollWrite
+          ? [
+              { label: 'Account', value: account?.label ?? accountId },
+              { label: 'Operation', value: operationLabel },
+              // The per-action rows, re-checked by isPollDetailRows above.
+              // The long user-derived rows (options, descriptions, a
+              // multi-option selection) render in the bounded scrolling block
+              // the SEND_MESSAGE Message row uses: the user must be able to
+              // read all of what they are signing without it pushing the
+              // buttons off-screen.
+              ...(value.pollDetails as readonly { label: string; value: string }[])
+                .map((detail) =>
+                  detail.label === 'Options' || detail.label === 'New options' ||
+                  detail.label === 'Description' || detail.label === 'New description' ||
+                  detail.label === 'Selection'
+                    ? { label: detail.label, value: detail.value, variant: 'scroll' as const }
+                    : { label: detail.label, value: detail.value }),
+              { label: 'Chain', value: String(value.writeTargetChainLabel) },
+              { label: 'Scope', value: 'This one transaction only' },
             ]
           // Only the GENERIC account-read prompt keeps the generic detail
           // rows. The private-group and attachment reads now fall through to

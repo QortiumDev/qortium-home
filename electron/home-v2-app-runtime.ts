@@ -277,6 +277,12 @@ const ANDROID_UNSUPPORTED_ACTIONS = new Set<string>([
   'GET_LIST',
   'ADD_TO_LIST',
   'REMOVE_FROM_LIST',
+  // Poll writes sign transactions, and Android has no signing path — the same
+  // reason SEND_MESSAGE is here. The generic portable-client refusal names
+  // signing, which is exactly the reason, so no special arm is needed.
+  'CREATE_POLL',
+  'UPDATE_POLL',
+  'VOTE_ON_POLL',
 ])
 
 export function isHomeV2AndroidUnsupportedAction(action: string) {

@@ -55,6 +55,11 @@ export type PermissionCapability =
   // (GET_ALL_LISTS, GET_LIST) carry no capability at all — they never prompt,
   // exactly as in Home 1.x.
   | 'node.lists.write'
+  // Creating, updating, or voting on a chain poll (CREATE_POLL, UPDATE_POLL,
+  // VOTE_ON_POLL). Signs one fee-free transaction per approval. Never durable
+  // and never 'account.read': single-request prompt only, like
+  // 'contract.message.send' below and for the same reason.
+  | 'poll.write'
   // Signing one zero-fee, zero-payment chain MESSAGE to an AT (SEND_MESSAGE).
   // Deliberately NOT 'account.read' and not any 'chat.*' capability: durable
   // grants unify on the capability string, so a signing action must never be
@@ -138,6 +143,9 @@ export interface PermissionPrompt {
     // GET_ALL_LISTS and GET_LIST are deliberately absent: both are unprompted.
     | 'ADD_TO_LIST'
     | 'REMOVE_FROM_LIST'
+    | 'CREATE_POLL'
+    | 'UPDATE_POLL'
+    | 'VOTE_ON_POLL'
     | 'SEND_MESSAGE'
   readonly capability: PermissionCapability
   readonly appId: AppId

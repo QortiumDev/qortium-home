@@ -2739,15 +2739,16 @@ function testGrantIdentityAndSendRateLimitHardening(): void {
     appBridge,
     // Budget widened again when the durable account.read grant check (R3-10)
     // grew an account binding and a canonical-principal lookup between these
-    // two points. The ordering property is what matters and is unchanged: the
-    // stale-resource check still runs BEFORE any grant (session or durable)
-    // is honored.
-    /liveResourceMatchesGrant\(context\)[\s\S]{0,5200}sessionAccountReadGrants\.has\(grantKey\)/,
+    // two points, and again when the node-list and poll write kinds (Home 2.1
+    // restoration wave) added their grant-target and single-request arms. The
+    // ordering property is what matters and is unchanged: the stale-resource
+    // check still runs BEFORE any grant (session or durable) is honored.
+    /liveResourceMatchesGrant\(context\)[\s\S]{0,6000}sessionAccountReadGrants\.has\(grantKey\)/,
   )
   // The durable chat.send grant must also sit after the stale-resource check.
   assert.match(
     appBridge,
-    /liveResourceMatchesGrant\(context\)[\s\S]{0,5200}hasQdnAppCapability\(appGrantKey, 'chat\.send'\)/,
+    /liveResourceMatchesGrant\(context\)[\s\S]{0,6000}hasQdnAppCapability\(appGrantKey, 'chat\.send'\)/,
   )
   // So must the durable account.read grant (R3-10). Its membership comes from
   // homeV2DurableAccountReadCapability, which returns null outside
@@ -2756,7 +2757,7 @@ function testGrantIdentityAndSendRateLimitHardening(): void {
   // unlock, a group-admin action or a minting write.
   assert.match(
     appBridge,
-    /liveResourceMatchesGrant\(context\)[\s\S]{0,5200}hasQdnAccountCapability\(appGrantKey, context\.accountId, durableAccountReadCapability\)/,
+    /liveResourceMatchesGrant\(context\)[\s\S]{0,6000}hasQdnAccountCapability\(appGrantKey, context\.accountId, durableAccountReadCapability\)/,
   )
   // The durable read grant is bound to the selected account, not just the app,
   // so it cannot survive an account switch the way the session grant cannot.
@@ -2838,10 +2839,12 @@ function testGrantIdentityAndSendRateLimitHardening(): void {
     /decision\.scope === 'always' &&\s*\n\s*durableAccountReadCapability &&\s*\n\s*appGrantKey &&\s*\n\s*grantAccountId/,
   )
   // The permissionless early return still precedes every grant check, so this
-  // feature did not widen what needs no prompt at all.
+  // feature did not widen what needs no prompt at all. (Budget widened for
+  // the node-list and poll write arms of the Home 2.1 restoration wave; the
+  // ordering property is what matters and is unchanged.)
   assert.match(
     appBridge,
-    /isHomeV2PermissionlessAction\(action\)\) return[\s\S]{0,3600}homeV2DurableAccountReadCapability\(action\)/,
+    /isHomeV2PermissionlessAction\(action\)\) return[\s\S]{0,4400}homeV2DurableAccountReadCapability\(action\)/,
   )
   assert.match(appBridge, /liveResourceMatchesGrant\(freshContext\)/)
   assert.match(appBridge, /isQdnViewVisible\(context\.windowId, context\.tabId\)/)

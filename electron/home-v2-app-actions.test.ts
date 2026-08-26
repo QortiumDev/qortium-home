@@ -13,9 +13,14 @@ import {
   homeV2AppAddressNamesIdentifier,
   HOME_V2_RESOURCE_VIEWER_ALIASES,
   normalizeHomeV2ChatMessageText,
+  canonicalHomeV2VoteSelection,
+  normalizeHomeV2CreatePollRequest,
   normalizeHomeV2ListItems,
   normalizeHomeV2ListName,
   normalizeHomeV2ListReadResult,
+  normalizeHomeV2UpdatePollRequest,
+  normalizeHomeV2VoteOnPollRequest,
+  selectHomeV2PollTarget,
   serializeHomeV2ListItemsForApproval,
   normalizeHomeV2OpenAddress,
   normalizeHomeV2ReadMethod,
@@ -1070,5 +1075,133 @@ for (const helper of [
     `${helper} sends X-API-KEY and must refuse redirects`,
   )
 }
+
+// ---- The poll write family (Home 2.1 restoration wave) ----
+
+// qdnRequest only. The pinned Qortal v3 poll forms are a genuinely different
+// legacy contract (pollName target, ZERO-based index, paid fee and a last
+// reference, no builder) and stay deferred rather than mistranslated.
+for (const action of ['CREATE_POLL', 'UPDATE_POLL', 'VOTE_ON_POLL']) {
+  assert.equal(qdnActions.includes(action), true, `qdnRequest should advertise ${action}`)
+  assert.equal(qortalActions.includes(action), false, `qortalRequest must not advertise ${action}`)
+}
+
+const SELECTED = 'Qdemo1111111111111111111111111111'
+
+// CREATE_POLL — 1.x aliases, Core limits, owner default.
+{
+  const created = normalizeHomeV2CreatePollRequest(
+    { description: ' What snack? ', options: 'Yes, No', pollName: ' Snacks ' },
+    SELECTED,
+  )
+  assert.equal(created.pollName, 'Snacks')
+  assert.equal(created.description, 'What snack?')
+  assert.deepEqual([...created.pollOptions], ['Yes', 'No'])
+  assert.equal(created.owner, SELECTED)
+  assert.equal(created.startTime, undefined)
+  const futureStart = Date.now() + 60_000
+  const futureEnd = futureStart + 60_000
+  const timed = normalizeHomeV2CreatePollRequest(
+    { endTime: String(futureEnd), pollName: 'Timed', pollOptions: ['A', { optionName: 'B' }], pollStartTime: futureStart },
+    SELECTED,
+  )
+  assert.equal(timed.startTime, futureStart)
+  assert.equal(timed.endTime, futureEnd)
+}
+for (const bad of [
+  { pollOptions: ['A', 'B'] },                                    // missing name
+  { pollName: 'ab', pollOptions: ['A', 'B'] },                    // < 3 bytes
+  { pollName: 'x'.repeat(401), pollOptions: ['A', 'B'] },         // > 400 bytes
+  { pollName: `A${String.fromCharCode(0x0041, 0x0301)}`.padEnd(5, 'x'), pollOptions: ['A', 'B'] }, // not normalized
+  { description: 'y'.repeat(4001), pollName: 'Poll', pollOptions: ['A', 'B'] },
+  { pollName: 'Poll', pollOptions: ['Only'] },                    // one option
+  { pollName: 'Poll', pollOptions: ['A', 'A'] },                  // duplicate
+  { owner: 'not-an-address', pollName: 'Poll', pollOptions: ['A', 'B'] },
+  // Both in the future but start >= end.
+  { endTime: Date.now() + 60_000, pollName: 'Poll', pollOptions: ['A', 'B'], startTime: Date.now() + 60_000 },
+  // Core requires poll times later than the transaction timestamp; a past
+  // time can only ever fail there, so it is refused with the real rule.
+  { endTime: 100, pollName: 'Poll', pollOptions: ['A', 'B'] },
+  { fee: 1, pollName: 'Poll', pollOptions: ['A', 'B'] },          // nonzero fee
+  { pollName: 'Poll', pollOptions: ['A', 'B'], txGroupId: 3 },    // nonzero group
+  // Core's normalization rule (NFKC + no invisibles + collapsed whitespace),
+  // approximated locally so the common cases fail with a named reason.
+  { pollName: '\uff21BC', pollOptions: ['A', 'B'] },              // fullwidth A (NFKC changes it)
+  { pollName: 'A  B', pollOptions: ['A', 'B'] },                  // repeated whitespace
+  { pollName: `Poll${String.fromCharCode(0x200b)}x`, pollOptions: ['A', 'B'] }, // zero-width
+]) {
+  assert.throws(() => normalizeHomeV2CreatePollRequest(bad, SELECTED))
+}
+
+// VOTE_ON_POLL — pollId aliases, one-based indexes, removal forms, canonical
+// selection ([] for removal however spelled, ascending otherwise).
+assert.deepEqual(
+  normalizeHomeV2VoteOnPollRequest({ option: '2', poll: '7' }),
+  { optionInput: { optionIndex: 2 }, pollId: 7 },
+)
+assert.deepEqual(
+  [...canonicalHomeV2VoteSelection(normalizeHomeV2VoteOnPollRequest({ optionIndexes: [3, 1], pollId: 7 }).optionInput)],
+  [1, 3],
+)
+for (const removal of [{ optionIndex: 0, pollId: 7 }, { optionIndexes: [], pollId: 7 }, { optionIndexes: [0], pollId: 7 }]) {
+  assert.deepEqual([...canonicalHomeV2VoteSelection(normalizeHomeV2VoteOnPollRequest(removal).optionInput)], [])
+}
+for (const bad of [
+  { optionIndex: 1 },                                  // missing poll id
+  { optionIndex: 1, pollId: 0 },                       // Core ids start at 1
+  { optionIndex: 1, pollId: 2_147_483_648 },           // beyond int32
+  { pollId: 7 },                                       // no selection form at all
+  { optionIndexes: [1, 1], pollId: 7 },                // duplicate
+  { optionIndexes: [0, 2], pollId: 7 },                // remove mixed with real
+  { optionIndex: 2, optionIndexes: [3], pollId: 7 },   // conflicting forms
+  { fee: 1, optionIndex: 1, pollId: 7 },
+]) {
+  assert.throws(() => normalizeHomeV2VoteOnPollRequest(bad))
+}
+
+// UPDATE_POLL — new* fields with 1.x fallbacks; complete replacement metadata.
+{
+  const updated = normalizeHomeV2UpdatePollRequest({
+    description: 'still relevant',
+    newPollName: 'Snacks v2',
+    pollId: '7',
+    pollOptions: ['A', 'B', 'C'],
+  })
+  assert.equal(updated.pollId, 7)
+  assert.equal(updated.newPollName, 'Snacks v2')
+  assert.equal(updated.newDescription, 'still relevant')
+  assert.deepEqual([...updated.newPollOptions], ['A', 'B', 'C'])
+}
+assert.throws(() => normalizeHomeV2UpdatePollRequest({ pollId: 7, pollOptions: ['A', 'B'] })) // missing new name
+// An UPDATE may resend the poll's existing PAST start unchanged — Core
+// rejects a past start only when it CHANGED, and a metadata update on a
+// started, vote-free poll has to carry the old start (round-2 fix). A past
+// new END stays refused: Core always requires it in the future.
+assert.equal(
+  normalizeHomeV2UpdatePollRequest({ newPollName: 'Kept', newStartTime: 1_000, pollId: 7, pollOptions: ['A', 'B'] }).newStartTime,
+  1_000,
+)
+assert.throws(() => normalizeHomeV2UpdatePollRequest({ newEndTime: 1_000, newPollName: 'Kept', pollId: 7, pollOptions: ['A', 'B'] }))
+
+// The poll-target selector rejects unrecognized shapes and preserves option
+// ORDER — the order is part of what a one-based vote means.
+assert.deepEqual(
+  selectHomeV2PollTarget(
+    { owner: SELECTED, pollId: 7, pollName: 'Snacks', pollOptions: [{ optionName: 'B' }, { optionName: 'A' }] },
+    7,
+  ),
+  { optionNames: ['B', 'A'], owner: SELECTED, pollId: 7, pollName: 'Snacks' },
+)
+assert.throws(() => selectHomeV2PollTarget({ pollName: 'Snacks' }, 7))
+assert.throws(() => selectHomeV2PollTarget({ pollName: 'Snacks', pollOptions: ['bare-string'] }, 7))
+// The answer must CLAIM to be the poll that was asked for: a node answering
+// /polls/id/7 with a different poll's record is refused, not relabeled.
+assert.throws(
+  () => selectHomeV2PollTarget(
+    { owner: SELECTED, pollId: 999, pollName: 'Lie', pollOptions: [{ optionName: 'A' }, { optionName: 'B' }] },
+    7,
+  ),
+  /different poll/,
+)
 
 console.log('Home v2 app action contract tests passed.')
