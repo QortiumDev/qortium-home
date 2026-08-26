@@ -1734,6 +1734,20 @@ export function selectHomeV2PollTarget(value: unknown, pollId: number) {
  * exact-string display only, and never substitutes a reduced or normalized
  * spelling for what the user approved.
  */
+// The 1.x bridge read `payload[field] ?? request[field]` for every field.
+// Flatten to that precedence once, so the name normalizers (which read many
+// fields) honor payload nesting without threading the lookup through each.
+function homeV2FlattenPayloadRequest(request: Record<string, unknown>): Record<string, unknown> {
+  const payload = request.payload
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return request
+  const flattened: Record<string, unknown> = { ...request }
+  for (const [key, value] of Object.entries(payload as Record<string, unknown>)) {
+    if (key === 'action') continue
+    if (value !== undefined && value !== null) flattened[key] = value
+  }
+  return flattened
+}
+
 export const HOME_V2_NAME_WRITE_ACTIONS = Object.freeze([
   'BUY_NAME',
   'CANCEL_SELL_NAME',
@@ -1774,8 +1788,11 @@ export type HomeV2CoinAmount = {
  * input is stringified first and must satisfy the same grammar).
  */
 export function parseHomeV2CoinAmount(value: unknown, label: string): HomeV2CoinAmount {
+  // A finite non-negative number is rendered in FIXED notation first, so a
+  // small value like 0.00000001 (whose String() is "1e-8") still matches the
+  // decimal grammar. toFixed(8) is exact for any 8-decimal value in range.
   const text = typeof value === 'number' && Number.isFinite(value) && value >= 0
-    ? String(value)
+    ? value.toFixed(8)
     : typeof value === 'string' ? value.trim() : null
   const match = text === null ? null : /^(0|[1-9][0-9]*)(?:\.([0-9]{1,8}))?$/.exec(text)
   if (!match) {
@@ -1813,8 +1830,12 @@ function newHomeV2NameValue(value: string, label: string) {
 
 function optionalHomeV2NameData(request: Record<string, unknown>, keys: readonly string[], label: string) {
   for (const key of keys) {
-    const value = request[key]
-    if (typeof value === 'string' && value !== '') {
+    const raw = request[key]
+    if (typeof raw !== 'string') continue
+    // 1.x trimmed name data, so a blank-looking value ("   ") reads as
+    // empty/unchanged rather than a real on-chain write of whitespace.
+    const value = raw.trim()
+    if (value !== '') {
       if (POLL_TEXT_ENCODER.encode(value).byteLength > 4_000) {
         throw new Error(`${label} must be at most 4000 UTF-8 bytes.`)
       }
@@ -1824,10 +1845,17 @@ function optionalHomeV2NameData(request: Record<string, unknown>, keys: readonly
   return ''
 }
 
+// A Qortium base58 address is 25 bytes, which encodes to 33-34 base58 chars;
+// bound to a safe range so an oversized value can never overflow a prompt
+// row or reach a payment display unbounded. Core validates the checksum.
+function isHomeV2AddressShape(value: string) {
+  return /^Q[1-9A-HJ-NP-Za-km-z]{20,40}$/.test(value)
+}
+
 function optionalHomeV2QortiumAddress(value: unknown, label: string) {
   if (value === undefined || value === null || value === '') return undefined
   const address = typeof value === 'string' ? value.trim() : ''
-  if (!/^Q[1-9A-HJ-NP-Za-km-z]{20,}$/.test(address)) {
+  if (!isHomeV2AddressShape(address)) {
     throw new Error(`${label} must be a Qortium address.`)
   }
   return address
@@ -1839,6 +1867,7 @@ export type HomeV2RegisterNameRequest = {
 }
 
 export function normalizeHomeV2RegisterNameRequest(request: Record<string, unknown>): HomeV2RegisterNameRequest {
+  request = homeV2FlattenPayloadRequest(request)
   assertHomeV2SignedWriteFeeAndGroup(request, 'name')
   const name = newHomeV2NameValue(requiredHomeV2NameField(request, 'name', 'Name'), 'Name')
   const data = optionalHomeV2NameData(request, ['data', 'nameData'], 'Name data')
@@ -1855,6 +1884,7 @@ export type HomeV2UpdateNameRequest = {
 }
 
 export function normalizeHomeV2UpdateNameRequest(request: Record<string, unknown>): HomeV2UpdateNameRequest {
+  request = homeV2FlattenPayloadRequest(request)
   assertHomeV2SignedWriteFeeAndGroup(request, 'name')
   const name = requiredHomeV2NameField(request, 'name', 'Name')
   const newNameRaw = typeof request.newName === 'string' ? request.newName.trim() : ''
@@ -1872,17 +1902,29 @@ export type HomeV2SellNameRequest = {
   readonly recipient?: string
 }
 
+// Core: a name price is 0 < amount < 10,000,000,000 coins for a PUBLIC sale;
+// a restricted (direct) sale may be zero. MAX is Asset.MAX_QUANTITY.
+const HOME_V2_MAX_COIN_ATOMIC = 10_000_000_000n * 100_000_000n
+
 export function normalizeHomeV2SellNameRequest(request: Record<string, unknown>): HomeV2SellNameRequest {
+  request = homeV2FlattenPayloadRequest(request)
   assertHomeV2SignedWriteFeeAndGroup(request, 'name')
   const name = requiredHomeV2NameField(request, 'name', 'Name')
   const amount = parseHomeV2CoinAmount(request.amount, 'Name sale amount')
   const recipient = optionalHomeV2QortiumAddress(request.recipient ?? request.recipientAddress, 'Recipient address')
+  if (amount.atomic >= HOME_V2_MAX_COIN_ATOMIC) {
+    throw new Error('Name sale amount is too large.')
+  }
+  if (amount.atomic === 0n && recipient === undefined) {
+    throw new Error('A public name sale must have a price above zero; a zero price is only valid for a restricted sale.')
+  }
   return Object.freeze({ amount, name, ...(recipient === undefined ? {} : { recipient }) })
 }
 
 export type HomeV2CancelSellNameRequest = { readonly name: string }
 
 export function normalizeHomeV2CancelSellNameRequest(request: Record<string, unknown>): HomeV2CancelSellNameRequest {
+  request = homeV2FlattenPayloadRequest(request)
   assertHomeV2SignedWriteFeeAndGroup(request, 'name')
   return Object.freeze({ name: requiredHomeV2NameField(request, 'name', 'Name') })
 }
@@ -1897,6 +1939,7 @@ export type HomeV2BuyNameRequest = {
 }
 
 export function normalizeHomeV2BuyNameRequest(request: Record<string, unknown>): HomeV2BuyNameRequest {
+  request = homeV2FlattenPayloadRequest(request)
   assertHomeV2SignedWriteFeeAndGroup(request, 'name')
   const name = requiredHomeV2NameField(request, 'name', 'Name')
   const amount = request.amount === undefined ? undefined : parseHomeV2CoinAmount(request.amount, 'Name purchase amount')
@@ -1919,6 +1962,16 @@ export function selectHomeV2NameTarget(value: unknown) {
   if (!isHomeV2AppRecord(value) || typeof value.name !== 'string' || typeof value.owner !== 'string') {
     throw new Error('The name lookup answered with an unrecognized shape.')
   }
+  // The owner is shown on a PAYMENT prompt ("Paid to"), so its shape is
+  // validated here rather than trusting arbitrary node text into the dialog.
+  if (!isHomeV2AddressShape(value.owner)) {
+    throw new Error('The name lookup returned an invalid owner address.')
+  }
+  const saleRecipient = value.saleRecipient === undefined || value.saleRecipient === null || value.saleRecipient === ''
+    ? null
+    : typeof value.saleRecipient === 'string' && isHomeV2AddressShape(value.saleRecipient)
+      ? value.saleRecipient
+      : (() => { throw new Error('The name lookup returned an invalid sale-recipient address.') })()
   const salePrice = value.salePrice === undefined || value.salePrice === null
     ? null
     : parseHomeV2CoinAmount(value.salePrice, 'Name sale price')
@@ -1927,7 +1980,7 @@ export function selectHomeV2NameTarget(value: unknown) {
     name: value.name,
     owner: value.owner,
     salePrice,
-    saleRecipient: typeof value.saleRecipient === 'string' && value.saleRecipient ? value.saleRecipient : null,
+    saleRecipient,
   })
 }
 

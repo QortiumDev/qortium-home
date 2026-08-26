@@ -1250,6 +1250,22 @@ for (const bad of [
   assert.equal(normalizeHomeV2UpdateNameRequest({ data: 'd', name: 'alice' }).newData, 'd')
 }
 assert.throws(() => normalizeHomeV2UpdateNameRequest({ name: 'alice', newName: 'xy' })) // new name < 3 bytes
+// Blank-looking name data trims to empty/unchanged (1.x parity).
+assert.equal(normalizeHomeV2UpdateNameRequest({ name: 'alice', newData: '   ' }).newData, '')
+// Payload nesting takes precedence, exactly as the 1.x bridge read it.
+assert.deepEqual(
+  normalizeHomeV2RegisterNameRequest({ action: 'REGISTER_NAME', name: 'alice', payload: { data: 'x', name: 'bob' } }),
+  { data: 'x', name: 'bob' },
+)
+assert.deepEqual(normalizeHomeV2BuyNameRequest({ payload: { name: 'alice' } }), { name: 'alice' })
+// A nonzero fee nested in payload is refused, not ignored.
+assert.throws(() => normalizeHomeV2RegisterNameRequest({ name: 'alice', payload: { fee: 5 } }))
+// A finite number more precise than String() renders (1e-8) still parses.
+assert.deepEqual(parseHomeV2CoinAmount(0.00000001, 'x'), { atomic: 1n, decimal: '0.00000001' })
+// A public sale (no recipient) must have a price above zero; a restricted one may be zero.
+assert.throws(() => normalizeHomeV2SellNameRequest({ amount: '0', name: 'alice' }), /public name sale/)
+assert.equal(normalizeHomeV2SellNameRequest({ amount: '0', name: 'alice', recipient: `Q${'b'.repeat(25)}` }).amount.atomic, 0n)
+assert.throws(() => normalizeHomeV2SellNameRequest({ amount: '10000000000', name: 'alice' }), /too large/)
 
 // SELL / CANCEL / BUY.
 assert.deepEqual(
@@ -1273,5 +1289,12 @@ assert.deepEqual(
   { isForSale: true, name: 'Alice', owner: `Q${'d'.repeat(25)}`, salePrice: { atomic: 1_250_000_000n, decimal: '12.50000000' }, saleRecipient: null },
 )
 assert.throws(() => selectHomeV2NameTarget({ owner: 'x' }))
+// Chain-derived owner/saleRecipient shown on a PAYMENT prompt are shape-
+// validated, not trusted as arbitrary node text.
+assert.throws(() => selectHomeV2NameTarget({ isForSale: true, name: 'Alice', owner: 'not-an-address', salePrice: '1' }), /invalid owner/)
+assert.throws(
+  () => selectHomeV2NameTarget({ isForSale: true, name: 'Alice', owner: `Q${'d'.repeat(25)}`, salePrice: '1', saleRecipient: 'nope' }),
+  /invalid sale-recipient/,
+)
 
 console.log('Home v2 app action contract tests passed.')

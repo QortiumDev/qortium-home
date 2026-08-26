@@ -117,7 +117,12 @@ class Reader {
       throw new Error(`Public ${this.label} builder returned an invalid ${field} length.`);
     }
     try {
-      return new TextDecoder('utf-8', { fatal: true }).decode(this.readBytes(length, field));
+      // ignoreBOM keeps a leading U+FEFF as a real character instead of
+      // silently stripping it. Without this, a hostile builder could encode
+      // a BOM into a field the user approved as empty; Home would decode ""
+      // and the byte-assert would pass, while Core keeps the BOM and writes
+      // it on chain. (Security review 2026-08-26.)
+      return new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(this.readBytes(length, field));
     } catch {
       throw new Error(`Public ${this.label} builder returned invalid UTF-8 in ${field}.`);
     }

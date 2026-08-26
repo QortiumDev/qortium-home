@@ -1032,8 +1032,16 @@ Home enforces byte limits locally (new names 3–40 UTF-8 bytes, data at most
 4,000) and leaves Core's Unicode normalization authoritative — an exotic
 name can still answer `NAME_NOT_NORMALIZED` from the builder.
 
-1.x aliases are preserved (`nameData`/`data`, `recipientAddress`,
-`isPrimary`, `poll`-style fee/group fields pinned to 0). The family requires
+1.x aliases and payload nesting are preserved (`nameData`/`data`,
+`recipientAddress`, `isPrimary`, `payload[field] ?? request[field]`
+precedence, `poll`-style fee/group fields pinned to 0). Chain-derived
+addresses shown on a payment prompt are shape-validated before display, and
+name data is trimmed so a blank-looking value reads as unchanged. One valid
+name class is unsupported by design: a name created in a non-zero
+transaction group cannot be updated, because Home pins UPDATE to group 0 and
+`NameData` does not expose the original creation group. A public sale must
+have a price above zero and below the maximum; a restricted sale may be
+zero. The family requires
 a selected, unlocked account and a route exposing the public name builders
 (`NODE_CAPABILITY_MISSING` otherwise, probed via
 `/names/public/capabilities`). On Android all five are filtered out of
