@@ -64,6 +64,16 @@ export const HOME_V2_JOURNALED_MUTATIONS = Object.freeze([
   'REGISTER_NAME',
   'SELL_NAME',
   'UPDATE_NAME',
+  // Group mutations. UPDATE_GROUP and SET_GROUP_AVATAR key on their group;
+  // GROUP_APPROVAL keys on the specific pending transaction it votes on (a
+  // group-level key would block votes on unrelated pending transactions);
+  // CREATE_GROUP (no id before it confirms) and SET_GROUP (one account-wide
+  // default slot) take the coarse operation target.
+  'CREATE_GROUP',
+  'GROUP_APPROVAL',
+  'SET_GROUP',
+  'SET_GROUP_AVATAR',
+  'UPDATE_GROUP',
   'SEND_PRIVATE_GROUP_CHAT_DELETE',
   'SEND_PRIVATE_GROUP_CHAT_EDIT',
   'SEND_PRIVATE_GROUP_CHAT_MESSAGE',
@@ -76,6 +86,7 @@ export type HomeV2TransactionTarget =
   | { readonly kind: 'direct'; readonly otherAddress: string }
   | { readonly kind: 'group'; readonly groupId: number }
   | { readonly kind: 'poll'; readonly pollId: number }
+  | { readonly kind: 'transaction'; readonly signature: string }
   | {
       readonly kind: 'resource'
       readonly identifier: string | null
@@ -164,6 +175,10 @@ function normalizeTarget(value: unknown): HomeV2TransactionTarget {
       throw new Error('Pending transaction poll target is invalid.')
     }
     return Object.freeze({ kind: 'poll', pollId: Number(value.pollId) })
+  }
+  if (value.kind === 'transaction') {
+    // The signature of a pending transaction a GROUP_APPROVAL votes on.
+    return Object.freeze({ kind: 'transaction', signature: canonicalSignature(value.signature) })
   }
   if (value.kind === 'direct') {
     const otherAddress = boundedString(value.otherAddress, 'Pending transaction direct target', 128)
@@ -391,6 +406,22 @@ export function homeV2TransactionTargetFromRequest(action: string, value: unknow
     }
     return OPERATION_TARGET
   }
+  if (action === 'UPDATE_GROUP' || action === 'SET_GROUP_AVATAR') {
+    // Their normalizers read groupId with payload-first precedence; the
+    // journal reads the same field leniently.
+    const payload = isRecord(value.payload) ? value.payload : null
+    const raw = (payload?.groupId ?? value.groupId)
+    const groupId = typeof raw === 'number' ? raw : typeof raw === 'string' && raw.trim() ? Number(raw.trim()) : NaN
+    if (Number.isSafeInteger(groupId) && groupId >= 1) return derivedTarget({ kind: 'group', groupId })
+    return OPERATION_TARGET
+  }
+  if (action === 'GROUP_APPROVAL') {
+    const payload = isRecord(value.payload) ? value.payload : null
+    const raw = payload?.pendingSignature ?? value.pendingSignature
+    if (typeof raw === 'string' && raw.trim()) return derivedTarget({ kind: 'transaction', signature: raw.trim() })
+    return OPERATION_TARGET
+  }
+  if (action === 'CREATE_GROUP' || action === 'SET_GROUP') return OPERATION_TARGET
   if (DIRECT_CHAT_JOURNAL_ACTIONS.has(action)) {
     // normalizeHomeV2DirectChatWriteRequest: otherAddress ?? recipientAddress.
     const address = value.otherAddress ?? value.recipientAddress

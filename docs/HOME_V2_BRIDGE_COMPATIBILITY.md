@@ -134,6 +134,7 @@ request `notifications.manage`, and the assigned app gets no head start.
 | `ADD_TO_LIST`, `REMOVE_FROM_LIST` | `qdnRequest` | Core's own `text/plain` body — the string `"true"` or `"false"`, returned not thrown, exactly as in 1.x | Single-request `node.lists.write` prompt each, never a session or durable grant, showing the list, the node, and the complete serialized item batch (refused unprompted above 4,000 characters — an approval the user cannot read in full is not an approval). Same trusted-node rule as the reads; the route is re-resolved after approval and a mid-prompt change refuses the write. `listName` and `items` validate to the 1.x shapes, except that a batch with blank or non-string entries is refused whole where 1.x silently half-applied it, and a selected account is required (1.x prompted account-free; Home 2 write prompts are account-anchored) | yes | no (filtered from SHOW_ACTIONS) |
 | `CREATE_POLL`, `VOTE_ON_POLL`, `UPDATE_POLL` | `qdnRequest` | 1.x wrappers: `{ accepted: true, action, pollName \| pollId (+ optionIndex/optionIndexes or newPollName), network, result, signature, transactionSignature, timestamp }`; an unclear broadcast answers `accepted: false` with `outcome: "unknown"` and is retained in the pending-transaction journal | Single-request `poll.write` prompt each, never a session or durable grant. Signs one fee-free transaction via the keyless `/polls/public/*` builders with local byte-assertion, MemoryPoW, and local Ed25519 — the account key never leaves Home. A vote prompt names the poll and the selected option labels (one-based; 0 removes) and the poll is re-read after approval so a changed name or option list refuses the sign. `fee`/`txGroupId` when present must be 0; `pollId` starts at 1; needs a selected unlocked account and a route exposing the public builders (`NODE_CAPABILITY_MISSING` otherwise) | yes | no (filtered from SHOW_ACTIONS — no Android signing path) |
 | `REGISTER_NAME`, `UPDATE_NAME`, `SELL_NAME`, `CANCEL_SELL_NAME`, `BUY_NAME` | `qdnRequest` | 1.x wrappers: `{ accepted: true, action, name (+ newName/amount/recipient/seller per action), network, result, signature, transactionSignature, timestamp }`; an unclear broadcast answers `accepted: false` with `outcome: "unknown"` and journals against the coarse per-action target | Single-request `name.write` prompt each, never a session or durable grant. Signs one fee-free transaction via the keyless `/names/public/*` builders (Core #269) with local byte-assertion (new type 3–7 verifiers), MemoryPoW, and local Ed25519. BUY_NAME PAYS the sale amount to the seller: payment-grade prompt, live-state-resolved seller/price/restriction with exact-match on app-supplied values, and the sale state re-read after approval. Exact-spelling rule: a reduced-name lookup answering a different stored spelling refuses. Amounts are exact atomic bigints; `fee`/`txGroupId` when present must be 0; needs a selected unlocked account and a route exposing the builders | yes | no (filtered from SHOW_ACTIONS — no Android signing path) |
+| `CREATE_GROUP`, `UPDATE_GROUP`, `GROUP_APPROVAL`, `SET_GROUP`, `SET_GROUP_AVATAR` | `qdnRequest` | 1.x wrappers plus `changed` (a no-op update/set/avatar answers `changed: false` WITHOUT signing); an unclear broadcast answers `accepted: false` with `outcome: "unknown"` and journals | Single-request `group.mutation` prompt each, never a session or durable grant. Built LOCALLY on the group-admin transformer pattern (types 22/23/33/34/49, zero-nonce build → byte-verify → MemoryPoW → verify stamped → local Ed25519). GROUP_APPROVAL resolves and DISCLOSES the pending transaction it votes on and re-reads it after approval; UPDATE_GROUP prompts the complete replacement with "(unchanged)" rows and has no ownership transfer; SET_GROUP_AVATAR signs a QDN pointer only (bytes go through PUBLISH_QDN_RESOURCE separately). fee/txGroupId when present must be 0; groups created inside a transaction group cannot be updated through Home (creationGroupId is not API-exposed) | yes | no (filtered from SHOW_ACTIONS — no Android signing path) |
 | `GET_USER_WALLET` | both | `{ address, assetId: 0, assetName: "Native Asset", native: true }` | No prompt, and permissionless by a strictly-less argument: it returns the selected account's address plus three constants, where `GET_SELECTED_ACCOUNT` — already permissionless — returns that same address plus the account name and lock state. No node call, no key derivation, no unlocked account required. **Native asset only.** Accepts `assetId: 0` and the coin aliases `NATIVE`/`NATIVE_ASSET`/`ASSET_0`/`ASSET0`, plus `QORT`, which Home 1.x wrongly routed to the foreign path; an absent selector defaults to native. Any foreign coin is refused with the coded, non-retryable `FOREIGN_WALLET_UNAVAILABLE` rather than answered with the native address. Never offered to a chromeless widget, for the same reason `GET_SELECTED_ACCOUNT` is not | yes | yes |
 | `GET_BALANCE`, `GET_ACCOUNT_DATA` | both | Bare Core JSON | No prompt. An absent `address` now defaults to the selected account (Home 1.x behavior, lost in the first Home 2 tranche), and `GET_BALANCE` honors a non-negative integer `assetId` instead of silently answering with the native balance for every asset. Both defaults are neutral — the subject is the caller's own account, whose address it can already read — except in a chromeless widget, where the self-addressing default is withheld and an explicit `address` is required | yes | yes |
 | `GET_CROSSCHAIN_BLOCKCHAINS`, `GET_CROSSCHAIN_SERVER_INFO`, `GET_FOREIGN_FEE`, `GET_SERVER_CONNECTION_HISTORY` | both | Blockchain list with a projected `QORT` row and a `homeWallet` capability per row; bare server array; `{ fee, feePerKb }` or `{ fee }`; bare Core JSON | No prompt; zero-key bounded reads of the node's own `/crosschain` prefix. No wallet seed, key derivation, unlocked account or API key is involved. `coin` is resolved against a strict allowlist (BTC, LTC, DOGE, DGB, RVN, DASH, NMC, FIRO, ARRR) before it can become a URL path segment; `ARRR` is accepted here although Home cannot derive an ARRR wallet, because these reads need no key material and Home 1.x wrongly reused the HD-wallet coin list. `GET_FOREIGN_FEE` normalizes Core's per-kilobyte `feekb` to a per-byte `fee` with ceiling rounding, so a fee never rounds down below what the foreign chain requires | yes | yes |
@@ -222,8 +223,9 @@ This section is the explicit per-action ledger of that catalogue, replacing the
 earlier blanket "everything not listed above is deferred": verified against
 `getHomeV2AppActions('qdnRequest')` at 2.1.0 (the polls restoration, on top of
 main `8402315`), **100 of the 149 Home 1.x `qdnRequest` actions are
-advertised** — plus the five name writes of the names restoration, taking the
-intersection to 105 — and the 44 below are not: 17 superseded, 27 deferred.
+advertised** — plus the five name writes and five group mutations of the
+restoration wave, taking the intersection to 110 — and the 39 below are not:
+17 superseded, 22 deferred.
 
 **Superseded (17) — the same operation exists on the `qortalRequest` global.**
 Home 1.x predates the second global, so it reached Qortal through
@@ -251,14 +253,13 @@ replacement is shipped:
 | `SEARCH_QORTAL_TRANSACTIONS` | `SEARCH_TRANSACTIONS` |
 | `SEND_QORTAL_GROUP_CHAT` | `SEND_CHAT_MESSAGE` |
 
-**Deferred (27) — planned by family, unadvertised until each family's
+**Deferred (22) — planned by family, unadvertised until each family's
 request/result/error, permission, denial, stale-context, malformed-input,
 desktop, and Android fixtures pass:**
 
 | Family | Deferred actions | Notes |
 | --- | --- | --- |
 | Payments and asset transfer | `PAYMENT`, `SEND_COIN`, `SEND_QORT`, `TRANSFER_ASSET` | Behind the Phase 5 signing boundary; `PAYMENT`/`SEND_COIN` were 1.x aliases of one coin transfer |
-| Group mutations beyond the implemented set | `CREATE_GROUP`, `GROUP_APPROVAL`, `SET_GROUP`, `SET_GROUP_AVATAR`, `UPDATE_GROUP` | The participation and exact group-administration actions ARE implemented (see the table above) |
 | Rating writes | `RATE_ACCOUNT`, `RATE_RESOURCE` | The two rating READS are implemented |
 | Account avatar write | `SET_ACCOUNT_AVATAR` | Avatar READS are implemented |
 | Publishing and deletion | `DELETE_QDN_RESOURCE`, `PUBLISH_MULTIPLE_QDN_RESOURCES`, `PREVIEW_QDN_PUBLISH_SOURCE` | Single-resource `PUBLISH_QDN_RESOURCE` is implemented through its H5B source-token contract; preview has its own subsection below |
@@ -317,7 +318,7 @@ file-only today (`properties: ['openFile']`), so even a complete port would
 cover `.zip` and `.html` but not 1.x's directory sources. This belongs in its
 own change with the renderer work included.
 
-### No longer deferred: display settings, minting, lists, polls, and names
+### No longer deferred: display settings, minting, lists, polls, names, and group mutations
 
 Home's own **display settings** are no longer deferred.
 `GET_HOME_SETTINGS_METADATA`, `GET_HOME_SETTINGS` and `UPDATE_HOME_SETTINGS`
@@ -357,6 +358,15 @@ builders (qortium-core PR #269); see
 [QDN bridge action notes](BRIDGE_ACTIONS.md) for the payment-grade BUY_NAME
 prompt, the exact-spelling rule, and the fixed-point amount handling. The
 Qortal v3 name forms stay deferred.
+
+The group mutation family is no longer deferred. `CREATE_GROUP`,
+`UPDATE_GROUP`, `GROUP_APPROVAL`, `SET_GROUP`, and `SET_GROUP_AVATAR` are
+implemented on `qdnRequest`, built locally on the group-admin transformer
+pattern; see [QDN bridge action notes](BRIDGE_ACTIONS.md) for the pending-
+transaction disclosure rules, the complete-replacement update semantics, and
+the pointer-only avatar contract. Hub's `qortalRequest` group forms stay
+deferred (its UPDATE_GROUP is an owner-transfer contract Qortium does not
+have).
 
 ## Known limitations of this slice
 

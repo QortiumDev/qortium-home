@@ -34,6 +34,24 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-26 - feat(home-v2): apps can create, update, and govern groups again
+
+Restores the fourth deferred action family: group mutations. An app can now
+ask to create a group, update one you own, cast your governance vote on a
+transaction awaiting group approval, set your default group, or change a
+group's avatar — each a single fee-free signed transaction, each asking
+first, every time. The governance vote gets the disclosure it always needed:
+where the old version showed only "approve or oppose", the approval now
+resolves the pending transaction and shows you exactly what you are voting
+on — its type, its creator, its group, and its current status — and explains
+that opposing does not immediately reject it. Group updates show the complete
+replacement, marking what stays unchanged, and an update that changes nothing
+is answered honestly without signing anything. The avatar action signs only a
+pointer to already-published content; the image itself still goes through the
+separate publish flow with its own approval. As with every restored family,
+your account key never leaves Home and the transaction bytes are verified
+against exactly what you approved before signing. Desktop only for now.
+
 ### 2026-08-26 - feat(home-v2): apps can register, update, sell, and buy names again
 
 Restores the third deferred action family: on-chain names. An app can now ask

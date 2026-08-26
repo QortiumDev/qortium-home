@@ -395,6 +395,25 @@ for (const nameRequest of [
   )
 }
 
+// And the group mutations: signing refusal on qdnRequest, not-implemented on
+// qortalRequest.
+for (const groupRequest of [
+  { action: 'CREATE_GROUP', description: 'd', groupName: 'droids' },
+  { action: 'UPDATE_GROUP', groupId: 5 },
+  { action: 'GROUP_APPROVAL', approval: true, pendingSignature: 'x'.repeat(88) },
+  { action: 'SET_GROUP', defaultGroupId: 5 },
+  { action: 'SET_GROUP_AVATAR', avatar: null, groupId: 5 },
+]) {
+  await assert.rejects(
+    () => client.requestApp('qdnRequest', groupRequest),
+    /requires transaction signing/,
+  )
+  await assert.rejects(
+    () => client.requestApp('qortalRequest', groupRequest),
+    /is not implemented for qortalRequest/,
+  )
+}
+
 assert.deepEqual(
   await client.requestApp('qortalRequest', {
     action: 'GET_AT',

@@ -289,6 +289,12 @@ const ANDROID_UNSUPPORTED_ACTIONS = new Set<string>([
   'REGISTER_NAME',
   'SELL_NAME',
   'UPDATE_NAME',
+  // And the group mutations.
+  'CREATE_GROUP',
+  'GROUP_APPROVAL',
+  'SET_GROUP',
+  'SET_GROUP_AVATAR',
+  'UPDATE_GROUP',
 ])
 
 export function isHomeV2AndroidUnsupportedAction(action: string) {

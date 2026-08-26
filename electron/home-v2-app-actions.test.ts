@@ -1304,4 +1304,10 @@ assert.throws(
   /invalid sale-recipient/,
 )
 
+// ---- The group mutation family (Home 2.1 restoration wave) ----
+for (const action of ['CREATE_GROUP', 'UPDATE_GROUP', 'GROUP_APPROVAL', 'SET_GROUP', 'SET_GROUP_AVATAR']) {
+  assert.equal(qdnActions.includes(action), true, `qdnRequest should advertise ${action}`)
+  assert.equal(qortalActions.includes(action), false, `qortalRequest must not advertise ${action}`)
+}
+
 console.log('Home v2 app action contract tests passed.')

@@ -66,6 +66,11 @@ export type PermissionCapability =
   // capability is never durable and never reachable through any read grant:
   // single-request prompt only, every time.
   | 'name.write'
+  // The five group mutations (create/update a group, vote on a pending
+  // group transaction, set the default group, change a group avatar). Signs
+  // one fee-free transaction per approval. Never durable, never reachable
+  // through any read grant: single-request prompt only.
+  | 'group.mutation'
   // Signing one zero-fee, zero-payment chain MESSAGE to an AT (SEND_MESSAGE).
   // Deliberately NOT 'account.read' and not any 'chat.*' capability: durable
   // grants unify on the capability string, so a signing action must never be
@@ -157,6 +162,11 @@ export interface PermissionPrompt {
     | 'SELL_NAME'
     | 'CANCEL_SELL_NAME'
     | 'BUY_NAME'
+    | 'CREATE_GROUP'
+    | 'UPDATE_GROUP'
+    | 'GROUP_APPROVAL'
+    | 'SET_GROUP'
+    | 'SET_GROUP_AVATAR'
     | 'SEND_MESSAGE'
   readonly capability: PermissionCapability
   readonly appId: AppId

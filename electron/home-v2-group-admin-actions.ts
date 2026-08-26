@@ -72,7 +72,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
 }
 
-function concatBytes(...chunks: Uint8Array[]) {
+export function concatBytes(...chunks: Uint8Array[]) {
   const output = new Uint8Array(chunks.reduce((total, chunk) => total + chunk.byteLength, 0))
   let offset = 0
   for (const chunk of chunks) {
@@ -82,7 +82,7 @@ function concatBytes(...chunks: Uint8Array[]) {
   return output
 }
 
-function int32Bytes(value: number, label: string) {
+export function int32Bytes(value: number, label: string) {
   if (!Number.isInteger(value) || value < -2_147_483_648 || value > 2_147_483_647) {
     throw new Error(`${label} must be a signed 32-bit integer.`)
   }
@@ -91,7 +91,7 @@ function int32Bytes(value: number, label: string) {
   return bytes
 }
 
-function int64Bytes(value: bigint, label: string) {
+export function int64Bytes(value: bigint, label: string) {
   if (value < 0n || value > 9_223_372_036_854_775_807n) {
     throw new Error(`${label} is outside the signed 64-bit transaction range.`)
   }
@@ -100,19 +100,19 @@ function int64Bytes(value: bigint, label: string) {
   return bytes
 }
 
-function exactBytes(value: string | Uint8Array, byteLength: number, label: string) {
+export function exactBytes(value: string | Uint8Array, byteLength: number, label: string) {
   const bytes = typeof value === 'string' ? base58Decode(value) : new Uint8Array(value)
   if (bytes.byteLength !== byteLength) throw new Error(`${label} must be ${byteLength} bytes.`)
   return bytes
 }
 
-function sizedUtf8(value: string, label: string, maxBytes: number) {
+export function sizedUtf8(value: string, label: string, maxBytes: number) {
   const bytes = new TextEncoder().encode(value)
   if (bytes.byteLength > maxBytes) throw new Error(`${label} must be at most ${maxBytes} UTF-8 bytes.`)
   return concatBytes(int32Bytes(bytes.byteLength, `${label} length`), bytes)
 }
 
-class ByteReader {
+export class ByteReader {
   private offset = 0
 
   constructor(private readonly bytes: Uint8Array) {}
@@ -149,11 +149,11 @@ class ByteReader {
   }
 }
 
-function equalBytes(left: Uint8Array, right: Uint8Array) {
+export function equalBytes(left: Uint8Array, right: Uint8Array) {
   return left.byteLength === right.byteLength && left.every((value, index) => value === right[index])
 }
 
-function positiveGroupId(value: unknown) {
+export function positiveGroupId(value: unknown) {
   const groupId = typeof value === 'number'
     ? value
     : typeof value === 'string' && /^\d+$/.test(value.trim())
@@ -165,7 +165,7 @@ function positiveGroupId(value: unknown) {
   return groupId
 }
 
-function nonNegativeInt32(value: unknown, label: string, fallback = 0) {
+export function nonNegativeInt32(value: unknown, label: string, fallback = 0) {
   const candidate = value === undefined || value === null || value === '' ? fallback : value
   const parsed = typeof candidate === 'number'
     ? candidate
