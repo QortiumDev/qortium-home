@@ -110,11 +110,18 @@ import {
   isHomeV2ListWriteAction,
   isHomeV2RatingReadAction,
   normalizeHomeV2Address,
+  canonicalHomeV2VoteSelection,
+  isHomeV2PollWriteAction,
+  normalizeHomeV2CreatePollRequest,
   normalizeHomeV2ListItems,
   normalizeHomeV2ListName,
   normalizeHomeV2ListReadResult,
+  normalizeHomeV2UpdatePollRequest,
+  normalizeHomeV2VoteOnPollRequest,
+  selectHomeV2PollTarget,
   serializeHomeV2ListItemsForApproval,
   type HomeV2ListWriteAction,
+  type HomeV2PollWriteAction,
   normalizeHomeV2AppAction,
   normalizeHomeV2AppProtocol,
   normalizeHomeV2IdentityAddresses,
@@ -371,9 +378,13 @@ import { readableNodeErrorMessage } from './node-error-body.js'
 import { getNodeConnection } from './node-settings.js'
 import {
   assertPublicChatTransaction,
+  assertPublicCreatePollTransaction,
   assertPublicJoinGroupTransaction,
   assertPublicLeaveGroupTransaction,
+  assertPublicUpdatePollTransaction,
+  assertPublicVoteOnPollTransaction,
 } from './public-transaction-validation.js'
+import { parsePublicPollCapabilities } from './public-poll-capabilities.js'
 import {
   buildUnsignedQortalDirectChatTransactionBytes,
   buildUnsignedQortalGroupChatTransactionBytes,
@@ -492,6 +503,7 @@ type AccountReadAction =
   | 'UNLOCK_SELECTED_ACCOUNT'
   | HomeV2MintingWriteAction
   | HomeV2ListWriteAction
+  | HomeV2PollWriteAction
 type PermissionDecision = {
   readonly approved: boolean
   readonly scope: 'always' | 'session' | 'single-request' | null
@@ -1252,6 +1264,17 @@ async function requireAccountReadPermission(
     readonly operationLabel: string
     readonly routeLabel: string
     readonly targetChainLabel: string
+  } | {
+    readonly kind: 'poll'
+    readonly operationLabel: string
+    // The per-action rows (Poll/Selection for a vote; Name/Description/
+    // Options/Owner/times for create and update). Plain label/value strings,
+    // re-validated in the shell before rendering.
+    readonly pollDetails: readonly { readonly label: string; readonly value: string }[]
+    readonly routeLabel: string
+    // 'poll:<id>' for vote/update, 'poll-create:<name>' for create.
+    readonly target: string
+    readonly targetChainLabel: string
   },
 ) {
   if (!context.accountId) throw new Error('No account is selected for this tab.')
@@ -1287,6 +1310,8 @@ async function requireAccountReadPermission(
           ? `minting:${writeDetails.mintingPublicKey ?? writeDetails.mintingAddress}`
         : writeDetails?.kind === 'node-list'
           ? `node-list:${writeDetails.listName}`
+        : writeDetails?.kind === 'poll'
+          ? writeDetails.target
         : ''
   const grantKey = homeV2PermissionGrantKey({
     accountId: context.accountId,
@@ -1315,6 +1340,8 @@ async function requireAccountReadPermission(
     // List writes change what the user's node stores, and what other apps
     // then show. Every one asks again, exactly as 1.x prompted per request.
     writeDetails?.kind === 'node-list' ||
+    // Poll writes sign chain transactions. Never a session or durable grant.
+    writeDetails?.kind === 'poll' ||
     (writeDetails?.kind === 'group' || writeDetails?.kind === 'direct' || writeDetails?.kind === 'private-group') &&
     writeDetails.singleRequestOnly === true
   // A durable per-app chat-send grant ("always allow", revocable in QDN Apps
@@ -1488,6 +1515,15 @@ async function requireAccountReadPermission(
                 // The Node/List/Items rows. Plain label/value strings,
                 // re-validated in the shell before they are rendered.
                 nodeListDetails: writeDetails.listDetails.map((detail) => ({ ...detail })),
+                writeOperationLabel: writeDetails.operationLabel,
+                writeRouteLabel: writeDetails.routeLabel,
+                writeSingleRequestOnly: true,
+                writeTargetChainLabel: writeDetails.targetChainLabel,
+              }
+          : writeDetails?.kind === 'poll'
+            ? {
+                writeKind: 'poll',
+                pollDetails: writeDetails.pollDetails.map((detail) => ({ ...detail })),
                 writeOperationLabel: writeDetails.operationLabel,
                 writeRouteLabel: writeDetails.routeLabel,
                 writeSingleRequestOnly: true,
@@ -6332,6 +6368,360 @@ async function handleHomeV2ListAction(
   )
 }
 
+// ---------------------------------------------------------------------------
+// Polls (Home 2.1 restoration, Qortium qdnRequest only)
+//
+// Each of CREATE_POLL / VOTE_ON_POLL / UPDATE_POLL signs one fee-free chain
+// transaction through Core\'s keyless /polls/public/* builders, following the
+// group-membership pattern exactly: normalize and refuse locally first, prompt
+// single-request with the complete operation on screen, build, byte-assert the
+// unsigned transaction against everything the user approved, MemoryPoW, sign
+// locally, broadcast — and journal an ambiguous broadcast instead of guessing.
+//
+// 1.x prompts showed only an action and a name; these show the operation. A
+// VOTE prompt names the poll and the selected option LABELS (resolved from the
+// live poll, refused when an index is out of range), and the poll is re-read
+// after approval: if its name or options changed while the prompt was open,
+// the vote no longer means what the user approved and is refused.
+// ---------------------------------------------------------------------------
+
+function homeV2PollOperationLabel(action: HomeV2PollWriteAction, removal = false) {
+  if (action === 'CREATE_POLL') return 'Create a poll'
+  if (action === 'UPDATE_POLL') return 'Update a poll'
+  return removal ? 'Remove a poll vote' : 'Vote on a poll'
+}
+
+function homeV2PollBuilderUnavailable(error: unknown) {
+  return isHomeV2AppRecord(error) && (error.status === 403 || error.status === 404)
+}
+
+function homeV2PollTimeRow(label: string, value: number | undefined) {
+  return value === undefined
+    ? []
+    : [{ label, value: `${new Date(value).toISOString()} (${value})` }]
+}
+
+// An approval the user cannot read in full is not an approval (the lists
+// rule). Options and descriptions are chain-limited to sizes that can exceed
+// any dialog, so the serialized display form is capped like a list batch.
+function homeV2PollApprovalText(value: string, label: string) {
+  const escaped = value.replace(
+    /[\u007f-\uffff]/g,
+    (ch) => `\\u${ch.charCodeAt(0).toString(16).padStart(4, '0')}`,
+  )
+  if (escaped.length > 4_000) {
+    throw new Error(`${label} is too large to display safely for approval (4000 characters maximum).`)
+  }
+  return escaped
+}
+
+async function readHomeV2PollTarget(nodeApiUrl: string, pollId: number) {
+  let value: unknown
+  try {
+    // Keyless public read; the admin key never travels for a lookup.
+    value = await readHomeV2ChatJson(nodeApiUrl, `/polls/id/${encodeURIComponent(String(pollId))}`, 'Poll lookup', '')
+  } catch (error) {
+    if (isHomeV2AppRecord(error) && error.status === 404) {
+      throw createHomeV2BridgeError(`Poll ${pollId} does not exist.`, {
+        action: 'VOTE_ON_POLL',
+        code: 'TARGET_NOT_FOUND',
+        network: 'qortium',
+        retryable: false,
+      })
+    }
+    throw error
+  }
+  return selectHomeV2PollTarget(value, pollId)
+}
+
+async function handleHomeV2PollAction(
+  sender: WebContents,
+  context: QdnViewContext,
+  protocol: HomeV2AppBridgeProtocol,
+  action: HomeV2PollWriteAction,
+  requestValue: Record<string, unknown>,
+) {
+  if (!context.accountId) throw new Error('No account is selected for this tab.')
+  const accountId = context.accountId
+  if (!isAccountUnlocked(accountId)) throw new Error('The selected account is locked.')
+  const node = await getHomeV2ReadableNode('qortium')
+  const apiKey = await getHomeV2TrustedWriteApiKey('qortium', node.nodeApiUrl)
+  const nodeRoute = `${node.mode}|${node.nodeApiUrl}`
+  const profile = await getAccountProfile(accountId)
+  const routeLabel = `${node.mode} · ${node.nodeApiUrl}`
+
+  // Normalize BEFORE anything else: a malformed request must never raise a
+  // prompt, contact the node, or look like a capability problem.
+  const createRequest = action === 'CREATE_POLL'
+    ? normalizeHomeV2CreatePollRequest(requestValue, profile.address)
+    : null
+  const voteRequest = action === 'VOTE_ON_POLL' ? normalizeHomeV2VoteOnPollRequest(requestValue) : null
+  const updateRequest = action === 'UPDATE_POLL' ? normalizeHomeV2UpdatePollRequest(requestValue) : null
+  const pollId = voteRequest?.pollId ?? updateRequest?.pollId ?? null
+
+  // The live poll a vote or update is about. Read before prompting so the
+  // dialog can show real names and labels, and re-read after approval below.
+  const target = pollId === null ? null : await readHomeV2PollTarget(node.nodeApiUrl, pollId)
+  const selection = voteRequest ? canonicalHomeV2VoteSelection(voteRequest.optionInput) : null
+  if (target && selection) {
+    for (const index of selection) {
+      if (index > target.optionNames.length) {
+        throw new Error(`Poll "${target.pollName}" has ${target.optionNames.length} options; option ${index} does not exist.`)
+      }
+    }
+  }
+
+  const operationLabel = homeV2PollOperationLabel(action, selection !== null && selection.length === 0)
+  const pollDetails = createRequest
+    ? [
+        { label: 'Name', value: homeV2PollApprovalText(createRequest.pollName, 'The poll name') },
+        ...(createRequest.description
+          ? [{ label: 'Description', value: homeV2PollApprovalText(createRequest.description, 'The poll description') }]
+          : []),
+        { label: 'Options', value: homeV2PollApprovalText(JSON.stringify(createRequest.pollOptions), 'The poll option list') },
+        { label: 'Owner', value: createRequest.owner },
+        ...homeV2PollTimeRow('Starts', createRequest.startTime),
+        ...homeV2PollTimeRow('Ends', createRequest.endTime),
+      ]
+    : voteRequest && target && selection
+      ? [
+          { label: 'Poll', value: homeV2PollApprovalText(`#${voteRequest.pollId} · ${target.pollName}`, 'The poll name') },
+          {
+            label: 'Selection',
+            value: selection.length === 0
+              ? 'Remove your current vote'
+              : homeV2PollApprovalText(
+                  selection.map((index) => `${index}. ${target.optionNames[index - 1]}`).join('  ·  '),
+                  'The selected options',
+                ),
+          },
+        ]
+      : updateRequest && target
+        ? [
+            { label: 'Poll', value: homeV2PollApprovalText(`#${updateRequest.pollId} · ${target.pollName}`, 'The poll name') },
+            { label: 'New name', value: homeV2PollApprovalText(updateRequest.newPollName, 'The new poll name') },
+            ...(updateRequest.newDescription
+              ? [{ label: 'New description', value: homeV2PollApprovalText(updateRequest.newDescription, 'The new description') }]
+              : []),
+            { label: 'New options', value: homeV2PollApprovalText(JSON.stringify(updateRequest.newPollOptions), 'The new option list') },
+            ...homeV2PollTimeRow('New start', updateRequest.newStartTime),
+            ...homeV2PollTimeRow('New end', updateRequest.newEndTime),
+          ]
+        : []
+  if (pollDetails.length === 0) throw new Error(`${action} is not a supported poll write.`)
+
+  await requireAccountReadPermission(sender, context, protocol, action, {
+    kind: 'poll',
+    operationLabel,
+    pollDetails,
+    routeLabel,
+    target: pollId === null ? `poll-create:${createRequest!.pollName}` : `poll:${pollId}`,
+    targetChainLabel: 'Qortium',
+  })
+  const rateLimitDecision = chatSendRateLimiter.checkAndRecordSend(chatSendRateLimitKey(sender, context))
+  if (!rateLimitDecision.allowed) throw new Error(rateLimitDecision.message)
+  const signingKey = getAccountSecretKey(accountId)
+  if (signingKey.address !== profile.address) {
+    signingKey.secretKey.fill(0)
+    throw new Error('Selected account signing key changed before the poll action could be signed.')
+  }
+  const isStillValid = async () => {
+    const freshContext = getQdnViewContextForWebContents(sender)
+    if (!freshContext || !sameViewContext(context, freshContext)) return false
+    if (!liveResourceMatchesGrant(freshContext) || !isAccountUnlocked(accountId)) return false
+    const nodeNow = await getHomeV2ReadableNode('qortium').catch(() => null)
+    return !!nodeNow &&
+      `${nodeNow.mode}|${nodeNow.nodeApiUrl}` === nodeRoute &&
+      (await getHomeV2TrustedWriteApiKey('qortium', node.nodeApiUrl).catch(() => null)) === apiKey
+  }
+  // A vote or update means what it means only against the poll the user SAW.
+  // If the poll\'s name or option list changed while the prompt was open — an
+  // owner can update either before votes exist — the approved indexes no
+  // longer name the approved labels, and the action is refused.
+  const validateTarget = async () => {
+    if (pollId === null || !target) return
+    const currentTarget = await readHomeV2PollTarget(node.nodeApiUrl, pollId)
+    if (
+      currentTarget.pollName !== target.pollName ||
+      JSON.stringify(currentTarget.optionNames) !== JSON.stringify(target.optionNames)
+    ) {
+      throw new Error('The poll changed before the poll action could be signed.')
+    }
+  }
+  try {
+    if (!(await isStillValid())) throw new Error('Account access context changed before approval completed.')
+    const timestamp = Date.now()
+    const buildPath = action === 'CREATE_POLL'
+      ? '/polls/public/create'
+      : action === 'VOTE_ON_POLL'
+        ? '/polls/public/vote'
+        : '/polls/public/update'
+    const buildBody = JSON.stringify(
+      createRequest
+        ? {
+            description: createRequest.description,
+            fee: 0,
+            owner: createRequest.owner,
+            pollCreatorPublicKey: signingKey.publicKey58,
+            pollName: createRequest.pollName,
+            pollOptions: createRequest.pollOptions.map((optionName) => ({ optionName })),
+            timestamp,
+            txGroupId: 0,
+            ...(createRequest.startTime !== undefined ? { startTime: createRequest.startTime } : {}),
+            ...(createRequest.endTime !== undefined ? { endTime: createRequest.endTime } : {}),
+          }
+        : voteRequest && selection
+          ? {
+              fee: 0,
+              optionIndexes: [...selection],
+              pollId: voteRequest.pollId,
+              timestamp,
+              txGroupId: 0,
+              voterPublicKey: signingKey.publicKey58,
+            }
+          : {
+              fee: 0,
+              newDescription: updateRequest!.newDescription,
+              newPollName: updateRequest!.newPollName,
+              newPollOptions: updateRequest!.newPollOptions.map((optionName) => ({ optionName })),
+              ownerPublicKey: signingKey.publicKey58,
+              pollId: updateRequest!.pollId,
+              timestamp,
+              txGroupId: 0,
+              ...(updateRequest!.newStartTime !== undefined ? { newStartTime: updateRequest!.newStartTime } : {}),
+              ...(updateRequest!.newEndTime !== undefined ? { newEndTime: updateRequest!.newEndTime } : {}),
+            },
+    )
+    let unsignedText: string
+    try {
+      unsignedText = await postHomeV2ChatText(
+        node.nodeApiUrl,
+        buildPath,
+        buildBody,
+        'application/json',
+        `${operationLabel} transaction build failed.`,
+        apiKey,
+      )
+    } catch (error) {
+      if (homeV2PollBuilderUnavailable(error)) {
+        throw createHomeV2BridgeError(
+          'The selected Qortium node does not expose the public poll builders.',
+          { action, code: 'NODE_CAPABILITY_MISSING', network: 'qortium', retryable: false },
+        )
+      }
+      throw error
+    }
+    const unsignedBytes = base58Decode(unsignedText)
+    const common = {
+      publicKey: base58Decode(signingKey.publicKey58),
+      timestamp,
+      txGroupId: 0,
+    }
+    if (createRequest) {
+      assertPublicCreatePollTransaction(unsignedBytes, {
+        ...common,
+        description: createRequest.description,
+        endTime: createRequest.endTime,
+        owner: base58Decode(createRequest.owner),
+        pollName: createRequest.pollName,
+        pollOptions: [...createRequest.pollOptions],
+        startTime: createRequest.startTime,
+      })
+    } else if (voteRequest && selection) {
+      assertPublicVoteOnPollTransaction(unsignedBytes, {
+        ...common,
+        optionIndexes: [...selection],
+        pollId: voteRequest.pollId,
+      })
+    } else {
+      assertPublicUpdatePollTransaction(unsignedBytes, {
+        ...common,
+        endTime: updateRequest!.newEndTime,
+        newDescription: updateRequest!.newDescription,
+        newPollName: updateRequest!.newPollName,
+        newPollOptions: [...updateRequest!.newPollOptions],
+        pollId: updateRequest!.pollId,
+        startTime: updateRequest!.newStartTime,
+      })
+    }
+    let difficulty: number
+    try {
+      difficulty = parsePublicPollCapabilities(await readHomeV2ChatJson(
+        node.nodeApiUrl,
+        '/polls/public/capabilities',
+        'MemoryPoW capability lookup',
+        apiKey,
+      )).mempowFeeAlternativeDifficulty
+    } catch (error) {
+      if (homeV2PollBuilderUnavailable(error) || (isHomeV2AppRecord(error) && error.code === 'QDN_PUBLIC_POLL_CAPABILITY_UNAVAILABLE')) {
+        throw createHomeV2BridgeError(
+          'The selected Qortium node does not advertise a compatible MemoryPoW poll capability.',
+          { action, code: 'NODE_CAPABILITY_MISSING', network: 'qortium', retryable: false },
+        )
+      }
+      throw error
+    }
+    const nonce = await computeHomeV2ChatNonce(unsignedBytes, difficulty, isStillValid)
+    if (!(await isStillValid())) throw new Error('The signing context changed before the poll action could be submitted.')
+    await validateTarget()
+    if (!(await isStillValid())) throw new Error('The signing context changed before the poll action could be submitted.')
+    const signedBytes = signTransactionWithNonce(unsignedBytes, nonce, signingKey.secretKey)
+    const signature = getSignatureFromSignedTransactionBytes(signedBytes)
+    const identity = createRequest
+      ? { pollName: createRequest.pollName }
+      : voteRequest
+        ? {
+            pollId: voteRequest.pollId,
+            pollName: target!.pollName,
+            ...(voteRequest.optionInput.optionIndexes === undefined
+              ? { optionIndex: voteRequest.optionInput.optionIndex }
+              : { optionIndexes: [...selection!] }),
+          }
+        : { newPollName: updateRequest!.newPollName, pollId: updateRequest!.pollId }
+    try {
+      const processText = await postHomeV2ChatText(
+        node.nodeApiUrl,
+        '/transactions/process?apiVersion=2',
+        base58Encode(signedBytes),
+        'text/plain',
+        `${operationLabel} transaction processing failed.`,
+        apiKey,
+      )
+      let processResult: unknown = processText
+      try { processResult = JSON.parse(processText) } catch { /* text answer stays text */ }
+      return Object.freeze({
+        accepted: true,
+        action,
+        ...identity,
+        network: 'qortium',
+        result: processResult,
+        signature,
+        timestamp,
+        transactionSignature: signature,
+      })
+    } catch (error) {
+      // Signed and submitted with an unclear answer: never invite an
+      // automatic retry. The generic journal wrapper retains this entry for
+      // reconciliation because outcome is 'unknown'.
+      return Object.freeze({
+        accepted: false,
+        action,
+        ...identity,
+        error: error instanceof Error ? error.message : String(error),
+        errorType: 'BROADCAST_OUTCOME_UNKNOWN',
+        network: 'qortium',
+        outcome: 'unknown',
+        retryable: false,
+        signature,
+        timestamp,
+        transactionSignature: signature,
+      })
+    }
+  } finally {
+    signingKey.secretKey.fill(0)
+  }
+}
+
 async function handleRequestWithRuntime(
   sender: WebContents,
   context: QdnViewContext,
@@ -6421,6 +6811,9 @@ async function handleRequestWithRuntime(
   }
   if (isHomeV2ListAction(action)) {
     return handleHomeV2ListAction(sender, context, protocol, action, requestValue)
+  }
+  if (isHomeV2PollWriteAction(action)) {
+    return handleHomeV2PollAction(sender, context, protocol, action, requestValue)
   }
   if (action === 'NOTIFICATION_HAS_PERMISSION') {
     return {

@@ -9,6 +9,12 @@ import {
   isHomeV2CrosschainReadAction,
 } from './home-v2-crosschain-actions.js'
 import { HOME_V2_MARKET_PRICE_ACTIONS } from './home-v2-market-prices.js'
+import { getPollOptionsInput } from './qdn-poll-options-input.js'
+import {
+  getOptionalPollVoteOptionIndexes,
+  resolvePollVoteOptionInput,
+  type PollVoteOptionInput,
+} from './qdn-poll-vote-input.js'
 
 export type HomeV2AppBridgeProtocol = 'qdnRequest' | 'qortalRequest'
 export type HomeV2AppNetwork = 'qortal' | 'qortium'
@@ -65,6 +71,7 @@ const QDN_ACTIONS = [
   'APPROVE_GROUP_JOIN_REQUEST',
   'CANCEL_GROUP_BAN',
   'CANCEL_GROUP_INVITE',
+  'CREATE_POLL',
   'FETCH_ACCOUNT_AVATAR',
   'FETCH_GROUP_AVATAR',
   'FETCH_BLOCK',
@@ -158,6 +165,8 @@ const QDN_ACTIONS = [
   'PUBLISH_QDN_RESOURCE',
   'PUBLISH_CHAT_ATTACHMENT',
   'UNLOCK_SELECTED_ACCOUNT',
+  'UPDATE_POLL',
+  'VOTE_ON_POLL',
 ] as const
 
 const QORTAL_ACTIONS = [
@@ -1430,6 +1439,236 @@ export function buildHomeV2ListWriteBody(items: readonly string[]) {
 export function normalizeHomeV2ListReadResult(status: number, data: unknown) {
   if (status === 404) return []
   return data
+}
+
+/**
+ * The poll write family: CREATE_POLL, VOTE_ON_POLL, UPDATE_POLL — Qortium
+ * qdnRequest only. Each signs a chain transaction through the keyless
+ * /polls/public/* builders using the group-membership signing pattern
+ * (byte-assert, MemoryPoW, local Ed25519, zero fee).
+ *
+ * Request shapes are 1.x parity (electron/qdn.ts poll handlers + the shared
+ * qdn-poll-*.ts parsers, which this module reuses), tightened to Core\'s real
+ * limits so a request Core would reject fails here with a named reason before
+ * any prompt is raised. Two deliberate v2 divergences, both documented in
+ * BRIDGE_ACTIONS.md: `fee` and `txGroupId`, when present, must be 0 (the
+ * fee-less MemoryPoW path is the only signing path Home 2 carries), and
+ * `pollId` must be at least 1 (1.x accepted 0 and let Core reject it).
+ *
+ * Poll VOTES are by pollId only, and option indexes are ONE-based: 0 (or []
+ * or [0]) means "remove my vote" and cannot combine with real selections —
+ * the shared vote parser enforces that and sorts multi-option selections into
+ * Core\'s canonical ascending order.
+ */
+export const HOME_V2_POLL_WRITE_ACTIONS = Object.freeze([
+  'CREATE_POLL',
+  'UPDATE_POLL',
+  'VOTE_ON_POLL',
+] as const)
+
+export type HomeV2PollWriteAction = (typeof HOME_V2_POLL_WRITE_ACTIONS)[number]
+
+const POLL_WRITE_ACTIONS = new Set<string>(HOME_V2_POLL_WRITE_ACTIONS)
+
+export function isHomeV2PollWriteAction(action: string): action is HomeV2PollWriteAction {
+  return POLL_WRITE_ACTIONS.has(action)
+}
+
+const POLL_TEXT_ENCODER = new TextEncoder()
+
+// Core: 3-400 UTF-8 bytes, and the stored name must equal its Unicode
+// normalized form (NAME_NOT_NORMALIZED otherwise) — enforced here so the
+// refusal names the rule instead of surfacing a Core enum.
+function normalizeHomeV2PollNameValue(value: unknown, label: string) {
+  const name = typeof value === 'string' ? value.trim() : ''
+  if (!name) throw new Error(`${label} is required.`)
+  const byteLength = POLL_TEXT_ENCODER.encode(name).byteLength
+  if (byteLength < 3 || byteLength > 400) {
+    throw new Error(`${label} must be 3 to 400 UTF-8 bytes.`)
+  }
+  if (name !== name.normalize()) {
+    throw new Error(`${label} must be in Unicode normalized form.`)
+  }
+  return name
+}
+
+function normalizeHomeV2PollDescription(value: unknown, label: string) {
+  const description = typeof value === 'string' ? value.trim() : ''
+  if (POLL_TEXT_ENCODER.encode(description).byteLength > 4_000) {
+    throw new Error(`${label} must be at most 4000 UTF-8 bytes.`)
+  }
+  return description
+}
+
+function optionalHomeV2PollTime(value: unknown, key: string) {
+  if (value === undefined || value === null || value === '') return undefined
+  const parsed = typeof value === 'number' ? value : typeof value === 'string' && value.trim() ? Number(value) : NaN
+  if (!Number.isSafeInteger(parsed) || parsed < 0) {
+    throw new Error(`${key} must be a non-negative safe integer.`)
+  }
+  return parsed
+}
+
+// The fee-less MemoryPoW path is the only signing path Home 2 carries, and
+// VOTE_ON_POLL is not an approval-capable type on Core anyway. An app may
+// still SEND the 1.x fields; any value other than 0 is refused, never
+// silently zeroed — a fee the app believed it was paying must not vanish.
+function assertHomeV2PollFeeAndGroup(request: Record<string, unknown>) {
+  for (const key of ['fee'] as const) {
+    const value = request[key]
+    if (value !== undefined && value !== null && value !== 0) {
+      throw new Error('Home 2 signs poll transactions fee-free; fee, when present, must be 0.')
+    }
+  }
+  for (const key of ['txGroupId', 'feeGroupId'] as const) {
+    const value = request[key]
+    if (value === undefined || value === null) continue
+    const parsed = typeof value === 'number' ? value : typeof value === 'string' && value.trim() ? Number(value) : NaN
+    if (parsed !== 0) {
+      throw new Error('Home 2 poll transactions use transaction group 0; txGroupId, when present, must be 0.')
+    }
+  }
+}
+
+function homeV2PollRequestInteger(value: unknown): number | undefined {
+  if (typeof value === 'number') return Number.isSafeInteger(value) ? value : undefined
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value.trim())
+    return Number.isSafeInteger(parsed) ? parsed : undefined
+  }
+  return undefined
+}
+
+function requiredHomeV2PollId(request: Record<string, unknown>) {
+  const raw = request.pollId ?? request.poll
+  if (raw === undefined || raw === null || raw === '') throw new Error('Poll id is required.')
+  const parsed = homeV2PollRequestInteger(raw)
+  // 1.x accepted 0 and let Core reject the nonexistent poll; Core assigns ids
+  // from 1, so 0 is refused here with the real rule instead.
+  if (typeof parsed !== 'number' || parsed < 1) {
+    throw new Error('Poll id must be a positive integer.')
+  }
+  return parsed
+}
+
+export type HomeV2CreatePollRequest = {
+  readonly description: string
+  readonly endTime?: number
+  readonly owner: string
+  readonly pollName: string
+  readonly pollOptions: readonly string[]
+  readonly startTime?: number
+}
+
+export function normalizeHomeV2CreatePollRequest(
+  request: Record<string, unknown>,
+  selectedAddress: string,
+): HomeV2CreatePollRequest {
+  assertHomeV2PollFeeAndGroup(request)
+  const pollName = normalizeHomeV2PollNameValue(request.pollName, 'Poll name')
+  const description = normalizeHomeV2PollDescription(request.description, 'Description')
+  const pollOptions = getPollOptionsInput(request.pollOptions ?? request.options).map((option) => option.optionName)
+  const ownerRaw = typeof request.owner === 'string' && request.owner.trim() ? request.owner.trim() : selectedAddress
+  if (!/^Q[1-9A-HJ-NP-Za-km-z]{20,}$/.test(ownerRaw)) {
+    throw new Error('Owner address must be a Qortium address.')
+  }
+  const startTime = optionalHomeV2PollTime(request.startTime ?? request.pollStartTime, 'startTime')
+  const endTime = optionalHomeV2PollTime(request.endTime ?? request.pollEndTime, 'endTime')
+  if (startTime !== undefined && endTime !== undefined && startTime >= endTime) {
+    throw new Error('startTime must be earlier than endTime.')
+  }
+  return Object.freeze({ description, endTime, owner: ownerRaw, pollName, pollOptions: Object.freeze(pollOptions), startTime })
+}
+
+export type HomeV2VoteOnPollRequest = {
+  readonly optionInput: PollVoteOptionInput
+  readonly pollId: number
+}
+
+export function normalizeHomeV2VoteOnPollRequest(request: Record<string, unknown>): HomeV2VoteOnPollRequest {
+  assertHomeV2PollFeeAndGroup(request)
+  const pollId = requiredHomeV2PollId(request)
+  const singularRaw = request.optionIndex ?? request.option
+  const singular = singularRaw === undefined || singularRaw === null || singularRaw === ''
+    ? undefined
+    : (() => {
+        const parsed = homeV2PollRequestInteger(singularRaw)
+        if (typeof parsed !== 'number') throw new Error('Option index must be a safe integer.')
+        if (parsed < 0) throw new Error('Option index must be at least 0.')
+        return parsed
+      })()
+  const plural = getOptionalPollVoteOptionIndexes(request.optionIndexes, homeV2PollRequestInteger)
+  return Object.freeze({ optionInput: resolvePollVoteOptionInput(singular, plural), pollId })
+}
+
+/**
+ * The selection in the CANONICAL form the byte verifier expects: [] for a
+ * removal (however the app spelled it — 0, [0], or []), [i] for one real
+ * option, ascending indexes for several. This is also the form the Core
+ * builder serializes, so prompt, assertion, and wire all describe the same
+ * selection.
+ */
+export function canonicalHomeV2VoteSelection(optionInput: PollVoteOptionInput): readonly number[] {
+  if (optionInput.optionIndexes === undefined) {
+    return Object.freeze(optionInput.optionIndex === 0 ? [] : [optionInput.optionIndex as number])
+  }
+  const real = optionInput.optionIndexes.filter((index) => index !== 0)
+  return Object.freeze([...real].sort((a, b) => a - b))
+}
+
+export type HomeV2UpdatePollRequest = {
+  readonly newDescription: string
+  readonly newEndTime?: number
+  readonly newPollName: string
+  readonly newPollOptions: readonly string[]
+  readonly newStartTime?: number
+  readonly pollId: number
+}
+
+export function normalizeHomeV2UpdatePollRequest(request: Record<string, unknown>): HomeV2UpdatePollRequest {
+  assertHomeV2PollFeeAndGroup(request)
+  const pollId = requiredHomeV2PollId(request)
+  const newPollName = normalizeHomeV2PollNameValue(request.newPollName, 'New poll name')
+  const newDescription = normalizeHomeV2PollDescription(request.newDescription ?? request.description, 'New description')
+  const newPollOptions = getPollOptionsInput(request.newPollOptions ?? request.pollOptions ?? request.options)
+    .map((option) => option.optionName)
+  const newStartTime = optionalHomeV2PollTime(request.newStartTime ?? request.startTime, 'newStartTime')
+  const newEndTime = optionalHomeV2PollTime(request.newEndTime ?? request.endTime, 'newEndTime')
+  if (newStartTime !== undefined && newEndTime !== undefined && newStartTime >= newEndTime) {
+    throw new Error('newStartTime must be earlier than newEndTime.')
+  }
+  return Object.freeze({
+    newDescription,
+    newEndTime,
+    newPollName,
+    newPollOptions: Object.freeze(newPollOptions),
+    newStartTime,
+    pollId,
+  })
+}
+
+/**
+ * The subject poll as the prompt and the pre-sign revalidation need it,
+ * selected from Core\'s GET /polls/id/{pollId} answer. Options arrive in
+ * on-chain order; their ORDER is part of what a vote means, so it is
+ * preserved exactly.
+ */
+export function selectHomeV2PollTarget(value: unknown, pollId: number) {
+  if (!isHomeV2AppRecord(value) || typeof value.pollName !== 'string' || !Array.isArray(value.pollOptions)) {
+    throw new Error('The poll lookup answered with an unrecognized shape.')
+  }
+  const optionNames = value.pollOptions.map((entry) => {
+    if (!isHomeV2AppRecord(entry) || typeof entry.optionName !== 'string') {
+      throw new Error('The poll lookup answered with an unrecognized option shape.')
+    }
+    return entry.optionName
+  })
+  return Object.freeze({
+    optionNames: Object.freeze(optionNames),
+    owner: typeof value.owner === 'string' ? value.owner : '',
+    pollId,
+    pollName: value.pollName,
+  })
 }
 
 export function buildHomeV2AssetReadPath(action: string, request: Record<string, unknown>) {

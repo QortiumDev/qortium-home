@@ -45,6 +45,15 @@ export const HOME_V2_JOURNALED_MUTATIONS = Object.freeze([
   // blocking is right here — the shipped caller is a once-per-account faucet
   // claim, where a duplicate is exactly what reconciliation exists to prevent.
   'SEND_MESSAGE',
+  // Poll writes sign and broadcast like a chat send and share its ambiguous-
+  // outcome problem. VOTE_ON_POLL and UPDATE_POLL journal against the stable
+  // {kind:'poll', pollId} target; CREATE_POLL has no id before it confirms,
+  // so it takes the same coarse {kind:'operation'} treatment as SEND_MESSAGE —
+  // one unreconciled create blocks this app's next create for the account,
+  // which errs toward preventing the duplicate poll reconciliation exists for.
+  'CREATE_POLL',
+  'UPDATE_POLL',
+  'VOTE_ON_POLL',
   'SEND_PRIVATE_GROUP_CHAT_DELETE',
   'SEND_PRIVATE_GROUP_CHAT_EDIT',
   'SEND_PRIVATE_GROUP_CHAT_MESSAGE',
@@ -56,6 +65,7 @@ export type HomeV2JournaledMutation = (typeof HOME_V2_JOURNALED_MUTATIONS)[numbe
 export type HomeV2TransactionTarget =
   | { readonly kind: 'direct'; readonly otherAddress: string }
   | { readonly kind: 'group'; readonly groupId: number }
+  | { readonly kind: 'poll'; readonly pollId: number }
   | {
       readonly kind: 'resource'
       readonly identifier: string | null
@@ -125,6 +135,12 @@ function normalizeTarget(value: unknown): HomeV2TransactionTarget {
       throw new Error('Pending transaction group target is invalid.')
     }
     return Object.freeze({ kind: 'group', groupId: Number(value.groupId) })
+  }
+  if (value.kind === 'poll') {
+    if (!Number.isSafeInteger(value.pollId) || Number(value.pollId) < 1) {
+      throw new Error('Pending transaction poll target is invalid.')
+    }
+    return Object.freeze({ kind: 'poll', pollId: Number(value.pollId) })
   }
   if (value.kind === 'direct') {
     const otherAddress = boundedString(value.otherAddress, 'Pending transaction direct target', 128)
@@ -259,6 +275,26 @@ export function homeV2TransactionTargetFromRequest(value: unknown): HomeV2Transa
   const conversation = isRecord(value.conversation) ? value.conversation : null
   if (conversation?.kind === 'group') return normalizeTarget({ kind: 'group', groupId: conversation.groupId })
   if (conversation?.kind === 'direct') return normalizeTarget({ kind: 'direct', otherAddress: conversation.otherAddress })
+  // Poll requests are checked BEFORE the txGroupId fallback: they may carry
+  // an explicit txGroupId:0 (a 1.x-parity field pinned to 0), and mapping
+  // that to {kind:'group', groupId:0} would give the same logical operation
+  // two different conflict keys depending on an optional field. CREATE_POLL
+  // carries pollName but no id, so it deliberately falls through to the
+  // coarse {kind:'operation'} target.
+  if (value.pollId !== undefined || value.poll !== undefined) {
+    // Lenient on purpose: this runs BEFORE the action handler validates the
+    // request, and 1.x accepts string integers here. A malformed id falls to
+    // the coarse operation target and the handler then refuses the request
+    // with its own named error — the journal must never be the thing that
+    // rejects it first.
+    const raw = value.pollId ?? value.poll
+    const pollId = typeof raw === 'number' ? raw : typeof raw === 'string' && raw.trim() ? Number(raw.trim()) : NaN
+    if (Number.isSafeInteger(pollId) && pollId >= 1) {
+      return normalizeTarget({ kind: 'poll', pollId })
+    }
+    return Object.freeze({ kind: 'operation' })
+  }
+  if (value.pollName !== undefined) return Object.freeze({ kind: 'operation' })
   if (value.txGroupId !== undefined) return normalizeTarget({ kind: 'group', groupId: value.txGroupId })
   if (value.groupId !== undefined) return normalizeTarget({ kind: 'group', groupId: value.groupId })
   if (value.otherAddress !== undefined) return normalizeTarget({ kind: 'direct', otherAddress: value.otherAddress })

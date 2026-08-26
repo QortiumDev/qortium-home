@@ -34,6 +34,24 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-26 - feat(home-v2): apps can create polls, vote, and update polls again
+
+Restores the second deferred action family: on-chain polls. An app can now ask
+to create a poll, vote on one, or update one it owns — each is one fee-free
+signed transaction, paid for with proof-of-work on your device, and each asks
+you first, every time. The approval finally shows what the old version never
+did: a vote names the poll and the exact option labels you are choosing (not
+just "option 2"), and creating or updating shows the full poll being written.
+If the poll's name or options change while the approval is open — its owner
+can edit an unvoted poll — Home refuses to sign rather than let your approved
+choice mean something else. Your account key never leaves Home: the node only
+ever sees the unsigned transaction, which Home verifies byte-for-byte against
+what you approved before signing locally. A submission whose outcome is
+unclear is remembered and blocks an accidental duplicate until it is
+reconciled. Votes are by poll number with one-based options — 0 removes your
+vote — and changing your vote is allowed. Desktop only for now: phones have
+no signing path yet, so the actions honestly do not appear there.
+
 ### 2026-08-26 - fix(home-v2): requests that carry your node's key no longer follow redirects
 
 Hardening carried over from the lists security review. When Home talks to a

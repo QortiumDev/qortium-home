@@ -56,6 +56,17 @@ assert.throws(
   /must match qdnRequest/,
 )
 assert.deepEqual(homeV2TransactionTargetFromRequest({ txGroupId: 12 }), { kind: 'group', groupId: 12 })
+// Poll requests derive their own stable target BEFORE the txGroupId fallback:
+// a vote pinned to txGroupId 0 must never key its conflicts on group 0.
+assert.deepEqual(homeV2TransactionTargetFromRequest({ pollId: 7, txGroupId: 0 }), { kind: 'poll', pollId: 7 })
+assert.deepEqual(homeV2TransactionTargetFromRequest({ poll: '7' }), { kind: 'poll', pollId: 7 })
+// Lenient before validation: a malformed id falls to the coarse operation
+// target; the action handler refuses the request with its own error later.
+assert.deepEqual(homeV2TransactionTargetFromRequest({ pollId: 'abc' }), { kind: 'operation' })
+assert.deepEqual(homeV2TransactionTargetFromRequest({ pollId: 0 }), { kind: 'operation' })
+// CREATE_POLL has no id before it confirms; pollName keeps it off the
+// txGroupId fallback and on the coarse operation target.
+assert.deepEqual(homeV2TransactionTargetFromRequest({ pollName: 'Snacks', txGroupId: 0 }), { kind: 'operation' })
 assert.deepEqual(homeV2TransactionTargetFromRequest({
   resource: { service: 'IMAGE', name: 'Alice', identifier: 'chat-image' },
 }), { kind: 'resource', service: 'IMAGE', name: 'Alice', identifier: 'chat-image' })

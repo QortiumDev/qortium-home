@@ -358,6 +358,24 @@ for (const listRequest of [
   )
 }
 
+// Poll writes sign transactions, which Android cannot do: filtered from
+// SHOW_ACTIONS and refused with the generic signing reason on qdnRequest;
+// on qortalRequest the family is simply not implemented.
+for (const pollRequest of [
+  { action: 'CREATE_POLL', pollName: 'Snacks', pollOptions: ['A', 'B'] },
+  { action: 'VOTE_ON_POLL', optionIndex: 1, pollId: 7 },
+  { action: 'UPDATE_POLL', newPollName: 'Snacks v2', pollId: 7, pollOptions: ['A', 'B'] },
+]) {
+  await assert.rejects(
+    () => client.requestApp('qdnRequest', pollRequest),
+    /requires transaction signing/,
+  )
+  await assert.rejects(
+    () => client.requestApp('qortalRequest', pollRequest),
+    /is not implemented for qortalRequest/,
+  )
+}
+
 assert.deepEqual(
   await client.requestApp('qortalRequest', {
     action: 'GET_AT',

@@ -479,6 +479,10 @@ for (const action of [
   // SEND_MESSAGE signs; the prefix rule already excludes it, pinned so a
   // rename cannot quietly admit a signing action to a surface with no prompt.
   'SEND_MESSAGE',
+  // The poll writes sign too; pinned for the same reason.
+  'CREATE_POLL',
+  'UPDATE_POLL',
+  'VOTE_ON_POLL',
 ]) {
   assert.equal(widgetActions.includes(action), false, `widget must not advertise ${action}`)
 }
@@ -523,7 +527,9 @@ assert.equal(androidActions.includes('SHOW_CONTEXT_MENU'), true)
 // runs one, so all four are filtered from Android's SHOW_ACTIONS — an
 // advertised action that can never succeed would make the list lie. SEND_MESSAGE
 // is filtered for the same reason (no Android signing path).
-for (const action of ['GET_ALL_LISTS', 'GET_LIST', 'ADD_TO_LIST', 'REMOVE_FROM_LIST', 'SEND_MESSAGE']) {
+for (const action of ['GET_ALL_LISTS', 'GET_LIST', 'ADD_TO_LIST', 'REMOVE_FROM_LIST', 'SEND_MESSAGE',
+  // Poll writes sign transactions and Android has no signing path.
+  'CREATE_POLL', 'UPDATE_POLL', 'VOTE_ON_POLL']) {
   assert.equal(androidActions.includes(action), false, `android must not advertise ${action}`)
 }
 
