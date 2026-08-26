@@ -1,6 +1,6 @@
 # Home 2 bridge compatibility ledger
 
-Last updated: 2026-08-24
+Last updated: 2026-08-26
 
 This ledger tracks the Home 2 app bridge. It is a compatibility record, not a
 claim that every Q-App already works. `SHOW_ACTIONS` is the runtime authority:
@@ -205,15 +205,62 @@ and Android fixtures pass.
 ## Deferred Qortium surface
 
 The complete retained legacy-bridge action-name source remains
-`electron/qdn-app-actions.ts`. Every action not listed in the implemented table
-above is deferred and unadvertised in Home 2.0. In particular this includes
-multi-resource publishing/deletion, account/group/name/poll/rating MUTATIONS other than the
-implemented participation and exact group-administration actions, payments,
-FOREIGN wallets, Home/node settings writes,
-foreign wallets, node settings writes,
-background notification subscriptions, legacy inline/path publishing, and Qortal-prefixed legacy
-helpers. These actions will be migrated by family; they will not be exposed by
-forwarding Home 2.0 apps into the broad v1 bridge.
+`electron/qdn-app-actions.ts`, and `SHOW_ACTIONS` is the runtime authority.
+This section is the explicit per-action ledger of that catalogue, replacing the
+earlier blanket "everything not listed above is deferred": verified against
+`getHomeV2AppActions('qdnRequest')` at 2.1.0 (main `4b69066`), **93 of the 149
+Home 1.x `qdnRequest` actions are advertised** (the implemented table above) and
+the 56 below are not — 17 superseded, 39 deferred.
+
+**Superseded (17) — the same operation exists on the `qortalRequest` global.**
+Home 1.x predates the second global, so it reached Qortal through
+`QORTAL_`-prefixed `qdnRequest` helpers; Home 2 keeps the protocols separate
+and does not carry the prefixed forms. These are not planned work — the
+replacement is shipped:
+
+| Home 1.x action | Home 2 replacement (on `qortalRequest`) |
+| --- | --- |
+| `FETCH_QORTAL_RESOURCE` | `FETCH_QDN_RESOURCE` |
+| `GET_QORTAL_ACCOUNT_GROUPS` | `GET_ACCOUNT_GROUPS` |
+| `GET_QORTAL_ACCOUNT_NAMES` | `GET_ACCOUNT_NAMES` |
+| `GET_QORTAL_ACTIVE_CHATS` | `GET_ACTIVE_CHATS` |
+| `GET_QORTAL_CHAT_MESSAGE` | `GET_CHAT_MESSAGE` |
+| `GET_QORTAL_CHAT_MESSAGES` | `SEARCH_CHAT_MESSAGES` |
+| `GET_QORTAL_NAME_DATA` | `GET_NAME_DATA` |
+| `GET_QORTAL_NODE_STATUS` | `GET_NODE_STATUS` |
+| `GET_QORTAL_PRIMARY_NAME` | `GET_PRIMARY_NAME` |
+| `GET_QORTAL_RESOURCE_METADATA` | `GET_QDN_RESOURCE_METADATA` |
+| `GET_QORTAL_RESOURCE_STATUS` | `GET_QDN_RESOURCE_STATUS` |
+| `GET_QORTAL_RESOURCE_URL` | `GET_QDN_RESOURCE_URL` |
+| `GET_QORTAL_TRANSACTION` | `FETCH_NODE_API` `/transactions/signature/…` (or `SEARCH_TRANSACTIONS`) |
+| `GET_QORT_BALANCE` | `GET_BALANCE` |
+| `SEARCH_QORTAL_RESOURCES` | `SEARCH_QDN_RESOURCES` |
+| `SEARCH_QORTAL_TRANSACTIONS` | `SEARCH_TRANSACTIONS` |
+| `SEND_QORTAL_GROUP_CHAT` | `SEND_CHAT_MESSAGE` |
+
+**Deferred (39) — planned by family, unadvertised until each family's
+request/result/error, permission, denial, stale-context, malformed-input,
+desktop, and Android fixtures pass:**
+
+| Family | Deferred actions | Notes |
+| --- | --- | --- |
+| Lists | `ADD_TO_LIST`, `GET_ALL_LISTS`, `GET_LIST`, `REMOVE_FROM_LIST` | Matches the deferred Qortal list family above |
+| Payments and asset transfer | `PAYMENT`, `SEND_COIN`, `SEND_QORT`, `TRANSFER_ASSET` | Behind the Phase 5 signing boundary; `PAYMENT`/`SEND_COIN` were 1.x aliases of one coin transfer |
+| Name mutations | `BUY_NAME`, `CANCEL_SELL_NAME`, `REGISTER_NAME`, `SELL_NAME`, `UPDATE_NAME` | Identity READS are implemented |
+| Group mutations beyond the implemented set | `CREATE_GROUP`, `GROUP_APPROVAL`, `SET_GROUP`, `SET_GROUP_AVATAR`, `UPDATE_GROUP` | The participation and exact group-administration actions ARE implemented (see the table above) |
+| Polls | `CREATE_POLL`, `UPDATE_POLL`, `VOTE_ON_POLL` | |
+| Rating writes | `RATE_ACCOUNT`, `RATE_RESOURCE` | The two rating READS are implemented |
+| Account avatar write | `SET_ACCOUNT_AVATAR` | Avatar READS are implemented |
+| Publishing and deletion | `DELETE_QDN_RESOURCE`, `PUBLISH_MULTIPLE_QDN_RESOURCES`, `PREVIEW_QDN_PUBLISH_SOURCE` | Single-resource `PUBLISH_QDN_RESOURCE` is implemented through its H5B source-token contract; preview has its own subsection below |
+| Foreign wallets | `GET_USER_WALLET_INFO`, `GET_USER_WALLET_TRANSACTIONS`, `GET_WALLET_BALANCE`, `SET_CURRENT_FOREIGN_SERVER` | Awaits the W3 design — see the wallet-family subsection below; the four zero-key `/crosschain` READS and native-only `GET_USER_WALLET` are implemented |
+| Node settings and admin | `GET_NODE_SETTINGS_METADATA`, `UPDATE_NODE_SETTINGS`, `RESTART_NODE` | Node settings stay deferred; Home's own DISPLAY settings are implemented (see below) |
+| Background notification subscriptions | `NOTIFICATION_ADD`, `NOTIFICATION_GET`, `NOTIFICATION_REMOVE` | Distinct from the implemented `NOTIFICATION_HAS_PERMISSION`/`SHOW_NOTIFICATION` contract and the `NOTIFICATION_MANAGER_*` family |
+| App assignments | `GET_APP_ASSIGNMENTS`, `REQUEST_APP_ASSIGNMENT` | F4 is Settings-only; app-facing delegation remains deferred |
+
+These will be migrated by family; they will not be exposed by forwarding Home
+2.1 apps into the broad v1 bridge. Legacy inline/path publishing (a request
+*shape* of the publish actions rather than a separate action name) is likewise
+not carried.
 
 ### Wallet family
 
@@ -259,6 +306,9 @@ is worse than an honest "not implemented". The v2 publish-source picker is also
 file-only today (`properties: ['openFile']`), so even a complete port would
 cover `.zip` and `.html` but not 1.x's directory sources. This belongs in its
 own change with the renderer work included.
+
+### No longer deferred: display settings and minting
+
 Home's own **display settings** are no longer deferred.
 `GET_HOME_SETTINGS_METADATA`, `GET_HOME_SETTINGS` and `UPDATE_HOME_SETTINGS`
 are implemented on `qdnRequest` over the same seven-key surface Home 1.x
