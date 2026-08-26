@@ -83,6 +83,28 @@ function testAndroidAppStageKeyChangesExactlyOnTabIdentityChange(): void {
     'an unrelated re-render of the SAME active tab must not change the key (no gratuitous remount)',
   )
 
+  // Replacing the ACTIVE tab's app in place (OPEN_CURRENT_TAB) must change the
+  // key. The AndroidAppStage instance is what holds the bridge token, the
+  // native authorized-document registration, the message listener and the
+  // iframe; reusing it for a different app would leave the incoming app inside
+  // the outgoing app's browsing context and token. The key includes the
+  // resourceLocation exactly so this cannot happen.
+  const wallets = fixtureApp(fixtureIds.walletsApp)
+  const activeChatTab = withAActive.tabs.find((tab) => tab.id === fixtureIds.chatTab)!
+  const replacedInPlace = reduceProductState(withAActive, {
+    type: 'replace-tab-app',
+    app: wallets,
+    context: fixtureTabContext(wallets, fixtureIds.chatTab),
+    tabId: fixtureIds.chatTab,
+    fromResourceLocation: activeChatTab.context.resourceLocation,
+  })
+  assert.equal(replacedInPlace.activeTabId, fixtureIds.chatTab)
+  assert.notEqual(
+    androidAppStageKey(replacedInPlace),
+    keyA,
+    'replacing an active tab’s app must remount the Android stage, not reuse its token and iframe',
+  )
+
   const empty = createProductState()
   assert.equal(androidAppStageKey(empty), 'none')
 }

@@ -22,6 +22,20 @@ assert.deepEqual(normalizeHomeV2RuntimeInvalidation({
   network: 'qortium',
   tabId: null,
 })
+// A replacement always names the one tab whose app changed; without a tab it
+// would be indistinguishable from a request to clear every grant.
+assert.deepEqual(normalizeHomeV2RuntimeInvalidation({
+  kind: 'app-replaced',
+  tabId: 'tab-1',
+}), {
+  kind: 'app-replaced',
+  network: null,
+  tabId: 'tab-1',
+})
+assert.throws(
+  () => normalizeHomeV2RuntimeInvalidation({ kind: 'app-replaced' }),
+  /requires a tab/,
+)
 assert.throws(
   () => normalizeHomeV2RuntimeInvalidation({ kind: 'tab-closed' }),
   /requires a tab/,

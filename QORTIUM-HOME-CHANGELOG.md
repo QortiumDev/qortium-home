@@ -34,6 +34,67 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-26 - feat(home-v2): apps can check balances on Qortium again, open a page in the tab they are already in, and use the older viewer actions
+
+Five things apps used to be able to do in the older Home stopped working when
+Home 2 rebuilt the app bridge. None of them was removed on purpose, and this
+brings them all back.
+
+Apps can look up an account's details and its balance on Qortium again. That
+never actually stopped working — Home just forgot to say it was available, so
+apps asking Qortium were told no even though the answer was right there. Asking
+Qortal worked the whole time and is unchanged. Apps can also read the public
+star ratings people leave on published resources, which the apps and profile
+tools need to show a rating without asking Home for anything special. Leaving a
+rating still goes through the normal signed-transaction route; this only opens
+the reading side.
+
+Apps can now ask Home to load a different address in the tab they are already
+in, instead of only being able to open another one. An app browser that opens
+something you picked no longer has to leave a growing pile of tabs behind. An
+app can only ever do this to its own tab: it cannot name a tab, cannot reach
+into another app's tab, and cannot replace one of Home's own pages — Settings,
+the dashboard, the Core API docs and the release notes still open in a tab of
+their own. Because an app is only steering the tab it already occupies, this
+asks no more permission than opening a new tab does.
+
+When one app hands its tab over to another, the tab is genuinely handed over
+rather than shared. On the desktop the incoming app is given a fresh page of its
+own, so it starts with none of the previous app's saved browser data — the same
+clean slate it would get if you had closed the tab and opened the new app
+yourself — and any permission you had granted the previous app in that tab is
+dropped along with it. (On phones every app on a node already shares one
+browser origin, so a handover there is no different from closing and reopening
+the tab; that is a known limitation recorded separately, not something this
+change introduces.) The tab keeps the account it was already using: this can
+change which app is loaded, never which account it speaks for. Home also checks,
+at the exact moment it makes the swap, that the app asking is still the one in
+the tab, so a slow request cannot land on top of something you opened in the
+meantime. And an app has to say exactly which published resource it means — if a
+name on its own could match more than one, the request now fails with a clear
+message instead of Home guessing, or quietly doing nothing while telling the app
+it had worked.
+
+Fixing that handover turned up an older problem worth naming on its own. Each
+desktop app gets its own private store for the data a web page keeps — cookies,
+saved settings and the like — and the name Home gave that store was built by
+trimming and rewriting the app's address. Two different apps with long or
+unusual addresses could end up with the same name, and so with the same store,
+which is precisely what the store exists to prevent. Home now names each store
+with a fingerprint of the app's identity, which cannot come out the same for two
+different apps. The one visible cost is that every existing store gets a new
+name, so apps will have forgotten whatever they had saved in your browser
+storage the first time you run this build, and start fresh from there. That is a
+deliberate trade: Home 2.1 is still pre-release, and keeping apps properly
+separated matters more than carrying that data across one upgrade.
+
+Finally, the two older ways of asking Home to show a media file or a document
+work again. They are simply other names for the resource viewer Home 2 already
+has, so they show the same viewer with the same checks, and each one still
+accepts only the kinds of files it always did. Apps published before Home 2 —
+Chat, Help, Explore and Library among them — no longer need to be republished
+to open an attachment. Newer apps should keep using the current action.
+
 ### 2026-08-26 - fix(home-v2): the widget button only appears for apps that have a widget, and Copy actually copies
 
 Two small things in the app toolbar and its menus were quietly wrong.

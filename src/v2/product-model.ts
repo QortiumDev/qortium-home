@@ -80,6 +80,23 @@ export type ProductAction =
       readonly context: AppTabContext
       readonly tabId: TabId
     }
+  /**
+   * Replaces one app tab's content in place, keeping its id and its position
+   * in the strip. The reducer behind the OPEN_CURRENT_TAB bridge action.
+   */
+  | {
+      readonly type: 'replace-tab-app'
+      readonly app: AppDescriptor
+      readonly context: AppTabContext
+      readonly tabId: TabId
+      /**
+       * The resource location the REQUESTING app was showing, taken from the
+       * trusted host's view context. The compare half of a compare-and-swap:
+       * the reducer refuses if the tab has meanwhile moved on to something
+       * else, so a slow replacement can never land on top of a later one.
+       */
+      readonly fromResourceLocation: string
+    }
   | { readonly type: 'activate-tab'; readonly tabId: TabId }
   | { readonly type: 'close-tab'; readonly tabId: TabId }
   | {
@@ -110,6 +127,7 @@ export class ProductModelError extends Error {
     readonly code:
       | 'APP_CONTEXT_MISMATCH'
       | 'TAB_ALREADY_EXISTS'
+      | 'TAB_CONTEXT_CHANGED'
       | 'TAB_NOT_FOUND',
     message: string,
   ) {
@@ -317,6 +335,32 @@ export function restoreProductState(value: unknown): ProductState {
   })
 }
 
+export interface ReplaceTabTarget {
+  readonly tabId: TabId
+  /** What the requesting app's tab was showing, per the trusted host. */
+  readonly fromResourceLocation: string
+}
+
+/**
+ * The app tab a replacement may act on, or null when the tab has closed, is
+ * not an app tab, or has moved on to something other than what the requesting
+ * app was showing.
+ *
+ * The compare half of the compare-and-swap, exported so the shell can run it
+ * before and after every await of an async open while the reducer runs the
+ * same comparison again at the moment of the write. One definition, so the
+ * pre-flight check and the write can never disagree about what "still the
+ * same tab" means.
+ */
+export function findReplaceableAppTab(
+  state: ProductState,
+  target: ReplaceTabTarget,
+): AppTab | null {
+  const tab = state.tabs.find((candidate) => candidate.id === target.tabId)
+  if (!tab) return null
+  return tab.context.resourceLocation === target.fromResourceLocation ? tab : null
+}
+
 function contextsIdentifySameTab(
   left: AppTabContext,
   right: AppTabContext,
@@ -330,14 +374,21 @@ function contextsIdentifySameTab(
   )
 }
 
-function openApp(
-  state: ProductState,
-  action: Extract<ProductAction, { readonly type: 'open-app' }>,
-): ProductState {
-  if (
-    action.context.appId !== action.app.id ||
-    action.context.tabId !== action.tabId
-  ) {
+/**
+ * The invariants every app tab must satisfy, whether it is being opened in a
+ * new tab or replacing the content of an existing one: the immutable context
+ * names this exact app and tab, its resource location parses, and that
+ * location agrees with the app's source chain and resource identity.
+ *
+ * Shared so the in-place replacement can never be validated more loosely than
+ * a fresh open.
+ */
+function assertAppTabTarget(
+  app: AppDescriptor,
+  context: AppTabContext,
+  tabId: TabId,
+): void {
+  if (context.appId !== app.id || context.tabId !== tabId) {
     throw new ProductModelError(
       'APP_CONTEXT_MISMATCH',
       'The app or tab does not match the immutable operation context.',
@@ -345,7 +396,7 @@ function openApp(
   }
   let parsedLocation: ReturnType<typeof parseAppResourceLocation>
   try {
-    parsedLocation = parseAppResourceLocation(action.context.resourceLocation)
+    parsedLocation = parseAppResourceLocation(context.resourceLocation)
   } catch {
     throw new ProductModelError(
       'APP_CONTEXT_MISMATCH',
@@ -353,16 +404,91 @@ function openApp(
     )
   }
   if (
-    action.context.sourceNetwork !== action.app.sourceNetwork ||
-    parsedLocation.sourceNetwork !== action.app.sourceNetwork ||
-    parsedLocation.identity.name !== action.app.resourceIdentity.name ||
-    parsedLocation.identity.identifier !== action.app.resourceIdentity.identifier
+    context.sourceNetwork !== app.sourceNetwork ||
+    parsedLocation.sourceNetwork !== app.sourceNetwork ||
+    parsedLocation.identity.name !== app.resourceIdentity.name ||
+    parsedLocation.identity.identifier !== app.resourceIdentity.identifier
   ) {
     throw new ProductModelError(
       'APP_CONTEXT_MISMATCH',
       'The app resource location does not match its immutable source chain.',
     )
   }
+}
+
+/**
+ * Replaces one app tab's content in place, keeping its id and strip position.
+ *
+ * This is the reducer behind the OPEN_CURRENT_TAB bridge action. The tab it
+ * acts on is chosen by the trusted host from the requesting view's own
+ * context — never from a field the app supplied — and this reducer refuses any
+ * id that is not an existing APP tab. So even a bridge mistake cannot turn
+ * "navigate my own tab" into navigating Settings, the dashboard, or a tab
+ * belonging to a different app.
+ */
+function replaceTabApp(
+  state: ProductState,
+  action: Extract<ProductAction, { readonly type: 'replace-tab-app' }>,
+): ProductState {
+  const index = state.entries.findIndex((entry) => entry.id === action.tabId)
+  if (index < 0) {
+    throw new ProductModelError(
+      'TAB_NOT_FOUND',
+      `Tab ${action.tabId} was not found.`,
+    )
+  }
+  const current = state.entries[index]
+  if (current.kind !== 'app') {
+    throw new ProductModelError(
+      'TAB_NOT_FOUND',
+      `Tab ${action.tabId} is not an app tab.`,
+    )
+  }
+  // The swap half of the compare-and-swap. Resolving a bare address is async,
+  // so between the shell's checks and this write the tab may already have been
+  // replaced by someone else — including by a second, faster OPEN_CURRENT_TAB
+  // from the app that has since taken the tab over. Refusing here means the
+  // late writer loses instead of silently overwriting the winner, and it means
+  // an app can only ever replace a tab it was ITSELF still occupying.
+  if (current.context.resourceLocation !== action.fromResourceLocation) {
+    throw new ProductModelError(
+      'TAB_CONTEXT_CHANGED',
+      `Tab ${action.tabId} is no longer showing the app that asked to replace it.`,
+    )
+  }
+  assertAppTabTarget(action.app, action.context, action.tabId)
+  // Already showing exactly this app in this tab: bring it forward rather than
+  // rebuilding an identical entry, matching how open-app treats a repeat open.
+  if (contextsIdentifySameTab(current.context, action.context)) {
+    return freezeProductState({
+      ...state,
+      transient: null,
+      activeTabId: current.id,
+      revision: state.revision + 1,
+    })
+  }
+  const entries = [...state.entries]
+  entries[index] = {
+    kind: 'app',
+    id: action.tabId,
+    appId: action.app.id,
+    title: action.app.title,
+    context: { ...action.context, tabId: action.tabId },
+  }
+  return freezeProductState({
+    ...state,
+    entries,
+    transient: null,
+    activeTabId: action.tabId,
+    revision: state.revision + 1,
+  })
+}
+
+function openApp(
+  state: ProductState,
+  action: Extract<ProductAction, { readonly type: 'open-app' }>,
+): ProductState {
+  assertAppTabTarget(action.app, action.context, action.tabId)
 
   const existing = state.entries.find(
     (entry) =>
@@ -539,6 +665,8 @@ export function reduceProductState(
   switch (action.type) {
     case 'open-app':
       return openApp(state, action)
+    case 'replace-tab-app':
+      return replaceTabApp(state, action)
     case 'activate-tab':
       return activateTab(state, action.tabId)
     case 'close-tab':

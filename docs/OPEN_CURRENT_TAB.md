@@ -1,5 +1,31 @@
 # Add `OPEN_CURRENT_TAB` bridge action
 
+> **Status: implemented, but not by the plan below.** This file is the original
+> Home 1.x design note, and every file path in it (`electron/qdn.ts`,
+> `electron/qdn-app-actions.ts`, `src/App.tsx`, `src/platform.ts`) belongs to
+> the 1.x bridge. Home 2 ships `OPEN_CURRENT_TAB` through its own bridge:
+> `electron/home-v2-app-actions.ts` (catalogue and the shared
+> `normalizeHomeV2OpenAddress` validator), `electron/home-v2-app-bridge.ts`
+> (desktop handler, bound to `context.tabId`), `src/home-v2-live/node-client.ts`
+> (portable host), and the `replace-tab-app` reducer in `src/v2/product-model.ts`.
+> Several contract points also differ on purpose:
+>
+> - Home 2 accepts `qdn://`, `qortal://` and `home://` rather than 1.x's
+>   `core://` set.
+> - It has no per-tab history model of its own — Back is the app view's own
+>   navigation history, so the "push to history" design below does not apply.
+> - **An explicit resource identifier is required.** The examples below pass
+>   `qdn://APP/{publisherName}/Apps`, which is fine; a bare `qdn://APP/Name` is
+>   rejected, because it can match several published resources and a bridge
+>   call has no user to ask which one was meant. `OPEN_NEW_TAB` keeps the
+>   chooser.
+> - The replacement is a compare-and-swap against the requesting app's own
+>   resource location, and it rebuilds the tab's app view instead of reusing
+>   it, so the incoming app never inherits the previous app's browser storage.
+>
+> See [Bridge action notes](BRIDGE_ACTIONS.md) for the current contract; keep
+> this file as the motivation record.
+
 ## Goal
 
 Add a `OPEN_CURRENT_TAB` QDN bridge action that lets a Q-App navigate the

@@ -476,11 +476,35 @@ function AndroidAppStage(props: AppTabStageProps) {
           result &&
           typeof result === 'object' &&
           'openIn' in result &&
-          result.openIn === 'new-tab' &&
+          (result.openIn === 'new-tab' || result.openIn === 'current-tab') &&
           'address' in result &&
           typeof result.address === 'string'
         ) {
-          await props.onOpenAddress?.(result.address)
+          // `context.tabId` and `context.resourceLocation` are this stage's
+          // own resolved tab, not anything the app sent: an app can ask for
+          // its OWN tab to be replaced, never for some other tab to be, and
+          // the location it was holding is what the shell's compare-and-swap
+          // checks the tab against before writing.
+          if (result.openIn === 'current-tab') {
+            const opened = await props.onOpenAddressInTab?.(
+              result.address,
+              context.tabId,
+              context.resourceLocation,
+            )
+            // Unlike OPEN_NEW_TAB, a replacement can legitimately fail: the
+            // tab may have closed or moved on, or the address may be one Home
+            // refuses to replace with. Report that, rather than answering
+            // `true` to a request that changed nothing.
+            if (opened && opened.status !== 'opened') {
+              ;(event.source as Window | null)?.postMessage({
+                type: 'qortium:qdn-response', bridgeToken: token, requestId: data.requestId,
+                error: { message: opened.message ?? 'That address could not be opened.' },
+              }, '*')
+              return
+            }
+          } else {
+            await props.onOpenAddress?.(result.address)
+          }
           result = true
         }
         ;(event.source as Window | null)?.postMessage({
@@ -515,6 +539,7 @@ function AndroidAppStage(props: AppTabStageProps) {
     props.nodeClient,
     props.onNavigationChanged,
     props.onOpenAddress,
+    props.onOpenAddressInTab,
     props.onTitleChanged,
     props.requestApp,
     resolved,
@@ -587,6 +612,19 @@ export interface AppTabStageProps {
     controller: AppTabNavigationController | null,
   ) => void
   readonly onOpenAddress?: (address: string) => Promise<unknown>
+  /**
+   * OPEN_CURRENT_TAB: replace the named tab's content instead of adding one.
+   *
+   * `fromResourceLocation` is what that tab was showing when the request was
+   * made — the compare half of the shell's compare-and-swap. Unlike
+   * onOpenAddress this result is INSPECTED: a replacement that did not happen
+   * is reported to the app as an error rather than answered with `true`.
+   */
+  readonly onOpenAddressInTab?: (
+    address: string,
+    tabId: string,
+    fromResourceLocation: string,
+  ) => Promise<{ readonly status: string; readonly message?: string } | undefined>
   readonly onTitleChanged?: (
     tabId: ProductState['tabs'][number]['id'],
     title: string | null,
@@ -664,6 +702,7 @@ declare global {
       resolvePermission(request: unknown): void
       show(request: unknown): Promise<void>
       onOpenAddress(listener: (event: unknown) => void): () => void
+      onOpenAddressInTab(listener: (event: unknown) => void): () => void
       onOpenResourceViewer(listener: (event: unknown) => void): () => void
       onNotificationClicked(listener: (event: unknown) => void): () => void
       onPermissionRequest(listener: (event: unknown) => void): () => void

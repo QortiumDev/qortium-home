@@ -148,6 +148,14 @@ export type PermissionInvalidation =
   | { readonly kind: 'navigation-changed'; readonly tabId: TabId }
   | { readonly kind: 'node-changed'; readonly network: NetworkId }
   | { readonly kind: 'tab-closed'; readonly tabId: TabId }
+  /**
+   * One app tab's app was replaced in place (OPEN_CURRENT_TAB). Drops every
+   * tab-bound grant, account.read included, exactly as 'tab-closed' does —
+   * the tab now hosts a different app. Distinct from 'navigation-changed' (an
+   * app navigating within itself, which deliberately keeps account.read) and
+   * from 'tab-closed' (there the tab itself goes away).
+   */
+  | { readonly kind: 'app-replaced'; readonly tabId: TabId }
   | { readonly kind: 'locked' }
 
 export class PermissionModelError extends Error {
@@ -317,6 +325,7 @@ export function invalidatePermissionState(
         return prompt.context.identityId === change.identityId
       case 'navigation-changed':
       case 'tab-closed':
+      case 'app-replaced':
         return prompt.context.tabId === change.tabId
       case 'node-changed':
         return prompt.context.targetNetwork === change.network
@@ -328,8 +337,12 @@ export function invalidatePermissionState(
         return grant.identityId === change.identityId
       case 'navigation-changed':
       case 'tab-closed':
+      case 'app-replaced':
+        // 'app-replaced' takes the same side as 'tab-closed': the tab now
+        // hosts a different app, so its account.read binding goes too. Only
+        // 'navigation-changed' (an app navigating within itself) keeps it.
         return grant.scope === 'session' && grant.sourceTabId === change.tabId &&
-          (change.kind === 'tab-closed' || grant.capability !== 'account.read')
+          (change.kind !== 'navigation-changed' || grant.capability !== 'account.read')
       case 'node-changed':
         return grant.capability !== 'account.read' && grant.targetNetwork === change.network
     }

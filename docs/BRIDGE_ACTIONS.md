@@ -89,6 +89,87 @@ route's operator disables QDN staging, publication/rotation fails with
 `NODE_CAPABILITY_MISSING`; reads and already-keyed message sends remain on that
 same selected route and there is no plaintext or alternate-node fallback.
 
+### Actions restored in Home 2.1
+
+Five bridge actions that Home 1.x served are supported again in Home 2, on the
+protocols listed here. None of them adds a new approval: the reads are public
+node reads, and the navigation and viewer entries match the posture of the
+actions they sit beside.
+
+- `GET_ACCOUNT_DATA` and `GET_BALANCE` are now advertised on **both**
+  `qdnRequest` and `qortalRequest`. The handlers always derived their path from
+  the invoking global's network, so the Qortium half was a catalogue omission
+  rather than a missing implementation — a Qortium app calling
+  `qdnRequest({ action: 'GET_ACCOUNT_DATA', address })` reads Qortium, and the
+  `qortalRequest` behavior is unchanged. Both take an explicit, validated
+  address; neither selects an account or returns anything private. Note that
+  Home 2's `GET_BALANCE` is the plain `/addresses/balance/{address}` read: it
+  requires `address` and takes no `assetId`, unlike the Home 1.x action
+  described under "Balances and wallet capability discovery" below. Use
+  `GET_ASSET_BALANCES` for a specific asset.
+- `FETCH_NODE_API` now allows the `/resource-ratings` prefix, alongside the
+  `/account-ratings` prefix it already allowed. These are Core's anonymous
+  resource-rating reads. The rating *write* is a signed `RATE_RESOURCE`
+  transaction and stays out of reach: the passthrough allows only `GET` and
+  `HEAD`, so Core's `POST /resource-ratings/rate` cannot be called through it.
+- `OPEN_CURRENT_TAB` is supported on both globals. It replaces the content of
+  the tab the calling app is running in, instead of adding one:
+
+  ```js
+  await qdnRequest({ action: 'OPEN_CURRENT_TAB', address: 'qdn://APP/Alice/Apps' });
+  ```
+
+  It accepts the same addresses as `OPEN_NEW_TAB` — `qdn://`, `qortal://`, and
+  `home://`, up to 2 048 characters — through the same shared validator. Home
+  1.x also accepted `core://` here; Home 2 does not, on either open action.
+  There is no prompt, for the same reason `OPEN_NEW_TAB` has none: Home still
+  owns where the address resolves to, and navigating your own tab is weaker
+  than adding one to the strip. The tab acted on is always the requesting
+  view's own — no tab id is read from the request — and Home refuses to replace
+  anything that is not an app tab, so an app cannot navigate another app's tab
+  or take over Settings, the dashboard, Core docs, or release notes. Those
+  addresses stay reachable through `OPEN_NEW_TAB`.
+
+  Three further rules, which `OPEN_NEW_TAB` does not share:
+
+  - **An explicit resource identifier is required, and the address must name an
+    app resource.** `qdn://APP/Alice/Apps` works; a bare `qdn://APP/Alice` and
+    a `home://` page each fail the bridge call itself, with an error, on both
+    transports. A bare name can match more than one published resource, and the
+    address bar resolves that by asking the user which one they meant — but
+    there is nobody to ask on a bridge call, and reporting success while doing
+    nothing would be a lie. `?identifier=` is a query, not a path identifier,
+    and does not satisfy this. Use `OPEN_NEW_TAB` if you want the chooser, or
+    to open a Home page.
+  - **The replacement is a compare-and-swap.** Home records which app held the
+    tab when the request arrived and refuses the write if the tab has since
+    closed or moved on to something else. A slow replacement can never land on
+    top of a later one, and an app can only replace a tab it was itself still
+    occupying.
+  - **The tab gets a fresh security context.** Replacing a tab's app tears the
+    old app view down and builds a new one, exactly as closing the tab and
+    opening the new app would: on desktop the incoming app gets its own
+    browser-storage partition and never inherits the outgoing app's cookies,
+    `localStorage` or IndexedDB. Each app's desktop partition is named by a
+    SHA-256 digest of its node origin and canonical resource identity, so two
+    different apps can never be given the same storage. The replaced tab keeps its account binding —
+    `OPEN_CURRENT_TAB` cannot change accounts — and every tab-scoped approval
+    the outgoing app held is dropped. (On Android every app on a node already
+    shares one proxy origin, so a replacement is neither better nor worse than
+    a close-and-reopen there; see the Android residual note in
+    [Home 2 bridge compatibility](HOME_V2_BRIDGE_COMPATIBILITY.md).)
+- `OPEN_QDN_MEDIA_PLAYER` and `OPEN_QDN_DOCUMENT_VIEWER` are supported on both
+  globals as compatibility **aliases** of `OPEN_QDN_RESOURCE_VIEWER`, the same
+  way `BAN_FROM_GROUP`/`KICK_FROM_GROUP` alias `GROUP_BAN`/`GROUP_KICK`. Home
+  collapses each onto the canonical action before dispatch, so they produce the
+  same checked request and do not create separate permission capabilities. Each
+  alias keeps the narrower service list its 1.x handler enforced —
+  `OPEN_QDN_MEDIA_PLAYER` accepts `AUDIO`, `PODCAST`, `VIDEO`, `VOICE`;
+  `OPEN_QDN_DOCUMENT_VIEWER` accepts `ATTACHMENT`, `DOCUMENT`, `FILE`, `FILES`
+  — and both lists are strict subsets of what `OPEN_QDN_RESOURCE_VIEWER`
+  accepts. The legacy `filename` and `mimeType` hints are carried through.
+  New apps should call `OPEN_QDN_RESOURCE_VIEWER` directly.
+
 `OPEN_QDN_RESOURCE_VIEWER`, `GET_QDN_RESOURCE_STREAM_URL`, and
 `SAVE_QDN_RESOURCE` are read-only and available through both Home 2 globals in
 every readable node mode. The first opens Home's public-resource viewer as a

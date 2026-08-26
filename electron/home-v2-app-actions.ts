@@ -23,6 +23,7 @@ const COMMON_ACTIONS = [
   'IS_USING_PUBLIC_NODE',
   'OPEN_AS_WIDGET',
   'NOTIFICATION_HAS_PERMISSION',
+  'OPEN_CURRENT_TAB',
   'OPEN_NEW_TAB',
   'SHOW_CONTEXT_MENU',
   'SHOW_NOTIFICATION',
@@ -57,6 +58,7 @@ const QDN_ACTIONS = [
   'FETCH_QORTAL_NODE_API',
   'GROUP_BAN',
   'GROUP_KICK',
+  'GET_ACCOUNT_DATA',
   'GET_ACCOUNT_GROUPS',
   'GET_ACCOUNT_GROUP_JOIN_REQUESTS',
   'GET_ACCOUNT_NAMES',
@@ -67,6 +69,7 @@ const QDN_ACTIONS = [
   'GET_ASSET_TRANSFERS',
   'GET_AT',
   'GET_AT_DATA',
+  'GET_BALANCE',
   'GET_CHAT_MESSAGE',
   'GET_CHAT_ATTACHMENT_STREAM_URL',
   'GET_GROUP',
@@ -95,6 +98,8 @@ const QDN_ACTIONS = [
   'REMOVE_MINTING_ACCOUNT',
   'START_MINTING',
   'OPEN_QDN_RESOURCE_VIEWER',
+  'OPEN_QDN_DOCUMENT_VIEWER',
+  'OPEN_QDN_MEDIA_PLAYER',
   'OPEN_CHAT_ATTACHMENT_VIEWER',
   'SAVE_QDN_RESOURCE',
   'SAVE_CHAT_ATTACHMENT',
@@ -181,6 +186,8 @@ const QORTAL_ACTIONS = [
   'REMOVE_MINTING_ACCOUNT',
   'START_MINTING',
   'OPEN_QDN_RESOURCE_VIEWER',
+  'OPEN_QDN_DOCUMENT_VIEWER',
+  'OPEN_QDN_MEDIA_PLAYER',
   'OPEN_CHAT_ATTACHMENT_VIEWER',
   'SAVE_QDN_RESOURCE',
   'SAVE_CHAT_ATTACHMENT',
@@ -225,6 +232,33 @@ const QORTAL_ACTIONS = [
 // raw /admin/mintingaccounts access: nothing below may be widened to let them
 // reach it directly.
 
+// Home 1.x shipped two narrow viewer actions before OPEN_QDN_RESOURCE_VIEWER
+// replaced them. Home 2 keeps them as compatibility ALIASES of that one
+// action — the same precedent as BAN_FROM_GROUP/KICK_FROM_GROUP in
+// home-v2-group-admin-actions.ts — so qortium-chat/help/explore/library keep
+// working without republishing.
+//
+// Security posture: an alias is never WIDER than the action it replaces.
+// Each one keeps the exact service scope its 1.x handler enforced (Home 1.x
+// electron/qdn.ts:9779-9853), so OPEN_QDN_MEDIA_PLAYER still cannot reach a
+// DOCUMENT and OPEN_QDN_DOCUMENT_VIEWER still cannot reach a VIDEO. Both
+// scopes are strict subsets of what OPEN_QDN_RESOURCE_VIEWER already accepts,
+// which itself refuses APP/WEBSITE/GAME (qdn-resource-viewer-contract.ts).
+// After the scope check the request is handled by the canonical action, so it
+// inherits its validation, its stream capability binding, and its prompt
+// posture — today: no prompt, because the viewer only drives Home's own UI
+// over a resource the app could already read. Neither alias adds a capability
+// of its own.
+const RESOURCE_VIEWER_ALIAS_SERVICES = new Map<string, readonly string[]>([
+  ['OPEN_QDN_MEDIA_PLAYER', Object.freeze(['AUDIO', 'PODCAST', 'VIDEO', 'VOICE'])],
+  ['OPEN_QDN_DOCUMENT_VIEWER', Object.freeze(['ATTACHMENT', 'DOCUMENT', 'FILE', 'FILES'])],
+])
+
+export const HOME_V2_RESOURCE_VIEWER_ALIASES = Object.freeze([
+  'OPEN_QDN_DOCUMENT_VIEWER',
+  'OPEN_QDN_MEDIA_PLAYER',
+] as const)
+
 const READ_PREFIXES = [
   '/account-ratings',
   '/addresses',
@@ -236,6 +270,11 @@ const READ_PREFIXES = [
   '/groups',
   '/names',
   '/polls',
+  // Core's public resource-rating reads, the resource-side twin of the
+  // /account-ratings prefix above. Anonymous and read-only on both forks: the
+  // rating WRITE is a signed RATE_RESOURCE transaction, which never reaches
+  // Core through this GET/HEAD passthrough.
+  '/resource-ratings',
   '/transactions',
 ] as const
 
@@ -277,6 +316,45 @@ export function normalizeHomeV2AppAction(request: Record<string, unknown>) {
   const action = typeof request.action === 'string' ? request.action.trim().toUpperCase() : ''
   if (!action) throw new Error('App request action is required.')
   return action
+}
+
+// Mirrors getRequestValue in qdn-request-values.ts: apps may nest fields in a
+// `payload` object, and the viewer contract reads `service` that way too. The
+// alias scope check below must look in the same place the handler will, or a
+// payload-nested request would be rejected here and accepted there.
+function homeV2RequestField(request: Record<string, unknown>, key: string): unknown {
+  const payload = request.payload
+  if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+    return (payload as Record<string, unknown>)[key] ?? request[key]
+  }
+  return request[key]
+}
+
+/**
+ * Collapses a compatibility alias onto the action that implements it, after
+ * enforcing the alias's own (narrower) preconditions.
+ *
+ * Called once per request at each bridge entry point, immediately after the
+ * action string is read and BEFORE the catalogue/route gate, so an alias is
+ * authorized, dispatched, error-reported and permission-keyed as the canonical
+ * action everywhere. That is deliberate: an alias must never become a second
+ * capability with its own grant identity.
+ *
+ * Every non-alias action is returned unchanged.
+ */
+export function canonicalHomeV2AppAction(
+  action: string,
+  request: Record<string, unknown>,
+): string {
+  const aliasServices = RESOURCE_VIEWER_ALIAS_SERVICES.get(action)
+  if (!aliasServices) return action
+  const rawService = homeV2RequestField(request, 'service')
+  const service = typeof rawService === 'string' ? rawService.trim().toUpperCase() : ''
+  if (!service) throw new Error('QDN resource service is required.')
+  if (!aliasServices.includes(service)) {
+    throw new Error(`${action} only supports ${aliasServices.join(', ')} resources.`)
+  }
+  return 'OPEN_QDN_RESOURCE_VIEWER'
 }
 
 export function getHomeV2AppActions(protocol: HomeV2AppBridgeProtocol): readonly string[] {
@@ -931,6 +1009,16 @@ export function buildHomeV2AssetReadPath(action: string, request: Record<string,
   throw new Error(`${action} is not a supported asset read.`)
 }
 
+/**
+ * The one address validator behind both OPEN_NEW_TAB and OPEN_CURRENT_TAB.
+ *
+ * Home 1.x accepted `qdn://`, `home://` and `core://` here. Home 2 uses its
+ * own scheme set instead — `qdn://`, `qortal://`, `home://` — because v2
+ * addresses are source-chain qualified (see parseAppResourceLocation) and
+ * `core://` has no v2 meaning. OPEN_CURRENT_TAB deliberately reuses the v2 set
+ * rather than reviving the 1.x one: sharing this function is what guarantees
+ * the two open actions can never drift into accepting different schemes.
+ */
 export function normalizeHomeV2OpenAddress(request: Record<string, unknown>) {
   const value = typeof request.address === 'string'
     ? request.address
@@ -940,9 +1028,72 @@ export function normalizeHomeV2OpenAddress(request: Record<string, unknown>) {
   const address = value.trim()
   if (!address) throw new Error('Address is required.')
   if (!/^(qdn|qortal|home):\/\//i.test(address)) {
-    throw new Error('OPEN_NEW_TAB only accepts qdn://, qortal://, and home:// addresses.')
+    throw new Error('Home only accepts qdn://, qortal://, and home:// addresses.')
   }
   if (address.length > MAX_ADDRESS_LENGTH) throw new Error('Address is too long.')
+  return address
+}
+
+/**
+ * Whether an app address names its resource identifier explicitly.
+ *
+ * A deliberate twin of `identifierWasExplicit` in
+ * src/v2/resource-location.ts, which computes exactly this: parse the address
+ * as a URL, take the non-empty path segments, drop the first (the app name),
+ * and ask whether anything is left. Electron code cannot import from src/, so
+ * the rule is restated here rather than re-derived — and the two are pinned
+ * against one shared fixture,
+ * src/shared-fixtures/app-address-explicit-identifier-vectors.json, so they
+ * can never drift apart on what "explicit" means.
+ *
+ * Returns false for anything that is not a qdn:// or qortal:// APP address:
+ * those are not app resources, and the caller refuses them separately.
+ */
+export function homeV2AppAddressNamesIdentifier(address: string): boolean {
+  let parsed: URL
+  try {
+    parsed = new URL(address.trim())
+  } catch {
+    return false
+  }
+  const scheme = parsed.protocol.slice(0, -1).toLowerCase()
+  if (scheme !== 'qdn' && scheme !== 'qortal') return false
+  if (parsed.hostname.toUpperCase() !== 'APP') return false
+  // Query and hash are excluded because `pathname` excludes them, matching the
+  // twin: `?identifier=` is NOT an explicit path identifier.
+  const segments = parsed.pathname.split('/').filter(Boolean)
+  return segments.length > 1
+}
+
+/**
+ * OPEN_CURRENT_TAB's address rule, enforced in the trusted host.
+ *
+ * OPEN_NEW_TAB can accept a bare app name, because the shell resolves it and,
+ * when it turns out to match more than one published resource, asks the user
+ * which they meant. A bridge call has nobody to ask. The shell therefore
+ * refuses a bare name for a replacement — but the desktop transport is
+ * fire-and-forget, so a refusal made only in the renderer is discarded and the
+ * app is told `true` for a replacement that never happened. Requiring the
+ * identifier HERE, synchronously, makes the bridge call itself fail with a
+ * clear error on both transports.
+ *
+ * Non-app addresses are refused outright for the same reason: `home://` and
+ * friends parse fine but can never replace an app tab (Home's own pages must
+ * not be takeable over from inside one), so accepting them here would be the
+ * same silent `true`.
+ */
+export function normalizeHomeV2ReplaceTabAddress(request: Record<string, unknown>) {
+  const address = normalizeHomeV2OpenAddress(request)
+  if (!/^(qdn|qortal):\/\//i.test(address)) {
+    throw new Error(
+      'OPEN_CURRENT_TAB can only replace a tab with a qdn:// or qortal:// app resource; use OPEN_NEW_TAB for Home pages.',
+    )
+  }
+  if (!homeV2AppAddressNamesIdentifier(address)) {
+    throw new Error(
+      'OPEN_CURRENT_TAB needs an explicit resource identifier: a bare app name can match more than one published resource. Use OPEN_NEW_TAB to let the user choose.',
+    )
+  }
   return address
 }
 

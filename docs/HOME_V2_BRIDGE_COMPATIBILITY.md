@@ -75,7 +75,7 @@ This F4 slice does not add `GET_APP_ASSIGNMENTS` or
 | `SEARCH_TRANSACTIONS` | both | Bare polymorphic Core JSON array (transaction-type fields are fork-specific) | `confirmationStatus` required explicitly because the forks default differently; Core's txType/address/limit<=20 precondition and a 100-entry limit cap enforced before the request | yes | yes |
 | `GET_DAY_SUMMARY`, `GET_PRICE` | `qortalRequest` | Bare Core JSON; price is a bare fixed-point integer | Qortal-only: Qortium Previewnet public seeds do not expose these routes. Price blockchain restricted to Qortal's supported foreign chains; a public node may still deny `/admin/summary` by its own policy | yes | yes |
 | `GET_PRIMARY_NAME` | `qortalRequest` | Bare Core JSON | Explicit Qortal identity read | yes | yes |
-| `GET_ACCOUNT_DATA`, `GET_BALANCE` | `qortalRequest` | Bare Core JSON | Explicit Qortal address read | yes | yes |
+| `GET_ACCOUNT_DATA`, `GET_BALANCE` | both | Bare Core JSON | Public address read; the invoking global selects the chain, so `qdnRequest` reads Qortium and `qortalRequest` reads Qortal. Strict address validation; no account selection and no private data | yes | yes |
 | `RESOLVE_IDENTITIES` | `qdnRequest` | Address/name/avatar-hint array | Qortium metadata only; at most 500 unique addresses | yes | yes |
 | `FETCH_ACCOUNT_AVATAR`, `FETCH_GROUP_AVATAR` | both | Network-qualified bounded base64 image or pending state | Protocol selects chain; Qortium on-chain pointer wins and exact pointer-info 404 alone enables legacy fallback; Qortal uses the established named-thumbnail coordinates; explicit address/positive group ID; max 500 KiB; raster magic-byte validation; no node URL | yes | yes |
 | `FETCH_QDN_RESOURCE` | both | Bare decoded Core response | Source protocol selects chain; 2 MiB default and 5 MiB maximum | yes | yes |
@@ -85,6 +85,7 @@ This F4 slice does not add `GET_APP_ASSIGNMENTS` or
 | `GET_USER_ACCOUNT` | `qortalRequest` | Address and public key when available from Qortal | Trusted Home prompt; once or tab-session grant | yes | yes |
 | `UNLOCK_SELECTED_ACCOUNT` | `qdnRequest` | Sanitized address, public name, and unlocked state | Visible Home-owned prompt; exact app/tab/account/route recheck; no private material | yes | yes |
 | `OPEN_NEW_TAB` | both | `true` | Only `qdn://`, `qortal://`, or `home://`; Home owns navigation | yes | yes |
+| `OPEN_CURRENT_TAB` | both | `true`, or an error — a rejected address fails the bridge call on both transports, and the portable host additionally reports a replacement that did not happen | Replaces the content of the tab the app is running in. Same shared address validator as `OPEN_NEW_TAB`, and no prompt for the same reason — navigating your own tab is weaker than adding one. The tab is always the requesting view's own `context.tabId`; no tab id is accepted from the request, only app tabs can be replaced, and a Home page (settings, dashboard, Core docs, release notes) can never take one over. The trusted host requires an app-resource address naming an explicit path identifier: a bare app name is refused rather than silently resolved, because a bridge call has no chooser, and `?identifier=` is a query rather than a path identifier so it does not count. Compare-and-swap against the requesting app's own `context.resourceUrl`, re-checked inside the reducer at the write, so a slow replacement can never overwrite a later one. Tears the old app view down and rebuilds it along the fresh-tab path, so the incoming app never inherits the outgoing app's desktop storage partition — partitions are named by a SHA-256 digest of node origin plus canonical resource identity, so two different apps cannot collide onto one. Keeps the tab's account binding, and drops every tab-scoped grant the outgoing app held via the `app-replaced` invalidation | yes | yes |
 | `SEARCH_CHAT_MESSAGES` | both | Bare Core JSON | Groups-only in this release (documented Hub deviation, see below); required non-negative `txGroupId`; `before`/`after` pre-validated against Core's floor; `limit` capped at 100 | yes | yes |
 | `GET_CHAT_MESSAGE` | both | Bare Core JSON | Base58 signature shape validated before the request | yes | yes |
 | `SEND_CHAT_MESSAGE` | both | `{ signature, timestamp }` | Trusted Home prompt (chain, group, 180-char message preview); once or tab-session grant; account must already be unlocked; per-tab/account ceiling of one send per 1.5 seconds and 20 per minute; CHAT-only signing carve-out (fee-less, cannot move funds) — see below | yes | yes |
@@ -97,6 +98,7 @@ This F4 slice does not add `GET_APP_ASSIGNMENTS` or
 | `REQUEST_PRIVATE_GROUP_CHAT_KEY`, `RESOLVE_PRIVATE_GROUP_CHAT_KEY_REQUESTS`, `ROTATE_PRIVATE_GROUP_CHAT_KEY` | both | Recovery state, `{ signature, timestamp }`, bounded relay/republish result, or signed non-retryable unknown-outcome result | Single-request prompt. Qortium creates/relays QPGC controls; Qortal recovers from or republishes/rotates the current-admin key bundle. Qortal publication requires the selected operator's QDN staging route or returns `NODE_CAPABILITY_MISSING` | yes | yes |
 | `SEND_PRIVATE_GROUP_CHAT_MESSAGE`, `SEND_PRIVATE_GROUP_CHAT_EDIT`, `SEND_PRIVATE_GROUP_CHAT_DELETE`, `SEND_PRIVATE_GROUP_CHAT_REACTION` | both | `{ signature, timestamp }`, or signed unknown-outcome result; an uncertain automatic QPGC setup additionally returns `stage: "key-announcement"` and `messageSubmitted: false` | Qortium uses QPGC v1 (maximum 39 members) and automatically creates, wraps, announces, stores, and immediately uses a missing current-epoch key before continuing the requested mutation. Qortal keeps the Hub-compatible app-level secretbox/manual bundle lifecycle with a 2,225-byte plaintext ceiling. Home rechecks membership, key state, reference, sender ownership where required, route, account, and app/tab context before signing | yes | yes |
 | `PUBLISH_CHAT_ATTACHMENT`, `GET_CHAT_ATTACHMENT_STREAM_URL`, `OPEN_CHAT_ATTACHMENT_VIEWER`, `SAVE_CHAT_ATTACHMENT` | both | Immutable encrypted descriptor, expiring plaintext stream URL, viewer result, or save result | Home-issued source token only; one-request `chat.attachment` approval; QATT/QENC v2 for Qortium, distinct marked Qortal direct/generic-group formats, and Hub-compatible Qortal private-group images; 1 MiB ciphertext ceiling; exact hash/size, peer/membership, account, app/tab, chain, and route checks; no inline plaintext or reusable key crosses into the app, while the approved stream URL grants temporary bounded byte access | yes | yes |
+| `OPEN_QDN_MEDIA_PLAYER`, `OPEN_QDN_DOCUMENT_VIEWER` | both | `true` | Compatibility aliases of `OPEN_QDN_RESOURCE_VIEWER`, collapsed onto it before dispatch, so they share its validation, stream capability binding, and approval behavior and never form a capability of their own. Each keeps the narrower Home 1.x service list (`AUDIO`/`PODCAST`/`VIDEO`/`VOICE`, and `ATTACHMENT`/`DOCUMENT`/`FILE`/`FILES`) — both strict subsets of what the canonical action accepts, so an alias can never reach a resource it refuses | yes | yes |
 | `GET_GROUP`, `GET_ACCOUNT_GROUPS`, `GET_GROUP_MEMBERS`, `GET_GROUP_JOIN_REQUESTS`, `GET_ACCOUNT_GROUP_JOIN_REQUESTS`, `GET_ADMIN_GROUP_JOIN_REQUESTS`, `GET_ACTIVE_CHATS` | both | Bare Core JSON | No prompt; bounded anonymous public reads; positive-integer `groupId`, address regex, strict booleans, 100-entry page cap where Core has none | yes | yes |
 | `SEARCH_GROUPS` | `qdnRequest` | Bare Core JSON array | Qortium-only — `/groups/search` does not exist on Qortal (verified absent from the Qortal master 6.1.5 and develop checkouts' `GroupsResource.java`); required non-negative-length `query`, `visibility` validated against Core's real `ALL`/`OPEN`/`CLOSED` enum (not Hub's `PUBLIC`/`PRIVATE` terminology), strict `prefixOnly`, 100-entry page cap | yes | yes |
 | `GET_MINTING_STATUS`, `LIST_MINTING_ACCOUNTS` | both | `{ address, hasRewardShare, isMinting, keyOnNode, nodeMintingPossible }`, or `{ accounts, available }` with `address`/`mintingAccount`/`publicKey`/`recipientAccount` per entry | No prompt (derived booleans and allowlisted fields only, never key material). `hasRewardShare` is a public read; the node-side fields are `null` and `available` is `false` unless the route is the local Core Home runs and holds the API key for, so they are always unavailable on public/custom nodes, on Qortal, and on Android. Never offered to a chromeless widget, which has no prompt surface and must not learn the selected identity | yes | yes (node-side always unavailable) |
@@ -207,10 +209,24 @@ back to, which Home 2's read allowlist refuses.
 - `GET_USER_ACCOUNT.publicKey` is read from Qortal's public account data. It can
   be `null` for an address whose public key is not yet visible on chain; Home
   does not unlock or expose private material to fill it.
-- Only new-tab application navigation is advertised. Public resource viewing,
-  ranged media URLs, and user-directed saves have their own exact H5A actions;
-  current-tab replacement, arbitrary native paths, and external web URLs are
-  not silently mapped onto them.
+- Home 2 advertises both application-navigation actions: `OPEN_NEW_TAB` and
+  `OPEN_CURRENT_TAB`. Public resource viewing, ranged media URLs, and
+  user-directed saves have their own exact H5A actions. What is still refused
+  is different in kind from what is merely unmapped, and the two should not be
+  read as the same statement:
+  - **Not mapped onto an H5A action.** Arbitrary native paths and external web
+    URLs are never silently accepted by an action that looks similar. There is
+    no H5A action that opens either, and the shared address validator accepts
+    only `qdn://`, `qortal://`, and `home://` — so neither open action can be
+    talked into one. Home 1.x's `core://` scheme is in this group too: it has
+    no Home 2 meaning, and `OPEN_CURRENT_TAB` deliberately uses the v2 scheme
+    set rather than reviving it.
+  - **Deliberately refused, not dropped.** `OPEN_CURRENT_TAB` replaces only an
+    APP tab, and only the requesting view's own. Home's internal pages —
+    settings, dashboard, welcome, Core docs, release notes — resolve
+    successfully as addresses but are refused as replacements, so an app can
+    never take over trusted Home chrome inside its own tab. They remain
+    reachable through `OPEN_NEW_TAB`.
 - Home 2.0 now uses the existing production profile and strict encrypted wallet
   format. A verified curated backup gates account mutations; malformed data or
   backup verification failure produces read-only recovery state.
@@ -261,7 +277,15 @@ back to, which Home 2's read allowlist refuses.
   separately):** Android's QDN render proxy serves every app tab on one node
   from a single shared `https://<label>.qdn.androidplatform.net` origin (see
   `QdnRenderProxy.java`'s class doc comment for why — a per-tab origin would
-  wipe QDN apps' own local storage between visits). The round-6/7 exact-URL
+  wipe QDN apps' own local storage between visits). The host label is derived
+  from the node origin alone, so cookies, `localStorage` and IndexedDB are
+  shared by every app on that node regardless of how a tab was opened.
+  `OPEN_CURRENT_TAB` inherits this and does not widen it: replacing a tab's app
+  fully remounts the app stage — new component instance, new bridge token, new
+  iframe, fresh `authorize()` — so it is exactly equivalent to closing the tab
+  and opening the new app, which crosses the same shared origin. Desktop does
+  isolate per app, and a replacement there is rebuilt on the fresh-tab path so
+  the incoming app gets its own partition. The round-6/7 exact-URL
   gate (`QdnRenderProxy.isExactAuthorizedRenderDocument`) closes cross-app
   grant theft: the native proxy never supplies a fresh bridge token, script
   injection, or a stripped CSP to any document other than the one exact

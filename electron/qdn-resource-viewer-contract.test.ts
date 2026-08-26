@@ -246,4 +246,93 @@ assert(
   'Android must preserve Content-Range, Accept-Ranges, and content length response headers.',
 );
 
+// Home 1.x's OPEN_QDN_MEDIA_PLAYER and OPEN_QDN_DOCUMENT_VIEWER are Home 2
+// aliases of OPEN_QDN_RESOURCE_VIEWER (see canonicalHomeV2AppAction in
+// electron/home-v2-app-actions.ts, which enforces each alias's narrower
+// service scope and then hands the request to the canonical action). What is
+// pinned here is that the canonical validator understands the legacy request
+// SHAPES those actions accepted, so an alias needs no parallel parser.
+assert.deepEqual(
+  // 1.x OPEN_QDN_MEDIA_PLAYER: service/name/identifier/path, no filename hint.
+  getQdnResourceViewerRequest({
+    action: 'OPEN_QDN_MEDIA_PLAYER',
+    service: 'AUDIO',
+    name: 'Alice',
+    identifier: 'episode-1',
+    path: 'audio/episode-1.mp3',
+  }),
+  {
+    filename: null,
+    identifier: 'episode-1',
+    mimeType: null,
+    name: 'Alice',
+    path: 'audio/episode-1.mp3',
+    service: 'AUDIO',
+  },
+);
+assert.deepEqual(
+  // 1.x OPEN_QDN_DOCUMENT_VIEWER additionally carried filename and mimeType,
+  // and both must survive: they are what lets Home pick the right viewer for a
+  // generic FILE or ATTACHMENT resource.
+  getQdnResourceViewerRequest({
+    action: 'OPEN_QDN_DOCUMENT_VIEWER',
+    service: 'DOCUMENT',
+    name: 'Alice',
+    identifier: 'whitepaper',
+    path: 'docs/paper.pdf',
+    filename: 'paper.pdf',
+    mimeType: 'application/pdf',
+  }),
+  {
+    filename: 'paper.pdf',
+    identifier: 'whitepaper',
+    mimeType: 'application/pdf',
+    name: 'Alice',
+    path: 'docs/paper.pdf',
+    service: 'DOCUMENT',
+  },
+);
+// Fields the contract does not know are ignored, never trusted: a legacy
+// request cannot smuggle an extra instruction in through an alias.
+assert.deepEqual(
+  getQdnResourceViewerRequest({
+    action: 'OPEN_QDN_MEDIA_PLAYER',
+    service: 'VIDEO',
+    name: 'Alice',
+    autoplay: true,
+    streamUrl: 'https://example.invalid/evil.mp4',
+    sourceTabId: 'home-v2:tab:someone-else',
+  }),
+  {
+    filename: null,
+    identifier: null,
+    mimeType: null,
+    name: 'Alice',
+    path: null,
+    service: 'VIDEO',
+  },
+);
+// The legacy shapes are still bound by every canonical rule, including the
+// traversal and length guards.
+assert.throws(
+  () =>
+    getQdnResourceViewerRequest({
+      action: 'OPEN_QDN_DOCUMENT_VIEWER',
+      service: 'FILE',
+      name: 'Alice',
+      path: '../../etc/passwd',
+    }),
+  /cannot contain \. or \.\. segments/,
+);
+assert.throws(
+  () =>
+    getQdnResourceViewerRequest({
+      action: 'OPEN_QDN_MEDIA_PLAYER',
+      service: 'AUDIO',
+      name: 'Alice',
+      mimeType: 'a'.repeat(1025),
+    }),
+  /mimeType is too long/,
+);
+
 console.log('QDN resource viewer contract tests passed.');

@@ -165,6 +165,15 @@ export interface HomeV2PrototypeProps {
   ) => Promise<unknown>
   readonly onOpenApp?: (app: AppDescriptor) => void
   readonly onOpenAddress?: (address: string) => Promise<AddressOpenResult>
+  /**
+   * OPEN_CURRENT_TAB: replace one app tab's content in place. Reaches only the
+   * app stage — the address bar always opens a tab of its own.
+   */
+  readonly onOpenAddressInTab?: (
+    address: string,
+    tabId: string,
+    fromResourceLocation: string,
+  ) => Promise<AddressOpenResult>
   readonly onOpenAsWidget?: (tabId: string) => Promise<string | null>
   /** Undefined while the host is still asking main whether the app has one. */
   readonly widgetAvailable?: boolean
@@ -1127,6 +1136,7 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
                 onNavigationChanged={props.onAppNavigationChanged}
                 onNavigationControllerChange={props.onAppNavigationControllerChange}
                 onOpenAddress={props.onOpenAddress}
+                onOpenAddressInTab={props.onOpenAddressInTab}
                 onTitleChanged={props.onAppTitleChanged}
                 requestApp={props.requestApp}
               />

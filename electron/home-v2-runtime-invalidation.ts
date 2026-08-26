@@ -1,5 +1,13 @@
 export const HOME_V2_RUNTIME_INVALIDATION_KINDS = Object.freeze([
   'account-changed',
+  // One app tab's app was replaced in place (OPEN_CURRENT_TAB). Deliberately
+  // distinct from 'navigation-changed', which is an app moving around inside
+  // ITSELF and therefore keeps that tab's account.read binding alive: here the
+  // tab now hosts a DIFFERENT app, so every tab-bound grant the outgoing app
+  // held must go, exactly as if the tab had been closed and reopened. Also
+  // kept distinct from 'tab-closed', because the tab is NOT closing — nothing
+  // may read this as a signal to tear the tab or its view down.
+  'app-replaced',
   'locked',
   'navigation-changed',
   'node-changed',
@@ -41,7 +49,7 @@ export function normalizeHomeV2RuntimeInvalidation(
     }
     tabId = value.tabId
   }
-  if ((kind === 'navigation-changed' || kind === 'tab-closed') && !tabId) {
+  if ((kind === 'navigation-changed' || kind === 'tab-closed' || kind === 'app-replaced') && !tabId) {
     throw new Error(`Home v2 ${kind} invalidation requires a tab.`)
   }
   if (kind === 'node-changed' && !network) {

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
@@ -15,6 +16,10 @@ import {
   storeHoldsQdnAccountCapability,
   storeHoldsQdnAppCapability,
 } from './qdn-manager-permissions.js'
+import {
+  canReuseQdnViewEntry,
+  getQdnViewPartition,
+} from './qdn-view-security-context.js'
 
 // --- The identifier resolver must agree with the runtime, vector for vector ---
 {
@@ -361,6 +366,215 @@ import {
   store = grantQdnAccountCapability(createDefaultQdnAppRolesStore(), lower, accountId, 'account.read')
   assert.equal(storeHoldsQdnAccountCapability(store, lower, accountId, 'account.read'), true)
   assert.equal(storeHoldsQdnAccountCapability(store, upper, accountId, 'account.read'), false)
+}
+
+// --- A view is only reused within one app's own security context ---
+//
+// The Chromium partition a view is CREATED with carries that app's cookies,
+// localStorage and IndexedDB, and a view keeps its partition for life. Reusing
+// a view whose app changed (OPEN_CURRENT_TAB) would therefore hand the
+// incoming app the outgoing app's browser storage. canReuseQdnViewEntry is the
+// gate that stops that; anything it refuses is destroyed and rebuilt the way a
+// freshly opened tab is.
+{
+  const node = 'http://127.0.0.1:24891'
+  const chat = 'qdn://APP/Alice/chat'
+  const trust = 'qdn://APP/Bob/trust'
+
+  // The ordinary case: same tab, same app, re-shown after a resize, a zoom or
+  // a suspend/restore. Must reuse, or all of those would reload the app.
+  assert.equal(
+    canReuseQdnViewEntry({ nodeOrigin: node, resourceUrl: chat }, { nodeOrigin: node, resourceUrl: chat }),
+    true,
+  )
+  // A different app in the same tab is a different security context.
+  assert.equal(
+    canReuseQdnViewEntry({ nodeOrigin: node, resourceUrl: chat }, { nodeOrigin: node, resourceUrl: trust }),
+    false,
+    'a replacement by a different app must never inherit the previous app view',
+  )
+  // Same app, different node: rebuilt before this change, still rebuilt.
+  assert.equal(
+    canReuseQdnViewEntry(
+      { nodeOrigin: node, resourceUrl: chat },
+      { nodeOrigin: 'http://127.0.0.1:12391', resourceUrl: chat },
+    ),
+    false,
+  )
+  // The identifier is part of the principal: `?identifier=` names a DIFFERENT
+  // resource the runtime really serves, and it must not borrow the default
+  // resource's storage. Same rule the durable-grant principal enforces above —
+  // deliberately the same function.
+  assert.equal(
+    canReuseQdnViewEntry(
+      { nodeOrigin: node, resourceUrl: 'qdn://APP/Alice/default' },
+      { nodeOrigin: node, resourceUrl: 'qdn://APP/Alice/default?identifier=evil' },
+    ),
+    false,
+  )
+  // Cross-chain: same name, different source chain, never one context.
+  assert.equal(
+    canReuseQdnViewEntry(
+      { nodeOrigin: node, resourceUrl: 'qdn://APP/Alice/chat' },
+      { nodeOrigin: node, resourceUrl: 'qortal://APP/Alice/chat' },
+    ),
+    false,
+  )
+  // Fails closed: a resource URL that cannot be canonicalized cannot be proven
+  // to name the same app, so it is rebuilt — EXCEPT when byte-identical, which
+  // is what widget and null-resource views rely on.
+  assert.equal(
+    canReuseQdnViewEntry({ nodeOrigin: node, resourceUrl: null }, { nodeOrigin: node, resourceUrl: null }),
+    true,
+  )
+  assert.equal(
+    canReuseQdnViewEntry({ nodeOrigin: node, resourceUrl: null }, { nodeOrigin: node, resourceUrl: chat }),
+    false,
+  )
+  assert.equal(
+    canReuseQdnViewEntry(
+      { nodeOrigin: node, resourceUrl: 'not-a-qdn-url' },
+      { nodeOrigin: node, resourceUrl: 'also-not-a-qdn-url' },
+    ),
+    false,
+  )
+  // Two apps must never share a partition — the property the reuse gate exists
+  // to protect.
+  assert.notEqual(getQdnViewPartition(node, chat), getQdnViewPartition(node, trust))
+  assert.equal(getQdnViewPartition(node, chat), getQdnViewPartition(node, chat))
+}
+
+// --- Partition names are digests, so they cannot collide ---
+//
+// The partition name used to be the resource URL with unsafe characters
+// replaced by '_' and the result truncated to 60 characters. Neither step is
+// injective, so two DIFFERENT apps could be handed one partition name — and a
+// shared partition is a shared cookie jar, localStorage and IndexedDB. These
+// are the two collision shapes that construction allowed.
+{
+  const node = 'http://127.0.0.1:24891'
+  const chatUrl = 'qdn://APP/Alice/chat'
+  const partitionOf = (resourceUrl: string) => getQdnViewPartition(node, resourceUrl)
+
+  // 1. TRUNCATION. 'qdn://APP/' is 10 characters, so a 50-character name fills
+  //    the old 60-character budget exactly, and everything after it — the part
+  //    saying WHICH resource — used to be cut off.
+  const longName = 'a'.repeat(50)
+  const truncatedOne = `qdn://APP/${longName}/one`
+  const truncatedTwo = `qdn://APP/${longName}/two`
+  assert.equal(
+    truncatedOne.slice(0, 60),
+    truncatedTwo.slice(0, 60),
+    'fixture check: these two differ only past the old 60-character cut',
+  )
+  assert.notEqual(
+    partitionOf(truncatedOne),
+    partitionOf(truncatedTwo),
+    'apps differing only past the old truncation point must not share a partition',
+  )
+
+  // 2. CHARACTER REPLACEMENT. '~' and '!' were both outside the old safe set
+  //    and both rewritten to '_', collapsing two distinct identifiers onto one
+  //    name.
+  const foldedOne = 'qdn://APP/Alice/a~b'
+  const foldedTwo = 'qdn://APP/Alice/a!b'
+  const oldFold = (value: string) => value.replace(/[^a-z0-9:/._-]/gi, '_').slice(0, 60)
+  assert.equal(
+    oldFold(foldedOne),
+    oldFold(foldedTwo),
+    'fixture check: these two folded onto one name under the old scheme',
+  )
+  assert.notEqual(
+    partitionOf(foldedOne),
+    partitionOf(foldedTwo),
+    'apps differing only in characters the old scheme folded must not share a partition',
+  )
+
+  // Stability: the same app on the same node keeps one partition across tabs,
+  // windows and restarts, or apps would lose their storage constantly.
+  assert.equal(partitionOf(chatUrl), partitionOf(chatUrl))
+  // ...and the node origin still separates partitions.
+  assert.notEqual(
+    getQdnViewPartition(node, chatUrl),
+    getQdnViewPartition('http://127.0.0.1:12391', chatUrl),
+  )
+  // Derived from the canonical PRINCIPAL, so an app navigating within itself
+  // (same resource, different route) keeps its storage — the same rule that
+  // keeps its durable grant.
+  assert.equal(
+    partitionOf('qdn://APP/Alice/apps'),
+    partitionOf('qdn://APP/Alice/apps/browse?tab=1#/x'),
+  )
+
+  // The name is exactly a SHA-256 over the JSON-encoded identity, recomputed
+  // here independently: this pins the derivation, not merely its shape.
+  const expected = createHash('sha256')
+    .update(JSON.stringify([node, 'principal', 'qdn://APP/Alice/apps']), 'utf8')
+    .digest('hex')
+  assert.equal(partitionOf('qdn://APP/Alice/apps'), `persist:qdn-${expected}`)
+  // Full 256-bit digest: 64 hex characters, never truncated below 128 bits.
+  assert.match(partitionOf(chatUrl), /^persist:qdn-[0-9a-f]{64}$/)
+  // A resource URL that cannot be canonicalized is tagged apart from a
+  // principal, so a raw URL can never be crafted to hash into an app's
+  // partition, and two different unparseable URLs stay apart.
+  assert.notEqual(partitionOf('qdn://APP/Alice/apps'), getQdnViewPartition(node, null))
+  assert.notEqual(partitionOf('not-a-qdn-url'), partitionOf('also-not-a-qdn-url'))
+}
+
+// The replacement path must route through view DESTRUCTION, not a partial
+// state reset: a reused view keeps its partition no matter what is later
+// assigned to entry.resourceUrl.
+{
+  // Resolved from either the source tree or dist-electron, wherever this test
+  // is executed from.
+  const viewsUrl = ['../electron/qdn-views.ts', './qdn-views.ts']
+    .map((candidate) => new URL(candidate, import.meta.url))
+    .find((candidate) => existsSync(candidate))
+  assert.ok(viewsUrl, 'qdn-views.ts source must be readable for the reuse-gate pin')
+  const views = readFileSync(viewsUrl, 'utf8')
+  assert.match(
+    views,
+    /if \(existingEntry && canReuseQdnViewEntry\(existingEntry, request\)\) \{/,
+    'qdn-views must gate view reuse on canReuseQdnViewEntry',
+  )
+  assert.match(
+    views,
+    /canReuseQdnViewEntry\(existingEntry, request\)\)[\s\S]{0,900}if \(existingEntry\) \{\s*destroyEntry\(existingEntry\);/,
+    'a view that cannot be reused must be destroyed before a new one is created',
+  )
+  assert.doesNotMatch(
+    views,
+    /existingEntry\.nodeOrigin === request\.nodeOrigin/,
+    'node origin alone must no longer decide view reuse',
+  )
+}
+
+// The partition name must stay a digest. A readable name is what allowed the
+// truncation and character-folding collisions above.
+{
+  const securityContextUrl = [
+    '../electron/qdn-view-security-context.ts',
+    './qdn-view-security-context.ts',
+  ]
+    .map((candidate) => new URL(candidate, import.meta.url))
+    .find((candidate) => existsSync(candidate))
+  assert.ok(securityContextUrl, 'the view security-context source must be readable')
+  const securityContext = readFileSync(securityContextUrl, 'utf8')
+  assert.match(
+    securityContext,
+    /createHash\('sha256'\)/,
+    'the partition name must be a SHA-256 digest',
+  )
+  assert.match(
+    securityContext,
+    /\.digest\('hex'\)/,
+    'the digest must be used in full hex, never truncated',
+  )
+  assert.doesNotMatch(
+    securityContext,
+    /\.slice\(0, \d+\)/,
+    'nothing in the partition derivation may truncate — that was the original collision',
+  )
 }
 
 console.log('QDN capability principal tests passed')

@@ -15,6 +15,7 @@ import {
   buildHomeV2NamePath,
   buildHomeV2ResourcePath,
   buildHomeV2ResourceRenderPath,
+  canonicalHomeV2AppAction,
   getHomeV2AppActions,
   getHomeV2AppNetwork,
   isHomeV2AppRecord,
@@ -25,6 +26,7 @@ import {
   normalizeHomeV2OpenAddress,
   normalizeHomeV2ReadMethod,
   normalizeHomeV2ReadPath,
+  normalizeHomeV2ReplaceTabAddress,
   normalizeHomeV2ResponseMaxBytes,
 } from '../../electron/home-v2-app-actions'
 import {
@@ -1001,7 +1003,10 @@ export function createPortableNodeClient(
     async requestApp(protocol, requestValue, context) {
       if (!isHomeV2AppRecord(requestValue)) throw new Error('App requests must be objects.')
       const request = requestValue
-      const action = normalizeHomeV2AppAction(request)
+      // Collapse a compatibility alias onto the action that implements it
+      // before anything else looks at `action`, so this host gates, dispatches
+      // and reports it exactly as the desktop bridge does.
+      const action = canonicalHomeV2AppAction(normalizeHomeV2AppAction(request), request)
       const network = getHomeV2AppNetwork(protocol, action)
       const selectedSettings = await readSettings(network)
       const selectedNode = await summary(network, selectedSettings)
@@ -1059,6 +1064,17 @@ export function createPortableNodeClient(
       if (action === 'GET_HOST_INFO') return hostInfo
       if (action === 'OPEN_NEW_TAB') {
         return { address: normalizeHomeV2OpenAddress(request), openIn: 'new-tab' }
+      }
+      // Same descriptor shape as OPEN_NEW_TAB. This host has no tab strip of
+      // its own, so it only says WHERE the address should go; the shell
+      // relaying this result supplies WHICH tab, from its own view context.
+      // Nothing an app sends can name a tab.
+      //
+      // The stricter replacement validator, not the plain open one: a bare app
+      // name or a Home page can never replace a tab, and both hosts must say
+      // so at the bridge call rather than appearing to succeed.
+      if (action === 'OPEN_CURRENT_TAB') {
+        return { address: normalizeHomeV2ReplaceTabAddress(request), openIn: 'current-tab' }
       }
       if (action === 'IS_USING_PUBLIC_NODE') {
         return hostInfo.route.configuredKind === 'public'

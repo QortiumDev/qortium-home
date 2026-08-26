@@ -33,6 +33,7 @@ import {
 import { DEFAULT_NEW_TAB_PREFERENCE } from './new-tab-preference'
 import {
   createProductState,
+  findReplaceableAppTab,
   ProductModelError,
   reduceProductState,
   restoreProductState,
@@ -553,6 +554,205 @@ function testProductModelKeepsSourceQualifiedTabs(): void {
   )
 }
 
+// OPEN_CURRENT_TAB's whole product-model surface. The bridge decides WHICH tab
+// (always the requesting view's own); this reducer decides what a replacement
+// is allowed to be.
+function testProductModelReplacesOneAppTabInPlace(): void {
+  const chat = fixtureApp(fixtureIds.chatApp)
+  const chatContext = fixtureTabContext(chat, fixtureIds.chatTab)
+  const trust = fixtureApp(fixtureIds.trustApp)
+  const trustInChatTab = fixtureTabContext(trust, fixtureIds.chatTab)
+
+  const withChat = reduceProductState(createProductState(), {
+    type: 'open-app',
+    app: chat,
+    context: chatContext,
+    tabId: fixtureIds.chatTab,
+  })
+  const dashboardTabId = withChat.entries.find((entry) => entry.kind === 'internal')!.id
+
+  const replaced = reduceProductState(withChat, {
+    type: 'replace-tab-app',
+    app: trust,
+    context: trustInChatTab,
+    tabId: fixtureIds.chatTab,
+    fromResourceLocation: chatContext.resourceLocation,
+  })
+  // Same tab, same strip position, new app.
+  assert.equal(replaced.tabs.length, 1, 'replacing must not add a tab')
+  assert.equal(replaced.entries.length, withChat.entries.length)
+  assert.deepEqual(
+    replaced.entries.map((entry) => entry.id),
+    withChat.entries.map((entry) => entry.id),
+    'the strip order and ids are untouched',
+  )
+  assert.equal(replaced.tabs[0].id, fixtureIds.chatTab)
+  assert.equal(replaced.tabs[0].appId, trust.id)
+  assert.equal(replaced.tabs[0].title, trust.title)
+  assert.equal(
+    replaced.tabs[0].context.resourceLocation,
+    trustInChatTab.resourceLocation,
+  )
+  assert.equal(replaced.activeTabId, fixtureIds.chatTab, 'the tab comes forward')
+  assert.equal(replaced.revision, withChat.revision + 1)
+  assert.equal(Object.isFrozen(replaced.tabs[0].context), true)
+
+  // Replacing a tab with what it already shows just brings it forward.
+  const unchanged = reduceProductState(replaced, {
+    type: 'replace-tab-app',
+    app: trust,
+    context: trustInChatTab,
+    tabId: fixtureIds.chatTab,
+    fromResourceLocation: trustInChatTab.resourceLocation,
+  })
+  assert.equal(unchanged.tabs.length, 1)
+  assert.equal(unchanged.tabs[0].appId, trust.id)
+
+  // A tab that is not open cannot be replaced.
+  assert.throws(
+    () =>
+      reduceProductState(withChat, {
+        type: 'replace-tab-app',
+        app: trust,
+        context: fixtureTabContext(trust, fixtureIds.qortalCompatTab),
+        tabId: fixtureIds.qortalCompatTab,
+        fromResourceLocation: chatContext.resourceLocation,
+      }),
+    (error) => {
+      assert.ok(error instanceof ProductModelError)
+      assert.equal(error.code, 'TAB_NOT_FOUND')
+      return true
+    },
+  )
+  // An app may never take over one of Home's own pages: only APP tabs can be
+  // replaced, even though internal pages share the same id space.
+  assert.throws(
+    () =>
+      reduceProductState(withChat, {
+        type: 'replace-tab-app',
+        app: trust,
+        context: fixtureTabContext(trust, dashboardTabId),
+        tabId: dashboardTabId,
+        fromResourceLocation: chatContext.resourceLocation,
+      }),
+    (error) => {
+      assert.ok(error instanceof ProductModelError)
+      assert.equal(error.code, 'TAB_NOT_FOUND')
+      assert.match(error.message, /not an app tab/)
+      return true
+    },
+  )
+  assert.equal(
+    withChat.entries.find((entry) => entry.id === dashboardTabId)?.kind,
+    'internal',
+    'the dashboard page is still an internal page',
+  )
+  // A replacement is validated exactly as strictly as a fresh open: the
+  // immutable context must name this app and this tab, and its resource
+  // location must agree with the app's source chain.
+  assert.throws(
+    () =>
+      reduceProductState(withChat, {
+        type: 'replace-tab-app',
+        app: trust,
+        context: { ...trustInChatTab, appId: chat.id },
+        tabId: fixtureIds.chatTab,
+        fromResourceLocation: chatContext.resourceLocation,
+      }),
+    (error) => {
+      assert.ok(error instanceof ProductModelError)
+      assert.equal(error.code, 'APP_CONTEXT_MISMATCH')
+      return true
+    },
+  )
+  assert.throws(
+    () =>
+      reduceProductState(withChat, {
+        type: 'replace-tab-app',
+        app: trust,
+        context: { ...trustInChatTab, resourceLocation: chatContext.resourceLocation },
+        tabId: fixtureIds.chatTab,
+        fromResourceLocation: chatContext.resourceLocation,
+      }),
+    (error) => {
+      assert.ok(error instanceof ProductModelError)
+      assert.equal(error.code, 'APP_CONTEXT_MISMATCH')
+      return true
+    },
+  )
+
+  // --- Compare-and-swap: a slow replacement must never overwrite a later one
+  //
+  // App A asks to be replaced by Trust. Resolving that is async, and while it
+  // is in flight the tab is replaced by Wallets — so by the time A's write
+  // lands, A is not in the tab any more. A must lose, not silently clobber
+  // whatever took its place.
+  const wallets = fixtureApp(fixtureIds.walletsApp)
+  const walletsInChatTab = fixtureTabContext(wallets, fixtureIds.chatTab)
+  const afterFasterReplacement = reduceProductState(withChat, {
+    type: 'replace-tab-app',
+    app: wallets,
+    context: walletsInChatTab,
+    tabId: fixtureIds.chatTab,
+    fromResourceLocation: chatContext.resourceLocation,
+  })
+  assert.equal(afterFasterReplacement.tabs[0].appId, wallets.id)
+  assert.throws(
+    () =>
+      // A's late write, still carrying the location A held when it asked.
+      reduceProductState(afterFasterReplacement, {
+        type: 'replace-tab-app',
+        app: trust,
+        context: trustInChatTab,
+        tabId: fixtureIds.chatTab,
+        fromResourceLocation: chatContext.resourceLocation,
+      }),
+    (error) => {
+      assert.ok(error instanceof ProductModelError)
+      assert.equal(error.code, 'TAB_CONTEXT_CHANGED')
+      assert.match(error.message, /no longer showing the app that asked/)
+      return true
+    },
+  )
+  // The winner is untouched by the loser's attempt.
+  assert.equal(afterFasterReplacement.tabs[0].appId, wallets.id)
+  assert.equal(afterFasterReplacement.tabs.length, 1)
+
+  // findReplaceableAppTab is the same comparison, exported so the shell can
+  // run it before and after each await instead of inventing its own.
+  assert.equal(
+    findReplaceableAppTab(withChat, {
+      tabId: fixtureIds.chatTab,
+      fromResourceLocation: chatContext.resourceLocation,
+    })?.appId,
+    chat.id,
+  )
+  assert.equal(
+    findReplaceableAppTab(afterFasterReplacement, {
+      tabId: fixtureIds.chatTab,
+      fromResourceLocation: chatContext.resourceLocation,
+    }),
+    null,
+    'a tab that moved on is not replaceable by the app that left it',
+  )
+  assert.equal(
+    findReplaceableAppTab(withChat, {
+      tabId: fixtureIds.qortalCompatTab,
+      fromResourceLocation: chatContext.resourceLocation,
+    }),
+    null,
+    'a closed tab is not replaceable',
+  )
+  assert.equal(
+    findReplaceableAppTab(withChat, {
+      tabId: dashboardTabId,
+      fromResourceLocation: chatContext.resourceLocation,
+    }),
+    null,
+    'an internal page is never replaceable',
+  )
+}
+
 function testAndroidAppFrameMessagesStayBounded(): void {
   const token = 'fixture-bridge-token'
   const renderUrl = 'https://qdn-app.local/render/APP/Help/Help'
@@ -620,6 +820,27 @@ function testAndroidAppFrameMessagesStayBounded(): void {
     }, token, renderUrl),
     null,
   )
+}
+
+// OPEN_CURRENT_TAB refuses a bare app name, and that refusal is enforced in
+// the trusted host — homeV2AppAddressNamesIdentifier in
+// electron/home-v2-app-actions.ts — because a renderer-only refusal is
+// discarded by the fire-and-forget desktop transport. Electron cannot import
+// this module, so the rule exists twice; these vectors are the contract both
+// halves are held to. The electron half runs the SAME file, in
+// electron/home-v2-app-actions.test.ts.
+function testExplicitIdentifierVectorsMatchTheElectronTwin(): void {
+  const vectors = JSON.parse(
+    readFileSync('src/shared-fixtures/app-address-explicit-identifier-vectors.json', 'utf8'),
+  ) as readonly { description: string; address: string; explicitIdentifier: boolean }[]
+  assert.ok(vectors.length >= 10, 'the shared identifier fixture must stay meaningful')
+  for (const vector of vectors) {
+    assert.equal(
+      parseAppResourceLocation(vector.address).identifierWasExplicit,
+      vector.explicitIdentifier,
+      `${vector.address} — ${vector.description}`,
+    )
+  }
 }
 
 function testAppResourceSchemesStaySourceQualified(): void {
@@ -2905,6 +3126,8 @@ await testMockHostFailsClosed()
 await testPlatformFixtureHostsFailClosed()
 testWrongNetworkStopsBeforeAdapter()
 testProductModelKeepsSourceQualifiedTabs()
+testProductModelReplacesOneAppTabInPlace()
+testExplicitIdentifierVectorsMatchTheElectronTwin()
 testAndroidAppFrameMessagesStayBounded()
 testAppResourceSchemesStaySourceQualified()
 testBridgeProtocolsStaySeparate()

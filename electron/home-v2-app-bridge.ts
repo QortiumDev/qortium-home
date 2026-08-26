@@ -66,6 +66,7 @@ import {
   buildHomeV2NamePath,
   buildHomeV2ResourcePath,
   buildHomeV2ResourceRenderPath,
+  canonicalHomeV2AppAction,
   getHomeV2AppActions,
   getHomeV2AppNetwork,
   HOME_V2_APP_LIMITS,
@@ -77,6 +78,7 @@ import {
   normalizeHomeV2IdentityAddresses,
   normalizeHomeV2OpenAddress,
   normalizeHomeV2ReadMethod,
+  normalizeHomeV2ReplaceTabAddress,
   normalizeHomeV2ReadPath,
   normalizeHomeV2ResponseMaxBytes,
   type HomeV2AppBridgeProtocol,
@@ -5700,6 +5702,42 @@ async function handleRequestWithRuntime(
     })
     return true
   }
+  // OPEN_CURRENT_TAB replaces the content of the tab the app is already
+  // running in. It shares OPEN_NEW_TAB's validator and its no-prompt posture:
+  // navigating your own tab is strictly weaker than adding one to the strip,
+  // and Home still owns where the address resolves to.
+  //
+  // The target tab is `context.tabId` — the trusted view context this request
+  // arrived on — and nothing from `requestValue` can influence it. An app may
+  // never navigate a tab it does not own, so there is deliberately no
+  // caller-supplied tab field to validate. (Home 1.x bound the same way; see
+  // electron/qdn.ts:9771.)
+  if (action === 'OPEN_CURRENT_TAB') {
+    // The same shared address validator OPEN_NEW_TAB uses, plus the two rules
+    // a replacement adds: it must be an app resource, and it must name its
+    // identifier. Both are checked HERE so the bridge call itself fails —
+    // enforcing them in the renderer alone means the refusal is discarded and
+    // the app is told `true` for a replacement that never happened.
+    const address = normalizeHomeV2ReplaceTabAddress(requestValue)
+    const hostWindow = getContextWindow(context)
+    if (!hostWindow || hostWindow.isDestroyed()) {
+      throw new Error('The app request does not belong to an active Home window.')
+    }
+    if (!context.resourceUrl) {
+      throw new Error('OPEN_CURRENT_TAB needs the requesting app to have a stable app identity.')
+    }
+    hostWindow.webContents.send('home-v2-app:open-address-in-tab', {
+      address,
+      // Both fields come from this trusted view context, never the request.
+      // `fromResourceLocation` is the compare half of the renderer's
+      // compare-and-swap: it records which app held the tab when the request
+      // was made, so a replacement that arrives late can never land on a tab
+      // some other app has taken over in the meantime.
+      fromResourceLocation: context.resourceUrl,
+      tabId: context.tabId,
+    })
+    return true
+  }
   if (action === 'GET_SELECTED_ACCOUNT' || action === 'GET_USER_ACCOUNT') {
     await requireAccountReadPermission(sender, context, protocol, action)
     const profile = await getAccountProfile(context.accountId as string)
@@ -5948,7 +5986,10 @@ async function handleRequest(
         retryable: false,
       })
     }
-    action = normalizeHomeV2AppAction(requestValue)
+    // Collapse a compatibility alias onto the action that implements it before
+    // anything else looks at `action`, so the catalogue gate, the network
+    // choice, permission keys and error reports all see one canonical name.
+    action = canonicalHomeV2AppAction(normalizeHomeV2AppAction(requestValue), requestValue)
     const network = getHomeV2AppNetwork(protocol, action)
     const [qortalNode, qortiumNode] = await Promise.all([
       getHomeV2AppNodeState('qortal'),
