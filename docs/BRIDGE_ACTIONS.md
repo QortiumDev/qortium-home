@@ -36,7 +36,14 @@ permissioned bookmark/notification manager reads.
 `UPDATE_HOME_SETTINGS` and `REQUEST_APP_ASSIGNMENT` are available in every node mode but require a
 single-request approval before changing Home preferences. See
 [Home settings QDN bridge](HOME_SETTINGS_BRIDGE.md) for request shapes and
-the live settings-change event. Bookmark and notification management use
+the live settings-change event. In Home 2 the Home-settings family is
+`qdnRequest`-only and route-independent — none of the three touches a node, and
+Home has one appearance rather than one per chain — and all three are excluded
+from widgets, the two reads included: a widget has no trusted chrome to raise
+the update prompt on, and the display subset it needs already arrives as
+render-URL parameters. The update approval is single-request only, never
+"session" or "always", so no durable grant for it exists to revoke.
+Bookmark and notification management use
 separate durable capabilities and revision-checked mutations; see
 [Home data manager QDN bridge](HOME_DATA_MANAGERS.md). Other supported actions include
 `WHICH_UI`, `SHOW_ACTIONS`, and the route-independent Home-owned

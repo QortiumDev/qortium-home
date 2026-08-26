@@ -127,7 +127,19 @@ try {
     rename: async () => { throw new Error('injected rename failure') },
   })
   assert.deepEqual(await failedStorage.read(), expectedDefault)
-  await assert.rejects(failedStorage.set(0, false), /injected rename failure/)
+  // A write failure is sanitized before it leaves this module. The raw fs error
+  // names the absolute policy path, the temp file and the pid, and Electron
+  // serializes a rejected ipcMain.handle by MESSAGE — so anything left in here
+  // travels to the shell and, through UPDATE_HOME_SETTINGS, to an untrusted QDN
+  // app. The detail is logged in main instead; only a fixed message escapes.
+  await assert.rejects(failedStorage.set(0, false), (error: unknown) => {
+    const failure = error as { code?: string; message?: string }
+    assert.equal(failure.code, 'POLICY_WRITE_FAILED')
+    assert.equal(failure.message, 'Notification settings could not be saved.')
+    assert.equal(failure.message?.includes('injected rename failure'), false)
+    assert.equal(failure.message?.includes(failedPath), false)
+    return true
+  })
   assert.deepEqual(await failedStorage.read(), expectedDefault)
   assert.equal(
     (await readdir(root)).some((name) => name.startsWith('failed-write.json.') && name.endsWith('.tmp')),

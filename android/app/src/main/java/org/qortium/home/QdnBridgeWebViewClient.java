@@ -1003,7 +1003,22 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
             // Home sends this additive runtime signal whenever its display settings
             // change. Re-dispatch it as a document event so QDN apps use the same
             // API on Android and desktop isolated views.
-            "window.addEventListener('message',function(event){var data=event.data;if(!data||data.type!=='qortium:home-settings-changed'||!data.detail)return;window.dispatchEvent(new CustomEvent('qortiumHomeSettingsChanged',{detail:data.detail}));});" +
+            //
+            // The bridge token is checked here for exactly the reason the
+            // bridge-state consumer above checks it: every app on a node SHARES
+            // one render-proxy origin (QdnRenderProxy keys the proxy by node
+            // origin so apps keep their own storage across visits), so the
+            // parent pinning targetOrigin confines delivery to the ORIGIN but
+            // not to the DOCUMENT. Without this, after a hard navigation to
+            // another servable same-origin document that was never issued a
+            // bridge, the parent could still deliver the user's settings — the
+            // theme, language, zoom and notification state — into it.
+            //
+            // Both producers carry the token (Home 2's AppTabStage and Home
+            // 1.x's QdnViewer), so the check is unconditional rather than
+            // verify-if-present: an "only when supplied" check would be
+            // bypassed by simply omitting the field.
+            "window.addEventListener('message',function(event){var data=event.data;if(!data||data.type!=='qortium:home-settings-changed'||data.bridgeToken!==bridgeToken||!data.detail)return;window.dispatchEvent(new CustomEvent('qortiumHomeSettingsChanged',{detail:data.detail}));});" +
             // Manager change signals contain only a monotonic revision. Apps
             // refresh through their permissioned qdnRequest read instead of
             // receiving bookmark or notification data through postMessage.

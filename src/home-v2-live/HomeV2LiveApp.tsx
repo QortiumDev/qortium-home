@@ -241,6 +241,14 @@ import {
   summarizeHomeV2NotificationManagerStore,
 } from '../../electron/home-v2-notification-manager-contract'
 import {
+  getHomeV2HomeSettingsApprovalDetails,
+  getHomeV2HomeSettingsMetadata,
+  isHomeV2HomeSettingsAction,
+  parseHomeV2HomeSettingsRequest,
+  parseHomeV2HomeSettingsRoundTripRequest,
+} from '../../electron/home-v2-home-settings-contract'
+import { createHomeV2HomeSettingsResponder } from './home-settings-client'
+import {
   grantQdnManagerPermission,
   grantQdnAccountCapabilityPermission,
   grantQdnAppCapabilityPermission,
@@ -316,6 +324,25 @@ function brand<Type extends string>(value: string): Type {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+/**
+ * The per-key current-vs-proposed rows an UPDATE_HOME_SETTINGS prompt must
+ * carry. Validated here even though the main process derived them from the
+ * shared contract: the trusted shell renders these strings to the user, and
+ * anything it renders it checks itself.
+ *
+ * At least one row, because a patch with no rows would mean a prompt asking
+ * about nothing.
+ */
+function isHomeSettingsDetailRows(
+  value: unknown,
+): value is readonly { label: string; value: string }[] {
+  return Array.isArray(value) && value.length > 0 && value.every((row) =>
+    isRecord(row) &&
+    Object.keys(row).length === 2 &&
+    typeof row.label === 'string' &&
+    typeof row.value === 'string')
 }
 
 type HomeV2ReplaceTabTarget = ReplaceTabTarget
@@ -929,6 +956,51 @@ export function HomeV2LiveApp() {
     },
     [notificationPolicyClient],
   )
+
+  // The two primitives the Home-settings bridge needs from the notification
+  // policy, kept deliberately separate from setGlobalAppNotifications above.
+  //
+  // That one is the SETTINGS TOGGLE's handler: it reads the expected generation
+  // itself and swallows the difference between a conflict and a failure, which
+  // is right for a switch the user just flipped. The bridge needs the generation
+  // to be explicit so it can lose a compare-and-set, re-read, and retry once —
+  // see writeNotificationPolicy in ./home-settings-client. Neither of these is
+  // reachable from an app: an app supplies a patch, Home performs the write.
+  const refreshNotificationPolicy = useCallback(async () => {
+    const next = notificationPolicyClient
+      ? await notificationPolicyClient.get().catch(() =>
+          failedClosedHomeV2NotificationPolicyState('unavailable'))
+      : failedClosedHomeV2NotificationPolicyState('unavailable')
+    notificationPolicyRef.current = next
+    setNotificationPolicy(next)
+    return next
+  }, [notificationPolicyClient])
+
+  const writeNotificationPolicy = useCallback(
+    async (request: { enabled: boolean; expectedGeneration: number }) => {
+      if (!notificationPolicyClient) {
+        throw Object.assign(new Error('Notification settings are unavailable.'), {
+          code: 'HOME_NOTIFICATION_POLICY_UNAVAILABLE',
+        })
+      }
+      // A rejection is rethrown untouched: classifying it belongs to the
+      // responder (normalizeHomeV2NotificationPolicyError), which needs the
+      // original because on desktop a conflict arrives with NO `code` and only
+      // a wrapped message. The detail is logged HERE, inside trusted Home
+      // chrome; only a normalized code and a fixed message reach the app.
+      let next: Awaited<ReturnType<typeof notificationPolicyClient.set>>
+      try {
+        next = await notificationPolicyClient.set(request)
+      } catch (error) {
+        console.warn('[home-settings] Notification policy write failed.', error)
+        throw error
+      }
+      notificationPolicyRef.current = next
+      setNotificationPolicy(next)
+      return next
+    },
+    [notificationPolicyClient],
+  )
   const androidUnlockResolvers = useRef(new Map<
     string,
     {
@@ -1495,6 +1567,111 @@ export function HomeV2LiveApp() {
   )
   const menuTextSize = useRef(snapshotState.appearance.textSize)
   menuTextSize.current = snapshotState.appearance.textSize
+
+  // ---------------------------------------------------------------------
+  // The app-facing Home-settings bridge, renderer half.
+  //
+  // Home 1.x answered GET_HOME_SETTINGS / UPDATE_HOME_SETTINGS here rather
+  // than in the main process, because the renderer owns display settings.
+  // Home 2 keeps that: on desktop the main process asks over an IPC
+  // round-trip and this component answers; on Android this component IS the
+  // host and calls the responder directly. Both paths run the same code.
+  //
+  // POSTURE: an app never reaches the trusted notification-policy IPC. It
+  // supplies a validated seven-key patch, Home raises the prompt, and Home's
+  // own renderer performs the write with the clients it already holds —
+  // appearance through updateAppearance, appNotifications through the policy
+  // client's generation compare-and-set.
+  // ---------------------------------------------------------------------
+  const appearanceRef = useRef(snapshotState.appearance)
+  appearanceRef.current = snapshotState.appearance
+  const homeSettingsResponder = useMemo(
+    () => createHomeV2HomeSettingsResponder({
+      applyAppearance: updateAppearance,
+      // Read through a ref, not captured: a request may arrive at any time and
+      // must see the appearance as it stands, not as it stood when the
+      // responder was built.
+      getAppearance: () => appearanceRef.current,
+      getNotificationPolicy: () => notificationPolicyRef.current,
+      refreshNotificationPolicy,
+      resolveSystemLanguage: currentSystemLanguage,
+      resolveSystemTheme: currentSystemTheme,
+      setNotificationPolicy: writeNotificationPolicy,
+    }),
+    [refreshNotificationPolicy, updateAppearance, writeNotificationPolicy],
+  )
+
+  // Desktop only. window.homeV2HomeSettings is absent on Android, where the
+  // Android branch in requestApp calls the responder without any IPC.
+  useEffect(() => {
+    const bridge = window.homeV2HomeSettings
+    if (!bridge) return
+    return bridge.onRequest((value) => {
+      // Pulled out before validation: without an id there is nothing to answer,
+      // and the main process's own timeout is then the only correct outcome.
+      const requestId = isRecord(value) && typeof value.id === 'string' ? value.id : ''
+      if (!requestId) return
+      void (async () => {
+        const request = parseHomeV2HomeSettingsRoundTripRequest(value)
+        return request.operation === 'read'
+          ? homeSettingsResponder.read()
+          : homeSettingsResponder.apply(request.patch ?? {})
+      })().then(
+        (settings) => bridge.resolveRequest({ requestId, settings }),
+        (error: unknown) => bridge.resolveRequest({
+          error: {
+            ...(typeof (error as { code?: unknown })?.code === 'string'
+              ? { code: (error as { code: string }).code }
+              : {}),
+            message: error instanceof Error ? error.message : 'Home settings request failed.',
+          },
+          requestId,
+        }),
+      ).catch((error) => console.warn('Unable to resolve a Home settings request.', error))
+    })
+  }, [homeSettingsResponder])
+
+  // Live Home-settings delivery to open app views.
+  //
+  // Home 1.x fired `qortium:home-settings-changed` into every open app when the
+  // user changed a display setting, and the shipped Notify app listens for it.
+  // Home 2 shipped the qdn-views handler but no v2 preload binding and no
+  // producer, so nothing was ever announced — whether the change came from
+  // Home's own Appearance panel or from an approved UPDATE_HOME_SETTINGS.
+  //
+  // Resolved values are sent for theme and language because that is what an app
+  // can act on: 'system' is not a colour scheme. `lang`/`uiStyle` duplicate
+  // `language`/`ui` because the main-process validator requires both and
+  // requires them equal — that is the 1.x event shape.
+  useEffect(() => {
+    const bridge = window.homeV2Apps
+    if (!bridge?.broadcastHomeSettingsChanged) return
+    // Held back until the policy has actually been read once: announcing
+    // appNotifications before then would broadcast the fail-closed `false`
+    // placeholder as if it were the user's setting.
+    if (!notificationPolicy) return
+    void bridge.broadcastHomeSettingsChanged({
+      accent: snapshot.appearance.accent,
+      appNotifications: notificationPolicy.status === 'available' && notificationPolicy.enabled,
+      appZoom: snapshot.appearance.appZoom,
+      lang: snapshot.appearance.resolvedLanguage,
+      language: snapshot.appearance.resolvedLanguage,
+      textSize: snapshot.appearance.textSize,
+      theme: snapshot.appearance.resolvedTheme,
+      ui: snapshot.appearance.ui,
+      uiStyle: snapshot.appearance.ui,
+    })?.catch((error: unknown) => {
+      console.warn('Unable to announce a Home settings change.', error)
+    })
+  }, [
+    notificationPolicy,
+    snapshot.appearance.accent,
+    snapshot.appearance.appZoom,
+    snapshot.appearance.resolvedLanguage,
+    snapshot.appearance.resolvedTheme,
+    snapshot.appearance.textSize,
+    snapshot.appearance.ui,
+  ])
   // Session-only stack of recently closed app-tab locations (newest last),
   // consumed by the reopen-closed-tab menu command.
   const closedAppTabs = useRef<string[]>([])
@@ -2547,6 +2724,7 @@ export function HomeV2LiveApp() {
             value.action !== 'NOTIFICATION_MANAGER_SET_MUTED' &&
             value.action !== 'NOTIFICATION_MANAGER_REMOVE_RULES' &&
             value.action !== 'NOTIFICATION_MANAGER_REVOKE' &&
+            value.action !== 'UPDATE_HOME_SETTINGS' &&
             value.action !== 'OPEN_AS_WIDGET' &&
             value.action !== 'SEND_MESSAGE' &&
             !isHomeV2PublicChatAction(value.action) &&
@@ -2557,8 +2735,9 @@ export function HomeV2LiveApp() {
             !isHomeV2GroupMembershipAction(value.action) &&
             !isHomeV2MintingWriteAction(value.action) &&
             !isHomeV2GroupAdminAction(value.action))) ||
-        // The manager families act on Home-profile data, not on an account, so
-        // they are prompted with no account selected and must not require one.
+        // The manager families and the Home-settings update act on Home-profile
+        // data, not on an account, so they are prompted with no account selected
+        // and must not require one.
         (value.action !== 'SHOW_NOTIFICATION' &&
           value.action !== 'BOOKMARKS_GET' &&
           value.action !== 'BOOKMARKS_APPLY' &&
@@ -2567,6 +2746,7 @@ export function HomeV2LiveApp() {
           value.action !== 'NOTIFICATION_MANAGER_SET_MUTED' &&
           value.action !== 'NOTIFICATION_MANAGER_REMOVE_RULES' &&
           value.action !== 'NOTIFICATION_MANAGER_REVOKE' &&
+          value.action !== 'UPDATE_HOME_SETTINGS' &&
           value.action !== 'OPEN_AS_WIDGET' &&
           typeof value.accountId !== 'string') ||
         typeof value.tabId !== 'string' ||
@@ -2645,6 +2825,18 @@ export function HomeV2LiveApp() {
             typeof value.writeRouteLabel !== 'string' ||
             typeof value.writeTargetChainLabel !== 'string' ||
             value.writeSingleRequestOnly !== true))
+        // A Home-settings update must always arrive as a single-request prompt
+        // carrying the per-key current-vs-proposed rows. The scope is refused
+        // here as well as being the only one offered below, so a caller that
+        // asked for a durable scope could not obtain one by asking; and a
+        // request with no rows is refused rather than rendered as a bare "this
+        // app wants to change your settings", which is not a question a user
+        // can answer correctly.
+        || (value.action === 'UPDATE_HOME_SETTINGS' &&
+          (value.writeKind !== 'home-settings' ||
+            typeof value.writeOperationLabel !== 'string' ||
+            value.writeSingleRequestOnly !== true ||
+            !isHomeSettingsDetailRows(value.homeSettingsDetails)))
       ) {
         return
       }
@@ -2713,6 +2905,10 @@ export function HomeV2LiveApp() {
         value.action === 'NOTIFICATION_MANAGER_SET_MUTED' ||
         value.action === 'NOTIFICATION_MANAGER_REMOVE_RULES' ||
         value.action === 'NOTIFICATION_MANAGER_REVOKE'
+      // The one promptable Home-settings action. GET_HOME_SETTINGS and
+      // GET_HOME_SETTINGS_METADATA are absent by construction: both are
+      // unprompted, so neither can ever reach here.
+      const isHomeSettingsUpdate = value.action === 'UPDATE_HOME_SETTINGS'
       const isJournalRead = value.action === 'GET_PENDING_TRANSACTIONS'
       const isJournalForget = value.action === 'FORGET_PENDING_TRANSACTION'
       const isMintingWrite = isHomeV2MintingWriteAction(value.action)
@@ -2731,7 +2927,7 @@ export function HomeV2LiveApp() {
       // access". Splitting the GRANT is a separate decision, not made here.
       const accountReadPromptKind = homeV2AccountReadPromptKind(value.action)
       const isGenericAccountRead = accountReadPromptKind === 'account'
-      const operationLabel = isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment || isNotification || isBookmarkManager || isNotificationManager || isJournalForget || isMintingWrite || isAtMessage
+      const operationLabel = isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment || isNotification || isBookmarkManager || isNotificationManager || isHomeSettingsUpdate || isJournalForget || isMintingWrite || isAtMessage
         ? String(value.writeOperationLabel)
         : ''
       const prompt = createPermissionPrompt({
@@ -2770,6 +2966,8 @@ export function HomeV2LiveApp() {
                 ? 'bookmarks.manage'
               : isNotificationManager
                 ? 'notifications.manage'
+              : isHomeSettingsUpdate
+                ? 'home.settings.write'
               : isJournalForget
                 ? 'transactions.pending.forget'
               : isJournalRead
@@ -2791,7 +2989,7 @@ export function HomeV2LiveApp() {
             ? `home-v2:identity:none`
             : isNotification
             ? `home-v2:identity:app:${appIdentityKey}`
-            : isBookmarkManager || isNotificationManager
+            : isBookmarkManager || isNotificationManager || isHomeSettingsUpdate
             ? `home-v2:identity:app:${appIdentityKey}`
             : `home-v2:identity:${accountId}`),
           nodeProfileRef: snapshot.nodes[value.targetNetwork].ref,
@@ -2809,6 +3007,8 @@ export function HomeV2LiveApp() {
           ? 'Allow saved-link management?'
           : isNotificationManager
           ? 'Allow notification permission management?'
+          : isHomeSettingsUpdate
+          ? 'Allow this change to Home settings?'
           : accountReadPromptKind
           ? homeV2AccountReadPromptTitle(accountReadPromptKind)
           : isJournalRead
@@ -2828,6 +3028,8 @@ export function HomeV2LiveApp() {
           ? `${appTitle} wants to manage bookmarks, toolbar links, dashboard pins, and start pages on this device.`
           : isNotificationManager
           ? `${appTitle} wants to review and change which OTHER apps may notify you on this device — muting them, deleting their notification rules, and revoking their notification permission. It cannot create a rule for any app, and it cannot notify you itself without asking separately.`
+          : isHomeSettingsUpdate
+          ? `${appTitle} wants to change the Home settings listed below. This approval covers this one change only — the app must ask again for the next one. It cannot read or change your accounts, node connections, or saved data.`
           : accountReadPromptKind
           ? homeV2AccountReadPromptSummary(accountReadPromptKind, appTitle)
           : isJournalRead
@@ -2868,6 +3070,18 @@ export function HomeV2LiveApp() {
               { label: 'Can do', value: 'Mute an app, delete its notification rules, revoke its notification permission' },
               { label: 'Cannot do', value: 'Create a rule, notify you, or read any masked address, key or signature in a rule' },
               { label: 'Scope', value: 'Until revoked in Settings' },
+            ]
+          : isHomeSettingsUpdate
+          ? [
+              { label: 'App', value: appTitle },
+              // The per-key current-vs-proposed rows, derived by the shared
+              // contract from the real current settings and the validated
+              // patch, and re-checked by isHomeSettingsDetailRows above. This
+              // is the substance of the prompt: the user is answering about
+              // named settings and named values, not about a category.
+              ...(value.homeSettingsDetails as readonly { label: string; value: string }[])
+                .map((detail) => ({ label: detail.label, value: detail.value })),
+              { label: 'Scope', value: 'This one change only' },
             ]
           // Only the GENERIC account-read prompt keeps the generic detail
           // rows. The private-group and attachment reads now fall through to
@@ -3034,6 +3248,16 @@ export function HomeV2LiveApp() {
           // could neither see nor revoke in Settings.
           : isNotificationManager
           ? ['always']
+          // Single-request ONLY, and the opposite decision from the two manager
+          // families above. A durable "always allow" here would let an app keep
+          // changing the user's theme, language, zoom and notification toggle
+          // indefinitely, producing effects the user sees with nothing to
+          // attribute them to — and unlike bookmarks.manage and
+          // notifications.manage there is no card in QDN Apps settings listing
+          // apps that hold it, because no grant is ever stored. One approval,
+          // one patch.
+          : isHomeSettingsUpdate
+          ? ['single-request']
           // The read-only account family may be granted persistently so a
           // trusted app stops asking every session (owner decision, R3-10);
           // the grant is revocable in QDN Apps settings. Membership is the
@@ -3428,6 +3652,76 @@ export function HomeV2LiveApp() {
           throw new Error('QDN manager request is stale because the app view changed while it was running.')
         }
         return result
+      }
+      // The app-facing Home-settings family. Android's twin of the desktop
+      // dispatch in electron/home-v2-app-bridge.ts, with one structural
+      // difference that is the whole point of the architecture: on desktop the
+      // main process has to ASK this renderer over an IPC round-trip, because
+      // the renderer owns display settings. Here the renderer IS the host, so
+      // it calls the same responder directly and no IPC is involved. Both
+      // platforms run the same composition, the same validation and the same
+      // write split.
+      //
+      // qdnRequest-only, matching the two manager families above: Home has one
+      // appearance, not a Qortal one and a Qortium one.
+      if (isAndroidHost && protocol === 'qdnRequest' && isHomeV2HomeSettingsAction(action)) {
+        // Parsed BEFORE the prompt so a malformed patch cannot raise a prompt
+        // the user would otherwise never see.
+        const settingsRequest = parseHomeV2HomeSettingsRequest(
+          action,
+          isRecord(requestValue) ? requestValue : {},
+        )
+        // Neither read prompts, exactly as in 1.x. Metadata never even reaches
+        // the responder: it is a pure constant.
+        if (settingsRequest.kind === 'metadata') return getHomeV2HomeSettingsMetadata()
+        if (settingsRequest.kind === 'read') return homeSettingsResponder.read()
+
+        const parsedApp = resolveAppIdentity()
+        const targetNetwork: NetworkId = 'qortium'
+        const appId = brand<AppId>(`home-v2:permission-app:${parsedApp.identityKey}`)
+        // Read first so the prompt shows real current values against the
+        // proposed ones, rather than assumed defaults.
+        const current = await homeSettingsResponder.read()
+        const prompt = createPermissionPrompt({
+          id: brand<PermissionRequestId>(globalThis.crypto.randomUUID()),
+          protocol,
+          action: 'UPDATE_HOME_SETTINGS',
+          capability: 'home.settings.write',
+          appId,
+          appIdentityKey: parsedApp.identityKey,
+          appTitle: parsedApp.title,
+          context: {
+            appId,
+            identityId: brand<IdentityId>(`home-v2:identity:app:${parsedApp.identityKey}`),
+            nodeProfileRef: snapshot.nodes[targetNetwork].ref,
+            tabId: brand<TabId>(context.tabId),
+            targetNetwork,
+            walletRef: null,
+          },
+          title: 'Allow this change to Home settings?',
+          summary: `${parsedApp.title} wants to change the Home settings listed below. This approval covers this one change only — the app must ask again for the next one. It cannot read or change your accounts, node connections, or saved data.`,
+          details: [
+            { label: 'App', value: parsedApp.title },
+            ...getHomeV2HomeSettingsApprovalDetails(current, settingsRequest.patch),
+            { label: 'Scope', value: 'This one change only' },
+          ],
+          // Never durable. See the desktop branch and src/v2/bridge-permissions.ts.
+          allowedScopes: ['single-request'],
+        })
+        const decision = await queueAndroidPermissionPrompt(prompt, context.tabId)
+        if (!decision.approved || decision.scope !== 'single-request') {
+          throw new Error('Home settings update was denied.')
+        }
+        const approvedTab = productStateRef.current.tabs.find((tab) => tab.id === context.tabId)
+        if (!approvedTab || approvedTab.context.resourceLocation !== context.resourceLocation) {
+          throw new Error('Home settings request is stale because the app view changed before approval.')
+        }
+        const applied = await homeSettingsResponder.apply(settingsRequest.patch)
+        const completedTab = productStateRef.current.tabs.find((tab) => tab.id === context.tabId)
+        if (!completedTab || completedTab.context.resourceLocation !== context.resourceLocation) {
+          throw new Error('Home settings request is stale because the app view changed while it was running.')
+        }
+        return applied
       }
       if (isAndroidHost && (action === 'NOTIFICATION_HAS_PERMISSION' || action === 'SHOW_NOTIFICATION')) {
         const targetNetwork: NetworkId = protocol === 'qortalRequest' ? 'qortal' : 'qortium'
@@ -5388,7 +5682,7 @@ export function HomeV2LiveApp() {
       }
       return nodeClient.requestApp(protocol, requestValue, context)
     },
-    [applyCollectionsSnapshot, collectionsClient, nodeClient, openAddress, productState.tabs, queueAndroidPermissionPrompt, queueAndroidSessionGrantPermission, selectedAccountId, snapshot.nodes, vaultClient],
+    [applyCollectionsSnapshot, collectionsClient, homeSettingsResponder, nodeClient, openAddress, productState.tabs, queueAndroidPermissionPrompt, queueAndroidSessionGrantPermission, selectedAccountId, snapshot.nodes, vaultClient],
   )
 
   const setNodeMode = async (

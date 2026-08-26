@@ -34,6 +34,15 @@ export type PermissionCapability =
   // show one. Durable, app-scoped, and revocable in QDN Apps settings.
   | 'notifications.manage'
   | 'bookmarks.manage'
+  // Changing Home's own display settings — theme, accent, language, text size,
+  // zoom, interface style, and the global app-notification toggle. Unlike
+  // 'bookmarks.manage' and 'notifications.manage' this capability is NEVER
+  // durable: it is only ever carried by a single-request prompt, is never
+  // written to the grant store, and so has no card in QDN Apps settings because
+  // there is never a standing grant to revoke. The matching READS
+  // (GET_HOME_SETTINGS, GET_HOME_SETTINGS_METADATA) carry no capability at all —
+  // they never prompt, exactly as in Home 1.x.
+  | 'home.settings.write'
   | 'transactions.pending.read'
   | 'transactions.pending.forget'
   // Loading or removing a minting key on the local Core. Always a
@@ -111,6 +120,10 @@ export interface PermissionPrompt {
     | 'NOTIFICATION_MANAGER_SET_MUTED'
     | 'NOTIFICATION_MANAGER_REMOVE_RULES'
     | 'NOTIFICATION_MANAGER_REVOKE'
+    // GET_HOME_SETTINGS and GET_HOME_SETTINGS_METADATA are deliberately absent:
+    // both are unprompted, so neither can ever be the action a prompt is raised
+    // for. UPDATE_HOME_SETTINGS is the only promptable member of the family.
+    | 'UPDATE_HOME_SETTINGS'
     | 'GET_PENDING_TRANSACTIONS'
     | 'FORGET_PENDING_TRANSACTION'
     | 'START_MINTING'

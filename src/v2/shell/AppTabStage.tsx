@@ -35,6 +35,19 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
 }
 
+// The Home-settings reads whose RESPONSE carries appZoom and appNotifications —
+// the two settings deliberately withheld from the live broadcast because this
+// response is their confined channel. Their response gets a completion-time
+// document revalidation the generic read path does not (see the response post
+// in AndroidAppStage). Kept as a local literal, not imported from
+// electron/home-v2-home-settings-contract, because the renderer may not import
+// from electron/ (the foundation escape-hatch scan). GET_HOME_SETTINGS_METADATA
+// is absent: it returns the static schema, never a user value.
+const HOME_SETTINGS_VALUE_RESPONSE_ACTIONS = new Set([
+  'GET_HOME_SETTINGS',
+  'UPDATE_HOME_SETTINGS',
+])
+
 function waitForAnimationFrames(count: number) {
   return new Promise<void>((resolve) => {
     const next = (remaining: number) => {
@@ -317,6 +330,10 @@ function AndroidAppStage(props: AppTabStageProps) {
   // in QdnBridgeWebViewClient.java for the layer that actually is one.
   const liveResourcePathRef = useRef<string | null>(null)
   const deliveredBridgeStateRevisionsRef = useRef<Record<string, string> | null>(null)
+  // Signature of the last Home-settings detail posted to this frame. null means
+  // "nothing delivered yet", which suppresses the first post — the frame was
+  // loaded with those values already.
+  const deliveredHomeSettingsRef = useRef<string | null>(null)
 
   useEffect(() => {
     liveResourcePathRef.current = resolved ? resolved.url : null
@@ -351,6 +368,87 @@ function AndroidAppStage(props: AppTabStageProps) {
       }, targetOrigin)
     }
   }, [props.snapshot.nodes, resolved, source, token])
+
+  // The Android half of `qortium:home-settings-changed`.
+  //
+  // Desktop delivers this by injecting a CustomEvent into the app view
+  // (sendQdnHomeSettingsChangedEvent in electron/qdn-views.ts). Android has no
+  // such injection point, but the native bridge shim already listens for a
+  // parent postMessage of this type and re-dispatches it as the SAME
+  // CustomEvent (QdnBridgeWebViewClient.java, getQdnBridgeTag) — so an app uses
+  // one API on both platforms and only the transport differs.
+  //
+  // CONFINEMENT — the reason this detail is a strict subset of the desktop one.
+  //
+  // On Android EVERY app on a node shares one render-proxy origin (the proxy is
+  // keyed by node origin so apps keep their own storage across visits), and a
+  // postMessage delivers its WHOLE payload to whatever document currently
+  // occupies the frame before any injected listener can filter it. So if the
+  // app hard-navigates to another servable same-origin document that was never
+  // issued the bridge, that document can install a plain `message` listener and
+  // read `event.data.detail` directly — the native token check cannot run
+  // first, and so cannot confine the value, only its ABSENCE can.
+  //
+  // The detail therefore carries only the five prefs that are ALREADY query
+  // parameters of this document's own render URL (resolveRender sets accent,
+  // lang, textSize, theme and uiStyle). Every same-origin document was handed
+  // those exact values in its URL, so broadcasting them discloses nothing new.
+  // appZoom and appNotifications are the ONLY two settings NOT in the render URL
+  // and are deliberately absent: they are the only genuinely new disclosure a
+  // broadcast could make. An app reads them through GET_HOME_SETTINGS, which the
+  // native exact-URL gate confines to the authorized document. See
+  // docs/HOME_SETTINGS_BRIDGE.md, and the matching consumer note in
+  // QdnBridgeWebViewClient.java.
+  //
+  // The lang/uiStyle duplicates of language/ui are the Home 1.x event shape.
+  useEffect(() => {
+    const frameWindow = frameRef.current?.contentWindow
+    const appearance = props.snapshot.appearance
+    if (!resolved || !source || !frameWindow) {
+      deliveredHomeSettingsRef.current = null
+      return
+    }
+    const detail = {
+      accent: appearance.accent,
+      lang: appearance.resolvedLanguage,
+      language: appearance.resolvedLanguage,
+      textSize: appearance.textSize,
+      theme: appearance.resolvedTheme,
+      ui: appearance.ui,
+      uiStyle: appearance.ui,
+    }
+    const signature = JSON.stringify(detail)
+    const previous = deliveredHomeSettingsRef.current
+    deliveredHomeSettingsRef.current = signature
+    // The first delivery is skipped deliberately: an app's initial values
+    // arrive in its render URL, so announcing them again as a "change" would
+    // report one that never happened. Same rule as the bridge-state effect.
+    if (previous === null || previous === signature) return
+    // Producer-side hygiene gate (NOT the confinement above). Skip the push
+    // when the app has itself reported navigating to a DIFFERENT app resource,
+    // so Home stops pushing to a tab that has honestly moved on — the same
+    // self-reported signal, and the same isSameRenderResourcePath tolerance for
+    // in-app route changes, that the request-relay handler below uses. It
+    // cannot on its own catch a SILENT hard navigation to a non-bridged
+    // document (that document sends no navigation message, so
+    // liveResourcePathRef goes stale), which is exactly why confinement does
+    // not rest on it: the detail above is limited to already-URL-exposed fields
+    // instead. A robust hard-navigation signal would be the iframe's own load
+    // events, whose timing on Android WebView cannot be verified without a
+    // device, so it is deliberately not relied on here.
+    const liveResourcePath = liveResourcePathRef.current
+    if (liveResourcePath && !isSameRenderResourcePath(liveResourcePath, {
+      service: resolved.identity.service,
+      name: resolved.identity.name,
+      identifier: resolveLaunchIdentifier(resolved.identity.identifier, resolved.url),
+    })) return
+    frameWindow.postMessage({
+      type: 'qortium:home-settings-changed',
+      bridgeToken: token,
+      detail,
+      // Pinned to the proxy origin the frame was loaded from, never '*'.
+    }, new URL(source).origin)
+  }, [props.snapshot.appearance, resolved, source, token])
 
   useEffect(() => {
     if (!resolved) return
@@ -490,6 +588,9 @@ function AndroidAppStage(props: AppTabStageProps) {
       }
 
       const protocol = data.protocol === 'qortalRequest' ? 'qortalRequest' : 'qdnRequest'
+      const requestAction = isRecord(data.request) && typeof data.request.action === 'string'
+        ? data.request.action.trim().toUpperCase()
+        : ''
       const identityId = String(resolved?.tab.context.identityId ?? '')
       const launchAccountId = identityId.startsWith('home-v2:identity:')
         ? identityId.slice('home-v2:identity:'.length)
@@ -538,13 +639,51 @@ function AndroidAppStage(props: AppTabStageProps) {
           }
           result = true
         }
+        // Completion-time document revalidation for the Home-settings value
+        // reads. Their response carries appZoom and appNotifications, the two
+        // fields kept off the live broadcast precisely because this response is
+        // the confined channel for them. But the response is async, and
+        // event.source is a WindowProxy that follows the frame across a
+        // navigation — so a document that issued GET_HOME_SETTINGS and then
+        // hard-navigated within the shared proxy origin would have the values
+        // delivered to whatever now occupies the frame. Re-check, at COMPLETION
+        // this time, the same self-reported launch-resource signal the request
+        // gate above used, and refuse to post the values if the app has drifted;
+        // the newly-loaded document gets only a coded error.
+        //
+        // BOUNDED and honest: this closes the app's own reported drift (case c
+        // in the liveResourcePathRef doc comment above). It cannot, on its own,
+        // catch a SILENT hard navigation to a non-bridged same-origin document —
+        // that document sends no navigation message, so liveResourcePathRef goes
+        // stale — because the shell has no non-cooperative "the frame navigated"
+        // signal here (no iframe-load tracking, whose Android WebView timing is
+        // unverifiable). That residual is a property of the WHOLE response
+        // channel: EVERY read (GET_SELECTED_ACCOUNT, GET_USER_ACCOUNT, chat
+        // reads, ...) is delivered through this same post and shares it. Closing
+        // it channel-wide is a separate security project recorded in
+        // docs/HOME_V2_BRIDGE_COMPATIBILITY.md; this is the home-settings-scoped
+        // mitigation the confined-channel claim needs.
+        const responseOrigin = HOME_SETTINGS_VALUE_RESPONSE_ACTIONS.has(requestAction)
+          ? new URL(source).origin
+          : '*'
+        if (HOME_SETTINGS_VALUE_RESPONSE_ACTIONS.has(requestAction)) {
+          const live = liveResourcePathRef.current
+          if (!launchIdentity || !live || !isSameRenderResourcePath(live, launchIdentity)) {
+            ;(event.source as Window | null)?.postMessage({
+              type: 'qortium:qdn-response', bridgeToken: token, requestId: data.requestId,
+              error: {
+                code: 'STALE_CONTEXT',
+                message: 'The app view navigated away before its Home settings could be returned.',
+              },
+            }, responseOrigin)
+            return
+          }
+        }
         ;(event.source as Window | null)?.postMessage({
           type: 'qortium:qdn-response', bridgeToken: token, requestId: data.requestId, result,
-        }, '*')
+        }, responseOrigin)
       }).catch((cause: unknown) => {
-        const rawAction = isRecord(data.request) && typeof data.request.action === 'string'
-          ? data.request.action.trim().toUpperCase()
-          : 'UNKNOWN'
+        const rawAction = requestAction || 'UNKNOWN'
         const network = getHomeV2AppNetwork(protocol, rawAction)
         const route = getHomeV2AppRouteDescriptor({
           accountId: context.selectedAccountId,
@@ -558,10 +697,15 @@ function AndroidAppStage(props: AppTabStageProps) {
           network,
           routeRevision: route.revision,
         })
+        // The two Home-settings value actions post their rejection to the
+        // app's own origin too, so the "these replies target the specific
+        // origin" contract holds for every home-settings response, not only
+        // the fulfilled ones. A rejection carries no settings values, so this
+        // is contract accuracy rather than a disclosure fix.
         ;(event.source as Window | null)?.postMessage({
           type: 'qortium:qdn-response', bridgeToken: token, requestId: data.requestId,
           error: homeV2BridgeErrorPayload(error),
-        }, '*')
+        }, HOME_SETTINGS_VALUE_RESPONSE_ACTIONS.has(requestAction) ? new URL(source).origin : '*')
       })
     }
     window.addEventListener('message', handleMessage)
@@ -735,6 +879,28 @@ declare global {
       updateManagerRevisions?(request: {
         managerRevisions: QdnManagerRevisions
         tabId: string
+      }): Promise<void>
+      /**
+       * Pushes a Home-settings change to every app view in this window, so an
+       * app listening for `qortium:home-settings-changed` hears it. Optional for
+       * the same reason as updateManagerRevisions: a partially stubbed bridge
+       * (tests, the widget host) must stay assignable.
+       *
+       * The `lang`/`uiStyle` duplicates of `language`/`ui` are not redundancy to
+       * be tidied away — the main-process validator requires them to be present
+       * AND equal (sanitizeHomeSettingsBroadcastRequest in qdn-views.ts), because
+       * that is the event shape Home 1.x apps were written against.
+       */
+      broadcastHomeSettingsChanged?(detail: {
+        accent: string
+        appNotifications: boolean
+        appZoom: number
+        lang: string
+        language: string
+        textSize: string
+        theme: string
+        ui: string
+        uiStyle: string
       }): Promise<void>
       openAsWidget(request: { tabId: string }): Promise<
         { ok: true; widgetId: string } | { ok: false; message: string }

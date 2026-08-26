@@ -136,6 +136,89 @@ must be told an address outright. And previewing something before you publish
 it is still missing — Home's new interface has nowhere to display a website
 preview yet, and shipping a button that reports success while showing you
 nothing would be worse than leaving it out.
+### 2026-08-26 - feat(home-v2): apps can read and ask to change Home's display settings again
+
+Home 1.x let a QDN app read a small, fixed set of your display preferences —
+theme, accent colour, language, text size, app zoom, interface style, and
+whether apps may notify you — and ask permission to change them. Apps used it to
+match Home's look, and to offer a settings page of their own. Home 2 never
+carried those three actions over, so an app that asked found nothing there and
+either rendered in the wrong theme or hid the feature entirely.
+
+All three are back, on desktop and Android, over exactly the same seven settings
+as before. Nothing was added to the list: no node connections, no wallets, no
+bookmarks, no update policies. An app that reads these gets those seven values
+and nothing else.
+
+Reading needs no approval, exactly as in Home 1.x — Home already hands every app
+its theme, language, text size, accent and interface style in the address it
+loads from, before the app has run a single line, so asking permission for the
+same information would be a prompt that protected nothing.
+
+Changing them always asks, and asks every time. The dialog names each setting
+being changed and shows what it is now next to what it would become — "Theme:
+dark, becoming light" rather than "this app wants to change your settings". The
+approval covers that one change only. There is deliberately no "always allow"
+here, unlike Home's saved-links and notification managers: a standing permission
+to keep changing your theme, language and zoom would produce changes you could
+see but not trace back to any app.
+
+Two smaller things came with it.
+
+Home 2 has an accent colour Home 1.x did not, "clay", which is also Home 2's
+default. Apps can now see it and show it, so an app can render the colour you
+are actually using. Apps still cannot set it — the change side stays exactly what
+Home 1.x apps were written against — and the published settings description now
+says which values are readable and which are writable, so an app knows the
+difference without having to be refused first.
+
+Home 1.x also told open apps whenever a display setting changed, so an app could
+re-theme itself immediately. Home 2 had the machinery for this but had never
+connected it, so nothing was ever announced — whether the change came from an
+app or from Home's own Appearance panel. It is connected now, on desktop and on
+Android, and apps listening for that change hear it again. On Android this
+matters most for interface style, app zoom and the notification toggle: the
+other settings form part of the address an app loads from, so they already
+refreshed it, while those three previously produced no signal at all.
+
+Small desktop widgets are excluded from that announcement, though they still
+follow Home's theme exactly as before. The announcement also carries the zoom
+and notification settings, which widgets are not allowed to read — a widget is
+too small for Home to ask a permission question in, so it is not given the
+answer by another route either.
+
+Two further protections came out of review. An app that asks to change settings
+can no longer flood Home with permission dialogs: asking for the same change
+again while the first is still on screen is refused, and there is a ceiling on
+how many can be waiting at once. That ceiling counts across all of your open
+Home windows rather than each window on its own, so an app cannot multiply its
+allowance by being open in several of them; and a question still waiting when
+you close a window, or when the app navigates away from the page that asked, is
+dropped there and then rather than lingering.
+
+And when saving the notification setting fails, the app is now told in a plain,
+fixed way that it did not work — Home keeps the technical detail, which can name
+a file path on the machine, in its own log instead of handing it to the app. A
+related bug was fixed at the same time: on desktop, when two Home windows
+changed the notification setting at once, one of them used to give up
+immediately instead of noticing, re-reading and retrying.
+
+On Android, the live settings announcement no longer carries your zoom level or
+your notification on/off state. Apps published on one node all share a single
+web address there, so a page an app sends itself to — one Home never handed its
+bridge to — can still overhear a message Home posts into the app frame. Every
+other setting in the announcement (theme, accent, text size, language, interface
+style) is already part of the address the page was opened with, so overhearing
+it reveals nothing new; zoom and the notification toggle are the only two that
+are not, so those two are simply left out of the Android announcement. An app
+that needs them asks Home for them directly. And when it does, Home now checks —
+at the moment it has the answer ready — that the page asking is still the app it
+was, and sends the answer only to that app's own address. This closes the case
+where an app reports that it has moved on; a page that silently replaces the
+app's own without telling Home shares the same address and is a known limitation
+of the whole request-and-reply channel (it affects every read equally, not just
+settings), recorded in the compatibility notes for a broader fix later. On desktop, where each app runs in its own isolated view with no
+shared address, the announcement is unchanged and still includes everything.
 
 ### 2026-08-26 - feat(home-v2): apps can manage notification permissions again
 

@@ -45,3 +45,83 @@ window.addEventListener('qortiumHomeSettingsChanged', (event) => {
 ```
 
 `theme` and `lang` are the final effective values after Home resolves system settings.
+
+## Home 2
+
+Home 2 restores the same three actions over the same seven-key contract. An app written against Home 1.x needs no change: `patch`, `settings` and a bare request body are all still accepted, the reads still need no approval, and `UPDATE_HOME_SETTINGS` still shows a one-request dialog listing current and proposed values per key. Two things differ, both deliberately.
+
+### The two-store split
+
+The seven keys do not live together in Home 2. Six of them — `theme`, `accent`, `language`, `textSize`, `appZoom`, `ui` — are shell appearance state. The seventh, `appNotifications`, is the notification **policy**, which has its own generation-based compare-and-set.
+
+A write is therefore split by key: appearance keys go through the shell's own setters, and `appNotifications` goes through the notification-policy client. The policy write is performed **first**, because it is the half that can fail — so a patch that loses its compare-and-set leaves your appearance untouched rather than half-applied. If the policy moved on between approval and apply, Home re-reads and retries once; a second conflict is reported to the app.
+
+An app never reaches the policy directly. It supplies a validated patch, Home raises the prompt, and Home's own renderer performs the write — the same indirection Home 1.x used, and the same one the bookmark actions use.
+
+A corrupt or unreadable notification policy reads as `appNotifications: false` (nothing would be shown in that state anyway), and a write touching `appNotifications` then fails with `HOME_NOTIFICATION_POLICY_CORRUPT` or `HOME_NOTIFICATION_POLICY_UNAVAILABLE` rather than writing over a damaged record. An appearance-only write is unaffected: the two stores fail independently.
+
+Every failure is reported with one of four codes and a fixed message. `HOME_DATA_STALE` is the only one worth branching on — re-read and try again. The others (`HOME_NOTIFICATION_POLICY_CORRUPT`, `HOME_NOTIFICATION_POLICY_UNAVAILABLE`, `HOME_NOTIFICATION_POLICY_WRITE_FAILED`) mean the change did not happen. Home deliberately does not pass the underlying error text through, because it can name this device's filesystem; the detail is logged inside Home instead.
+
+### Appearance persistence is eventually consistent
+
+Worth knowing if you are reasoning about durability. The two halves of a write are not persisted the same way:
+
+- `appNotifications` is written and flushed to disk before the request resolves.
+- The six appearance keys are applied to Home's live state immediately — the user sees them at once, and every later read returns them — but written to disk by a short debounced save just afterwards.
+
+Ordering protects you from every failure Home can *handle*: the fallible notification write goes first, so a rejected patch never half-applies. It does not protect against Home being killed in the gap between the two. If that happens, an approved patch that changed both halves can leave only the notification half durable, and the appearance half reverts on the next start even though the request reported success.
+
+This is not something an app needs to compensate for, and there is no API to force a flush. The split heals itself: the next appearance change from any source — your app, or Home's own Appearance panel — persists both halves.
+
+### `clay` is readable but not writable
+
+Home 2 has a tenth accent, `clay`, which is also its default. Home 1.x's schema does not list it.
+
+- `GET_HOME_SETTINGS` **returns** `clay` when it is the current accent. It has to: otherwise the read would fail on a fresh Home 2 profile.
+- `GET_HOME_SETTINGS_METADATA` **advertises** it, so an app can render the accent the user is actually on.
+- `UPDATE_HOME_SETTINGS` **rejects** it. The write surface stays 1.x-compatible: an app written against Home 1.x's accent list behaves identically on Home 2, and an app that learns a tenth accent exists should not be the thing that moves a user onto it.
+
+The metadata makes the asymmetry explicit rather than leaving it to be discovered by a rejected write. Every enumerated key now carries both fields:
+
+```js
+// accent
+{ key: 'accent', type: 'string',
+  allowedValues: ['clay', 'green', 'blue', ...],   // what a READ may return
+  writableValues: ['green', 'blue', ...],          // what a WRITE accepts
+  default: 'green' }
+```
+
+For the other six keys the two lists are identical, so the rule is uniform: **write only what is in `writableValues`**. `default` names the 1.x schema default, which is always writable — for `accent` that is `green`, not Home 2's `clay` display default, because a default an app cannot write would be useless as a reset value.
+
+`appZoom` outside 50–200, or non-integral, is **rejected** rather than clamped: clamping would make the approval dialog show a proposed value the app never asked for.
+
+### Scope, routes and widgets
+
+- The update approval is **single-request only** — never "session", never "always". No durable grant is stored, so there is no entry for it in Settings > QDN Apps; the next patch asks again. This is the opposite decision from the bookmark and notification managers, which are durable and revocable, and it is deliberate: a standing permission to change theme, language, zoom and the notification toggle would produce effects the user sees with no way to attribute them to any app.
+- All three actions are advertised on `qdnRequest` only. They touch no node, and Home has one appearance rather than one per chain, so a `qortalRequest` copy would have nothing distinct to mean.
+- All three are **route-independent**: they work while every node route is disabled or unreachable.
+- All three are **excluded from widgets**, the two reads included. A widget has no trusted Home chrome to raise the update prompt on, and shipping the read half of a read/write pair without the write half is an incoherent surface. The display subset a widget needs already reaches it as render-URL parameters (`theme`, `lang`, `textSize`, `accent`, `uiStyle`).
+- A read returns the seven keys and nothing else — never node URLs, account data, or API keys. The reply is built from the schema projection and validated against it at both ends of the desktop round-trip.
+
+### Live changes in Home 2
+
+`qortiumHomeSettingsChanged` fires whether the change came from an app or from Home's own Appearance panel. Keep using the single `window.addEventListener('qortiumHomeSettingsChanged', ...)` listener — the transport differs by platform but the event name does not. (On Android, Home posts the change to the app frame and the native bridge re-dispatches it as that same event; a `message` listener for `qortium:home-settings-changed` also works there, as it always has.)
+
+Two notes:
+
+- **Widgets do not receive the event.** They still re-theme — the display subset reaches them the same way it always has — but the event's `detail` can carry `appNotifications` and `appZoom`, which widgets are refused at the read gate, so it would be inconsistent to broadcast them.
+- On Android an accent, theme, language or text-size change also reloads the app frame, because those are part of its render URL. Interface style is a render-URL param too (`uiStyle`); app zoom and `appNotifications` are not.
+
+#### The `detail` shape differs by platform, on purpose
+
+`theme`, `accent`, `textSize`, `language` and `ui` (as `uiStyle`) are already query parameters of every app's render URL — so a document that receives the event was handed those exact values in its own URL before it ran a line of script.
+
+`appZoom` and `appNotifications` are the **only** two settings that are not in the render URL, and they are the only genuinely new thing an event could disclose. On **Android**, every app served by one node shares a single origin, and a page the app hard-navigates to — one Home never issued its bridge to — can still read a `postMessage` the shell sends to the frame. So on Android the event's `detail` deliberately **omits `appZoom` and `appNotifications`**; read those two with `GET_HOME_SETTINGS`, whose reply Home revalidates against the requesting document before answering and posts to the app's own origin (a residual response-channel race shared by every read is recorded in the [bridge compatibility ledger](HOME_V2_BRIDGE_COMPATIBILITY.md)). On **desktop**, each app view is origin-isolated and the event is injected straight into it, so there is no such exposure and the `detail` keeps the full set, including `appZoom` and `appNotifications`, as in Home 1.x.
+
+Practically: if your app needs to react to a notification-toggle or zoom change and must work on Android, re-read `GET_HOME_SETTINGS` (on the event, on visibility change, or when you need the value) rather than reading `event.detail.appNotifications` / `event.detail.appZoom`, which are present only on desktop.
+
+### Where the work happens
+
+Home 1.x answered these in the renderer, because the renderer owns display settings. Home 2 keeps that shape. On desktop the main process holds the app request but asks the shell window over an internal round-trip and validates the reply; on Android the renderer is the host, so it composes the answer directly with no IPC. Both platforms run the same contract module (`electron/home-v2-home-settings-contract.ts`) and the same composition and write-split code (`src/home-v2-live/home-settings-client.ts`), so they cannot disagree about what a read reports or what a write does.
+
+Node connection settings are **not** part of this bridge and remain unavailable to apps in Home 2.

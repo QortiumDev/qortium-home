@@ -402,17 +402,39 @@ function postQdnHomeSettingsChanged(
   frameWindow: Window | null | undefined,
   renderUrl: string,
   displaySettings: QdnFrameDisplaySettings,
+  // Non-empty ONLY on Android native (isNativeFrame), where it is also this
+  // frame's shared-origin marker. Empty on desktop, where each app view is
+  // origin-isolated.
+  bridgeToken?: string,
 ) {
   if (!frameWindow) return;
+  // { language, textSize, theme, accent, ui } — the five display prefs, all of
+  // which postQdnDisplaySettings above already broadcasts to this frame. The
+  // extended type adds appNotifications and appZoom, which it does NOT.
+  const { appNotifications, appZoom, ...displayPrefs } = displaySettings;
   frameWindow.postMessage({
     type: 'qortium:home-settings-changed',
-    detail: {
-      ...displaySettings,
-      appNotifications: displaySettings.appNotifications,
-      appZoom: displaySettings.appZoom,
-      lang: displaySettings.language,
-      uiStyle: displaySettings.ui,
-    },
+    ...(bridgeToken ? { bridgeToken } : {}),
+    // On native, appNotifications and appZoom are OMITTED. Every app on a node
+    // shares one render-proxy origin, and a postMessage hands its whole payload
+    // to whatever document occupies the frame before the injected (token-
+    // checking) listener can filter it — so a hard-navigated non-bridged
+    // same-origin document could read the value directly. These two are the only
+    // settings not already broadcast to the frame by postQdnDisplaySettings, so
+    // withholding them is what actually confines them; the token check on the
+    // recipient stays as defence in depth. An app pulls them via the bridge-
+    // authorized read. Desktop is origin-isolated, so it keeps the full 1.x
+    // detail shape. Same rationale as Home 2's AppTabStage; see
+    // docs/HOME_SETTINGS_BRIDGE.md.
+    detail: bridgeToken
+      ? { ...displayPrefs, lang: displaySettings.language, uiStyle: displaySettings.ui }
+      : {
+          ...displayPrefs,
+          appNotifications,
+          appZoom,
+          lang: displaySettings.language,
+          uiStyle: displaySettings.ui,
+        },
   }, getQdnFrameMessageOrigin(renderUrl));
 }
 
@@ -3832,8 +3854,8 @@ export function QdnBridgeFrameContent({
 
   useEffect(() => {
     postQdnDisplaySettings(frameRef.current?.contentWindow, frameMessageUrl, displaySettings);
-    postQdnHomeSettingsChanged(frameRef.current?.contentWindow, frameMessageUrl, displaySettings);
-  }, [displaySettings, frameMessageUrl]);
+    postQdnHomeSettingsChanged(frameRef.current?.contentWindow, frameMessageUrl, displaySettings, bridgeToken);
+  }, [bridgeToken, displaySettings, frameMessageUrl]);
 
   useEffect(() => {
     postQdnManagerRevisionChanged(frameRef.current?.contentWindow, frameMessageUrl, managerRevisions);
@@ -4019,7 +4041,7 @@ export function QdnBridgeFrameContent({
       onLoad={() => {
         frameLoadedRef.current = true;
         postQdnDisplaySettings(frameRef.current?.contentWindow, frameMessageUrl, displaySettings);
-        postQdnHomeSettingsChanged(frameRef.current?.contentWindow, frameMessageUrl, displaySettings);
+        postQdnHomeSettingsChanged(frameRef.current?.contentWindow, frameMessageUrl, displaySettings, bridgeToken);
         postQdnManagerRevisionChanged(frameRef.current?.contentWindow, frameMessageUrl, managerRevisions);
         postQdnSelectedAccountChanged(frameRef.current?.contentWindow, frameMessageUrl);
         deliverAppTarget();

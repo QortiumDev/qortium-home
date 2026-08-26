@@ -805,6 +805,19 @@ interface Window {
     onRequest(listener: (request: unknown) => void): () => void;
     onOpen(listener: (request: unknown) => void): () => void;
   };
+  /**
+   * The Home 2 Home-settings round-trip. Main asks, the shell answers; both
+   * envelopes are defined by electron/home-v2-home-settings-contract.ts. Absent
+   * on Android, where the renderer is the host and no IPC is involved.
+   */
+  homeV2HomeSettings?: {
+    onRequest(listener: (request: unknown) => void): () => void;
+    resolveRequest(response: {
+      error?: { code?: string; message: string };
+      requestId: string;
+      settings?: import('../electron/home-v2-home-settings-contract').HomeV2HomeSettings;
+    }): Promise<void>;
+  };
   qortiumHome: {
     accounts: {
       list: () => Promise<QortiumAccountsState>;
