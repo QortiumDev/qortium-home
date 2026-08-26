@@ -298,32 +298,71 @@ for (const action of HOME_V2_HOME_SETTINGS_UNPROMPTED_ACTIONS) {
 // can issue endless individually VALID updates. Desktop must therefore dedup
 // equivalent requests and cap outstanding ones, as Android already does in
 // queueAndroidPermissionPrompt.
+// The decision itself is unit-tested in home-v2-home-settings-contract.test.ts,
+// including the cross-window counting. What is pinned HERE is that the desktop
+// gate delegates to it and — critically — hands it EVERY pending entry rather
+// than pre-filtering by host window, which is what silently turned both caps
+// into per-window limits the first time round.
 assert.ok(
-  desktopBridge.includes('MAX_PENDING_HOME_SETTINGS_PROMPTS_PER_APP') &&
-    desktopBridge.includes('MAX_PENDING_HOME_SETTINGS_PROMPTS_GLOBAL'),
-  'the desktop Home settings gate must cap pending prompts per app and globally',
+  /assertHomeV2HomeSettingsPromptAdmissible\(\s*Array\.from\(pendingAccountReads\.values\(\)\),/
+    .test(desktopBridge),
+  'the desktop gate must apply the caps across every window, unfiltered by host window',
 );
 assert.ok(
-  /This Home settings request is already pending for the app tab\./.test(desktopBridge),
-  'the desktop gate must refuse a duplicate pending request',
+  desktopBridge.includes('buildHomeV2HomeSettingsGrantKey({'),
+  'the desktop gate must build its dedup key from the shared contract',
 );
-assert.ok(
-  /Too many pending Home settings requests for this app\./.test(desktopBridge),
-  'the desktop gate must refuse an app that exceeds its pending cap',
-);
-// The dedup key must include the approval rows, so two DIFFERENT proposed
-// changes still prompt separately while the same one twice does not.
-assert.ok(
-  /const grantKey = [^\n]*HOME_SETTINGS_GRANT_KEY_PREFIX[^\n]*JSON\.stringify\(details\)/.test(desktopBridge),
-  'the dedup key must cover the app, tab, protocol and the proposed change',
-);
-// Cleanup rides on pendingAccountReads, which resolve and timeout delete and
-// which invalidateRuntime already drains on tab-close, app-replaced,
-// navigation and lock. Pin that the entry is registered there, rather than in
-// a private map nothing would clean up.
+// Pin that the entry is registered in pendingAccountReads, rather than in a
+// private map none of the drains below would reach.
 assert.ok(
   /pendingAccountReads\.set\(requestId, \{\s*appIdentityKey: appKey,\s*grantKey,/.test(desktopBridge),
   'a pending Home settings prompt must live in pendingAccountReads with its app key and dedup key',
+);
+
+// Window close drains that window's prompts. Without it they survived to their
+// own 60s timeout while still occupying cap slots, so closing and reopening
+// windows kept the ceiling occupied for windows that no longer exist.
+const mainProcess = readRepoSource('../electron/main.ts', './main.ts');
+assert.ok(
+  mainProcess.includes('forgetHomeV2WindowPendingPrompts'),
+  "window close must drain that window's pending prompts",
+);
+// 'closed', not 'close': a close can be prevented or diverted to the tray.
+assert.ok(
+  /window\.on\('closed', \(\) => forgetHomeV2WindowPendingPrompts\(/.test(mainProcess),
+  'the drain must run on closed, not on a preventable close',
+);
+// The id must be captured before the listener — reading webContents inside
+// 'closed' throws, because it is already destroyed by then.
+assert.ok(
+  /const pendingPromptWebContentsId = window\.webContents\.id;[\s\S]{0,400}?window\.on\('closed'/
+    .test(mainProcess),
+  'the webContents id must be captured before the closed listener',
+);
+
+// A committed app navigation replaces the document that asked, so its prompts
+// go with it. Registered through a hook rather than an import, because
+// qdn-views is imported BY the bridge and the reverse would be a cycle.
+assert.ok(
+  /onQdnViewNavigated\(\(\{ hostWebContentsId, tabId \}\) => \{\s*forgetHomeV2TabPendingHomeSettingsPrompts\(/
+    .test(desktopBridge),
+  "the bridge must drain a tab's Home settings prompts when its view navigates",
+);
+const qdnViewsSource = readRepoSource('../electron/qdn-views.ts', './qdn-views.ts');
+assert.ok(
+  !/from '\.\/home-v2-app-bridge\.js'/.test(qdnViewsSource),
+  'qdn-views must not import the app bridge: that would make the pair circular',
+);
+// Bound to full-document navigation only. Hooking did-navigate-in-page too
+// would cancel prompts during an SPA's own client-side routing, which changes
+// no app-resource identity and is not a reason to drop a prompt.
+assert.ok(
+  /'did-navigate'[\s\S]{0,700}?notifyQdnViewNavigated\(entry\)/.test(qdnViewsSource),
+  'view navigation must notify on a committed main-frame navigation',
+);
+assert.ok(
+  !/'did-navigate-in-page'[\s\S]{0,300}?notifyQdnViewNavigated/.test(qdnViewsSource),
+  'in-page navigation must NOT cancel prompts: it is the same document',
 );
 
 // ---------------------------------------------------------------------------
@@ -394,6 +433,58 @@ assert.ok(
 for (const field of ['lang:', 'language:', 'uiStyle:', 'appZoom:', 'appNotifications:']) {
   assert.ok(appTabStage.includes(field), `the Android settings detail must carry ${field}`);
 }
+
+// The event must be bound to the bridge TOKEN, not only to the origin.
+//
+// Every app on a node shares one render-proxy origin (QdnRenderProxy keys the
+// proxy by node origin so apps keep their own storage across visits), so
+// pinning targetOrigin confines delivery to the origin but NOT to the document.
+// Without a token check, after a hard navigation to another servable
+// same-origin document that was never issued a bridge, the parent could still
+// deliver the user's theme, language, zoom and notification state into it.
+const androidBridge = readRepoSource(
+  '../android/app/src/main/java/org/qortium/home/QdnBridgeWebViewClient.java',
+  './android/app/src/main/java/org/qortium/home/QdnBridgeWebViewClient.java',
+);
+const homeSettingsConsumerLines = androidBridge
+  .split('\n')
+  .filter((line) => line.includes("data.type!=='qortium:home-settings-changed'"));
+assert.equal(
+  homeSettingsConsumerLines.length,
+  1,
+  'the Android bridge must have exactly one settings-event consumer',
+);
+const homeSettingsConsumer = homeSettingsConsumerLines[0];
+assert.ok(
+  homeSettingsConsumer.includes('data.bridgeToken!==bridgeToken'),
+  'the Android settings consumer must verify the bridge token, like its bridge-state neighbour',
+);
+// The check is unconditional, not verify-if-present: an "only when supplied"
+// check would be bypassed by simply omitting the field.
+assert.ok(
+  !/data\.bridgeToken\s*&&/.test(homeSettingsConsumer),
+  'the token check must not be skippable by omitting the field',
+);
+
+// Both producers must therefore SEND the token, or the check silently drops
+// every event: Home 2's app stage, and Home 1.x's viewer.
+function producerBody(source: string, from: string, to: string) {
+  const start = source.indexOf(from);
+  assert.ok(start >= 0, `expected to find ${from}`);
+  const end = source.indexOf(to, start + 1);
+  return source.slice(start, end > start ? end : start + 600);
+}
+assert.ok(
+  producerBody(appTabStage, "type: 'qortium:home-settings-changed'", '}, new URL(source).origin)')
+    .includes('bridgeToken'),
+  'the Home 2 producer must send the bridge token',
+);
+const legacyViewer = readRepoSource('../src/QdnViewer.tsx', './src/QdnViewer.tsx');
+assert.ok(
+  producerBody(legacyViewer, 'function postQdnHomeSettingsChanged', 'function postQdnManagerRevisionChanged')
+    .includes('bridgeToken'),
+  'the Home 1.x producer must send the bridge token, or the new check drops its events',
+);
 
 // ---------------------------------------------------------------------------
 // The documented appearance-persistence window.

@@ -321,6 +321,86 @@ export function getHomeV2HomeSettingsApprovalDetails(
 }
 
 // ---------------------------------------------------------------------------
+// Pending-prompt admission.
+//
+// UPDATE_HOME_SETTINGS is single-request, so unlike the durable manager
+// families it has no "already granted" early return to absorb repeats: an app
+// can issue endless individually VALID updates, each queuing its own modal in
+// trusted chrome and holding it for the full approval timeout. Dedup and a
+// ceiling are therefore part of this contract rather than an implementation
+// detail of one host — and they live here, pure and testable, because the bug
+// they exist to prevent (counting per window instead of across all windows) is
+// invisible to any single-window test.
+// ---------------------------------------------------------------------------
+
+export const HOME_V2_HOME_SETTINGS_GRANT_KEY_PREFIX = 'home-settings|'
+
+/** Mirrors MAX_PENDING_ANDROID_PERMISSION_PROMPTS_* in HomeV2LiveApp.tsx. */
+export const HOME_V2_HOME_SETTINGS_PROMPT_LIMITS = Object.freeze({
+  perApp: 3,
+  global: 20,
+})
+
+export type HomeV2HomeSettingsPendingPrompt = {
+  readonly appIdentityKey?: string
+  readonly grantKey?: string
+}
+
+/**
+ * The dedup identity of one proposed change.
+ *
+ * Includes the approval rows, so two DIFFERENT proposed changes still prompt
+ * separately while the same one twice does not. Includes the window id, which
+ * is what lets the caps below be counted globally without two windows
+ * colliding on each other's dedup keys.
+ */
+export function buildHomeV2HomeSettingsGrantKey(input: {
+  readonly appIdentityKey: string
+  readonly details: readonly { readonly label: string; readonly value: string }[]
+  readonly protocol: string
+  readonly tabId: string
+  readonly windowId: number | string
+}): string {
+  return [
+    `${HOME_V2_HOME_SETTINGS_GRANT_KEY_PREFIX}${input.windowId}`,
+    input.tabId,
+    input.appIdentityKey,
+    input.protocol,
+    JSON.stringify(input.details),
+  ].join('|')
+}
+
+/**
+ * Decides whether one more Home-settings prompt may be queued.
+ *
+ * `pending` is EVERY outstanding prompt across every window, not just the
+ * calling window's. Filtering by host window before counting — which the first
+ * implementation did — silently turns both limits into PER-WINDOW limits, and
+ * Home is a multi-window app: the same app open in six windows could hold six
+ * times the intended ceiling. Throws with the message the app receives.
+ */
+export function assertHomeV2HomeSettingsPromptAdmissible(
+  pending: readonly HomeV2HomeSettingsPendingPrompt[],
+  candidate: { readonly appIdentityKey: string; readonly grantKey: string },
+): void {
+  const homeSettingsPrompts = pending.filter(
+    (entry) => entry.grantKey?.startsWith(HOME_V2_HOME_SETTINGS_GRANT_KEY_PREFIX),
+  )
+  if (homeSettingsPrompts.some((entry) => entry.grantKey === candidate.grantKey)) {
+    throw new Error('This Home settings request is already pending for the app tab.')
+  }
+  const forApp = homeSettingsPrompts.filter(
+    (entry) => entry.appIdentityKey === candidate.appIdentityKey,
+  ).length
+  if (forApp >= HOME_V2_HOME_SETTINGS_PROMPT_LIMITS.perApp) {
+    throw new Error('Too many pending Home settings requests for this app. Wait for the existing prompt to resolve.')
+  }
+  if (homeSettingsPrompts.length >= HOME_V2_HOME_SETTINGS_PROMPT_LIMITS.global) {
+    throw new Error('Too many pending Home settings requests. Wait for the existing prompts to resolve.')
+  }
+}
+
+// ---------------------------------------------------------------------------
 // The desktop round-trip envelope.
 //
 // Main process -> shell window: "read your settings" / "apply this patch".

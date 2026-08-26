@@ -402,10 +402,18 @@ function postQdnHomeSettingsChanged(
   frameWindow: Window | null | undefined,
   renderUrl: string,
   displaySettings: QdnFrameDisplaySettings,
+  // The Android bridge token. Carried so the native consumer can bind this
+  // message to the document it authorized, exactly as it already does for the
+  // bridge-state and navigation messages: the render-proxy origin is SHARED by
+  // every app on a node, so pinning targetOrigin confines delivery to the
+  // origin but NOT to the document. Undefined on desktop, where the frame is
+  // origin-isolated and no token exists.
+  bridgeToken?: string,
 ) {
   if (!frameWindow) return;
   frameWindow.postMessage({
     type: 'qortium:home-settings-changed',
+    ...(bridgeToken ? { bridgeToken } : {}),
     detail: {
       ...displaySettings,
       appNotifications: displaySettings.appNotifications,
@@ -3832,8 +3840,8 @@ export function QdnBridgeFrameContent({
 
   useEffect(() => {
     postQdnDisplaySettings(frameRef.current?.contentWindow, frameMessageUrl, displaySettings);
-    postQdnHomeSettingsChanged(frameRef.current?.contentWindow, frameMessageUrl, displaySettings);
-  }, [displaySettings, frameMessageUrl]);
+    postQdnHomeSettingsChanged(frameRef.current?.contentWindow, frameMessageUrl, displaySettings, bridgeToken);
+  }, [bridgeToken, displaySettings, frameMessageUrl]);
 
   useEffect(() => {
     postQdnManagerRevisionChanged(frameRef.current?.contentWindow, frameMessageUrl, managerRevisions);
@@ -4019,7 +4027,7 @@ export function QdnBridgeFrameContent({
       onLoad={() => {
         frameLoadedRef.current = true;
         postQdnDisplaySettings(frameRef.current?.contentWindow, frameMessageUrl, displaySettings);
-        postQdnHomeSettingsChanged(frameRef.current?.contentWindow, frameMessageUrl, displaySettings);
+        postQdnHomeSettingsChanged(frameRef.current?.contentWindow, frameMessageUrl, displaySettings, bridgeToken);
         postQdnManagerRevisionChanged(frameRef.current?.contentWindow, frameMessageUrl, managerRevisions);
         postQdnSelectedAccountChanged(frameRef.current?.contentWindow, frameMessageUrl);
         deliverAppTarget();

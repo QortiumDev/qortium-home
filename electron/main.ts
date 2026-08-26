@@ -58,7 +58,10 @@ import {
   type WindowStateRole,
   type WindowStatesRecord,
 } from './home-window-state.js';
-import { registerHomeV2AppBridgeIpcHandlers } from './home-v2-app-bridge.js';
+import {
+  forgetHomeV2WindowPendingPrompts,
+  registerHomeV2AppBridgeIpcHandlers,
+} from './home-v2-app-bridge.js';
 import { registerHomeV2CoreManagerBridgeIpcHandlers } from './home-v2-core-manager-bridge.js';
 import { registerHomeV2AppUpdateBridgeIpcHandlers } from './home-v2-app-update-bridge.js';
 import { registerHomeV2ReleaseNotesBridgeIpcHandlers } from './home-v2-release-notes-bridge.js';
@@ -788,6 +791,21 @@ function createWindow(options: CreateWindowOptions = {}) {
   // whichever comes first in creation order.
   window.on('focus', () => homeWindowFocus.note(window.id));
   window.on('closed', () => homeWindowFocus.forget(window.id));
+  // Deny and forget this window's outstanding app permission prompts.
+  //
+  // Nothing could approve them once the chrome that renders them is gone, but
+  // without this they sat in the pending map until their own 60s timeout, still
+  // occupying slots in the per-app and global caps — so closing and reopening
+  // windows was a way to keep those ceilings occupied on behalf of windows that
+  // no longer exist.
+  //
+  // 'closed', not 'close': a 'close' can be prevented or diverted to the tray,
+  // and the window may well survive it. The id is captured HERE rather than
+  // read inside the listener, because by the time 'closed' fires the
+  // webContents is destroyed and reading it throws — the same rule the startup
+  // payload cleanups above follow.
+  const pendingPromptWebContentsId = window.webContents.id;
+  window.on('closed', () => forgetHomeV2WindowPendingPrompts(pendingPromptWebContentsId));
   instrumentStartupTiming(window);
 
   window.on('app-command', (_event, command) => {

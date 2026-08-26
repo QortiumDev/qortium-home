@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict'
 import {
   HOME_V2_HOME_SETTINGS_ACTIONS,
+  HOME_V2_HOME_SETTINGS_GRANT_KEY_PREFIX,
+  HOME_V2_HOME_SETTINGS_PROMPT_LIMITS,
+  assertHomeV2HomeSettingsPromptAdmissible,
+  buildHomeV2HomeSettingsGrantKey,
   HOME_V2_HOME_SETTINGS_KEYS,
   HOME_V2_HOME_SETTINGS_PROMPTED_ACTION,
   HOME_V2_HOME_SETTINGS_UNPROMPTED_ACTIONS,
@@ -392,5 +396,141 @@ assert.throws(
   }),
   /exact Home settings round-trip response/,
 )
+
+// ---------------------------------------------------------------------------
+// Pending-prompt admission: dedup, and caps that count across ALL windows.
+// ---------------------------------------------------------------------------
+
+const promptDetails = [
+  { label: 'Theme (current)', value: 'dark' },
+  { label: 'Theme (proposed)', value: 'light' },
+]
+
+type GrantKeyOverrides = {
+  appIdentityKey?: string
+  details?: readonly { label: string; value: string }[]
+  protocol?: string
+  tabId?: string
+  windowId?: number
+}
+
+function grantKeyFor(overrides: GrantKeyOverrides = {}) {
+  return buildHomeV2HomeSettingsGrantKey({
+    appIdentityKey: overrides.appIdentityKey ?? 'qdn://APP/Notify',
+    details: overrides.details ?? promptDetails,
+    protocol: overrides.protocol ?? 'qdnRequest',
+    tabId: overrides.tabId ?? 'tab-1',
+    windowId: overrides.windowId ?? 1,
+  })
+}
+
+function pendingPrompt(overrides: GrantKeyOverrides = {}) {
+  return {
+    appIdentityKey: overrides.appIdentityKey ?? 'qdn://APP/Notify',
+    grantKey: grantKeyFor(overrides),
+  }
+}
+
+// An empty queue admits.
+assertHomeV2HomeSettingsPromptAdmissible([], {
+  appIdentityKey: 'qdn://APP/Notify',
+  grantKey: grantKeyFor(),
+})
+
+// The same proposed change twice is refused...
+assert.throws(
+  () => assertHomeV2HomeSettingsPromptAdmissible([pendingPrompt()], {
+    appIdentityKey: 'qdn://APP/Notify',
+    grantKey: grantKeyFor(),
+  }),
+  /already pending for the app tab/,
+)
+// ...but a DIFFERENT proposed change from the same app and tab is not, because
+// the key covers the approval rows.
+assertHomeV2HomeSettingsPromptAdmissible([pendingPrompt()], {
+  appIdentityKey: 'qdn://APP/Notify',
+  grantKey: grantKeyFor({
+    details: [
+      { label: 'App zoom (current)', value: '100' },
+      { label: 'App zoom (proposed)', value: '125' },
+    ],
+  }),
+})
+// The same change in a DIFFERENT window is a distinct prompt: the key embeds
+// the window, which is what makes counting globally safe below.
+assertHomeV2HomeSettingsPromptAdmissible([pendingPrompt({ windowId: 1 })], {
+  appIdentityKey: 'qdn://APP/Notify',
+  grantKey: grantKeyFor({ windowId: 2 }),
+})
+
+// THE REGRESSION THIS EXISTS FOR: the per-app cap counts across every window.
+// The first implementation filtered by host window before counting, so an app
+// open in N windows could hold N times the ceiling. Three pending prompts for
+// one app, each in a different window, must exhaust its allowance.
+const acrossWindows = [
+  pendingPrompt({ windowId: 1 }),
+  pendingPrompt({ windowId: 2 }),
+  pendingPrompt({ windowId: 3 }),
+]
+assert.equal(acrossWindows.length, HOME_V2_HOME_SETTINGS_PROMPT_LIMITS.perApp)
+assert.throws(
+  () => assertHomeV2HomeSettingsPromptAdmissible(acrossWindows, {
+    appIdentityKey: 'qdn://APP/Notify',
+    grantKey: grantKeyFor({ windowId: 4 }),
+  }),
+  /Too many pending Home settings requests for this app/,
+  'the per-app cap must count across every window, not per window',
+)
+// One below the cap still admits, so this is the cap and not an off-by-one.
+assertHomeV2HomeSettingsPromptAdmissible(acrossWindows.slice(0, 2), {
+  appIdentityKey: 'qdn://APP/Notify',
+  grantKey: grantKeyFor({ windowId: 4 }),
+})
+// A different app is unaffected by the first app's allowance.
+assertHomeV2HomeSettingsPromptAdmissible(acrossWindows, {
+  appIdentityKey: 'qdn://APP/Other',
+  grantKey: grantKeyFor({ appIdentityKey: 'qdn://APP/Other', windowId: 4 }),
+})
+
+// The global cap likewise counts across windows, and across apps.
+const manyApps = Array.from(
+  { length: HOME_V2_HOME_SETTINGS_PROMPT_LIMITS.global },
+  (_unused, index) => pendingPrompt({
+    appIdentityKey: `qdn://APP/App${index}`,
+    windowId: index,
+  }),
+)
+assert.throws(
+  () => assertHomeV2HomeSettingsPromptAdmissible(manyApps, {
+    appIdentityKey: 'qdn://APP/Fresh',
+    grantKey: grantKeyFor({ appIdentityKey: 'qdn://APP/Fresh', windowId: 999 }),
+  }),
+  /Too many pending Home settings requests\./,
+  'the global cap must count across every window',
+)
+assertHomeV2HomeSettingsPromptAdmissible(manyApps.slice(0, -1), {
+  appIdentityKey: 'qdn://APP/Fresh',
+  grantKey: grantKeyFor({ appIdentityKey: 'qdn://APP/Fresh', windowId: 999 }),
+})
+
+// Prompts belonging to OTHER families never count against these limits, and
+// never dedup against them.
+const foreignPrompts = Array.from({ length: 50 }, (_unused, index) => ({
+  appIdentityKey: 'qdn://APP/Notify',
+  grantKey: `notifications-manage|${index}|tab-1|qdn://APP/Notify|qdnRequest`,
+}))
+assertHomeV2HomeSettingsPromptAdmissible(foreignPrompts, {
+  appIdentityKey: 'qdn://APP/Notify',
+  grantKey: grantKeyFor(),
+})
+// An entry with no grantKey at all (families that do not dedup) is ignored too.
+assertHomeV2HomeSettingsPromptAdmissible([{ appIdentityKey: 'qdn://APP/Notify' }], {
+  appIdentityKey: 'qdn://APP/Notify',
+  grantKey: grantKeyFor(),
+})
+
+// The limits match Android's, so one platform cannot drift into being lenient.
+assert.deepEqual({ ...HOME_V2_HOME_SETTINGS_PROMPT_LIMITS }, { perApp: 3, global: 20 })
+assert.ok(grantKeyFor().startsWith(HOME_V2_HOME_SETTINGS_GRANT_KEY_PREFIX))
 
 console.log('Home v2 Home settings contract tests passed.')

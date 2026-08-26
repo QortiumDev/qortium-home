@@ -190,12 +190,24 @@ answer by another route either.
 Two further protections came out of review. An app that asks to change settings
 can no longer flood Home with permission dialogs: asking for the same change
 again while the first is still on screen is refused, and there is a ceiling on
-how many can be waiting at once. And when saving the notification setting fails,
-the app is now told in a plain, fixed way that it did not work — Home keeps the
-technical detail, which can name a file path on the machine, in its own log
-instead of handing it to the app. A related bug was fixed at the same time: on
-desktop, when two Home windows changed the notification setting at once, one of
-them used to give up immediately instead of noticing, re-reading and retrying.
+how many can be waiting at once. That ceiling counts across all of your open
+Home windows rather than each window on its own, so an app cannot multiply its
+allowance by being open in several of them; and a question still waiting when
+you close a window, or when the app navigates away from the page that asked, is
+dropped there and then rather than lingering.
+
+And when saving the notification setting fails, the app is now told in a plain,
+fixed way that it did not work — Home keeps the technical detail, which can name
+a file path on the machine, in its own log instead of handing it to the app. A
+related bug was fixed at the same time: on desktop, when two Home windows
+changed the notification setting at once, one of them used to give up
+immediately instead of noticing, re-reading and retrying.
+
+On Android, the settings announcement is now also tied to the specific page Home
+issued the app bridge to, not just to the address it came from. Apps published
+on one node share an address, so without that tie a page that was never given
+the bridge could still have been handed your theme, language, zoom and
+notification state.
 
 ### 2026-08-26 - feat(home-v2): apps can manage notification permissions again
 

@@ -30,6 +30,7 @@ import {
   isQdnViewFocused,
   isQdnViewVisible,
   isQdnRenderUrlSameAppResource,
+  onQdnViewNavigated,
   syncWidgetQdnViewState,
   type QdnViewContext,
 } from './qdn-views.js'
@@ -66,6 +67,9 @@ import {
   type HomeV2NotificationManagerAction,
 } from './home-v2-notification-manager-contract.js'
 import {
+  HOME_V2_HOME_SETTINGS_GRANT_KEY_PREFIX,
+  assertHomeV2HomeSettingsPromptAdmissible,
+  buildHomeV2HomeSettingsGrantKey,
   encodeHomeV2HomeSettingsRoundTripRequest,
   getHomeV2HomeSettingsApprovalDetails,
   getHomeV2HomeSettingsMetadata,
@@ -493,12 +497,64 @@ const pendingAccountReads = new Map<string, {
   readonly timeout: ReturnType<typeof setTimeout>
 }>()
 
-// Mirrors MAX_PENDING_ANDROID_PERMISSION_PROMPTS_* in HomeV2LiveApp.tsx. Home
-// settings updates are single-request, so an app may legitimately ask again and
-// again — which is exactly why the queue needs a ceiling on desktop too.
-const MAX_PENDING_HOME_SETTINGS_PROMPTS_PER_APP = 3
-const MAX_PENDING_HOME_SETTINGS_PROMPTS_GLOBAL = 20
-const HOME_SETTINGS_GRANT_KEY_PREFIX = 'home-settings|'
+// The dedup key shape and the pending ceilings live in the shared contract
+// module (assertHomeV2HomeSettingsPromptAdmissible), so they are unit-testable
+// without an Electron window.
+
+function drainPendingAccountReads(match: (pending: {
+  readonly grantKey?: string
+  readonly hostWebContentsId: number
+  readonly tabId: string
+}) => boolean) {
+  for (const [requestId, pending] of pendingAccountReads) {
+    if (!match(pending)) continue
+    pendingAccountReads.delete(requestId)
+    clearTimeout(pending.timeout)
+    pending.resolve({ approved: false, scope: null })
+  }
+}
+
+/**
+ * Denies and forgets every pending permission prompt owned by a Home window
+ * that is closing.
+ *
+ * Without this, a closed window's prompts sat in the map until their own 60s
+ * timeout. Nothing could approve them — the chrome that would have rendered
+ * them is gone — but they still occupied slots in the pending caps, so closing
+ * and reopening a window was a way to keep the ceiling occupied against a
+ * window that no longer exists.
+ *
+ * Every family is drained here, not just Home settings: none of them can be
+ * answered once their window is gone.
+ */
+export function forgetHomeV2WindowPendingPrompts(hostWebContentsId: number) {
+  drainPendingAccountReads((pending) => pending.hostWebContentsId === hostWebContentsId)
+}
+
+/**
+ * Denies and forgets the HOME SETTINGS prompts owned by one app view that has
+ * navigated.
+ *
+ * Deliberately narrow. An app navigating within itself is not grounds to tear
+ * down every family's prompt — 'navigation-changed' explicitly keeps a tab's
+ * account.read binding alive (see home-v2-runtime-invalidation.ts) and
+ * widening this would change shipped behaviour for surfaces this task does not
+ * own. But an UPDATE_HOME_SETTINGS prompt is bound to a specific proposed
+ * change made by the document that asked, and after a navigation the
+ * post-approval staleness recheck would refuse it anyway. Draining it here
+ * frees the cap slot immediately instead of holding it for the full timeout,
+ * and means the user is not left answering a question about a page that is no
+ * longer there.
+ */
+export function forgetHomeV2TabPendingHomeSettingsPrompts(
+  hostWebContentsId: number,
+  tabId: string,
+) {
+  drainPendingAccountReads((pending) =>
+    pending.hostWebContentsId === hostWebContentsId &&
+    pending.tabId === tabId &&
+    !!pending.grantKey?.startsWith(HOME_V2_HOME_SETTINGS_GRANT_KEY_PREFIX))
+}
 const pendingSessionGrantDecisions = new Map<string, Promise<PermissionDecision>>()
 const pendingContextMenus = new Map<number, {
   readonly hostWebContentsId: number
@@ -909,27 +965,34 @@ async function requestHomeV2HomeSettingsUpdateApproval(
   // full 60s timeout. The semantic key includes the approval rows, so it
   // captures the app, the tab, the protocol AND the exact proposed change —
   // two different patches still prompt separately, the same patch twice does
-  // not. Cleanup needs nothing new: entries live in pendingAccountReads, which
-  // is already drained on resolve, on timeout, and by invalidateRuntime for
-  // tab-close, app-replaced, navigation and lock.
+  // not.
+  //
+  // The decision itself lives in the shared contract module so it can be tested
+  // without an Electron window — which matters, because the bug it now prevents
+  // (counting per window rather than across all of them) cannot be observed in
+  // any single-window test. EVERY pending entry is passed, deliberately
+  // unfiltered by host window.
+  //
+  // Cost is an O(pending) scan of a map the global cap itself holds at 20
+  // entries, on a path that is about to put a modal in front of a human. An
+  // index would be more machinery than the problem.
+  //
+  // Entries live in pendingAccountReads so they are drained on resolve, on
+  // timeout, by invalidateRuntime (tab-close, app-replaced, account change,
+  // lock), by forgetHomeV2WindowPendingPrompts on window close, and by
+  // forgetHomeV2TabPendingHomeSettingsPrompts when an app view navigates.
   const hostWebContentsId = hostWindow.webContents.id
-  const grantKey = `${HOME_SETTINGS_GRANT_KEY_PREFIX}${context.windowId}|${context.tabId}|${appKey}|${protocol}|${JSON.stringify(details)}`
-  const pendingHomeSettings = Array.from(pendingAccountReads.values()).filter(
-    (pending) => pending.hostWebContentsId === hostWebContentsId &&
-      pending.grantKey?.startsWith(HOME_SETTINGS_GRANT_KEY_PREFIX),
+  const grantKey = buildHomeV2HomeSettingsGrantKey({
+    appIdentityKey: appKey,
+    details,
+    protocol,
+    tabId: context.tabId,
+    windowId: context.windowId,
+  })
+  assertHomeV2HomeSettingsPromptAdmissible(
+    Array.from(pendingAccountReads.values()),
+    { appIdentityKey: appKey, grantKey },
   )
-  if (pendingHomeSettings.some((pending) => pending.grantKey === grantKey)) {
-    throw new Error('This Home settings request is already pending for the app tab.')
-  }
-  if (
-    pendingHomeSettings.filter((pending) => pending.appIdentityKey === appKey).length >=
-    MAX_PENDING_HOME_SETTINGS_PROMPTS_PER_APP
-  ) {
-    throw new Error('Too many pending Home settings requests for this app. Wait for the existing prompt to resolve.')
-  }
-  if (pendingHomeSettings.length >= MAX_PENDING_HOME_SETTINGS_PROMPTS_GLOBAL) {
-    throw new Error('Too many pending Home settings requests. Wait for the existing prompts to resolve.')
-  }
 
   const requestId = randomUUID()
   const decision = await new Promise<PermissionDecision>((resolve) => {
@@ -6765,6 +6828,12 @@ async function handleRequest(
 }
 
 export function registerHomeV2AppBridgeIpcHandlers() {
+  // An app view that navigates replaces the document that asked, so its pending
+  // Home-settings prompts are dropped rather than left to expire. Registered
+  // here, not imported the other way round, to keep qdn-views free of a cycle.
+  onQdnViewNavigated(({ hostWebContentsId, tabId }) => {
+    forgetHomeV2TabPendingHomeSettingsPrompts(hostWebContentsId, tabId)
+  })
   // "Open as widget" in the toolbar. The shell names a tab; the app view's own
   // context is then resolved in the main process, so the request cannot point
   // at a resource the tab is not actually showing. The permission gate and the

@@ -746,6 +746,51 @@ function getWindowViews(windowId: number) {
   return windowViews;
 }
 
+/**
+ * Notified when a QDN app view commits a main-frame navigation, i.e. when the
+ * document that may have outstanding requests is replaced.
+ *
+ * A registration hook rather than a direct call, because
+ * electron/home-v2-app-bridge.ts already imports THIS module: importing it back
+ * would make the pair a true ESM cycle and leave qdn-views un-loadable on its
+ * own, which its tests rely on. The dependency direction stays one-way; the
+ * bridge registers itself when it installs its IPC handlers.
+ */
+type QdnViewNavigationListener = (navigation: {
+  readonly hostWebContentsId: number;
+  readonly tabId: string;
+}) => void;
+
+const qdnViewNavigationListeners = new Set<QdnViewNavigationListener>();
+
+export function onQdnViewNavigated(listener: QdnViewNavigationListener) {
+  qdnViewNavigationListeners.add(listener);
+  return () => {
+    qdnViewNavigationListeners.delete(listener);
+  };
+}
+
+function notifyQdnViewNavigated(entry: QdnViewEntry) {
+  // The host window's webContents id — the same key qdnViewsByWindow and the
+  // bridge's pending-prompt map use. Guarded because a navigation can land as
+  // the window is going away, and reading webContents on a destroyed window
+  // throws.
+  if (entry.window.isDestroyed()) {
+    return;
+  }
+  const navigation = {
+    hostWebContentsId: entry.window.webContents.id,
+    tabId: entry.tabId,
+  };
+  for (const listener of qdnViewNavigationListeners) {
+    try {
+      listener(navigation);
+    } catch (error) {
+      console.warn('[qdn-views] A view navigation listener failed:', error);
+    }
+  }
+}
+
 function watchWindow(window: BrowserWindow) {
   const windowId = window.webContents.id;
 
@@ -1077,6 +1122,14 @@ function applyViewGuards(entry: QdnViewEntry) {
   });
   entry.view.webContents.on('did-navigate', (_event, url) => {
     updateCurrentUrl(url);
+    // A committed main-frame navigation replaces the DOCUMENT. Anything still
+    // pending on behalf of the outgoing one can no longer be answered by it.
+    // Deliberately NOT also hooked to 'did-navigate-in-page' below: that is the
+    // same document doing client-side routing, and cancelling a prompt on a
+    // hash change or history.pushState would break single-page apps for no
+    // safety gain — the app-resource identity, which is what the grant checks
+    // are keyed on, has not changed there.
+    notifyQdnViewNavigated(entry);
   });
   entry.view.webContents.on('did-navigate-in-page', (_event, url, isMainFrame) => {
     if (isMainFrame) {
