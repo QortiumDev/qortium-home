@@ -4527,6 +4527,10 @@ export function HomeV2LiveApp() {
         const { authorizeHomeV2AndroidResourceStream } = await import('./android-app-host')
         setResourceViewer({
           ...parsed,
+          // The VIEWER renders in the shell document, so its media/img URL is
+          // minted on the shell's own origin (H-P2) — unlike the app-facing
+          // GET_QDN_RESOURCE_STREAM_URL above, which stays on the app's proxy
+          // origin.
           streamUrl: await authorizeHomeV2AndroidResourceStream(
             parsed.streamUrl,
             getQdnResourceStreamProxyMimeType(resource),
@@ -4538,6 +4542,7 @@ export function HomeV2LiveApp() {
               routeRevision: hostInfo.route.revision,
               tabId: context.tabId,
             }),
+            true,
           ),
         })
         return true

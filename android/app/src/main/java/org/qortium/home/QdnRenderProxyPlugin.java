@@ -56,7 +56,8 @@ public class QdnRenderProxyPlugin extends Plugin {
             call.getString("origin"),
             call.getString("resourceUrl"),
             call.getString("mimeType"),
-            call.getString("binding")
+            call.getString("binding"),
+            Boolean.TRUE.equals(call.getBoolean("shellStream", false))
         );
         if (streamUrl == null) {
             call.reject("An exact public QDN render URL and capability binding are required.");

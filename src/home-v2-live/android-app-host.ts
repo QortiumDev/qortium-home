@@ -11,6 +11,7 @@ interface QdnRenderProxyPlugin {
     mimeType?: string | null
     origin: string
     resourceUrl: string
+    shellStream?: boolean
   }): Promise<{ streamUrl: string }>
   authorizePrivateBytes(options: {
     binding: string
@@ -47,6 +48,13 @@ export async function authorizeHomeV2AndroidResourceStream(
   resourceUrl: string,
   mimeType: string | null,
   binding: string,
+  // `shellStream` mints the capability on the SHELL's own origin
+  // (https://localhost/qdn-home-stream?…) instead of the app proxy origin.
+  // Only the shell's resource viewer uses it: the shell document's CSP is
+  // same-origin-only and WebView refuses cross-origin media loads against
+  // interceptor-only virtual origins, so a viewer <video>/<audio>/<img> needs
+  // a same-origin URL. The token stays the whole authority either way.
+  shellStream = false,
 ) {
   const upstream = new URL(resourceUrl)
   if ((upstream.protocol !== 'http:' && upstream.protocol !== 'https:') || upstream.username || upstream.password || upstream.hash) {
@@ -57,9 +65,17 @@ export async function authorizeHomeV2AndroidResourceStream(
     mimeType,
     origin: upstream.origin,
     resourceUrl: upstream.toString(),
+    shellStream,
   })
   const capability = new URL(result.streamUrl)
-  if (capability.protocol !== 'https:' || !capability.hostname.endsWith('.qdn.androidplatform.net')) {
+  const shellForm =
+    capability.protocol === 'https:' &&
+    capability.hostname === 'localhost' &&
+    capability.pathname === '/qdn-home-stream'
+  const proxyForm =
+    capability.protocol === 'https:' &&
+    capability.hostname.endsWith('.qdn.androidplatform.net')
+  if (shellStream ? !shellForm : !proxyForm) {
     throw new Error('Android did not return a secure QDN stream capability.')
   }
   return capability.toString()

@@ -34,6 +34,20 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-26 - fix(home-v2): Home's own resource viewer plays video and audio on Android
+
+The second half of the Android media pair. Opening a video or audio resource in
+Home's viewer on the phone produced a silent, unplayable player: the viewer
+lives in Home's own trusted page, and that page is deliberately fenced off from
+the separate origin apps stream their media from — its content policy allows no
+media at all, and Android's WebView refuses the cross-origin load besides. The
+viewer's media now streams from Home's own origin through a dedicated route
+that honours the exact same expiring, unguessable stream permits as before —
+same byte limits, same refusal of redirects, and it never carries any app
+authority. Home's page policy was widened by exactly one notch: it may now play
+media from itself, and nothing else changed. Apps keep streaming from their own
+origin exactly as before.
+
 ### 2026-08-26 - fix(home-v2): the phone toolbar keeps a usable address bar, and two small rough edges are smoothed
 
 Live phone testing found that with both networks enabled, the two account
@@ -60,7 +74,6 @@ user-cancelled code on both computer and phone, and the app documentation now
 spells out that a refusal is always a definitive "nothing was sent". Apps pick
 this up without changes to Home's prompts; apps that classify errors can now
 show an honest "you declined this" message.
-
 ### 2026-08-26 - fix(home-v2): videos and audio from apps play on Android again
 
 Live phone testing found that any audio or video an app opened through Home's
