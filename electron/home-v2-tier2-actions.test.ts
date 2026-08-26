@@ -301,7 +301,7 @@ assert.equal(
 assert.equal(resolveHomeV2AccountReadAddress({ address: OTHER_ADDRESS }, ACCOUNT_ADDRESS), OTHER_ADDRESS)
 assert.throws(() => resolveHomeV2AccountReadAddress({ address: 'nope' }, ACCOUNT_ADDRESS), /Address is invalid\./)
 // With neither, the caller gets a clear error rather than a request for ''.
-assert.throws(() => resolveHomeV2AccountReadAddress({}, null), /no account is selected/)
+assert.throws(() => resolveHomeV2AccountReadAddress({}, null), /Address is required/)
 
 assert.equal(
   buildHomeV2AccountBalancePath(ACCOUNT_ADDRESS, { assetId: 0 }),
@@ -480,7 +480,7 @@ assert.ok(homeV2ChainReadNeedsSelectedAddress('GET_MEMBER_BANS', {}))
 assert.ok(!homeV2ChainReadNeedsSelectedAddress('GET_MEMBER_BANS', { address: ACCOUNT_ADDRESS }))
 assert.ok(!homeV2ChainReadNeedsSelectedAddress('GET_ACCOUNT_GROUPS', {}))
 assert.deepEqual(withHomeV2SelectedAddress({ groupId: 1 }, ACCOUNT_ADDRESS), { groupId: 1, address: ACCOUNT_ADDRESS })
-assert.throws(() => withHomeV2SelectedAddress({}, null), /no account is selected/)
+assert.throws(() => withHomeV2SelectedAddress({}, null), /Address is required/)
 
 // ---------------------------------------------------------------------------
 // 7. Trust reads
