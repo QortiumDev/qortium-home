@@ -92,9 +92,38 @@ assert.deepEqual(homeV2TransactionTargetFromRequest('VOTE_ON_POLL', { pollId: 0 
 // target, whatever extra fields the request carries.
 assert.deepEqual(homeV2TransactionTargetFromRequest('CREATE_POLL', { pollName: 'Snacks', txGroupId: 0 }), { kind: 'operation' })
 assert.deepEqual(homeV2TransactionTargetFromRequest('CREATE_POLL', { pollId: 7, pollName: 'Snacks' }), { kind: 'operation' })
+// Publishes derive from the FLAT fields their normalizer actually reads
+// (getQdnWriteResourceRequest, payload-aware) — a nested decoy `resource`
+// object is a field no publish normalizer consumes and is inert.
 assert.deepEqual(homeV2TransactionTargetFromRequest('PUBLISH_QDN_RESOURCE', {
-  resource: { service: 'IMAGE', name: 'Alice', identifier: 'chat-image' },
+  identifier: 'chat-image', name: 'Alice', service: 'IMAGE',
 }), { kind: 'resource', service: 'IMAGE', name: 'Alice', identifier: 'chat-image' })
+assert.deepEqual(homeV2TransactionTargetFromRequest('PUBLISH_QDN_RESOURCE', {
+  payload: { identifier: 'chat-image', name: 'Alice', service: 'IMAGE' },
+}), { kind: 'resource', service: 'IMAGE', name: 'Alice', identifier: 'chat-image' })
+assert.deepEqual(homeV2TransactionTargetFromRequest('PUBLISH_QDN_RESOURCE', {
+  name: 'Alice',
+  resource: { identifier: 'decoy', name: 'Decoy', service: 'IMAGE' },
+  service: 'IMAGE',
+}), { kind: 'resource', service: 'IMAGE', name: 'Alice', identifier: null })
+// Attachment publishes own `conversation` (their normalizer requires it).
+assert.deepEqual(homeV2TransactionTargetFromRequest('PUBLISH_CHAT_ATTACHMENT', {
+  conversation: { groupId: 5, kind: 'group' },
+  resource: { identifier: 'decoy', name: 'Decoy', service: 'IMAGE' },
+}), { kind: 'group', groupId: 5 })
+// Private-group sends accept groupId ?? txGroupId, exactly as their
+// normalizer does — a txGroupId-shaped request keeps its group key.
+assert.deepEqual(homeV2TransactionTargetFromRequest('SEND_PRIVATE_GROUP_CHAT_MESSAGE', { txGroupId: 12 }),
+  { kind: 'group', groupId: 12 })
+// A decoy conversation on a PUBLIC chat send is inert: its normalizer reads
+// only txGroupId.
+assert.deepEqual(homeV2TransactionTargetFromRequest('SEND_CHAT_MESSAGE', {
+  conversation: { groupId: 99, kind: 'group' }, txGroupId: 12,
+}), { kind: 'group', groupId: 12 })
+// Direct sends accept the recipientAddress alias their normalizer accepts.
+assert.deepEqual(homeV2TransactionTargetFromRequest('SEND_DIRECT_CHAT_MESSAGE', {
+  recipientAddress: 'QdemoAddr111111111111111111111111',
+}), { kind: 'direct', otherAddress: 'QdemoAddr111111111111111111111111' })
 assert.deepEqual(createHomeV2PendingTransactionFromResult({
   accountId: entry.accountId,
   action: entry.action,
@@ -155,6 +184,28 @@ assert.equal(findHomeV2PendingTransactionConflict(banJournal, {
   appIdentity: entry.appIdentity,
   network: entry.network,
   request: { groupId: 9 },
+}, now)?.signature, signature)
+
+// An operation-target entry is coarse BY DEFINITION: it blocks every request
+// of its action until reconciled — which also heals entries recorded under
+// the older, looser derivations in the safe (more-blocking) direction.
+const coarseEntry = createHomeV2PendingTransactionFromResult({
+  accountId: entry.accountId,
+  action: 'SEND_CHAT_MESSAGE',
+  appIdentity: entry.appIdentity,
+  now,
+  protocol: entry.protocol,
+  request: {},
+  result: { outcome: 'unknown', signature, timestamp: now },
+})
+if (!coarseEntry) throw new Error('coarse entry must journal')
+assert.deepEqual(coarseEntry.target, { kind: 'operation' })
+assert.equal(findHomeV2PendingTransactionConflict({ entries: [coarseEntry], version: 1 }, {
+  accountId: entry.accountId,
+  action: 'SEND_CHAT_MESSAGE',
+  appIdentity: entry.appIdentity,
+  network: entry.network,
+  request: { txGroupId: 12 },
 }, now)?.signature, signature)
 
 const keyAnnouncementEntry = createHomeV2PendingTransactionFromResult({

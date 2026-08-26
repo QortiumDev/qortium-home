@@ -310,11 +310,6 @@ const GROUP_TARGET_JOURNAL_ACTIONS = new Set<string>([
   'LEAVE_GROUP',
   'REMOVE_GROUP_ADMIN',
 ])
-const RESOURCE_JOURNAL_ACTIONS = new Set<string>([
-  'PUBLISH_CHAT_ATTACHMENT',
-  'PUBLISH_QDN_RESOURCE',
-])
-
 /**
  * The action compared when matching a retained conflict. GROUP_BAN and
  * BAN_FROM_GROUP (and the kick pair) are 1.x aliases of one operation —
@@ -328,63 +323,104 @@ function journalConflictActionKey(action: string) {
     : action
 }
 
+const OPERATION_TARGET = Object.freeze({ kind: 'operation' } as const)
+
+// Lenient wrapper: derivation runs BEFORE the action handler validates the
+// request, so a malformed value falls to the coarse operation target and the
+// handler then refuses the request with its own named error — the journal
+// must never be the thing that rejects it first. (The pre-polls derivation
+// threw on malformed values instead; falling coarse only ever blocks MORE.)
+function derivedTarget(candidate: unknown): HomeV2TransactionTarget {
+  try {
+    return normalizeTarget(candidate)
+  } catch {
+    return OPERATION_TARGET
+  }
+}
+
 /**
- * The conflict/recording key for one journaled mutation, derived ONLY from
- * the request fields that ACTION actually owns (security review 2026-08-26,
- * finding 3 and its round-2 residual): with an action-blind derivation, an
- * app could vary an IGNORED extra field — a stray `pollId` on a chat send, a
- * stray `txGroupId` on a DIRECT chat send, a stray `conversation` on a vote —
- * to move the same logical operation onto a different conflict key and slip
- * past its retained unknown-outcome block. Every family therefore names its
- * own fields; an action with no field-derived key, and any field it does not
- * own, lands on the coarse operation target.
+ * The conflict/recording key for one journaled mutation, derived from
+ * EXACTLY the request fields that ACTION's own normalizer consumes, in the
+ * same precedence (security review 2026-08-26, finding 3 through round 3):
+ * with any looser derivation, an app could vary an IGNORED field — a stray
+ * `pollId` or `txGroupId` on a direct send, a stray `conversation` on a chat
+ * send, a decoy nested `resource` on a publish — to move the same logical
+ * operation onto a different conflict key and slip past its retained
+ * unknown-outcome block. The per-family field reads below each cite the
+ * normalizer they mirror; keep them in lockstep.
  */
 export function homeV2TransactionTargetFromRequest(action: string, value: unknown): HomeV2TransactionTarget {
-  if (!isRecord(value)) return Object.freeze({ kind: 'operation' })
+  if (!isRecord(value)) return OPERATION_TARGET
   if (action === 'VOTE_ON_POLL' || action === 'UPDATE_POLL') {
-    // Lenient on purpose: this runs BEFORE the action handler validates the
-    // request, and 1.x accepts string integers here. A malformed id falls to
-    // the coarse operation target and the handler then refuses the request
-    // with its own named error — the journal must never be the thing that
-    // rejects it first.
+    // normalizeHomeV2VoteOnPollRequest / UpdatePoll: pollId ?? poll.
     const raw = value.pollId ?? value.poll
     const pollId = typeof raw === 'number' ? raw : typeof raw === 'string' && raw.trim() ? Number(raw.trim()) : NaN
     if (Number.isSafeInteger(pollId) && pollId >= 1) {
-      return normalizeTarget({ kind: 'poll', pollId })
+      return derivedTarget({ kind: 'poll', pollId })
     }
-    return Object.freeze({ kind: 'operation' })
+    return OPERATION_TARGET
   }
-  const conversation = isRecord(value.conversation) ? value.conversation : null
   if (DIRECT_CHAT_JOURNAL_ACTIONS.has(action)) {
-    if (conversation?.kind === 'direct') return normalizeTarget({ kind: 'direct', otherAddress: conversation.otherAddress })
-    if (value.otherAddress !== undefined) return normalizeTarget({ kind: 'direct', otherAddress: value.otherAddress })
-    return Object.freeze({ kind: 'operation' })
+    // normalizeHomeV2DirectChatWriteRequest: otherAddress ?? recipientAddress.
+    const address = value.otherAddress ?? value.recipientAddress
+    return address !== undefined ? derivedTarget({ kind: 'direct', otherAddress: address }) : OPERATION_TARGET
   }
   if (PUBLIC_CHAT_JOURNAL_ACTIONS.has(action)) {
-    if (conversation?.kind === 'group') return normalizeTarget({ kind: 'group', groupId: conversation.groupId })
-    if (value.txGroupId !== undefined) return normalizeTarget({ kind: 'group', groupId: value.txGroupId })
-    return Object.freeze({ kind: 'operation' })
+    // normalizeHomeV2PublicChatRequest: txGroupId (top-level only).
+    return value.txGroupId !== undefined
+      ? derivedTarget({ kind: 'group', groupId: value.txGroupId })
+      : OPERATION_TARGET
   }
   if (PRIVATE_GROUP_JOURNAL_ACTIONS.has(action)) {
-    if (conversation?.kind === 'group') return normalizeTarget({ kind: 'group', groupId: conversation.groupId })
-    if (value.groupId !== undefined) return normalizeTarget({ kind: 'group', groupId: value.groupId })
-    return Object.freeze({ kind: 'operation' })
+    // home-v2-private-group-chat-contract normalizeGroupId: groupId ?? txGroupId.
+    const raw = value.groupId ?? value.txGroupId
+    return raw !== undefined ? derivedTarget({ kind: 'group', groupId: raw }) : OPERATION_TARGET
   }
   if (GROUP_TARGET_JOURNAL_ACTIONS.has(action)) {
-    if (value.groupId !== undefined) return normalizeTarget({ kind: 'group', groupId: value.groupId })
-    return Object.freeze({ kind: 'operation' })
+    // The membership/admin normalizers read groupId.
+    return value.groupId !== undefined
+      ? derivedTarget({ kind: 'group', groupId: value.groupId })
+      : OPERATION_TARGET
   }
-  if (RESOURCE_JOURNAL_ACTIONS.has(action) && isRecord(value.resource)) {
-    return normalizeTarget({
-      identifier: value.resource.identifier ?? null,
-      kind: 'resource',
-      name: value.resource.name,
-      service: value.resource.service,
-    })
+  if (action === 'PUBLISH_CHAT_ATTACHMENT') {
+    // normalizeHomeV2PrivateAttachmentPublishRequest requires `conversation`.
+    const conversation = isRecord(value.conversation) ? value.conversation : null
+    if (conversation?.kind === 'group') return derivedTarget({ kind: 'group', groupId: conversation.groupId })
+    if (conversation?.kind === 'direct') return derivedTarget({ kind: 'direct', otherAddress: conversation.otherAddress })
+    return OPERATION_TARGET
+  }
+  if (action === 'PUBLISH_QDN_RESOURCE') {
+    // getQdnWriteResourceRequest reads flat service/name/identifier with the
+    // payload fallback (qdn-request-values getRequestValue).
+    const payload = isRecord(value.payload) ? value.payload : null
+    const service = payload?.service ?? value.service
+    const name = payload?.name ?? value.name
+    const identifier = payload?.identifier ?? value.identifier
+    if (typeof service === 'string' && service && typeof name === 'string' && name) {
+      return derivedTarget({
+        identifier: typeof identifier === 'string' && identifier ? identifier : null,
+        kind: 'resource',
+        name,
+        service,
+      })
+    }
+    return OPERATION_TARGET
   }
   // SEND_MESSAGE, CREATE_POLL, and anything future land here: the coarse
   // per-app-and-account operation target, which errs toward blocking.
-  return Object.freeze({ kind: 'operation' })
+  return OPERATION_TARGET
+}
+
+/**
+ * Whether a retained entry's target blocks a request deriving `derived`.
+ * An operation target is coarse BY DEFINITION — it blocks every request of
+ * its action — and treating it so on both sides also heals entries recorded
+ * under the older, looser derivations: whatever shape an old entry stored,
+ * blocking more until it is reconciled is the safe direction.
+ */
+function journalTargetsConflict(entryTarget: HomeV2TransactionTarget, derived: HomeV2TransactionTarget) {
+  if (entryTarget.kind === 'operation' || derived.kind === 'operation') return true
+  return JSON.stringify(entryTarget) === JSON.stringify(derived)
 }
 
 export function findHomeV2PendingTransactionConflict(
@@ -403,7 +439,7 @@ export function findHomeV2PendingTransactionConflict(
   return getHomeV2PendingTransactions(journal, input, now).find((entry) =>
     journalConflictActionKey(entry.action) === journalConflictActionKey(input.action) &&
     entry.stage !== 'key-announcement' &&
-    JSON.stringify(entry.target) === JSON.stringify(target),
+    journalTargetsConflict(entry.target, target),
   ) ?? null
 }
 
