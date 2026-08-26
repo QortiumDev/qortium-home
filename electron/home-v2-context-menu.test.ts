@@ -118,6 +118,23 @@ assert.throws(
   }),
   /cannot contain credentials/,
 )
+// R4-4 native link menu: only qdn/qortal resource links are actionable. A
+// javascript:, data: or file: link is rejected at normalize, so the native
+// menu offers it no open or copy action.
+for (const dangerousLink of [
+  'javascript:alert(1)',
+  'data:text/html,<script>alert(1)</script>',
+  'file:///etc/passwd',
+]) {
+  assert.throws(
+    () => normalizeHomeV2ContextMenuRequest('qdnRequest', {
+      version: 1,
+      target: { kind: 'resource', address: dangerousLink },
+    }),
+    /only accept qdn:\/\//,
+    `${dangerousLink} must not resolve to a resource target`,
+  )
+}
 assert.throws(
   () => normalizeHomeV2ContextMenuRequest('qdnRequest', {
     version: 1,
@@ -173,6 +190,24 @@ assert.match(desktopBridgeSource, /pending\.menu\.closePopup\(pending\.window\)/
 assert.match(desktopBridgeSource, /getQdnViewContextForWebContents\(sender\)/)
 assert.match(viewHostSource, /!entry\.window\.isFocused\(\)/)
 assert.match(viewHostSource, /!entry\.view\.getVisible\(\)/)
+
+// R4-4: the app view registers a native context-menu handler that reads the
+// link from the trusted event params, routes it through the shared backend,
+// and popups a native Menu.
+assert.match(viewHostSource, /webContents\.on\('context-menu'/)
+assert.match(viewHostSource, /showQdnViewLinkContextMenu\(entry, params\)/)
+assert.match(viewHostSource, /const linkURL = typeof params\.linkURL === 'string'/)
+assert.match(viewHostSource, /normalizeHomeV2ContextMenuRequest\(protocol, \{/)
+assert.match(viewHostSource, /getHomeV2ContextMenuItems\(resourceTarget\)/)
+assert.match(viewHostSource, /getHomeV2ContextMenuOperation\(resourceTarget, action\)/)
+assert.match(viewHostSource, /Menu\.buildFromTemplate\(template\)/)
+assert.match(viewHostSource, /menu\.popup\(\{/)
+// The open action reuses the app-invoked open path, not a new ad-hoc opener.
+assert.match(viewHostSource, /send\('home-v2-app:open-address', \{\s*address: operation\.address/)
+// The menu is never bound to widget views or the shell renderer.
+assert.match(viewHostSource, /if \(!isWidgetTabId\(entry\.tabId\)\) \{/)
+// A selection with no actionable link still offers a plain Copy.
+assert.match(viewHostSource, /selectionText/)
 assert.match(androidHostSource, /action === 'SHOW_CONTEXT_MENU'/)
 assert.match(androidHostSource, /ANDROID_CONTEXT_MENU_TIMEOUT_MS/)
 assert.match(androidHostSource, /activeTab\.context\.resourceLocation !== pending\.resourceLocation/)
