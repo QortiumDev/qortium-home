@@ -80,6 +80,13 @@ export interface HomeV2PendingTransaction {
   readonly action: HomeV2JournaledMutation
   readonly appIdentity: string
   readonly createdAt: number
+  // The target-derivation revision the entry was recorded under. Version 2 is
+  // the per-normalizer field-ownership derivation (2026-08-26); an entry
+  // WITHOUT the stamp predates it, and its stored target may have been moved
+  // by a decoy field the old derivation trusted — so conflict matching treats
+  // unstamped entries as coarse for their whole action (see
+  // journalTargetsConflict). Absent on legacy entries by definition.
+  readonly derivation?: 2
   readonly network: HomeV2AppNetwork
   readonly protocol: HomeV2AppBridgeProtocol
   readonly signature: string
@@ -132,13 +139,19 @@ function normalizeTarget(value: unknown): HomeV2TransactionTarget {
   if (!isRecord(value)) throw new Error('Pending transaction target is invalid.')
   if (value.kind === 'operation') return Object.freeze({ kind: 'operation' })
   if (value.kind === 'group') {
+    // 0 stays legal (public chat's General chat), and there is deliberately
+    // NO int32 upper bound: entries recorded before this revision could
+    // legally store any safe integer here, and the journal store fails
+    // CLOSED on a single unreadable entry — a new bound would brick every
+    // pre-existing journal containing one. An oversized stored key is
+    // harmless: it can only ever block, never loosen.
     if (!Number.isSafeInteger(value.groupId) || Number(value.groupId) < 0) {
       throw new Error('Pending transaction group target is invalid.')
     }
     return Object.freeze({ kind: 'group', groupId: Number(value.groupId) })
   }
   if (value.kind === 'poll') {
-    if (!Number.isSafeInteger(value.pollId) || Number(value.pollId) < 1) {
+    if (!Number.isSafeInteger(value.pollId) || Number(value.pollId) < 1 || Number(value.pollId) > 2_147_483_647) {
       throw new Error('Pending transaction poll target is invalid.')
     }
     return Object.freeze({ kind: 'poll', pollId: Number(value.pollId) })
@@ -183,6 +196,10 @@ export function sanitizeHomeV2PendingTransaction(value: unknown): HomeV2PendingT
     action: value.action,
     appIdentity: boundedString(value.appIdentity, 'Pending transaction app identity', 2_048),
     createdAt: safeTimestamp(value.createdAt, 'Pending transaction creation time'),
+    // Anything other than the exact current revision is dropped, so a stored
+    // entry can only ever carry a stamp the running code actually issued —
+    // a forged higher number cannot pre-claim trust in its target.
+    ...(value.derivation === 2 ? { derivation: 2 as const } : {}),
     network,
     protocol,
     signature: canonicalSignature(value.signature),
@@ -326,10 +343,15 @@ function journalConflictActionKey(action: string) {
 const OPERATION_TARGET = Object.freeze({ kind: 'operation' } as const)
 
 // Lenient wrapper: derivation runs BEFORE the action handler validates the
-// request, so a malformed value falls to the coarse operation target and the
-// handler then refuses the request with its own named error — the journal
-// must never be the thing that rejects it first. (The pre-polls derivation
-// threw on malformed values instead; falling coarse only ever blocks MORE.)
+// request, so a value the journal's own validator rejects falls to the
+// coarse operation target and the handler then refuses the request with its
+// own named error — the journal must never be the thing that rejects it
+// first. (The pre-polls derivation threw instead; falling coarse only ever
+// blocks MORE.) The journal validator is deliberately looser than the
+// handlers on a few bounds — e.g. a group id of 0 is a valid PUBLIC-chat key
+// — so a value it accepts can still be one a handler refuses; the handler
+// remains the authority, and a specific-but-doomed key blocks no less than a
+// coarse one for that request.
 function derivedTarget(candidate: unknown): HomeV2TransactionTarget {
   try {
     return normalizeTarget(candidate)
@@ -412,15 +434,20 @@ export function homeV2TransactionTargetFromRequest(action: string, value: unknow
 }
 
 /**
- * Whether a retained entry's target blocks a request deriving `derived`.
- * An operation target is coarse BY DEFINITION — it blocks every request of
- * its action — and treating it so on both sides also heals entries recorded
- * under the older, looser derivations: whatever shape an old entry stored,
- * blocking more until it is reconciled is the safe direction.
+ * Whether a retained entry blocks a request deriving `derived`. An operation
+ * target is coarse BY DEFINITION — it blocks every request of its action —
+ * and an entry recorded under a PRE-version-2 derivation is treated the same
+ * way: its stored target may have been moved by a decoy field the old
+ * derivation trusted, so its true subject is unknowable and the whole action
+ * blocks until it is reconciled or expires. Blocking more is the safe
+ * direction; reconciliation (GET_PENDING_TRANSACTIONS +
+ * FORGET_PENDING_TRANSACTION by signature) and the 30-day expiry clear such
+ * entries exactly as before. (Security review 2026-08-26, round 4.)
  */
-function journalTargetsConflict(entryTarget: HomeV2TransactionTarget, derived: HomeV2TransactionTarget) {
-  if (entryTarget.kind === 'operation' || derived.kind === 'operation') return true
-  return JSON.stringify(entryTarget) === JSON.stringify(derived)
+function journalTargetsConflict(entry: HomeV2PendingTransaction, derived: HomeV2TransactionTarget) {
+  if (entry.derivation !== 2) return true
+  if (entry.target.kind === 'operation' || derived.kind === 'operation') return true
+  return JSON.stringify(entry.target) === JSON.stringify(derived)
 }
 
 export function findHomeV2PendingTransactionConflict(
@@ -439,7 +466,7 @@ export function findHomeV2PendingTransactionConflict(
   return getHomeV2PendingTransactions(journal, input, now).find((entry) =>
     journalConflictActionKey(entry.action) === journalConflictActionKey(input.action) &&
     entry.stage !== 'key-announcement' &&
-    journalTargetsConflict(entry.target, target),
+    journalTargetsConflict(entry, target),
   ) ?? null
 }
 
@@ -466,6 +493,7 @@ export function createHomeV2PendingTransactionFromResult(input: {
     action: input.action,
     appIdentity: input.appIdentity,
     createdAt: input.now ?? Date.now(),
+    derivation: 2,
     network: input.protocol === 'qortalRequest' ? 'qortal' : 'qortium',
     protocol: input.protocol,
     signature,

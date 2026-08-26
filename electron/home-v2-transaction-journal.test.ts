@@ -20,6 +20,7 @@ const entry = {
   action: 'SEND_DIRECT_CHAT_MESSAGE' as const,
   appIdentity: 'qdn://APP/Chat/default',
   createdAt: now,
+  derivation: 2 as const,
   network: 'qortium' as const,
   protocol: 'qdnRequest' as const,
   signature,
@@ -185,6 +186,68 @@ assert.equal(findHomeV2PendingTransactionConflict(banJournal, {
   network: entry.network,
   request: { groupId: 9 },
 }, now)?.signature, signature)
+
+// A LEGACY entry (no derivation stamp — recorded before the version-2
+// field-ownership derivation) is coarse whatever specific target it stored:
+// the old derivation could be moved by decoy fields, so its true subject is
+// unknowable, and the whole action blocks until reconciled or expired.
+{
+  const legacy = {
+    accountId: entry.accountId,
+    action: 'SEND_CHAT_MESSAGE',
+    appIdentity: entry.appIdentity,
+    createdAt: now,
+    network: entry.network,
+    protocol: entry.protocol,
+    signature,
+    // A decoy-moved specific target from the pre-fix derivation.
+    target: { groupId: 99, kind: 'group' },
+    timestamp: now,
+  }
+  const legacyJournal = sanitizeHomeV2TransactionJournal({ entries: [legacy], version: 1 }, now)
+  assert.equal(legacyJournal.entries[0].derivation, undefined)
+  assert.equal(findHomeV2PendingTransactionConflict(legacyJournal, {
+    accountId: entry.accountId,
+    action: 'SEND_CHAT_MESSAGE',
+    appIdentity: entry.appIdentity,
+    network: entry.network,
+    request: { txGroupId: 12 },
+  }, now)?.signature, signature)
+  // A forged FUTURE stamp is dropped on load, so it cannot pre-claim trust.
+  const forged = sanitizeHomeV2TransactionJournal({ entries: [{ ...legacy, derivation: 3 }], version: 1 }, now)
+  assert.equal(forged.entries[0].derivation, undefined)
+}
+
+// A version-2 entry with a SPECIFIC target matches specifically: same key
+// conflicts, a different key does not.
+{
+  const voteEntry = createHomeV2PendingTransactionFromResult({
+    accountId: entry.accountId,
+    action: 'VOTE_ON_POLL',
+    appIdentity: entry.appIdentity,
+    now,
+    protocol: entry.protocol,
+    request: { optionIndex: 1, pollId: 7 },
+    result: { outcome: 'unknown', signature, timestamp: now },
+  })
+  if (!voteEntry) throw new Error('vote entry must journal')
+  assert.equal(voteEntry.derivation, 2)
+  const voteJournal = { entries: [voteEntry], version: 1 as const }
+  assert.equal(findHomeV2PendingTransactionConflict(voteJournal, {
+    accountId: entry.accountId,
+    action: 'VOTE_ON_POLL',
+    appIdentity: entry.appIdentity,
+    network: entry.network,
+    request: { optionIndex: 2, pollId: 7 },
+  }, now)?.signature, signature)
+  assert.equal(findHomeV2PendingTransactionConflict(voteJournal, {
+    accountId: entry.accountId,
+    action: 'VOTE_ON_POLL',
+    appIdentity: entry.appIdentity,
+    network: entry.network,
+    request: { optionIndex: 1, pollId: 8 },
+  }, now), null)
+}
 
 // An operation-target entry is coarse BY DEFINITION: it blocks every request
 // of its action until reconciled — which also heals entries recorded under
