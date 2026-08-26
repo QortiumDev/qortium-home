@@ -45,6 +45,7 @@ function testCustomAddressValidation(): void {
   // they are valid custom new-tab pages too.
   assert.equal(
     validateCustomNewTabAddress('qdn://WEBSITE/Example'),
+    'qdn://WEBSITE/Example',
   )
   assert.equal(
     validateCustomNewTabAddress('qortal://GAME/Example'),
@@ -67,7 +68,6 @@ function testCustomAddressValidation(): void {
     'https://example.invalid/app',
     'qdn://',
     'qdn://APP',
-    'qdn://WEBSITE/Example',
     'qdn://user:secret@APP/Example',
     'qdn://APP:1234/Example',
     `qdn://APP/${'a'.repeat(129)}`,
