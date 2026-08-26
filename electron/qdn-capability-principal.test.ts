@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
@@ -15,6 +15,10 @@ import {
   storeHoldsQdnAccountCapability,
   storeHoldsQdnAppCapability,
 } from './qdn-manager-permissions.js'
+import {
+  canReuseQdnViewEntry,
+  getQdnViewPartition,
+} from './qdn-view-security-context.js'
 
 // --- The identifier resolver must agree with the runtime, vector for vector ---
 {
@@ -361,6 +365,110 @@ import {
   store = grantQdnAccountCapability(createDefaultQdnAppRolesStore(), lower, accountId, 'account.read')
   assert.equal(storeHoldsQdnAccountCapability(store, lower, accountId, 'account.read'), true)
   assert.equal(storeHoldsQdnAccountCapability(store, upper, accountId, 'account.read'), false)
+}
+
+// --- A view is only reused within one app's own security context ---
+//
+// The Chromium partition a view is CREATED with carries that app's cookies,
+// localStorage and IndexedDB, and a view keeps its partition for life. Reusing
+// a view whose app changed (OPEN_CURRENT_TAB) would therefore hand the
+// incoming app the outgoing app's browser storage. canReuseQdnViewEntry is the
+// gate that stops that; anything it refuses is destroyed and rebuilt the way a
+// freshly opened tab is.
+{
+  const node = 'http://127.0.0.1:24891'
+  const chat = 'qdn://APP/Alice/chat'
+  const trust = 'qdn://APP/Bob/trust'
+
+  // The ordinary case: same tab, same app, re-shown after a resize, a zoom or
+  // a suspend/restore. Must reuse, or all of those would reload the app.
+  assert.equal(
+    canReuseQdnViewEntry({ nodeOrigin: node, resourceUrl: chat }, { nodeOrigin: node, resourceUrl: chat }),
+    true,
+  )
+  // A different app in the same tab is a different security context.
+  assert.equal(
+    canReuseQdnViewEntry({ nodeOrigin: node, resourceUrl: chat }, { nodeOrigin: node, resourceUrl: trust }),
+    false,
+    'a replacement by a different app must never inherit the previous app view',
+  )
+  // Same app, different node: rebuilt before this change, still rebuilt.
+  assert.equal(
+    canReuseQdnViewEntry(
+      { nodeOrigin: node, resourceUrl: chat },
+      { nodeOrigin: 'http://127.0.0.1:12391', resourceUrl: chat },
+    ),
+    false,
+  )
+  // The identifier is part of the principal: `?identifier=` names a DIFFERENT
+  // resource the runtime really serves, and it must not borrow the default
+  // resource's storage. Same rule the durable-grant principal enforces above —
+  // deliberately the same function.
+  assert.equal(
+    canReuseQdnViewEntry(
+      { nodeOrigin: node, resourceUrl: 'qdn://APP/Alice/default' },
+      { nodeOrigin: node, resourceUrl: 'qdn://APP/Alice/default?identifier=evil' },
+    ),
+    false,
+  )
+  // Cross-chain: same name, different source chain, never one context.
+  assert.equal(
+    canReuseQdnViewEntry(
+      { nodeOrigin: node, resourceUrl: 'qdn://APP/Alice/chat' },
+      { nodeOrigin: node, resourceUrl: 'qortal://APP/Alice/chat' },
+    ),
+    false,
+  )
+  // Fails closed: a resource URL that cannot be canonicalized cannot be proven
+  // to name the same app, so it is rebuilt — EXCEPT when byte-identical, which
+  // is what widget and null-resource views rely on.
+  assert.equal(
+    canReuseQdnViewEntry({ nodeOrigin: node, resourceUrl: null }, { nodeOrigin: node, resourceUrl: null }),
+    true,
+  )
+  assert.equal(
+    canReuseQdnViewEntry({ nodeOrigin: node, resourceUrl: null }, { nodeOrigin: node, resourceUrl: chat }),
+    false,
+  )
+  assert.equal(
+    canReuseQdnViewEntry(
+      { nodeOrigin: node, resourceUrl: 'not-a-qdn-url' },
+      { nodeOrigin: node, resourceUrl: 'also-not-a-qdn-url' },
+    ),
+    false,
+  )
+  // Two apps must never share a partition — the property the reuse gate exists
+  // to protect.
+  assert.notEqual(getQdnViewPartition(node, chat), getQdnViewPartition(node, trust))
+  assert.equal(getQdnViewPartition(node, chat), getQdnViewPartition(node, chat))
+}
+
+// The replacement path must route through view DESTRUCTION, not a partial
+// state reset: a reused view keeps its partition no matter what is later
+// assigned to entry.resourceUrl.
+{
+  // Resolved from either the source tree or dist-electron, wherever this test
+  // is executed from.
+  const viewsUrl = ['../electron/qdn-views.ts', './qdn-views.ts']
+    .map((candidate) => new URL(candidate, import.meta.url))
+    .find((candidate) => existsSync(candidate))
+  assert.ok(viewsUrl, 'qdn-views.ts source must be readable for the reuse-gate pin')
+  const views = readFileSync(viewsUrl, 'utf8')
+  assert.match(
+    views,
+    /if \(existingEntry && canReuseQdnViewEntry\(existingEntry, request\)\) \{/,
+    'qdn-views must gate view reuse on canReuseQdnViewEntry',
+  )
+  assert.match(
+    views,
+    /canReuseQdnViewEntry\(existingEntry, request\)\)[\s\S]{0,900}if \(existingEntry\) \{\s*destroyEntry\(existingEntry\);/,
+    'a view that cannot be reused must be destroyed before a new one is created',
+  )
+  assert.doesNotMatch(
+    views,
+    /existingEntry\.nodeOrigin === request\.nodeOrigin/,
+    'node origin alone must no longer decide view reuse',
+  )
 }
 
 console.log('QDN capability principal tests passed')

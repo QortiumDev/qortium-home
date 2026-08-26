@@ -849,17 +849,40 @@ assert(
   ),
   'OPEN_CURRENT_TAB must validate its address with normalizeHomeV2OpenAddress.',
 )
-// The tab it acts on must come from the trusted view context, never from the
-// request: an app may not navigate a tab it does not own.
+// The tab it acts on, and the app it is compared against, must both come from
+// the trusted view context — never from the request. An app may not navigate a
+// tab it does not own, nor claim which app was in it.
 assert(
-  /action === 'OPEN_CURRENT_TAB'[\s\S]{0,800}home-v2-app:open-address-in-tab'[\s\S]{0,200}tabId: context\.tabId/.test(
+  /action === 'OPEN_CURRENT_TAB'[\s\S]{0,900}home-v2-app:open-address-in-tab'[\s\S]{0,700}tabId: context\.tabId/.test(
     openTabBridgeSource,
   ),
   'OPEN_CURRENT_TAB must bind to context.tabId.',
 )
 assert(
-  !/action === 'OPEN_CURRENT_TAB'[\s\S]{0,800}requestValue\.tabId/.test(openTabBridgeSource),
-  'OPEN_CURRENT_TAB must never read a tab id out of the request.',
+  /action === 'OPEN_CURRENT_TAB'[\s\S]{0,900}home-v2-app:open-address-in-tab'[\s\S]{0,700}fromResourceLocation: context\.resourceUrl/.test(
+    openTabBridgeSource,
+  ),
+  'OPEN_CURRENT_TAB must compare against context.resourceUrl, the trusted app identity.',
+)
+assert(
+  !/action === 'OPEN_CURRENT_TAB'[\s\S]{0,1200}requestValue\.(tabId|fromResourceLocation|resourceUrl)/.test(
+    openTabBridgeSource,
+  ),
+  'OPEN_CURRENT_TAB must never read a tab id or source app out of the request.',
+)
+// The renderer must not treat the compare-and-swap as optional: a replacement
+// dispatch always carries the trusted source location the reducer checks.
+assert(
+  openTabShellSource.includes('fromResourceLocation: target.fromResourceLocation'),
+  'the shell must thread the trusted source resource location into replace-tab-app.',
+)
+// A replacement drops the outgoing app's tab-bound grants. 'navigation-changed'
+// would deliberately preserve account.read, which is wrong once the tab hosts a
+// different app.
+assert(
+  openTabShellSource.includes("invalidateAndroidRuntime('app-replaced'") &&
+    openTabShellSource.includes("kind: 'app-replaced'"),
+  'replacing a tab must raise the app-replaced invalidation on both hosts.',
 )
 assert(
   openTabPortableSource.includes("action === 'OPEN_CURRENT_TAB'") &&

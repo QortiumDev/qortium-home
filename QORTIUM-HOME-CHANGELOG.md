@@ -56,8 +56,23 @@ app can only ever do this to its own tab: it cannot name a tab, cannot reach
 into another app's tab, and cannot replace one of Home's own pages — Settings,
 the dashboard, the Core API docs and the release notes still open in a tab of
 their own. Because an app is only steering the tab it already occupies, this
-asks no more permission than opening a new tab does, and the tab it lands on
-starts with no more access than a brand-new one would.
+asks no more permission than opening a new tab does.
+
+When one app hands its tab over to another, the tab is genuinely handed over
+rather than shared. On the desktop the incoming app is given a fresh page of its
+own, so it starts with none of the previous app's saved browser data — the same
+clean slate it would get if you had closed the tab and opened the new app
+yourself — and any permission you had granted the previous app in that tab is
+dropped along with it. (On phones every app on a node already shares one
+browser origin, so a handover there is no different from closing and reopening
+the tab; that is a known limitation recorded separately, not something this
+change introduces.) The tab keeps the account it was already using: this can
+change which app is loaded, never which account it speaks for. Home also checks,
+at the exact moment it makes the swap, that the app asking is still the one in
+the tab, so a slow request cannot land on top of something you opened in the
+meantime. And an app has to say exactly which published resource it means — if a
+name on its own could match more than one, Home says so plainly instead of
+guessing or quietly doing nothing.
 
 Finally, the two older ways of asking Home to show a media file or a document
 work again. They are simply other names for the resource viewer Home 2 already

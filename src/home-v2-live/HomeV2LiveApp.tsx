@@ -36,7 +36,14 @@ import type {
   WalletRef,
   TabId,
 } from '../v2/contracts'
-import { createProductState, reduceProductState } from '../v2/product-model'
+import {
+  createProductState,
+  findReplaceableAppTab,
+  reduceProductState,
+  type AppTab,
+  type ProductState,
+  type ReplaceTabTarget,
+} from '../v2/product-model'
 import {
   DEFAULT_NEW_TAB_PREFERENCE,
   parseHomeV2CoreDocsAddress,
@@ -300,6 +307,28 @@ function brand<Type extends string>(value: string): Type {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+type HomeV2ReplaceTabTarget = ReplaceTabTarget
+
+/**
+ * Throwing form of findReplaceableAppTab, for the OPEN_CURRENT_TAB path.
+ *
+ * Called before the async resource discovery and again after it, because both
+ * the tab and what it is showing can change while that await is outstanding.
+ * The reducer runs the same comparison a third time at the write itself; this
+ * exists so the common races produce a clear message to the app instead of a
+ * ProductModelError surfacing at render.
+ */
+function assertHomeV2ReplaceableTab(
+  state: ProductState,
+  target: HomeV2ReplaceTabTarget,
+): AppTab {
+  const tab = findReplaceableAppTab(state, target)
+  if (!tab) {
+    throw new Error('That app tab is no longer showing the app that asked to replace it.')
+  }
+  return tab
 }
 
 function getContextMenuTargetLabel(target: HomeV2ContextMenuTarget) {
@@ -910,13 +939,13 @@ export function HomeV2LiveApp() {
   const nodeRuntimeFingerprint = useRef<Readonly<Record<NetworkId, string>> | null>(null)
 
   const invalidateAndroidRuntime = useCallback((
-    kind: 'account-changed' | 'locked' | 'navigation-changed' | 'node-changed' | 'tab-closed',
+    kind: 'account-changed' | 'app-replaced' | 'locked' | 'navigation-changed' | 'node-changed' | 'tab-closed',
     tabId: string | null = null,
     network: NetworkId | null = null,
   ) => {
     setPermissionState((current) => {
       if (kind === 'account-changed') return createPermissionState()
-      if (kind === 'navigation-changed' || kind === 'tab-closed') {
+      if (kind === 'navigation-changed' || kind === 'tab-closed' || kind === 'app-replaced') {
         return invalidatePermissionState(current, {
           kind,
           tabId: brand<TabId>(tabId!),
@@ -1498,17 +1527,20 @@ export function HomeV2LiveApp() {
   // which app is loaded.
   const replaceTabWithApp = useCallback(
     (
-      tabId: TabId,
+      target: HomeV2ReplaceTabTarget,
       app: AppDescriptor,
       requestedLocation?: AppTabContext['resourceLocation'],
     ) => {
-      const current = productStateRef.current.tabs.find((tab) => tab.id === tabId)
-      if (!current) throw new Error('That app tab is no longer open.')
+      const current = assertHomeV2ReplaceableTab(productStateRef.current, target)
       setShellNotice(null)
       dispatchProduct({
         type: 'replace-tab-app',
         app,
-        tabId,
+        tabId: target.tabId,
+        // The compare half of the compare-and-swap. The reducer re-checks this
+        // against the entry it is about to overwrite, so the check above and
+        // the write below cannot be separated by anything.
+        fromResourceLocation: target.fromResourceLocation,
         context: {
           appId: app.id,
           identityId: current.context.identityId,
@@ -1516,16 +1548,19 @@ export function HomeV2LiveApp() {
             requestedLocation ??
             buildAppResourceLocation(app.sourceNetwork, app.resourceIdentity),
           sourceNetwork: app.sourceNetwork,
-          tabId,
+          tabId: target.tabId,
           walletRef: current.context.walletRef,
         },
       })
-      // The tab keeps its id but is now a different app. Session grants are
-      // keyed by app identity as well as tab, so an incoming app can never
-      // match a grant the outgoing one earned; this drops those grants anyway,
-      // so a replaced tab starts exactly as bare as a freshly opened one.
-      invalidateAndroidRuntime('navigation-changed', tabId)
-      window.homeV2Apps?.invalidateRuntime({ kind: 'navigation-changed', tabId })
+      // The tab keeps its id but now hosts a DIFFERENT app, so every grant
+      // bound to it must go — including account.read, which
+      // 'navigation-changed' deliberately preserves for an app navigating
+      // within itself. Using that kind here would have let the outgoing app's
+      // private-read session grant survive, and revive if the tab were ever
+      // navigated back to it. 'app-replaced' has 'tab-closed' grant semantics
+      // without telling anything that the tab is going away.
+      invalidateAndroidRuntime('app-replaced', target.tabId)
+      window.homeV2Apps?.invalidateRuntime({ kind: 'app-replaced', tabId: target.tabId })
     },
     [invalidateAndroidRuntime],
   )
@@ -1624,19 +1659,21 @@ export function HomeV2LiveApp() {
       address: string,
       requestedAccountId?: string | null,
       // Set only by OPEN_CURRENT_TAB: replace this existing app tab's content
-      // instead of opening another tab. Supplied by the trusted host from the
-      // requesting view's own context.
-      targetTabId?: TabId | null,
+      // instead of opening another tab. Both fields come from the trusted
+      // host's own view context for the requesting app — never from the
+      // request — and together they are the compare half of a
+      // compare-and-swap.
+      replaceTarget?: HomeV2ReplaceTabTarget | null,
     ): Promise<AddressOpenResult> => {
       try {
-        if (targetTabId) {
-          // The tab can close between the app's request and this handler —
-          // and `tabs` holds APP tabs only, so this also refuses an internal
-          // page's id. Fail here rather than in the reducer: a reducer throw
-          // surfaces at render, and a closed tab is a race, not a bug.
-          if (!productStateRef.current.tabs.some((tab) => tab.id === targetTabId)) {
-            throw new Error('That app tab is no longer open.')
-          }
+        if (replaceTarget) {
+          // The tab can close, or be replaced by someone else, between the
+          // app's request and this handler. `tabs` holds APP tabs only, so
+          // this also refuses an internal page's id. Fail here rather than in
+          // the reducer: a reducer throw surfaces at render, and losing this
+          // race is expected, not a bug. Re-checked after the await below and
+          // once more by the reducer at the write.
+          assertHomeV2ReplaceableTab(productStateRef.current, replaceTarget)
           // Home's own pages — settings, dashboard, welcome, Core docs,
           // release notes — are not app content and must never take over an
           // app tab, or an app could dress trusted Home chrome up as its own
@@ -1648,6 +1685,16 @@ export function HomeV2LiveApp() {
             parseHomeV2InternalAddress(address)
           ) {
             throw new Error('Home pages cannot replace an app tab; open them in a new tab instead.')
+          }
+          // A bare app name can match more than one published resource. The
+          // address bar answers that by asking the user to choose, but there
+          // is nobody to ask on a bridge call, and reporting success while
+          // doing nothing would be a lie. Require the app to say exactly which
+          // resource it means; OPEN_NEW_TAB keeps the chooser.
+          if (!parseAppResourceLocation(address).identifierWasExplicit) {
+            throw new Error(
+              'OPEN_CURRENT_TAB needs an explicit resource identifier: a bare app name can match more than one published resource. Use OPEN_NEW_TAB to let the user choose.',
+            )
           }
         }
         const coreDocs = parseHomeV2CoreDocsAddress(address)
@@ -1715,6 +1762,13 @@ export function HomeV2LiveApp() {
             identifier: resolved.candidate.identifier,
           }
           resourceLocation = resolved.address
+          // Unreachable while replacements require an explicit identifier
+          // (checked above, so the only await in this function is skipped for
+          // them) — kept so that relaxing that rule cannot silently reopen the
+          // window between the pre-flight check and the write.
+          if (replaceTarget) {
+            assertHomeV2ReplaceableTab(productStateRef.current, replaceTarget)
+          }
         }
         const app: AppDescriptor = {
           id: brand<AppId>(
@@ -1728,8 +1782,8 @@ export function HomeV2LiveApp() {
           targetNetworks: [parsed.sourceNetwork],
           placement: 'recommended',
         }
-        if (targetTabId) {
-          replaceTabWithApp(targetTabId, app, resourceLocation)
+        if (replaceTarget) {
+          replaceTabWithApp(replaceTarget, app, resourceLocation)
         } else {
           openApp(app, resourceLocation, requestedAccountId)
         }
@@ -1748,8 +1802,15 @@ export function HomeV2LiveApp() {
   // desktop main process supplies it over IPC, the portable app stage supplies
   // its resolved tab — so an app can only ever replace the tab it is in.
   const openAddressInTab = useCallback(
-    (address: string, tabId: string): Promise<AddressOpenResult> =>
-      openAddress(address, undefined, brand<TabId>(tabId)),
+    (
+      address: string,
+      tabId: string,
+      fromResourceLocation: string,
+    ): Promise<AddressOpenResult> =>
+      openAddress(address, undefined, {
+        fromResourceLocation,
+        tabId: brand<TabId>(tabId),
+      }),
     [openAddress],
   )
 
@@ -1810,11 +1871,14 @@ export function HomeV2LiveApp() {
     if (!bridge?.onOpenAddressInTab) return
     return bridge.onOpenAddressInTab((value) => {
       if (!isRecord(value) || typeof value.address !== 'string') return
-      // `tabId` is the main process's own view context for the requesting app,
-      // not a field the app sent. Trust it only as far as the reducer does:
-      // replace-tab-app rejects any id that is not a live app tab.
+      // `tabId` and `fromResourceLocation` are both the main process's own
+      // view context for the requesting app, not fields the app sent. Trust
+      // them only as far as the reducer does: replace-tab-app rejects any id
+      // that is not a live app tab, and any tab that has moved on from
+      // `fromResourceLocation`.
       if (typeof value.tabId !== 'string' || !value.tabId) return
-      void openAddressInTab(value.address, value.tabId)
+      if (typeof value.fromResourceLocation !== 'string' || !value.fromResourceLocation) return
+      void openAddressInTab(value.address, value.tabId, value.fromResourceLocation)
     })
   }, [openAddressInTab])
 

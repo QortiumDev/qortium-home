@@ -396,4 +396,59 @@ assert.equal(store.size(), 1)
   }
 }
 
+// --- 'app-replaced' drops every tab-bound grant, account.read included ---
+//
+// OPEN_CURRENT_TAB leaves the tab id intact but puts a DIFFERENT app in it.
+// 'navigation-changed' is the wrong signal for that: it deliberately preserves
+// account.read so an app keeps its private-read approval while navigating
+// within itself. Using it for a replacement left the outgoing app's
+// private-read session grant alive on that tab, ready to revive if the tab
+// were ever navigated back to it. 'app-replaced' has 'tab-closed' semantics.
+{
+  const tabARead = { family: 'account.read', hostWebContentsId: 10, network: 'qortium' as const, tabId: 'tab-a' }
+  const tabAMutation = { family: 'chat.public.mutate', hostWebContentsId: 10, network: 'qortium' as const, tabId: 'tab-a' }
+  const tabBRead = { family: 'account.read', hostWebContentsId: 10, network: 'qortium' as const, tabId: 'tab-b' }
+  const otherWindowRead = { family: 'account.read', hostWebContentsId: 11, network: 'qortium' as const, tabId: 'tab-a' }
+
+  const replaced = createHomeV2SessionGrantStore()
+  replaced.add('tab-a-read', tabARead)
+  replaced.add('tab-a-mutation', tabAMutation)
+  replaced.add('tab-b-read', tabBRead)
+  replaced.add('other-window-tab-a-read', otherWindowRead)
+  replaced.invalidate(10, { kind: 'app-replaced', network: null, tabId: 'tab-a' })
+  assert.equal(
+    replaced.has('tab-a-read'),
+    false,
+    'a replaced tab must not keep the outgoing app account.read binding',
+  )
+  assert.equal(replaced.has('tab-a-mutation'), false)
+  // Blast radius is exactly one tab in one window, as with 'tab-closed'.
+  assert.equal(replaced.has('tab-b-read'), true)
+  assert.equal(replaced.has('other-window-tab-a-read'), true)
+
+  // 'app-replaced' and 'tab-closed' must agree: a replacement is a close and
+  // reopen of the app inside that tab.
+  const closed = createHomeV2SessionGrantStore()
+  closed.add('tab-a-read', tabARead)
+  closed.add('tab-a-mutation', tabAMutation)
+  closed.add('tab-b-read', tabBRead)
+  closed.invalidate(10, { kind: 'tab-closed', network: null, tabId: 'tab-a' })
+  assert.equal(closed.has('tab-a-read'), false)
+  assert.equal(closed.has('tab-a-mutation'), false)
+  assert.equal(closed.has('tab-b-read'), true)
+
+  // ...while 'navigation-changed' must still NOT drop account.read, or an app
+  // navigating within itself would be re-prompted on every route change.
+  const navigated = createHomeV2SessionGrantStore()
+  navigated.add('tab-a-read', tabARead)
+  navigated.add('tab-a-mutation', tabAMutation)
+  navigated.invalidate(10, { kind: 'navigation-changed', network: null, tabId: 'tab-a' })
+  assert.equal(
+    navigated.has('tab-a-read'),
+    true,
+    'in-app navigation must keep its account.read binding',
+  )
+  assert.equal(navigated.has('tab-a-mutation'), false)
+}
+
 console.log('Home v2 session grant tests passed')

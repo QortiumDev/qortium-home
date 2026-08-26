@@ -33,6 +33,7 @@ import {
 import { DEFAULT_NEW_TAB_PREFERENCE } from './new-tab-preference'
 import {
   createProductState,
+  findReplaceableAppTab,
   ProductModelError,
   reduceProductState,
   restoreProductState,
@@ -575,6 +576,7 @@ function testProductModelReplacesOneAppTabInPlace(): void {
     app: trust,
     context: trustInChatTab,
     tabId: fixtureIds.chatTab,
+    fromResourceLocation: chatContext.resourceLocation,
   })
   // Same tab, same strip position, new app.
   assert.equal(replaced.tabs.length, 1, 'replacing must not add a tab')
@@ -601,6 +603,7 @@ function testProductModelReplacesOneAppTabInPlace(): void {
     app: trust,
     context: trustInChatTab,
     tabId: fixtureIds.chatTab,
+    fromResourceLocation: trustInChatTab.resourceLocation,
   })
   assert.equal(unchanged.tabs.length, 1)
   assert.equal(unchanged.tabs[0].appId, trust.id)
@@ -613,6 +616,7 @@ function testProductModelReplacesOneAppTabInPlace(): void {
         app: trust,
         context: fixtureTabContext(trust, fixtureIds.qortalCompatTab),
         tabId: fixtureIds.qortalCompatTab,
+        fromResourceLocation: chatContext.resourceLocation,
       }),
     (error) => {
       assert.ok(error instanceof ProductModelError)
@@ -629,6 +633,7 @@ function testProductModelReplacesOneAppTabInPlace(): void {
         app: trust,
         context: fixtureTabContext(trust, dashboardTabId),
         tabId: dashboardTabId,
+        fromResourceLocation: chatContext.resourceLocation,
       }),
     (error) => {
       assert.ok(error instanceof ProductModelError)
@@ -652,6 +657,7 @@ function testProductModelReplacesOneAppTabInPlace(): void {
         app: trust,
         context: { ...trustInChatTab, appId: chat.id },
         tabId: fixtureIds.chatTab,
+        fromResourceLocation: chatContext.resourceLocation,
       }),
     (error) => {
       assert.ok(error instanceof ProductModelError)
@@ -666,12 +672,84 @@ function testProductModelReplacesOneAppTabInPlace(): void {
         app: trust,
         context: { ...trustInChatTab, resourceLocation: chatContext.resourceLocation },
         tabId: fixtureIds.chatTab,
+        fromResourceLocation: chatContext.resourceLocation,
       }),
     (error) => {
       assert.ok(error instanceof ProductModelError)
       assert.equal(error.code, 'APP_CONTEXT_MISMATCH')
       return true
     },
+  )
+
+  // --- Compare-and-swap: a slow replacement must never overwrite a later one
+  //
+  // App A asks to be replaced by Trust. Resolving that is async, and while it
+  // is in flight the tab is replaced by Wallets — so by the time A's write
+  // lands, A is not in the tab any more. A must lose, not silently clobber
+  // whatever took its place.
+  const wallets = fixtureApp(fixtureIds.walletsApp)
+  const walletsInChatTab = fixtureTabContext(wallets, fixtureIds.chatTab)
+  const afterFasterReplacement = reduceProductState(withChat, {
+    type: 'replace-tab-app',
+    app: wallets,
+    context: walletsInChatTab,
+    tabId: fixtureIds.chatTab,
+    fromResourceLocation: chatContext.resourceLocation,
+  })
+  assert.equal(afterFasterReplacement.tabs[0].appId, wallets.id)
+  assert.throws(
+    () =>
+      // A's late write, still carrying the location A held when it asked.
+      reduceProductState(afterFasterReplacement, {
+        type: 'replace-tab-app',
+        app: trust,
+        context: trustInChatTab,
+        tabId: fixtureIds.chatTab,
+        fromResourceLocation: chatContext.resourceLocation,
+      }),
+    (error) => {
+      assert.ok(error instanceof ProductModelError)
+      assert.equal(error.code, 'TAB_CONTEXT_CHANGED')
+      assert.match(error.message, /no longer showing the app that asked/)
+      return true
+    },
+  )
+  // The winner is untouched by the loser's attempt.
+  assert.equal(afterFasterReplacement.tabs[0].appId, wallets.id)
+  assert.equal(afterFasterReplacement.tabs.length, 1)
+
+  // findReplaceableAppTab is the same comparison, exported so the shell can
+  // run it before and after each await instead of inventing its own.
+  assert.equal(
+    findReplaceableAppTab(withChat, {
+      tabId: fixtureIds.chatTab,
+      fromResourceLocation: chatContext.resourceLocation,
+    })?.appId,
+    chat.id,
+  )
+  assert.equal(
+    findReplaceableAppTab(afterFasterReplacement, {
+      tabId: fixtureIds.chatTab,
+      fromResourceLocation: chatContext.resourceLocation,
+    }),
+    null,
+    'a tab that moved on is not replaceable by the app that left it',
+  )
+  assert.equal(
+    findReplaceableAppTab(withChat, {
+      tabId: fixtureIds.qortalCompatTab,
+      fromResourceLocation: chatContext.resourceLocation,
+    }),
+    null,
+    'a closed tab is not replaceable',
+  )
+  assert.equal(
+    findReplaceableAppTab(withChat, {
+      tabId: dashboardTabId,
+      fromResourceLocation: chatContext.resourceLocation,
+    }),
+    null,
+    'an internal page is never replaceable',
   )
 }
 

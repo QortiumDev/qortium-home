@@ -236,6 +236,7 @@ for (const routeCase of operationalRoutes) {
 }
 assert.deepEqual(HOME_V2_RUNTIME_INVALIDATION_KINDS, [
   'account-changed',
+  'app-replaced',
   'locked',
   'navigation-changed',
   'node-changed',

@@ -89,6 +89,13 @@ export type ProductAction =
       readonly app: AppDescriptor
       readonly context: AppTabContext
       readonly tabId: TabId
+      /**
+       * The resource location the REQUESTING app was showing, taken from the
+       * trusted host's view context. The compare half of a compare-and-swap:
+       * the reducer refuses if the tab has meanwhile moved on to something
+       * else, so a slow replacement can never land on top of a later one.
+       */
+      readonly fromResourceLocation: string
     }
   | { readonly type: 'activate-tab'; readonly tabId: TabId }
   | { readonly type: 'close-tab'; readonly tabId: TabId }
@@ -120,6 +127,7 @@ export class ProductModelError extends Error {
     readonly code:
       | 'APP_CONTEXT_MISMATCH'
       | 'TAB_ALREADY_EXISTS'
+      | 'TAB_CONTEXT_CHANGED'
       | 'TAB_NOT_FOUND',
     message: string,
   ) {
@@ -327,6 +335,32 @@ export function restoreProductState(value: unknown): ProductState {
   })
 }
 
+export interface ReplaceTabTarget {
+  readonly tabId: TabId
+  /** What the requesting app's tab was showing, per the trusted host. */
+  readonly fromResourceLocation: string
+}
+
+/**
+ * The app tab a replacement may act on, or null when the tab has closed, is
+ * not an app tab, or has moved on to something other than what the requesting
+ * app was showing.
+ *
+ * The compare half of the compare-and-swap, exported so the shell can run it
+ * before and after every await of an async open while the reducer runs the
+ * same comparison again at the moment of the write. One definition, so the
+ * pre-flight check and the write can never disagree about what "still the
+ * same tab" means.
+ */
+export function findReplaceableAppTab(
+  state: ProductState,
+  target: ReplaceTabTarget,
+): AppTab | null {
+  const tab = state.tabs.find((candidate) => candidate.id === target.tabId)
+  if (!tab) return null
+  return tab.context.resourceLocation === target.fromResourceLocation ? tab : null
+}
+
 function contextsIdentifySameTab(
   left: AppTabContext,
   right: AppTabContext,
@@ -408,6 +442,18 @@ function replaceTabApp(
     throw new ProductModelError(
       'TAB_NOT_FOUND',
       `Tab ${action.tabId} is not an app tab.`,
+    )
+  }
+  // The swap half of the compare-and-swap. Resolving a bare address is async,
+  // so between the shell's checks and this write the tab may already have been
+  // replaced by someone else — including by a second, faster OPEN_CURRENT_TAB
+  // from the app that has since taken the tab over. Refusing here means the
+  // late writer loses instead of silently overwriting the winner, and it means
+  // an app can only ever replace a tab it was ITSELF still occupying.
+  if (current.context.resourceLocation !== action.fromResourceLocation) {
+    throw new ProductModelError(
+      'TAB_CONTEXT_CHANGED',
+      `Tab ${action.tabId} is no longer showing the app that asked to replace it.`,
     )
   }
   assertAppTabTarget(action.app, action.context, action.tabId)

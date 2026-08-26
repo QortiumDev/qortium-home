@@ -5717,8 +5717,17 @@ async function handleRequestWithRuntime(
     if (!hostWindow || hostWindow.isDestroyed()) {
       throw new Error('The app request does not belong to an active Home window.')
     }
+    if (!context.resourceUrl) {
+      throw new Error('OPEN_CURRENT_TAB needs the requesting app to have a stable app identity.')
+    }
     hostWindow.webContents.send('home-v2-app:open-address-in-tab', {
       address,
+      // Both fields come from this trusted view context, never the request.
+      // `fromResourceLocation` is the compare half of the renderer's
+      // compare-and-swap: it records which app held the tab when the request
+      // was made, so a replacement that arrives late can never land on a tab
+      // some other app has taken over in the meantime.
+      fromResourceLocation: context.resourceUrl,
       tabId: context.tabId,
     })
     return true

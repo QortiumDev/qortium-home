@@ -128,8 +128,31 @@ actions they sit beside.
   view's own — no tab id is read from the request — and Home refuses to replace
   anything that is not an app tab, so an app cannot navigate another app's tab
   or take over Settings, the dashboard, Core docs, or release notes. Those
-  addresses stay reachable through `OPEN_NEW_TAB`. The replaced tab keeps its
-  account binding, and the outgoing app's tab-scoped approvals are dropped.
+  addresses stay reachable through `OPEN_NEW_TAB`.
+
+  Three further rules, which `OPEN_NEW_TAB` does not share:
+
+  - **An explicit resource identifier is required.** `qdn://APP/Alice/Apps`
+    works; a bare `qdn://APP/Alice` is rejected. A bare name can match more
+    than one published resource, and the address bar resolves that by asking
+    the user which one they meant — but there is nobody to ask on a bridge
+    call, and reporting success while doing nothing would be a lie. Use
+    `OPEN_NEW_TAB` if you want the chooser.
+  - **The replacement is a compare-and-swap.** Home records which app held the
+    tab when the request arrived and refuses the write if the tab has since
+    closed or moved on to something else. A slow replacement can never land on
+    top of a later one, and an app can only replace a tab it was itself still
+    occupying.
+  - **The tab gets a fresh security context.** Replacing a tab's app tears the
+    old app view down and builds a new one, exactly as closing the tab and
+    opening the new app would: on desktop the incoming app gets its own
+    browser-storage partition and never inherits the outgoing app's cookies,
+    `localStorage` or IndexedDB. The replaced tab keeps its account binding —
+    `OPEN_CURRENT_TAB` cannot change accounts — and every tab-scoped approval
+    the outgoing app held is dropped. (On Android every app on a node already
+    shares one proxy origin, so a replacement is neither better nor worse than
+    a close-and-reopen there; see the Android residual note in
+    [Home 2 bridge compatibility](HOME_V2_BRIDGE_COMPATIBILITY.md).)
 - `OPEN_QDN_MEDIA_PLAYER` and `OPEN_QDN_DOCUMENT_VIEWER` are supported on both
   globals as compatibility **aliases** of `OPEN_QDN_RESOURCE_VIEWER`, the same
   way `BAN_FROM_GROUP`/`KICK_FROM_GROUP` alias `GROUP_BAN`/`GROUP_KICK`. Home

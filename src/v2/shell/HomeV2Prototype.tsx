@@ -172,6 +172,7 @@ export interface HomeV2PrototypeProps {
   readonly onOpenAddressInTab?: (
     address: string,
     tabId: string,
+    fromResourceLocation: string,
   ) => Promise<AddressOpenResult>
   readonly onOpenAsWidget?: (tabId: string) => Promise<string | null>
   /** Undefined while the host is still asking main whether the app has one. */

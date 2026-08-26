@@ -85,7 +85,7 @@ This F4 slice does not add `GET_APP_ASSIGNMENTS` or
 | `GET_USER_ACCOUNT` | `qortalRequest` | Address and public key when available from Qortal | Trusted Home prompt; once or tab-session grant | yes | yes |
 | `UNLOCK_SELECTED_ACCOUNT` | `qdnRequest` | Sanitized address, public name, and unlocked state | Visible Home-owned prompt; exact app/tab/account/route recheck; no private material | yes | yes |
 | `OPEN_NEW_TAB` | both | `true` | Only `qdn://`, `qortal://`, or `home://`; Home owns navigation | yes | yes |
-| `OPEN_CURRENT_TAB` | both | `true` | Replaces the content of the tab the app is running in. Same shared address validator as `OPEN_NEW_TAB`, and no prompt for the same reason — navigating your own tab is weaker than adding one. The tab is always the requesting view's own `context.tabId`; no tab id is accepted from the request, only app tabs can be replaced, and a Home page (settings, dashboard, Core docs, release notes) can never take one over. The replaced tab keeps its account binding and drops the outgoing app's tab-scoped grants | yes | yes |
+| `OPEN_CURRENT_TAB` | both | `true`; on the portable host, an error when the replacement did not happen | Replaces the content of the tab the app is running in. Same shared address validator as `OPEN_NEW_TAB`, and no prompt for the same reason — navigating your own tab is weaker than adding one. The tab is always the requesting view's own `context.tabId`; no tab id is accepted from the request, only app tabs can be replaced, and a Home page (settings, dashboard, Core docs, release notes) can never take one over. Requires an explicit resource identifier — a bare app name is rejected rather than silently resolved, because a bridge call has no chooser. Compare-and-swap against the requesting app's own `context.resourceUrl`, re-checked again inside the reducer at the write, so a slow replacement can never overwrite a later one. Tears the old app view down and rebuilds it along the fresh-tab path, so the incoming app never inherits the outgoing app's desktop storage partition. Keeps the tab's account binding, and drops every tab-scoped grant the outgoing app held via the `app-replaced` invalidation | yes | yes |
 | `SEARCH_CHAT_MESSAGES` | both | Bare Core JSON | Groups-only in this release (documented Hub deviation, see below); required non-negative `txGroupId`; `before`/`after` pre-validated against Core's floor; `limit` capped at 100 | yes | yes |
 | `GET_CHAT_MESSAGE` | both | Bare Core JSON | Base58 signature shape validated before the request | yes | yes |
 | `SEND_CHAT_MESSAGE` | both | `{ signature, timestamp }` | Trusted Home prompt (chain, group, 180-char message preview); once or tab-session grant; account must already be unlocked; per-tab/account ceiling of one send per 1.5 seconds and 20 per minute; CHAT-only signing carve-out (fee-less, cannot move funds) — see below | yes | yes |
@@ -277,7 +277,15 @@ back to, which Home 2's read allowlist refuses.
   separately):** Android's QDN render proxy serves every app tab on one node
   from a single shared `https://<label>.qdn.androidplatform.net` origin (see
   `QdnRenderProxy.java`'s class doc comment for why — a per-tab origin would
-  wipe QDN apps' own local storage between visits). The round-6/7 exact-URL
+  wipe QDN apps' own local storage between visits). The host label is derived
+  from the node origin alone, so cookies, `localStorage` and IndexedDB are
+  shared by every app on that node regardless of how a tab was opened.
+  `OPEN_CURRENT_TAB` inherits this and does not widen it: replacing a tab's app
+  fully remounts the app stage — new component instance, new bridge token, new
+  iframe, fresh `authorize()` — so it is exactly equivalent to closing the tab
+  and opening the new app, which crosses the same shared origin. Desktop does
+  isolate per app, and a replacement there is rebuilt on the fresh-tab path so
+  the incoming app gets its own partition. The round-6/7 exact-URL
   gate (`QdnRenderProxy.isExactAuthorizedRenderDocument`) closes cross-app
   grant theft: the native proxy never supplies a fresh bridge token, script
   injection, or a stripped CSP to any document other than the one exact

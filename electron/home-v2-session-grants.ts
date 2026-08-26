@@ -286,7 +286,12 @@ export function createHomeV2SessionGrantStore(): HomeV2SessionGrantStore {
         const isAccountRead = binding.family === 'account.read'
         const affected = invalidation.kind === 'account-changed'
           ? true
-          : invalidation.kind === 'tab-closed'
+          // 'app-replaced' shares 'tab-closed' semantics deliberately, in ONE
+          // branch so the two cannot drift: the tab now hosts a different app,
+          // so every grant bound to that tab goes, account.read included. Only
+          // 'navigation-changed' — an app moving around inside itself — keeps
+          // an account.read binding alive (the final branch below).
+          : invalidation.kind === 'tab-closed' || invalidation.kind === 'app-replaced'
             ? binding.tabId === invalidation.tabId
             : invalidation.kind === 'locked'
               ? !isAccountRead

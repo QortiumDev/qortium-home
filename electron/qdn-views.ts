@@ -28,6 +28,7 @@ import {
   type QdnManagerRevisions,
 } from './qdn-manager-events.js';
 import { sanitizeQdnManagerAppKey } from './qdn-manager-permissions.js';
+import { canReuseQdnViewEntry, getQdnViewPartition } from './qdn-view-security-context.js';
 import { isWidgetTabId } from './widget-registry.js';
 import { resetZoom, zoomIn, zoomOut } from './zoom.js';
 import {
@@ -759,16 +760,10 @@ function watchWindow(window: BrowserWindow) {
   });
 }
 
-function getPartition(nodeOrigin: string, resourceUrl: string | null): string {
-  const safeOrigin = nodeOrigin.replace(/[^a-z0-9:.-]/gi, '_').slice(0, 40);
-  if (resourceUrl) {
-    // resourceUrl is a stable QDN URL (e.g. "qdn://APP/walletium/default")
-    // that identifies the app regardless of which tab or window opened it.
-    const safeResource = resourceUrl.replace(/[^a-z0-9:/._-]/gi, '_').slice(0, 60);
-    return `persist:qortium-home-${safeOrigin}-${safeResource}`;
-  }
-  return `persist:qortium-home-${safeOrigin}`;
-}
+// Moved to qdn-view-security-context.ts so the reuse decision below and the
+// partition a view is actually created with can never be computed from two
+// different definitions.
+const getPartition = getQdnViewPartition;
 
 // An app view counts as focused only when it is the visible view of a focused
 // window — that is when the user is already looking at the app, so app
@@ -1529,7 +1524,13 @@ function getOrCreateEntry(window: BrowserWindow, request: SanitizedShowRequest) 
   const windowViews = getWindowViews(windowId);
   const existingEntry = windowViews.get(request.tabId);
 
-  if (existingEntry && existingEntry.nodeOrigin === request.nodeOrigin) {
+  // Reuse is a SECURITY decision, not an optimization: the view keeps the
+  // partition it was created with, so reusing it for a different app would
+  // hand that app the previous one's cookies, localStorage and IndexedDB.
+  // canReuseQdnViewEntry fails closed — anything it cannot prove to be the
+  // same app principal in the same partition falls through and is rebuilt
+  // below, along exactly the path a freshly opened tab takes.
+  if (existingEntry && canReuseQdnViewEntry(existingEntry, request)) {
     // accountId is pinned at creation: a QDN app tab stays bound to its launch
     // account for its lifetime, so a re-show must never rebind it.
     existingEntry.displaySettings = request.displaySettings;
