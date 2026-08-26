@@ -47,6 +47,10 @@ final class QdnRenderProxy {
     static final String PROXY_HOST_SUFFIX = ".qdn.androidplatform.net";
     static final String PROXY_MIME_QUERY_PARAM = "qdnHomeMime";
     static final String STREAM_CAPABILITY_QUERY_PARAM = "qdnHomeStream";
+    /** The shell-origin stream route: the Capacitor shell document's own
+     * origin, served by the SAME WebView interceptor as the app proxy. */
+    static final String SHELL_STREAM_HOST = "localhost";
+    static final String SHELL_STREAM_PATH = "/qdn-home-stream";
     static final long STREAM_CAPABILITY_TTL_MS = 10L * 60L * 1000L;
     static final int STREAM_CAPABILITY_MAX_ENTRIES = 64;
 
@@ -189,6 +193,14 @@ final class QdnRenderProxy {
         }
     }
 
+    // Which serving route a capability token may be redeemed on. A token minted
+    // for an app (APP_PROXY / PRIVATE_BYTES) must NOT be redeemable on the shell
+    // origin, or an app could take its own GET_QDN_RESOURCE_STREAM_URL token,
+    // point it at attacker-controlled HTML, and top-navigate the shell origin
+    // to it — running scripts as https://localhost. Only the viewer's own
+    // SHELL_STREAM tokens serve on the shell route.
+    private enum StreamAudience { APP_PROXY, PRIVATE_BYTES, SHELL_STREAM }
+
     private static final class AuthorizedStream {
         final String binding;
         final long expiresAt;
@@ -198,6 +210,7 @@ final class QdnRenderProxy {
         final String upstreamUrl;
         final byte[] privateBytes;
         final String privateMimeType;
+        final StreamAudience audience;
 
         AuthorizedStream(
             String binding,
@@ -207,7 +220,8 @@ final class QdnRenderProxy {
             String upstreamQuery,
             String upstreamUrl,
             byte[] privateBytes,
-            String privateMimeType
+            String privateMimeType,
+            StreamAudience audience
         ) {
             this.binding = binding;
             this.expiresAt = expiresAt;
@@ -217,6 +231,7 @@ final class QdnRenderProxy {
             this.upstreamUrl = upstreamUrl;
             this.privateBytes = privateBytes;
             this.privateMimeType = privateMimeType;
+            this.audience = audience;
         }
     }
 
@@ -261,6 +276,20 @@ final class QdnRenderProxy {
     }
 
     static String authorizeStream(String origin, String resourceUrl, String mimeType, String binding) {
+        return authorizeStream(origin, resourceUrl, mimeType, binding, false);
+    }
+
+    /**
+     * With {@code shellStream} the capability URL is minted on the SHELL's own
+     * origin ({@code https://localhost/qdn-home-stream?…}) instead of the app
+     * proxy origin. The shell document's resource viewer needs a same-origin
+     * media URL: its CSP is same-origin-only, and WebView refuses cross-origin
+     * media loads against interceptor-only virtual origins outright
+     * (2026-08-26 phone-pass finding H-P2). The unguessable, expiring token
+     * remains the sole authority either way — the shell form grants nothing
+     * the proxy form does not, it only changes which origin may embed it.
+     */
+    static String authorizeStream(String origin, String resourceUrl, String mimeType, String binding, boolean shellStream) {
         String normalizedOrigin = normalizeOrigin(origin);
         if (normalizedOrigin == null || resourceUrl == null || binding == null || binding.trim().isEmpty()) {
             return null;
@@ -292,14 +321,26 @@ final class QdnRenderProxy {
             upstreamQuery,
             resource.toString(),
             null,
-            null
+            null,
+            shellStream ? StreamAudience.SHELL_STREAM : StreamAudience.APP_PROXY
         ));
+        String safeMimeType = sanitizeResponseMimeType(mimeType);
+
+        if (shellStream) {
+            Uri.Builder shell = new Uri.Builder()
+                .scheme("https")
+                .encodedAuthority(SHELL_STREAM_HOST)
+                .encodedPath(SHELL_STREAM_PATH)
+                .appendQueryParameter(STREAM_CAPABILITY_QUERY_PARAM, token);
+            if (safeMimeType != null) shell.appendQueryParameter(PROXY_MIME_QUERY_PARAM, safeMimeType);
+            return shell.build().toString();
+        }
+
         Uri.Builder proxy = resource.buildUpon()
             .scheme("https")
             .encodedAuthority(proxyHost)
             .fragment(null)
             .appendQueryParameter(STREAM_CAPABILITY_QUERY_PARAM, token);
-        String safeMimeType = sanitizeResponseMimeType(mimeType);
         if (safeMimeType != null) proxy.appendQueryParameter(PROXY_MIME_QUERY_PARAM, safeMimeType);
         return proxy.build().toString();
     }
@@ -335,7 +376,8 @@ final class QdnRenderProxy {
             null,
             null,
             storedBytes,
-            sanitizeResponseMimeType(mimeType)
+            sanitizeResponseMimeType(mimeType),
+            StreamAudience.PRIVATE_BYTES
         ));
         return new Uri.Builder()
             .scheme("https")
@@ -915,7 +957,7 @@ final class QdnRenderProxy {
      * default an audio or video response to HTML.
      */
     static String resolveResponseMimeType(Uri url) {
-        if (!isProxyUrl(url)) {
+        if (!isProxyUrl(url) && !isShellStreamUrl(url)) {
             return null;
         }
 
@@ -977,7 +1019,53 @@ final class QdnRenderProxy {
     }
 
     static boolean isStreamCapabilityUrl(Uri url) {
-        return getAuthorizedStream(url) != null;
+        return getAuthorizedStream(url) != null || getAuthorizedShellStream(url) != null;
+    }
+
+    /**
+     * The shell-origin stream route shape: exactly the fixed path on the
+     * shell's own https origin with a single capability token. Everything
+     * else about the request is decided by the token's stored authorization,
+     * never by the URL.
+     */
+    static boolean isShellStreamUrl(Uri url) {
+        return url != null &&
+            "https".equals(url.getScheme()) &&
+            SHELL_STREAM_HOST.equals(url.getHost()) &&
+            url.getPort() == -1 &&
+            SHELL_STREAM_PATH.equals(url.getPath()) &&
+            url.getUserInfo() == null &&
+            url.getQueryParameters(STREAM_CAPABILITY_QUERY_PARAM).size() == 1;
+    }
+
+    private static AuthorizedStream getAuthorizedShellStream(Uri url) {
+        if (!isShellStreamUrl(url)) return null;
+        List<String> tokens = url.getQueryParameters(STREAM_CAPABILITY_QUERY_PARAM);
+        if (tokens.size() != 1) return null;
+        AuthorizedStream stream = AUTHORIZED_STREAMS.get(tokens.get(0));
+        if (stream == null) return null;
+        // ONLY tokens minted for the shell route serve here. An app's own
+        // APP_PROXY (or PRIVATE_BYTES) token must never be redeemable on the
+        // shell origin — otherwise an app could point its own stream token at
+        // attacker HTML and top-navigate https://localhost to it.
+        if (stream.audience != StreamAudience.SHELL_STREAM) return null;
+        if (stream.expiresAt <= System.currentTimeMillis()) {
+            removeStream(tokens.get(0));
+            return null;
+        }
+        return stream;
+    }
+
+    /**
+     * The exact upstream render URL the shell-route token was authorized for,
+     * or null when the token is unknown, expired, or names a private-bytes
+     * stream — the shell viewer never mints those, so the route refuses them
+     * rather than growing a second serving path.
+     */
+    static String resolveShellStreamUpstreamUrl(Uri url) {
+        AuthorizedStream stream = getAuthorizedShellStream(url);
+        if (stream == null || stream.privateBytes != null || stream.upstreamUrl == null) return null;
+        return stream.upstreamUrl;
     }
 
     private static AuthorizedStream getAuthorizedStream(Uri url) {
@@ -990,6 +1078,10 @@ final class QdnRenderProxy {
             removeStream(tokens.get(0));
             return null;
         }
+        // A shell-route token is not redeemable on the app proxy origin (and
+        // vice versa via getAuthorizedShellStream): the audience is fixed at
+        // mint and must match the route.
+        if (stream.audience == StreamAudience.SHELL_STREAM) return null;
         if (
             !stream.proxyHost.equalsIgnoreCase(url.getHost()) ||
             !stream.proxyPath.equals(url.getEncodedPath()) ||

@@ -49,6 +49,13 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
             return serveProxiedQdnRequest(request);
         }
 
+        // The shell-origin stream route is checked before Capacitor for the
+        // same reason: Capacitor's localhost handler would answer the fixed
+        // path with a 404 asset lookup instead of the authorized stream.
+        if (request != null && QdnRenderProxy.isShellStreamUrl(request.getUrl())) {
+            return serveShellStreamRequest(request);
+        }
+
         WebResourceResponse capacitorResponse = super.shouldInterceptRequest(view, request);
 
         if (capacitorResponse != null) {
@@ -61,6 +68,48 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
 
         try {
             return fetchAndInjectQdnBridge(request);
+        } catch (IOException ignored) {
+            return null;
+        }
+    }
+
+    /**
+     * Serves the shell document's own stream route
+     * (https://localhost/qdn-home-stream?qdnHomeStream=…): the resource
+     * viewer's media element needs a SAME-ORIGIN URL, because the shell CSP is
+     * same-origin-only and WebView refuses cross-origin media against
+     * interceptor-only virtual origins (phone-pass finding H-P2). The
+     * unguessable, expiring stream token is the whole authority: it resolves
+     * to the exact upstream render URL it was minted for, with the same
+     * redirect refusal and byte caps as the proxy-origin stream route, and the
+     * bridge token is never carried — the shell is not an app document.
+     */
+    private WebResourceResponse serveShellStreamRequest(WebResourceRequest request) {
+        String method = request.getMethod();
+
+        if (!"GET".equalsIgnoreCase(method) && !"HEAD".equalsIgnoreCase(method)) {
+            return forbiddenResponse();
+        }
+
+        // Media/img subresource loads are never main-frame. Refusing a
+        // main-frame request removes the top-level document-navigation vector
+        // outright: even a valid shell-route token cannot be turned into a page
+        // that runs scripts as https://localhost by navigating the top frame.
+        if (request.isForMainFrame()) {
+            return forbiddenResponse();
+        }
+
+        String upstreamUrl = QdnRenderProxy.resolveShellStreamUpstreamUrl(request.getUrl());
+
+        if (upstreamUrl == null) {
+            return forbiddenResponse();
+        }
+
+        try {
+            // streamCapability=true: this route is always a stream, resolved
+            // once above. shellStream=true: refuse scriptable types + add
+            // document-safety headers.
+            return fetchUpstream(request, upstreamUrl, null, null, true, true);
         } catch (IOException ignored) {
             return null;
         }
@@ -131,7 +180,12 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
                 bridgeToken,
                 route == QdnRenderProxy.RouteKind.TRANSACTION_SIGNATURE
                     ? TRANSACTION_RESPONSE_MAX_BYTES
-                    : null
+                    : null,
+                // Resolved once at the top of this method — see fetchUpstream's
+                // streamCapability param for why re-deriving would reopen an
+                // expiry race.
+                streamCapability,
+                false
             );
         } catch (IOException ignored) {
             return null;
@@ -413,7 +467,9 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
             request,
             request.getUrl().toString(),
             request.getUrl().getQueryParameter(QDN_BRIDGE_QUERY_PARAM),
-            null
+            null,
+            false,
+            false
         );
     }
 
@@ -421,14 +477,24 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
         WebResourceRequest request,
         String upstreamUrl,
         String bridgeToken,
-        Integer maxBufferedBytes
+        Integer maxBufferedBytes,
+        // The stream-capability policy (redirect refusal + byte caps) is
+        // decided ONCE by the caller from the SAME resolution that produced
+        // upstreamUrl, then passed in — re-deriving it here from the request
+        // URL re-checks the token and could flip to false if it expired in the
+        // window, disabling redirect refusal and the caps for a fetch of an
+        // already-authorized upstream (Sol review finding 2).
+        boolean streamCapability,
+        // The shell-origin viewer route adds document-safety headers and
+        // refuses scriptable content types, so a token that somehow reaches a
+        // top-level navigation cannot run scripts as https://localhost.
+        boolean shellStream
     )
         throws IOException {
         HttpURLConnection connection = (HttpURLConnection) new URL(upstreamUrl).openConnection();
 
         connection.setConnectTimeout(REQUEST_TIMEOUT_MS);
         connection.setReadTimeout(REQUEST_TIMEOUT_MS);
-        boolean streamCapability = QdnRenderProxy.isStreamCapabilityUrl(request.getUrl());
         connection.setInstanceFollowRedirects(!streamCapability);
         connection.setRequestMethod("HEAD".equalsIgnoreCase(request.getMethod()) ? "HEAD" : "GET");
 
@@ -460,6 +526,17 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
 
         if (inferredContentType) {
             contentType = QdnRenderProxy.resolveResponseMimeType(request.getUrl());
+        }
+
+        // Shell-route hardening: defence in depth behind the audience gate. The
+        // viewer only ever streams media, so require a POSITIVE media type
+        // (image/audio/video, never SVG). An allowlist — not a scriptable-type
+        // denylist — closes the missing-Content-Type case (which would
+        // otherwise be labelled text/html downstream) and every scriptable
+        // variant at once.
+        if (shellStream && !isAllowedShellMediaType(contentType)) {
+            connection.disconnect();
+            return forbiddenResponse();
         }
 
         Map<String, String> responseHeaders = withoutContentTypeHeader(getResponseHeaders(connection));
@@ -552,6 +629,11 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
                 responseHeaders,
                 new ByteArrayInputStream(responseBytes)
             );
+        }
+
+        if (shellStream) {
+            responseHeaders.put("Content-Security-Policy", "default-src 'none'; sandbox; frame-ancestors 'none'");
+            responseHeaders.put("X-Content-Type-Options", "nosniff");
         }
 
         return new WebResourceResponse(
@@ -946,6 +1028,28 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
 
     private boolean isHtmlContentType(String contentType) {
         return contentType != null && contentType.toLowerCase(Locale.ROOT).contains("text/html");
+    }
+
+    // The ONLY content types the shell viewer route serves: real media. An
+    // allowlist (rather than a scriptable-type denylist) means an absent or
+    // unrecognized Content-Type is refused too — otherwise getMimeType() would
+    // label a type-less response text/html and hand back a document-shaped
+    // response on the shell origin. image/svg+xml is deliberately excluded: SVG
+    // is scriptable.
+    private static boolean isAllowedShellMediaType(String contentType) {
+        if (contentType == null) return false;
+        String bare = contentType.split(";", 2)[0].trim().toLowerCase(Locale.ROOT);
+        // Any +xml subtype (e.g. audio/foo+xml, video/foo+xml) is an XML — and
+        // therefore scriptable — MIME type under the WHATWG MIME Sniffing
+        // standard, so it is rejected before the broad audio//video/ accept.
+        if (bare.endsWith("+xml")) return false;
+        if (bare.startsWith("audio/") || bare.startsWith("video/")) return true;
+        return bare.equals("image/avif") ||
+            bare.equals("image/bmp") ||
+            bare.equals("image/gif") ||
+            bare.equals("image/jpeg") ||
+            bare.equals("image/png") ||
+            bare.equals("image/webp");
     }
 
     private static String getMimeType(String contentType) {
