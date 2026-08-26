@@ -203,11 +203,17 @@ related bug was fixed at the same time: on desktop, when two Home windows
 changed the notification setting at once, one of them used to give up
 immediately instead of noticing, re-reading and retrying.
 
-On Android, the settings announcement is now also tied to the specific page Home
-issued the app bridge to, not just to the address it came from. Apps published
-on one node share an address, so without that tie a page that was never given
-the bridge could still have been handed your theme, language, zoom and
-notification state.
+On Android, the live settings announcement no longer carries your zoom level or
+your notification on/off state. Apps published on one node all share a single
+web address there, so a page an app sends itself to — one Home never handed its
+bridge to — can still overhear a message Home posts into the app frame. Every
+other setting in the announcement (theme, accent, text size, language, interface
+style) is already part of the address the page was opened with, so overhearing
+it reveals nothing new; zoom and the notification toggle are the only two that
+are not, so those two are simply left out of the Android announcement. An app
+that needs them asks Home for them directly, which Home answers only to the real
+app page. On desktop, where each app runs in its own isolated view with no shared
+address, the announcement is unchanged and still includes everything.
 
 ### 2026-08-26 - feat(home-v2): apps can manage notification permissions again
 

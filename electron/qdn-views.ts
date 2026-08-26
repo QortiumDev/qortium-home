@@ -1837,6 +1837,13 @@ export function registerQdnViewIpcHandlers() {
     queueQdnViewStateDelivery(entry);
   });
 
+  // Desktop delivery. The full detail — appNotifications and appZoom included —
+  // is safe to inject here: each app view is an origin-isolated WebContentsView
+  // and this injects the CustomEvent into that specific view, so there is no
+  // shared-origin frame a hard-navigated document could read it from. Android
+  // is the opposite (one render-proxy origin per node) and there the producer
+  // deliberately withholds those two fields; do NOT "unify" the two shapes by
+  // copying either behaviour to the other. See src/v2/shell/AppTabStage.tsx.
   ipcMain.handle('qdn-views:broadcastHomeSettingsChanged', (event, rawRequest: unknown) => {
     const window = getSenderWindow(event);
     const request = sanitizeHomeSettingsBroadcastRequest(rawRequest);

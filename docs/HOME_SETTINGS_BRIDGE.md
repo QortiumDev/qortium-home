@@ -105,12 +105,20 @@ For the other six keys the two lists are identical, so the rule is uniform: **wr
 
 ### Live changes in Home 2
 
-`qortiumHomeSettingsChanged` fires on both platforms, with the same `detail`, whether the change came from an app or from Home's own Appearance panel. Keep using the single `window.addEventListener('qortiumHomeSettingsChanged', ...)` listener — the transport differs but the event does not. (On Android, Home posts the change to the app frame and the native bridge re-dispatches it as that same event; a `message` listener for `qortium:home-settings-changed` also works there, as it always has.)
+`qortiumHomeSettingsChanged` fires whether the change came from an app or from Home's own Appearance panel. Keep using the single `window.addEventListener('qortiumHomeSettingsChanged', ...)` listener — the transport differs by platform but the event name does not. (On Android, Home posts the change to the app frame and the native bridge re-dispatches it as that same event; a `message` listener for `qortium:home-settings-changed` also works there, as it always has.)
 
 Two notes:
 
-- **Widgets do not receive the event.** They still re-theme — the display subset reaches them the same way it always has — but the event's `detail` carries `appNotifications` and `appZoom`, which widgets are refused at the read gate, so it would be inconsistent to broadcast them.
-- On Android an accent, theme, language or text-size change also reloads the app frame, because those are part of its render URL. Interface style, app zoom and `appNotifications` are not, so for those the event is the only signal.
+- **Widgets do not receive the event.** They still re-theme — the display subset reaches them the same way it always has — but the event's `detail` can carry `appNotifications` and `appZoom`, which widgets are refused at the read gate, so it would be inconsistent to broadcast them.
+- On Android an accent, theme, language or text-size change also reloads the app frame, because those are part of its render URL. Interface style is a render-URL param too (`uiStyle`); app zoom and `appNotifications` are not.
+
+#### The `detail` shape differs by platform, on purpose
+
+`theme`, `accent`, `textSize`, `language` and `ui` (as `uiStyle`) are already query parameters of every app's render URL — so a document that receives the event was handed those exact values in its own URL before it ran a line of script.
+
+`appZoom` and `appNotifications` are the **only** two settings that are not in the render URL, and they are the only genuinely new thing an event could disclose. On **Android**, every app served by one node shares a single origin, and a page the app hard-navigates to — one Home never issued its bridge to — can still read a `postMessage` the shell sends to the frame. So on Android the event's `detail` deliberately **omits `appZoom` and `appNotifications`**; read those two with `GET_HOME_SETTINGS`, which Home confines to the authorized app document. On **desktop**, each app view is origin-isolated and the event is injected straight into it, so there is no such exposure and the `detail` keeps the full set, including `appZoom` and `appNotifications`, as in Home 1.x.
+
+Practically: if your app needs to react to a notification-toggle or zoom change and must work on Android, re-read `GET_HOME_SETTINGS` (on the event, on visibility change, or when you need the value) rather than reading `event.detail.appNotifications` / `event.detail.appZoom`, which are present only on desktop.
 
 ### Where the work happens
 

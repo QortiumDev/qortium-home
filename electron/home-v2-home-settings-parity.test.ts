@@ -356,12 +356,27 @@ assert.ok(
 // Bound to full-document navigation only. Hooking did-navigate-in-page too
 // would cancel prompts during an SPA's own client-side routing, which changes
 // no app-resource identity and is not a reason to drop a prompt.
+//
+// Each handler is sliced by its ACTUAL `.on('...', (` registration and checked
+// in isolation. A prose match would be wrong here: the did-navigate handler's
+// own comment mentions 'did-navigate-in-page', and its body calls
+// notifyQdnViewNavigated — so any regex that spans from the WORD to the call
+// matches the comment, not a real in-page handler. Registration form is
+// comment-proof because a comment never contains `.on('did-navigate-in-page', (`.
+function handlerBody(source: string, event: string) {
+  const marker = `.on('${event}', (`;
+  const start = source.indexOf(marker);
+  assert.ok(start >= 0, `expected a ${event} handler registration`);
+  const end = source.indexOf('});', start);
+  assert.ok(end > start, `expected the ${event} handler to close`);
+  return source.slice(start, end);
+}
 assert.ok(
-  /'did-navigate'[\s\S]{0,700}?notifyQdnViewNavigated\(entry\)/.test(qdnViewsSource),
+  handlerBody(qdnViewsSource, 'did-navigate').includes('notifyQdnViewNavigated(entry)'),
   'view navigation must notify on a committed main-frame navigation',
 );
 assert.ok(
-  !/'did-navigate-in-page'[\s\S]{0,300}?notifyQdnViewNavigated/.test(qdnViewsSource),
+  !handlerBody(qdnViewsSource, 'did-navigate-in-page').includes('notifyQdnViewNavigated'),
   'in-page navigation must NOT cancel prompts: it is the same document',
 );
 
@@ -422,17 +437,36 @@ assert.ok(
   !/qortium:home-settings-changed[\s\S]{0,600}?postMessage\([\s\S]*?,\s*'\*'\)/.test(appTabStage),
   'the Android settings event must never be posted to a wildcard origin',
 );
-// appNotifications must be a real boolean or a hard-validating consumer drops
-// the whole event, so nothing is posted while the policy is unread.
-assert.ok(
-  /typeof props\.appNotifications !== 'boolean'/.test(appTabStage),
-  'Android must not post a settings event before the notification policy is read',
-);
-// The detail must carry the 1.x duplicate fields, which the desktop validator
-// requires to be present and equal.
-for (const field of ['lang:', 'language:', 'uiStyle:', 'appZoom:', 'appNotifications:']) {
-  assert.ok(appTabStage.includes(field), `the Android settings detail must carry ${field}`);
+// CONFINEMENT (the actual FIX B): the Android detail carries ONLY the five
+// prefs already present in this document's render URL, and NEVER appZoom or
+// appNotifications. A postMessage delivers its whole payload to whatever
+// document holds the shared-origin frame BEFORE the injected token-checking
+// listener runs, so withholding the value — not checking a token on receipt —
+// is what confines it. Checked against the sliced detail object, not the whole
+// file, because the surrounding comment names both fields.
+const androidDetail = (() => {
+  const start = appTabStage.indexOf('const detail = {');
+  assert.ok(start >= 0, 'the Android producer must build a settings detail');
+  return appTabStage.slice(start, appTabStage.indexOf('}', start));
+})();
+for (const field of ['accent:', 'lang:', 'language:', 'textSize:', 'theme:', 'ui:', 'uiStyle:']) {
+  assert.ok(androidDetail.includes(field), `the Android settings detail must carry ${field}`);
 }
+assert.ok(
+  !androidDetail.includes('appNotifications') && !androidDetail.includes('appZoom'),
+  'the Android settings detail must NOT carry appNotifications or appZoom: they are the only non-URL fields',
+);
+// The producer-side hygiene gate the review asked for: skip the push when the
+// app has itself reported drifting to another resource. Sliced from the
+// home-settings post so it is this effect's gate, not the relay handler's.
+const androidPost = appTabStage.slice(
+  appTabStage.indexOf('const detail = {'),
+  appTabStage.indexOf('}, new URL(source).origin)'),
+);
+assert.ok(
+  androidPost.includes('!isSameRenderResourcePath(liveResourcePath'),
+  'the Android producer must skip the push when the app has drifted to another resource',
+);
 
 // The event must be bound to the bridge TOKEN, not only to the origin.
 //
@@ -480,10 +514,31 @@ assert.ok(
   'the Home 2 producer must send the bridge token',
 );
 const legacyViewer = readRepoSource('../src/QdnViewer.tsx', './src/QdnViewer.tsx');
+const legacyProducer = producerBody(
+  legacyViewer,
+  'function postQdnHomeSettingsChanged',
+  'function postQdnManagerRevisionChanged',
+);
 assert.ok(
-  producerBody(legacyViewer, 'function postQdnHomeSettingsChanged', 'function postQdnManagerRevisionChanged')
-    .includes('bridgeToken'),
+  legacyProducer.includes('bridgeToken'),
   'the Home 1.x producer must send the bridge token, or the new check drops its events',
+);
+// The 1.x producer has the same shared-origin exposure on native, so it applies
+// the same confinement: the native (bridgeToken-truthy) branch omits appZoom and
+// appNotifications, while the desktop (origin-isolated) branch keeps the full
+// 1.x shape. Pin the native branch line carries neither field.
+const legacyNativeBranch = legacyProducer
+  .split('\n')
+  .find((line) => line.includes('? { ...displayPrefs'));
+assert.ok(legacyNativeBranch, 'the Home 1.x producer must branch its detail on native vs desktop');
+assert.ok(
+  !legacyNativeBranch.includes('appNotifications') && !legacyNativeBranch.includes('appZoom'),
+  'the Home 1.x native branch must omit appNotifications and appZoom',
+);
+// ...and the desktop branch must still carry them (no needless 1.x break).
+assert.ok(
+  /: \{[\s\S]*?appNotifications,[\s\S]*?appZoom,/.test(legacyProducer),
+  'the Home 1.x desktop branch must keep the full detail shape',
 );
 
 // ---------------------------------------------------------------------------

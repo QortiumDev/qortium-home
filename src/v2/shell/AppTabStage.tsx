@@ -361,32 +361,42 @@ function AndroidAppStage(props: AppTabStageProps) {
   // Desktop delivers this by injecting a CustomEvent into the app view
   // (sendQdnHomeSettingsChangedEvent in electron/qdn-views.ts). Android has no
   // such injection point, but the native bridge shim already listens for a
-  // parent postMessage of this exact type and re-dispatches it as the SAME
+  // parent postMessage of this type and re-dispatches it as the SAME
   // CustomEvent (QdnBridgeWebViewClient.java, getQdnBridgeTag) — so an app uses
   // one API on both platforms and only the transport differs.
   //
-  // Why it matters: on Android an accent/theme/language/textSize change already
-  // reloads the frame, because each is a query parameter of the render URL.
-  // Interface style, app zoom and appNotifications are NOT, so before this
-  // those three changes produced no signal to an open Android app at all.
+  // CONFINEMENT — the reason this detail is a strict subset of the desktop one.
   //
-  // The detail is byte-identical to the desktop one, lang/uiStyle duplicates
-  // included: that is the Home 1.x event shape apps were written against, and
-  // the desktop validator requires both to be present and equal.
-  // `appNotifications` must be a real boolean — a consumer that hard-validates
-  // the snapshot drops the entire event without it — which is why nothing is
-  // posted until the notification policy has actually been read.
+  // On Android EVERY app on a node shares one render-proxy origin (the proxy is
+  // keyed by node origin so apps keep their own storage across visits), and a
+  // postMessage delivers its WHOLE payload to whatever document currently
+  // occupies the frame before any injected listener can filter it. So if the
+  // app hard-navigates to another servable same-origin document that was never
+  // issued the bridge, that document can install a plain `message` listener and
+  // read `event.data.detail` directly — the native token check cannot run
+  // first, and so cannot confine the value, only its ABSENCE can.
+  //
+  // The detail therefore carries only the five prefs that are ALREADY query
+  // parameters of this document's own render URL (resolveRender sets accent,
+  // lang, textSize, theme and uiStyle). Every same-origin document was handed
+  // those exact values in its URL, so broadcasting them discloses nothing new.
+  // appZoom and appNotifications are the ONLY two settings NOT in the render URL
+  // and are deliberately absent: they are the only genuinely new disclosure a
+  // broadcast could make. An app reads them through GET_HOME_SETTINGS, which the
+  // native exact-URL gate confines to the authorized document. See
+  // docs/HOME_SETTINGS_BRIDGE.md, and the matching consumer note in
+  // QdnBridgeWebViewClient.java.
+  //
+  // The lang/uiStyle duplicates of language/ui are the Home 1.x event shape.
   useEffect(() => {
     const frameWindow = frameRef.current?.contentWindow
     const appearance = props.snapshot.appearance
-    if (!resolved || !source || !frameWindow || typeof props.appNotifications !== 'boolean') {
+    if (!resolved || !source || !frameWindow) {
       deliveredHomeSettingsRef.current = null
       return
     }
     const detail = {
       accent: appearance.accent,
-      appNotifications: props.appNotifications,
-      appZoom: appearance.appZoom,
       lang: appearance.resolvedLanguage,
       language: appearance.resolvedLanguage,
       textSize: appearance.textSize,
@@ -401,13 +411,31 @@ function AndroidAppStage(props: AppTabStageProps) {
     // arrive in its render URL, so announcing them again as a "change" would
     // report one that never happened. Same rule as the bridge-state effect.
     if (previous === null || previous === signature) return
+    // Producer-side hygiene gate (NOT the confinement above). Skip the push
+    // when the app has itself reported navigating to a DIFFERENT app resource,
+    // so Home stops pushing to a tab that has honestly moved on — the same
+    // self-reported signal, and the same isSameRenderResourcePath tolerance for
+    // in-app route changes, that the request-relay handler below uses. It
+    // cannot on its own catch a SILENT hard navigation to a non-bridged
+    // document (that document sends no navigation message, so
+    // liveResourcePathRef goes stale), which is exactly why confinement does
+    // not rest on it: the detail above is limited to already-URL-exposed fields
+    // instead. A robust hard-navigation signal would be the iframe's own load
+    // events, whose timing on Android WebView cannot be verified without a
+    // device, so it is deliberately not relied on here.
+    const liveResourcePath = liveResourcePathRef.current
+    if (liveResourcePath && !isSameRenderResourcePath(liveResourcePath, {
+      service: resolved.identity.service,
+      name: resolved.identity.name,
+      identifier: resolveLaunchIdentifier(resolved.identity.identifier, resolved.url),
+    })) return
     frameWindow.postMessage({
       type: 'qortium:home-settings-changed',
       bridgeToken: token,
       detail,
       // Pinned to the proxy origin the frame was loaded from, never '*'.
     }, new URL(source).origin)
-  }, [props.appNotifications, props.snapshot.appearance, resolved, source, token])
+  }, [props.snapshot.appearance, resolved, source, token])
 
   useEffect(() => {
     if (!resolved) return
@@ -691,17 +719,6 @@ export interface AppTabStageProps {
    * later changes are pushed with homeV2Apps.updateManagerRevisions.
    */
   readonly managerRevisions?: QdnManagerRevisions | null
-  /**
-   * Whether app notifications are globally enabled, or null while the
-   * notification policy has not been read yet.
-   *
-   * A plain boolean rather than the policy state object on purpose: this is the
-   * only field of it the app-facing `qortium:home-settings-changed` detail
-   * carries, and a primitive keeps the shell free of a dependency on the live
-   * host's policy client. Android does not post the event while this is null —
-   * a consumer that hard-validates the snapshot would drop the whole event.
-   */
-  readonly appNotifications?: boolean | null
   readonly translationVersion?: number
   readonly nodeClient?: HomeV2NodeClient | null
   readonly selectedAccountId?: string | null

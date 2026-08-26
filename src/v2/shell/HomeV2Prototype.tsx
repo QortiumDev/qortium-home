@@ -1139,17 +1139,6 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
                 nodeClient={props.nodeClient}
                 selectedAccountId={props.selectedAccountId}
                 managerRevisions={props.managerRevisions}
-                // Derived here rather than threaded from the live host: the
-                // shell already holds the policy for the Settings toggle, and
-                // the app-facing settings event needs only this one boolean.
-                // null while unread, which keeps Android from posting a
-                // fail-closed placeholder as if it were the user's setting.
-                appNotifications={
-                  props.notificationPolicy
-                    ? props.notificationPolicy.status === 'available' &&
-                      props.notificationPolicy.enabled
-                    : null
-                }
                 reloadVersion={props.appReloadVersion}
                 suspended={appOverlayActive || chromeOverlayOpen}
                 onNavigationChanged={props.onAppNavigationChanged}
