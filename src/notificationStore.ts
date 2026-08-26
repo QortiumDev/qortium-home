@@ -34,8 +34,15 @@ function ensureDesktopStoreListener() {
   });
 }
 
-export async function inspectLocalNotificationStore(): Promise<LocalNotificationStoreInspection> {
-  if (cachedLocalStore) return { status: 'available', store: cachedLocalStore };
+/**
+ * Reads and validates the BACKING store itself — Capacitor Preferences on a
+ * native build, localStorage in a browser — and never consults
+ * `cachedLocalStore`.
+ *
+ * This is the only function that decides whether the persisted record is
+ * healthy. Everything that must not be fooled by a warm cache goes through it.
+ */
+async function readBackingNotificationStore(): Promise<LocalNotificationStoreInspection> {
   let raw: string | null;
   try {
     raw = Capacitor.isNativePlatform()
@@ -44,21 +51,38 @@ export async function inspectLocalNotificationStore(): Promise<LocalNotification
   } catch {
     return { status: 'unavailable', store: null };
   }
-  if (!raw) {
-    cachedLocalStore = createEmptyQdnNotificationStore();
-    return { status: 'available', store: cachedLocalStore };
-  }
+  if (!raw) return { status: 'available', store: createEmptyQdnNotificationStore() };
   try {
     if (new TextEncoder().encode(raw).byteLength > NOTIFICATION_STORE_MAX_BYTES) {
       return { status: 'corrupt', store: null };
     }
     const parsed = parseStrictQdnNotificationStore(JSON.parse(raw));
     if (!parsed) return { status: 'corrupt', store: null };
-    cachedLocalStore = parsed;
-    return { status: 'available', store: cachedLocalStore };
+    return { status: 'available', store: parsed };
   } catch {
     return { status: 'corrupt', store: null };
   }
+}
+
+/**
+ * The CHEAP inspection: answers from `cachedLocalStore` when it is warm.
+ *
+ * Deliberately not authoritative about the health of the backing record. The
+ * cache exists for the hot notification-delivery paths — the rule watcher polls
+ * it on a timer, and every SHOW_NOTIFICATION checks a grant and a mute flag
+ * through it — where an async Preferences read per call is real overhead and a
+ * moment-stale answer is harmless, because those callers treat an absent grant
+ * as revoked either way.
+ *
+ * Anything that reports store HEALTH to a user or an app, or that writes, must
+ * use the management/backing path below instead: a cache hit here cannot tell
+ * "healthy" from "the backing record went bad after we last looked".
+ */
+export async function inspectLocalNotificationStore(): Promise<LocalNotificationStoreInspection> {
+  if (cachedLocalStore) return { status: 'available', store: cachedLocalStore };
+  const inspection = await readBackingNotificationStore();
+  if (inspection.status === 'available') cachedLocalStore = inspection.store;
+  return inspection;
 }
 
 async function readLocalStore() {
@@ -68,8 +92,35 @@ async function readLocalStore() {
     : createEmptyQdnNotificationStore();
 }
 
-async function requireAvailableLocalStore() {
-  const inspection = await inspectLocalNotificationStore();
+/**
+ * The Android twin of electron/notification-store.ts's inspectNotificationStore.
+ * Exported so the app-facing manager bridge runs the SAME fail-closed gate on
+ * both platforms (electron/home-v2-notification-manager-contract.ts) instead of
+ * each host inventing its own corrupt/unavailable handling.
+ *
+ * STRICTLY re-reads the backing store, bypassing `cachedLocalStore`. Desktop's
+ * inspectNotificationStore() opens and parses the file on every call, so an
+ * Android manager that answered from a warm cache would not be the same gate at
+ * all: once one healthy read had populated the cache, a backing record that
+ * later went corrupt or unreadable would still be reported as healthy, a GET
+ * would serve the cached snapshot as current, and a mutation would compare its
+ * expectedRevision against the CACHED revision and then write over the damaged
+ * bytes. Reported by review against exactly that sequence.
+ *
+ * A strict read also re-synchronizes the cheap cache with what it found, so a
+ * backing record that went bad is not left being served to the hot read paths
+ * either. They fall back to an empty store, which is their existing safe
+ * behavior for an unreadable record.
+ */
+export async function inspectNotificationStoreForManagement(): Promise<LocalNotificationStoreInspection> {
+  const inspection = await readBackingNotificationStore();
+  cachedLocalStore = inspection.status === 'available' ? inspection.store : null;
+  return inspection;
+}
+
+/** Fail-closed strict read. Never answers from the cache. */
+async function requireBackingNotificationStore() {
+  const inspection = await inspectNotificationStoreForManagement();
   if (inspection.status !== 'available') {
     throw Object.assign(new Error('Notification settings are unavailable.'), {
       code: inspection.status === 'corrupt'
@@ -81,17 +132,7 @@ async function requireAvailableLocalStore() {
 }
 
 export async function readNotificationStoreForManagement() {
-  return requireAvailableLocalStore();
-}
-
-/**
- * The Android twin of electron/notification-store.ts's inspectNotificationStore.
- * Exported so the app-facing manager bridge runs the SAME fail-closed gate on
- * both platforms (electron/home-v2-notification-manager-contract.ts) instead of
- * each host inventing its own corrupt/unavailable handling.
- */
-export async function inspectNotificationStoreForManagement() {
-  return inspectLocalNotificationStore();
+  return requireBackingNotificationStore();
 }
 
 async function writeLocalStore(store: QdnNotificationStore) {
@@ -120,7 +161,14 @@ export function updateNotificationStore(
   expectedRevision?: number,
 ) {
   const operation = localWriteChain.then(async () => {
-    const currentStore = sanitizeQdnNotificationStore(await requireAvailableLocalStore());
+    // Re-read, validate, compare the expected revision and write, all INSIDE
+    // the serialized chain and all against the BACKING record rather than the
+    // cache. Reading through the cache made this unsound twice over: a backing
+    // record that had gone corrupt still passed the health check, and the
+    // revision the CAS compared against was the cached one, so a mutation
+    // computed from a stale snapshot would overwrite the damaged bytes with a
+    // revision the persisted record never had.
+    const currentStore = sanitizeQdnNotificationStore(await requireBackingNotificationStore());
     if (expectedRevision !== undefined && currentStore.revision !== expectedRevision) {
       throw Object.assign(new Error('Notification settings changed; refresh and try again.'), {
         code: 'HOME_DATA_STALE',
