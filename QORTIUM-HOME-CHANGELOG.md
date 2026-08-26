@@ -213,9 +213,11 @@ it reveals nothing new; zoom and the notification toggle are the only two that
 are not, so those two are simply left out of the Android announcement. An app
 that needs them asks Home for them directly. And when it does, Home now checks —
 at the moment it has the answer ready — that the page asking is still the app it
-was, and sends the answer only to that app's own address, so a page the app
-jumped to in the meantime cannot pick up your zoom or notification setting from
-the reply. On desktop, where each app runs in its own isolated view with no
+was, and sends the answer only to that app's own address. This closes the case
+where an app reports that it has moved on; a page that silently replaces the
+app's own without telling Home shares the same address and is a known limitation
+of the whole request-and-reply channel (it affects every read equally, not just
+settings), recorded in the compatibility notes for a broader fix later. On desktop, where each app runs in its own isolated view with no
 shared address, the announcement is unchanged and still includes everything.
 
 ### 2026-08-26 - feat(home-v2): apps can manage notification permissions again

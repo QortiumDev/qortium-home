@@ -671,7 +671,10 @@ function AndroidAppStage(props: AppTabStageProps) {
           if (!launchIdentity || !live || !isSameRenderResourcePath(live, launchIdentity)) {
             ;(event.source as Window | null)?.postMessage({
               type: 'qortium:qdn-response', bridgeToken: token, requestId: data.requestId,
-              error: { message: 'The app view navigated away before its Home settings could be returned.' },
+              error: {
+                code: 'STALE_CONTEXT',
+                message: 'The app view navigated away before its Home settings could be returned.',
+              },
             }, responseOrigin)
             return
           }
@@ -694,10 +697,15 @@ function AndroidAppStage(props: AppTabStageProps) {
           network,
           routeRevision: route.revision,
         })
+        // The two Home-settings value actions post their rejection to the
+        // app's own origin too, so the "these replies target the specific
+        // origin" contract holds for every home-settings response, not only
+        // the fulfilled ones. A rejection carries no settings values, so this
+        // is contract accuracy rather than a disclosure fix.
         ;(event.source as Window | null)?.postMessage({
           type: 'qortium:qdn-response', bridgeToken: token, requestId: data.requestId,
           error: homeV2BridgeErrorPayload(error),
-        }, '*')
+        }, HOME_SETTINGS_VALUE_RESPONSE_ACTIONS.has(requestAction) ? new URL(source).origin : '*')
       })
     }
     window.addEventListener('message', handleMessage)

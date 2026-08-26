@@ -574,8 +574,9 @@ assert.ok(
   'the Home settings reply must revalidate the requesting document at completion',
 );
 assert.ok(
-  /navigated away before its Home settings could be returned/.test(androidResponse),
-  'a drifted Home settings reply must return a coded error, not the values',
+  /code: 'STALE_CONTEXT'[\s\S]*?navigated away before its Home settings could be returned/
+    .test(androidResponse),
+  'a drifted Home settings reply must return a STABLE CODED error, not the values',
 );
 // The reply target is the specific proxy origin for these actions, never '*'.
 assert.ok(
