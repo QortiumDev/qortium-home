@@ -34,6 +34,24 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-28 - feat(home-v2): apps can rate accounts and QDN resources again
+
+Restores the sixth deferred action family: the two rating writes. An app can
+now ask to rate another account (or remove that rating) in one of the four
+rating categories, and to rate a published QDN resource from 1 to 10 (or
+remove that rating). The approval prompt always names what is really being
+rated: for an account it shows the address Home itself computes from the
+exact key being signed — an app cannot dress up one account as another —
+along with the category, the current rating, and the change; for a resource
+it shows the coordinate, the current rating, and the change. Removing a
+rating is its own clearly-worded operation, never a "zero score". Home
+checks up front that the target exists, that the rating would actually
+change something, and that the per-category cooldown allows a change, so
+the prompt is only shown for a rating that can succeed. In older versions
+these actions quietly sent the account's private key to the node to sign;
+now the key never leaves Home, and the exact bytes are verified twice
+before they are signed on the device.
+
 ### 2026-08-27 - feat(home-v2): apps can batch-publish and delete QDN resources again
 
 Restores the fifth deferred action family: the publishing extras. An app can

@@ -1146,7 +1146,7 @@ export function createPortableNodeClient(
       // it correctly takes the generic Android signing refusal below.
       if (protocol === 'qdnRequest' &&
           (isHomeV2PollWriteAction(action) || isHomeV2NameWriteAction(action) || isHomeV2GroupMutationAction(action) ||
-            action === 'DELETE_QDN_RESOURCE')) {
+            action === 'DELETE_QDN_RESOURCE' || action === 'RATE_ACCOUNT' || action === 'RATE_RESOURCE')) {
         throw createHomeV2BridgeError(
           `${action} requires transaction signing, which is only available in Qortium Home desktop.`,
           {
@@ -1164,6 +1164,7 @@ export function createPortableNodeClient(
       // qortalRequest — the signing message here would be wrong for them.
       if (!isHomeV2ListAction(action) && !isHomeV2PollWriteAction(action) && !isHomeV2NameWriteAction(action) &&
           !isHomeV2GroupMutationAction(action) && action !== 'DELETE_QDN_RESOURCE' &&
+          action !== 'RATE_ACCOUNT' && action !== 'RATE_RESOURCE' &&
           isHomeV2AndroidUnsupportedAction(action)) {
         throw createHomeV2BridgeError(
           `${action} requires transaction signing, which is only available in Qortium Home desktop.`,

@@ -365,4 +365,39 @@ assert.throws(() => assertPublicBuyNameTransaction(concat(common(7), sized('alic
   assert.throws(() => assertUnsignedHomeV2GroupMutationTransaction(concat(setGroupBytes, new Uint8Array([0])), gmExpected({ action: 'SET_GROUP', defaultGroupId: 5 })), /trailing/);
 }
 
+// ---- Rating verifiers (types 45/46) against bytes built INDEPENDENTLY with
+// this script's own encoders — never the module's builder, so a shared
+// builder/verifier bug cannot pass both sides. ----
+{
+  const { assertUnsignedHomeV2RatingTransaction } = await import('../dist-electron/home-v2-rating-actions.js');
+  const { default: base58 } = await import('../dist-electron/base58.js').then((m) => ({ default: m }));
+  const targetKeyBytes = sequence(32, 9);
+  const targetKey58 = base58.base58Encode(targetKeyBytes);
+  const rCommon = (type) => concat(int32(type), int64(timestamp), int32(0), publicKey, int32(0));
+  const senderKey58 = base58.base58Encode(publicKey);
+  // RATE_ACCOUNT: 52 prefix + 32 target + category i32 + rating i32 + fee i64 = 100.
+  const negative = new Uint8Array(4);
+  new DataView(negative.buffer).setInt32(0, -2, false);
+  const accountBytes = concat(rCommon(46), targetKeyBytes, int32(2), negative, int64(0));
+  assert.equal(accountBytes.byteLength, 100);
+  const accountPayload = { action: 'RATE_ACCOUNT', category: 'TRAINER', categoryValue: 2, rating: -2, targetPublicKey: targetKey58 };
+  const rExpected = (payload, nonce) => ({ ...(nonce === undefined ? {} : { nonce }), payload, senderPublicKey: senderKey58, timestamp });
+  assert.doesNotThrow(() => assertUnsignedHomeV2RatingTransaction(accountBytes, rExpected(accountPayload)));
+  assert.throws(() => assertUnsignedHomeV2RatingTransaction(accountBytes, rExpected({ ...accountPayload, categoryValue: 1, category: 'PLAYER' })), /category/);
+  assert.throws(() => assertUnsignedHomeV2RatingTransaction(accountBytes, rExpected({ ...accountPayload, rating: 2 })), /rating/);
+  // RATE_RESOURCE with the default (null) identifier: 52 + 4 + 4+5 + 4 + 4 + 8 = 81.
+  const resourceBytes = concat(rCommon(45), int32(800), sized('Alice'), int32(0), int32(9), int64(0));
+  assert.equal(resourceBytes.byteLength, 81);
+  const resourcePayload = { action: 'RATE_RESOURCE', identifier: null, name: 'Alice', rating: 9, service: 'DOCUMENT', serviceId: 800 };
+  assert.doesNotThrow(() => assertUnsignedHomeV2RatingTransaction(resourceBytes, rExpected(resourcePayload)));
+  assert.throws(() => assertUnsignedHomeV2RatingTransaction(resourceBytes, rExpected({ ...resourcePayload, serviceId: 700 })), /service/);
+  assert.throws(() => assertUnsignedHomeV2RatingTransaction(resourceBytes, rExpected({ ...resourcePayload, identifier: 'doc-1' })), /identifier/);
+  // Stamped bytes verify only with the exact nonce; trailing bytes refused.
+  const stamped = new Uint8Array(accountBytes);
+  new DataView(stamped.buffer).setUint32(48, 4242, false);
+  assert.throws(() => assertUnsignedHomeV2RatingTransaction(stamped, rExpected(accountPayload)), /nonce/);
+  assert.doesNotThrow(() => assertUnsignedHomeV2RatingTransaction(stamped, rExpected(accountPayload, 4242)));
+  assert.throws(() => assertUnsignedHomeV2RatingTransaction(concat(accountBytes, new Uint8Array([0])), rExpected(accountPayload)), /trailing/);
+}
+
 console.log('Public transaction validation tests passed.');

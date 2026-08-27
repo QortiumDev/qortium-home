@@ -314,6 +314,18 @@ import {
   normalizeHomeV2PublishMultipleRequest,
   normalizeHomeV2QdnDeleteRequest,
 } from './home-v2-publish-extras-contract.js'
+import {
+  assertUnsignedHomeV2RatingTransaction,
+  buildUnsignedQortiumRatingTransactionBytes,
+  homeV2RatingOperationLabel,
+  isHomeV2RatingAction,
+  normalizeHomeV2RateAccountRequest,
+  normalizeHomeV2RateResourceRequest,
+  selectHomeV2AccountRatingEdge,
+  selectHomeV2CurrentResourceRating,
+  type HomeV2RatingAction,
+  type HomeV2RatingWirePayload,
+} from './home-v2-rating-actions.js'
 import type { HomeV2PublishSourceBinding } from './home-v2-publish-source-tokens.js'
 import {
   appendHomeV2GroupMembershipSignature,
@@ -386,6 +398,7 @@ import {
   getAccountSigningPublicKey,
   isAccountUnlocked,
   signChatTransaction,
+  publicKeyToAddress,
   signDetached,
   signTransactionWithNonce,
   stampTransactionNonce,
@@ -408,6 +421,7 @@ import {
   assertPublicUpdateNameTransaction,
   assertPublicUpdatePollTransaction,
   assertPublicVoteOnPollTransaction,
+  getStaticQdnServiceId,
 } from './public-transaction-validation.js'
 import { parsePublicPollCapabilities } from './public-poll-capabilities.js'
 import { parsePublicNameCapabilities } from './public-name-capabilities.js'
@@ -543,6 +557,8 @@ type AccountReadAction =
   | 'PUBLISH_QDN_RESOURCE'
   | 'PUBLISH_MULTIPLE_QDN_RESOURCES'
   | 'DELETE_QDN_RESOURCE'
+  | 'RATE_ACCOUNT'
+  | 'RATE_RESOURCE'
   | 'GET_PENDING_TRANSACTIONS'
   | 'FORGET_PENDING_TRANSACTION'
   | 'UNLOCK_SELECTED_ACCOUNT'
@@ -1376,6 +1392,17 @@ async function requireAccountReadPermission(
     readonly resourceCoordinate: string
     readonly routeLabel: string
     readonly targetChainLabel: string
+  } | {
+    readonly kind: 'rating'
+    readonly operationLabel: string
+    // The per-action rows, escaped and re-validated in the shell. A
+    // RATE_ACCOUNT's rows lead with the ADDRESS Home derived locally from
+    // the exact target key — never node- or app-supplied text.
+    readonly ratingDetails: readonly { readonly label: string; readonly value: string }[]
+    readonly routeLabel: string
+    // 'account-rating:<key>:<category>' | 'resource-rating:<coordinate>'.
+    readonly target: string
+    readonly targetChainLabel: string
   },
 ) {
   if (!context.accountId) throw new Error('No account is selected for this tab.')
@@ -1421,6 +1448,8 @@ async function requireAccountReadPermission(
           ? writeDetails.target
         : writeDetails?.kind === 'qdn-delete'
           ? `qdn-delete:${writeDetails.resourceCoordinate}`
+        : writeDetails?.kind === 'rating'
+          ? writeDetails.target
         : ''
   const grantKey = homeV2PermissionGrantKey({
     accountId: context.accountId,
@@ -1459,6 +1488,8 @@ async function requireAccountReadPermission(
     // permanent on-chain tombstone. Never a session or durable grant.
     writeDetails?.kind === 'publish-multiple' ||
     writeDetails?.kind === 'qdn-delete' ||
+    // Rating writes sign chain transactions. Never a session/durable grant.
+    writeDetails?.kind === 'rating' ||
     (writeDetails?.kind === 'group' || writeDetails?.kind === 'direct' || writeDetails?.kind === 'private-group') &&
     writeDetails.singleRequestOnly === true
   // A durable per-app chat-send grant ("always allow", revocable in QDN Apps
@@ -1682,6 +1713,15 @@ async function requireAccountReadPermission(
             ? {
                 deleteResourceCoordinate: writeDetails.resourceCoordinate,
                 writeKind: 'qdn-delete',
+                writeOperationLabel: writeDetails.operationLabel,
+                writeRouteLabel: writeDetails.routeLabel,
+                writeSingleRequestOnly: true,
+                writeTargetChainLabel: writeDetails.targetChainLabel,
+              }
+          : writeDetails?.kind === 'rating'
+            ? {
+                ratingDetails: writeDetails.ratingDetails.map((detail) => ({ ...detail })),
+                writeKind: 'rating',
                 writeOperationLabel: writeDetails.operationLabel,
                 writeRouteLabel: writeDetails.routeLabel,
                 writeSingleRequestOnly: true,
@@ -2225,6 +2265,310 @@ async function deleteHomeV2QdnResourceForApp(
     retryable: false,
     timestamp: outcome.timestamp,
     transactionSignature: outcome.transactionSignature,
+  })
+}
+
+function homeV2SignedRatingText(rating: number) {
+  return rating > 0 ? `+${rating}` : `${rating}`
+}
+
+// Builds, verifies, mempows, re-verifies STAMPED bytes, signs, and
+// broadcasts one locally-built rating transaction (types 45/46). The 1.x
+// path sent the account's PRIVATE KEY to the node's /transactions/sign;
+// here the key never leaves the process and the bytes a lying node could
+// have influenced are refused by the independent field verifier.
+async function signAndBroadcastHomeV2Rating(input: {
+  readonly accountId: string
+  readonly action: HomeV2RatingAction
+  readonly isStillValid: () => Promise<boolean>
+  readonly nodeApiUrl: string
+  readonly payload: HomeV2RatingWirePayload
+  readonly routeRevision: string
+  readonly validateTarget: () => Promise<void>
+}) {
+  let difficulty: number
+  try {
+    difficulty = parseMempowFeeAlternativeDifficulty(await readHomeV2ChatJson(
+      input.nodeApiUrl,
+      '/polls/public/capabilities',
+      'MemoryPoW capability lookup',
+    ))
+  } catch (error) {
+    if (groupBuilderUnavailable(error)) {
+      throw createHomeV2BridgeError(
+        'The selected Qortium node does not expose the MemoryPoW capability needed for rating writes.',
+        {
+          action: input.action,
+          code: 'NODE_CAPABILITY_MISSING',
+          network: 'qortium',
+          retryable: false,
+          routeRevision: input.routeRevision,
+        },
+      )
+    }
+    throw error
+  }
+  const timestamp = Date.now()
+  const signingKey = getAccountSecretKey(input.accountId)
+  try {
+    const unsignedBytes = buildUnsignedQortiumRatingTransactionBytes({
+      payload: input.payload,
+      senderPublicKey: signingKey.publicKey58,
+      timestamp,
+    })
+    assertUnsignedHomeV2RatingTransaction(unsignedBytes, {
+      payload: input.payload,
+      senderPublicKey: signingKey.publicKey58,
+      timestamp,
+    })
+    const nonce = await computeHomeV2ChatNonce(unsignedBytes, difficulty, input.isStillValid)
+    if (!(await input.isStillValid())) throw new Error('The signing context changed before the rating could be submitted.')
+    await input.validateTarget()
+    if (!(await input.isStillValid())) throw new Error('The signing context changed before the rating could be submitted.')
+    const stampedBytes = stampTransactionNonce(unsignedBytes, nonce)
+    assertUnsignedHomeV2RatingTransaction(stampedBytes, {
+      nonce,
+      payload: input.payload,
+      senderPublicKey: signingKey.publicKey58,
+      timestamp,
+    })
+    const signedBytes = appendHomeV2GroupAdminSignature(
+      stampedBytes,
+      signDetached(stampedBytes, signingKey.secretKey),
+    )
+    const transactionSignature = getSignatureFromSignedTransactionBytes(signedBytes)
+    try {
+      await postHomeV2ChatText(
+        input.nodeApiUrl,
+        '/transactions/process?apiVersion=2',
+        base58Encode(signedBytes),
+        'text/plain',
+        `${homeV2RatingOperationLabel(input.action, input.payload.rating === 0)} transaction processing failed.`,
+      )
+      return { accepted: true as const, timestamp, transactionSignature }
+    } catch (error) {
+      return {
+        accepted: false as const,
+        error: error instanceof Error ? error.message : 'Rating broadcast outcome is unknown.',
+        errorType: 'BROADCAST_UNKNOWN' as const,
+        outcome: 'unknown' as const,
+        retryable: false as const,
+        timestamp,
+        transactionSignature,
+      }
+    }
+  } finally {
+    signingKey.secretKey.fill(0)
+  }
+}
+
+async function handleHomeV2RatingAction(
+  sender: WebContents,
+  context: QdnViewContext,
+  protocol: HomeV2AppBridgeProtocol,
+  network: HomeV2AppNetwork,
+  routeRevision: string,
+  action: HomeV2RatingAction,
+  requestValue: Record<string, unknown>,
+) {
+  if (protocol !== 'qdnRequest' || network !== 'qortium') {
+    throw createHomeV2BridgeError('Rating writes are available on the Qortium chain only.', {
+      action,
+      code: 'NODE_CAPABILITY_MISSING',
+      network,
+      retryable: false,
+      routeRevision,
+    })
+  }
+  if (!context.accountId) throw new Error('No account is selected for this tab.')
+  if (!isAccountUnlocked(context.accountId)) throw createHomeV2BridgeError('The selected account is locked.', {
+    action,
+    code: 'ACCOUNT_LOCKED',
+    network,
+    retryable: false,
+    routeRevision,
+  })
+  const accountId = context.accountId
+  const node = await getHomeV2ReadableNode('qortium')
+  const nodeRoute = `${node.mode}|${node.nodeApiUrl}`
+  const routeLabel = `${node.mode} \u00b7 ${node.nodeApiUrl}`
+  const profile = await getAccountProfile(accountId)
+  const raterPublicKey58 = getAccountSigningPublicKey(accountId)
+  const isStillValid = async () => {
+    const fresh = getQdnViewContextForWebContents(sender)
+    if (!fresh || !sameViewContext(context, fresh) || !liveResourceMatchesGrant(fresh) || !isAccountUnlocked(accountId)) return false
+    const current = await getHomeV2ReadableNode('qortium').catch(() => null)
+    return !!current && `${current.mode}|${current.nodeApiUrl}` === nodeRoute
+  }
+  if (action === 'RATE_ACCOUNT') {
+    const request = normalizeHomeV2RateAccountRequest(requestValue)
+    // WHO is being rated: the address is derived LOCALLY from the exact
+    // 32-byte key that will be signed — an app label or a lying node can
+    // never substitute a different identity on the prompt.
+    const targetAddress = publicKeyToAddress(base58Decode(request.targetPublicKey))
+    if (targetAddress === profile.address) throw new Error('An account cannot rate itself.')
+    const readEdge = async (label: string) => selectHomeV2AccountRatingEdge(await readHomeV2ChatJson(
+      node.nodeApiUrl,
+      `/account-ratings/cooldown?target=${encodeURIComponent(request.targetPublicKey)}` +
+        `&rater=${encodeURIComponent(raterPublicKey58)}&category=${encodeURIComponent(request.category)}`,
+      `Qortium account-rating ${label}`,
+    ))
+    // One read answers three questions: the target account exists with this
+    // stored key (Core refuses an unknown key), the rater's ACTIVE rating on
+    // this exact edge, and whether the cooldown allows a change now.
+    const edge = await readEdge('lookup')
+    const remove = request.rating === 0
+    if ((remove && edge.activeRating === null) || (!remove && request.rating === edge.activeRating)) {
+      return Object.freeze({
+        accepted: true,
+        action,
+        category: request.category,
+        changed: false,
+        network,
+        rating: request.rating,
+        targetPublicKey: request.targetPublicKey,
+      })
+    }
+    if (!edge.canChangeNow) {
+      throw createHomeV2BridgeError(
+        `This account rating is in its category cooldown for another ${edge.blocksRemaining} blocks.`,
+        { action, code: 'RATING_COOLDOWN', network, retryable: false, routeRevision },
+      )
+    }
+    await requireAccountReadPermission(sender, context, protocol, action, {
+      kind: 'rating',
+      operationLabel: homeV2RatingOperationLabel(action, remove),
+      ratingDetails: [
+        { label: 'Rated account', value: targetAddress },
+        { label: 'Public key', value: request.targetPublicKey },
+        { label: 'Category', value: request.category },
+        ...(edge.activeRating !== null
+          ? [{ label: 'Current', value: homeV2SignedRatingText(edge.activeRating) }]
+          : []),
+        { label: 'Change', value: remove ? 'Remove rating' : homeV2SignedRatingText(request.rating) },
+      ],
+      routeLabel,
+      target: `account-rating:${request.targetPublicKey}:${request.category}`,
+      targetChainLabel: 'Qortium',
+    })
+    if (!(await isStillValid())) throw new Error('The app, account, or node route changed before the rating was staged.')
+    const outcome = await signAndBroadcastHomeV2Rating({
+      accountId,
+      action,
+      isStillValid,
+      nodeApiUrl: node.nodeApiUrl,
+      payload: request,
+      routeRevision,
+      validateTarget: async () => {
+        const fresh = await readEdge('recheck')
+        if (fresh.activeRating !== edge.activeRating || !fresh.canChangeNow) {
+          throw new Error('The account rating state changed after approval.')
+        }
+      },
+    })
+    return Object.freeze({
+      accepted: outcome.accepted,
+      action,
+      category: request.category,
+      network,
+      rating: request.rating,
+      targetPublicKey: request.targetPublicKey,
+      transactionSignature: outcome.transactionSignature,
+      ...(outcome.accepted ? {} : {
+        error: outcome.error,
+        errorType: outcome.errorType,
+        outcome: outcome.outcome,
+        retryable: outcome.retryable,
+        timestamp: outcome.timestamp,
+      }),
+    })
+  }
+  const request = normalizeHomeV2RateResourceRequest(requestValue)
+  const serviceId = getStaticQdnServiceId(request.service)
+  const coordinatePath = `/${encodeURIComponent(request.service)}/${encodeURIComponent(request.name)}` +
+    (request.identifier ? `/${encodeURIComponent(request.identifier)}` : '')
+  const coordinateLabel = `${request.service}/${request.name}/${request.identifier ?? 'default'}`
+  const readCurrentRating = async (label: string) => {
+    try {
+      return selectHomeV2CurrentResourceRating(await readHomeV2ChatJson(
+        node.nodeApiUrl,
+        `/resource-ratings/rating?service=${encodeURIComponent(request.service)}` +
+          `&name=${encodeURIComponent(request.name)}` +
+          (request.identifier ? `&identifier=${encodeURIComponent(request.identifier)}` : '') +
+          `&rater=${encodeURIComponent(profile.address)}`,
+        `Qortium resource-rating ${label}`,
+      ))
+    } catch (error) {
+      if ((error as { status?: unknown })?.status === 404) return null
+      throw error
+    }
+  }
+  // The resource must exist before anything is promptable — the status read
+  // 404s for a coordinate that has never been published (or was deleted).
+  try {
+    await readHomeV2ChatJson(node.nodeApiUrl, `/arbitrary/resource/status${coordinatePath}`, 'Qortium resource lookup')
+  } catch (error) {
+    if ((error as { status?: unknown })?.status === 404) {
+      throw new Error(`There is no published QDN resource at ${coordinateLabel} to rate.`)
+    }
+    throw error
+  }
+  const current = await readCurrentRating('lookup')
+  const remove = request.rating === 0
+  if ((remove && current === null) || (!remove && request.rating === current)) {
+    return Object.freeze({
+      accepted: true,
+      action,
+      changed: false,
+      identifier: request.identifier,
+      name: request.name,
+      network,
+      rating: request.rating,
+      service: request.service,
+    })
+  }
+  await requireAccountReadPermission(sender, context, protocol, action, {
+    kind: 'rating',
+    operationLabel: homeV2RatingOperationLabel(action, remove),
+    ratingDetails: [
+      { label: 'Resource', value: coordinateLabel },
+      ...(current !== null ? [{ label: 'Current', value: `${current}/10` }] : []),
+      { label: 'Change', value: remove ? 'Remove rating' : `${request.rating}/10` },
+    ],
+    routeLabel,
+    target: `resource-rating:${coordinateLabel}`,
+    targetChainLabel: 'Qortium',
+  })
+  if (!(await isStillValid())) throw new Error('The app, account, or node route changed before the rating was staged.')
+  const outcome = await signAndBroadcastHomeV2Rating({
+    accountId,
+    action,
+    isStillValid,
+    nodeApiUrl: node.nodeApiUrl,
+    payload: { ...request, serviceId },
+    routeRevision,
+    validateTarget: async () => {
+      if ((await readCurrentRating('recheck')) !== current) {
+        throw new Error('The resource rating state changed after approval.')
+      }
+    },
+  })
+  return Object.freeze({
+    accepted: outcome.accepted,
+    action,
+    identifier: request.identifier,
+    name: request.name,
+    network,
+    rating: request.rating,
+    service: request.service,
+    transactionSignature: outcome.transactionSignature,
+    ...(outcome.accepted ? {} : {
+      error: outcome.error,
+      errorType: outcome.errorType,
+      outcome: outcome.outcome,
+      retryable: outcome.retryable,
+      timestamp: outcome.timestamp,
+    }),
   })
 }
 
@@ -8199,6 +8543,17 @@ async function handleRequestWithRuntime(
       protocol,
       network,
       hostInfo.route.revision,
+      requestValue,
+    )
+  }
+  if (isHomeV2RatingAction(action)) {
+    return handleHomeV2RatingAction(
+      sender,
+      context,
+      protocol,
+      network,
+      hostInfo.route.revision,
+      action,
       requestValue,
     )
   }

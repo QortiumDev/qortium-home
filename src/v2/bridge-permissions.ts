@@ -80,6 +80,11 @@ export type PermissionCapability =
   // fee-free transaction that marks the resource DELETED for every peer —
   // not a local-copy removal. Never durable: single-request prompt only.
   | 'qdn.delete'
+  // Rating or removing a rating of an account or a QDN resource
+  // (RATE_ACCOUNT, RATE_RESOURCE). Signs one fee-free transaction per
+  // approval. Never durable, never reachable through any read grant:
+  // single-request prompt only.
+  | 'rating.write'
   // Signing one zero-fee, zero-payment chain MESSAGE to an AT (SEND_MESSAGE).
   // Deliberately NOT 'account.read' and not any 'chat.*' capability: durable
   // grants unify on the capability string, so a signing action must never be
@@ -119,6 +124,8 @@ export interface PermissionPrompt {
     | 'PUBLISH_QDN_RESOURCE'
     | 'PUBLISH_MULTIPLE_QDN_RESOURCES'
     | 'DELETE_QDN_RESOURCE'
+    | 'RATE_ACCOUNT'
+    | 'RATE_RESOURCE'
     | 'PUBLISH_CHAT_ATTACHMENT'
     | 'GET_CHAT_ATTACHMENT_STREAM_URL'
     | 'OPEN_CHAT_ATTACHMENT_VIEWER'

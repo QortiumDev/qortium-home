@@ -300,6 +300,9 @@ const ANDROID_UNSUPPORTED_ACTIONS = new Set<string>([
   // implements — unlike single PUBLISH_QDN_RESOURCE, which it mediates.
   'DELETE_QDN_RESOURCE',
   'PUBLISH_MULTIPLE_QDN_RESOURCES',
+  // The rating writes sign transactions too; same reason.
+  'RATE_ACCOUNT',
+  'RATE_RESOURCE',
 ])
 
 export function isHomeV2AndroidUnsupportedAction(action: string) {

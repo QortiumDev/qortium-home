@@ -225,8 +225,9 @@ earlier blanket "everything not listed above is deferred": verified against
 main `8402315`), **100 of the 149 Home 1.x `qdnRequest` actions are
 advertised** — plus the five name writes, five group mutations, and two
 publishing extras (`PUBLISH_MULTIPLE_QDN_RESOURCES`, `DELETE_QDN_RESOURCE`)
-of the restoration wave, taking the intersection to 112 — and the 37 below
-are not: 17 superseded, 20 deferred.
+of the restoration wave, plus the two rating writes (`RATE_ACCOUNT`,
+`RATE_RESOURCE`), taking the intersection to 114 — and the 35 below are
+not: 17 superseded, 18 deferred.
 
 **Superseded (17) — the same operation exists on the `qortalRequest` global.**
 Home 1.x predates the second global, so it reached Qortal through
@@ -261,7 +262,6 @@ desktop, and Android fixtures pass:**
 | Family | Deferred actions | Notes |
 | --- | --- | --- |
 | Payments and asset transfer | `PAYMENT`, `SEND_COIN`, `SEND_QORT`, `TRANSFER_ASSET` | Behind the Phase 5 signing boundary; `PAYMENT`/`SEND_COIN` were 1.x aliases of one coin transfer |
-| Rating writes | `RATE_ACCOUNT`, `RATE_RESOURCE` | The two rating READS are implemented |
 | Account avatar write | `SET_ACCOUNT_AVATAR` | Avatar READS are implemented |
 | Publishing preview | `PREVIEW_QDN_PUBLISH_SOURCE` | `DELETE_QDN_RESOURCE` and `PUBLISH_MULTIPLE_QDN_RESOURCES` are no longer deferred (see below); preview has its own subsection below |
 | Foreign wallets | `GET_USER_WALLET_INFO`, `GET_USER_WALLET_TRANSACTIONS`, `GET_WALLET_BALANCE`, `SET_CURRENT_FOREIGN_SERVER` | Awaits the W3 design — see the wallet-family subsection below; the four zero-key `/crosschain` READS and native-only `GET_USER_WALLET` are implemented |
@@ -319,7 +319,7 @@ file-only today (`properties: ['openFile']`), so even a complete port would
 cover `.zip` and `.html` but not 1.x's directory sources. This belongs in its
 own change with the renderer work included.
 
-### No longer deferred: display settings, minting, lists, polls, names, group mutations, and publishing extras
+### No longer deferred: display settings, minting, lists, polls, names, group mutations, publishing extras, and rating writes
 
 Home's own **display settings** are no longer deferred.
 `GET_HOME_SETTINGS_METADATA`, `GET_HOME_SETTINGS` and `UPDATE_HOME_SETTINGS`
@@ -380,6 +380,14 @@ on `qortalRequest`). See [QDN bridge action notes](BRIDGE_ACTIONS.md).
 `PREVIEW_QDN_PUBLISH_SOURCE` stays deferred. The Hub-catalogue QDN-writes
 row above still covers legacy inline/path publishing, which stays refused in
 favor of source tokens.
+
+The rating writes are no longer deferred. `RATE_ACCOUNT` and `RATE_RESOURCE`
+are implemented on `qdnRequest` only (the rating system is a Qortium Core
+addition), built locally on the group-mutation transformer pattern; see
+[QDN bridge action notes](BRIDGE_ACTIONS.md) for the derived-address
+disclosure rule, the cooldown pre-check, the static service-id rule, and
+the remove-vs-rate captions. The 1.x path sent the account private key to
+the node's signing endpoint; Home 2's does not, by construction.
 
 ## Known limitations of this slice
 
