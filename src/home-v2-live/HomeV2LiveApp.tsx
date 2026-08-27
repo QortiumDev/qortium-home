@@ -204,7 +204,7 @@ import {
   isHomeV2PermissionlessAction,
 } from '../../electron/home-v2-session-grants'
 import { getHomeV2BridgeStateDetails } from '../../electron/home-v2-app-runtime'
-import { canonicalHomeV2AppAction, homeV2NameOperationLabel, homeV2PollOperationLabel, isHomeV2ListWriteAction, isHomeV2NameWriteAction, isHomeV2PollWriteAction } from '../../electron/home-v2-app-actions'
+import { canonicalHomeV2AppAction, homeV2NameOperationLabel, homeV2PollOperationLabel, homeV2PublishExtraOperationLabel, isHomeV2ListWriteAction, isHomeV2NameWriteAction, isHomeV2PollWriteAction, isHomeV2PublishExtraAction } from '../../electron/home-v2-app-actions'
 import { homeV2GroupMutationOperationLabel, isHomeV2GroupMutationAction } from '../../electron/home-v2-group-mutation-actions'
 import {
   homeV2NotificationChainLabel,
@@ -493,6 +493,70 @@ function isSequencedDetailRows(
       continue
     }
     if (!expected.optional) return false
+  }
+  return position === value.length
+}
+
+// Printable-ASCII escaping for prompt rows the Android flow builds locally —
+// the same rule the desktop bridge applies (backslash doubled first, then C0
+// controls and everything above U+007E rendered as \\uXXXX escapes) so a
+// crafted metadata value cannot visually forge other rows or reorder text
+// with bidi controls.
+function androidPromptText(value: string) {
+  return value
+    .replace(/\\/g, '\\\\')
+    .replace(/[\u0000-\u001f\u007f-\uffff]/g, (char) =>
+      `\\u${char.charCodeAt(0).toString(16).padStart(4, '0')}`)
+}
+
+function isPublishPromptText(candidate: unknown): candidate is string {
+  return typeof candidate === 'string' &&
+    candidate.length >= 1 &&
+    candidate.length <= 4_000 &&
+    !/[\u0000-\u001f\u007f]/.test(candidate)
+}
+
+// The multi-publish rows: an Items count, then for every item the numbered
+// Resource/File/Size/SHA-256 rows — with a numbered Fee row per item and one
+// trailing Total fee row on Qortal, where each item pays the chain fee. The
+// shape is validated exactly: a prompt that cannot show every item is refused
+// rather than rendered (1.x showed only "N resources").
+function isPublishMultipleDetailRows(
+  network: 'qortal' | 'qortium',
+  value: unknown,
+): value is readonly { label: string; value: string }[] {
+  if (!Array.isArray(value) || value.length < 1) return false
+  const validRow = (candidate: unknown, label: string): candidate is { label: string; value: string } =>
+    isRecord(candidate) &&
+    Object.keys(candidate).length === 2 &&
+    candidate.label === label &&
+    typeof candidate.value === 'string' &&
+    candidate.value.length >= 1 &&
+    candidate.value.length <= 4_000 &&
+    !/[\u0000-\u001f\u007f]/.test(candidate.value)
+  if (!validRow(value[0], 'Items')) return false
+  const count = Number((value[0] as { value: string }).value)
+  if (!Number.isInteger(count) || count < 1 || count > 10) return false
+  // Metadata rows are optional per item and strictly ordered: a row appears
+  // exactly when that field is being published.
+  const optionalMetadata = ['Title', 'Description', 'Category', 'Tags']
+  let position = 1
+  for (let item = 1; item <= count; item += 1) {
+    for (const label of ['Resource', 'File', 'Size', 'SHA-256']) {
+      if (!validRow(value[position], `${label} ${item}`)) return false
+      position += 1
+    }
+    for (const label of optionalMetadata) {
+      if (validRow(value[position], `${label} ${item}`)) position += 1
+    }
+    if (network === 'qortal') {
+      if (!validRow(value[position], `Fee ${item}`)) return false
+      position += 1
+    }
+  }
+  if (network === 'qortal') {
+    if (!validRow(value[position], 'Total fee')) return false
+    position += 1
   }
   return position === value.length
 }
@@ -3001,6 +3065,7 @@ export function HomeV2LiveApp() {
             !isHomeV2PollWriteAction(value.action) &&
             !isHomeV2NameWriteAction(value.action) &&
             !isHomeV2GroupMutationAction(value.action) &&
+            !isHomeV2PublishExtraAction(value.action) &&
             !isHomeV2GroupAdminAction(value.action))) ||
         // The manager families and the Home-settings update act on Home-profile
         // data, not on an account, so they are prompted with no account selected
@@ -3058,6 +3123,18 @@ export function HomeV2LiveApp() {
             typeof value.publishFileName !== 'string' ||
             typeof value.publishResourceCoordinate !== 'string' ||
             typeof value.publishSize !== 'number' ||
+            // A Qortal PUBLISH_QDN_RESOURCE pays the chain fee, so its
+            // prompt must carry the pinned Fee row; everywhere else the
+            // field must be absent (fee-free mempow, or a non-publish
+            // member of this kind).
+            (value.action === 'PUBLISH_QDN_RESOURCE' && value.targetNetwork === 'qortal'
+              ? !isPublishPromptText(value.publishFee)
+              : value.publishFee !== null && value.publishFee !== undefined) ||
+            // Metadata rows: present only as validated strings, and only on
+            // the one action that signs metadata.
+            [value.publishMetadataTitle, value.publishMetadataDescription, value.publishMetadataCategory, value.publishMetadataTags]
+              .some((field) => !(field === null || field === undefined ||
+                (value.action === 'PUBLISH_QDN_RESOURCE' && isPublishPromptText(field)))) ||
             typeof value.writeOperationLabel !== 'string' ||
             typeof value.writeRouteLabel !== 'string' ||
             typeof value.writeTargetChainLabel !== 'string'))
@@ -3104,6 +3181,34 @@ export function HomeV2LiveApp() {
               ? value.writeOperationLabel !== homeV2GroupMutationOperationLabel('GROUP_APPROVAL', false) &&
                 value.writeOperationLabel !== homeV2GroupMutationOperationLabel('GROUP_APPROVAL', true)
               : value.writeOperationLabel !== homeV2GroupMutationOperationLabel(value.action)) ||
+            typeof value.writeRouteLabel !== 'string' ||
+            value.writeTargetChainLabel !== 'Qortium' ||
+            value.writeSingleRequestOnly !== true))
+        // A publish batch signs up to ten transactions: fully specified
+        // single-request or not at all, caption-pinned, with the exact
+        // per-item row shape (and the fee rows whenever the chain charges
+        // one). Both chains are legitimate — the protocol must match the
+        // network the single-publish primitive serves on it.
+        || (value.action === 'PUBLISH_MULTIPLE_QDN_RESOURCES' &&
+          (value.writeKind !== 'publish-multiple' ||
+            (value.protocol === 'qdnRequest' ? value.targetNetwork !== 'qortium' : value.targetNetwork !== 'qortal') ||
+            !isPublishMultipleDetailRows(value.targetNetwork as 'qortal' | 'qortium', value.publishMultipleDetails) ||
+            value.writeOperationLabel !== homeV2PublishExtraOperationLabel('PUBLISH_MULTIPLE_QDN_RESOURCES') ||
+            typeof value.writeRouteLabel !== 'string' ||
+            (value.targetNetwork === 'qortal' ? value.writeTargetChainLabel !== 'Qortal' : value.writeTargetChainLabel !== 'Qortium') ||
+            value.writeSingleRequestOnly !== true))
+        // The on-chain deletion tombstone: Qortium-pinned (the keyless delete
+        // builder is a Qortium Core addition), caption-pinned, naming the
+        // exact coordinate. The explanation copy is the shell's own.
+        || (value.action === 'DELETE_QDN_RESOURCE' &&
+          (value.writeKind !== 'qdn-delete' ||
+            value.protocol !== 'qdnRequest' ||
+            value.targetNetwork !== 'qortium' ||
+            typeof value.deleteResourceCoordinate !== 'string' ||
+            value.deleteResourceCoordinate.length < 1 ||
+            value.deleteResourceCoordinate.length > 200 ||
+            /[\u0000-\u001f\u007f]/.test(value.deleteResourceCoordinate) ||
+            value.writeOperationLabel !== homeV2PublishExtraOperationLabel('DELETE_QDN_RESOURCE') ||
             typeof value.writeRouteLabel !== 'string' ||
             value.writeTargetChainLabel !== 'Qortium' ||
             value.writeSingleRequestOnly !== true))
@@ -3243,6 +3348,8 @@ export function HomeV2LiveApp() {
       const isPollWrite = isHomeV2PollWriteAction(value.action)
       const isNameWrite = isHomeV2NameWriteAction(value.action)
       const isGroupMutation = isHomeV2GroupMutationAction(value.action)
+      const isPublishMultiple = value.action === 'PUBLISH_MULTIPLE_QDN_RESOURCES'
+      const isQdnDelete = value.action === 'DELETE_QDN_RESOURCE'
       // A zero-fee chain MESSAGE to an AT. Its own prompt kind: it signs, so it
       // must never inherit the read-only account prompt's wording, its
       // 'account.read' grant family, or its session/always scopes.
@@ -3258,7 +3365,7 @@ export function HomeV2LiveApp() {
       // access". Splitting the GRANT is a separate decision, not made here.
       const accountReadPromptKind = homeV2AccountReadPromptKind(value.action)
       const isGenericAccountRead = accountReadPromptKind === 'account'
-      const operationLabel = isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment || isNotification || isBookmarkManager || isNotificationManager || isHomeSettingsUpdate || isJournalForget || isMintingWrite || isListWrite || isPollWrite || isNameWrite || isGroupMutation || isAtMessage
+      const operationLabel = isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment || isNotification || isBookmarkManager || isNotificationManager || isHomeSettingsUpdate || isJournalForget || isMintingWrite || isListWrite || isPollWrite || isNameWrite || isGroupMutation || isPublishMultiple || isQdnDelete || isAtMessage
         ? String(value.writeOperationLabel)
         : ''
       const prompt = createPermissionPrompt({
@@ -3319,6 +3426,14 @@ export function HomeV2LiveApp() {
                 ? 'name.write'
               : isGroupMutation
                 ? 'group.mutation'
+              // A batch of signed publishes: its own capability, never
+              // 'qdn.publish' or 'account.read', single-request only.
+              : isPublishMultiple
+                ? 'qdn.publish.multiple'
+              // The permanent on-chain tombstone: its own capability,
+              // single-request only.
+              : isQdnDelete
+                ? 'qdn.delete'
               // Its own capability, never 'account.read': that string is what
               // bridge-permissions.ts unifies durable grants on, and a signing
               // action must not be reachable through a read grant.
@@ -3362,7 +3477,7 @@ export function HomeV2LiveApp() {
             ? 'Forget pending transaction?'
           : isAtMessage
             ? 'Send a message to a contract?'
-          : isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment || isMintingWrite || isListWrite || isPollWrite || isNameWrite || isGroupMutation
+          : isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment || isMintingWrite || isListWrite || isPollWrite || isNameWrite || isGroupMutation || isPublishMultiple || isQdnDelete
           ? `Allow ${operationLabel.toLowerCase()}?`
           : 'Allow account access?',
         summary: isWidgetPrompt
@@ -3383,6 +3498,12 @@ export function HomeV2LiveApp() {
           ? value.action === 'GROUP_APPROVAL'
             ? `${appTitle} wants to cast the selected account's governance vote on the pending group transaction shown below. The vote is one fee-free signed transaction; an opposition vote does not immediately reject the pending transaction — it stays pending until approved by others or it expires.`
             : `${appTitle} wants to sign and broadcast one group transaction from the selected account. It costs no fee — Home pays for it with proof-of-work on this device. Everything it does is shown below, exactly as it will be signed; this approval covers this one transaction only.`
+          : isPublishMultiple
+          ? value.targetNetwork === 'qortal'
+            ? `${appTitle} wants to sign and broadcast the QDN publish transactions listed below from the selected account — one per resource. EACH one pays the listed chain fee from this account; the batch total is shown. Every resource, file, size and content hash is listed exactly as it will be signed; this approval covers exactly these listed transactions.`
+            : `${appTitle} wants to sign and broadcast the QDN publish transactions listed below from the selected account — one per resource. They cost no fee — Home pays for each with proof-of-work on this device. Every resource, file, size and content hash is listed exactly as it will be signed; this approval covers exactly these listed transactions.`
+          : isQdnDelete
+          ? `${appTitle} wants to sign and broadcast one QDN deletion transaction from the selected account. Approving marks the resource below DELETED on the Qortium chain for EVERY peer — this deletes the published resource itself, not just a local copy, and only publishing it again would replace it. It costs no fee — Home pays for it with proof-of-work on this device.`
           : isNameWrite
           ? value.action === 'BUY_NAME'
             ? `${appTitle} wants to buy a name with the selected account. Approving PAYS the amount shown below from this account to the seller — the transaction fee is zero, but the payment is real. Everything is shown exactly as it will be signed; this approval covers this one purchase only.`
@@ -3464,6 +3585,33 @@ export function HomeV2LiveApp() {
                   detail.label === 'Description' || detail.label === 'Pending transaction'
                     ? { label: detail.label, value: detail.value, variant: 'scroll' as const }
                     : { label: detail.label, value: detail.value }),
+              { label: 'Chain', value: String(value.writeTargetChainLabel) },
+              { label: 'Scope', value: 'This one transaction only' },
+            ]
+          : isPublishMultiple
+          ? [
+              { label: 'Account', value: account?.label ?? accountId },
+              { label: 'Operation', value: operationLabel },
+              // The Items row and every numbered per-item row, re-checked by
+              // isPublishMultipleDetailRows above. Description rows can carry
+              // up to 500 escaped bytes, so they scroll like the poll rows.
+              ...(value.publishMultipleDetails as readonly { label: string; value: string }[])
+                .map((detail) => detail.label.startsWith('Description ')
+                  ? { label: detail.label, value: detail.value, variant: 'scroll' as const }
+                  : { label: detail.label, value: detail.value }),
+              { label: 'Route', value: String(value.writeRouteLabel) },
+              { label: 'Chain', value: String(value.writeTargetChainLabel) },
+              { label: 'Scope', value: 'Exactly the transactions listed above' },
+            ]
+          : isQdnDelete
+          ? [
+              { label: 'Account', value: account?.label ?? accountId },
+              { label: 'Operation', value: operationLabel },
+              { label: 'Resource', value: String(value.deleteResourceCoordinate) },
+              // The shell's own copy, not a bridge row: what a tombstone is
+              // must not be forgeable by the thing asking for one.
+              { label: 'Effect', value: 'The resource is marked DELETED on chain for every peer — this is not a local-copy removal' },
+              { label: 'Route', value: String(value.writeRouteLabel) },
               { label: 'Chain', value: String(value.writeTargetChainLabel) },
               { label: 'Scope', value: 'This one transaction only' },
             ]
@@ -3612,6 +3760,21 @@ export function HomeV2LiveApp() {
                 { label: 'Route', value: String(value.writeRouteLabel) },
                 { label: 'Resource', value: String(value.publishResourceCoordinate) },
                 { label: 'File', value: String(value.publishFileName) },
+                ...(typeof value.publishMetadataTitle === 'string'
+                  ? [{ label: 'Title', value: value.publishMetadataTitle }]
+                  : []),
+                ...(typeof value.publishMetadataDescription === 'string'
+                  ? [{ label: 'Description', value: value.publishMetadataDescription, variant: 'scroll' as const }]
+                  : []),
+                ...(typeof value.publishMetadataCategory === 'string'
+                  ? [{ label: 'Category', value: value.publishMetadataCategory }]
+                  : []),
+                ...(typeof value.publishMetadataTags === 'string'
+                  ? [{ label: 'Tags', value: value.publishMetadataTags }]
+                  : []),
+                ...(typeof value.publishFee === 'string'
+                  ? [{ label: 'Fee', value: value.publishFee }]
+                  : []),
                 { label: 'Size', value: `${Number(value.publishSize).toLocaleString()} bytes` },
                 { label: 'SHA-256', value: String(value.publishContentHash) },
               ]
@@ -4740,6 +4903,20 @@ export function HomeV2LiveApp() {
           throw new Error('The selected account does not currently own the requested publisher name on this chain.')
         }
         const contentHash = await sha256Hex(decodeHomeV2AndroidPublishSource(source.dataBase64))
+        // On Qortal this publish pays the chain's ARBITRARY unit fee: read it
+        // BEFORE the prompt so it is disclosed, and pin it so the vault
+        // refuses a fee that moved after approval (same rule as desktop).
+        let expectedFeeAtomic: string | undefined
+        if (targetNetwork === 'qortal') {
+          if (!vaultClient.readQortalArbitraryUnitFee) {
+            throw new Error('Qortal publishing requires fee disclosure, which is unavailable on this platform build.')
+          }
+          expectedFeeAtomic = await vaultClient.readQortalArbitraryUnitFee({ nodeApiUrl: nodeBefore.nodeApiUrl })
+          if (!/^\d+$/.test(expectedFeeAtomic)) throw new Error('Qortal ARBITRARY fee response is invalid.')
+        }
+        const feeRowValue = expectedFeeAtomic === undefined
+          ? null
+          : `${BigInt(expectedFeeAtomic) / 100_000_000n}.${(BigInt(expectedFeeAtomic) % 100_000_000n).toString().padStart(8, '0')} coins`
         const requestId = brand<PermissionRequestId>(
           globalThis.crypto.randomUUID?.() ?? `home-v2-permission-${Date.now()}-${Math.random().toString(36).slice(2)}`,
         )
@@ -4782,6 +4959,22 @@ export function HomeV2LiveApp() {
             { label: 'File', value: source.fileName },
             { label: 'Size', value: `${source.size.toLocaleString()} bytes` },
             { label: 'SHA-256', value: contentHash },
+            // The mutable-metadata values signed alongside the bytes
+            // (Qortium only — the normalizer refuses metadata on Qortal); a
+            // row appears exactly when that field is being published.
+            ...(publishRequest.resource.title
+              ? [{ label: 'Title', value: androidPromptText(publishRequest.resource.title) }]
+              : []),
+            ...(publishRequest.resource.description
+              ? [{ label: 'Description', value: androidPromptText(publishRequest.resource.description), variant: 'scroll' as const }]
+              : []),
+            ...(publishRequest.resource.category
+              ? [{ label: 'Category', value: androidPromptText(publishRequest.resource.category) }]
+              : []),
+            ...(publishRequest.resource.tags.length
+              ? [{ label: 'Tags', value: androidPromptText(publishRequest.resource.tags.join(', ')) }]
+              : []),
+            ...(feeRowValue !== null ? [{ label: 'Fee', value: feeRowValue }] : []),
           ],
           allowedScopes: ['single-request'],
         }), context.tabId)
@@ -4809,6 +5002,7 @@ export function HomeV2LiveApp() {
         }
         const result = await vaultClient.publishPublicResource({
           accountId,
+          ...(expectedFeeAtomic !== undefined ? { expectedFeeAtomic } : {}),
           fileName: source.fileName,
           isStillValid,
           network: targetNetwork,

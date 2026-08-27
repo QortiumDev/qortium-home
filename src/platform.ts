@@ -14286,6 +14286,9 @@ async function publishAndroidHomeV2PublicResource(
       ),
     ]);
     const fee = normalizeAndroidQortalFee(feeValue);
+    if (request.expectedFeeAtomic !== undefined && String(fee) !== request.expectedFeeAtomic) {
+      throw new Error('The Qortal ARBITRARY fee changed after it was approved.');
+    }
     if (typeof referenceValue !== 'string') throw new Error('Qortal last-reference response is invalid.');
     const lastReference = base58Decode(referenceValue.trim());
     if (lastReference.length !== 64 || base58Encode(lastReference) !== referenceValue.trim()) {
@@ -14862,6 +14865,16 @@ export function createAndroidHomeV2VaultClient(): HomeV2VaultClient {
     async requestRestore() {
       await HomeV2ProfileRecovery.requestRestore();
       return { restartRequired: true };
+    },
+    async readQortalArbitraryUnitFee(request) {
+      const feeValue = await requestAndroidHomeV2ChatJson(
+        request.nodeApiUrl,
+        `/transactions/unitfee?txType=ARBITRARY&timestamp=${Date.now()}`,
+        '',
+        CHAT_SIGNING_RESPONSE_MAX_BYTES,
+        true,
+      );
+      return String(normalizeAndroidQortalFee(feeValue));
     },
     async publishPublicResource(request) {
       const signingKey = await getAccountSecretKey(request.accountId);

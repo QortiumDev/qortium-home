@@ -34,6 +34,24 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-27 - feat(home-v2): apps can batch-publish and delete QDN resources again
+
+Restores the fifth deferred action family: the publishing extras. An app can
+now ask to publish up to ten QDN resources in one request, and to delete a
+published resource on-chain. Where the old batch prompt said only "N
+resources", the new one lists every single item — which resource, which file,
+how many bytes, and its exact content fingerprint, along with any title,
+description, category, or tags being attached — before anything is signed,
+and on the Qortal network it also shows the fee each item pays and the
+batch total, with that fee locked to what was approved. The single-resource
+publish prompt gains the same fee and metadata disclosure. Deleting is shown for what it really is: a signed
+transaction that marks the resource deleted for everyone on the Qortium
+network, not a cleanup of your own copy, and it is only offered when the
+selected account still owns the publishing name. As with every restored
+family, the account key never leaves Home, every approval covers exactly
+what is listed and nothing more, and an uncertain broadcast is remembered
+until it is reconciled.
+
 ### 2026-08-26 - feat(home-v2): apps can create, update, and govern groups again
 
 Restores the fourth deferred action family: group mutations. An app can now

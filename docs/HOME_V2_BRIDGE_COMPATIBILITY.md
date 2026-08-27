@@ -209,7 +209,7 @@ and Android fixtures pass.
 | Lists, hosted data, files, viewers | `ADD_LIST_ITEMS`, `DELETE_HOSTED_DATA`, `DELETE_LIST_ITEM`, `GET_HOSTED_DATA`, `GET_LIST_ITEMS`, `PLAY_ENCRYPTED_MEDIA`, `SAVE_FILE`, `SHOW_PDF_READER` (the three list actions have the `qdnRequest` family implemented — see the table above — but these v3 forms stay deferred: every `/lists` route needs the node's administrative key, and Home holds one only for the Qortium Core it runs itself) |
 | Notification subscriptions and tab sessions | `LOCK_TAB`, `NOTIFICATION_ADD`, `NOTIFICATION_GET`, `NOTIFICATION_MARK_SEEN`, `NOTIFICATION_PERMISSION`, `NOTIFICATION_REMOVE`, `SESSION_PERMISSIONS`, `UNLOCK_TAB`, `UPDATE_SUBSCRIPTIONS`; Home 2's additive `NOTIFICATION_HAS_PERMISSION` and `SHOW_NOTIFICATION` contract is implemented separately, and transient authority is invalidated on account/node/navigation/tab lifecycle boundaries |
 | Names, groups, polls | `BUY_NAME`, `CANCEL_SELL_NAME`, `CREATE_GROUP`, `CREATE_POLL`, `REGISTER_NAME`, `SELL_NAME`, `UPDATE_GROUP`, `UPDATE_NAME`, `VOTE_ON_POLL` (the two poll actions have the `qdnRequest` family implemented — see the table above — but these v3 forms stay deferred: Hub's poll contract is a different legacy transaction — pollName target, zero-based index, paid fee and last reference — and must not be mechanically translated) |
-| QDN writes | `PUBLISH_MULTIPLE_QDN_RESOURCES`, deletion, and legacy inline/path publishing; Home 2 single-resource `PUBLISH_QDN_RESOURCE` is implemented through its separate H5B source-token contract |
+| QDN writes | Deletion and legacy inline/path publishing; Home 2 single-resource `PUBLISH_QDN_RESOURCE` — and now `PUBLISH_MULTIPLE_QDN_RESOURCES` as a bounded batch of it — are implemented through the separate H5B source-token contract (Hub's inline `data64`/`encrypt` multi-publish fields stay refused) |
 | Encryption and group keys | `DECRYPT_AESGCM`, `DECRYPT_DATA`, `DECRYPT_DATA_WITH_SHARING_KEY`, `DECRYPT_QORTAL_GROUP_DATA`, `ENCRYPT_DATA`, `ENCRYPT_DATA_WITH_SHARING_KEY`, `ENCRYPT_QORTAL_GROUP_DATA`, `REENCRYPT_GROUP_KEYS` |
 | Wallets, payments, signing | `GET_USER_WALLET_INFO`, `GET_USER_WALLET_TRANSACTIONS`, `GET_WALLET_BALANCE`, `MULTI_ASSET_PAYMENT_WITH_PRIVATE_DATA`, `SEND_COIN`, `SIGN_FOREIGN_FEES`, `SIGN_TRANSACTION`, `TRANSFER_ASSET` (`GET_USER_WALLET` is implemented for the NATIVE asset only — see the wallet-family note below) |
 | Foreign chain and trading | `ADD_FOREIGN_SERVER`, `CANCEL_TRADE_SELL_ORDER`, `CREATE_TRADE_BUY_ORDER`, `CREATE_TRADE_SELL_ORDER`, `GET_ARRR_SYNC_STATUS`, `REMOVE_FOREIGN_SERVER`, `SET_CURRENT_FOREIGN_SERVER`, `START_CROSSCHAIN_SERVER`, `UPDATE_FOREIGN_FEE` (the four zero-key `/crosschain` READS are implemented) |
@@ -223,9 +223,10 @@ This section is the explicit per-action ledger of that catalogue, replacing the
 earlier blanket "everything not listed above is deferred": verified against
 `getHomeV2AppActions('qdnRequest')` at 2.1.0 (the polls restoration, on top of
 main `8402315`), **100 of the 149 Home 1.x `qdnRequest` actions are
-advertised** — plus the five name writes and five group mutations of the
-restoration wave, taking the intersection to 110 — and the 39 below are not:
-17 superseded, 22 deferred.
+advertised** — plus the five name writes, five group mutations, and two
+publishing extras (`PUBLISH_MULTIPLE_QDN_RESOURCES`, `DELETE_QDN_RESOURCE`)
+of the restoration wave, taking the intersection to 112 — and the 37 below
+are not: 17 superseded, 20 deferred.
 
 **Superseded (17) — the same operation exists on the `qortalRequest` global.**
 Home 1.x predates the second global, so it reached Qortal through
@@ -262,7 +263,7 @@ desktop, and Android fixtures pass:**
 | Payments and asset transfer | `PAYMENT`, `SEND_COIN`, `SEND_QORT`, `TRANSFER_ASSET` | Behind the Phase 5 signing boundary; `PAYMENT`/`SEND_COIN` were 1.x aliases of one coin transfer |
 | Rating writes | `RATE_ACCOUNT`, `RATE_RESOURCE` | The two rating READS are implemented |
 | Account avatar write | `SET_ACCOUNT_AVATAR` | Avatar READS are implemented |
-| Publishing and deletion | `DELETE_QDN_RESOURCE`, `PUBLISH_MULTIPLE_QDN_RESOURCES`, `PREVIEW_QDN_PUBLISH_SOURCE` | Single-resource `PUBLISH_QDN_RESOURCE` is implemented through its H5B source-token contract; preview has its own subsection below |
+| Publishing preview | `PREVIEW_QDN_PUBLISH_SOURCE` | `DELETE_QDN_RESOURCE` and `PUBLISH_MULTIPLE_QDN_RESOURCES` are no longer deferred (see below); preview has its own subsection below |
 | Foreign wallets | `GET_USER_WALLET_INFO`, `GET_USER_WALLET_TRANSACTIONS`, `GET_WALLET_BALANCE`, `SET_CURRENT_FOREIGN_SERVER` | Awaits the W3 design — see the wallet-family subsection below; the four zero-key `/crosschain` READS and native-only `GET_USER_WALLET` are implemented |
 | Node settings and admin | `GET_NODE_SETTINGS_METADATA`, `UPDATE_NODE_SETTINGS`, `RESTART_NODE` | Node settings stay deferred; Home's own DISPLAY settings are implemented (see below) |
 | Background notification subscriptions | `NOTIFICATION_ADD`, `NOTIFICATION_GET`, `NOTIFICATION_REMOVE` | Distinct from the implemented `NOTIFICATION_HAS_PERMISSION`/`SHOW_NOTIFICATION` contract and the `NOTIFICATION_MANAGER_*` family |
@@ -318,7 +319,7 @@ file-only today (`properties: ['openFile']`), so even a complete port would
 cover `.zip` and `.html` but not 1.x's directory sources. This belongs in its
 own change with the renderer work included.
 
-### No longer deferred: display settings, minting, lists, polls, names, and group mutations
+### No longer deferred: display settings, minting, lists, polls, names, group mutations, and publishing extras
 
 Home's own **display settings** are no longer deferred.
 `GET_HOME_SETTINGS_METADATA`, `GET_HOME_SETTINGS` and `UPDATE_HOME_SETTINGS`
@@ -367,6 +368,18 @@ transaction disclosure rules, the complete-replacement update semantics, and
 the pointer-only avatar contract. Hub's `qortalRequest` group forms stay
 deferred (its UPDATE_GROUP is an owner-transfer contract Qortium does not
 have).
+
+The publishing extras are no longer deferred. `PUBLISH_MULTIPLE_QDN_RESOURCES`
+is implemented on both protocols as a bounded batch (max ten items) of the
+H5B source-token single-publish contract with full per-item prompt
+disclosure — including per-item and total fee rows on Qortal, where each item
+pays the chain fee. `DELETE_QDN_RESOURCE` is implemented on `qdnRequest`
+only, publishing the byte-asserted on-chain deletion tombstone (the keyless
+delete builder is a Qortium Core addition, so the action is not advertised
+on `qortalRequest`). See [QDN bridge action notes](BRIDGE_ACTIONS.md).
+`PREVIEW_QDN_PUBLISH_SOURCE` stays deferred. The Hub-catalogue QDN-writes
+row above still covers legacy inline/path publishing, which stays refused in
+favor of source tokens.
 
 ## Known limitations of this slice
 

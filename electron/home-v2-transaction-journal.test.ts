@@ -322,4 +322,68 @@ assert.throws(() => sanitizeHomeV2TransactionJournal({
   version: 1,
 }, now), /signature is invalid/)
 
+// --- Publishing extras (review round 1, findings 3 + 4) ---
+
+// The three QDN resource writes share one conflict key with per-coordinate
+// targets: a retained unknown DELETE blocks a PUBLISH of the same coordinate
+// (and the batch spelling is blocked coarsely), while a different coordinate
+// stays free.
+const deleteEntry = {
+  ...entry,
+  action: 'DELETE_QDN_RESOURCE' as const,
+  target: { kind: 'resource' as const, identifier: null, name: 'Alice', service: 'DOCUMENT' },
+}
+const deleteJournal = upsertHomeV2PendingTransaction(createEmptyHomeV2TransactionJournal(), deleteEntry, now)
+const conflictInput = (action: string, request: unknown) => ({
+  accountId: entry.accountId,
+  action,
+  appIdentity: entry.appIdentity,
+  network: 'qortium' as const,
+  request,
+})
+assert.deepEqual(
+  findHomeV2PendingTransactionConflict(deleteJournal, conflictInput('PUBLISH_QDN_RESOURCE', { name: 'Alice', service: 'DOCUMENT' }), now),
+  deleteEntry,
+  'an unknown delete must block publishing the same coordinate',
+)
+assert.deepEqual(
+  findHomeV2PendingTransactionConflict(deleteJournal, conflictInput('DELETE_QDN_RESOURCE', { name: 'Alice', service: 'DOCUMENT', identifier: 'default' }), now),
+  deleteEntry,
+  "the literal 'default' spelling is the same coordinate as an absent identifier",
+)
+assert.deepEqual(
+  findHomeV2PendingTransactionConflict(deleteJournal, conflictInput('PUBLISH_MULTIPLE_QDN_RESOURCES', { resources: [{ name: 'Other', service: 'DOCUMENT' }] }), now),
+  deleteEntry,
+  'a batch derives the coarse operation target and blocks on any retained resource write',
+)
+assert.equal(
+  findHomeV2PendingTransactionConflict(deleteJournal, conflictInput('PUBLISH_QDN_RESOURCE', { name: 'Alice', service: 'DOCUMENT', identifier: 'other' }), now),
+  null,
+  'a different coordinate stays free',
+)
+assert.equal(
+  findHomeV2PendingTransactionConflict(deleteJournal, conflictInput('SEND_CHAT_MESSAGE', { txGroupId: 0 }), now),
+  null,
+  'the shared key covers only the resource-write class',
+)
+
+// Derivation canonicalizes 'default' and absent identifiers to one target,
+// for the delete and publish arms alike.
+assert.deepEqual(
+  homeV2TransactionTargetFromRequest('DELETE_QDN_RESOURCE', { name: 'Alice', service: 'DOCUMENT', identifier: 'default' }),
+  { kind: 'resource', identifier: null, name: 'Alice', service: 'DOCUMENT' },
+)
+assert.deepEqual(
+  homeV2TransactionTargetFromRequest('DELETE_QDN_RESOURCE', { name: 'Alice', service: 'DOCUMENT' }),
+  { kind: 'resource', identifier: null, name: 'Alice', service: 'DOCUMENT' },
+)
+assert.deepEqual(
+  homeV2TransactionTargetFromRequest('PUBLISH_QDN_RESOURCE', { name: 'Alice', service: 'DOCUMENT', identifier: 'default' }),
+  { kind: 'resource', identifier: null, name: 'Alice', service: 'DOCUMENT' },
+)
+assert.deepEqual(
+  homeV2TransactionTargetFromRequest('PUBLISH_MULTIPLE_QDN_RESOURCES', { resources: [{ name: 'Alice', service: 'DOCUMENT' }] }),
+  { kind: 'operation' },
+)
+
 console.log('Home v2 pending transaction journal tests passed')

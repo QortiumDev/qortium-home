@@ -51,7 +51,8 @@ separate durable capabilities and revision-checked mutations; see
 the structured target, safe action, result, desktop-native, Android-sheet, and
 standalone-gateway boundaries. Desktop isolated QDN apps and Android tokenized
 APP/WEBSITE pages also support `PUBLISH_QDN_RESOURCE`,
-`PUBLISH_MULTIPLE_QDN_RESOURCES`, `DELETE_QDN_RESOURCE`,
+`PUBLISH_MULTIPLE_QDN_RESOURCES` and `DELETE_QDN_RESOURCE` (both of these
+two desktop-only in Home 2 — Android filters them from `SHOW_ACTIONS`),
 `APPROVE_GROUP_JOIN_REQUEST`, `INVITE_TO_GROUP`, `JOIN_GROUP`, `LEAVE_GROUP`,
 `CANCEL_GROUP_INVITE`, `ADD_GROUP_ADMIN`, `REMOVE_GROUP_ADMIN`, `GROUP_BAN`,
 `CANCEL_GROUP_BAN`, `GROUP_KICK`,
@@ -1119,3 +1120,57 @@ what is signed, so nothing is ever signed that the user did not see.
 On Android all five are filtered out of `SHOW_ACTIONS` (no signing path)
 with `UNSUPPORTED_PROTOCOL` kept for `qortalRequest`; Hub's `qortalRequest`
 group forms stay deferred.
+
+## Publishing extras (Home 2)
+
+`PUBLISH_MULTIPLE_QDN_RESOURCES` and `DELETE_QDN_RESOURCE`, restored on the
+Home 2 signing model. Both are desktop-only signing actions filtered out of
+Android's `SHOW_ACTIONS`.
+
+**`PUBLISH_MULTIPLE_QDN_RESOURCES` is a bounded batch of Home 2 single
+publishes.** Each of at most **ten** items carries the exact single-publish
+contract: a resource coordinate plus a **Home-issued `sourceToken`** from
+`SELECT_QDN_PUBLISH_SOURCE` — inline `data64`/`base64` and path fields are
+refused, exactly as the single action refuses them — and every token must be
+distinct (1.x released tokens only after the loop, so one approved file
+selection could quietly back several transactions). Where the 1.x prompt for
+`N > 1` showed only "N resources" with no targets, the Home 2 prompt lists
+**every item** — coordinate, file name, byte size, and SHA-256 of the exact
+bytes that will be attested — before anything is signed, and any mutable
+metadata being published with an item (title, description, category, tags)
+gets its own numbered rows: a metadata row appears exactly when that field
+is being published, and an omitted row means nothing is. On `qdnRequest`
+(Qortium) each item is fee-free with on-device MemoryPoW; on `qortalRequest`
+(Qortal) **each item pays the chain's ARBITRARY unit fee**, so the prompt adds
+a per-item Fee row and a batch Total fee row, and a fee that changes between
+approval and signing refuses rather than signing an undisclosed amount. The
+same standard now applies to single `PUBLISH_QDN_RESOURCE`: its Qortal
+prompt carries the pinned Fee row, and its metadata values are disclosed as
+rows. App-provided `fee` values are refused outright on BOTH chains — Home
+derives the fee from the selected chain (an intentional tightening of the
+1.x contract, where an app could name its own fee). Every
+distinct publisher name is ownership-checked before the prompt and again per
+item at signing. Execution is serial and per-item (the 1.x contract): the
+result is `{accepted, published: [...], failures: [...]}` where a
+signed-but-unbroadcast-confirmed item lands in `failures` with
+`outcome: 'unknown'` and its `transactionSignature`, retained in the journal
+under its own resource coordinate as the `PUBLISH_QDN_RESOURCE` transaction
+it is. One unreconciled publish (single or batch item) blocks this app's next
+batch for the account.
+
+**`DELETE_QDN_RESOURCE` publishes the on-chain deletion tombstone.** It is
+NOT a local-copy removal: the signed transaction is an ARBITRARY with method
+DELETE (2), zero data, no secret, no metadata and no payments, and once
+confirmed the resource's status becomes `DELETED` for **every** peer (only a
+new publish replaces it). Home byte-asserts the exact tombstone form against
+the staged transaction — a builder answering anything but the empty tombstone
+refuses — then MemoryPoW, local signing, and broadcast; the account key never
+leaves Home. The prompt names the exact coordinate and carries the shell's
+own fixed Effect copy so the explanation cannot be forged by the requester.
+Deletion requires current ownership of the publisher name, checked before the
+prompt and re-checked at signing. **Qortium only**: the keyless
+`/arbitrary/public/resource/.../delete` builder is a Qortium Core addition,
+so the action is not advertised on `qortalRequest` at all, and an unknown
+broadcast outcome journals under the delete's own action with the resource
+coordinate as its key. The Home 2 result adds `transactionSignature`, which
+1.x's delete result omitted.

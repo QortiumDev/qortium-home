@@ -295,6 +295,11 @@ const ANDROID_UNSUPPORTED_ACTIONS = new Set<string>([
   'SET_GROUP',
   'SET_GROUP_AVATAR',
   'UPDATE_GROUP',
+  // The publishing extras sign transactions through the desktop bridge's
+  // source-token and tombstone flows, neither of which the Android host
+  // implements — unlike single PUBLISH_QDN_RESOURCE, which it mediates.
+  'DELETE_QDN_RESOURCE',
+  'PUBLISH_MULTIPLE_QDN_RESOURCES',
 ])
 
 export function isHomeV2AndroidUnsupportedAction(action: string) {

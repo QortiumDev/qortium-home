@@ -36,9 +36,15 @@ export function normalizeHomeV2PublicPublishRequest(
   value: unknown,
 ): HomeV2PublicPublishRequest {
   if (!isRecord(value)) throw new Error('PUBLISH_QDN_RESOURCE request is required.')
+  // Checked at the top level AND inside `payload`: the resource parser reads
+  // payload-first, so a byte or path field nested there must get the same
+  // named refusal instead of being silently ignored.
+  const payload = isRecord(value.payload) ? value.payload : null
   for (const field of DISALLOWED_SOURCE_FIELDS) {
-    if (value[field] !== undefined && value[field] !== null && value[field] !== '') {
-      throw new Error('Home 2 public publishing accepts only a Home-issued sourceToken, never paths or inline bytes.')
+    for (const candidate of [value[field], payload?.[field]]) {
+      if (candidate !== undefined && candidate !== null && candidate !== '') {
+        throw new Error('Home 2 public publishing accepts only a Home-issued sourceToken, never paths or inline bytes.')
+      }
     }
   }
   if (value.network !== undefined && value.network !== network) {
