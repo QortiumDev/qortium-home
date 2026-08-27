@@ -489,6 +489,12 @@ for (const action of [
   'SELL_NAME',
   'CANCEL_SELL_NAME',
   'BUY_NAME',
+  // And the group mutations.
+  'CREATE_GROUP',
+  'UPDATE_GROUP',
+  'GROUP_APPROVAL',
+  'SET_GROUP',
+  'SET_GROUP_AVATAR',
 ]) {
   assert.equal(widgetActions.includes(action), false, `widget must not advertise ${action}`)
 }
@@ -536,7 +542,8 @@ assert.equal(androidActions.includes('SHOW_CONTEXT_MENU'), true)
 for (const action of ['GET_ALL_LISTS', 'GET_LIST', 'ADD_TO_LIST', 'REMOVE_FROM_LIST', 'SEND_MESSAGE',
   // Poll and name writes sign transactions and Android has no signing path.
   'CREATE_POLL', 'UPDATE_POLL', 'VOTE_ON_POLL',
-  'REGISTER_NAME', 'UPDATE_NAME', 'SELL_NAME', 'CANCEL_SELL_NAME', 'BUY_NAME']) {
+  'REGISTER_NAME', 'UPDATE_NAME', 'SELL_NAME', 'CANCEL_SELL_NAME', 'BUY_NAME',
+  'CREATE_GROUP', 'UPDATE_GROUP', 'GROUP_APPROVAL', 'SET_GROUP', 'SET_GROUP_AVATAR']) {
   assert.equal(androidActions.includes(action), false, `android must not advertise ${action}`)
 }
 

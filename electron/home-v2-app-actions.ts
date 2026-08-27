@@ -73,6 +73,7 @@ const QDN_ACTIONS = [
   'CANCEL_GROUP_BAN',
   'CANCEL_GROUP_INVITE',
   'CANCEL_SELL_NAME',
+  'CREATE_GROUP',
   'CREATE_POLL',
   'FETCH_ACCOUNT_AVATAR',
   'FETCH_GROUP_AVATAR',
@@ -105,6 +106,7 @@ const QDN_ACTIONS = [
   'GET_GROUP_KICKS',
   'GET_GROUP_MEMBERS',
   'GET_LIST',
+  'GROUP_APPROVAL',
   ...HOME_V2_MARKET_PRICE_ACTIONS,
   'GET_MEMBER_BANS',
   'GET_MEMBER_KICKS',
@@ -168,7 +170,10 @@ const QDN_ACTIONS = [
   'PUBLISH_QDN_RESOURCE',
   'PUBLISH_CHAT_ATTACHMENT',
   'SELL_NAME',
+  'SET_GROUP',
+  'SET_GROUP_AVATAR',
   'UNLOCK_SELECTED_ACCOUNT',
+  'UPDATE_GROUP',
   'UPDATE_NAME',
   'UPDATE_POLL',
   'VOTE_ON_POLL',
@@ -1737,7 +1742,7 @@ export function selectHomeV2PollTarget(value: unknown, pollId: number) {
 // The 1.x bridge read `payload[field] ?? request[field]` for every field.
 // Flatten to that precedence once, so the name normalizers (which read many
 // fields) honor payload nesting without threading the lookup through each.
-function homeV2FlattenPayloadRequest(request: Record<string, unknown>): Record<string, unknown> {
+export function homeV2FlattenPayloadRequest(request: Record<string, unknown>): Record<string, unknown> {
   const payload = request.payload
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return request
   const flattened: Record<string, unknown> = { ...request }

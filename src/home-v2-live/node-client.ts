@@ -38,6 +38,7 @@ import {
   normalizeHomeV2ResponseMaxBytes,
   withHomeV2SelectedAddress,
 } from '../../electron/home-v2-app-actions'
+import { isHomeV2GroupMutationAction } from '../../electron/home-v2-group-mutation-actions'
 import {
   isHomeV2CrosschainReadAction,
   projectHomeV2CrosschainReadResult,
@@ -1140,7 +1141,8 @@ export function createPortableNodeClient(
       // only: on qortalRequest neither family is implemented at all, and that
       // case must keep its UNSUPPORTED_PROTOCOL answer from the generic gate
       // below rather than a signing error naming the wrong network.
-      if (protocol === 'qdnRequest' && (isHomeV2PollWriteAction(action) || isHomeV2NameWriteAction(action))) {
+      if (protocol === 'qdnRequest' &&
+          (isHomeV2PollWriteAction(action) || isHomeV2NameWriteAction(action) || isHomeV2GroupMutationAction(action))) {
         throw createHomeV2BridgeError(
           `${action} requires transaction signing, which is only available in Qortium Home desktop.`,
           {
@@ -1157,7 +1159,7 @@ export function createPortableNodeClient(
       // for qdnRequest and by the generic implemented check below for
       // qortalRequest — the signing message here would be wrong for them.
       if (!isHomeV2ListAction(action) && !isHomeV2PollWriteAction(action) && !isHomeV2NameWriteAction(action) &&
-          isHomeV2AndroidUnsupportedAction(action)) {
+          !isHomeV2GroupMutationAction(action) && isHomeV2AndroidUnsupportedAction(action)) {
         throw createHomeV2BridgeError(
           `${action} requires transaction signing, which is only available in Qortium Home desktop.`,
           {

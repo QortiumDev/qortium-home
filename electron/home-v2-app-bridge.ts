@@ -402,6 +402,23 @@ import {
 import { parsePublicPollCapabilities } from './public-poll-capabilities.js'
 import { parsePublicNameCapabilities } from './public-name-capabilities.js'
 import {
+  assertUnsignedHomeV2GroupMutationTransaction,
+  buildUnsignedQortiumGroupMutationTransactionBytes,
+  homeV2GroupMutationOperationLabel,
+  isHomeV2GroupMutationAction,
+  normalizeHomeV2CreateGroupRequest,
+  normalizeHomeV2GroupApprovalRequest,
+  normalizeHomeV2SetGroupAvatarRequest,
+  normalizeHomeV2SetGroupRequest,
+  normalizeHomeV2UpdateGroupRequest,
+  selectHomeV2DefaultGroupId,
+  selectHomeV2GroupMembership,
+  selectHomeV2GroupMetadata,
+  selectHomeV2PendingTransactionSummary,
+  type HomeV2GroupMutationAction,
+  type HomeV2GroupMutationWirePayload,
+} from './home-v2-group-mutation-actions.js'
+import {
   buildUnsignedQortalDirectChatTransactionBytes,
   buildUnsignedQortalGroupChatTransactionBytes,
   qortalChatPowDifficultyForBalanceResponse,
@@ -521,6 +538,7 @@ type AccountReadAction =
   | HomeV2ListWriteAction
   | HomeV2PollWriteAction
   | HomeV2NameWriteAction
+  | HomeV2GroupMutationAction
 type PermissionDecision = {
   readonly approved: boolean
   readonly scope: 'always' | 'session' | 'single-request' | null
@@ -1304,6 +1322,17 @@ async function requireAccountReadPermission(
     // 'name:<exact requested name>'.
     readonly target: string
     readonly targetChainLabel: string
+  } | {
+    readonly kind: 'group-mutation'
+    // The per-action rows, escaped and re-validated in the shell. A
+    // GROUP_APPROVAL's rows disclose the pending transaction being voted on.
+    readonly groupMutationDetails: readonly { readonly label: string; readonly value: string }[]
+    readonly operationLabel: string
+    readonly routeLabel: string
+    // 'group:<id>' | 'group-create:<name>' | 'group-approval:<signature>' |
+    // 'default-group:<id>'.
+    readonly target: string
+    readonly targetChainLabel: string
   },
 ) {
   if (!context.accountId) throw new Error('No account is selected for this tab.')
@@ -1343,6 +1372,8 @@ async function requireAccountReadPermission(
           ? writeDetails.target
         : writeDetails?.kind === 'name'
           ? writeDetails.target
+        : writeDetails?.kind === 'group-mutation'
+          ? writeDetails.target
         : ''
   const grantKey = homeV2PermissionGrantKey({
     accountId: context.accountId,
@@ -1375,6 +1406,8 @@ async function requireAccountReadPermission(
     writeDetails?.kind === 'poll' ||
     // Name writes sign chain transactions too — BUY_NAME moves coins.
     writeDetails?.kind === 'name' ||
+    // Group mutations sign chain transactions. Never a session/durable grant.
+    writeDetails?.kind === 'group-mutation' ||
     (writeDetails?.kind === 'group' || writeDetails?.kind === 'direct' || writeDetails?.kind === 'private-group') &&
     writeDetails.singleRequestOnly === true
   // A durable per-app chat-send grant ("always allow", revocable in QDN Apps
@@ -1566,6 +1599,15 @@ async function requireAccountReadPermission(
             ? {
                 nameDetails: writeDetails.nameDetails.map((detail) => ({ ...detail })),
                 writeKind: 'name',
+                writeOperationLabel: writeDetails.operationLabel,
+                writeRouteLabel: writeDetails.routeLabel,
+                writeSingleRequestOnly: true,
+                writeTargetChainLabel: writeDetails.targetChainLabel,
+              }
+          : writeDetails?.kind === 'group-mutation'
+            ? {
+                groupMutationDetails: writeDetails.groupMutationDetails.map((detail) => ({ ...detail })),
+                writeKind: 'group-mutation',
                 writeOperationLabel: writeDetails.operationLabel,
                 writeRouteLabel: writeDetails.routeLabel,
                 writeSingleRequestOnly: true,
@@ -7185,6 +7227,454 @@ async function handleHomeV2NameAction(
   }
 }
 
+// ---------------------------------------------------------------------------
+// Group mutations (Home 2.1 restoration, Qortium qdnRequest only)
+//
+// CREATE_GROUP / UPDATE_GROUP / GROUP_APPROVAL / SET_GROUP / SET_GROUP_AVATAR
+// are built LOCALLY on the group-admin transformer pattern (no Core builder):
+// normalize, read live state, prompt with the complete operation, build the
+// zero-nonce bytes, byte-verify, MemoryPoW, verify the stamped bytes, sign,
+// broadcast. GROUP_APPROVAL votes on one specific PENDING transaction, so its
+// prompt resolves and discloses that transaction — signature, type, creator,
+// approval group, current status — and states that an opposition vote does
+// not immediately reject it. SET_GROUP_AVATAR signs only a QDN pointer;
+// avatar BYTES travel through the separate PUBLISH_QDN_RESOURCE flow.
+// ---------------------------------------------------------------------------
+
+async function readHomeV2GroupMutationMeta(action: HomeV2GroupMutationAction, nodeApiUrl: string, groupId: number) {
+  let value: unknown
+  try {
+    value = await readHomeV2ChatJson(nodeApiUrl, `/groups/${encodeURIComponent(String(groupId))}`, 'Group lookup', '')
+  } catch (error) {
+    if (isHomeV2AppRecord(error) && error.status === 404) {
+      throw createHomeV2BridgeError(`Group ${groupId} does not exist.`, {
+        action,
+        code: 'TARGET_NOT_FOUND',
+        network: 'qortium',
+        retryable: false,
+      })
+    }
+    throw error
+  }
+  return selectHomeV2GroupMetadata(value, groupId)
+}
+
+async function handleHomeV2GroupMutationAction(
+  sender: WebContents,
+  context: QdnViewContext,
+  protocol: HomeV2AppBridgeProtocol,
+  action: HomeV2GroupMutationAction,
+  requestValue: Record<string, unknown>,
+) {
+  if (!context.accountId) throw new Error('No account is selected for this tab.')
+  const accountId = context.accountId
+  if (!isAccountUnlocked(accountId)) throw new Error('The selected account is locked.')
+  const node = await getHomeV2ReadableNode('qortium')
+  const apiKey = await getHomeV2TrustedWriteApiKey('qortium', node.nodeApiUrl)
+  const nodeRoute = `${node.mode}|${node.nodeApiUrl}`
+  const profile = await getAccountProfile(accountId)
+  const routeLabel = `${node.mode} · ${node.nodeApiUrl}`
+
+  // Normalize BEFORE anything else: a malformed request must never raise a
+  // prompt or contact the node.
+  const createRequest = action === 'CREATE_GROUP' ? normalizeHomeV2CreateGroupRequest(requestValue) : null
+  const updateRequest = action === 'UPDATE_GROUP' ? normalizeHomeV2UpdateGroupRequest(requestValue) : null
+  const approvalRequest = action === 'GROUP_APPROVAL' ? normalizeHomeV2GroupApprovalRequest(requestValue) : null
+  const setGroupRequest = action === 'SET_GROUP' ? normalizeHomeV2SetGroupRequest(requestValue) : null
+  const avatarRequest = action === 'SET_GROUP_AVATAR' ? normalizeHomeV2SetGroupAvatarRequest(requestValue) : null
+
+  // --- Live-state resolution (audit Part E), per action -------------------
+  const metaGroupId = updateRequest?.groupId ?? setGroupRequest?.defaultGroupId ?? avatarRequest?.groupId ?? null
+  const meta = metaGroupId === null ? null : await readHomeV2GroupMutationMeta(action, node.nodeApiUrl, metaGroupId)
+  if (meta && (updateRequest || avatarRequest) && meta.owner !== profile.address) {
+    throw createHomeV2BridgeError(
+      `Group ${metaGroupId} ("${meta.groupName}") is owned by ${meta.owner}, not the selected account.`,
+      { action, code: 'TARGET_NOT_FOUND', network: 'qortium', retryable: false },
+    )
+  }
+
+  // UPDATE: merge omitted fields with the live group so the prompt and the
+  // signed bytes always carry the COMPLETE replacement.
+  const resolvedUpdate = updateRequest && meta
+    ? {
+        approvalThreshold: updateRequest.newApprovalThreshold ?? meta.approvalThreshold,
+        description: updateRequest.newDescription ?? meta.description,
+        isOpen: updateRequest.newIsOpen ?? meta.isOpen,
+        maximumBlockDelay: updateRequest.newMaximumBlockDelay ?? meta.maximumBlockDelay,
+        minimumBlockDelay: updateRequest.newMinimumBlockDelay ?? meta.minimumBlockDelay,
+        newName: updateRequest.newName,
+      }
+    : null
+  if (resolvedUpdate) {
+    if (resolvedUpdate.maximumBlockDelay < 1 || resolvedUpdate.maximumBlockDelay < resolvedUpdate.minimumBlockDelay) {
+      throw new Error('Maximum block delay must be at least 1 and at least the minimum block delay.')
+    }
+    const unchanged =
+      resolvedUpdate.newName === '' &&
+      resolvedUpdate.description === meta!.description &&
+      resolvedUpdate.isOpen === meta!.isOpen &&
+      resolvedUpdate.approvalThreshold === meta!.approvalThreshold &&
+      resolvedUpdate.minimumBlockDelay === meta!.minimumBlockDelay &&
+      resolvedUpdate.maximumBlockDelay === meta!.maximumBlockDelay
+    if (unchanged) {
+      return Object.freeze({
+        accepted: true,
+        action,
+        changed: false,
+        groupId: updateRequest!.groupId,
+        groupName: meta!.groupName,
+        network: 'qortium',
+      })
+    }
+  }
+
+  // GROUP_APPROVAL: resolve the pending transaction being voted on.
+  const pending = approvalRequest
+    ? selectHomeV2PendingTransactionSummary(
+        await readHomeV2ChatJson(
+          node.nodeApiUrl,
+          `/transactions/signature/${encodeURIComponent(approvalRequest.pendingSignature)}`,
+          'Pending transaction lookup',
+          '',
+        ).catch((error) => {
+          if (isHomeV2AppRecord(error) && error.status === 404) {
+            throw createHomeV2BridgeError('The pending transaction signature is unknown to the selected node.', {
+              action, code: 'TARGET_NOT_FOUND', network: 'qortium', retryable: false,
+            })
+          }
+          throw error
+        }),
+        approvalRequest.pendingSignature,
+      )
+    : null
+  if (approvalRequest && pending) {
+    if (pending.approvalStatus !== 'PENDING') {
+      throw new Error(`The referenced transaction is not awaiting approval (status: ${pending.approvalStatus || 'unknown'}).`)
+    }
+    if (approvalRequest.assertedGroupId !== undefined && approvalRequest.assertedGroupId !== pending.txGroupId) {
+      throw new Error(`The pending transaction belongs to group ${pending.txGroupId}, not group ${approvalRequest.assertedGroupId}.`)
+    }
+  }
+  const approvalGroupMeta = pending
+    ? await readHomeV2GroupMutationMeta(action, node.nodeApiUrl, pending.txGroupId)
+    : null
+
+  // SET_GROUP: membership + current default (changed:false when already set).
+  if (setGroupRequest && meta) {
+    // Fail CLOSED: a default group the account is not a member of would be
+    // rejected by Core only AFTER signing, journaling a phantom unknown
+    // outcome — so an unanswerable membership lookup refuses up front rather
+    // than proceeding to a prompt.
+    const membershipText = await postHomeV2ChatText(
+      node.nodeApiUrl,
+      `/groups/members/${encodeURIComponent(String(setGroupRequest.defaultGroupId))}/validate`,
+      JSON.stringify([profile.address]),
+      'application/json',
+      'Membership lookup failed.',
+      '',
+    )
+    let membership: unknown
+    try {
+      membership = JSON.parse(membershipText)
+    } catch {
+      throw new Error('The membership lookup answered with an unrecognized shape.')
+    }
+    if (!selectHomeV2GroupMembership(membership, profile.address)) {
+      throw new Error(`The selected account is not a member of group ${setGroupRequest.defaultGroupId} ("${meta.groupName}").`)
+    }
+    const account = await readHomeV2ChatJson(
+      node.nodeApiUrl,
+      `/addresses/${encodeURIComponent(profile.address)}`,
+      'Account lookup',
+      '',
+    ).catch(() => null)
+    if (selectHomeV2DefaultGroupId(account) === setGroupRequest.defaultGroupId) {
+      return Object.freeze({
+        accepted: true,
+        action,
+        changed: false,
+        defaultGroupId: setGroupRequest.defaultGroupId,
+        groupName: meta.groupName,
+        network: 'qortium',
+      })
+    }
+  }
+
+  // SET_GROUP_AVATAR: changed:false when the pointer already matches.
+  if (avatarRequest && meta) {
+    const current = meta.avatar
+    const same = avatarRequest.avatar === null
+      ? current === null
+      : current !== null &&
+        current.service === avatarRequest.avatar.service &&
+        current.name === avatarRequest.avatar.name &&
+        current.identifier === avatarRequest.avatar.identifier
+    if (same) {
+      return Object.freeze({
+        accepted: true,
+        action,
+        avatar: avatarRequest.avatar,
+        changed: false,
+        groupId: avatarRequest.groupId,
+        groupName: meta.groupName,
+        network: 'qortium',
+      })
+    }
+  }
+
+  // --- Prompt --------------------------------------------------------------
+  const unchangedNote = (changed: boolean) => (changed ? '' : ' (unchanged)')
+  const operationLabel = homeV2GroupMutationOperationLabel(action, approvalRequest ? !approvalRequest.approval : false)
+  const groupMutationDetails = createRequest
+    ? [
+        { label: 'Name', value: homeV2PollApprovalText(createRequest.groupName, 'The group name') },
+        { label: 'Description', value: homeV2PollApprovalText(createRequest.description, 'The group description') },
+        { label: 'Membership', value: createRequest.isOpen ? 'Open — anyone can join' : 'Closed — joining requires approval' },
+        { label: 'Approval threshold', value: createRequest.approvalThreshold },
+        { label: 'Block delays', value: `${createRequest.minimumBlockDelay} to ${createRequest.maximumBlockDelay}` },
+      ]
+    : resolvedUpdate && meta
+      ? [
+          { label: 'Group', value: homeV2PollApprovalText(`#${meta.groupId} · ${meta.groupName}`, 'The group name') },
+          {
+            label: 'New name',
+            value: resolvedUpdate.newName
+              ? homeV2PollApprovalText(resolvedUpdate.newName, 'The new group name')
+              : '(unchanged)',
+          },
+          {
+            label: 'Description',
+            value: homeV2PollApprovalText(resolvedUpdate.description, 'The group description') +
+              unchangedNote(resolvedUpdate.description !== meta.description),
+          },
+          {
+            label: 'Membership',
+            value: (resolvedUpdate.isOpen ? 'Open — anyone can join' : 'Closed — joining requires approval') +
+              unchangedNote(resolvedUpdate.isOpen !== meta.isOpen),
+          },
+          {
+            label: 'Approval threshold',
+            value: resolvedUpdate.approvalThreshold + unchangedNote(resolvedUpdate.approvalThreshold !== meta.approvalThreshold),
+          },
+          {
+            label: 'Block delays',
+            value: `${resolvedUpdate.minimumBlockDelay} to ${resolvedUpdate.maximumBlockDelay}` +
+              unchangedNote(
+                resolvedUpdate.minimumBlockDelay !== meta.minimumBlockDelay ||
+                resolvedUpdate.maximumBlockDelay !== meta.maximumBlockDelay,
+              ),
+          },
+        ]
+      : approvalRequest && pending && approvalGroupMeta
+        ? [
+            { label: 'Decision', value: approvalRequest.approval
+                ? 'APPROVE the pending transaction'
+                : 'OPPOSE the pending transaction (it stays pending until approved by others or it expires)' },
+            { label: 'Pending transaction', value: approvalRequest.pendingSignature },
+            { label: 'Transaction type', value: homeV2PollApprovalText(pending.type, 'The transaction type') },
+            ...(pending.creatorAddress ? [{ label: 'Created by', value: pending.creatorAddress }] : []),
+            { label: 'Group', value: homeV2PollApprovalText(`#${pending.txGroupId} · ${approvalGroupMeta.groupName}`, 'The group name') },
+            { label: 'Status', value: 'PENDING' },
+          ]
+        : setGroupRequest && meta
+          ? [
+              { label: 'Default group', value: homeV2PollApprovalText(`#${setGroupRequest.defaultGroupId} · ${meta.groupName}`, 'The group name') },
+            ]
+          : avatarRequest && meta
+            ? [
+                { label: 'Group', value: homeV2PollApprovalText(`#${avatarRequest.groupId} · ${meta.groupName}`, 'The group name') },
+                {
+                  label: 'Avatar',
+                  value: avatarRequest.avatar === null
+                    ? 'Clear the group avatar'
+                    : homeV2PollApprovalText(
+                        `${avatarRequest.avatar.service} / ${avatarRequest.avatar.name}${avatarRequest.avatar.identifier ? ` / ${avatarRequest.avatar.identifier}` : ''}`,
+                        'The avatar pointer',
+                      ),
+                },
+              ]
+            : []
+  if (groupMutationDetails.length === 0) throw new Error(`${action} is not a supported group mutation.`)
+
+  await requireAccountReadPermission(sender, context, protocol, action, {
+    kind: 'group-mutation',
+    groupMutationDetails,
+    operationLabel,
+    routeLabel,
+    target: createRequest
+      ? `group-create:${createRequest.groupName}`
+      : approvalRequest
+        ? `group-approval:${approvalRequest.pendingSignature}`
+        : setGroupRequest
+          ? `default-group:${setGroupRequest.defaultGroupId}`
+          : `group:${metaGroupId}`,
+    targetChainLabel: 'Qortium',
+  })
+  const rateLimitDecision = chatSendRateLimiter.checkAndRecordSend(chatSendRateLimitKey(sender, context))
+  if (!rateLimitDecision.allowed) throw new Error(rateLimitDecision.message)
+  const signingKey = getAccountSecretKey(accountId)
+  if (signingKey.address !== profile.address) {
+    signingKey.secretKey.fill(0)
+    throw new Error('Selected account signing key changed before the group action could be signed.')
+  }
+  const isStillValid = async () => {
+    const freshContext = getQdnViewContextForWebContents(sender)
+    if (!freshContext || !sameViewContext(context, freshContext)) return false
+    if (!liveResourceMatchesGrant(freshContext) || !isAccountUnlocked(accountId)) return false
+    const nodeNow = await getHomeV2ReadableNode('qortium').catch(() => null)
+    return !!nodeNow &&
+      `${nodeNow.mode}|${nodeNow.nodeApiUrl}` === nodeRoute &&
+      (await getHomeV2TrustedWriteApiKey('qortium', node.nodeApiUrl).catch(() => null)) === apiKey
+  }
+  // The action means what it means only against the state the user SAW.
+  const validateMutationTarget = async () => {
+    if (meta) {
+      const current = await readHomeV2GroupMutationMeta(action, node.nodeApiUrl, meta.groupId)
+      if (current.groupName !== meta.groupName || current.owner !== meta.owner) {
+        throw new Error('The group changed before the group action could be signed.')
+      }
+      if (updateRequest || avatarRequest) {
+        if (
+          current.description !== meta.description ||
+          current.isOpen !== meta.isOpen ||
+          current.approvalThreshold !== meta.approvalThreshold ||
+          current.minimumBlockDelay !== meta.minimumBlockDelay ||
+          current.maximumBlockDelay !== meta.maximumBlockDelay
+        ) {
+          throw new Error('The group changed before the group action could be signed.')
+        }
+      }
+    }
+    if (approvalRequest && pending) {
+      const current = selectHomeV2PendingTransactionSummary(
+        await readHomeV2ChatJson(
+          node.nodeApiUrl,
+          `/transactions/signature/${encodeURIComponent(approvalRequest.pendingSignature)}`,
+          'Pending transaction lookup',
+          '',
+        ),
+        approvalRequest.pendingSignature,
+      )
+      if (
+        current.approvalStatus !== 'PENDING' ||
+        current.txGroupId !== pending.txGroupId ||
+        current.type !== pending.type ||
+        current.creatorAddress !== pending.creatorAddress
+      ) {
+        throw new Error('The pending transaction changed before the vote could be signed.')
+      }
+    }
+  }
+  try {
+    if (!(await isStillValid())) throw new Error('Account access context changed before approval completed.')
+    const timestamp = Date.now()
+    const payload: HomeV2GroupMutationWirePayload = createRequest
+      ? { action: 'CREATE_GROUP', request: createRequest }
+      : resolvedUpdate
+        ? { action: 'UPDATE_GROUP', groupId: updateRequest!.groupId, resolved: resolvedUpdate }
+        : approvalRequest
+          ? { action: 'GROUP_APPROVAL', approval: approvalRequest.approval, pendingSignature: approvalRequest.pendingSignature }
+          : setGroupRequest
+            ? { action: 'SET_GROUP', defaultGroupId: setGroupRequest.defaultGroupId }
+            : { action: 'SET_GROUP_AVATAR', avatar: avatarRequest!.avatar, groupId: avatarRequest!.groupId }
+    const unsignedBytes = buildUnsignedQortiumGroupMutationTransactionBytes({
+      payload,
+      senderPublicKey: signingKey.publicKey58,
+      timestamp,
+    })
+    assertUnsignedHomeV2GroupMutationTransaction(unsignedBytes, {
+      payload,
+      senderPublicKey: signingKey.publicKey58,
+      timestamp,
+    })
+    let difficulty: number
+    try {
+      difficulty = parsePublicPollCapabilities(await readHomeV2ChatJson(
+        node.nodeApiUrl,
+        '/polls/public/capabilities',
+        'MemoryPoW capability lookup',
+        apiKey,
+      )).mempowFeeAlternativeDifficulty
+    } catch (error) {
+      if (groupBuilderUnavailable(error) || (isHomeV2AppRecord(error) && error.code === 'QDN_PUBLIC_POLL_CAPABILITY_UNAVAILABLE')) {
+        throw createHomeV2BridgeError(
+          'The selected Qortium node does not advertise a compatible MemoryPoW capability.',
+          { action, code: 'NODE_CAPABILITY_MISSING', network: 'qortium', retryable: false },
+        )
+      }
+      throw error
+    }
+    const nonce = await computeHomeV2ChatNonce(unsignedBytes, difficulty, isStillValid)
+    if (!(await isStillValid())) throw new Error('The signing context changed before the group action could be submitted.')
+    await validateMutationTarget()
+    if (!(await isStillValid())) throw new Error('The signing context changed before the group action could be submitted.')
+    // Stamp, verify the STAMPED bytes with the exact nonce, then detached-
+    // sign exactly those bytes — the admin family's sequence (security
+    // review 2026-08-26: signing must never touch bytes that were not
+    // themselves verified).
+    const stampedBytes = stampTransactionNonce(unsignedBytes, nonce)
+    assertUnsignedHomeV2GroupMutationTransaction(stampedBytes, {
+      nonce,
+      payload,
+      senderPublicKey: signingKey.publicKey58,
+      timestamp,
+    })
+    const signedBytes = appendHomeV2GroupAdminSignature(
+      stampedBytes,
+      signDetached(stampedBytes, signingKey.secretKey),
+    )
+    const signature = getSignatureFromSignedTransactionBytes(signedBytes)
+    const identity = createRequest
+      ? { groupName: createRequest.groupName }
+      : updateRequest
+        ? { groupId: updateRequest.groupId, groupName: meta!.groupName }
+        : approvalRequest
+          ? { approval: approvalRequest.approval, groupId: pending!.txGroupId, pendingSignature: approvalRequest.pendingSignature }
+          : setGroupRequest
+            ? { defaultGroupId: setGroupRequest.defaultGroupId, groupName: meta!.groupName }
+            : { avatar: avatarRequest!.avatar, groupId: avatarRequest!.groupId, groupName: meta!.groupName }
+    try {
+      const processText = await postHomeV2ChatText(
+        node.nodeApiUrl,
+        '/transactions/process?apiVersion=2',
+        base58Encode(signedBytes),
+        'text/plain',
+        `${operationLabel} transaction processing failed.`,
+        apiKey,
+      )
+      let processResult: unknown = processText
+      try { processResult = JSON.parse(processText) } catch { /* text answer stays text */ }
+      return Object.freeze({
+        accepted: true,
+        action,
+        changed: true,
+        ...identity,
+        network: 'qortium',
+        result: processResult,
+        signature,
+        timestamp,
+        transactionSignature: signature,
+      })
+    } catch (error) {
+      return Object.freeze({
+        accepted: false,
+        action,
+        ...identity,
+        error: error instanceof Error ? error.message : String(error),
+        errorType: 'BROADCAST_OUTCOME_UNKNOWN',
+        network: 'qortium',
+        outcome: 'unknown',
+        retryable: false,
+        signature,
+        timestamp,
+        transactionSignature: signature,
+      })
+    }
+  } finally {
+    signingKey.secretKey.fill(0)
+  }
+}
+
 async function handleRequestWithRuntime(
   sender: WebContents,
   context: QdnViewContext,
@@ -7280,6 +7770,9 @@ async function handleRequestWithRuntime(
   }
   if (isHomeV2NameWriteAction(action)) {
     return handleHomeV2NameAction(sender, context, protocol, action, requestValue)
+  }
+  if (isHomeV2GroupMutationAction(action)) {
+    return handleHomeV2GroupMutationAction(sender, context, protocol, action, requestValue)
   }
   if (action === 'NOTIFICATION_HAS_PERMISSION') {
     return {

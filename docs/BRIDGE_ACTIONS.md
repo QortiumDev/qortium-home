@@ -1048,3 +1048,74 @@ a selected, unlocked account and a route exposing the public name builders
 `SHOW_ACTIONS` (no signing path — and `BUY_NAME` pays) with the signing
 refusal kept for direct `qdnRequest` calls and `UNSUPPORTED_PROTOCOL` on
 `qortalRequest`; the pinned Qortal v3 name forms stay deferred.
+
+## Group mutation actions (Home 2)
+
+Home 2 exposes the group mutation family on `qdnRequest` only: `CREATE_GROUP`,
+`UPDATE_GROUP`, `GROUP_APPROVAL`, `SET_GROUP`, and `SET_GROUP_AVATAR`. Each
+signs exactly one fee-free Qortium transaction built **locally** on the
+group-admin transformer pattern (no Core builder is involved): normalize,
+read live state, prompt single-request under the never-durable
+`group.mutation` capability, build the zero-nonce bytes, byte-verify,
+MemoryPoW, verify the stamped bytes, sign locally, broadcast. Ambiguous
+broadcasts journal (`UPDATE_GROUP`/`SET_GROUP_AVATAR` against their group;
+`GROUP_APPROVAL` against the specific pending transaction it votes on;
+`CREATE_GROUP` and `SET_GROUP` against the coarse per-action target) and
+block duplicates until reconciled.
+
+**`GROUP_APPROVAL` votes on one specific pending transaction.** Where the
+1.x prompt showed only "approve or oppose", Home 2 resolves the referenced
+transaction first and the prompt discloses it: signature, transaction type,
+creator, the approval group, and its current PENDING status — an unknown
+signature, a non-pending transaction, or an app-supplied `groupId` that
+does not match the transaction's real group refuses before any prompt. The
+prompt also states that an opposition vote does not immediately reject the
+pending transaction (it stays pending until approved by others or it
+expires), and the transaction is re-read after approval with every
+transaction-sourced field (signature, type, creator, approval group, status)
+compared between the two reads — the group *name* row comes from a separate
+group lookup and is display context only. The type/creator/status rows are
+**node-reported context, not byte-verified fact**: what is signed binds only
+the pending transaction's signature (which the app supplied and the user
+sees), so a node lying consistently across both reads can mislabel the
+description of that transaction but can never change which transaction the
+vote applies to. A creator value that is not address-shaped is dropped from
+the prompt rather than painted.
+
+`UPDATE_GROUP` merges omitted fields with the live group so the prompt and
+the signed bytes always carry the **complete replacement** (with
+"(unchanged)" annotations), and a request that changes nothing answers
+`changed: false` without signing. There is **no ownership transfer** —
+Qortium's type 23 has no owner field; Qortal Hub's `newOwner` contract is a
+different transaction and is not carried. `SET_GROUP` requires a positive
+existing group (1.x accepted 0; Core has no group 0), pre-checks membership,
+and answers `changed: false` when the default is already set.
+`SET_GROUP_AVATAR` signs **only a QDN pointer** `{service, name,
+identifier}` — avatar bytes travel through the separate
+`PUBLISH_QDN_RESOURCE` flow with its own prompt and its own signature — and
+answers `changed: false` when the pointer already matches; Core enforces the
+raster/500 KiB rules when the avatar is served, not in this transaction.
+
+Group names are 3–32 UTF-8 bytes in Core's normalized form (approximated
+locally, Core authoritative), descriptions are required at 1–128 bytes
+(1.x defaulted to empty and let Core reject), thresholds are the seven enum
+names, and delays are validated locally (`max ≥ 1`, `max ≥ min`). 1.x
+aliases and payload nesting are preserved with one exception: 1.x accepted
+`txGroupId` as a fallback TARGET group id for updates and avatars, which
+conflated the target with the approval-group field — Home 2 takes the
+target from `groupId` only. `fee` and `txGroupId`, when present, must be 0 —
+and two valid group classes are unsupported by design: a group **created
+inside a transaction group** cannot be updated or have its avatar changed
+through Home, because its update must carry the original creation group and
+Core keeps `creationGroupId` unexposed (`@XmlTransient`), so such an attempt
+surfaces Core's rejection through the unknown-outcome path; and null-owned
+governance groups are refused by the owner-equality check (Core's
+usable-admin governance path for them is deliberately out of this slice).
+One residual is inherent to live-state merging and therefore DISPLAYED
+rather than solved: the current values an update inherits come from the
+configured node, so a lying node can steer what the omitted fields resolve
+to — but every resolved value is shown on the prompt and byte-bound into
+what is signed, so nothing is ever signed that the user did not see.
+On Android all five are filtered out of `SHOW_ACTIONS` (no signing path)
+with `UNSUPPORTED_PROTOCOL` kept for `qortalRequest`; Hub's `qortalRequest`
+group forms stay deferred.

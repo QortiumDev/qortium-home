@@ -293,4 +293,76 @@ assert.throws(() => assertPublicBuyNameTransaction(buyBytes, { amount: 1_250_000
 // Truncated (missing fee) fails.
 assert.throws(() => assertPublicBuyNameTransaction(concat(common(7), sized('alice'), int64(1_250_000_000), seller), { amount: 1_250_000_000n, name: 'alice', seller, publicKey, timestamp, txGroupId: 0 }), /malformed bytes|fee/);
 
+// ---- Group mutation verifiers (types 22/23/33/34/49) against bytes built
+// INDEPENDENTLY with this script's own encoders — never the module's builder,
+// so a shared builder/verifier bug cannot pass both sides. ----
+{
+  const { assertUnsignedHomeV2GroupMutationTransaction } = await import('../dist-electron/home-v2-group-mutation-actions.js');
+  const gmCommon = (type) => concat(int32(type), int64(timestamp), int32(0), publicKey, int32(0));
+  const createBytes = concat(
+    gmCommon(22), sized('droids'), sized('A place'), new Uint8Array([1, 40]), int32(4), int32(12), int64(0),
+  );
+  const createPayload = {
+    action: 'CREATE_GROUP',
+    request: { approvalThreshold: 'PCT40', description: 'A place', groupName: 'droids', isOpen: true, maximumBlockDelay: 12, minimumBlockDelay: 4 },
+  };
+  const gmExpected = (payload, nonce) => ({ ...(nonce === undefined ? {} : { nonce }), payload, senderPublicKey: publicKey, timestamp });
+  assert.doesNotThrow(() => assertUnsignedHomeV2GroupMutationTransaction(createBytes, gmExpected(createPayload)));
+  assert.throws(() => assertUnsignedHomeV2GroupMutationTransaction(createBytes, gmExpected({
+    ...createPayload, request: { ...createPayload.request, approvalThreshold: 'PCT60' },
+  })), /approval threshold/);
+  // A flag byte of 2 (Core would read as true) is refused outright.
+  assert.throws(() => assertUnsignedHomeV2GroupMutationTransaction(concat(
+    gmCommon(22), sized('droids'), sized('A place'), new Uint8Array([2, 40]), int32(4), int32(12), int64(0),
+  ), gmExpected(createPayload)), /open flag/);
+
+  const updateBytes = concat(
+    gmCommon(23), int32(7), sized(''), sized('Renamed place'), new Uint8Array([0, 1]), int32(5), int32(10), int64(0),
+  );
+  const updatePayload = {
+    action: 'UPDATE_GROUP', groupId: 7,
+    resolved: { approvalThreshold: 'ONE', description: 'Renamed place', isOpen: false, maximumBlockDelay: 10, minimumBlockDelay: 5, newName: '' },
+  };
+  assert.doesNotThrow(() => assertUnsignedHomeV2GroupMutationTransaction(updateBytes, gmExpected(updatePayload)));
+  assert.throws(() => assertUnsignedHomeV2GroupMutationTransaction(updateBytes, gmExpected({
+    ...updatePayload, groupId: 8,
+  })), /group/);
+
+  const pendingSig = sequence(64, 30);
+  const { default: fakeBase58 } = await import('../dist-electron/base58.js').then((m) => ({ default: m }));
+  const pendingSig58 = fakeBase58.base58Encode(pendingSig);
+  const approvalBytes = concat(gmCommon(33), pendingSig, new Uint8Array([1]), int64(0));
+  const approvalPayload = { action: 'GROUP_APPROVAL', approval: true, pendingSignature: pendingSig58 };
+  assert.equal(approvalBytes.length, 125);
+  assert.doesNotThrow(() => assertUnsignedHomeV2GroupMutationTransaction(approvalBytes, gmExpected(approvalPayload)));
+  assert.throws(() => assertUnsignedHomeV2GroupMutationTransaction(approvalBytes, gmExpected({
+    ...approvalPayload, approval: false,
+  })), /approval decision/);
+
+  const setGroupBytes = concat(gmCommon(34), int32(5), int64(0));
+  assert.equal(setGroupBytes.length, 64);
+  assert.doesNotThrow(() => assertUnsignedHomeV2GroupMutationTransaction(setGroupBytes, gmExpected({ action: 'SET_GROUP', defaultGroupId: 5 })));
+
+  const clearAvatarBytes = concat(gmCommon(49), int32(5), new Uint8Array([0]), int64(0));
+  assert.equal(clearAvatarBytes.length, 65);
+  assert.doesNotThrow(() => assertUnsignedHomeV2GroupMutationTransaction(clearAvatarBytes, gmExpected({ action: 'SET_GROUP_AVATAR', avatar: null, groupId: 5 })));
+  const setAvatarBytes = concat(gmCommon(49), int32(5), new Uint8Array([1]), int32(410), sized('Alice'), sized('group-avatar'), int64(0));
+  const avatarPayload = {
+    action: 'SET_GROUP_AVATAR',
+    avatar: { identifier: 'group-avatar', name: 'Alice', service: 'THUMBNAIL', serviceId: 410 },
+    groupId: 5,
+  };
+  assert.doesNotThrow(() => assertUnsignedHomeV2GroupMutationTransaction(setAvatarBytes, gmExpected(avatarPayload)));
+  assert.throws(() => assertUnsignedHomeV2GroupMutationTransaction(setAvatarBytes, gmExpected({
+    ...avatarPayload, avatar: { ...avatarPayload.avatar, identifier: 'other' },
+  })), /avatar identifier/);
+  // Stamped bytes verify only with the exact nonce.
+  const stamped = new Uint8Array(setGroupBytes);
+  new DataView(stamped.buffer).setUint32(48, 777, false);
+  assert.throws(() => assertUnsignedHomeV2GroupMutationTransaction(stamped, gmExpected({ action: 'SET_GROUP', defaultGroupId: 5 })), /nonce/);
+  assert.doesNotThrow(() => assertUnsignedHomeV2GroupMutationTransaction(stamped, gmExpected({ action: 'SET_GROUP', defaultGroupId: 5 }, 777)));
+  // Trailing bytes refused.
+  assert.throws(() => assertUnsignedHomeV2GroupMutationTransaction(concat(setGroupBytes, new Uint8Array([0])), gmExpected({ action: 'SET_GROUP', defaultGroupId: 5 })), /trailing/);
+}
+
 console.log('Public transaction validation tests passed.');
