@@ -1292,6 +1292,16 @@ export function createPortableNodeClient(
         }
         return await this.listRead!(action, isRecord(requestValue) ? requestValue : {})
       }
+      // Signing families whose Android arm lives in the Home shell: reaching
+      // the client means the approval was bypassed, so refuse plainly rather
+      // than falling through to the generic read-only message, which would
+      // misdescribe a family this platform DOES implement.
+      if (protocol === 'qdnRequest' && (isHomeV2PollWriteAction(action) || isHomeV2NameWriteAction(action))) {
+        throw createHomeV2BridgeError(
+          `${action} must be approved through Home before it can be signed.`,
+          { action, code: 'NODE_CAPABILITY_MISSING', network: 'qortium', retryable: false },
+        )
+      }
       const androidRefusal = homeV2AndroidActionRefusal(action, protocol)
       if (androidRefusal) {
         throw createHomeV2BridgeError(androidRefusal.message, {

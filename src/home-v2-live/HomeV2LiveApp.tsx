@@ -204,7 +204,8 @@ import {
   isHomeV2PermissionlessAction,
 } from '../../electron/home-v2-session-grants'
 import { getHomeV2BridgeStateDetails } from '../../electron/home-v2-app-runtime'
-import { canonicalHomeV2AppAction, homeV2NameOperationLabel, homeV2PollOperationLabel, homeV2PublishExtraOperationLabel, isHomeV2ListAction, isHomeV2ListWriteAction, isHomeV2NameWriteAction, isHomeV2PollWriteAction, isHomeV2PublishExtraAction, normalizeHomeV2ListItems, normalizeHomeV2ListName, serializeHomeV2ListItemsForApproval } from '../../electron/home-v2-app-actions'
+import { unwrapAndroidNodeRecord } from './android-node-envelope'
+import { canonicalHomeV2VoteSelection, normalizeHomeV2CreatePollRequest, normalizeHomeV2UpdatePollRequest, normalizeHomeV2VoteOnPollRequest, selectHomeV2PollTarget, canonicalHomeV2AppAction, homeV2NameOperationLabel, homeV2PollOperationLabel, homeV2PublishExtraOperationLabel, isHomeV2ListAction, isHomeV2ListWriteAction, isHomeV2NameWriteAction, isHomeV2PollWriteAction, isHomeV2PublishExtraAction, normalizeHomeV2BuyNameRequest, normalizeHomeV2CancelSellNameRequest, normalizeHomeV2ListItems, normalizeHomeV2ListName, normalizeHomeV2RegisterNameRequest, normalizeHomeV2SellNameRequest, normalizeHomeV2UpdateNameRequest, selectHomeV2NameTarget, serializeHomeV2ListItemsForApproval } from '../../electron/home-v2-app-actions'
 import { homeV2GroupMutationOperationLabel, isHomeV2GroupMutationAction } from '../../electron/home-v2-group-mutation-actions'
 import { homeV2RatingOperationLabel, isHomeV2RatingAction } from '../../electron/home-v2-rating-actions'
 import { homeV2AccountAvatarOperationLabel } from '../../electron/home-v2-account-avatar-actions'
@@ -545,6 +546,46 @@ function isSequencedDetailRows(
     if (!expected.optional) return false
   }
   return position === value.length
+}
+
+/**
+ * Builds the disclosure rows for an Android approval prompt AND holds them to
+ * the same pinned contract the desktop prompts are held to.
+ *
+ * On desktop the main process sends rows over IPC and the shell re-validates
+ * them against a per-action sequence before rendering — for payments,
+ * ratings, names and group mutations those rows ARE the security control.
+ * Android builds its rows in-process, so there is no IPC boundary to check
+ * them at; without this they would be free-form. Every Android arm therefore
+ * goes through here: values are escaped to printable ASCII, and a row set
+ * that does not match the action's sequence throws instead of prompting —
+ * a mismatch is a programming error, and showing an unvalidated approval is
+ * worse than showing none.
+ */
+/**
+ * Prompt rows for an Android signing arm, escaped and then held to the same
+ * per-action sequence the desktop prompt is validated against.
+ *
+ * Every row is escaped, including Home's own wording, because the validator
+ * cannot tell Home's text from an app's. That is why the fixed copy in these
+ * arms is written in plain ASCII: an em dash or a curly apostrophe in a
+ * Home-authored row would reach the user as a literal \u2014 escape.
+ */
+function androidSequencedDetails(
+  action: string,
+  sequence: readonly { label: string; optional?: true }[] | undefined,
+  rows: readonly { label: string; value: string; variant?: 'scroll' }[],
+): readonly { label: string; value: string; variant?: 'scroll' }[] {
+  const escaped = rows.map((row) => ({ label: row.label, value: androidPromptText(row.value) }))
+  if (!isSequencedDetailRows(sequence, escaped)) {
+    throw new Error(`${action} prompt rows do not match its disclosure contract.`)
+  }
+  // Re-attach the render variants the validator does not model (it checks
+  // exactly two keys per row).
+  return escaped.map((row, index) => {
+    const variant = rows[index]?.variant
+    return variant ? { ...row, variant } : row
+  })
 }
 
 // Printable-ASCII escaping for prompt rows the Android flow builds locally —
@@ -4580,6 +4621,424 @@ export function HomeV2LiveApp() {
           : androidNextNotificationId.current + 1
         return { ...resultBase, shown: true }
       }
+      // The pending-transaction conflict gate, ahead of EVERY signing arm.
+      //
+      // It used to sit below the poll and name arms, which meant those two
+      // families could be re-signed while a previous broadcast's outcome was
+      // still unknown — the exact duplicate this journal exists to prevent,
+      // and for BUY_NAME a duplicate PAYMENT. It is a no-op for anything that
+      // is not a journaled mutation, so running it earlier costs nothing.
+      const assertNoPendingTransactionConflict = async () => {
+        if (!isAndroidHost || !context.selectedAccountId || !isHomeV2JournaledMutation(action)) return
+        const targetNetwork: NetworkId = protocol === 'qortalRequest' ? 'qortal' : 'qortium'
+        const pending = await findAndroidHomeV2PendingTransactionConflict({
+          accountId: context.selectedAccountId,
+          action,
+          appIdentity: resolveAppIdentity().identityKey,
+          network: targetNetwork,
+          request: requestValue,
+        })
+        if (pending) {
+          throw Object.assign(
+            new Error(`A previous ${action} for this target has an unknown outcome. Reconcile signature ${pending.signature} before submitting another.`),
+            {
+              action,
+              code: 'PENDING_TRANSACTION_RECONCILIATION_REQUIRED',
+              network: targetNetwork,
+              outcome: 'unknown',
+              retryable: false,
+            },
+          )
+        }
+      }
+      await assertNoPendingTransactionConflict()
+      // Poll writes on Android. The builders are Core's keyless
+      // /polls/public/* routes and the signing happens in the vault, so this
+      // arm normalizes only to DESCRIBE the operation — the vault
+      // re-normalizes the same request through the same shared code before it
+      // signs, so the rows and the bytes cannot disagree.
+      if (isAndroidHost && protocol === 'qdnRequest' && isHomeV2PollWriteAction(action)) {
+        if (!context.selectedAccountId) throw new Error('No account is selected for this tab.')
+        const accountId = context.selectedAccountId
+        const account = accountCatalogueRef.current.accounts.find((candidate) => candidate.id === accountId)
+        if (!account) throw new Error('The selected account is no longer available.')
+        if (!account.isUnlocked) throw new Error('The selected account is locked.')
+        if (!vaultClient?.signPollWrite) throw new Error('Poll signing is unavailable on this platform.')
+        const nodeBefore = parseHomeV2NodesSnapshot(await nodeClient.getSnapshot()).qortium
+        if (!nodeBefore.nodeApiUrl || !nodeBefore.capabilities.read) {
+          throw new Error(nodeBefore.error ?? 'Qortium is unavailable.')
+        }
+        const request = isRecord(requestValue) ? requestValue : {}
+        const createRequest = action === 'CREATE_POLL'
+          ? normalizeHomeV2CreatePollRequest(request, account.address)
+          : null
+        const voteRequest = action === 'VOTE_ON_POLL' ? normalizeHomeV2VoteOnPollRequest(request) : null
+        const updateRequest = action === 'UPDATE_POLL' ? normalizeHomeV2UpdatePollRequest(request) : null
+        const selection = voteRequest ? canonicalHomeV2VoteSelection(voteRequest.optionInput) : null
+        const pollId = voteRequest?.pollId ?? updateRequest?.pollId ?? null
+        // The live poll a vote or update is about, so the prompt names real
+        // labels rather than bare indexes.
+        const target = pollId === null
+          ? null
+          // FETCH_NODE_API, not FETCH_QORTAL_NODE_API: the latter resolves to
+          // the QORTAL route by name (getHomeV2AppNetwork), and this poll
+          // lives on Qortium.
+          : selectHomeV2PollTarget(
+              unwrapAndroidNodeRecord(
+                await nodeClient.requestApp(protocol, { action: 'FETCH_NODE_API', path: `/polls/id/${pollId}` }, context),
+                `Poll ${pollId} does not exist.`,
+              ),
+              pollId,
+            )
+        // Refuse an out-of-range option BEFORE prompting, as desktop does: a
+        // selection row naming an option that does not exist would ask the
+        // user to approve something the vault is certain to reject.
+        if (target && selection) {
+          for (const index of selection) {
+            if (index > target.optionNames.length) {
+              throw new Error(`Poll "${target.pollName}" has ${target.optionNames.length} options; option ${index} does not exist.`)
+            }
+          }
+        }
+        const rows = createRequest
+          ? [
+              { label: 'Name', value: createRequest.pollName },
+              { label: 'Description', value: createRequest.description || '(none)' },
+              { label: 'Options', value: JSON.stringify(createRequest.pollOptions), variant: 'scroll' as const },
+              { label: 'Owner', value: createRequest.owner },
+              ...(createRequest.startTime !== undefined
+                ? [{ label: 'Starts', value: `${new Date(createRequest.startTime).toISOString()} (${createRequest.startTime})` }]
+                : []),
+              ...(createRequest.endTime !== undefined
+                ? [{ label: 'Ends', value: `${new Date(createRequest.endTime).toISOString()} (${createRequest.endTime})` }]
+                : []),
+            ]
+          : voteRequest && selection
+            ? [
+                { label: 'Poll', value: `#${voteRequest.pollId} \u00b7 ${target?.pollName ?? ''}` },
+                {
+                  label: 'Selection',
+                  value: selection.length === 0
+                    ? 'Remove this account\'s vote'
+                    : selection.map((index) => `${index}. ${target?.optionNames[index - 1] ?? ''}`).join(', '),
+                  variant: 'scroll' as const,
+                },
+              ]
+            : [
+                { label: 'Poll', value: `#${updateRequest!.pollId} \u00b7 ${target?.pollName ?? ''}` },
+                { label: 'New name', value: updateRequest!.newPollName },
+                { label: 'New description', value: updateRequest!.newDescription || '(none)' },
+                { label: 'New options', value: JSON.stringify(updateRequest!.newPollOptions), variant: 'scroll' as const },
+                {
+                  label: 'New start',
+                  value: updateRequest!.newStartTime !== undefined
+                    ? `${new Date(updateRequest!.newStartTime).toISOString()} (${updateRequest!.newStartTime})`
+                    : '(none - clears any stored start time)',
+                },
+                {
+                  label: 'New end',
+                  value: updateRequest!.newEndTime !== undefined
+                    ? `${new Date(updateRequest!.newEndTime).toISOString()} (${updateRequest!.newEndTime})`
+                    : '(none - clears any stored end time)',
+                },
+              ]
+        const operationLabel = homeV2PollOperationLabel(action, selection !== null && selection.length === 0)
+        const parsedApp = resolveAppIdentity()
+        const appId = brand<AppId>(`home-v2:permission-app:${parsedApp.identityKey}`)
+        const nodeRoute = `${nodeBefore.mode}|${nodeBefore.nodeApiUrl}`
+        const decision = await queueAndroidPermissionPrompt(createPermissionPrompt({
+          id: brand<PermissionRequestId>(globalThis.crypto.randomUUID()),
+          protocol,
+          action,
+          capability: 'poll.write',
+          appId,
+          appIdentityKey: parsedApp.identityKey,
+          appTitle: parsedApp.title,
+          context: {
+            appId,
+            identityId: brand<IdentityId>(`home-v2:identity:${accountId}`),
+            nodeProfileRef: snapshot.nodes.qortium.ref,
+            tabId: brand<TabId>(context.tabId),
+            targetNetwork: 'qortium',
+            walletRef: brand<WalletRef>(`home-v2:wallet:${account.walletId}`),
+          },
+          title: `Allow ${operationLabel.toLowerCase()}?`,
+          summary: `${parsedApp.title} wants to sign and broadcast one poll transaction from the selected account. It carries no payment and costs no fee \u2014 Home pays for it with proof-of-work on this device. Everything it does is shown below, exactly as it will be signed; this approval covers this one transaction only.`,
+          details: [
+            { label: 'Account', value: account.label },
+            { label: 'Operation', value: operationLabel },
+            // Held to the SAME pinned sequence the desktop prompt is held to.
+            ...androidSequencedDetails(action, POLL_DETAIL_SEQUENCES[action], rows),
+            { label: 'Chain', value: 'Qortium' },
+            { label: 'Scope', value: 'This one transaction only' },
+          ],
+          allowedScopes: ['single-request'],
+        }), context.tabId)
+        if (!decision.approved || decision.scope !== 'single-request') {
+          throw new Error('The poll transaction was denied.')
+        }
+        const rateLimitDecision = androidChatSendRateLimiter.current.checkAndRecordSend(`${context.tabId}|${accountId}`)
+        if (!rateLimitDecision.allowed) throw new Error(rateLimitDecision.message)
+        const isStillValid = async () => {
+          const currentTab = productStateRef.current.tabs.find((tab) => tab.id === context.tabId)
+          const currentAccount = accountCatalogueRef.current.accounts.find((candidate) => candidate.id === accountId)
+          const currentNode = parseHomeV2NodesSnapshot(await nodeClient.getSnapshot()).qortium
+          return !!currentTab &&
+            currentTab.context.resourceLocation === context.resourceLocation &&
+            // The tab's identity too: switching the account mid-prompt means
+            // the approval named an account that is no longer the one the app
+            // is acting as. Same comparison the other Android signing arms use.
+            String(currentTab.context.identityId) === `home-v2:identity:${accountId}` &&
+            !!currentAccount?.isUnlocked &&
+            currentNode.capabilities.read &&
+            `${currentNode.mode}|${currentNode.nodeApiUrl ?? ''}` === nodeRoute
+        }
+        if (!(await isStillValid())) throw new Error('The app, account, or node route changed before signing.')
+        // Re-checked after approval, not only before it: two requests can both
+        // clear the gate while the first is still waiting at the prompt, and
+        // the entry that would block the second is only written when the
+        // first one's outcome comes back unknown.
+        await assertNoPendingTransactionConflict()
+        // The journal wrap is mandatory for every signing arm: the shared
+        // conflict gate already fires for this family, so an arm that forgets
+        // it would block the action permanently while recording nothing.
+        return retainUnknownTransaction(await vaultClient.signPollWrite({
+          accountId,
+          action,
+          // What the user actually saw. The vault refuses if the chain has
+          // moved away from it — without this it could only compare its own
+          // reads against each other.
+          approvedAddress: account.address,
+          approvedPoll: target
+            ? { optionNames: [...target.optionNames], pollId: target.pollId, pollName: target.pollName }
+            : null,
+          isStillValid,
+          nodeApiUrl: nodeBefore.nodeApiUrl,
+          requestValue: request,
+        }))
+      }
+      // Name writes on Android. Core's keyless /names/public/* builders and
+      // in-vault signing make this platform-independent; what is NOT
+      // platform-independent is the disclosure, so this arm mirrors the
+      // desktop prompt row for row and holds it to the same pinned sequence.
+      //
+      // BUY_NAME IS A PAYMENT. A zero transaction fee is not a zero financial
+      // effect: approving moves the sale amount to the seller. Seller, price
+      // and any buyer restriction are resolved from the LIVE sale here and
+      // again inside the vault, and an app-supplied value must match rather
+      // than override.
+      if (isAndroidHost && protocol === 'qdnRequest' && isHomeV2NameWriteAction(action)) {
+        if (!context.selectedAccountId) throw new Error('No account is selected for this tab.')
+        const accountId = context.selectedAccountId
+        const account = accountCatalogueRef.current.accounts.find((candidate) => candidate.id === accountId)
+        if (!account) throw new Error('The selected account is no longer available.')
+        if (!account.isUnlocked) throw new Error('The selected account is locked.')
+        if (!vaultClient?.signNameWrite) throw new Error('Name signing is unavailable on this platform.')
+        const nodeBefore = parseHomeV2NodesSnapshot(await nodeClient.getSnapshot()).qortium
+        if (!nodeBefore.nodeApiUrl || !nodeBefore.capabilities.read) {
+          throw new Error(nodeBefore.error ?? 'Qortium is unavailable.')
+        }
+        const request = isRecord(requestValue) ? requestValue : {}
+        const registerRequest = action === 'REGISTER_NAME' ? normalizeHomeV2RegisterNameRequest(request) : null
+        const updateRequest = action === 'UPDATE_NAME' ? normalizeHomeV2UpdateNameRequest(request) : null
+        const sellRequest = action === 'SELL_NAME' ? normalizeHomeV2SellNameRequest(request) : null
+        const cancelRequest = action === 'CANCEL_SELL_NAME' ? normalizeHomeV2CancelSellNameRequest(request) : null
+        const buyRequest = action === 'BUY_NAME' ? normalizeHomeV2BuyNameRequest(request) : null
+        const subjectName = registerRequest?.name ?? updateRequest?.name ?? sellRequest?.name ??
+          cancelRequest?.name ?? buyRequest!.name
+        // Everything but REGISTER acts on live name state. GET resolves by
+        // REDUCED name while the transactions demand the exact stored
+        // spelling, so a mismatch refuses instead of silently substituting
+        // the spelling that would actually be signed.
+        const target = registerRequest
+          ? null
+          : selectHomeV2NameTarget(unwrapAndroidNodeRecord(
+              await nodeClient.requestApp(
+                protocol,
+                // FETCH_NODE_API keeps the read on the Qortium route this
+                // transaction is signed for; the QORTAL-named twin resolves to
+                // the other chain by action name alone.
+                { action: 'FETCH_NODE_API', path: `/names/${encodeURIComponent(subjectName)}` },
+                context,
+              ),
+              `The name "${subjectName}" does not exist.`,
+            ))
+        if (target && target.name !== subjectName) {
+          throw new Error(`The name "${subjectName}" is stored as "${target.name}"; request the exact stored spelling.`)
+        }
+        if (target && (updateRequest || sellRequest || cancelRequest) && target.owner !== account.address) {
+          throw new Error(`The name "${subjectName}" is owned by ${target.owner}, not the selected account.`)
+        }
+        if (sellRequest && target?.isForSale) {
+          throw new Error(`The name "${subjectName}" is already for sale; cancel the current sale first.`)
+        }
+        if (cancelRequest && target && !target.isForSale) {
+          throw new Error(`The name "${subjectName}" is not for sale.`)
+        }
+        let buySeller: string | null = null
+        let buyAmountDecimal = ''
+        if (buyRequest && target) {
+          if (!target.isForSale || target.salePrice === null) {
+            throw new Error(`The name "${subjectName}" is not for sale.`)
+          }
+          if (target.saleRecipient && target.saleRecipient !== account.address) {
+            throw new Error(`The sale of "${subjectName}" is restricted to ${target.saleRecipient}.`)
+          }
+          if (target.owner === account.address) {
+            throw new Error(`The selected account already owns "${subjectName}".`)
+          }
+          buySeller = buyRequest.seller ?? target.owner
+          if (buySeller !== target.owner) {
+            throw new Error(`The seller of "${subjectName}" is ${target.owner}, not ${buySeller}.`)
+          }
+          if (buyRequest.amount && buyRequest.amount.atomic !== target.salePrice.atomic) {
+            throw new Error(
+              `The sale price of "${subjectName}" is ${target.salePrice.decimal}, not ${buyRequest.amount.decimal}.`,
+            )
+          }
+          buyAmountDecimal = target.salePrice.decimal
+        }
+        const rows = registerRequest
+          ? [
+              { label: 'Name', value: registerRequest.name },
+              { label: 'Name data', value: registerRequest.data || '(none)', variant: 'scroll' as const },
+            ]
+          : updateRequest
+            ? [
+                { label: 'Name', value: updateRequest.name },
+                { label: 'New name', value: updateRequest.newName || '(unchanged)' },
+                {
+                  label: 'New data',
+                  value: updateRequest.newData || '(unchanged - existing data is kept)',
+                  variant: 'scroll' as const,
+                },
+                {
+                  label: 'Primary',
+                  value: updateRequest.primary === undefined
+                    ? '(unchanged)'
+                    : updateRequest.primary
+                      ? 'Make this the account\'s primary name'
+                      : 'Stop being the account\'s primary name',
+                },
+              ]
+            : sellRequest
+              ? [
+                  { label: 'Name', value: sellRequest.name },
+                  { label: 'Price', value: `${sellRequest.amount.decimal} coins` },
+                  {
+                    label: 'Sale type',
+                    value: sellRequest.recipient
+                      ? `Restricted - only ${sellRequest.recipient} may buy. The sale amount is always paid to you, the owner.`
+                      : 'Public - any account may buy',
+                  },
+                ]
+              : cancelRequest && target
+                ? [
+                    { label: 'Name', value: cancelRequest.name },
+                    {
+                      label: 'Price',
+                      value: target.salePrice
+                        ? `${target.salePrice.decimal} coins (current sale, being cancelled)`
+                        : '(current sale, being cancelled)',
+                    },
+                  ]
+                : [
+                    { label: 'Name', value: subjectName },
+                    { label: 'You pay', value: `${buyAmountDecimal} coins` },
+                    { label: 'Paid to', value: buySeller ?? '' },
+                    ...(target?.saleRecipient
+                      ? [{
+                          label: 'Restriction',
+                          value: `This sale is restricted to ${target.saleRecipient} (the selected account)`,
+                        }]
+                      : []),
+                  ]
+        const operationLabel = homeV2NameOperationLabel(action)
+        const parsedApp = resolveAppIdentity()
+        const appId = brand<AppId>(`home-v2:permission-app:${parsedApp.identityKey}`)
+        const nodeRoute = `${nodeBefore.mode}|${nodeBefore.nodeApiUrl}`
+        const decision = await queueAndroidPermissionPrompt(createPermissionPrompt({
+          id: brand<PermissionRequestId>(globalThis.crypto.randomUUID()),
+          protocol,
+          action,
+          capability: 'name.write',
+          appId,
+          appIdentityKey: parsedApp.identityKey,
+          appTitle: parsedApp.title,
+          context: {
+            appId,
+            identityId: brand<IdentityId>(`home-v2:identity:${accountId}`),
+            nodeProfileRef: snapshot.nodes.qortium.ref,
+            tabId: brand<TabId>(context.tabId),
+            targetNetwork: 'qortium',
+            walletRef: brand<WalletRef>(`home-v2:wallet:${account.walletId}`),
+          },
+          title: `Allow ${operationLabel.toLowerCase()}?`,
+          summary: action === 'BUY_NAME'
+            ? `${parsedApp.title} wants to buy a name with the selected account. Approving PAYS the amount shown below from this account to the seller \u2014 the transaction fee is zero, but the payment is real. Everything is shown exactly as it will be signed; this approval covers this one purchase only.`
+            : `${parsedApp.title} wants to sign and broadcast one name transaction from the selected account. It costs no fee \u2014 Home pays for it with proof-of-work on this device. Everything it does is shown below, exactly as it will be signed; this approval covers this one transaction only.`,
+          details: [
+            { label: 'Account', value: account.label },
+            { label: 'Operation', value: operationLabel },
+            // Held to the SAME pinned sequence the desktop prompt is held to.
+            ...androidSequencedDetails(action, NAME_DETAIL_SEQUENCES[action], rows),
+            { label: 'Chain', value: 'Qortium' },
+            {
+              label: 'Scope',
+              value: action === 'BUY_NAME' ? 'This one purchase only' : 'This one transaction only',
+            },
+          ],
+          allowedScopes: ['single-request'],
+        }), context.tabId)
+        if (!decision.approved || decision.scope !== 'single-request') {
+          throw new Error('The name transaction was denied.')
+        }
+        const rateLimitDecision = androidChatSendRateLimiter.current.checkAndRecordSend(`${context.tabId}|${accountId}`)
+        if (!rateLimitDecision.allowed) throw new Error(rateLimitDecision.message)
+        const isStillValid = async () => {
+          const currentTab = productStateRef.current.tabs.find((tab) => tab.id === context.tabId)
+          const currentAccount = accountCatalogueRef.current.accounts.find((candidate) => candidate.id === accountId)
+          const currentNode = parseHomeV2NodesSnapshot(await nodeClient.getSnapshot()).qortium
+          return !!currentTab &&
+            currentTab.context.resourceLocation === context.resourceLocation &&
+            // The tab's identity too: switching the account mid-prompt means
+            // the approval named an account that is no longer the one the app
+            // is acting as. Same comparison the other Android signing arms use.
+            String(currentTab.context.identityId) === `home-v2:identity:${accountId}` &&
+            !!currentAccount?.isUnlocked &&
+            currentNode.capabilities.read &&
+            `${currentNode.mode}|${currentNode.nodeApiUrl ?? ''}` === nodeRoute
+        }
+        if (!(await isStillValid())) throw new Error('The app, account, or node route changed before signing.')
+        // Re-checked after approval, not only before it: two requests can both
+        // clear the gate while the first is still waiting at the prompt, and
+        // the entry that would block the second is only written when the
+        // first one's outcome comes back unknown.
+        await assertNoPendingTransactionConflict()
+        // Mandatory for every signing arm: the shared conflict gate already
+        // fires for this family, so an arm that forgets the journal wrap would
+        // block the action permanently while recording nothing.
+        return retainUnknownTransaction(await vaultClient.signNameWrite({
+          accountId,
+          action,
+          // The disclosed sale IS the binding one: the price and seller in the
+          // signed bytes come from here, not from a read taken after the user
+          // has already approved.
+          approvedAddress: account.address,
+          approvedTarget: target
+            ? {
+                isForSale: target.isForSale,
+                name: target.name,
+                owner: target.owner,
+                salePriceAtomic: target.salePrice === null ? null : target.salePrice.atomic.toString(),
+                saleRecipient: target.saleRecipient,
+              }
+            : null,
+          isStillValid,
+          nodeApiUrl: nodeBefore.nodeApiUrl,
+          requestValue: request,
+        }))
+      }
       // QDN lists on Android. They administer the user's OWN node — allowed
       // wherever they attached its API key (custom node, HTTPS or an SSH
       // tunnel), which is why the family is no longer withheld here. The key
@@ -4744,28 +5203,6 @@ export function HomeV2LiveApp() {
           })).map(toHomeV2PendingTransactionResult),
           network: targetNetwork,
           version: 1,
-        }
-      }
-      if (isAndroidHost && context.selectedAccountId && isHomeV2JournaledMutation(action)) {
-        const targetNetwork: NetworkId = protocol === 'qortalRequest' ? 'qortal' : 'qortium'
-        const pending = await findAndroidHomeV2PendingTransactionConflict({
-          accountId: context.selectedAccountId,
-          action,
-          appIdentity: resolveAppIdentity().identityKey,
-          network: targetNetwork,
-          request: requestValue,
-        })
-        if (pending) {
-          throw Object.assign(
-            new Error(`A previous ${action} for this target has an unknown outcome. Reconcile signature ${pending.signature} before submitting another.`),
-            {
-              action,
-              code: 'PENDING_TRANSACTION_RECONCILIATION_REQUIRED',
-              network: targetNetwork,
-              outcome: 'unknown',
-              retryable: false,
-            },
-          )
         }
       }
       if (
@@ -6021,7 +6458,13 @@ export function HomeV2LiveApp() {
             },
             context,
           )
-          const value = isRecord(response) && 'data' in response ? response.data : response
+          // Through the shared unwrapper: this used to accept any record with a
+          // `data` key, so a 5xx whose body happened to carry a plausible
+          // `publicKey` would have been taken as the peer's real key.
+          const value = unwrapAndroidNodeRecord(
+            response,
+            'The direct-message recipient does not have a usable public key.',
+          )
           const publicKey = typeof value === 'string'
             ? value.trim()
             : isRecord(value) && typeof value.publicKey === 'string'

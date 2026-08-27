@@ -1194,9 +1194,24 @@ established Home 2 convention.
 
 The family requires a selected, unlocked account, and works against any
 reachable Qortium route that exposes the public poll builders — a node without
-them answers `NODE_CAPABILITY_MISSING`. On Android all three are filtered out
-of `SHOW_ACTIONS` (`ANDROID_UNSUPPORTED_ACTIONS` — Android has no transaction
-signing path) and a direct call is refused with that reason; the pinned Qortal
+them answers `NODE_CAPABILITY_MISSING`. **The family works on Android too.**
+The builders are Core's keyless `/polls/public/*` routes and the signature is
+Ed25519 over bytes the device verified itself, so nothing about the sequence
+needed a desktop: the Android vault runs the same build → byte-assert →
+MemoryPoW → re-check context and live state → stamp → sign → broadcast chain
+that desktop runs, and the account key stays inside it exactly as it stays in
+the main process on desktop. (Stamping writes the nonce into a fixed offset of
+bytes already verified field by field, so neither platform re-asserts after
+it; the families built by LOCAL transformers, which have no Core builder to
+check, do re-verify the stamped bytes.) What is
+NOT platform-independent is the disclosure, so the Android prompt is held to
+the same per-action row sequence the desktop prompt is validated against. The
+state the prompt was shown against travels WITH the request into the vault and
+is the baseline every later check compares to — the vault reads the chain again
+before it signs, and a vault that could only compare its own two reads would
+agree with anything that moved while the prompt was open. A direct call that
+a direct call that reaches the node client without an approval is refused for
+bypassing the prompt rather than for being on a phone; the pinned Qortal
 v3 poll forms stay deferred, because Hub's contract is a genuinely different
 legacy transaction (pollName target, zero-based index, paid fee and a last
 reference, no builder) and mechanically translating it into the Qortium
@@ -1259,10 +1274,18 @@ have a price above zero and below the maximum; a restricted sale may be
 zero. The family requires
 a selected, unlocked account and a route exposing the public name builders
 (`NODE_CAPABILITY_MISSING` otherwise, probed via
-`/names/public/capabilities`). On Android all five are filtered out of
-`SHOW_ACTIONS` (no signing path — and `BUY_NAME` pays) with the signing
-refusal kept for direct `qdnRequest` calls and `UNSUPPORTED_PROTOCOL` on
-`qortalRequest`; the pinned Qortal v3 name forms stay deferred.
+`/names/public/capabilities`). **The family works on Android too**, on the
+same in-vault signing path as the poll family, prompt rows included —
+`BUY_NAME` among them. That one PAYS, which is precisely why it is not
+withheld: a purchase the user can make on their desktop but not on their
+phone is a platform that half works, not a safer one. The payment-grade
+disclosure and the exact-match rule on app-supplied values apply identically on
+Android, and the price and seller that get SIGNED are the ones carried over
+from the approval — not values re-read after the user has already tapped
+Approve, which is how a sale re-listed while the prompt was open would
+otherwise be paid at the new price; a direct `qdnRequest` call reaching the node client is refused for
+bypassing the prompt, and `qortalRequest` still answers `UNSUPPORTED_PROTOCOL`.
+The pinned Qortal v3 name forms stay deferred.
 
 ## Group mutation actions (Home 2)
 

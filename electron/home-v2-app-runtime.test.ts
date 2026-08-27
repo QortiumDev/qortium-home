@@ -538,15 +538,19 @@ assert.equal(androidActions.includes('SHOW_CONTEXT_MENU'), true)
 // The LIST family is advertised on Android now: it administers the user's own
 // node, which Home permits wherever they attached that node's API key — a
 // custom node over HTTPS or an SSH tunnel — and Android implements the arm.
-for (const action of ['GET_ALL_LISTS', 'GET_LIST', 'ADD_TO_LIST', 'REMOVE_FROM_LIST']) {
+for (const action of ['GET_ALL_LISTS', 'GET_LIST', 'ADD_TO_LIST', 'REMOVE_FROM_LIST',
+  // Poll writes sign locally on Android now: the vault owns the same
+  // build → assert → mempow → stamp → assert → sign sequence desktop uses.
+  'CREATE_POLL', 'UPDATE_POLL', 'VOTE_ON_POLL',
+  // Name writes too, on the same in-vault signing path. BUY_NAME is included
+  // deliberately: it PAYS, and a payment the user can make on desktop but not
+  // on their phone is a platform that half works, not a safer one.
+  'REGISTER_NAME', 'UPDATE_NAME', 'SELL_NAME', 'CANCEL_SELL_NAME', 'BUY_NAME']) {
   assert.equal(androidActions.includes(action), true, `android must advertise ${action}`)
 }
 // SEND_MESSAGE and the signing families stay filtered: no Android arm yet, and
 // an advertised action that cannot run would make SHOW_ACTIONS lie.
 for (const action of ['SEND_MESSAGE',
-  // Poll and name writes sign transactions and Android has no signing path.
-  'CREATE_POLL', 'UPDATE_POLL', 'VOTE_ON_POLL',
-  'REGISTER_NAME', 'UPDATE_NAME', 'SELL_NAME', 'CANCEL_SELL_NAME', 'BUY_NAME',
   'CREATE_GROUP', 'UPDATE_GROUP', 'GROUP_APPROVAL', 'SET_GROUP', 'SET_GROUP_AVATAR']) {
   assert.equal(androidActions.includes(action), false, `android must not advertise ${action}`)
 }

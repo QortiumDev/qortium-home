@@ -366,9 +366,11 @@ for (const listRequest of [
   )
 }
 
-// Poll writes sign transactions, which Android cannot do: filtered from
-// SHOW_ACTIONS and refused with the generic signing reason on qdnRequest;
-// on qortalRequest the family is simply not implemented.
+// Poll writes ARE implemented on Android now — signed in the vault after the
+// Home shell raises the approval. Reaching the bare client means that
+// approval was bypassed, so the refusal says exactly that rather than
+// claiming the platform cannot sign. On qortalRequest the family is simply
+// not implemented.
 for (const pollRequest of [
   { action: 'CREATE_POLL', pollName: 'Snacks', pollOptions: ['A', 'B'] },
   { action: 'VOTE_ON_POLL', optionIndex: 1, pollId: 7 },
@@ -376,7 +378,9 @@ for (const pollRequest of [
 ]) {
   await assert.rejects(
     () => client.requestApp('qdnRequest', pollRequest),
-    /requires transaction signing/,
+    (error: Error) =>
+      /must be approved through Home/.test(error.message) &&
+      !/only available in Qortium Home desktop|read-only mode/i.test(error.message),
   )
   await assert.rejects(
     () => client.requestApp('qortalRequest', pollRequest),
@@ -384,8 +388,10 @@ for (const pollRequest of [
   )
 }
 
-// Same posture for the name writes (and BUY_NAME additionally pays, so there
-// is definitely no Android path until a signing story exists there).
+// Same posture for the name writes: Android implements them, the SHELL raises
+// the approval, and the client is not the place a name transaction can be
+// signed from — so one arriving here bypassed the prompt and is refused by a
+// message that says so rather than blaming the platform.
 for (const nameRequest of [
   { action: 'REGISTER_NAME', name: 'droid' },
   { action: 'UPDATE_NAME', name: 'droid', newName: 'droid2' },
@@ -395,7 +401,9 @@ for (const nameRequest of [
 ]) {
   await assert.rejects(
     () => client.requestApp('qdnRequest', nameRequest),
-    /requires transaction signing/,
+    (error: Error) =>
+      /must be approved through Home/.test(error.message) &&
+      !/only available in Qortium Home desktop|read-only mode/i.test(error.message),
   )
   await assert.rejects(
     () => client.requestApp('qortalRequest', nameRequest),
