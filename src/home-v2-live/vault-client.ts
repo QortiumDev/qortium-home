@@ -185,6 +185,10 @@ export interface HomeV2GroupAdminMutationResult {
 
 export interface HomeV2PublicPublishMutationRequest {
   readonly accountId: string
+  // Qortal only: the atomic unit fee (decimal digit string) that was
+  // DISCLOSED on the approval prompt. The vault refuses to sign if the
+  // chain answers a different fee at signing time.
+  readonly expectedFeeAtomic?: string
   readonly fileName: string
   readonly isStillValid?: () => boolean | Promise<boolean>
   readonly validateTarget?: () => Promise<void>
@@ -261,6 +265,9 @@ export interface HomeV2VaultClient {
   sendGroupAdmin?(request: HomeV2GroupAdminMutationRequest): Promise<HomeV2GroupAdminMutationResult>
   sendGroupMembership?(request: HomeV2GroupMembershipRequest): Promise<HomeV2GroupMembershipResult>
   publishPublicResource?(request: HomeV2PublicPublishMutationRequest): Promise<unknown>
+  // Reads the Qortal ARBITRARY unit fee (atomic decimal digit string) so the
+  // approval prompt can disclose and pin it before anything is staged.
+  readQortalArbitraryUnitFee?(request: { readonly nodeApiUrl: string }): Promise<string>
   publishPrivateAttachment?(request: HomeV2PrivateAttachmentPublishMutationRequest): Promise<unknown>
   decryptPrivateAttachment?(request: HomeV2PrivateAttachmentDecryptRequest): Promise<HomeV2PrivateAttachmentDecryptResult>
   unlock(request: HomeV2UnlockAccountRequest): Promise<HomeV2VaultState>

@@ -56,7 +56,16 @@ chain, then opens a one-request permission prompt showing:
 - exact configured node route;
 - service, name, and identifier;
 - native-selected filename and byte size;
-- SHA-256 content hash.
+- SHA-256 content hash;
+- every mutable-metadata value being published (title, description,
+  category, tags) — a row appears exactly when that field is set;
+- on Qortal, the chain's ARBITRARY unit fee this publish pays, read before
+  the prompt and PINNED: signing refuses if the chain answers a different
+  fee after approval. (Qortium publishes are fee-free with on-device
+  proof-of-work, and their prompts carry no fee row.)
+
+The desktop bridge and the Android host both apply this disclosure and the
+fee pin.
 
 After approval, Home rechecks the app, tab, account, unlock state, route, and
 name ownership. It stages the source only on that route, decodes and attests

@@ -497,6 +497,18 @@ function isSequencedDetailRows(
   return position === value.length
 }
 
+// Printable-ASCII escaping for prompt rows the Android flow builds locally —
+// the same rule the desktop bridge applies (backslash doubled first, then C0
+// controls and everything above U+007E rendered as \\uXXXX escapes) so a
+// crafted metadata value cannot visually forge other rows or reorder text
+// with bidi controls.
+function androidPromptText(value: string) {
+  return value
+    .replace(/\\/g, '\\\\')
+    .replace(/[\u0000-\u001f\u007f-\uffff]/g, (char) =>
+      `\\u${char.charCodeAt(0).toString(16).padStart(4, '0')}`)
+}
+
 function isPublishPromptText(candidate: unknown): candidate is string {
   return typeof candidate === 'string' &&
     candidate.length >= 1 &&
@@ -4891,6 +4903,20 @@ export function HomeV2LiveApp() {
           throw new Error('The selected account does not currently own the requested publisher name on this chain.')
         }
         const contentHash = await sha256Hex(decodeHomeV2AndroidPublishSource(source.dataBase64))
+        // On Qortal this publish pays the chain's ARBITRARY unit fee: read it
+        // BEFORE the prompt so it is disclosed, and pin it so the vault
+        // refuses a fee that moved after approval (same rule as desktop).
+        let expectedFeeAtomic: string | undefined
+        if (targetNetwork === 'qortal') {
+          if (!vaultClient.readQortalArbitraryUnitFee) {
+            throw new Error('Qortal publishing requires fee disclosure, which is unavailable on this platform build.')
+          }
+          expectedFeeAtomic = await vaultClient.readQortalArbitraryUnitFee({ nodeApiUrl: nodeBefore.nodeApiUrl })
+          if (!/^\d+$/.test(expectedFeeAtomic)) throw new Error('Qortal ARBITRARY fee response is invalid.')
+        }
+        const feeRowValue = expectedFeeAtomic === undefined
+          ? null
+          : `${BigInt(expectedFeeAtomic) / 100_000_000n}.${(BigInt(expectedFeeAtomic) % 100_000_000n).toString().padStart(8, '0')} coins`
         const requestId = brand<PermissionRequestId>(
           globalThis.crypto.randomUUID?.() ?? `home-v2-permission-${Date.now()}-${Math.random().toString(36).slice(2)}`,
         )
@@ -4933,6 +4959,22 @@ export function HomeV2LiveApp() {
             { label: 'File', value: source.fileName },
             { label: 'Size', value: `${source.size.toLocaleString()} bytes` },
             { label: 'SHA-256', value: contentHash },
+            // The mutable-metadata values signed alongside the bytes
+            // (Qortium only — the normalizer refuses metadata on Qortal); a
+            // row appears exactly when that field is being published.
+            ...(publishRequest.resource.title
+              ? [{ label: 'Title', value: androidPromptText(publishRequest.resource.title) }]
+              : []),
+            ...(publishRequest.resource.description
+              ? [{ label: 'Description', value: androidPromptText(publishRequest.resource.description), variant: 'scroll' as const }]
+              : []),
+            ...(publishRequest.resource.category
+              ? [{ label: 'Category', value: androidPromptText(publishRequest.resource.category) }]
+              : []),
+            ...(publishRequest.resource.tags.length
+              ? [{ label: 'Tags', value: androidPromptText(publishRequest.resource.tags.join(', ')) }]
+              : []),
+            ...(feeRowValue !== null ? [{ label: 'Fee', value: feeRowValue }] : []),
           ],
           allowedScopes: ['single-request'],
         }), context.tabId)
@@ -4960,6 +5002,7 @@ export function HomeV2LiveApp() {
         }
         const result = await vaultClient.publishPublicResource({
           accountId,
+          ...(expectedFeeAtomic !== undefined ? { expectedFeeAtomic } : {}),
           fileName: source.fileName,
           isStillValid,
           network: targetNetwork,
