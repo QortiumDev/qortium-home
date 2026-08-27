@@ -303,6 +303,8 @@ const ANDROID_UNSUPPORTED_ACTIONS = new Set<string>([
   // The rating writes sign transactions too; same reason.
   'RATE_ACCOUNT',
   'RATE_RESOURCE',
+  // And the account avatar pointer.
+  'SET_ACCOUNT_AVATAR',
 ])
 
 export function isHomeV2AndroidUnsupportedAction(action: string) {

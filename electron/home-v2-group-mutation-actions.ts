@@ -11,7 +11,9 @@ import {
 } from './home-v2-group-admin-actions.js'
 import { homeV2FlattenPayloadRequest } from './home-v2-app-actions.js'
 import { base58Decode, base58Encode } from './base58.js'
-import { getStaticQdnServiceId } from './public-transaction-validation.js'
+import { getStaticQdnServiceId,
+  getAvatarQdnServiceId,
+} from './public-transaction-validation.js'
 
 /**
  * The deferred group mutation family (Home 2.1 restoration): CREATE_GROUP,
@@ -302,14 +304,20 @@ export function normalizeHomeV2SetGroupAvatarRequest(request: Record<string, unk
   const record = avatarRaw as Record<string, unknown>
   const service = typeof record.service === 'string' ? record.service.trim().toUpperCase() : ''
   if (!service) throw new Error('avatar.service is required.')
-  // Known QDN services only; Core additionally requires the service to be
-  // public and single-file, and enforces the raster/500 KiB rules when the
-  // avatar is SERVED, not here — the transaction is a pointer.
-  const serviceId = getStaticQdnServiceId(service)
+  // Core's avatar rule exactly: public single-file services only (a
+  // WEBSITE or other multi-file pointer would sign a transaction Core
+  // deterministically rejects, journaled as an ambiguous outcome). The
+  // raster/500 KiB bounds are enforced when the avatar is SERVED, not
+  // here — the transaction is a pointer.
+  const serviceId = getAvatarQdnServiceId(service)
   const name = typeof record.name === 'string' ? record.name.trim() : ''
   if (!name) throw new Error('avatar.name is required.')
   if (utf8Length(name) > 40) throw new Error('avatar.name must be at most 40 UTF-8 bytes.')
-  const identifier = typeof record.identifier === 'string' ? record.identifier.trim() : ''
+  const identifierRaw = typeof record.identifier === 'string' ? record.identifier.trim() : ''
+  // 'default' and absent are ONE served avatar but would sign different
+  // bytes and display identically — sign the canonical empty form for both
+  // (avatar review round 2; same rule as SET_ACCOUNT_AVATAR).
+  const identifier = identifierRaw === 'default' ? '' : identifierRaw
   if (utf8Length(identifier) > 64) throw new Error('avatar.identifier must be at most 64 UTF-8 bytes.')
   return Object.freeze({ avatar: Object.freeze({ identifier, name, service, serviceId }), groupId })
 }

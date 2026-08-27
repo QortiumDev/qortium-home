@@ -70,6 +70,52 @@ export function getStaticQdnServiceId(service: string) {
   return value;
 }
 
+// Core's avatar pointer rule accepts only PUBLIC SINGLE-FILE services
+// (AvatarResource.validate: !isPrivate && isSingle). This is the exact
+// intersection of Core's Service enum single=true, isPrivate=false entries
+// with the static map above — WEBSITE, AUDIO, VIDEO, DOCUMENT and the other
+// multi-file services are Core-invalid as avatars, and signing one would
+// only journal a doomed transaction as an ambiguous outcome.
+const AVATAR_QDN_SERVICES = new Set([
+  'ATTACHMENT',
+  'AUTO_UPDATE_BINARY',
+  'BLOG_COMMENT',
+  'BLOG_POST',
+  'CHAIN_COMMENT',
+  'CHAIN_DATA',
+  'CODE',
+  'COMMENT',
+  'COUPON',
+  'EXTENSION',
+  'FILE',
+  'IMAGE',
+  'ITEM',
+  'JSON',
+  'LIST',
+  'MAIL',
+  'MESSAGE',
+  'METADATA',
+  'NFT',
+  'OFFER',
+  'PLAYLIST',
+  'PLUGIN',
+  'PRODUCT',
+  'QCHAT_ATTACHMENT',
+  'QCHAT_AUDIO',
+  'QCHAT_IMAGE',
+  'QCHAT_VOICE',
+  'STORE',
+  'THUMBNAIL',
+  'VOICE',
+]);
+
+export function getAvatarQdnServiceId(service: string) {
+  if (!AVATAR_QDN_SERVICES.has(service)) {
+    throw new Error(`The ${service} service cannot be an avatar: Core accepts only public single-file services.`);
+  }
+  return getStaticQdnServiceId(service);
+}
+
 class Reader {
   private offset = 0;
 

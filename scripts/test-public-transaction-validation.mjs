@@ -400,4 +400,32 @@ assert.throws(() => assertPublicBuyNameTransaction(concat(common(7), sized('alic
   assert.throws(() => assertUnsignedHomeV2RatingTransaction(concat(accountBytes, new Uint8Array([0])), rExpected(accountPayload)), /trailing/);
 }
 
+// ---- SET_ACCOUNT_AVATAR verifier (type 50) against bytes built
+// INDEPENDENTLY with this script's own encoders. ----
+{
+  const { assertUnsignedHomeV2SetAccountAvatarTransaction } = await import('../dist-electron/home-v2-account-avatar-actions.js');
+  const { default: base58 } = await import('../dist-electron/base58.js').then((m) => ({ default: m }));
+  const senderKey58 = base58.base58Encode(publicKey);
+  const aCommon = concat(int32(50), int64(timestamp), int32(0), publicKey, int32(0));
+  const pointer = { identifier: 'pic-1', name: 'Alice', service: 'THUMBNAIL', serviceId: 410 };
+  // present=1: 52 + 1 + 4 + (4+5) + (4+5) + 8 = 83.
+  const setBytes = concat(aCommon, new Uint8Array([1]), int32(410), sized('Alice'), sized('pic-1'), int64(0));
+  assert.equal(setBytes.byteLength, 83);
+  const aExpected = (avatar, nonce) => ({ ...(nonce === undefined ? {} : { nonce }), avatar, senderPublicKey: senderKey58, timestamp });
+  assert.doesNotThrow(() => assertUnsignedHomeV2SetAccountAvatarTransaction(setBytes, aExpected(pointer)));
+  assert.throws(() => assertUnsignedHomeV2SetAccountAvatarTransaction(setBytes, aExpected({ ...pointer, serviceId: 400 })), /service/);
+  assert.throws(() => assertUnsignedHomeV2SetAccountAvatarTransaction(setBytes, aExpected(null)), /presence/);
+  // present=0 (clear): 52 + 1 + 8 = 61; a presence byte of 2 refuses.
+  const clearBytes = concat(aCommon, new Uint8Array([0]), int64(0));
+  assert.equal(clearBytes.byteLength, 61);
+  assert.doesNotThrow(() => assertUnsignedHomeV2SetAccountAvatarTransaction(clearBytes, aExpected(null)));
+  assert.throws(() => assertUnsignedHomeV2SetAccountAvatarTransaction(concat(aCommon, new Uint8Array([2]), int64(0)), aExpected(null)), /presence byte/);
+  // Stamped + trailing.
+  const stamped = new Uint8Array(setBytes);
+  new DataView(stamped.buffer).setUint32(48, 31337, false);
+  assert.throws(() => assertUnsignedHomeV2SetAccountAvatarTransaction(stamped, aExpected(pointer)), /nonce/);
+  assert.doesNotThrow(() => assertUnsignedHomeV2SetAccountAvatarTransaction(stamped, aExpected(pointer, 31337)));
+  assert.throws(() => assertUnsignedHomeV2SetAccountAvatarTransaction(concat(clearBytes, new Uint8Array([0])), aExpected(null)), /trailing/);
+}
+
 console.log('Public transaction validation tests passed.');
