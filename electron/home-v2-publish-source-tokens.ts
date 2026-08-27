@@ -39,26 +39,65 @@ function bindingKey(binding: HomeV2PublishSourceBinding) {
 export class HomeV2PublishSourceTokenStore<T> {
   readonly #entries = new Map<string, Entry<T>>()
 
+  /**
+   * @param maximumEntries how many selections may be retained at once.
+   * @param options.maximumBytes an OPTIONAL total-size budget across retained
+   *   sources, with `sizeOf` measuring one. A batch publish needs several
+   *   selections alive at once, but on a phone each is a decoded Base64 copy
+   *   in WebView memory — so the count alone is the wrong limit, and the
+   *   oldest entries are evicted until the budget fits. Without a budget the
+   *   store behaves exactly as before.
+   */
   constructor(
     private readonly maximumEntries: number,
     private readonly ttlMs = HOME_V2_PUBLISH_SOURCE_TOKEN_TTL_MS,
     private readonly now: () => number = Date.now,
+    private readonly options: {
+      readonly maximumBytes?: number
+      readonly sizeOf?: (source: T) => number
+    } = {},
   ) {
     if (!Number.isSafeInteger(maximumEntries) || maximumEntries < 1) {
       throw new Error('Publish source token store requires a positive entry limit.')
     }
+    if (options.maximumBytes !== undefined && !options.sizeOf) {
+      throw new Error('Publish source token store needs sizeOf to enforce a byte budget.')
+    }
+  }
+
+  #retainedBytes() {
+    const sizeOf = this.options.sizeOf
+    if (!sizeOf) return 0
+    let total = 0
+    for (const entry of this.#entries.values()) total += sizeOf(entry.source)
+    return total
+  }
+
+  #evictOldest() {
+    let oldest: [string, Entry<T>] | null = null
+    for (const candidate of this.#entries) {
+      if (!oldest || candidate[1].lastUsedAt < oldest[1].lastUsedAt) oldest = candidate
+    }
+    if (!oldest) return false
+    this.#entries.delete(oldest[0])
+    return true
   }
 
   issue(binding: HomeV2PublishSourceBinding, source: T) {
     const now = this.now()
     this.prune(now)
-    while (this.#entries.size >= this.maximumEntries) {
-      let oldest: [string, Entry<T>] | null = null
-      for (const candidate of this.#entries) {
-        if (!oldest || candidate[1].lastUsedAt < oldest[1].lastUsedAt) oldest = candidate
+    const { maximumBytes, sizeOf } = this.options
+    if (maximumBytes !== undefined && sizeOf) {
+      const incoming = sizeOf(source)
+      if (incoming > maximumBytes) {
+        throw new Error('Selected publish source is larger than Home can retain on this device.')
       }
-      if (!oldest) break
-      this.#entries.delete(oldest[0])
+      while (this.#entries.size > 0 && this.#retainedBytes() + incoming > maximumBytes) {
+        if (!this.#evictOldest()) break
+      }
+    }
+    while (this.#entries.size >= this.maximumEntries) {
+      if (!this.#evictOldest()) break
     }
     const token = globalThis.crypto.randomUUID()
     this.#entries.set(token, {

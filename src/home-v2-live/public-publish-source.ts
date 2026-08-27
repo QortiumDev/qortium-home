@@ -5,6 +5,7 @@ import {
   HomeV2PublishSourceTokenStore,
   type HomeV2PublishSourceBinding,
 } from '../../electron/home-v2-publish-source-tokens'
+import { HOME_V2_PUBLISH_MULTIPLE_MAX_ITEMS } from '../../electron/home-v2-publish-extras-contract'
 
 type NativeSelection =
   | { canceled: true }
@@ -28,10 +29,30 @@ interface QdnPublishSourcePlugin {
 }
 
 const QdnPublishSource = registerPlugin<QdnPublishSourcePlugin>('QdnPublishSource')
-// Capacitor's picker necessarily returns Base64 through the JS bridge. Retain
-// only one selected source and never a second decoded copy between selection
-// and approval; selecting another file invalidates the prior token.
-export const homeV2AndroidPublishSources = new HomeV2PublishSourceTokenStore<AndroidPublishSource>(1)
+
+/**
+ * A batch publish needs several selections alive at once (up to
+ * HOME_V2_PUBLISH_MULTIPLE_MAX_ITEMS), so the old capacity of one is not
+ * enough — but the count was never the real constraint. Capacitor's picker
+ * returns Base64 through the JS bridge, so every retained selection is a
+ * copy in WebView memory, and ten 100 MiB files would be roughly 1.3 GB of
+ * it. The store therefore holds up to the batch maximum, bounded by a TOTAL
+ * byte budget: a new selection evicts the least-recently-used ones until it
+ * fits, and one larger than the whole budget is refused outright rather than
+ * silently emptying the store.
+ */
+const ANDROID_PUBLISH_SOURCE_BUDGET_BYTES = 64 * 1024 * 1024
+
+export const homeV2AndroidPublishSources = new HomeV2PublishSourceTokenStore<AndroidPublishSource>(
+  HOME_V2_PUBLISH_MULTIPLE_MAX_ITEMS,
+  undefined,
+  undefined,
+  {
+    maximumBytes: ANDROID_PUBLISH_SOURCE_BUDGET_BYTES,
+    // The Base64 copy is what actually occupies memory, not the decoded size.
+    sizeOf: (source) => source.dataBase64.length,
+  },
+)
 
 export function decodeHomeV2AndroidPublishSource(value: string) {
   if (!value || value.length > Math.ceil(HOME_V2_PUBLISH_SOURCE_MAX_BYTES / 3) * 4 + 16) {

@@ -94,7 +94,7 @@ import {
   getHomeV2AppRouteDescriptor,
   getHomeV2AvailableAppActions,
   getHomeV2ContextualAppActions,
-  isHomeV2AndroidUnsupportedAction,
+  homeV2AndroidActionRefusal,
   HOME_V2_ROUTE_INDEPENDENT_ACTIONS,
 } from '../../electron/home-v2-app-runtime'
 import { mergeHomeV2ShellGlobalState } from '../../electron/home-v2-window-startup'
@@ -1117,73 +1117,20 @@ export function createPortableNodeClient(
       // rather than letting them fall to the generic "read-only mode" message —
       // and they are already withheld from Android's SHOW_ACTIONS, so a
       // well-behaved app never reaches here. See
-      // ANDROID_UNSUPPORTED_ACTIONS in home-v2-app-runtime.ts.
-      // The list family is in ANDROID_UNSUPPORTED_ACTIONS (so SHOW_ACTIONS
-      // never advertises it here), but a direct call still deserves the
-      // precise reason rather than the generic signing message below. Keep in
-      // step with resolveHomeV2ListNode in electron/home-v2-app-bridge.ts:
-      // the family — reads included — lives on the local Core that Home runs,
-      // reaches over loopback, and holds the administrative key for, and
-      // Android never runs one (readSettings rejects 'local'), exactly as in
-      // Home 1.x, where lists only ever worked in the emulator. Never a
-      // pretend-empty list.
-      // qdnRequest only: on qortalRequest the family is not implemented at
-      // all, and that case must keep its UNSUPPORTED_PROTOCOL answer from the
-      // generic gate below rather than a capability error naming the wrong
-      // network. (Round-2 review, residual 6.)
-      if (protocol === 'qdnRequest' && isHomeV2ListAction(action)) {
-        // Lists administer a node, which Home now allows for any node the
-        // user attached their own API key to — but the Android arm that
-        // builds the approval prompt is not implemented yet, so this refuses
-        // for that reason and not because of the platform or the old
-        // loopback rule.
-        throw createHomeV2BridgeError(
-          'QDN lists are not available in Home for Android yet.',
-          { action, code: 'NODE_CAPABILITY_MISSING', network: 'qortium', retryable: false },
-        )
-      }
-      // Poll and name writes carry the signing refusal on their own protocol
-      // only: on qortalRequest neither family is implemented at all, and that
-      // case must keep its UNSUPPORTED_PROTOCOL answer from the generic gate
-      // below rather than a signing error naming the wrong network.
-      // DELETE_QDN_RESOURCE is qdnRequest-only for the same reason;
-      // PUBLISH_MULTIPLE_QDN_RESOURCES is implemented on BOTH protocols, so
-      // it correctly takes the generic Android signing refusal below.
-      if (protocol === 'qdnRequest' &&
-          (isHomeV2PollWriteAction(action) || isHomeV2NameWriteAction(action) || isHomeV2GroupMutationAction(action) ||
-            action === 'DELETE_QDN_RESOURCE' || action === 'RATE_ACCOUNT' || action === 'RATE_RESOURCE' ||
-            action === 'SET_ACCOUNT_AVATAR' ||
-            action === 'PAYMENT' || action === 'SEND_COIN' || action === 'TRANSFER_ASSET')) {
-        throw createHomeV2BridgeError(
-          `${action} requires transaction signing, which is only available in Qortium Home desktop.`,
-          {
-            action,
-            code: 'NODE_CAPABILITY_MISSING',
-            network: 'qortium',
-            retryable: false,
-            routeRevision: hostInfo.route.revision,
-          },
-        )
-      }
-      // List, poll, and name actions are also in ANDROID_UNSUPPORTED_ACTIONS
-      // (for the SHOW_ACTIONS filter), but their refusals are handled above
-      // for qdnRequest and by the generic implemented check below for
-      // qortalRequest — the signing message here would be wrong for them.
-      if (!isHomeV2ListAction(action) && !isHomeV2PollWriteAction(action) && !isHomeV2NameWriteAction(action) &&
-          !isHomeV2GroupMutationAction(action) && action !== 'DELETE_QDN_RESOURCE' &&
-          action !== 'RATE_ACCOUNT' && action !== 'RATE_RESOURCE' && action !== 'SET_ACCOUNT_AVATAR' &&
-          action !== 'PAYMENT' && action !== 'SEND_COIN' && action !== 'TRANSFER_ASSET' &&
-          isHomeV2AndroidUnsupportedAction(action)) {
-        throw createHomeV2BridgeError(
-          `${action} requires transaction signing, which is only available in Qortium Home desktop.`,
-          {
-            action,
-            code: 'NODE_CAPABILITY_MISSING',
-            network: hostInfo.network,
-            retryable: false,
-            routeRevision: hostInfo.route.revision,
-          },
-        )
+      // ANDROID_UNSUPPORTED_ACTIONS in home-v2-app-runtime.ts, and
+      // homeV2AndroidActionRefusal decides the REASON. One derived answer
+      // replaces the three overlapping gates that used to live here — the
+      // last of which was a hand-maintained negation of the second's action
+      // list, so porting one family meant editing four places in step.
+      const androidRefusal = homeV2AndroidActionRefusal(action, protocol)
+      if (androidRefusal) {
+        throw createHomeV2BridgeError(androidRefusal.message, {
+          action,
+          code: 'NODE_CAPABILITY_MISSING',
+          network: androidRefusal.network,
+          retryable: false,
+          routeRevision: hostInfo.route.revision,
+        })
       }
       const implemented = getHomeV2AppActions(protocol).includes(action)
       const routeIndependent = (HOME_V2_ROUTE_INDEPENDENT_ACTIONS as readonly string[]).includes(action)

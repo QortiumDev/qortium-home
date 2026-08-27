@@ -1,6 +1,7 @@
 import {
   getHomeV2AppActions,
   getHomeV2AppNetwork,
+  isHomeV2ListAction,
   type HomeV2AppBridgeProtocol,
   type HomeV2AppNetwork,
 } from './home-v2-app-actions.js'
@@ -316,6 +317,43 @@ const ANDROID_UNSUPPORTED_ACTIONS = new Set<string>([
 
 export function isHomeV2AndroidUnsupportedAction(action: string) {
   return ANDROID_UNSUPPORTED_ACTIONS.has(action)
+}
+
+/**
+ * The ONE answer to "why can Android not run this action?".
+ *
+ * This replaces three overlapping gates in the portable client, the last of
+ * which was a hand-maintained NEGATION of the second's action list — so
+ * porting a single family meant editing four places in step, and forgetting
+ * one produced either a wrong message or a silent hole. Now the refusal is
+ * derived: membership in ANDROID_UNSUPPORTED_ACTIONS decides IF, this
+ * function decides WHY, and an action not advertised on the calling protocol
+ * falls through to the generic unsupported-protocol answer instead of being
+ * described with the wrong network.
+ *
+ * Returns null when Android has no objection of its own — the caller then
+ * applies its ordinary route/protocol checks.
+ */
+export function homeV2AndroidActionRefusal(
+  action: string,
+  protocol: HomeV2AppBridgeProtocol,
+): { readonly message: string; readonly network: HomeV2AppNetwork } | null {
+  if (!ANDROID_UNSUPPORTED_ACTIONS.has(action)) return null
+  // Not advertised on this protocol at all: the generic gate answers
+  // UNSUPPORTED_PROTOCOL, which is the honest reply — naming a capability on
+  // the wrong network would not be.
+  if (!getHomeV2AppActions(protocol).includes(action)) return null
+  const network = getHomeV2AppNetwork(protocol, action)
+  // Lists administer a NODE, which Home now permits for any node the user
+  // attached their own API key to — so the reason is the missing Android
+  // approval surface, not the platform and not the retired loopback rule.
+  if (isHomeV2ListAction(action)) {
+    return { message: 'QDN lists are not available in Home for Android yet.', network }
+  }
+  return {
+    message: `${action} requires transaction signing, which is only available in Qortium Home desktop.`,
+    network,
+  }
 }
 
 export function getHomeV2ContextualAppActions(
