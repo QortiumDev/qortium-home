@@ -275,12 +275,16 @@ function writeNodeSettings(settings: NodeSettings): NodeSettings {
   let persisted = settings;
   if (persisted.mode === 'custom' && persisted.apiKey) {
     const previous = readNodeSettings();
-    // A key CARRIED FORWARD from another mode is not an attachment: the
-    // legacy settings UI resubmits the stored key on every mode change, so
-    // switching local -> custom would otherwise bind Home's own Core
-    // credential to whatever custom address happens to be configured. Drop
-    // it instead of relocating it (review round 3).
-    if (previous.mode !== 'custom' && previous.apiKey === persisted.apiKey) {
+    // A RESUBMITTED key is not an attachment. The legacy settings UI sends
+    // back whatever key the record already held on every save, so an
+    // unchanged value carries no intent to bind it anywhere: not to a custom
+    // origin when switching modes (which would bind Home's own managed-Core
+    // credential), and not to a NEW address when the URL changes underneath
+    // it (which would move a credential to a host it was never attached to).
+    // Only a value the user actually changed counts as an attachment;
+    // anything else is dropped, leaving administration refused until they
+    // attach one deliberately. (Review rounds 3 and 4.)
+    if (previous.apiKey && previous.apiKey === persisted.apiKey) {
       persisted = { ...persisted, apiKey: '' };
     } else {
       const origin = homeV2NodeOrigin(persisted.customUrl);

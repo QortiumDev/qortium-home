@@ -944,23 +944,24 @@ changed address discards it rather than re-pointing a credential at a host
 the user never approved. It is stored in the operating system's secure store
 (Android Keystore; Electron `safeStorage` on desktop) rather than in the
 plaintext node settings: every desktop writer funnels through one storage
-boundary that relocates a custom-node key into the protected store, so the
-legacy settings UI cannot leave one sitting in `node-settings.json` either.
+boundary that relocates a newly-entered custom-node key into the protected
+store. It is sent only to the origin it was attached to, over HTTPS or
+loopback HTTP, with redirects refused, and it never crosses into the
+renderer, a QDN app, or any other host. Every trust answer carries an
+origin+key revision, so an approval granted for one node cannot be spent
+against another.
 
-Two honest limits on that. If a device offers no protected storage, the
-attach flow refuses outright — but a key submitted through the *legacy*
-settings path is then left where it was rather than destroyed, since losing
-a credential the user may be unable to re-derive is the worse failure;
-administration stays refused in that state, because the trust resolver reads
-only the protected store. And the Home 1.x Android host keeps its own
-separate custom-node key in Capacitor Preferences; that legacy surface is
-untouched by this change and tracked separately. — if no protected storage is available, the key
-cannot be ATTACHED at all rather than being written unprotected (see the
-legacy-path limit noted above). It is sent
-only to that origin, over HTTPS or loopback HTTP, with redirects refused, and
-it never crosses into the renderer, a QDN app, or any other host. Every trust
-answer carries an origin+key revision, so an approval that was granted for
-one node cannot be spent against another.
+Three honest limits. The attach flow refuses outright when a device has no
+protected storage — but a key submitted through the *legacy* settings path
+in that state is left where it was rather than destroyed, since losing a
+credential the user may be unable to re-derive is the worse failure;
+administration stays refused either way, because trust is resolved only from
+the protected store. A key the legacy UI merely resubmits unchanged is never
+treated as an attachment (it is dropped instead), so neither a mode switch
+nor an address change can bind an existing credential to a node it was not
+attached to. And the Home 1.x Android host keeps its own separate
+custom-node key in Capacitor Preferences; that legacy surface is untouched
+by this change and tracked separately.
 
 Two honest notes. First, an API key is a **full administrative credential**
 for that Core, not a Home-scoped token — Core treats any valid key as admin
