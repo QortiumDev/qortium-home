@@ -837,24 +837,17 @@ function isRuntimeChainMetadataMatch(
   return metadata.networkId === identity.networkId && metadata.previewChainSha256 === identity.previewChainSha256;
 }
 
-function isLegacyRawRuntimeChainMetadataMatch(
-  metadata: CoreRuntimeChainMetadata,
-  identity: CoreRuntimeChainIdentity,
-) {
-  return metadata.networkId === identity.networkId && metadata.previewChainSha256 === identity.rawPreviewChainSha256;
-}
-
 function getRuntimeChainMismatchMessage(
   metadata: CoreRuntimeChainMetadata,
   coreTagName: string,
   identity: CoreRuntimeChainIdentity,
 ) {
   return [
-    'Qortium Core runtime data was created for a different Previewnet chain configuration.',
+    'Qortium Core runtime data was created for a different network.',
     'Home will not reuse the existing database automatically.',
     `Existing runtime: ${metadata.networkId} ${metadata.previewChainSha256}.`,
     `Installed Core ${coreTagName}: ${identity.networkId} ${identity.previewChainSha256}.`,
-    'Move or reset the existing Core runtime data before starting this Core release.',
+    'Use runtime data from the installed network or reset this Core runtime before starting the release.',
   ].join(' ');
 }
 
@@ -947,9 +940,13 @@ async function ensureRuntimeChainCompatible(
 
   if (metadata) {
     const matchesCurrentIdentity = isRuntimeChainMetadataMatch(metadata, identity);
-    const matchesLegacyRawIdentity = isLegacyRawRuntimeChainMetadataMatch(metadata, identity);
 
-    if (!matchesCurrentIdentity && !matchesLegacyRawIdentity) {
+    // Core owns validation of its repository and consensus configuration. Home
+    // only prevents accidentally mixing clearly different networks here. A
+    // release can legitimately change Core's chain-config fingerprint (or the
+    // fingerprint algorithm itself) without invalidating the existing runtime,
+    // so same-network metadata is refreshed instead of blocking every action.
+    if (metadata.networkId !== identity.networkId) {
       await writeRuntimeMigrationBlocked(runtimePath, metadata, coreTagName, identity);
       throw new Error(getRuntimeChainMismatchMessage(metadata, coreTagName, identity));
     }

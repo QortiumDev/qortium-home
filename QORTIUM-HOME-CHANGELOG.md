@@ -33,6 +33,27 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-08-27 - chore(release): prepare Home 1.7.1
+
+Marks a small Home 1 maintenance release that removes the false managed-Core
+runtime lock introduced by changing chain-identity fingerprints. Home now
+repairs same-network metadata automatically while preserving all node data and
+keeps a hard boundary only between genuinely different networks. Bumped package
+metadata to 1.7.1 and Android metadata to versionCode 40 / versionName 1.7.1;
+the intervening Android codes were already allocated to the Home 2 release line.
+No Home 2 interface or feature work is included.
+
+### 2026-08-27 - fix(core): stop blocking routine managed upgrades
+
+Home no longer mistakes an ordinary Core configuration or fingerprint change
+for a reason to lock the entire managed Core workflow. When the installed Core
+and existing runtime both belong to the same network, Home now refreshes its
+diagnostic chain metadata, clears any stale block notice, and keeps the database,
+QDN data, API key, reward identity, and I2P identity in place. Core remains
+responsible for validating its own repository and consensus configuration. Home
+only blocks automatic reuse when the installed release belongs to a genuinely
+different network.
+
 ### 2026-08-16 - chore(release): prepare home 1.7.0
 
 Marks a focused Home 1 maintenance release for Core 1.7.0 compatibility. Home

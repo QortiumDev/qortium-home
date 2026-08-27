@@ -652,7 +652,7 @@ async function runRuntimeMismatchScenario() {
   });
   const blockedRuntimeChain = {
     coreTagName: 'vold-chain',
-    networkId: 'qortium-preview',
+    networkId: 'old-preview',
     previewChainSha256: `sha256:${'0'.repeat(64)}`,
     recordedAt: new Date().toISOString(),
     version: 1,
@@ -669,8 +669,8 @@ async function runRuntimeMismatchScenario() {
 
       assert(status?.runtime?.blocked, 'Mismatched runtime did not surface runtime.blocked status.');
       assert(
-        String(status.runtime.blocked.message).includes('different Previewnet chain configuration'),
-        'Blocked runtime status did not include the chain mismatch message.',
+        String(status.runtime.blocked.message).includes('different network'),
+        'Blocked runtime status did not include the network mismatch message.',
       );
       assert(status.runtime.blocked.markerPath === path.join(paths.coreRuntime, 'runtime-migration-blocked.json'), 'Blocked marker path was unexpected.');
     });
@@ -681,12 +681,84 @@ async function runRuntimeMismatchScenario() {
     assert(existsSync(path.join(legacyInstall, 'qortium.jar')), 'Legacy install was moved despite mismatch.');
     assert(!existsSync(paths.coreInstall), 'Stable Core install was created despite runtime mismatch.');
 
-    log('Runtime chain mismatch blocked migration without deleting data.');
+    log('Cross-network runtime mismatch blocked migration without deleting data.');
   } finally {
     if (process.env.QORTIUM_HOME_KEEP_DESKTOP_SMOKE_DATA !== '1') {
       rmSync(tempRoot, { force: true, recursive: true });
     } else {
       log(`Kept mismatch smoke data at ${tempRoot}.`);
+    }
+  }
+}
+
+async function runStaleSameNetworkMetadataRepairScenario() {
+  const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'qortium-home-core-stale-same-network-'));
+  const paths = getPaths(tempRoot);
+  const installedCore = createPreviewInstall({
+    installPath: paths.coreInstall,
+    runtimePath: paths.coreRuntime,
+    tagName: 'v1.7.3',
+  });
+  const previewChainPath = path.join(paths.coreInstall, 'preview', 'previewchain.json');
+  const staleRuntimeChain = {
+    coreTagName: 'v1.7.2',
+    networkId: 'qortium-preview',
+    // Home 1.6.x recorded this fingerprint for the Core 1.7.x config;
+    // Home 1.7.0 changed the formula and previously rejected this value.
+    previewChainSha256: 'sha256:3108af2769d1de362173e68dc316b886dc2f43423fb1ba39ee600ed4e467a79b',
+    rawPreviewChainSha256: 'sha256:986865ddd00b3b28b7fa8d90478380e2400b60309b9f3cb973f675520d25d7dc',
+    recordedAt: new Date().toISOString(),
+    version: 1,
+  };
+
+  try {
+    createRuntimeEntries(paths.coreRuntime, 'stale-same-network');
+    writeJson(path.join(paths.coreBase, 'current.json'), installedCore);
+    writeJson(path.join(paths.coreRuntime, 'runtime-chain.json'), staleRuntimeChain);
+    writeJson(path.join(paths.coreRuntime, 'runtime-migration-blocked.json'), {
+      blockedAt: new Date().toISOString(),
+      current: {
+        coreTagName: installedCore.tagName,
+        networkId: 'qortium-preview',
+        previewChainSha256: coreCompatiblePreviewChainSha256File(previewChainPath),
+      },
+      existing: staleRuntimeChain,
+      message: 'stale same-network block from Home 1.7.0',
+      version: 1,
+    });
+
+    await withHomeClient(tempRoot, async (client) => {
+      const status = await getCoreStatus(client);
+
+      assert(!status?.runtime?.blocked, 'Stale same-network metadata still blocked the installed Core.');
+    });
+
+    const repairedRuntimeChain = readJson(path.join(paths.coreRuntime, 'runtime-chain.json'));
+
+    assert(
+      !existsSync(path.join(paths.coreRuntime, 'runtime-migration-blocked.json')),
+      'Same-network metadata repair did not clear the stale blocked marker.',
+    );
+    assertRuntimeEntriesPreserved(paths.coreRuntime, 'stale-same-network', 'Same-network metadata repair runtime');
+    assert(
+      repairedRuntimeChain.previewChainSha256 === coreCompatiblePreviewChainSha256File(previewChainPath),
+      'Same-network metadata repair did not record the current compatible identity.',
+    );
+    assert(
+      repairedRuntimeChain.rawPreviewChainSha256 === sha256File(previewChainPath),
+      'Same-network metadata repair did not record the current raw identity.',
+    );
+    assert(
+      repairedRuntimeChain.coreTagName === installedCore.tagName,
+      'Same-network metadata repair did not record the installed Core release.',
+    );
+
+    log('Stale same-network runtime metadata self-repaired without deleting data.');
+  } finally {
+    if (process.env.QORTIUM_HOME_KEEP_DESKTOP_SMOKE_DATA !== '1') {
+      rmSync(tempRoot, { force: true, recursive: true });
+    } else {
+      log(`Kept same-network metadata repair smoke data at ${tempRoot}.`);
     }
   }
 }
@@ -935,6 +1007,7 @@ async function main() {
   await runLegacyInstallListsCopyScenario();
   await runLegacyMigrationScenario();
   await runRuntimeMismatchScenario();
+  await runStaleSameNetworkMetadataRepairScenario();
   await runCompatibleChainUpdateScenario();
   await runManualCoreReplacementScenario({ replacePreviewFiles: false });
   await runManualCoreReplacementScenario({ replacePreviewFiles: true });

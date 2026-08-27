@@ -82,18 +82,19 @@ before the active install is replaced.
 
 `runtime/runtime-chain.json` records the installed release's Previewnet
 `networkId` and a Core-compatible `previewchain.json` SHA-256 identity. The
-compatibility hash excludes rollout-only values such as checkpoints, feature
-triggers, and the feature-trigger schedule enforcement height, so those changes
-do not force a database reset when Core can safely continue with the existing
-repository. Home also records the raw `previewchain.json` SHA-256 when available
-for diagnostics. On an idle Core status refresh, Home re-reads the installed
-JAR and Previewnet files; compatible direct-release or test-JAR replacements
-rewrite stale runtime metadata and clear a stale block marker automatically.
-Home should refuse to reuse an existing runtime when the effective identity
-differs from the installed Core release, and should leave the runtime data in
-place for an explicit reset or manual migration decision. When that happens,
-Home writes `runtime/runtime-migration-blocked.json` and reports the runtime as
-blocked in Core status instead of offering another install/start action.
+hashes are diagnostic metadata, not an additional consensus gate: Core owns
+validation of its repository and chain configuration. On an idle Core status
+refresh, Home re-reads the installed JAR and Previewnet files, rewrites stale
+same-network metadata, and clears stale block markers automatically. This keeps
+ordinary Core releases, direct-release replacements, and test JARs from forcing
+a database reset merely because the configuration or fingerprint algorithm
+changed.
+
+Home only refuses automatic runtime reuse when the installed Core's `networkId`
+is different from the recorded runtime network. It leaves all runtime data in
+place for an explicit reset or manual migration decision, writes
+`runtime/runtime-migration-blocked.json`, and reports the cross-network mismatch
+instead of offering another install/start action.
 
 Legacy Home-created installs under `qortium-home/managed-core` should migrate
 into this layout. If a local Core process is already running from a source
