@@ -886,9 +886,17 @@ signed families earned, plus the payment-specific ones:
   decimal AND atomic units both shown); over-precision refuses; zero and
   negative refuse.
 - **Fees are Home-quoted and pinned**: these types have NO MemoryPoW
-  alternative, so Home reads the chain unit fee, shows it and the checked
-  total debit, re-quotes after approval, and refuses a fee that moved.
+  alternative, so Home reads the chain unit fee FOR THE EXACT timestamp the
+  transaction will carry, shows it and the checked total debit, re-quotes
+  after approval, and refuses a fee that moved. An approval that sat open
+  more than ten minutes refuses rather than signing a stale timestamp.
   App `fee`/`txGroupId` values must be 0 (a 1.x pass-through, removed).
+  One bounded residual: the quote reads the chain's timestamp fee
+  SCHEDULE, while consensus applies the parameter effective at the next
+  block height — a unit-fee governance activation landing between the
+  re-quote and inclusion can make the signed fee insufficient, in which
+  case the payment is rejected or journals as an unknown outcome; it can
+  never sign a HIGHER fee than the user saw.
 - **Recipients are validated 25-byte checksummed addresses** (account or AT
   version — AT destinations are labeled as contract addresses; a
   self-payment gets its own disclosure row).

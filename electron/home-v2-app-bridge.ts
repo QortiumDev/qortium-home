@@ -2945,6 +2945,16 @@ async function handleHomeV2PaymentAction(
     // the fee schedule effective for the transaction's timestamp — quoting
     // one moment and signing another could straddle a fee boundary.
     const paymentTimestamp = Date.now()
+    // An approval that sat open too long must not sign a stale timestamp:
+    // Core expires ordinary transactions 24h after their timestamp, and a
+    // long-delayed signing would produce a doomed transaction journaled as
+    // an unknown outcome. Ten minutes is far inside every real flow (the
+    // prompt itself times out in one) and far outside any legitimate delay.
+    const assertPaymentFresh = () => {
+      if (Date.now() - paymentTimestamp > 10 * 60_000) {
+        throw new Error('This payment approval took too long and was not signed; please start it again.')
+      }
+    }
     const readUnitFee = async (txType: string) => parseHomeV2UnitFee(await readHomeV2ChatJson(
       node.nodeApiUrl,
       `/transactions/unitfee?txType=${txType}&timestamp=${paymentTimestamp}`,
@@ -3017,6 +3027,7 @@ async function handleHomeV2PaymentAction(
       )
       const lastReference = typeof referenceText === 'string' ? referenceText.trim() : ''
       if (!lastReference) throw new Error('The selected Qortal account has no last reference; it may need QORT first.')
+      assertPaymentFresh()
       const timestamp = paymentTimestamp
       const signingKey = getAccountSecretKey(accountId)
       try {
@@ -3136,6 +3147,7 @@ async function handleHomeV2PaymentAction(
       }
     }
     await checkBalances()
+    assertPaymentFresh()
     const timestamp = paymentTimestamp
     const signingKey = getAccountSecretKey(accountId)
     try {
