@@ -78,7 +78,7 @@ assert.equal(
   normalizeHomeV2NativeSendRequest('SEND_COIN', { amount: 1, coin: 'native', recipient: accountAddress }).amount.atomic,
   100_000_000n,
 )
-for (const foreign of [{ coin: 'BTC' }, { blockchain: 'LITECOIN' }, { sendMax: true }, { receivingAddress: 'x' }]) {
+for (const foreign of [{ coin: 'BTC' }, { blockchain: 'LITECOIN' }, { sendMax: true }, { receivingAddress: 'x' }, { feePerByte: '0.1' }]) {
   assert.throws(
     () => normalizeHomeV2NativeSendRequest('SEND_COIN', { amount: 1, recipient: accountAddress, ...foreign }),
     HomeV2ForeignSendError,
@@ -97,10 +97,6 @@ assert.throws(
 assert.throws(
   () => normalizeHomeV2NativeSendRequest('PAYMENT', { amount: 1, recipient: accountAddress, txGroupId: 5 }),
   /txGroupId must be 0/,
-)
-assert.throws(
-  () => normalizeHomeV2NativeSendRequest('PAYMENT', { amount: 1, feePerByte: '0.1', recipient: accountAddress }),
-  /does not accept an app-provided fee/,
 )
 // Divergent duplicate money fields REFUSE (no precedence for money).
 assert.throws(

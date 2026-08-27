@@ -488,5 +488,33 @@ assert.equal(
   null,
   'SEND_QORT is a different chain and action key',
 )
+// A SEND_QORT NAME recipient derives the COARSE operation target: the
+// signed intent is the resolved address, which the request cannot prove —
+// so an unknown name-send blocks EVERY later SEND_QORT (including one
+// respelled with the displayed resolved address) until reconciled
+// (payments review round 1, HIGH).
+assert.deepEqual(
+  homeV2TransactionTargetFromRequest('SEND_QORT', { amount: 1, recipient: 'Alice' }),
+  { kind: 'operation' },
+)
+const nameSendEntry = {
+  ...entry,
+  action: 'SEND_QORT' as const,
+  network: 'qortal' as const,
+  protocol: 'qortalRequest' as const,
+  target: { kind: 'operation' as const },
+}
+const nameSendJournal = upsertHomeV2PendingTransaction(createEmptyHomeV2TransactionJournal(), nameSendEntry, now)
+assert.deepEqual(
+  findHomeV2PendingTransactionConflict(nameSendJournal, {
+    accountId: entry.accountId,
+    action: 'SEND_QORT',
+    appIdentity: entry.appIdentity,
+    network: 'qortal',
+    request: { amount: 1, recipient: `Q${'a'.repeat(33)}` },
+  }, now),
+  nameSendEntry,
+  'an address-respelled retry must not slip an unknown name-send block',
+)
 
 console.log('Home v2 pending transaction journal tests passed')

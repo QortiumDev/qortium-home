@@ -2939,9 +2939,15 @@ async function handleHomeV2PaymentAction(
       const current = await getHomeV2ReadableNode(network).catch(() => null)
       return !!current && `${current.mode}|${current.nodeApiUrl}` === nodeRoute
     }
+    // The fee is quoted for the EXACT timestamp the transaction will carry
+    // (chosen up front and reused at signing): Core's unitfee endpoint
+    // defaults an omitted timestamp to its own clock, and consensus applies
+    // the fee schedule effective for the transaction's timestamp — quoting
+    // one moment and signing another could straddle a fee boundary.
+    const paymentTimestamp = Date.now()
     const readUnitFee = async (txType: string) => parseHomeV2UnitFee(await readHomeV2ChatJson(
       node.nodeApiUrl,
-      `/transactions/unitfee?txType=${txType}`,
+      `/transactions/unitfee?txType=${txType}&timestamp=${paymentTimestamp}`,
       `${chainLabel} fee lookup`,
     ))
     const readAtomicBalance = async (address: string, assetId?: number) => selectHomeV2AtomicBalance(await readHomeV2ChatJson(
@@ -3011,7 +3017,7 @@ async function handleHomeV2PaymentAction(
       )
       const lastReference = typeof referenceText === 'string' ? referenceText.trim() : ''
       if (!lastReference) throw new Error('The selected Qortal account has no last reference; it may need QORT first.')
-      const timestamp = Date.now()
+      const timestamp = paymentTimestamp
       const signingKey = getAccountSecretKey(accountId)
       try {
         const unsignedBytes = buildUnsignedPaymentTransactionBytes({
@@ -3130,7 +3136,7 @@ async function handleHomeV2PaymentAction(
       }
     }
     await checkBalances()
-    const timestamp = Date.now()
+    const timestamp = paymentTimestamp
     const signingKey = getAccountSecretKey(accountId)
     try {
       const unsignedBytes = transferRequest

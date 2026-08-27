@@ -1,5 +1,6 @@
 import { base58Decode, base58Encode } from './base58.js'
 import { parseHomeV2CoinAmount } from './home-v2-app-actions.js'
+import { normalizeHomeV2PaymentRecipient } from './home-v2-payment-actions.js'
 import { canonicalHomeV2GroupAdminAction, type HomeV2GroupAdminAction } from './home-v2-group-admin-actions.js'
 import type {
   HomeV2AppBridgeProtocol,
@@ -544,6 +545,19 @@ export function homeV2TransactionTargetFromRequest(action: string, value: unknow
       : ['recipient', 'recipientAddress', 'address', 'destinationAddress'])
     const amountRaw = read(['amount'])
     const assetRaw = action === 'TRANSFER_ASSET' ? read(['assetId']) : 0
+    // A SEND_QORT NAME recipient falls COARSE on purpose: the SIGNED intent
+    // is the resolved owner address, which this request-side derivation
+    // cannot know — a precise name-keyed target would let a retry spelled
+    // with the displayed resolved address slip the retained block (payments
+    // review round 1, HIGH). An operation target blocks every SEND_QORT for
+    // the app+account until the unknown is reconciled.
+    if (action === 'SEND_QORT' && typeof recipient === 'string') {
+      try {
+        normalizeHomeV2PaymentRecipient(recipient.trim(), 'The recipient address')
+      } catch {
+        return OPERATION_TARGET
+      }
+    }
     if (typeof recipient === 'string' && recipient.trim() && typeof assetRaw !== 'symbol' && typeof amountRaw !== 'symbol') {
       const assetId = typeof assetRaw === 'number'
         ? assetRaw

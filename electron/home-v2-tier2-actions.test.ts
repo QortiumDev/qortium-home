@@ -145,11 +145,19 @@ assert.ok(!qdnActions.includes('PREVIEW_QDN_PUBLISH_SOURCE'))
 assert.ok(!qortalActions.includes('PREVIEW_QDN_PUBLISH_SOURCE'))
 
 // The foreign-wallet family stays deferred pending the W3 design. Restoring
-// GET_USER_WALLET must not have dragged its siblings in with it.
-for (const action of ['GET_WALLET_BALANCE', 'GET_USER_WALLET_INFO', 'GET_USER_WALLET_TRANSACTIONS', 'SET_CURRENT_FOREIGN_SERVER', 'SEND_COIN']) {
+// GET_USER_WALLET must not have dragged its siblings in with it. SEND_COIN
+// left this list with the payment family: it is restored NATIVE-ONLY on
+// qdnRequest, and its 1.x foreign arm refuses with the coded
+// FOREIGN_SEND_UNAVAILABLE error rather than being advertised as foreign
+// capability (see home-v2-payment-actions.test.ts).
+for (const action of ['GET_WALLET_BALANCE', 'GET_USER_WALLET_INFO', 'GET_USER_WALLET_TRANSACTIONS', 'SET_CURRENT_FOREIGN_SERVER']) {
   assert.ok(!qdnActions.includes(action), `${action} must stay deferred`)
   assert.ok(!qortalActions.includes(action), `${action} must stay deferred`)
 }
+assert.ok(qdnActions.includes('SEND_COIN'), 'native SEND_COIN is restored on qdnRequest')
+assert.ok(!qortalActions.includes('SEND_COIN'), 'SEND_COIN is not a qortalRequest action; SEND_QORT is')
+assert.ok(qortalActions.includes('SEND_QORT'), 'SEND_QORT is restored on qortalRequest')
+assert.ok(!qdnActions.includes('SEND_QORT'), 'SEND_QORT must NOT be advertised on qdnRequest: its serializer is Qortal-specific')
 
 // No duplicates crept in while editing two long literal lists.
 for (const [label, actions] of [['qdnRequest', qdnActions], ['qortalRequest', qortalActions]] as const) {

@@ -899,7 +899,14 @@ signed families earned, plus the payment-specific ones:
   share one conflict key, and a journal-write failure FAILS CLOSED,
   blocking further payments for the account instead of allowing a retry
   the journal can no longer prevent. Balance checks are node-reported
-  preflight; Core consensus stays authoritative.
+  preflight; Core consensus stays authoritative. Deliberately, EVERY
+  post-signing failure — an HTTP-level rejection included — journals as
+  an unknown outcome: no answer from an untrusted node can prove the
+  bytes were never relayed, and a "rejected" verdict that invites an
+  immediate retry is exactly the double spend the journal exists to
+  prevent. A name-mode SEND_QORT with an unknown outcome blocks EVERY
+  later SEND_QORT for that app and account until reconciled — the signed
+  intent was the resolved address, which a request-side key cannot prove.
 
 On today's Qortium Previewnet — which deliberately has no native asset
 yet — the Qortium arms refuse at the balance/asset pre-checks with named

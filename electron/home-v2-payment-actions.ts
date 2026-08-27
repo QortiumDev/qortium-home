@@ -174,22 +174,20 @@ export function normalizeHomeV2NativeSendRequest(
   action: 'PAYMENT' | 'SEND_COIN',
   request: Record<string, unknown>,
 ): HomeV2NativeSendRequest {
+  // EVERY 1.x foreign-arm signal — feePerByte included — refuses with the
+  // coded foreign error: an app that thinks it is sending BTC must hear
+  // exactly that foreign sending is unavailable (review round 1, LOW).
   for (const field of FOREIGN_ARM_FIELDS) {
-    if (moneyField(request, [field], field) !== undefined && field !== 'feePerByte') {
+    if (moneyField(request, [field], field) !== undefined) {
       throw new HomeV2ForeignSendError('Foreign coin sending is unavailable in Qortium Home 2; SEND_COIN sends only the native coin.')
     }
   }
-  // feePerByte doubles as a foreign signal only when a foreign coin is
-  // named; a bare nonzero feePerByte is refused as an app fee either way.
   const coinRaw = moneyField(request, ['coin', 'blockchain'], 'The coin selector')
   if (coinRaw !== undefined) {
     const coin = typeof coinRaw === 'string' ? coinRaw.trim().toUpperCase() : ''
     if (!NATIVE_COIN_ALIASES.has(coin)) {
       throw new HomeV2ForeignSendError('Foreign coin sending is unavailable in Qortium Home 2; SEND_COIN sends only the native coin.')
     }
-  }
-  if (moneyField(request, ['feePerByte'], 'feePerByte') !== undefined) {
-    throw new Error('Home quotes the chain fee itself and does not accept an app-provided fee.')
   }
   const assetIdRaw = moneyField(request, ['assetId'], 'The asset id')
   if (assetIdRaw !== undefined) {
