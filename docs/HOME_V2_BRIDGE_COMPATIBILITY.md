@@ -226,8 +226,11 @@ main `8402315`), **100 of the 149 Home 1.x `qdnRequest` actions are
 advertised** — plus the five name writes, five group mutations, and two
 publishing extras (`PUBLISH_MULTIPLE_QDN_RESOURCES`, `DELETE_QDN_RESOURCE`)
 of the restoration wave, plus the two rating writes (`RATE_ACCOUNT`,
-`RATE_RESOURCE`) and `SET_ACCOUNT_AVATAR`, taking the intersection to
-115 — and the 34 below are not: 17 superseded, 17 deferred.
+`RATE_RESOURCE`), `SET_ACCOUNT_AVATAR`, and the payment family (`PAYMENT`,
+`SEND_COIN`, `TRANSFER_ASSET` on `qdnRequest`; `SEND_QORT` moves to the
+superseded column, its operation now living on `qortalRequest`), taking
+the intersection to 118 — and the 31 below are not: 18 superseded, 13
+deferred.
 
 **Superseded (17) — the same operation exists on the `qortalRequest` global.**
 Home 1.x predates the second global, so it reached Qortal through
@@ -261,7 +264,6 @@ desktop, and Android fixtures pass:**
 
 | Family | Deferred actions | Notes |
 | --- | --- | --- |
-| Payments and asset transfer | `PAYMENT`, `SEND_COIN`, `SEND_QORT`, `TRANSFER_ASSET` | Behind the Phase 5 signing boundary; `PAYMENT`/`SEND_COIN` were 1.x aliases of one coin transfer |
 | Publishing preview | `PREVIEW_QDN_PUBLISH_SOURCE` | `DELETE_QDN_RESOURCE` and `PUBLISH_MULTIPLE_QDN_RESOURCES` are no longer deferred (see below); preview has its own subsection below |
 | Foreign wallets | `GET_USER_WALLET_INFO`, `GET_USER_WALLET_TRANSACTIONS`, `GET_WALLET_BALANCE`, `SET_CURRENT_FOREIGN_SERVER` | Awaits the W3 design — see the wallet-family subsection below; the four zero-key `/crosschain` READS and native-only `GET_USER_WALLET` are implemented |
 | Node settings and admin | `GET_NODE_SETTINGS_METADATA`, `UPDATE_NODE_SETTINGS`, `RESTART_NODE` | Node settings stay deferred; Home's own DISPLAY settings are implemented (see below) |
@@ -318,7 +320,7 @@ file-only today (`properties: ['openFile']`), so even a complete port would
 cover `.zip` and `.html` but not 1.x's directory sources. This belongs in its
 own change with the renderer work included.
 
-### No longer deferred: display settings, minting, lists, polls, names, group mutations, publishing extras, rating writes, and the account avatar
+### No longer deferred: display settings, minting, lists, polls, names, group mutations, publishing extras, rating writes, the account avatar, and payments
 
 Home's own **display settings** are no longer deferred.
 `GET_HOME_SETTINGS_METADATA`, `GET_HOME_SETTINGS` and `UPDATE_HOME_SETTINGS`
@@ -393,6 +395,19 @@ only as the locally-built type-50 pointer transaction — see
 [QDN bridge action notes](BRIDGE_ACTIONS.md) for the current-pointer
 disclosure and re-read, the clear-vs-set captions, and the feature-trigger
 gating. (Its 1.x path also sent the private key to the node.)
+
+The payment family is no longer deferred. `PAYMENT` and native `SEND_COIN`
+are aliases of ONE locally-built Qortium PAYMENT (type 2); `TRANSFER_ASSET`
+is the locally-built type-12 transfer; `SEND_QORT` is the separate Qortal
+PAYMENT compatibility action on `qortalRequest` (the existing local Qortal
+serializer). All four sign locally — the 1.x Qortium paths sent the account
+private key to the node — pay the Home-quoted pinned chain fee (these types
+have NO MemoryPoW alternative), and journal unknown outcomes under the
+exact spend intent with a fail-closed guard. `SEND_COIN`'s 1.x foreign-coin
+arm refuses loudly (`FOREIGN_SEND_UNAVAILABLE`) — foreign wallets stay
+deferred behind W3. On today's Qortium Previewnet, which deliberately has
+no native asset yet, the Qortium arms refuse honestly at the balance and
+asset pre-checks. See [QDN bridge action notes](BRIDGE_ACTIONS.md).
 
 ## Known limitations of this slice
 

@@ -1147,7 +1147,8 @@ export function createPortableNodeClient(
       if (protocol === 'qdnRequest' &&
           (isHomeV2PollWriteAction(action) || isHomeV2NameWriteAction(action) || isHomeV2GroupMutationAction(action) ||
             action === 'DELETE_QDN_RESOURCE' || action === 'RATE_ACCOUNT' || action === 'RATE_RESOURCE' ||
-            action === 'SET_ACCOUNT_AVATAR')) {
+            action === 'SET_ACCOUNT_AVATAR' ||
+            action === 'PAYMENT' || action === 'SEND_COIN' || action === 'TRANSFER_ASSET')) {
         throw createHomeV2BridgeError(
           `${action} requires transaction signing, which is only available in Qortium Home desktop.`,
           {
@@ -1166,6 +1167,7 @@ export function createPortableNodeClient(
       if (!isHomeV2ListAction(action) && !isHomeV2PollWriteAction(action) && !isHomeV2NameWriteAction(action) &&
           !isHomeV2GroupMutationAction(action) && action !== 'DELETE_QDN_RESOURCE' &&
           action !== 'RATE_ACCOUNT' && action !== 'RATE_RESOURCE' && action !== 'SET_ACCOUNT_AVATAR' &&
+          action !== 'PAYMENT' && action !== 'SEND_COIN' && action !== 'TRANSFER_ASSET' &&
           isHomeV2AndroidUnsupportedAction(action)) {
         throw createHomeV2BridgeError(
           `${action} requires transaction signing, which is only available in Qortium Home desktop.`,

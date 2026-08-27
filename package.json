@@ -284,7 +284,8 @@
     "test:home-v2-group-mutations": "npm run build:electron && node dist-electron/home-v2-group-mutation-actions.test.js",
     "test:home-v2-publish-extras": "npm run build:electron && node dist-electron/home-v2-publish-extras-contract.test.js",
     "test:home-v2-ratings": "npm run build:electron && node dist-electron/home-v2-rating-actions.test.js",
-    "test:home-v2-account-avatar": "npm run build:electron && node dist-electron/home-v2-account-avatar-actions.test.js"
+    "test:home-v2-account-avatar": "npm run build:electron && node dist-electron/home-v2-account-avatar-actions.test.js",
+    "test:home-v2-payments": "npm run build:electron && node dist-electron/home-v2-payment-actions.test.js"
   },
   "dependencies": {
     "@capacitor-community/safe-area": "^8.0.1",

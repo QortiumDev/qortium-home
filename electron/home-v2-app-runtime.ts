@@ -305,6 +305,12 @@ const ANDROID_UNSUPPORTED_ACTIONS = new Set<string>([
   'RATE_RESOURCE',
   // And the account avatar pointer.
   'SET_ACCOUNT_AVATAR',
+  // The payment family MOVES FUNDS and stays desktop-only until an
+  // independently reviewed Android signing path exists.
+  'PAYMENT',
+  'SEND_COIN',
+  'SEND_QORT',
+  'TRANSFER_ASSET',
 ])
 
 export function isHomeV2AndroidUnsupportedAction(action: string) {

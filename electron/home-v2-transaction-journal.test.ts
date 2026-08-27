@@ -446,4 +446,47 @@ assert.equal(
   'a pending rating does not block publishing the coordinate (different operations)',
 )
 
+// --- Payments ---
+
+// The target is the exact spend intent; PAYMENT and native SEND_COIN share
+// one conflict-action key so neither alias slips the other's block.
+assert.deepEqual(
+  homeV2TransactionTargetFromRequest('PAYMENT', { amount: '1.5', recipient: 'Qtest' }),
+  { amountAtomic: '150000000', assetId: 0, kind: 'payment', recipient: 'Qtest' },
+)
+assert.deepEqual(
+  homeV2TransactionTargetFromRequest('TRANSFER_ASSET', { amount: 2, assetId: 7, recipientAddress: 'Qtest' }),
+  { amountAtomic: '200000000', assetId: 7, kind: 'payment', recipient: 'Qtest' },
+)
+// Divergent duplicate money fields fall COARSE (blocks more, never less).
+assert.deepEqual(
+  homeV2TransactionTargetFromRequest('PAYMENT', { amount: 1, payload: { recipient: 'Qreal' }, recipient: 'Qdecoy' }),
+  { kind: 'operation' },
+)
+assert.deepEqual(
+  homeV2TransactionTargetFromRequest('PAYMENT', { amount: 'garbage', recipient: 'Qtest' }),
+  { kind: 'operation' },
+)
+const paymentEntry = {
+  ...entry,
+  action: 'PAYMENT' as const,
+  target: { amountAtomic: '150000000', assetId: 0, kind: 'payment' as const, recipient: 'Qtest' },
+}
+const paymentJournal = upsertHomeV2PendingTransaction(createEmptyHomeV2TransactionJournal(), paymentEntry, now)
+assert.deepEqual(
+  findHomeV2PendingTransactionConflict(paymentJournal, conflictInput('SEND_COIN', { amount: '1.5', recipient: 'Qtest' }), now),
+  paymentEntry,
+  'the SEND_COIN alias must not slip a retained PAYMENT block for the same intent',
+)
+assert.equal(
+  findHomeV2PendingTransactionConflict(paymentJournal, conflictInput('PAYMENT', { amount: '2.5', recipient: 'Qtest' }), now),
+  null,
+  'a deliberately different amount is a different intent',
+)
+assert.equal(
+  findHomeV2PendingTransactionConflict(paymentJournal, conflictInput('SEND_QORT', { amount: '1.5', recipient: 'Qtest' }), now),
+  null,
+  'SEND_QORT is a different chain and action key',
+)
+
 console.log('Home v2 pending transaction journal tests passed')

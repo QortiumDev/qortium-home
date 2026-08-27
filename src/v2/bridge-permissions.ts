@@ -90,6 +90,11 @@ export type PermissionCapability =
   // avatar bytes travel through the separate publish flow. Never durable:
   // single-request prompt only.
   | 'account.avatar.write'
+  // Sending funds (PAYMENT, native SEND_COIN, SEND_QORT, TRANSFER_ASSET).
+  // Signs one PAID-fee transaction per approval that debits the selected
+  // account. Never durable, never session, never reachable through any
+  // other grant: single-request prompt only, every time.
+  | 'payment.send'
   // Signing one zero-fee, zero-payment chain MESSAGE to an AT (SEND_MESSAGE).
   // Deliberately NOT 'account.read' and not any 'chat.*' capability: durable
   // grants unify on the capability string, so a signing action must never be
@@ -132,6 +137,10 @@ export interface PermissionPrompt {
     | 'RATE_ACCOUNT'
     | 'RATE_RESOURCE'
     | 'SET_ACCOUNT_AVATAR'
+    | 'PAYMENT'
+    | 'SEND_COIN'
+    | 'SEND_QORT'
+    | 'TRANSFER_ASSET'
     | 'PUBLISH_CHAT_ATTACHMENT'
     | 'GET_CHAT_ATTACHMENT_STREAM_URL'
     | 'OPEN_CHAT_ATTACHMENT_VIEWER'

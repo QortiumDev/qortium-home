@@ -131,10 +131,13 @@ const QDN_ACTIONS = [
   'LIST_MINTING_ACCOUNTS',
   'LIST_QDN_RESOURCES',
   'LEAVE_GROUP',
+  'PAYMENT',
   'RATE_ACCOUNT',
   'RATE_RESOURCE',
   'REGISTER_NAME',
+  'SEND_COIN',
   'SET_ACCOUNT_AVATAR',
+  'TRANSFER_ASSET',
   'REMOVE_FROM_LIST',
   'REMOVE_GROUP_ADMIN',
   'REMOVE_MINTING_ACCOUNT',
@@ -291,6 +294,9 @@ const QORTAL_ACTIONS = [
   // dialog, and the unlock is asserted to have actually completed
   // (assertHomeV2UnlockCompleted) before the action returns.
   'UNLOCK_SELECTED_ACCOUNT',
+  // SEND_QORT is the Qortal PAYMENT compatibility action: locally built on
+  // the existing Qortal serializer, qortalRequest only.
+  'SEND_QORT',
 ] as const
 // SEARCH_GROUPS (Qortium-only): /groups/search does not exist on Qortal
 // (verified absent from both the Qortal master 6.1.5 and develop checkouts'

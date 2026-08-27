@@ -208,6 +208,7 @@ import { canonicalHomeV2AppAction, homeV2NameOperationLabel, homeV2PollOperation
 import { homeV2GroupMutationOperationLabel, isHomeV2GroupMutationAction } from '../../electron/home-v2-group-mutation-actions'
 import { homeV2RatingOperationLabel, isHomeV2RatingAction } from '../../electron/home-v2-rating-actions'
 import { homeV2AccountAvatarOperationLabel } from '../../electron/home-v2-account-avatar-actions'
+import { homeV2PaymentOperationLabel, isHomeV2PaymentAction } from '../../electron/home-v2-payment-actions'
 import {
   homeV2NotificationChainLabel,
   homeV2NotificationSourceKey,
@@ -489,6 +490,37 @@ const RATING_DETAIL_SEQUENCES: Record<string, readonly { label: string; optional
     { label: 'Change' },
   ],
 }
+
+const PAYMENT_DETAIL_SEQUENCES: Record<string, readonly { label: string; optional?: true }[]> = {
+  PAYMENT: [
+    { label: 'You pay' },
+    { label: 'Paid to' },
+    { label: 'Destination type', optional: true },
+    { label: 'Self-payment', optional: true },
+    { label: 'Fee' },
+    { label: 'Total native debit' },
+  ],
+  SEND_QORT: [
+    { label: 'You pay' },
+    { label: 'Paid to' },
+    { label: 'Resolved from name', optional: true },
+    { label: 'Destination type', optional: true },
+    { label: 'Self-payment', optional: true },
+    { label: 'Fee' },
+    { label: 'Total debit' },
+  ],
+  TRANSFER_ASSET: [
+    { label: 'Asset' },
+    { label: 'Asset ID' },
+    { label: 'You send' },
+    { label: 'Paid to' },
+    { label: 'Destination type', optional: true },
+    { label: 'Self-payment', optional: true },
+    { label: 'Fee' },
+    { label: 'Total native debit' },
+  ],
+}
+PAYMENT_DETAIL_SEQUENCES.SEND_COIN = PAYMENT_DETAIL_SEQUENCES.PAYMENT
 
 function isSequencedDetailRows(
   sequence: readonly { label: string; optional?: true }[] | undefined,
@@ -3086,6 +3118,7 @@ export function HomeV2LiveApp() {
             !isHomeV2PublishExtraAction(value.action) &&
             !isHomeV2RatingAction(value.action) &&
             value.action !== 'SET_ACCOUNT_AVATAR' &&
+            !isHomeV2PaymentAction(value.action) &&
             !isHomeV2GroupAdminAction(value.action))) ||
         // The manager families and the Home-settings update act on Home-profile
         // data, not on an account, so they are prompted with no account selected
@@ -3231,6 +3264,19 @@ export function HomeV2LiveApp() {
             value.writeOperationLabel !== homeV2PublishExtraOperationLabel('DELETE_QDN_RESOURCE') ||
             typeof value.writeRouteLabel !== 'string' ||
             value.writeTargetChainLabel !== 'Qortium' ||
+            value.writeSingleRequestOnly !== true))
+        // Payments MOVE FUNDS: fully specified single-request or not at
+        // all, caption-pinned per action, chain-pinned per action (the three
+        // Qortium sends on qdnRequest, SEND_QORT on qortalRequest), with the
+        // exact payment-grade row sequence.
+        || (isHomeV2PaymentAction(value.action) &&
+          (value.writeKind !== 'payment' ||
+            (value.action === 'SEND_QORT'
+              ? value.protocol !== 'qortalRequest' || value.targetNetwork !== 'qortal' || value.writeTargetChainLabel !== 'Qortal'
+              : value.protocol !== 'qdnRequest' || value.targetNetwork !== 'qortium' || value.writeTargetChainLabel !== 'Qortium') ||
+            !isSequencedDetailRows(PAYMENT_DETAIL_SEQUENCES[value.action], value.paymentDetails) ||
+            value.writeOperationLabel !== homeV2PaymentOperationLabel(value.action) ||
+            typeof value.writeRouteLabel !== 'string' ||
             value.writeSingleRequestOnly !== true))
         // The account avatar signs a chain transaction: fully specified
         // single-request, protocol/chain-pinned, two-caption-pinned, with
@@ -3408,6 +3454,7 @@ export function HomeV2LiveApp() {
       const isQdnDelete = value.action === 'DELETE_QDN_RESOURCE'
       const isRatingWrite = isHomeV2RatingAction(value.action)
       const isAccountAvatar = value.action === 'SET_ACCOUNT_AVATAR'
+      const isPaymentSend = isHomeV2PaymentAction(value.action)
       // A zero-fee chain MESSAGE to an AT. Its own prompt kind: it signs, so it
       // must never inherit the read-only account prompt's wording, its
       // 'account.read' grant family, or its session/always scopes.
@@ -3423,7 +3470,7 @@ export function HomeV2LiveApp() {
       // access". Splitting the GRANT is a separate decision, not made here.
       const accountReadPromptKind = homeV2AccountReadPromptKind(value.action)
       const isGenericAccountRead = accountReadPromptKind === 'account'
-      const operationLabel = isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment || isNotification || isBookmarkManager || isNotificationManager || isHomeSettingsUpdate || isJournalForget || isMintingWrite || isListWrite || isPollWrite || isNameWrite || isGroupMutation || isPublishMultiple || isQdnDelete || isRatingWrite || isAccountAvatar || isAtMessage
+      const operationLabel = isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment || isNotification || isBookmarkManager || isNotificationManager || isHomeSettingsUpdate || isJournalForget || isMintingWrite || isListWrite || isPollWrite || isNameWrite || isGroupMutation || isPublishMultiple || isQdnDelete || isRatingWrite || isAccountAvatar || isPaymentSend || isAtMessage
         ? String(value.writeOperationLabel)
         : ''
       const prompt = createPermissionPrompt({
@@ -3500,6 +3547,10 @@ export function HomeV2LiveApp() {
               // single-request only.
               : isAccountAvatar
                 ? 'account.avatar.write'
+              // MOVES FUNDS: its own capability, never durable, never
+              // reachable through any other grant.
+              : isPaymentSend
+                ? 'payment.send'
               // Its own capability, never 'account.read': that string is what
               // bridge-permissions.ts unifies durable grants on, and a signing
               // action must not be reachable through a read grant.
@@ -3543,7 +3594,7 @@ export function HomeV2LiveApp() {
             ? 'Forget pending transaction?'
           : isAtMessage
             ? 'Send a message to a contract?'
-          : isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment || isMintingWrite || isListWrite || isPollWrite || isNameWrite || isGroupMutation || isPublishMultiple || isQdnDelete || isRatingWrite || isAccountAvatar
+          : isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment || isMintingWrite || isListWrite || isPollWrite || isNameWrite || isGroupMutation || isPublishMultiple || isQdnDelete || isRatingWrite || isAccountAvatar || isPaymentSend
           ? `Allow ${operationLabel.toLowerCase()}?`
           : 'Allow account access?',
         summary: isWidgetPrompt
@@ -3570,6 +3621,8 @@ export function HomeV2LiveApp() {
             : `${appTitle} wants to sign and broadcast the QDN publish transactions listed below from the selected account — one per resource. They cost no fee — Home pays for each with proof-of-work on this device. Every resource, file, size and content hash is listed exactly as it will be signed; this approval covers exactly these listed transactions.`
           : isQdnDelete
           ? `${appTitle} wants to sign and broadcast one QDN deletion transaction from the selected account. Approving marks the resource below DELETED on the Qortium chain for EVERY peer — this deletes the published resource itself, not just a local copy, and only publishing it again would replace it. It costs no fee — Home pays for it with proof-of-work on this device.`
+          : isPaymentSend
+          ? `${appTitle} wants to PAY from the selected account. Approving signs and broadcasts one transaction that moves the funds shown below out of this account \u2014 the amount, the recipient, and the chain fee are all listed exactly as they will be signed, and this approval covers this one payment only. Nothing about this approval can be remembered or reused.`
           : isAccountAvatar
           ? `${appTitle} wants to sign and broadcast one transaction that changes the selected account's public avatar pointer on the Qortium chain. The avatar image itself is a separate published QDN resource — this signs only which resource the account points at. It costs no fee \u2014 Home pays for it with proof-of-work on this device; this approval covers this one transaction only.`
           : isRatingWrite
@@ -3684,6 +3737,18 @@ export function HomeV2LiveApp() {
               { label: 'Route', value: String(value.writeRouteLabel) },
               { label: 'Chain', value: String(value.writeTargetChainLabel) },
               { label: 'Scope', value: 'This one transaction only' },
+            ]
+          : isPaymentSend
+          ? [
+              { label: 'Account', value: account?.label ?? accountId },
+              { label: 'Operation', value: operationLabel },
+              // The payment-grade rows, re-checked against the exact
+              // per-action sequence above.
+              ...(value.paymentDetails as readonly { label: string; value: string }[])
+                .map((detail) => ({ label: detail.label, value: detail.value })),
+              { label: 'Route', value: String(value.writeRouteLabel) },
+              { label: 'Chain', value: String(value.writeTargetChainLabel) },
+              { label: 'Scope', value: 'This one payment only' },
             ]
           : isAccountAvatar
           ? [
