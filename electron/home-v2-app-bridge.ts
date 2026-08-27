@@ -2485,8 +2485,6 @@ async function handleHomeV2RatingAction(
   }
   const request = normalizeHomeV2RateResourceRequest(requestValue)
   const serviceId = getStaticQdnServiceId(request.service)
-  const coordinatePath = `/${encodeURIComponent(request.service)}/${encodeURIComponent(request.name)}` +
-    (request.identifier ? `/${encodeURIComponent(request.identifier)}` : '')
   const coordinateLabel = `${request.service}/${request.name}/${request.identifier ?? 'default'}`
   const readCurrentRating = async (label: string) => {
     try {
@@ -2499,20 +2497,39 @@ async function handleHomeV2RatingAction(
         `Qortium resource-rating ${label}`,
       ))
     } catch (error) {
+      // 404 (PUBLIC_KEY_NOT_FOUND) is Core's "exists but this rater has no
+      // rating"; 400 (INVALID_CRITERIA) means the coordinate itself is not a
+      // rateable existing resource.
       if ((error as { status?: unknown })?.status === 404) return null
+      if ((error as { status?: unknown })?.status === 400) {
+        throw new Error(`There is no rateable published QDN resource at ${coordinateLabel}.`)
+      }
       throw error
     }
   }
-  // The resource must exist before anything is promptable — the status read
-  // 404s for a coordinate that has never been published (or was deleted).
-  try {
-    await readHomeV2ChatJson(node.nodeApiUrl, `/arbitrary/resource/status${coordinatePath}`, 'Qortium resource lookup')
-  } catch (error) {
-    if ((error as { status?: unknown })?.status === 404) {
-      throw new Error(`There is no published QDN resource at ${coordinateLabel} to rate.`)
+  // The resource must exist before anything is promptable. The summary read
+  // is the correct probe: it is on the public rating-read surface (no API
+  // key), its requireExistingTarget answers HTTP 400 INVALID_CRITERIA for a
+  // missing, deleted, non-rateable, or non-normalized coordinate — Core's
+  // own Unicode-normalization rule, authoritative over Home's local subset
+  // check — and an existing-but-unrated resource answers an empty summary.
+  const assertResourceExists = async (label: string) => {
+    try {
+      await readHomeV2ChatJson(
+        node.nodeApiUrl,
+        `/resource-ratings/summary?service=${encodeURIComponent(request.service)}` +
+          `&name=${encodeURIComponent(request.name)}` +
+          (request.identifier ? `&identifier=${encodeURIComponent(request.identifier)}` : ''),
+        `Qortium resource ${label}`,
+      )
+    } catch (error) {
+      if ((error as { status?: unknown })?.status === 400) {
+        throw new Error(`There is no rateable published QDN resource at ${coordinateLabel}.`)
+      }
+      throw error
     }
-    throw error
   }
+  await assertResourceExists('lookup')
   const current = await readCurrentRating('lookup')
   const remove = request.rating === 0
   if ((remove && current === null) || (!remove && request.rating === current)) {
@@ -2532,6 +2549,10 @@ async function handleHomeV2RatingAction(
     operationLabel: homeV2RatingOperationLabel(action, remove),
     ratingDetails: [
       { label: 'Resource', value: coordinateLabel },
+      // The exact numeric id that will be SIGNED, from Home's static map —
+      // shown so a stale map that drifted from the visible service name has
+      // nowhere to hide (audit Part D, service-ID drift).
+      { label: 'Service ID', value: String(serviceId) },
       ...(current !== null ? [{ label: 'Current', value: `${current}/10` }] : []),
       { label: 'Change', value: remove ? 'Remove rating' : `${request.rating}/10` },
     ],
@@ -2548,6 +2569,7 @@ async function handleHomeV2RatingAction(
     payload: { ...request, serviceId },
     routeRevision,
     validateTarget: async () => {
+      await assertResourceExists('recheck')
       if ((await readCurrentRating('recheck')) !== current) {
         throw new Error('The resource rating state changed after approval.')
       }

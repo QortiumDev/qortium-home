@@ -802,10 +802,22 @@ locally. A no-op (same rating, or removing when none exists) answers
 3-40 byte `name`, an optional identifier (`''`/`'default'` canonicalize to
 the null wire form Core signs), and a `rating` from `1` to `10` with `0`
 removing. The signed service id comes from Home's STATIC service map — 1.x
-let the node's own catalogue pick the signed id. The resource must exist
-(the status read 404s otherwise, refusing before any prompt), the current
-rating is disclosed and re-read after approval, and no-ops answer
-`changed: false`.
+let the node's own catalogue pick the signed id — and the prompt shows the
+exact numeric Service ID being signed, so a stale map has nowhere to hide.
+The resource must exist and be rateable: the public rating-summary read is
+the probe (Core answers 400 for a missing, deleted, non-rateable, or
+non-normalized coordinate — Core's own Unicode-normalization rule,
+authoritative over Home's local subset check), re-run after approval. The
+current rating is disclosed and re-read, and no-ops answer `changed: false`.
+
+The Current/cooldown/no-op state on both prompts is **node-reported
+preflight**, not byte-verified fact: a lying node can misstate the current
+rating, answer a false `changed: false`, claim a cooldown that suppresses a
+legitimate rating, or wave through a doomed one Core then rejects. None of
+that can alter what is signed — the target, category, coordinate, rating,
+zero fee, and zero group are all byte-bound and independently verified —
+so the residual is a wrong advisory row or a wasted/blocked attempt, and
+Core's consensus rules stay authoritative.
 
 `fee` and `txGroupId`, when present, must be 0: rating transactions are
 never group-approved, and Home pays with on-device MemoryPoW (difficulty

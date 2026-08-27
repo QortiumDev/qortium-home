@@ -514,12 +514,19 @@ export function homeV2TransactionTargetFromRequest(action: string, value: unknow
     // otherwise resubmitting the same operation with the other spelling
     // would derive a different key and slip the retained block.
     const payload = isRecord(value.payload) ? value.payload : null
-    const service = payload?.service ?? value.service
-    const name = payload?.name ?? value.name
-    const identifier = payload?.identifier ?? value.identifier
-    if (typeof service === 'string' && service && typeof name === 'string' && name) {
+    // CANONICAL spelling, matching what every consumer's normalizer signs:
+    // all three fields trim (qdn-request-values getString and the rating
+    // normalizer both do), service uppercases, and a trimmed ''/'default'
+    // identifier is the null coordinate — otherwise a whitespace- or
+    // case-wrapped resubmission of the same signed operation would derive a
+    // different key and slip the retained block (ratings review round 1).
+    const trimmed = (candidate: unknown) => typeof candidate === 'string' ? candidate.trim() : ''
+    const service = trimmed(payload?.service ?? value.service).toUpperCase()
+    const name = trimmed(payload?.name ?? value.name)
+    const identifier = trimmed(payload?.identifier ?? value.identifier)
+    if (service && name) {
       return derivedTarget({
-        identifier: typeof identifier === 'string' && identifier && identifier !== 'default' ? identifier : null,
+        identifier: identifier && identifier !== 'default' ? identifier : null,
         kind: 'resource',
         name,
         service,

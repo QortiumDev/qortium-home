@@ -483,6 +483,7 @@ const RATING_DETAIL_SEQUENCES: Record<string, readonly { label: string; optional
   ],
   RATE_RESOURCE: [
     { label: 'Resource' },
+    { label: 'Service ID' },
     { label: 'Current', optional: true },
     { label: 'Change' },
   ],

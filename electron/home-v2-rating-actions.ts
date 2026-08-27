@@ -65,6 +65,25 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
 }
 
+// A conservative LOCAL subset of Core's Unicode.normalize stability rule
+// (NFKC + zero-width/control stripping + whitespace collapsing): every check
+// here is implied by Core acceptance, so nothing Core would accept is
+// refused, while the common attacks — decomposed Unicode, zero-width and
+// control padding, whitespace wrapping — refuse before any prompt. Core's
+// own rule stays authoritative through the pre-prompt existence read, which
+// answers INVALID_CRITERIA for anything non-normalized.
+function assertCoreNormalized(value: string, label: string) {
+  if (
+    value !== value.normalize('NFKC') ||
+    /[\u0000-\u001f\u007f\u00ad\u200b-\u200f\u2060\ufeff]/.test(value) ||
+    value !== value.trim() ||
+    /\s\s/.test(value) ||
+    /[\t\n\r\v\f]/.test(value)
+  ) {
+    throw new Error(`${label} is not in Core's normalized form.`)
+  }
+}
+
 function requestField(request: Record<string, unknown>, field: string): unknown {
   const payload = isRecord(request.payload) ? request.payload : null
   return payload?.[field] ?? request[field]
@@ -165,6 +184,7 @@ export function normalizeHomeV2RateResourceRequest(request: Record<string, unkno
   const name = nameRaw.trim()
   const nameBytes = new TextEncoder().encode(name).byteLength
   if (nameBytes < 3 || nameBytes > 40) throw new Error('QDN resource name must be 3 to 40 bytes.')
+  assertCoreNormalized(name, 'The QDN resource name')
   const identifierRaw = requestField(request, 'identifier')
   let identifier: string | null = null
   if (identifierRaw !== undefined && identifierRaw !== null) {
@@ -175,6 +195,7 @@ export function normalizeHomeV2RateResourceRequest(request: Record<string, unkno
   if (identifier && new TextEncoder().encode(identifier).byteLength > 64) {
     throw new Error('QDN resource identifier exceeds the 64 byte limit.')
   }
+  if (identifier) assertCoreNormalized(identifier, 'The QDN resource identifier')
   if (identifier === '.' || identifier === '..' || name === '.' || name === '..') {
     throw new Error('QDN resource coordinates cannot be dot segments.')
   }

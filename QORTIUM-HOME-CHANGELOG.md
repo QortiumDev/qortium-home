@@ -45,9 +45,10 @@ exact key being signed — an app cannot dress up one account as another —
 along with the category, the current rating, and the change; for a resource
 it shows the coordinate, the current rating, and the change. Removing a
 rating is its own clearly-worded operation, never a "zero score". Home
-checks up front that the target exists, that the rating would actually
-change something, and that the per-category cooldown allows a change, so
-the prompt is only shown for a rating that can succeed. In older versions
+asks the node up front whether the target exists, whether the rating would
+actually change anything, and whether the per-category cooldown allows a
+change, so a rating that cannot succeed is normally refused before any
+prompt (the chain itself remains the final authority on those answers). In older versions
 these actions quietly sent the account's private key to the node to sign;
 now the key never leaves Home, and the exact bytes are verified twice
 before they are signed on the device.

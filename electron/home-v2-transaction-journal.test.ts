@@ -404,6 +404,16 @@ assert.deepEqual(
   homeV2TransactionTargetFromRequest('RATE_RESOURCE', { name: 'Alice', service: 'DOCUMENT', identifier: 'default' }),
   { kind: 'resource', identifier: null, name: 'Alice', service: 'DOCUMENT' },
 )
+// The derivation is CANONICAL: whitespace- and case-wrapped spellings of the
+// same signed coordinate derive the same key (ratings review round 1).
+assert.deepEqual(
+  homeV2TransactionTargetFromRequest('RATE_RESOURCE', { name: ' Alice ', service: ' document ', identifier: ' default ' }),
+  { kind: 'resource', identifier: null, name: 'Alice', service: 'DOCUMENT' },
+)
+assert.deepEqual(
+  homeV2TransactionTargetFromRequest('PUBLISH_QDN_RESOURCE', { name: ' Alice ', service: ' document ' }),
+  { kind: 'resource', identifier: null, name: 'Alice', service: 'DOCUMENT' },
+)
 const ratingEntry = {
   ...entry,
   action: 'RATE_ACCOUNT' as const,
