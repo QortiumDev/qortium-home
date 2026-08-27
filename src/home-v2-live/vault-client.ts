@@ -265,6 +265,18 @@ export interface HomeV2VaultClient {
   sendGroupAdmin?(request: HomeV2GroupAdminMutationRequest): Promise<HomeV2GroupAdminMutationResult>
   sendGroupMembership?(request: HomeV2GroupMembershipRequest): Promise<HomeV2GroupMembershipResult>
   publishPublicResource?(request: HomeV2PublicPublishMutationRequest): Promise<unknown>
+  /**
+   * Signs one Qortium poll write. The vault RE-NORMALIZES the raw request
+   * rather than trusting values from the shell, so the bytes it signs and the
+   * rows the prompt showed derive from one input through one normalizer.
+   */
+  signPollWrite?(request: {
+    readonly accountId: string
+    readonly action: 'CREATE_POLL' | 'UPDATE_POLL' | 'VOTE_ON_POLL'
+    readonly isStillValid?: () => boolean | Promise<boolean>
+    readonly nodeApiUrl: string
+    readonly requestValue: Record<string, unknown>
+  }): Promise<unknown>
   // Reads the Qortal ARBITRARY unit fee (atomic decimal digit string) so the
   // approval prompt can disclose and pin it before anything is staged.
   readQortalArbitraryUnitFee?(request: { readonly nodeApiUrl: string }): Promise<string>

@@ -204,7 +204,7 @@ import {
   isHomeV2PermissionlessAction,
 } from '../../electron/home-v2-session-grants'
 import { getHomeV2BridgeStateDetails } from '../../electron/home-v2-app-runtime'
-import { canonicalHomeV2AppAction, homeV2NameOperationLabel, homeV2PollOperationLabel, homeV2PublishExtraOperationLabel, isHomeV2ListAction, isHomeV2ListWriteAction, isHomeV2NameWriteAction, isHomeV2PollWriteAction, isHomeV2PublishExtraAction, normalizeHomeV2ListItems, normalizeHomeV2ListName, serializeHomeV2ListItemsForApproval } from '../../electron/home-v2-app-actions'
+import { canonicalHomeV2VoteSelection, normalizeHomeV2CreatePollRequest, normalizeHomeV2UpdatePollRequest, normalizeHomeV2VoteOnPollRequest, selectHomeV2PollTarget, canonicalHomeV2AppAction, homeV2NameOperationLabel, homeV2PollOperationLabel, homeV2PublishExtraOperationLabel, isHomeV2ListAction, isHomeV2ListWriteAction, isHomeV2NameWriteAction, isHomeV2PollWriteAction, isHomeV2PublishExtraAction, normalizeHomeV2ListItems, normalizeHomeV2ListName, serializeHomeV2ListItemsForApproval } from '../../electron/home-v2-app-actions'
 import { homeV2GroupMutationOperationLabel, isHomeV2GroupMutationAction } from '../../electron/home-v2-group-mutation-actions'
 import { homeV2RatingOperationLabel, isHomeV2RatingAction } from '../../electron/home-v2-rating-actions'
 import { homeV2AccountAvatarOperationLabel } from '../../electron/home-v2-account-avatar-actions'
@@ -545,6 +545,37 @@ function isSequencedDetailRows(
     if (!expected.optional) return false
   }
   return position === value.length
+}
+
+/**
+ * Builds the disclosure rows for an Android approval prompt AND holds them to
+ * the same pinned contract the desktop prompts are held to.
+ *
+ * On desktop the main process sends rows over IPC and the shell re-validates
+ * them against a per-action sequence before rendering — for payments,
+ * ratings, names and group mutations those rows ARE the security control.
+ * Android builds its rows in-process, so there is no IPC boundary to check
+ * them at; without this they would be free-form. Every Android arm therefore
+ * goes through here: values are escaped to printable ASCII, and a row set
+ * that does not match the action's sequence throws instead of prompting —
+ * a mismatch is a programming error, and showing an unvalidated approval is
+ * worse than showing none.
+ */
+function androidSequencedDetails(
+  action: string,
+  sequence: readonly { label: string; optional?: true }[] | undefined,
+  rows: readonly { label: string; value: string; variant?: 'scroll' }[],
+): readonly { label: string; value: string; variant?: 'scroll' }[] {
+  const escaped = rows.map((row) => ({ label: row.label, value: androidPromptText(row.value) }))
+  if (!isSequencedDetailRows(sequence, escaped)) {
+    throw new Error(`${action} prompt rows do not match its disclosure contract.`)
+  }
+  // Re-attach the render variants the validator does not model (it checks
+  // exactly two keys per row).
+  return escaped.map((row, index) => {
+    const variant = rows[index]?.variant
+    return variant ? { ...row, variant } : row
+  })
 }
 
 // Printable-ASCII escaping for prompt rows the Android flow builds locally —
@@ -4579,6 +4610,139 @@ export function HomeV2LiveApp() {
           ? 1
           : androidNextNotificationId.current + 1
         return { ...resultBase, shown: true }
+      }
+      // Poll writes on Android. The builders are Core's keyless
+      // /polls/public/* routes and the signing happens in the vault, so this
+      // arm normalizes only to DESCRIBE the operation — the vault
+      // re-normalizes the same request through the same shared code before it
+      // signs, so the rows and the bytes cannot disagree.
+      if (isAndroidHost && protocol === 'qdnRequest' && isHomeV2PollWriteAction(action)) {
+        if (!context.selectedAccountId) throw new Error('No account is selected for this tab.')
+        const accountId = context.selectedAccountId
+        const account = accountCatalogueRef.current.accounts.find((candidate) => candidate.id === accountId)
+        if (!account) throw new Error('The selected account is no longer available.')
+        if (!account.isUnlocked) throw new Error('The selected account is locked.')
+        if (!vaultClient?.signPollWrite) throw new Error('Poll signing is unavailable on this platform.')
+        const nodeBefore = parseHomeV2NodesSnapshot(await nodeClient.getSnapshot()).qortium
+        if (!nodeBefore.nodeApiUrl || !nodeBefore.capabilities.read) {
+          throw new Error(nodeBefore.error ?? 'Qortium is unavailable.')
+        }
+        const request = isRecord(requestValue) ? requestValue : {}
+        const createRequest = action === 'CREATE_POLL'
+          ? normalizeHomeV2CreatePollRequest(request, account.address)
+          : null
+        const voteRequest = action === 'VOTE_ON_POLL' ? normalizeHomeV2VoteOnPollRequest(request) : null
+        const updateRequest = action === 'UPDATE_POLL' ? normalizeHomeV2UpdatePollRequest(request) : null
+        const selection = voteRequest ? canonicalHomeV2VoteSelection(voteRequest.optionInput) : null
+        const pollId = voteRequest?.pollId ?? updateRequest?.pollId ?? null
+        // The live poll a vote or update is about, so the prompt names real
+        // labels rather than bare indexes.
+        const target = pollId === null
+          ? null
+          : selectHomeV2PollTarget(
+              await nodeClient.requestApp(protocol, { action: 'FETCH_QORTAL_NODE_API', path: `/polls/id/${pollId}` }, context),
+              pollId,
+            )
+        const rows = createRequest
+          ? [
+              { label: 'Name', value: createRequest.pollName },
+              { label: 'Description', value: createRequest.description || '(none)' },
+              { label: 'Options', value: JSON.stringify(createRequest.pollOptions), variant: 'scroll' as const },
+              { label: 'Owner', value: createRequest.owner },
+              ...(createRequest.startTime !== undefined
+                ? [{ label: 'Starts', value: `${new Date(createRequest.startTime).toISOString()} (${createRequest.startTime})` }]
+                : []),
+              ...(createRequest.endTime !== undefined
+                ? [{ label: 'Ends', value: `${new Date(createRequest.endTime).toISOString()} (${createRequest.endTime})` }]
+                : []),
+            ]
+          : voteRequest && selection
+            ? [
+                { label: 'Poll', value: `#${voteRequest.pollId} \u00b7 ${target?.pollName ?? ''}` },
+                {
+                  label: 'Selection',
+                  value: selection.length === 0
+                    ? 'Remove this account\u2019s vote'
+                    : selection.map((index) => `${index}. ${target?.optionNames[index - 1] ?? ''}`).join(', '),
+                  variant: 'scroll' as const,
+                },
+              ]
+            : [
+                { label: 'Poll', value: `#${updateRequest!.pollId} \u00b7 ${target?.pollName ?? ''}` },
+                { label: 'New name', value: updateRequest!.newPollName },
+                { label: 'New description', value: updateRequest!.newDescription || '(none)' },
+                { label: 'New options', value: JSON.stringify(updateRequest!.newPollOptions), variant: 'scroll' as const },
+                {
+                  label: 'New start',
+                  value: updateRequest!.newStartTime !== undefined
+                    ? `${new Date(updateRequest!.newStartTime).toISOString()} (${updateRequest!.newStartTime})`
+                    : '(none \u2014 clears any stored start time)',
+                },
+                {
+                  label: 'New end',
+                  value: updateRequest!.newEndTime !== undefined
+                    ? `${new Date(updateRequest!.newEndTime).toISOString()} (${updateRequest!.newEndTime})`
+                    : '(none \u2014 clears any stored end time)',
+                },
+              ]
+        const operationLabel = homeV2PollOperationLabel(action, selection !== null && selection.length === 0)
+        const parsedApp = resolveAppIdentity()
+        const appId = brand<AppId>(`home-v2:permission-app:${parsedApp.identityKey}`)
+        const nodeRoute = `${nodeBefore.mode}|${nodeBefore.nodeApiUrl}`
+        const decision = await queueAndroidPermissionPrompt(createPermissionPrompt({
+          id: brand<PermissionRequestId>(globalThis.crypto.randomUUID()),
+          protocol,
+          action,
+          capability: 'poll.write',
+          appId,
+          appIdentityKey: parsedApp.identityKey,
+          appTitle: parsedApp.title,
+          context: {
+            appId,
+            identityId: brand<IdentityId>(`home-v2:identity:${accountId}`),
+            nodeProfileRef: snapshot.nodes.qortium.ref,
+            tabId: brand<TabId>(context.tabId),
+            targetNetwork: 'qortium',
+            walletRef: brand<WalletRef>(`home-v2:wallet:${account.walletId}`),
+          },
+          title: `Allow ${operationLabel.toLowerCase()}?`,
+          summary: `${parsedApp.title} wants to sign and broadcast one poll transaction from the selected account. It carries no payment and costs no fee \u2014 Home pays for it with proof-of-work on this device. Everything it does is shown below, exactly as it will be signed; this approval covers this one transaction only.`,
+          details: [
+            { label: 'Account', value: account.label },
+            { label: 'Operation', value: operationLabel },
+            // Held to the SAME pinned sequence the desktop prompt is held to.
+            ...androidSequencedDetails(action, POLL_DETAIL_SEQUENCES[action], rows),
+            { label: 'Chain', value: 'Qortium' },
+            { label: 'Scope', value: 'This one transaction only' },
+          ],
+          allowedScopes: ['single-request'],
+        }), context.tabId)
+        if (!decision.approved || decision.scope !== 'single-request') {
+          throw new Error('The poll transaction was denied.')
+        }
+        const rateLimitDecision = androidChatSendRateLimiter.current.checkAndRecordSend(`${context.tabId}|${accountId}`)
+        if (!rateLimitDecision.allowed) throw new Error(rateLimitDecision.message)
+        const isStillValid = async () => {
+          const currentTab = productStateRef.current.tabs.find((tab) => tab.id === context.tabId)
+          const currentAccount = accountCatalogueRef.current.accounts.find((candidate) => candidate.id === accountId)
+          const currentNode = parseHomeV2NodesSnapshot(await nodeClient.getSnapshot()).qortium
+          return !!currentTab &&
+            currentTab.context.resourceLocation === context.resourceLocation &&
+            !!currentAccount?.isUnlocked &&
+            currentNode.capabilities.read &&
+            `${currentNode.mode}|${currentNode.nodeApiUrl ?? ''}` === nodeRoute
+        }
+        if (!(await isStillValid())) throw new Error('The app, account, or node route changed before signing.')
+        // The journal wrap is mandatory for every signing arm: the shared
+        // conflict gate already fires for this family, so an arm that forgets
+        // it would block the action permanently while recording nothing.
+        return retainUnknownTransaction(await vaultClient.signPollWrite({
+          accountId,
+          action,
+          isStillValid,
+          nodeApiUrl: nodeBefore.nodeApiUrl,
+          requestValue: request,
+        }))
       }
       // QDN lists on Android. They administer the user's OWN node — allowed
       // wherever they attached its API key (custom node, HTTPS or an SSH

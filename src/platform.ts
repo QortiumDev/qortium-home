@@ -161,6 +161,14 @@ import {
 } from '../electron/public-transaction-validation';
 import { parsePublicPollCapabilities, type PublicPollCapabilities } from '../electron/public-poll-capabilities';
 import {
+  canonicalHomeV2VoteSelection,
+  normalizeHomeV2CreatePollRequest,
+  normalizeHomeV2UpdatePollRequest,
+  normalizeHomeV2VoteOnPollRequest,
+  selectHomeV2PollTarget,
+  type HomeV2PollWriteAction,
+} from '../electron/home-v2-app-actions';
+import {
   sanitizeQdnNotificationIds,
   sanitizeQdnNotificationSubscriptions,
 } from '../electron/notification-rules';
@@ -14042,6 +14050,234 @@ function homeV2IdempotentGroupAdminResult(
     : null;
 }
 
+/**
+ * Signs and broadcasts one Qortium poll write on Android.
+ *
+ * Mirrors the desktop handler's signing half exactly, and deliberately
+ * RE-NORMALIZES the request here rather than trusting values passed in from
+ * the shell: the prompt and the signature must describe the same operation,
+ * and the only way to guarantee that is for both to derive it from the same
+ * request through the same shared normalizer. Everything the node returns is
+ * byte-asserted against that normalized intent before a signature exists.
+ */
+async function signAndroidHomeV2QortiumPollWrite(input: {
+  readonly action: HomeV2PollWriteAction;
+  readonly address: string;
+  readonly isStillValid: () => Promise<boolean>;
+  readonly nodeApiUrl: string;
+  readonly requestValue: Record<string, unknown>;
+  readonly signingKey: { publicKey58: string; secretKey: Uint8Array };
+}) {
+  const { action, address, isStillValid, nodeApiUrl, requestValue, signingKey } = input;
+  const createRequest = action === 'CREATE_POLL'
+    ? normalizeHomeV2CreatePollRequest(requestValue, address)
+    : null;
+  const voteRequest = action === 'VOTE_ON_POLL' ? normalizeHomeV2VoteOnPollRequest(requestValue) : null;
+  const updateRequest = action === 'UPDATE_POLL' ? normalizeHomeV2UpdatePollRequest(requestValue) : null;
+  const pollId = voteRequest?.pollId ?? updateRequest?.pollId ?? null;
+  const selection = voteRequest ? canonicalHomeV2VoteSelection(voteRequest.optionInput) : null;
+  const readTarget = async () => {
+    if (pollId === null) return null;
+    // Keyless public read — a lookup never carries a key.
+    return selectHomeV2PollTarget(
+      await fetchLocalNodeApiPayload(
+        nodeApiUrl,
+        `/polls/id/${encodeURIComponent(String(pollId))}`,
+        `Poll ${pollId} does not exist.`,
+        CHAT_SIGNING_RESPONSE_MAX_BYTES,
+        '',
+      ),
+      pollId,
+    );
+  };
+  const target = await readTarget();
+  if (target && selection) {
+    for (const index of selection) {
+      if (index > target.optionNames.length) {
+        throw new Error(`Poll "${target.pollName}" has ${target.optionNames.length} options; option ${index} does not exist.`);
+      }
+    }
+  }
+  const timestamp = Date.now();
+  const buildPath = action === 'CREATE_POLL'
+    ? '/polls/public/create'
+    : action === 'VOTE_ON_POLL'
+      ? '/polls/public/vote'
+      : '/polls/public/update';
+  const buildBody = JSON.stringify(
+    createRequest
+      ? {
+          description: createRequest.description,
+          fee: 0,
+          owner: createRequest.owner,
+          pollCreatorPublicKey: signingKey.publicKey58,
+          pollName: createRequest.pollName,
+          pollOptions: createRequest.pollOptions.map((optionName: string) => ({ optionName })),
+          timestamp,
+          txGroupId: 0,
+          ...(createRequest.startTime !== undefined ? { startTime: createRequest.startTime } : {}),
+          ...(createRequest.endTime !== undefined ? { endTime: createRequest.endTime } : {}),
+        }
+      : voteRequest
+        ? {
+            fee: 0,
+            optionIndexes: [...selection!],
+            pollId: voteRequest.pollId,
+            timestamp,
+            txGroupId: 0,
+            voterPublicKey: signingKey.publicKey58,
+          }
+        : {
+            fee: 0,
+            newDescription: updateRequest!.newDescription,
+            newPollName: updateRequest!.newPollName,
+            newPollOptions: updateRequest!.newPollOptions.map((optionName: string) => ({ optionName })),
+            ownerPublicKey: signingKey.publicKey58,
+            pollId: updateRequest!.pollId,
+            timestamp,
+            txGroupId: 0,
+            ...(updateRequest!.newStartTime !== undefined ? { newStartTime: updateRequest!.newStartTime } : {}),
+            ...(updateRequest!.newEndTime !== undefined ? { newEndTime: updateRequest!.newEndTime } : {}),
+          },
+  );
+  let unsignedText: string;
+  try {
+    const built = await postLocalNodeText(
+      nodeApiUrl,
+      buildPath,
+      buildBody,
+      '',
+      'Poll transaction build failed.',
+      'application/json',
+      CHAT_SIGNING_RESPONSE_MAX_BYTES,
+      true,
+    );
+    unsignedText = built.body.trim();
+  } catch (error) {
+    if (homeV2GroupBuilderUnavailable(error)) {
+      throw new Error('The selected Qortium node does not expose the public poll builders.');
+    }
+    throw error;
+  }
+  const unsignedBytes = base58Decode(unsignedText);
+  const common = {
+    publicKey: base58Decode(signingKey.publicKey58),
+    timestamp,
+    txGroupId: 0,
+  };
+  if (createRequest) {
+    assertPublicCreatePollTransaction(unsignedBytes, {
+      ...common,
+      description: createRequest.description,
+      endTime: createRequest.endTime,
+      owner: base58Decode(createRequest.owner),
+      pollName: createRequest.pollName,
+      pollOptions: [...createRequest.pollOptions],
+      startTime: createRequest.startTime,
+    });
+  } else if (voteRequest && selection) {
+    assertPublicVoteOnPollTransaction(unsignedBytes, {
+      ...common,
+      optionIndexes: [...selection],
+      pollId: voteRequest.pollId,
+    });
+  } else {
+    assertPublicUpdatePollTransaction(unsignedBytes, {
+      ...common,
+      endTime: updateRequest!.newEndTime,
+      newDescription: updateRequest!.newDescription,
+      newPollName: updateRequest!.newPollName,
+      newPollOptions: [...updateRequest!.newPollOptions],
+      pollId: updateRequest!.pollId,
+      startTime: updateRequest!.newStartTime,
+    });
+  }
+  let difficulty: number;
+  try {
+    difficulty = parsePublicPollCapabilities(await fetchLocalNodeApiPayload(
+      nodeApiUrl,
+      '/polls/public/capabilities',
+      'MemoryPoW capability lookup failed.',
+      CHAT_SIGNING_RESPONSE_MAX_BYTES,
+      '',
+    )).mempowFeeAlternativeDifficulty;
+  } catch (error) {
+    throw new Error('The selected Qortium node does not advertise a compatible MemoryPoW poll capability.');
+  }
+  const nonce = await computeChatNonce(unsignedBytes, difficulty, isStillValid);
+  if (!(await isStillValid())) throw new Error('The signing context changed before the poll action could be submitted.');
+  // A vote or update means what it means only against the poll the user SAW:
+  // an owner can rename it or replace its options before votes exist, which
+  // would leave the approved indexes naming different labels.
+  if (pollId !== null && target) {
+    const currentTarget = await readTarget();
+    if (
+      !currentTarget ||
+      currentTarget.pollName !== target.pollName ||
+      JSON.stringify(currentTarget.optionNames) !== JSON.stringify(target.optionNames)
+    ) {
+      throw new Error('The poll changed before the poll action could be signed.');
+    }
+  }
+  if (!(await isStillValid())) throw new Error('The signing context changed before the poll action could be submitted.');
+  const stampedBytes = stampTransactionNonce(unsignedBytes, nonce);
+  const signedBytes = new Uint8Array(stampedBytes.length + 64);
+  signedBytes.set(stampedBytes, 0);
+  signedBytes.set(nacl.sign.detached(stampedBytes, signingKey.secretKey), stampedBytes.length);
+  const signature = getSignatureFromSignedTransactionBytes(signedBytes);
+  const identity = createRequest
+    ? { pollName: createRequest.pollName }
+    : voteRequest
+      ? {
+          pollId: voteRequest.pollId,
+          pollName: target!.pollName,
+          ...(voteRequest.optionInput.optionIndexes === undefined
+            ? { optionIndex: voteRequest.optionInput.optionIndex }
+            : { optionIndexes: [...selection!] }),
+        }
+      : { newPollName: updateRequest!.newPollName, pollId: updateRequest!.pollId };
+  try {
+    const processed = await postLocalNodeText(
+      nodeApiUrl,
+      '/transactions/process?apiVersion=2',
+      base58Encode(signedBytes),
+      '',
+      'Poll transaction processing failed.',
+      'text/plain',
+      CHAT_SIGNING_RESPONSE_MAX_BYTES,
+      true,
+    );
+    let processResult: unknown = processed.body;
+    try { processResult = JSON.parse(processed.body); } catch { /* text answer stays text */ }
+    return Object.freeze({
+      accepted: true,
+      action,
+      ...identity,
+      network: 'qortium' as const,
+      result: processResult,
+      signature,
+      timestamp,
+      transactionSignature: signature,
+    });
+  } catch (error) {
+    // Signed and submitted with an unclear answer: never invite an automatic
+    // retry. retainUnknownTransaction journals this for reconciliation.
+    return Object.freeze({
+      accepted: false,
+      action,
+      ...identity,
+      error: error instanceof Error ? error.message : String(error),
+      errorType: 'BROADCAST_OUTCOME_UNKNOWN' as const,
+      network: 'qortium' as const,
+      outcome: 'unknown' as const,
+      retryable: false as const,
+      signature,
+      timestamp,
+      transactionSignature: signature,
+    });
+  }
+}
+
 async function sendAndroidHomeV2QortiumGroupAdmin(
   nodeApiUrl: string,
   request: HomeV2GroupAdminRequest,
@@ -15037,6 +15273,21 @@ export function createAndroidHomeV2VaultClient(): HomeV2VaultClient {
               isStillValid,
               validateTarget,
             ));
+      } finally {
+        signingKey.secretKey.fill(0);
+      }
+    },
+    async signPollWrite(request) {
+      const signingKey = await getAccountSecretKey(request.accountId);
+      try {
+        return await signAndroidHomeV2QortiumPollWrite({
+          action: request.action,
+          address: signingKey.address,
+          isStillValid: async () => (await (request.isStillValid ?? (() => true))()) === true,
+          nodeApiUrl: request.nodeApiUrl,
+          requestValue: request.requestValue,
+          signingKey,
+        });
       } finally {
         signingKey.secretKey.fill(0);
       }
