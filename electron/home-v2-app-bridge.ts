@@ -435,6 +435,7 @@ import { createHomeV2SendRateLimiter } from './home-v2-send-rate-limiter.js'
 import { assertHomeV2UnlockCompleted } from './home-v2-unlock-contract.js'
 import { base58Decode, base58Encode } from './base58.js'
 import { computeHomeV2ChatNonce } from './home-v2-chat-pow.js'
+import { deriveHomeV2RewardSharePrivateKey } from './home-v2-reward-share-key.js'
 import { readableNodeErrorMessage } from './node-error-body.js'
 import { getNodeConnection } from './node-settings.js'
 import {
@@ -3964,11 +3965,12 @@ async function postHomeV2ChatText(
     },
     body,
     // A redirect would let the responder pick a second host this call's
-    // callers never vetted — and this helper carries the admin API key, whole
-    // transaction bodies, and (via postHomeV2MintingText's rewardsharekey
-    // call) an account PRIVATE key. Fetch preserves X-API-KEY across origins,
-    // and 307/308 re-send the method and body. Core's API never legitimately
-    // redirects; refuse outright. (List-family review follow-up, 2026-08-26.)
+    // callers never vetted — and this helper carries the admin API key and
+    // whole signed transaction bodies. Fetch preserves X-API-KEY across
+    // origins, and 307/308 re-send the method and body. Core's API never
+    // legitimately redirects; refuse outright. (List-family review
+    // follow-up, 2026-08-26. The reward-share key is now derived locally, so
+    // no account private key travels through this helper any more.)
     redirect: 'error',
     signal: AbortSignal.timeout(CHAT_WRITE_TIMEOUT_MS),
   })
@@ -7317,41 +7319,31 @@ async function readHomeV2MintingAccounts(network: HomeV2AppNetwork) {
 }
 
 /**
- * Derives the reward-share (minting) key pair for a self share.
+ * Derives the reward-share (minting) key pair for a self share — LOCALLY.
  *
- * SECURITY: `/addresses/rewardsharekey` is the only way to obtain this key
- * without reimplementing Core's ed25519→X25519 agreement, and it takes the
- * account's private key as input — so the private key is sent to the node.
- * That is why the whole minting write path is refused unless the node is a
- * local Core Home itself runs and holds the API key for. Neither the derived
- * private key nor the account's own key is ever returned to the app.
+ * SECURITY: this was the one place the account private key left Home: 1.x
+ * posted it to the node's reward-share-key endpoint. Home now computes the
+ * reward-share private key itself (SHA-256 of the X25519 shared secret — the
+ * exact construction Core's PrivateKeyAccount.getRewardSharePrivateKey uses,
+ * verified against a Core-generated vector in home-v2-reward-share-key.test),
+ * and derives its Ed25519 public key from that seed. No key material — the
+ * account's or the derived reward-share key — ever touches the node, so this
+ * no longer depends on a loopback/trusted node at all.
  */
-async function deriveHomeV2MintingKeyPair(
-  nodeApiUrl: string,
-  apiKey: string,
-  privateKey58: string,
-  publicKey58: string,
+function deriveHomeV2MintingKeyPair(
+  minterSecretKey: Uint8Array,
+  recipientPublicKey58: string,
 ) {
-  const privateKey = await postHomeV2MintingText(
-    nodeApiUrl,
-    '/addresses/rewardsharekey',
-    JSON.stringify({
-      mintingAccountPrivateKey: privateKey58,
-      recipientAccountPublicKey: publicKey58,
-    }),
-    'application/json',
-    'Minting key derivation',
-    apiKey,
+  const rewardSharePrivateKey = deriveHomeV2RewardSharePrivateKey(
+    minterSecretKey,
+    base58Decode(recipientPublicKey58),
   )
-  const mintingPublicKey = await postHomeV2MintingText(
-    nodeApiUrl,
-    '/utils/publickey',
-    privateKey,
-    'text/plain',
-    'Minting public key derivation',
-    apiKey,
-  )
-  return { privateKey58: privateKey, publicKey58: mintingPublicKey }
+  try {
+    const pair = nacl.sign.keyPair.fromSeed(rewardSharePrivateKey)
+    return { privateKey58: base58Encode(rewardSharePrivateKey), publicKey58: base58Encode(pair.publicKey) }
+  } finally {
+    rewardSharePrivateKey.fill(0)
+  }
 }
 
 function homeV2MintingContextGuard(
@@ -7426,12 +7418,7 @@ async function startHomeV2Minting(
       ),
       address,
     )
-    const mintingKeyPair = await deriveHomeV2MintingKeyPair(
-      node.nodeApiUrl,
-      apiKey,
-      signingKey.privateKey58,
-      signingKey.publicKey58,
-    )
+    const mintingKeyPair = deriveHomeV2MintingKeyPair(secretKey.secretKey, signingKey.publicKey58)
     if (!(await isStillValid())) throw new Error('The signing context changed before minting could start.')
     if (selfShares.length === 0) {
       // No on-chain authorization yet (the account joined its minting group

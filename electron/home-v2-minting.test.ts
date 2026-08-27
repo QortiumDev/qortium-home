@@ -572,13 +572,29 @@ function isScrubbedCall(needle: string) {
   return before.lastIndexOf('postHomeV2MintingText(') > before.lastIndexOf('postHomeV2ChatText(')
 }
 for (const needle of [
-  "'/addresses/rewardsharekey',",
-  "'/utils/publickey',",
   "'/addresses/rewardshare',",
   'mintingKeyPair.privateKey58,',
 ]) {
   assert.equal(isScrubbedCall(needle), true, `${needle} must be posted through the scrubbing wrapper.`)
 }
+// The account private key NEVER leaves Home: the reward-share key is derived
+// locally (home-v2-reward-share-key), so the node handoff endpoints that took
+// the private key as input are gone entirely.
+assert.equal(
+  mintingSection.includes('/addresses/rewardsharekey'),
+  false,
+  'The minting section must not post the account private key to derive a reward-share key.',
+)
+assert.equal(
+  mintingSection.includes("'/utils/publickey'"),
+  false,
+  'The reward-share public key is derived locally, not via the node.',
+)
+assert.equal(
+  mintingSection.includes('deriveHomeV2RewardSharePrivateKey'),
+  true,
+  'The reward-share key must be derived locally.',
+)
 
 // The read allowlist stays closed: apps still cannot fetch /admin/mintingaccounts.
 assert.equal(actionsSource.includes("pathname === '/admin/status'"), true)
