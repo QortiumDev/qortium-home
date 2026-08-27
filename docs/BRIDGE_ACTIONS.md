@@ -920,6 +920,59 @@ On today's Qortium Previewnet — which deliberately has no native asset
 yet — the Qortium arms refuse at the balance/asset pre-checks with named
 errors; the implementation is ready for the chain's coin decision.
 
+## Node administration trust (Home 2)
+
+Some families do not act on the chain — they administer a **node**: the QDN
+list family (node-local blocking/following state) and the minting family
+(the node's minting-accounts list), with node settings to follow. Those need
+the node's administrative API key, so Home has to decide which nodes it may
+administer.
+
+The rule is ownership, not locality: a node is administrable when it is the
+Core Home runs itself (loopback, key reconciled from that Core), **or** a
+custom node the user has attached their own API key to. Today that unlocks
+the list and minting families on desktop; the Android screens for both (and
+node settings on either platform) are still to be built. That second case is
+the self-hosted one — including a node reached through an `ssh -L` tunnel,
+which presents as plain HTTP to `127.0.0.1` and is explicitly allowed. Public
+and discovered nodes are refused: administering someone else's Core is not
+the user's to do, and no key of theirs belongs on it. Qortal is refused
+because Home has no administrative concept for it.
+
+The attached key is bound to the **exact node origin** it was attached to; a
+changed address discards it rather than re-pointing a credential at a host
+the user never approved. It is stored in the operating system's secure store
+(Android Keystore; Electron `safeStorage` on desktop) rather than in the
+plaintext node settings: every desktop writer funnels through one storage
+boundary that relocates a newly-entered custom-node key into the protected
+store. It is sent only to the origin it was attached to, over HTTPS or
+loopback HTTP, with redirects refused, and it never crosses into the
+renderer, a QDN app, or any other host. Every trust answer carries an
+origin+key revision, so an approval granted for one node cannot be spent
+against another.
+
+Three honest limits. The attach flow refuses outright when a device has no
+protected storage — but a key submitted through the *legacy* settings path
+in that state is left where it was rather than destroyed, since losing a
+credential the user may be unable to re-derive is the worse failure;
+administration stays refused either way, because trust is resolved only from
+the protected store. A key the legacy UI merely resubmits unchanged is never
+treated as an attachment (it is dropped instead), so neither a mode switch
+nor an address change can bind an existing credential to a node it was not
+attached to. And the Home 1.x Android host keeps its own separate
+custom-node key in Capacitor Preferences; that legacy surface is untouched
+by this change and tracked separately.
+
+Two honest notes. First, an API key is a **full administrative credential**
+for that Core, not a Home-scoped token — Core treats any valid key as admin
+(and by default lets it bypass its public-API path restrictions), so the
+attach dialog says so and recommends a node you operate with a key you do not
+reuse. Second, this rule replaced a stricter loopback-only one that existed
+because minting used to post the account's private key to the node to derive
+a reward-share key; Home now derives that key locally (verified against
+Core's own implementation), so no account key travels to any node and the
+remaining exposure is the user's own credential for their own node.
+
 ## Minting actions (Home 2)
 
 Home 2 exposes four minting actions on both `qdnRequest` and `qortalRequest`:
@@ -978,18 +1031,27 @@ calling the node: that is a no-op, not a failure.
 
 ### Restrictions shared by the minting family
 
-The trusted node must be `local` mode, have an API key Home holds, **and**
-resolve to a loopback host (`127.0.0.0/8`, `localhost`, or `::1`). The mode and
-the key both come from Home's own settings, so the loopback requirement is what
-keeps an administrative or account private key off the network if either is
-mis-set. Any other host is refused before a single admin call or secret-bearing
-POST is made.
+The node must be **administered** — Home's own managed Core, or a custom node
+the user attached their own API key to (see *Node administration trust*
+above). Home's managed Core must additionally resolve to a loopback host
+(`127.0.0.0/8`, `localhost`, or `::1`), since that is the only place it ever
+runs; an attached custom node must be reached over HTTPS or loopback HTTP.
+Any other route is refused before a single admin call is made, and the
+refusal names the fix.
 
-Errors from the calls that carry key material — `/addresses/rewardsharekey`,
-`/utils/publickey`, `/addresses/rewardshare`, and the `/admin/mintingaccounts`
-POST and DELETE — are reduced to the operation name and HTTP status. Core
-echoes request context into its error bodies, so no body from these calls
-reaches the app, and none is written to a log either.
+**No account private key travels to the node.** (The derived reward-share
+key still does, when registering minting — that is what registering means —
+but it is scoped to reward-sharing, not to the account.) That key is derived
+locally — SHA-256 of the X25519 shared secret, the exact
+construction Core uses, pinned in tests to a vector generated from Core's own
+implementation — so the old `/addresses/rewardsharekey` and `/utils/publickey`
+handoffs are gone. That is what makes administering a remote node you own a
+credential decision rather than a key-disclosure one.
+
+Errors from the calls that carry key material — `/addresses/rewardshare` and
+the `/admin/mintingaccounts` POST and DELETE — are reduced to the operation
+name and HTTP status. Core echoes request context into its error bodies, so no
+body from these calls reaches the app, and none is written to a log either.
 
 None of the four actions is offered to a chromeless widget. The two reads would
 otherwise pass the widget `GET_`/`LIST_` prefix rule, but they describe the
@@ -1006,16 +1068,20 @@ key, and Home holds one only for the Qortium Core it runs itself.
 
 Lists live on the user's own node — Core stores each non-empty list as
 `lists/<name>.json` on the node's disk — and every call in the family, reads
-included, is made with the `X-API-KEY` header against the same trusted node the
-minting family uses: `local` mode, key in hand, loopback host (see the minting
-restrictions above). On any other route, and always on Android (which never
-runs a local Core), the family answers the coded `NODE_CAPABILITY_MISSING`
-error rather than a pretend-empty list. Home 1.x drew the same line
+included, is made with the `X-API-KEY` header against an **administered
+node**, the same rule the minting family uses (see *Node administration
+trust* below): Home's own managed Core, or a custom node the user attached
+their own API key to. On any other route the family answers the coded
+`NODE_CAPABILITY_MISSING` error rather than a pretend-empty list, and the
+message names the fix (attach the key, use HTTPS or a tunnel) rather than a
+locality rule. Home 1.x drew a narrower line
 (`assertLocalWriteConnection`), so on a real phone these actions never worked
-there either. On Android the four actions are filtered out of `SHOW_ACTIONS`
-entirely (`ANDROID_UNSUPPORTED_ACTIONS`) — an advertised action that can never
-succeed would make the list lie — and a direct call is still refused with the
-precise coded reason as defense in depth.
+there either. On Android the four actions are still filtered out of
+`SHOW_ACTIONS` (`ANDROID_UNSUPPORTED_ACTIONS`) — but ONLY because the Android
+approval-prompt arm is not built yet, which is parity work rather than a
+policy: node administration itself is now permitted wherever the user
+attached a key. The refusal says exactly that, and an advertised action that
+cannot run would make `SHOW_ACTIONS` lie.
 
 `GET_ALL_LISTS` takes no parameters and answers Core's sorted array of list
 names. `GET_LIST` takes `listName` and answers the array of items in stored

@@ -334,7 +334,7 @@ const QORTAL_ACTIONS = [
 // The minting family (GET_MINTING_STATUS, LIST_MINTING_ACCOUNTS,
 // START_MINTING, REMOVE_MINTING_ACCOUNT) is advertised on both protocols so
 // one app build works on either chain, but every node-side part of it is
-// answered only by a trusted local Core — see isHomeV2TrustedMintingNode in
+// answered only by an administered node — see evaluateHomeV2AdminTrust in
 // home-v2-minting.ts. These four actions exist precisely so apps never need
 // raw /admin/mintingaccounts access: nothing below may be widened to let them
 // reach it directly.
@@ -1351,7 +1351,7 @@ export function buildHomeV2RatingReadResult(
  * node's disk and gates every /lists route behind the admin API key), so this
  * family is nothing like the anonymous chain reads above: every call — reads
  * included — needs a node Home holds the administrative key for. That is the
- * same trusted-admin-node rule minting uses (isHomeV2TrustedMintingNode: the
+ * same trusted-admin-node rule minting uses (evaluateHomeV2AdminTrust: the
  * local Core Home runs itself, reached over loopback, key in hand). Android
  * has no local mode, so the family answers there with the coded
  * NODE_CAPABILITY_MISSING error rather than pretending an empty answer — the

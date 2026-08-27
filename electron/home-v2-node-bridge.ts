@@ -8,6 +8,11 @@ import {
   saveNodeCustomUrlForHomeV2,
   saveNodeModeForHomeV2,
 } from './node-settings.js'
+import { homeV2NodeOrigin } from './home-v2-admin-trust.js'
+import {
+  clearHomeV2NodeAdminKey,
+  getHomeV2NodeAdminKeySummary,
+} from './home-v2-node-admin-key.js'
 import {
   getQortalLocalNodeStatusForHomeV2,
   getQortalNodeSettingsForHomeV2,
@@ -387,8 +392,19 @@ function normalizeNodeSummary(
     state,
     statusText,
     isTrusted: mode === 'local',
-    customAuthenticated:
-      mode === 'custom' && settings.customAuthenticated === true,
+    // For Qortium this reports whether the user has an administration key
+    // ATTACHED to this exact custom node — the protected store, not the
+    // plaintext settings field — because that is what actually unlocks the
+    // administrative families. Only the boolean crosses to the renderer.
+    customAuthenticated: mode === 'custom' && (
+      network === 'qortium'
+        ? (() => {
+            const attached = getHomeV2NodeAdminKeySummary('qortium')
+            return attached.attached &&
+              homeV2NodeOrigin(attached.origin) === homeV2NodeOrigin(nodeApiUrl ?? '')
+          })()
+        : settings.customAuthenticated === true
+    ),
     customConfigured: !!stringField(settings, 'customUrl'),
     customUrl: stringField(settings, 'customUrl'),
     ...localCoreSummary(installState, rawLocalStatus),
@@ -1077,6 +1093,15 @@ export function registerHomeV2NodeBridgeIpcHandlers() {
         await saveQortalCustomUrlForHomeV2(customUrlValue)
       } else {
         await saveNodeCustomUrlForHomeV2(customUrlValue)
+        // No key material passes through THIS surface (see the contract test
+        // in home-v2-foundation): attaching one is its own channel. What does
+        // belong here is discarding a stale attachment — a credential must
+        // never follow the address to a host the user did not attach it to.
+        const origin = homeV2NodeOrigin((await getNodeSettingsForHomeV2()).nodeApiUrl)
+        const attached = getHomeV2NodeAdminKeySummary(network)
+        if (attached.attached && homeV2NodeOrigin(attached.origin) !== origin) {
+          clearHomeV2NodeAdminKey(network)
+        }
       }
       cachedSnapshot = null
       return getSnapshot()

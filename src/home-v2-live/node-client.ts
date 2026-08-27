@@ -1132,8 +1132,13 @@ export function createPortableNodeClient(
       // generic gate below rather than a capability error naming the wrong
       // network. (Round-2 review, residual 6.)
       if (protocol === 'qdnRequest' && isHomeV2ListAction(action)) {
+        // Lists administer a node, which Home now allows for any node the
+        // user attached their own API key to — but the Android arm that
+        // builds the approval prompt is not implemented yet, so this refuses
+        // for that reason and not because of the platform or the old
+        // loopback rule.
         throw createHomeV2BridgeError(
-          'QDN lists live on the local Core that Home runs and reaches over loopback; Android has no local Core.',
+          'QDN lists are not available in Home for Android yet.',
           { action, code: 'NODE_CAPABILITY_MISSING', network: 'qortium', retryable: false },
         )
       }
@@ -1766,8 +1771,20 @@ export interface HomeV2WindowsBridge {
   }): Promise<unknown>
 }
 
+/**
+ * The dedicated one-way channel for attaching a node administration key.
+ * Deliberately separate from HomeV2NodeClient: that surface returns node
+ * snapshots to the renderer and must never carry key material. Nothing here
+ * reads a key back — only whether one is attached, and to which origin.
+ */
+export interface HomeV2NodeAdminBridge {
+  attach(network: 'qortium', key: string): Promise<{ attached: boolean; origin: string }>
+  clear(network: 'qortium'): Promise<{ attached: boolean; origin: string }>
+}
+
 declare global {
   interface Window {
+    homeV2NodeAdmin?: HomeV2NodeAdminBridge
     homeV2Nodes?: HomeV2NodeClient
     homeV2Windows?: HomeV2WindowsBridge
   }

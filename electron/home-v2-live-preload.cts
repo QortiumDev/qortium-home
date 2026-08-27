@@ -143,6 +143,16 @@ contextBridge.exposeInMainWorld('homeV2Nodes', {
     ipcRenderer.invoke('home-v2-nodes:setCustomUrl', network, customUrl),
 })
 
+// The node administration key travels on its own one-way channel, never
+// through the node surface above: it goes to OS-protected main-process
+// storage and is never read back. Only the attached/origin summary returns.
+contextBridge.exposeInMainWorld('homeV2NodeAdmin', {
+  attach: (network: 'qortium', key: string) =>
+    ipcRenderer.invoke('home-v2-node-admin:attach', network, key),
+  clear: (network: 'qortium') =>
+    ipcRenderer.invoke('home-v2-node-admin:clear', network),
+})
+
 contextBridge.exposeInMainWorld('homeV2RetainedViewer', {
   readBytes: (request: { maxBytes: number; url: string }) =>
     ipcRenderer.invoke('home-v2-retained-viewer:readBytes', request),

@@ -267,12 +267,13 @@ export function homeV2WidgetWithholdsSelfSubject(action: string) {
  */
 const ANDROID_UNSUPPORTED_ACTIONS = new Set<string>([
   'SEND_MESSAGE',
-  // The list family needs the administrative key of a local Core, and Android
-  // never runs one — so unlike the minting reads (which still answer a useful
-  // degraded result there) these four can NEVER succeed on Android. Leaving
-  // them in SHOW_ACTIONS would make the result lie; the portable client also
-  // refuses direct calls with a precise coded error (node-client.ts) as
-  // defense in depth. (Security review 2026-08-26, finding 5.)
+  // The list family administers a node. Home now allows that for any node the
+  // user attached their own API key to (evaluateHomeV2AdminTrust), so this is
+  // no longer a platform rule — the Android arm that builds the approval
+  // prompt simply is not implemented yet, and SHOW_ACTIONS must not advertise
+  // what cannot run. Removing these four is parity-wave work, not a policy
+  // change. The portable client refuses direct calls for the same stated
+  // reason as defense in depth.
   'GET_ALL_LISTS',
   'GET_LIST',
   'ADD_TO_LIST',
