@@ -262,7 +262,7 @@ function readNodeSettings(): NodeSettings {
   }
 }
 
-function writeNodeSettings(settings: NodeSettings) {
+function writeNodeSettings(settings: NodeSettings): NodeSettings {
   const settingsPath = getNodeSettingsPath();
 
   // THE storage boundary for node settings: every writer reaches disk here,
@@ -274,13 +274,26 @@ function writeNodeSettings(settings: NodeSettings) {
   // either way, since the trust resolver reads only the protected store.
   let persisted = settings;
   if (persisted.mode === 'custom' && persisted.apiKey) {
-    const origin = homeV2NodeOrigin(persisted.customUrl);
-    if (origin) {
-      try {
-        setHomeV2NodeAdminKey('qortium', origin, persisted.apiKey);
-        persisted = { ...persisted, apiKey: '' };
-      } catch {
-        // Secure storage unavailable — keep the legacy value as-is.
+    const previous = readNodeSettings();
+    // A key CARRIED FORWARD from another mode is not an attachment: the
+    // legacy settings UI resubmits the stored key on every mode change, so
+    // switching local -> custom would otherwise bind Home's own Core
+    // credential to whatever custom address happens to be configured. Drop
+    // it instead of relocating it (review round 3).
+    if (previous.mode !== 'custom' && previous.apiKey === persisted.apiKey) {
+      persisted = { ...persisted, apiKey: '' };
+    } else {
+      const origin = homeV2NodeOrigin(persisted.customUrl);
+      if (origin) {
+        try {
+          setHomeV2NodeAdminKey('qortium', origin, persisted.apiKey);
+          persisted = { ...persisted, apiKey: '' };
+        } catch {
+          // Secure storage unavailable — keep the value rather than destroy a
+          // key the user may not be able to re-derive. Administration stays
+          // refused (the trust resolver reads only the protected store), and
+          // the file is owner-only, but this IS a plaintext fallback.
+        }
       }
     }
   }
@@ -301,6 +314,9 @@ function writeNodeSettings(settings: NodeSettings) {
     // user) must not break saving settings.
   }
   selectedPublicNodeApiUrl = null;
+  // Callers snapshot from this, never from what they asked to write: after a
+  // relocation the stored record no longer carries the key.
+  return persisted;
 }
 
 function writeResolvedLocalApiKey(
@@ -1463,9 +1479,9 @@ export async function saveNodeModeForHomeV2(
         : current.lastEnabledMode,
     mode: nextMode,
   });
-  writeNodeSettings(settings);
+  const persisted = writeNodeSettings(settings);
   nodeSettingsChangeListeners.forEach((listener) => listener());
-  return getNodeSettingsSnapshot(settings);
+  return getNodeSettingsSnapshot(persisted);
 }
 
 export async function saveNodeCustomUrlForHomeV2(customUrl: string) {
@@ -1482,9 +1498,9 @@ export async function saveNodeCustomUrlForHomeV2(customUrl: string) {
     lastEnabledMode: 'custom',
     mode: 'custom',
   });
-  writeNodeSettings(settings);
+  const persisted = writeNodeSettings(settings);
   nodeSettingsChangeListeners.forEach((listener) => listener());
-  return getNodeSettingsSnapshot(settings);
+  return getNodeSettingsSnapshot(persisted);
 }
 
 export function onNodeSettingsChanged(listener: () => void) {
@@ -1522,10 +1538,13 @@ export function registerNodeSettingsIpcHandlers() {
   ipcMain.handle('node:saveSettings', async (_event, request: NodeSettingsRequest) => {
     const settings = normalizeNodeSettingsRequest(request);
 
-    writeNodeSettings(settings);
+    const persisted = writeNodeSettings(settings);
     nodeSettingsChangeListeners.forEach((listener) => listener());
 
-    return await getNodeSettingsSnapshot(settings);
+    // Snapshot what was PERSISTED: a relocated custom key is no longer in the
+    // record, and echoing the submitted one back would show the legacy UI a
+    // key that is not there.
+    return await getNodeSettingsSnapshot(persisted);
   });
 
   ipcMain.handle('node:testConnection', (_event, request: NodeSettingsRequest) => {

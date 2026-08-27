@@ -1,5 +1,5 @@
 import { app, safeStorage } from 'electron'
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 
 import { homeV2NodeOrigin, type HomeV2AttachedAdminKey } from './home-v2-admin-trust.js'
@@ -14,8 +14,11 @@ import { isHomeV2SecureStorageAvailable } from './home-v2-account-security.js'
  * primitive the remembered-unlock key uses) in an 0600 file, and is bound to
  * the exact node origin the user attached it to.
  *
- * Secure storage being unavailable means the key CANNOT be attached — never
- * that Home falls back to writing it in the clear.
+ * Secure storage being unavailable means the key CANNOT be attached through
+ * this module — it throws rather than falling back to plaintext. (The legacy
+ * settings writer, which cannot destroy a key it was handed, leaves such a
+ * value where it was; administration stays refused either way, since trust
+ * is resolved only from this store.)
  */
 const ADMIN_KEY_FILE = 'home-v2-node-admin-keys.json'
 const ADMIN_KEY_VERSION = 1
@@ -76,6 +79,13 @@ function writeStore(store: AdminKeyStore) {
     encoding: 'utf8',
     mode: 0o600,
   })
+  // `mode` applies only when the file is created, so tighten an existing one
+  // written by an earlier build (review round 3).
+  try {
+    chmodSync(storePath, 0o600)
+  } catch {
+    // Best effort — never block saving over a filesystem that cannot chmod.
+  }
 }
 
 export function normalizeHomeV2NodeAdminKey(value: unknown): string {

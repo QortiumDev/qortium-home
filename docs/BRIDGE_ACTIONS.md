@@ -942,13 +942,21 @@ because Home has no administrative concept for it.
 The attached key is bound to the **exact node origin** it was attached to; a
 changed address discards it rather than re-pointing a credential at a host
 the user never approved. It is stored in the operating system's secure store
-(Android Keystore; Electron `safeStorage` on desktop) and never in the
-plaintext node settings — every writer funnels through one storage boundary
-that relocates a custom-node key into the protected store, so the legacy
-desktop settings UI cannot reintroduce a plaintext one either. (The Home 1.x
-Android host keeps its own separate custom-node key in Capacitor Preferences;
-that legacy surface is untouched by this change and is tracked separately.) — if no protected storage is available, the key
-cannot be attached at all rather than being written unprotected. It is sent
+(Android Keystore; Electron `safeStorage` on desktop) rather than in the
+plaintext node settings: every desktop writer funnels through one storage
+boundary that relocates a custom-node key into the protected store, so the
+legacy settings UI cannot leave one sitting in `node-settings.json` either.
+
+Two honest limits on that. If a device offers no protected storage, the
+attach flow refuses outright — but a key submitted through the *legacy*
+settings path is then left where it was rather than destroyed, since losing
+a credential the user may be unable to re-derive is the worse failure;
+administration stays refused in that state, because the trust resolver reads
+only the protected store. And the Home 1.x Android host keeps its own
+separate custom-node key in Capacitor Preferences; that legacy surface is
+untouched by this change and tracked separately. — if no protected storage is available, the key
+cannot be ATTACHED at all rather than being written unprotected (see the
+legacy-path limit noted above). It is sent
 only to that origin, over HTTPS or loopback HTTP, with redirects refused, and
 it never crosses into the renderer, a QDN app, or any other host. Every trust
 answer carries an origin+key revision, so an approval that was granted for
