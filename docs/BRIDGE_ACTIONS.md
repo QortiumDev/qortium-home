@@ -805,9 +805,11 @@ removing. The signed service id comes from Home's STATIC service map — 1.x
 let the node's own catalogue pick the signed id — and the prompt shows the
 exact numeric Service ID being signed, so a stale map has nowhere to hide.
 The resource must exist and be rateable: the public rating-summary read is
-the probe (Core answers 400 for a missing, deleted, non-rateable, or
-non-normalized coordinate — Core's own Unicode-normalization rule,
-authoritative over Home's local subset check), re-run after approval. The
+the probe (Core answers 400 for a missing, non-rateable, or non-normalized
+coordinate — Core's own Unicode-normalization rule, authoritative over
+Home's local subset check), re-run after approval. A DELETED coordinate is
+NOT refused: Core's own target resolution accepts the latest transaction
+regardless of method, so rating one is Core-valid and Home mirrors Core. The
 current rating is disclosed and re-read, and no-ops answer `changed: false`.
 
 The Current/cooldown/no-op state on both prompts is **node-reported

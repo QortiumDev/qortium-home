@@ -129,12 +129,11 @@ for (const rating of [-1, 11]) {
   )
 }
 assert.equal(normalizeHomeV2RateResourceRequest({ name: 'Alice', rating: 0, service: 'DOCUMENT' }).rating, 0)
-// Core's normalization rule, local subset: decomposed Unicode, zero-width
-// padding, and interior control/double whitespace refuse before any prompt.
-assert.throws(
-  () => normalizeHomeV2RateResourceRequest({ name: 'Ame\u0301lie', rating: 5, service: 'DOCUMENT' }),
-  /normalized form/,
-)
+// Core's normalization rule, local subset: zero-width padding and interior
+// control/double whitespace refuse before any prompt. There is deliberately
+// no local NFKC test — Unicode-version drift between Node and Core's JVM
+// makes a local recomposition check refuse Core-valid names, so NFKC
+// stability is left to Core's own pre-prompt existence read.
 assert.throws(
   () => normalizeHomeV2RateResourceRequest({ name: 'Ali\u200bce', rating: 5, service: 'DOCUMENT' }),
   /normalized form/,
@@ -143,8 +142,14 @@ assert.throws(
   () => normalizeHomeV2RateResourceRequest({ identifier: 'a  b', name: 'Alice', rating: 5, service: 'DOCUMENT' }),
   /normalized form/,
 )
-// The composed form passes.
+assert.throws(
+  () => normalizeHomeV2RateResourceRequest({ name: 'Ali\tce', rating: 5, service: 'DOCUMENT' }),
+  /normalized form/,
+)
+// Composed and decomposed spellings both pass locally; Core's probe is the
+// normalization authority.
 assert.equal(normalizeHomeV2RateResourceRequest({ name: 'Am\u00e9lie', rating: 5, service: 'DOCUMENT' }).name, 'Am\u00e9lie')
+assert.equal(normalizeHomeV2RateResourceRequest({ name: 'Ame\u0301lie', rating: 5, service: 'DOCUMENT' }).name, 'Ame\u0301lie')
 
 // --- builder → independent verifier round-trips ---
 const accountPayload = normalizeHomeV2RateAccountRequest({ category: 'TRAINER', rating: -2, targetPublicKey: targetKey })

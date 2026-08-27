@@ -65,16 +65,17 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
 }
 
-// A conservative LOCAL subset of Core's Unicode.normalize stability rule
-// (NFKC + zero-width/control stripping + whitespace collapsing): every check
-// here is implied by Core acceptance, so nothing Core would accept is
-// refused, while the common attacks — decomposed Unicode, zero-width and
-// control padding, whitespace wrapping — refuse before any prompt. Core's
-// own rule stays authoritative through the pre-prompt existence read, which
-// answers INVALID_CRITERIA for anything non-normalized.
+// A conservative LOCAL subset of Core's Unicode.normalize stability rule:
+// fixed zero-width/control codepoint sets and whitespace shape only — every
+// check here is implied by Core acceptance, so nothing Core would accept is
+// refused. There is deliberately NO local NFKC check: Node and Core's JVM
+// can normalize with different Unicode versions, so a codepoint the JVM
+// leaves alone (making the name Core-valid) could be recomposed by Node and
+// wrongly refused (review round 2). NFKC stability, like everything else in
+// Core's rule, stays authoritative through the pre-prompt existence read,
+// which answers INVALID_CRITERIA for anything non-normalized.
 function assertCoreNormalized(value: string, label: string) {
   if (
-    value !== value.normalize('NFKC') ||
     /[\u0000-\u001f\u007f\u00ad\u200b-\u200f\u2060\ufeff]/.test(value) ||
     value !== value.trim() ||
     /\s\s/.test(value) ||

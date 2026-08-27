@@ -2510,9 +2510,13 @@ async function handleHomeV2RatingAction(
   // The resource must exist before anything is promptable. The summary read
   // is the correct probe: it is on the public rating-read surface (no API
   // key), its requireExistingTarget answers HTTP 400 INVALID_CRITERIA for a
-  // missing, deleted, non-rateable, or non-normalized coordinate — Core's
-  // own Unicode-normalization rule, authoritative over Home's local subset
+  // missing, non-rateable, or non-normalized coordinate — Core's own
+  // Unicode-normalization rule, authoritative over Home's local subset
   // check — and an existing-but-unrated resource answers an empty summary.
+  // A DELETED coordinate is deliberately not refused here: Core's own
+  // resolveTarget accepts the latest transaction regardless of method, so
+  // rating one is Core-valid — Home mirrors Core rather than inventing a
+  // stricter rule the chain does not have.
   const assertResourceExists = async (label: string) => {
     try {
       await readHomeV2ChatJson(
