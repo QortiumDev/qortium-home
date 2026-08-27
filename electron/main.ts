@@ -31,8 +31,10 @@ import {
   stopIfManaged as stopI2pdIfManaged,
 } from './i2pd-manager.js';
 import { prewarmRunningCoreApiKeyCache } from './local-api-key.js';
-import { registerNodeSettingsIpcHandlers } from './node-settings.js';
+import {
+  migrateHomeV2LegacyCustomNodeKey, registerNodeSettingsIpcHandlers } from './node-settings.js';
 import { registerHomeV2NodeBridgeIpcHandlers } from './home-v2-node-bridge.js';
+import { registerHomeV2NodeAdminIpcHandlers } from './home-v2-node-admin-bridge.js';
 import { assertAuthorizedHomeV2Sender, authorizeHomeV2Sender } from './home-v2-authorized-senders.js';
 import { assertHomeV2ShellClipboardText } from './home-v2-shell-clipboard.js';
 import { sanitizeHomeV2WindowAddress } from './home-v2-window-startup.js';
@@ -1249,6 +1251,14 @@ app.whenReady().then(async () => {
     disableLegacyI2pdRendererEvents();
     registerAccountIpcHandlers();
     registerHomeV2NodeBridgeIpcHandlers();
+    registerHomeV2NodeAdminIpcHandlers();
+    // Move any legacy plaintext custom-node API key into protected storage
+    // before anything can read or send it from the settings file.
+    try {
+      migrateHomeV2LegacyCustomNodeKey();
+    } catch (error) {
+      console.warn('[home-v2] Unable to migrate a legacy custom-node API key:', error);
+    }
     registerHomeV2CoreManagerBridgeIpcHandlers();
     registerHomeV2AppUpdateBridgeIpcHandlers();
     registerHomeV2ReleaseNotesBridgeIpcHandlers();

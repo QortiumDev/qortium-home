@@ -12,7 +12,6 @@ import { homeV2NodeOrigin } from './home-v2-admin-trust.js'
 import {
   clearHomeV2NodeAdminKey,
   getHomeV2NodeAdminKeySummary,
-  setHomeV2NodeAdminKey,
 } from './home-v2-node-admin-key.js'
 import {
   getQortalLocalNodeStatusForHomeV2,
@@ -1084,7 +1083,7 @@ export function registerHomeV2NodeBridgeIpcHandlers() {
   )
   ipcMain.handle(
     'home-v2-nodes:setCustomUrl',
-    async (event, networkValue: unknown, customUrlValue: unknown, apiKeyValue?: unknown) => {
+    async (event, networkValue: unknown, customUrlValue: unknown) => {
       assertAuthorizedHomeV2Sender(event)
       const network = normalizeNetwork(networkValue)
       if (typeof customUrlValue !== 'string' || !customUrlValue.trim()) {
@@ -1094,23 +1093,14 @@ export function registerHomeV2NodeBridgeIpcHandlers() {
         await saveQortalCustomUrlForHomeV2(customUrlValue)
       } else {
         await saveNodeCustomUrlForHomeV2(customUrlValue)
-        // The administration key is stored separately from node settings,
-        // wrapped by the OS, and bound to the origin just saved. An empty
-        // string removes it; undefined leaves an existing key alone — but a
-        // CHANGED origin drops it either way, because a credential must never
-        // follow the address to a host the user did not attach it to.
+        // No key material passes through THIS surface (see the contract test
+        // in home-v2-foundation): attaching one is its own channel. What does
+        // belong here is discarding a stale attachment — a credential must
+        // never follow the address to a host the user did not attach it to.
         const origin = homeV2NodeOrigin((await getNodeSettingsForHomeV2()).nodeApiUrl)
-        if (typeof apiKeyValue === 'string') {
-          if (!apiKeyValue.trim()) {
-            clearHomeV2NodeAdminKey(network)
-          } else {
-            setHomeV2NodeAdminKey(network, origin, apiKeyValue)
-          }
-        } else {
-          const attached = getHomeV2NodeAdminKeySummary(network)
-          if (attached.attached && homeV2NodeOrigin(attached.origin) !== origin) {
-            clearHomeV2NodeAdminKey(network)
-          }
+        const attached = getHomeV2NodeAdminKeySummary(network)
+        if (attached.attached && homeV2NodeOrigin(attached.origin) !== origin) {
+          clearHomeV2NodeAdminKey(network)
         }
       }
       cachedSnapshot = null

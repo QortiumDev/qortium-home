@@ -7350,9 +7350,11 @@ async function readHomeV2MintingAccounts(network: HomeV2AppNetwork) {
  * reward-share private key itself (SHA-256 of the X25519 shared secret — the
  * exact construction Core's PrivateKeyAccount.getRewardSharePrivateKey uses,
  * verified against a Core-generated vector in home-v2-reward-share-key.test),
- * and derives its Ed25519 public key from that seed. No key material — the
- * account's or the derived reward-share key — ever touches the node, so this
- * no longer depends on a loopback/trusted node at all.
+ * and derives its Ed25519 public key from that seed. The ACCOUNT's private
+ * key never touches the node any more, which is what let administration move
+ * off the loopback-only rule. (The DERIVED reward-share private key is still
+ * posted to the node's minting-account list — that is what registering a
+ * minting key means, and it is scoped to reward-sharing, not the account.)
  */
 function deriveHomeV2MintingKeyPair(
   minterSecretKey: Uint8Array,
@@ -7370,23 +7372,42 @@ function deriveHomeV2MintingKeyPair(
   }
 }
 
+/**
+ * Re-resolves administrative trust and requires it to be the SAME trust the
+ * approval was granted under: still trusted, same origin, same credential.
+ *
+ * The revision covers the last part — a key swapped for another valid key on
+ * the same origin (a replayed protected-store record, or a rotation while the
+ * prompt was open) changes it, so the approved operation cannot be spent
+ * against a credential the user never saw. Comparing the ordinary
+ * signed-write key here would be wrong twice over: it reads legacy settings
+ * rather than the attached store, so it is empty for exactly the custom-node
+ * setup this feature exists for.
+ */
+async function homeV2AdminTrustUnchanged(
+  network: HomeV2AppNetwork,
+  approved: { readonly origin: string; readonly revision: string },
+) {
+  const now = await resolveHomeV2AdminNode(network).catch(() => null)
+  if (!now || !now.trust.trusted) return false
+  return now.trust.origin === approved.origin && now.trust.revision === approved.revision
+}
+
 function homeV2MintingContextGuard(
   sender: WebContents,
   context: QdnViewContext,
   accountId: string,
   network: HomeV2AppNetwork,
-  nodeApiUrl: string,
   nodeRoute: string,
-  apiKey: string,
+  approvedTrust: { readonly origin: string; readonly revision: string },
 ) {
   return async () => {
     const freshContext = getQdnViewContextForWebContents(sender)
     if (!freshContext || !sameViewContext(context, freshContext)) return false
     if (!liveResourceMatchesGrant(freshContext) || !isAccountUnlocked(accountId)) return false
     const nodeNow = await getHomeV2ReadableNode(network).catch(() => null)
-    return !!nodeNow &&
-      `${nodeNow.mode}|${nodeNow.nodeApiUrl}` === nodeRoute &&
-      (await getHomeV2SignedWriteApiKey(network, nodeApiUrl).catch(() => null)) === apiKey
+    if (!nodeNow || `${nodeNow.mode}|${nodeNow.nodeApiUrl}` !== nodeRoute) return false
+    return homeV2AdminTrustUnchanged(network, approvedTrust)
   }
 }
 
@@ -7417,9 +7438,8 @@ async function startHomeV2Minting(
     context,
     accountId,
     network,
-    node.nodeApiUrl,
     nodeRoute,
-    apiKey,
+    { origin: trust.trusted ? trust.origin : '', revision: trust.trusted ? trust.revision : '' },
   )
   if (!(await isStillValid())) throw new Error('Account access context changed before approval completed.')
   const signingKey = getAccountSigningKey(accountId)
@@ -7580,9 +7600,8 @@ async function removeHomeV2MintingAccount(
     context,
     accountId,
     network,
-    node.nodeApiUrl,
     nodeRoute,
-    apiKey,
+    { origin: trust.trusted ? trust.origin : '', revision: trust.trusted ? trust.revision : '' },
   )
   if (!(await isStillValid())) throw new Error('Account access context changed before approval completed.')
   // Re-resolve after the approval: the account, and the node's own list, must
@@ -7840,8 +7859,16 @@ async function handleHomeV2ListAction(
   // Re-resolve after the prompt: the approval named one node, and the write
   // must not follow the key to a different node selected mid-prompt.
   const after = await resolveHomeV2ListNode(action)
-  if (after.node.nodeApiUrl !== before.node.nodeApiUrl) {
-    throw new Error('The selected Qortium route changed before the write could start.')
+  if (
+    after.node.nodeApiUrl !== before.node.nodeApiUrl ||
+    !before.trust.trusted ||
+    !after.trust.trusted ||
+    after.trust.origin !== before.trust.origin ||
+    // Same origin, DIFFERENT credential — a key rotated or replayed while the
+    // prompt was open — must not inherit this approval either.
+    after.trust.revision !== before.trust.revision
+  ) {
+    throw new Error('The selected Qortium node or its API key changed before the write could start.')
   }
   return requestHomeV2ListText(
     action === 'ADD_TO_LIST' ? 'POST' : 'DELETE',

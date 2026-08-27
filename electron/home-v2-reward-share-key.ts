@@ -36,6 +36,13 @@ export function deriveHomeV2RewardSharePrivateKey(
   const sharedSecret = nacl.scalarMult(curveSecretKey, curvePublicKey)
   curveSecretKey.fill(0)
   if (secretKey !== minterSecretKey) secretKey.fill(0)
+  // Core's X25519 agreement REFUSES an all-zero shared secret (a small-order
+  // or identity public key); tweetnacl returns it. Refuse identically rather
+  // than deriving a key from a degenerate agreement Core would never accept.
+  if (sharedSecret.every((byte) => byte === 0)) {
+    sharedSecret.fill(0)
+    throw new Error('Recipient public key produced a degenerate shared secret.')
+  }
   const digest = new Sha256().process(sharedSecret).finish().result
   sharedSecret.fill(0)
   if (!digest) throw new Error('SHA-256 failed.')

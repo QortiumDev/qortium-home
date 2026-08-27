@@ -15,6 +15,8 @@ import {
   readRunningLocalCoreApiKey,
 } from './local-api-key.js';
 import { isNodeApiKeyTransportSafe, normalizeNodeApiUrl } from './node-api-url.js';
+import { homeV2NodeOrigin } from './home-v2-admin-trust.js';
+import { getHomeV2NodeAdminKey, setHomeV2NodeAdminKey } from './home-v2-node-admin-key.js';
 import { ensureNodeCa, nodeFetch, resolveNodeTlsTrust } from './node-tls.js';
 import {
   isFullySyncedQortiumStatus as isSyncedStatus,
@@ -264,7 +266,12 @@ function writeNodeSettings(settings: NodeSettings) {
   const settingsPath = getNodeSettingsPath();
 
   mkdirSync(path.dirname(settingsPath), { recursive: true });
-  writeFileSync(settingsPath, `${JSON.stringify(settings, null, 2)}\n`, 'utf8');
+  writeFileSync(settingsPath, `${JSON.stringify(settings, null, 2)}\n`, {
+    encoding: 'utf8',
+    // Node settings can still carry a managed-Core key; the file is the
+    // user's own, so keep it owner-only like the account-security store.
+    mode: 0o600,
+  });
   selectedPublicNodeApiUrl = null;
 }
 
@@ -329,7 +336,47 @@ function getConfiguredNodeApiKey(settings: NodeSettings) {
     return '';
   }
 
-  return getNodeApiKeyOverride() || settings.apiKey;
+  const override = getNodeApiKeyOverride();
+  if (override) return override;
+
+  if (settings.mode === 'custom') {
+    // A custom node's key is the user's own administrative credential. It
+    // lives ONLY in the OS-protected, origin-bound store — never in this
+    // plaintext settings file — and is used here just so ordinary calls to
+    // the same node keep working. A legacy plaintext key is migrated into
+    // that store (migrateHomeV2LegacyCustomNodeKey) rather than read here.
+    const attached = getHomeV2NodeAdminKey('qortium');
+    if (!attached) return '';
+    const origin = homeV2NodeOrigin(settings.customUrl);
+    return origin && homeV2NodeOrigin(attached.origin) === origin ? attached.apiKey : '';
+  }
+
+  return settings.apiKey;
+}
+
+/**
+ * Moves a legacy plaintext custom-node API key into the protected store and
+ * erases it from the settings file. Runs at startup and after any custom-node
+ * save, so a key saved by an older build (or by the legacy settings UI) stops
+ * sitting in plaintext on disk without the user having to retype it.
+ */
+export function migrateHomeV2LegacyCustomNodeKey() {
+  const settings = readNodeSettings();
+  if (!settings.apiKey) return false;
+  const origin = homeV2NodeOrigin(settings.customUrl);
+  if (settings.mode === 'custom' && origin) {
+    try {
+      setHomeV2NodeAdminKey('qortium', origin, settings.apiKey);
+    } catch {
+      // Secure storage unavailable: leave the legacy value untouched rather
+      // than destroying a key the user cannot re-derive. Administration stays
+      // refused (the resolver reads only the protected store), which is the
+      // fail-closed half of the same rule.
+      return false;
+    }
+  }
+  writeNodeSettings({ ...settings, apiKey: '' });
+  return true;
 }
 
 async function ensureNodeTls(nodeApiUrl: string, apiKey: string | null) {
@@ -1393,7 +1440,9 @@ export async function saveNodeCustomUrlForHomeV2(customUrl: string) {
     throw new Error('Remote custom nodes must use HTTPS.');
   }
   const settings = normalizeNodeSettingsRequest({
-    apiKey: current.apiKey,
+    // Never carried forward: a custom node's key belongs in the protected
+    // origin-bound store, and the caller re-attaches it there.
+    apiKey: '',
     customUrl: normalizedUrl,
     lastEnabledMode: 'custom',
     mode: 'custom',

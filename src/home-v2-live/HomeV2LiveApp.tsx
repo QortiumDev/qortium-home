@@ -6521,6 +6521,15 @@ export function HomeV2LiveApp() {
         customUrl,
         apiKey,
       )
+      // Desktop routes the key on its own one-way channel AFTER the address
+      // is saved, so it binds to the origin the user is looking at. Android's
+      // portable client already carries it with the node write above.
+      if (saved && !isAndroidHost && customNetwork === 'qortium' && apiKey !== undefined) {
+        const nodeAdmin = window.homeV2NodeAdmin
+        if (!nodeAdmin) throw new Error('Node administration is unavailable in this build.')
+        await (apiKey ? nodeAdmin.attach('qortium', apiKey) : nodeAdmin.clear('qortium'))
+        await nodeCoreController.refreshNodes()
+      }
       if (saved) {
         if (customNetwork === 'qortium') {
           setCoreUpdateAuthorityRevision((current) => current + 1)
@@ -6769,7 +6778,7 @@ export function HomeV2LiveApp() {
                 placeholder={
                   snapshot.nodes.qortium.customAuthenticated
                     ? 'Saved — leave blank to keep it'
-                    : 'Needed to manage this node (lists, minting, updates)'
+                    : 'Needed to manage this node (QDN lists; minting on desktop)'
                 }
                 onChange={(event) => {
                   setCustomApiKey(event.target.value)

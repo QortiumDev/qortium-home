@@ -139,11 +139,18 @@ contextBridge.exposeInMainWorld('homeV2Nodes', {
     network: 'qortal' | 'qortium',
     mode: 'custom' | 'disabled' | 'local' | 'public',
   ) => ipcRenderer.invoke('home-v2-nodes:setMode', network, mode),
-  // `apiKey` is the user's own Core administration key for a custom Qortium
-  // node: '' removes a saved key, undefined keeps it. It crosses this bridge
-  // once, on its way to protected main-process storage, and never comes back.
-  setCustomUrl: (network: 'qortal' | 'qortium', customUrl: string, apiKey?: string) =>
-    ipcRenderer.invoke('home-v2-nodes:setCustomUrl', network, customUrl, apiKey),
+  setCustomUrl: (network: 'qortal' | 'qortium', customUrl: string) =>
+    ipcRenderer.invoke('home-v2-nodes:setCustomUrl', network, customUrl),
+})
+
+// The node administration key travels on its own one-way channel, never
+// through the node surface above: it goes to OS-protected main-process
+// storage and is never read back. Only the attached/origin summary returns.
+contextBridge.exposeInMainWorld('homeV2NodeAdmin', {
+  attach: (network: 'qortium', key: string) =>
+    ipcRenderer.invoke('home-v2-node-admin:attach', network, key),
+  clear: (network: 'qortium') =>
+    ipcRenderer.invoke('home-v2-node-admin:clear', network),
 })
 
 contextBridge.exposeInMainWorld('homeV2RetainedViewer', {

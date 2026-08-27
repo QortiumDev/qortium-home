@@ -1771,8 +1771,20 @@ export interface HomeV2WindowsBridge {
   }): Promise<unknown>
 }
 
+/**
+ * The dedicated one-way channel for attaching a node administration key.
+ * Deliberately separate from HomeV2NodeClient: that surface returns node
+ * snapshots to the renderer and must never carry key material. Nothing here
+ * reads a key back — only whether one is attached, and to which origin.
+ */
+export interface HomeV2NodeAdminBridge {
+  attach(network: 'qortium', key: string): Promise<{ attached: boolean; origin: string }>
+  clear(network: 'qortium'): Promise<{ attached: boolean; origin: string }>
+}
+
 declare global {
   interface Window {
+    homeV2NodeAdmin?: HomeV2NodeAdminBridge
     homeV2Nodes?: HomeV2NodeClient
     homeV2Windows?: HomeV2WindowsBridge
   }

@@ -930,7 +930,9 @@ administer.
 
 The rule is ownership, not locality: a node is administrable when it is the
 Core Home runs itself (loopback, key reconciled from that Core), **or** a
-custom node the user has attached their own API key to. That second case is
+custom node the user has attached their own API key to. Today that unlocks
+the list and minting families on desktop; the Android screens for both (and
+node settings on either platform) are still to be built. That second case is
 the self-hosted one — including a node reached through an `ssh -L` tunnel,
 which presents as plain HTTP to `127.0.0.1` and is explicitly allowed. Public
 and discovered nodes are refused: administering someone else's Core is not
@@ -1024,8 +1026,10 @@ runs; an attached custom node must be reached over HTTPS or loopback HTTP.
 Any other route is refused before a single admin call is made, and the
 refusal names the fix.
 
-**No account private key travels to the node.** The reward-share (minting)
-key is derived locally — SHA-256 of the X25519 shared secret, the exact
+**No account private key travels to the node.** (The derived reward-share
+key still does, when registering minting — that is what registering means —
+but it is scoped to reward-sharing, not to the account.) That key is derived
+locally — SHA-256 of the X25519 shared secret, the exact
 construction Core uses, pinned in tests to a vector generated from Core's own
 implementation — so the old `/addresses/rewardsharekey` and `/utils/publickey`
 handoffs are gone. That is what makes administering a remote node you own a

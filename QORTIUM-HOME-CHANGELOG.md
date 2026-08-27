@@ -41,7 +41,8 @@ Core it starts on the same machine. That was wrong for anyone who runs their
 own node elsewhere and connects to it as a custom node, including through an
 SSH tunnel, and it made Home look half-working on a phone. You can now attach
 your node's own API key to a custom Qortium node in Settings, on desktop as
-well as Android, and manage that node normally. The key is stored in your
+well as Android, and manage that node normally — QDN lists today, and minting
+on desktop; the Android screens for those follow next. The key is stored in your
 device's protected storage (never in plain settings files), is tied to that
 exact node address so changing the address discards it, and is sent only to
 that node over a secure connection — an SSH tunnel to 127.0.0.1 counts. If
@@ -51,7 +52,9 @@ full administrative access to that Core, so use one for a node you run.
 
 Alongside this, minting no longer sends your account's private key to the
 node at all: Home now computes the minting (reward-share) key itself, matching
-the node's own result exactly. Refusal messages also stopped blaming your
+the node's own result exactly. (Registering minting still hands the node that
+separate reward-share key — that is what registering means — but never your
+account key.) Refusal messages also stopped blaming your
 platform — where something genuinely isn't built yet for Android, it now says
 so instead of citing a rule Home no longer applies.
 
