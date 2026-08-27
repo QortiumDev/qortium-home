@@ -38,6 +38,7 @@ export function createAndroidHomeV2NodeClient() {
       timeoutMs = 5_000,
       headers,
       disableRedirects,
+      body,
     ) {
       const startedAt = Date.now()
       const response = await CapacitorHttp.request({
@@ -45,6 +46,7 @@ export function createAndroidHomeV2NodeClient() {
         method,
         headers,
         disableRedirects,
+        ...(body === undefined ? {} : { data: body }),
         connectTimeout: 5_000,
         readTimeout: timeoutMs,
       })

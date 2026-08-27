@@ -204,7 +204,7 @@ import {
   isHomeV2PermissionlessAction,
 } from '../../electron/home-v2-session-grants'
 import { getHomeV2BridgeStateDetails } from '../../electron/home-v2-app-runtime'
-import { canonicalHomeV2AppAction, homeV2NameOperationLabel, homeV2PollOperationLabel, homeV2PublishExtraOperationLabel, isHomeV2ListWriteAction, isHomeV2NameWriteAction, isHomeV2PollWriteAction, isHomeV2PublishExtraAction } from '../../electron/home-v2-app-actions'
+import { canonicalHomeV2AppAction, homeV2NameOperationLabel, homeV2PollOperationLabel, homeV2PublishExtraOperationLabel, isHomeV2ListAction, isHomeV2ListWriteAction, isHomeV2NameWriteAction, isHomeV2PollWriteAction, isHomeV2PublishExtraAction, normalizeHomeV2ListItems, normalizeHomeV2ListName, serializeHomeV2ListItemsForApproval } from '../../electron/home-v2-app-actions'
 import { homeV2GroupMutationOperationLabel, isHomeV2GroupMutationAction } from '../../electron/home-v2-group-mutation-actions'
 import { homeV2RatingOperationLabel, isHomeV2RatingAction } from '../../electron/home-v2-rating-actions'
 import { homeV2AccountAvatarOperationLabel } from '../../electron/home-v2-account-avatar-actions'
@@ -4579,6 +4579,67 @@ export function HomeV2LiveApp() {
           ? 1
           : androidNextNotificationId.current + 1
         return { ...resultBase, shown: true }
+      }
+      // QDN lists on Android. They administer the user's OWN node — allowed
+      // wherever they attached its API key (custom node, HTTPS or an SSH
+      // tunnel), which is why the family is no longer withheld here. The key
+      // itself stays inside the node client, exactly as it stays in the main
+      // process on desktop: this arm only raises the approval and asks the
+      // client to act.
+      if (isAndroidHost && protocol === 'qdnRequest' && isHomeV2ListAction(action)) {
+        const listClient = nodeClient as HomeV2NodeClient
+        if (!listClient.adminTrust || !listClient.listRead || !listClient.listWrite) {
+          throw new Error('QDN lists are unavailable in this build.')
+        }
+        if (!isHomeV2ListWriteAction(action)) {
+          // Reads are permissionless, like every other read in the family.
+          return await listClient.listRead(action, isRecord(requestValue) ? requestValue : {})
+        }
+        const trust = await listClient.adminTrust()
+        if (!trust.trusted) throw new Error(trust.reason ?? 'This node cannot be administered from Home.')
+        const listName = normalizeHomeV2ListName(isRecord(requestValue) ? requestValue : {})
+        const items = normalizeHomeV2ListItems(isRecord(requestValue) ? requestValue : {})
+        const parsedApp = resolveAppIdentity()
+        const appId = brand<AppId>(`home-v2:permission-app:${parsedApp.identityKey}`)
+        const decision = await queueAndroidPermissionPrompt(createPermissionPrompt({
+          id: brand<PermissionRequestId>(globalThis.crypto.randomUUID()),
+          protocol,
+          action,
+          capability: 'node.lists.write',
+          appId,
+          appIdentityKey: parsedApp.identityKey,
+          appTitle: parsedApp.title,
+          context: {
+            appId,
+            identityId: brand<IdentityId>(`home-v2:identity:app:${parsedApp.identityKey}`),
+            nodeProfileRef: snapshot.nodes.qortium.ref,
+            tabId: brand<TabId>(context.tabId),
+            targetNetwork: 'qortium',
+            walletRef: null,
+          },
+          title: action === 'ADD_TO_LIST' ? 'Allow adding to a list?' : 'Allow removing from a list?',
+          summary: `${parsedApp.title} wants to change a named list stored on your own node. Apps on this node share these lists — they commonly drive blocking and following — so this change affects what other apps show you. This approval covers this one change only; nothing is signed and nothing on chain changes.`,
+          details: [
+            { label: 'App', value: parsedApp.title },
+            { label: 'List', value: listName },
+            { label: 'Items', value: serializeHomeV2ListItemsForApproval(items), variant: 'scroll' as const },
+            // The node being administered is named, so an approval cannot be
+            // spent against a node the user was not looking at.
+            { label: 'Node', value: trust.origin },
+            { label: 'Scope', value: 'This one request only' },
+          ],
+          allowedScopes: ['single-request'],
+        }), context.tabId)
+        if (!decision.approved || decision.scope !== 'single-request') {
+          throw new Error('The list change was denied.')
+        }
+        // The client re-resolves trust and refuses if the node or its key
+        // moved while the prompt was open.
+        return await listClient.listWrite(
+          action,
+          isRecord(requestValue) ? requestValue : {},
+          trust.revision,
+        )
       }
       if (isAndroidHost && (action === 'GET_PENDING_TRANSACTIONS' || action === 'FORGET_PENDING_TRANSACTION')) {
         if (!context.selectedAccountId) throw new Error('No account is selected for this tab.')

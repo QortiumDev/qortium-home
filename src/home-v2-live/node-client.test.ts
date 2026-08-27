@@ -345,12 +345,17 @@ for (const listRequest of [
   { action: 'ADD_TO_LIST', listName: 'followedNames', items: ['alice'] },
   { action: 'REMOVE_FROM_LIST', listName: 'followedNames', items: ['alice'] },
 ]) {
+  // Lists now WORK on Android against an administered node. Through the bare
+  // client (no attached key configured in this stub) a READ refuses with the
+  // trust message that names the fix, and a WRITE refuses because it must
+  // carry Home's approval — never with a platform or loopback claim.
   await assert.rejects(
     () => client.requestApp('qdnRequest', listRequest),
-    // The refusal states the real reason — the Android arm is not built yet —
-    // rather than the retired loopback/platform rule. Node administration
-    // itself is allowed wherever the user attached their own API key.
-    /not available in Home for Android yet/,
+    (error: Error) =>
+      // Names a fix the user can act on...
+      /API key|HTTPS|127\.0\.0\.1|custom node|approved through Home/.test(error.message) &&
+      // ...and never blames the platform or cites the retired locality rule.
+      !/Android|local Core|only available in Qortium Home desktop/i.test(error.message),
   )
   // Same request on qortalRequest: not implemented there at all, so the
   // answer is the generic UNSUPPORTED_PROTOCOL refusal, never a Qortium

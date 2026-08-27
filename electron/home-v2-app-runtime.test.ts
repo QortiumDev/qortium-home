@@ -535,11 +535,15 @@ const androidActions = getHomeV2ContextualAppActions(
 assert.equal(androidActions.includes('OPEN_AS_WIDGET'), false)
 assert.equal(androidActions.some((action) => action.startsWith('WIDGET_')), false)
 assert.equal(androidActions.includes('SHOW_CONTEXT_MENU'), true)
-// The list family needs a local Core's administrative key and Android never
-// runs one, so all four are filtered from Android's SHOW_ACTIONS — an
-// advertised action that can never succeed would make the list lie. SEND_MESSAGE
-// is filtered for the same reason (no Android signing path).
-for (const action of ['GET_ALL_LISTS', 'GET_LIST', 'ADD_TO_LIST', 'REMOVE_FROM_LIST', 'SEND_MESSAGE',
+// The LIST family is advertised on Android now: it administers the user's own
+// node, which Home permits wherever they attached that node's API key — a
+// custom node over HTTPS or an SSH tunnel — and Android implements the arm.
+for (const action of ['GET_ALL_LISTS', 'GET_LIST', 'ADD_TO_LIST', 'REMOVE_FROM_LIST']) {
+  assert.equal(androidActions.includes(action), true, `android must advertise ${action}`)
+}
+// SEND_MESSAGE and the signing families stay filtered: no Android arm yet, and
+// an advertised action that cannot run would make SHOW_ACTIONS lie.
+for (const action of ['SEND_MESSAGE',
   // Poll and name writes sign transactions and Android has no signing path.
   'CREATE_POLL', 'UPDATE_POLL', 'VOTE_ON_POLL',
   'REGISTER_NAME', 'UPDATE_NAME', 'SELL_NAME', 'CANCEL_SELL_NAME', 'BUY_NAME',

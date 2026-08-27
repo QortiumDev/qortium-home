@@ -1,7 +1,6 @@
 import {
   getHomeV2AppActions,
   getHomeV2AppNetwork,
-  isHomeV2ListAction,
   type HomeV2AppBridgeProtocol,
   type HomeV2AppNetwork,
 } from './home-v2-app-actions.js'
@@ -268,17 +267,6 @@ export function homeV2WidgetWithholdsSelfSubject(action: string) {
  */
 const ANDROID_UNSUPPORTED_ACTIONS = new Set<string>([
   'SEND_MESSAGE',
-  // The list family administers a node. Home now allows that for any node the
-  // user attached their own API key to (evaluateHomeV2AdminTrust), so this is
-  // no longer a platform rule — the Android arm that builds the approval
-  // prompt simply is not implemented yet, and SHOW_ACTIONS must not advertise
-  // what cannot run. Removing these four is parity-wave work, not a policy
-  // change. The portable client refuses direct calls for the same stated
-  // reason as defense in depth.
-  'GET_ALL_LISTS',
-  'GET_LIST',
-  'ADD_TO_LIST',
-  'REMOVE_FROM_LIST',
   // Poll writes sign transactions, and Android has no signing path — the same
   // reason SEND_MESSAGE is here. The generic portable-client refusal names
   // signing, which is exactly the reason, so no special arm is needed.
@@ -344,12 +332,6 @@ export function homeV2AndroidActionRefusal(
   // the wrong network would not be.
   if (!getHomeV2AppActions(protocol).includes(action)) return null
   const network = getHomeV2AppNetwork(protocol, action)
-  // Lists administer a NODE, which Home now permits for any node the user
-  // attached their own API key to — so the reason is the missing Android
-  // approval surface, not the platform and not the retired loopback rule.
-  if (isHomeV2ListAction(action)) {
-    return { message: 'QDN lists are not available in Home for Android yet.', network }
-  }
   return {
     message: `${action} requires transaction signing, which is only available in Qortium Home desktop.`,
     network,

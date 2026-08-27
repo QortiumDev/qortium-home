@@ -24,7 +24,6 @@ import {
   homeV2RatingReadNeedsSelectedAddress,
   isHomeV2AppRecord,
   isHomeV2ChainReadAction,
-  isHomeV2ListAction,
   isHomeV2NameWriteAction,
   isHomeV2PollWriteAction,
   isHomeV2RatingReadAction,
@@ -98,6 +97,20 @@ import {
   HOME_V2_ROUTE_INDEPENDENT_ACTIONS,
 } from '../../electron/home-v2-app-runtime'
 import { mergeHomeV2ShellGlobalState } from '../../electron/home-v2-window-startup'
+import {
+  evaluateHomeV2AdminTrust,
+  homeV2AdminTrustMessage,
+} from '../../electron/home-v2-admin-trust'
+import {
+  buildHomeV2ListPath,
+  buildHomeV2ListWriteBody,
+  isHomeV2ListAction,
+  isHomeV2ListWriteAction,
+  normalizeHomeV2ListItems,
+  normalizeHomeV2ListName,
+} from '../../electron/home-v2-app-actions'
+
+const LIST_REQUEST_TIMEOUT_MS = 15_000
 
 export interface HomeV2NodeClient {
   getSnapshot(): Promise<unknown>
@@ -138,6 +151,27 @@ export interface HomeV2NodeClient {
   ): Promise<unknown>
   checkCoreUpdate?(): Promise<HomeV2CoreOnChainUpdateStatus>
   installCoreUpdate?(): Promise<HomeV2CoreOnChainUpdateStatus>
+  /**
+   * Node ADMINISTRATION, kept inside the client for the same reason desktop
+   * keeps it in the main process: the API key must never reach the React
+   * layer. The renderer learns only whether the node is administrable (and
+   * which origin, for the approval prompt), then asks the client to act.
+   *
+   * `revision` binds an approval to one credential: the write re-resolves
+   * trust and refuses if the origin or key moved while the prompt was open.
+   */
+  adminTrust?(): Promise<{
+    readonly origin: string
+    readonly reason?: string
+    readonly revision: string
+    readonly trusted: boolean
+  }>
+  listRead?(action: string, request: Record<string, unknown>): Promise<unknown>
+  listWrite?(
+    action: string,
+    request: Record<string, unknown>,
+    approvedRevision: string,
+  ): Promise<unknown>
 }
 
 export interface HomeV2CoreOnChainUpdateStatus {
@@ -193,10 +227,13 @@ export interface PortableNodeClientDependencies {
   setSecret(key: string, value: string): Promise<void>
   requestJson(
     url: string,
-    method?: 'GET' | 'HEAD' | 'POST',
+    // DELETE carries a body for REMOVE_FROM_LIST — Core takes the item batch
+    // as a bodied DELETE, exactly as it does on desktop.
+    method?: 'DELETE' | 'GET' | 'HEAD' | 'POST',
     timeoutMs?: number,
     headers?: Readonly<Record<string, string>>,
     disableRedirects?: boolean,
+    body?: string,
   ): Promise<{
     data: unknown
     headers?: Readonly<Record<string, string>>
@@ -952,6 +989,69 @@ export function createPortableNodeClient(
     return { nodeApiUrl, settings }
   }
 
+  /**
+   * The administered Qortium node plus its key — the client's own boundary,
+   * so the key never crosses into the React layer. Refusals carry the shared
+   * trust wording, which names the fix rather than the platform.
+   */
+  async function requireAdminNode(operation: string) {
+    const settings = await readSettings('qortium')
+    const nodeApiUrl = settings.mode === 'custom' ? settings.customUrl : ''
+    const trust = evaluateHomeV2AdminTrust({
+      attached: settings.apiKey ? { apiKey: settings.apiKey, origin: settings.customUrl } : null,
+      managedApiKey: '',
+      mode: settings.mode,
+      network: 'qortium',
+      nodeApiUrl,
+    })
+    if (!trust.trusted) throw new Error(homeV2AdminTrustMessage(trust.reason, operation))
+    return { apiKey: trust.apiKey, nodeApiUrl: trust.origin, revision: trust.revision }
+  }
+
+  async function requestAdminJson(nodeApiUrl: string, path: string, apiKey: string) {
+    const response = await dependencies.requestJson(
+      `${nodeApiUrl}${path}`,
+      'GET',
+      LIST_REQUEST_TIMEOUT_MS,
+      { Accept: 'application/json', 'X-API-KEY': apiKey },
+      // Redirects refused for the same reason as desktop: this request
+      // carries the administrative key, and a redirect would let the
+      // responder choose a host nothing vetted.
+      true,
+    )
+    if (!response.ok) {
+      throw Object.assign(new Error(`List request failed with HTTP ${response.status}.`), {
+        status: response.status,
+      })
+    }
+    return response.data
+  }
+
+  async function requestAdminText(
+    method: 'DELETE' | 'POST',
+    nodeApiUrl: string,
+    path: string,
+    body: string,
+    apiKey: string,
+  ) {
+    const response = await dependencies.requestJson(
+      `${nodeApiUrl}${path}`,
+      method,
+      LIST_REQUEST_TIMEOUT_MS,
+      { 'Content-Type': 'application/json', 'X-API-KEY': apiKey },
+      true,
+      body,
+    )
+    if (!response.ok) {
+      throw Object.assign(new Error(`List write failed with HTTP ${response.status}.`), {
+        status: response.status,
+      })
+    }
+    // Core answers the bare text "true"/"false"; 1.x and desktop both pass it
+    // through unchanged rather than turning "false" into an error.
+    return typeof response.data === 'string' ? response.data.trim() : String(response.data)
+  }
+
   async function getCoreUpdateContext() {
     const settings = await readSettings('qortium')
     if (settings.mode !== 'custom' || !settings.customUrl) {
@@ -1068,6 +1168,63 @@ export function createPortableNodeClient(
       }
       await dependencies.setPreference(SHELL_STATE_KEY, raw)
     },
+    /**
+     * Administrative trust for the selected Qortium node, without ever
+     * handing out the key. Android has no managed local Core, so this is the
+     * attached-key case: a custom node the user bound their own API key to.
+     */
+    async adminTrust() {
+      const settings = await readSettings('qortium')
+      const nodeApiUrl = settings.mode === 'custom' ? settings.customUrl : ''
+      const trust = evaluateHomeV2AdminTrust({
+        attached: settings.apiKey ? { apiKey: settings.apiKey, origin: settings.customUrl } : null,
+        managedApiKey: '',
+        mode: settings.mode,
+        network: 'qortium',
+        nodeApiUrl,
+      })
+      return trust.trusted
+        ? { origin: trust.origin, revision: trust.revision, trusted: true as const }
+        : {
+            origin: '',
+            reason: homeV2AdminTrustMessage(trust.reason, 'Using QDN lists'),
+            revision: '',
+            trusted: false as const,
+          }
+    },
+    async listRead(action, request) {
+      const { apiKey, nodeApiUrl } = await requireAdminNode('Using QDN lists')
+      const path = action === 'GET_ALL_LISTS'
+        ? '/lists'
+        : buildHomeV2ListPath(normalizeHomeV2ListName(request))
+      try {
+        return await requestAdminJson(nodeApiUrl, path, apiKey)
+      } catch (error) {
+        // Core answers 404 for a list it has never stored; 1.x and desktop
+        // both read that as an empty list rather than a failure.
+        if ((error as { status?: unknown })?.status === 404) {
+          return action === 'GET_ALL_LISTS' ? [] : []
+        }
+        throw error
+      }
+    },
+    async listWrite(action, request, approvedRevision) {
+      const listName = normalizeHomeV2ListName(request)
+      const items = normalizeHomeV2ListItems(request)
+      const { apiKey, nodeApiUrl, revision } = await requireAdminNode('Using QDN lists')
+      // The approval named one node and one credential; a key rotated or an
+      // address changed while the prompt was open must not inherit it.
+      if (revision !== approvedRevision) {
+        throw new Error('The selected Qortium node or its API key changed before the write could start.')
+      }
+      return requestAdminText(
+        action === 'ADD_TO_LIST' ? 'POST' : 'DELETE',
+        nodeApiUrl,
+        buildHomeV2ListPath(listName),
+        buildHomeV2ListWriteBody(items),
+        apiKey,
+      )
+    },
     async requestApp(protocol, requestValue, context) {
       if (!isHomeV2AppRecord(requestValue)) throw new Error('App requests must be objects.')
       const request = requestValue
@@ -1122,6 +1279,19 @@ export function createPortableNodeClient(
       // replaces the three overlapping gates that used to live here — the
       // last of which was a hand-maintained negation of the second's action
       // list, so porting one family meant editing four places in step.
+      // Lists administer the user's own node. Reads are permissionless, so
+      // the client serves them directly; a WRITE must carry an approval, and
+      // the Home shell raises that before calling listWrite — so a write
+      // arriving here bypassed the prompt and is refused.
+      if (protocol === 'qdnRequest' && isHomeV2ListAction(action)) {
+        if (isHomeV2ListWriteAction(action)) {
+          throw createHomeV2BridgeError(
+            `${action} must be approved through Home before it can change a list.`,
+            { action, code: 'NODE_CAPABILITY_MISSING', network: 'qortium', retryable: false },
+          )
+        }
+        return await this.listRead!(action, isRecord(requestValue) ? requestValue : {})
+      }
       const androidRefusal = homeV2AndroidActionRefusal(action, protocol)
       if (androidRefusal) {
         throw createHomeV2BridgeError(androidRefusal.message, {
