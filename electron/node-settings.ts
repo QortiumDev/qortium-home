@@ -1,5 +1,5 @@
 import { app, ipcMain } from 'electron';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import {
   getManagedCoreRuntimePath,
@@ -265,13 +265,41 @@ function readNodeSettings(): NodeSettings {
 function writeNodeSettings(settings: NodeSettings) {
   const settingsPath = getNodeSettingsPath();
 
+  // THE storage boundary for node settings: every writer reaches disk here,
+  // including the legacy settings IPC. A CUSTOM node's API key is the user's
+  // administrative credential, so it is relocated into the OS-protected,
+  // origin-bound store instead of resting in this plaintext file. If that
+  // store is unavailable the value stays put — losing a key the user may not
+  // be able to re-derive would be worse, and administration stays refused
+  // either way, since the trust resolver reads only the protected store.
+  let persisted = settings;
+  if (persisted.mode === 'custom' && persisted.apiKey) {
+    const origin = homeV2NodeOrigin(persisted.customUrl);
+    if (origin) {
+      try {
+        setHomeV2NodeAdminKey('qortium', origin, persisted.apiKey);
+        persisted = { ...persisted, apiKey: '' };
+      } catch {
+        // Secure storage unavailable — keep the legacy value as-is.
+      }
+    }
+  }
+
   mkdirSync(path.dirname(settingsPath), { recursive: true });
-  writeFileSync(settingsPath, `${JSON.stringify(settings, null, 2)}\n`, {
+  writeFileSync(settingsPath, `${JSON.stringify(persisted, null, 2)}\n`, {
     encoding: 'utf8',
     // Node settings can still carry a managed-Core key; the file is the
     // user's own, so keep it owner-only like the account-security store.
     mode: 0o600,
   });
+  // `mode` above applies only when the file is CREATED, so an existing file
+  // written by an older build keeps its permissions unless tightened here.
+  try {
+    chmodSync(settingsPath, 0o600);
+  } catch {
+    // Best effort: a filesystem that cannot chmod (or a file owned by another
+    // user) must not break saving settings.
+  }
   selectedPublicNodeApiUrl = null;
 }
 
@@ -362,18 +390,21 @@ function getConfiguredNodeApiKey(settings: NodeSettings) {
  */
 export function migrateHomeV2LegacyCustomNodeKey() {
   const settings = readNodeSettings();
-  if (!settings.apiKey) return false;
+  // ONLY a custom-mode key moves. A managed-local key belongs in this file
+  // (Home reconciles it from that Core's own apikey.txt) and must survive —
+  // clearing it would strand a stopped local Core. Any other mode is left
+  // exactly as found.
+  if (settings.mode !== 'custom' || !settings.apiKey) return false;
   const origin = homeV2NodeOrigin(settings.customUrl);
-  if (settings.mode === 'custom' && origin) {
-    try {
-      setHomeV2NodeAdminKey('qortium', origin, settings.apiKey);
-    } catch {
-      // Secure storage unavailable: leave the legacy value untouched rather
-      // than destroying a key the user cannot re-derive. Administration stays
-      // refused (the resolver reads only the protected store), which is the
-      // fail-closed half of the same rule.
-      return false;
-    }
+  if (!origin) return false;
+  try {
+    setHomeV2NodeAdminKey('qortium', origin, settings.apiKey);
+  } catch {
+    // Secure storage unavailable: leave the legacy value untouched rather
+    // than destroying a key the user cannot re-derive. Administration stays
+    // refused (the resolver reads only the protected store), which is the
+    // fail-closed half of the same rule.
+    return false;
   }
   writeNodeSettings({ ...settings, apiKey: '' });
   return true;
@@ -1419,14 +1450,18 @@ export async function saveNodeModeForHomeV2(
   mode: 'custom' | 'disabled' | 'local' | 'public',
 ) {
   const current = readNodeSettings();
+  const nextMode = mode === 'public' ? 'network' : mode;
   const settings = normalizeNodeSettingsRequest({
-    apiKey: current.apiKey,
+    // A key configured for one mode must not follow the user into another:
+    // carrying a MANAGED-LOCAL key into custom mode would bind Home's own
+    // Core credential to whatever custom address is configured.
+    apiKey: nextMode === current.mode ? current.apiKey : '',
     customUrl: current.customUrl,
     lastEnabledMode:
       mode === 'disabled' && current.mode !== 'disabled'
         ? current.mode
         : current.lastEnabledMode,
-    mode: mode === 'public' ? 'network' : mode,
+    mode: nextMode,
   });
   writeNodeSettings(settings);
   nodeSettingsChangeListeners.forEach((listener) => listener());

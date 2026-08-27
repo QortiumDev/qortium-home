@@ -943,7 +943,11 @@ The attached key is bound to the **exact node origin** it was attached to; a
 changed address discards it rather than re-pointing a credential at a host
 the user never approved. It is stored in the operating system's secure store
 (Android Keystore; Electron `safeStorage` on desktop) and never in the
-plaintext node settings — if no protected storage is available, the key
+plaintext node settings — every writer funnels through one storage boundary
+that relocates a custom-node key into the protected store, so the legacy
+desktop settings UI cannot reintroduce a plaintext one either. (The Home 1.x
+Android host keeps its own separate custom-node key in Capacitor Preferences;
+that legacy surface is untouched by this change and is tracked separately.) — if no protected storage is available, the key
 cannot be attached at all rather than being written unprotected. It is sent
 only to that origin, over HTTPS or loopback HTTP, with redirects refused, and
 it never crosses into the renderer, a QDN app, or any other host. Every trust

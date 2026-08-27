@@ -7153,8 +7153,8 @@ async function sendHomeV2GroupMembershipAction(
 // and no app-supplied value ever reaches the node: the key REMOVE_MINTING_ACCOUNT
 // deletes is resolved here from the node's own list, and a caller-sent key is
 // only compared against it, never forwarded. The public reward-share reads are
-// keyless; the API key travels only to the attested loopback node's admin
-// endpoints.
+// keyless; the API key travels only to the administered node's admin
+// endpoints (Home's own Core, or the custom node the user attached a key to).
 // ---------------------------------------------------------------------------
 
 const MINTING_ACCOUNTS_PATH = '/admin/mintingaccounts'
@@ -7296,9 +7296,9 @@ async function readHomeV2MintingStatus(
   const address = await readHomeV2MintingAddress(context, requestValue)
   const { apiKey, node, trusted } = await resolveHomeV2AdminNode(network)
   // Public endpoint: the API key is never attached to it. This read runs
-  // before the trusted check, and a mis-set "local" mode can hold a confirmed
+  // before the trust check, and a mis-set "local" mode can hold a confirmed
   // remote HTTPS URL with a sendable key — the key must not travel to any
-  // node that has not passed the loopback attestation.
+  // node that has not passed administrative trust.
   const rewardShares = await readHomeV2ChatJson(
     node.nodeApiUrl,
     buildHomeV2SelfRewardSharesPath(address),
@@ -7453,7 +7453,7 @@ async function startHomeV2Minting(
     }
     const selfShares = selectHomeV2SelfRewardShares(
       // Public endpoint — read keyless like the status path, so the API key
-      // only ever accompanies admin calls to the attested loopback node.
+      // only ever accompanies admin calls to the administered node.
       await readHomeV2ChatJson(
         node.nodeApiUrl,
         buildHomeV2SelfRewardSharesPath(address),
@@ -7514,7 +7514,7 @@ async function startHomeV2Minting(
         'The minting key authorization on chain does not match the key derived from the selected account.',
       )
     }
-    // The derived minting private key goes to the local node and nowhere else;
+    // The derived minting private key goes to the administered node and nowhere else;
     // the result below deliberately carries no key material, and a failure
     // here is scrubbed so the node cannot echo the key back through the error.
     await postHomeV2MintingText(
@@ -7611,6 +7611,10 @@ async function removeHomeV2MintingAccount(
   if (freshProfile.address !== address || freshPublicKey !== publicKey) {
     throw new Error('The minting key for the selected account changed before removal.')
   }
+  // Those two reads take time, and another window could rotate the attached
+  // key on this origin meanwhile — so trust is re-checked immediately before
+  // the write, not only before the reads (review round 2, finding 1).
+  if (!(await isStillValid())) throw new Error('The selected node or its API key changed before removal.')
   // DELETE /admin/mintingaccounts takes the base58 key as the plain-text body.
   const result = await deleteHomeV2MintingKey(node.nodeApiUrl, publicKey, apiKey)
   // Core answers "true" on removal and "false" when it held no matching key.
@@ -7713,12 +7717,12 @@ async function showHomeV2DesktopContextMenu(
 const LIST_READ_MAX_BYTES = 2_097_152
 
 /**
- * Lists are the node's own state, so the family shares minting's trusted-node
- * rule: only the local Core Home runs, reaches over loopback, and holds the
- * administrative key for. resolveHomeV2MintingNode is that resolver — the
- * "minting" in its name is the family that introduced it, not a scope.
- * 1.x enforced the same loopback rule for all four list actions
- * (assertLocalWriteConnection), reads included.
+ * Lists are the node's own state, so the family shares the administrative
+ * trust rule: Home's own managed Core, or a custom node the user attached
+ * their API key to (resolveHomeV2AdminNode / evaluateHomeV2AdminTrust).
+ * 1.x was stricter — assertLocalWriteConnection required a local Core for all
+ * four list actions, reads included — which locked out anyone running their
+ * own node elsewhere.
  */
 async function resolveHomeV2ListNode(action: string) {
   const resolved = await resolveHomeV2AdminNode('qortium')
@@ -7750,8 +7754,8 @@ async function requestHomeV2ListText(
       ...(apiKey ? { 'X-API-KEY': apiKey } : {}),
     },
     body,
-    // The trusted-node gate proves the URL is loopback, but a redirect would
-    // let the RESPONDER choose a second URL the gate never saw — fetch
+    // The trust gate proves the URL is one the user administers, but a
+    // redirect would let the RESPONDER choose a second URL it never saw — fetch
     // preserves X-API-KEY across origins (it is not an Authorization header),
     // and a 307/308 re-sends the method and body too. Refusing redirects
     // outright keeps the administrative key pinned to the host the gate
