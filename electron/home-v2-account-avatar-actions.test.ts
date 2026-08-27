@@ -49,6 +49,13 @@ assert.throws(() => normalizeHomeV2SetAccountAvatarRequest({ avatar: { name: 'Al
 assert.throws(() => normalizeHomeV2SetAccountAvatarRequest({ avatar: { name: 'Alice', service: 'AUDIO' } }), /public single-file/)
 assert.throws(() => normalizeHomeV2SetAccountAvatarRequest({ avatar: { name: 'Alice', service: 'QCHAT_ATTACHMENT_PRIVATE' } }), /public single-file/)
 assert.equal(normalizeHomeV2SetAccountAvatarRequest({ avatar: { name: 'Alice', service: 'IMAGE' } }).avatar?.serviceId, 400)
+// The literal 'default' identifier canonicalizes to the empty (default)
+// wire form — one served avatar, one signed form, one display.
+assert.equal(
+  normalizeHomeV2SetAccountAvatarRequest({ avatar: { identifier: 'default', name: 'Alice', service: 'THUMBNAIL' } }).avatar?.identifier,
+  '',
+)
+assert.equal(selectHomeV2AccountAvatarPointer({ identifier: 'default', name: 'Alice', service: 'THUMBNAIL' }).identifier, '')
 assert.throws(() => normalizeHomeV2SetAccountAvatarRequest({ avatar: null, fee: 1 }), /app-provided fee/)
 assert.throws(() => normalizeHomeV2SetAccountAvatarRequest({ avatar: null, txGroupId: 3 }), /txGroupId must be 0/)
 

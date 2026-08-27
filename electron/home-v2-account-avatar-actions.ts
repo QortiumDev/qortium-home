@@ -70,7 +70,12 @@ export function normalizeHomeV2SetAccountAvatarRequest(request: Record<string, u
   const name = typeof record.name === 'string' ? record.name.trim() : ''
   if (!name) throw new Error('avatar.name is required.')
   if (utf8Length(name) > 40) throw new Error('avatar.name must be at most 40 UTF-8 bytes.')
-  const identifier = typeof record.identifier === 'string' ? record.identifier.trim() : ''
+  const identifierRaw = typeof record.identifier === 'string' ? record.identifier.trim() : ''
+  // The literal identifier 'default' and an absent identifier are ONE
+  // avatar when SERVED (ArbitraryDataReader canonicalizes both to null) but
+  // would SIGN different bytes and display identically — so Home signs the
+  // canonical empty form for both (avatar review round 2).
+  const identifier = identifierRaw === 'default' ? '' : identifierRaw
   if (utf8Length(identifier) > 64) throw new Error('avatar.identifier must be at most 64 UTF-8 bytes.')
   return Object.freeze({ avatar: Object.freeze({ identifier, name, service, serviceId }) })
 }
@@ -157,8 +162,11 @@ export function selectHomeV2AccountAvatarPointer(value: unknown): {
   if (identifier !== undefined && identifier !== null && typeof identifier !== 'string') {
     throw new Error('Account avatar lookup answered an invalid shape.')
   }
+  const identifierText = typeof identifier === 'string' ? identifier.trim() : ''
   return Object.freeze({
-    identifier: typeof identifier === 'string' ? identifier : '',
+    // Same canonicalization as the normalizer: 'default' and absent are one
+    // served avatar, so comparisons and display treat them as one.
+    identifier: identifierText === 'default' ? '' : identifierText,
     name,
     service: service.toUpperCase(),
   })

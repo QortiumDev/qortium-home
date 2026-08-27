@@ -850,7 +850,9 @@ The pointer's service must be one of Core's PUBLIC SINGLE-FILE services
 multi-file or private service would sign a transaction Core
 deterministically rejects. The displayed coordinate uses an injective
 component encoding: a `/` inside a name or identifier is shown as its
-escape, so the line parses back to exactly one component triple.
+escape, so the line parses back to exactly one component triple — and the
+literal identifier `default` is canonicalized to the empty (default) form
+before signing, since Core serves both as one avatar.
 Avatar transactions are consensus-gated by the `avatarTransactionsHeight`
 feature trigger — active on Previewnet, not yet configured on mainnet.
 Like every broadcast failure in the signed families, a post-signing Core

@@ -104,6 +104,11 @@ assert.throws(() => normalizeHomeV2SetGroupRequest({ defaultGroupId: 0 }))
     avatar: { identifier: 'group-avatar', name: 'Alice', service: 'thumbnail' }, groupId: 5,
   })
   assert.deepEqual(set.avatar, { identifier: 'group-avatar', name: 'Alice', service: 'THUMBNAIL', serviceId: 410 })
+  // 'default' canonicalizes to the empty wire form (one served avatar).
+  assert.equal(
+    normalizeHomeV2SetGroupAvatarRequest({ avatar: { identifier: 'default', name: 'Alice', service: 'THUMBNAIL' }, groupId: 5 }).avatar?.identifier,
+    '',
+  )
 }
 for (const bad of [
   { avatar: { name: 'Alice', service: 'NOT_A_SERVICE' }, groupId: 5 },

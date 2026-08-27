@@ -313,7 +313,11 @@ export function normalizeHomeV2SetGroupAvatarRequest(request: Record<string, unk
   const name = typeof record.name === 'string' ? record.name.trim() : ''
   if (!name) throw new Error('avatar.name is required.')
   if (utf8Length(name) > 40) throw new Error('avatar.name must be at most 40 UTF-8 bytes.')
-  const identifier = typeof record.identifier === 'string' ? record.identifier.trim() : ''
+  const identifierRaw = typeof record.identifier === 'string' ? record.identifier.trim() : ''
+  // 'default' and absent are ONE served avatar but would sign different
+  // bytes and display identically — sign the canonical empty form for both
+  // (avatar review round 2; same rule as SET_ACCOUNT_AVATAR).
+  const identifier = identifierRaw === 'default' ? '' : identifierRaw
   if (utf8Length(identifier) > 64) throw new Error('avatar.identifier must be at most 64 UTF-8 bytes.')
   return Object.freeze({ avatar: Object.freeze({ identifier, name, service, serviceId }), groupId })
 }
