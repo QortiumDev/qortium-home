@@ -6507,7 +6507,11 @@ export function HomeV2LiveApp() {
     setIdentityLookup(null)
     setCustomError(null)
     try {
-      const apiKey = isAndroidHost && customNetwork === 'qortium'
+      // The node administration key applies to a custom Qortium node on
+      // EVERY platform: a user running their own Core is entitled to
+      // administer it from a phone or through an SSH tunnel, not only from
+      // the machine Home happens to run a Core on.
+      const apiKey = customNetwork === 'qortium'
         ? removeCustomApiKey
           ? ''
           : customApiKey.trim() || undefined
@@ -6754,10 +6758,10 @@ export function HomeV2LiveApp() {
             }}
           />
         </label>
-        {isAndroidHost && customNetwork === 'qortium' ? (
+        {customNetwork === 'qortium' ? (
           <>
             <label>
-              <span>Node API key</span>
+              <span>Node API key (optional)</span>
               <input
                 type="password"
                 autoComplete="off"
@@ -6765,7 +6769,7 @@ export function HomeV2LiveApp() {
                 placeholder={
                   snapshot.nodes.qortium.customAuthenticated
                     ? 'Saved — leave blank to keep it'
-                    : 'Required for approved Core updates'
+                    : 'Needed to manage this node (lists, minting, updates)'
                 }
                 onChange={(event) => {
                   setCustomApiKey(event.target.value)
@@ -6796,8 +6800,10 @@ export function HomeV2LiveApp() {
           aria-live="polite"
         >
           {customError ?? (
-            isAndroidHost && customNetwork === 'qortium'
-              ? 'The API key is protected by Android Keystore and sent only to this custom node over HTTPS or loopback HTTP; redirects are refused.'
+            customNetwork === 'qortium'
+              ? `A node API key grants full administrative access to that Qortium Core, so add one only for a node you run. Home stores it protected on this device${
+                  isAndroidHost ? ' (Android Keystore)' : ' (your operating system’s secure storage)'
+                }, binds it to this exact address, sends it only there over HTTPS or loopback HTTP — an SSH tunnel counts — and refuses redirects. Changing the address discards it. Saving also selects Custom mode.`
               : 'Saving also selects Custom mode.'
           )}
         </div>

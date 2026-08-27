@@ -139,8 +139,11 @@ contextBridge.exposeInMainWorld('homeV2Nodes', {
     network: 'qortal' | 'qortium',
     mode: 'custom' | 'disabled' | 'local' | 'public',
   ) => ipcRenderer.invoke('home-v2-nodes:setMode', network, mode),
-  setCustomUrl: (network: 'qortal' | 'qortium', customUrl: string) =>
-    ipcRenderer.invoke('home-v2-nodes:setCustomUrl', network, customUrl),
+  // `apiKey` is the user's own Core administration key for a custom Qortium
+  // node: '' removes a saved key, undefined keeps it. It crosses this bridge
+  // once, on its way to protected main-process storage, and never comes back.
+  setCustomUrl: (network: 'qortal' | 'qortium', customUrl: string, apiKey?: string) =>
+    ipcRenderer.invoke('home-v2-nodes:setCustomUrl', network, customUrl, apiKey),
 })
 
 contextBridge.exposeInMainWorld('homeV2RetainedViewer', {

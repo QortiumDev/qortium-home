@@ -347,7 +347,10 @@ for (const listRequest of [
 ]) {
   await assert.rejects(
     () => client.requestApp('qdnRequest', listRequest),
-    /Android has no local Core/,
+    // The refusal states the real reason — the Android arm is not built yet —
+    // rather than the retired loopback/platform rule. Node administration
+    // itself is allowed wherever the user attached their own API key.
+    /not available in Home for Android yet/,
   )
   // Same request on qortalRequest: not implemented there at all, so the
   // answer is the generic UNSUPPORTED_PROTOCOL refusal, never a Qortium
