@@ -370,11 +370,17 @@ const GROUP_TARGET_JOURNAL_ACTIONS = new Set<string>([
  * round 2).
  */
 function journalConflictActionKey(action: string) {
-  // A multi-publish item IS a PUBLISH_QDN_RESOURCE transaction, so the two
-  // actions share one conflict key: a retained unknown from either blocks
-  // the other rather than letting the batch spelling slip past the single
-  // spelling's block (or vice versa).
-  if (action === 'PUBLISH_MULTIPLE_QDN_RESOURCES') return 'PUBLISH_QDN_RESOURCE'
+  // The three QDN resource writes share ONE conflict key: a multi-publish
+  // item IS a PUBLISH_QDN_RESOURCE transaction, and a publish and a delete
+  // of the same coordinate are order-dependent writes to one resource — an
+  // ambiguous delete must be reconciled before the same coordinate is
+  // published again (and vice versa), rather than letting a different
+  // action spelling slip past the retained block. Targets still match
+  // per-coordinate (multi's request-level derivation stays coarse).
+  if (
+    action === 'PUBLISH_MULTIPLE_QDN_RESOURCES' ||
+    action === 'DELETE_QDN_RESOURCE'
+  ) return 'PUBLISH_QDN_RESOURCE'
   return GROUP_TARGET_JOURNAL_ACTIONS.has(action)
     ? canonicalHomeV2GroupAdminAction(action as HomeV2GroupAdminAction)
     : action
@@ -470,14 +476,19 @@ export function homeV2TransactionTargetFromRequest(action: string, value: unknow
   if (action === 'PUBLISH_QDN_RESOURCE' || action === 'DELETE_QDN_RESOURCE') {
     // getQdnWriteResourceRequest reads flat service/name/identifier with the
     // payload fallback (qdn-request-values getRequestValue); the delete
-    // normalizer consumes exactly the same coordinate fields.
+    // normalizer consumes exactly the same coordinate fields. The literal
+    // identifier 'default' and an absent identifier are ONE coordinate on
+    // chain (the delete normalizer maps 'default' to null, and the builders
+    // treat them alike), so both spellings canonicalize to null here —
+    // otherwise resubmitting the same operation with the other spelling
+    // would derive a different key and slip the retained block.
     const payload = isRecord(value.payload) ? value.payload : null
     const service = payload?.service ?? value.service
     const name = payload?.name ?? value.name
     const identifier = payload?.identifier ?? value.identifier
     if (typeof service === 'string' && service && typeof name === 'string' && name) {
       return derivedTarget({
-        identifier: typeof identifier === 'string' && identifier ? identifier : null,
+        identifier: typeof identifier === 'string' && identifier && identifier !== 'default' ? identifier : null,
         kind: 'resource',
         name,
         service,

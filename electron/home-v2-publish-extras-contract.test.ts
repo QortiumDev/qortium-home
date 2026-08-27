@@ -68,6 +68,15 @@ assert.throws(
   /resource 2: .*sourceToken/,
 )
 
+// Inline bytes nested inside payload get the same named refusal (review
+// round 1, finding 5 — the resource parser reads payload-first).
+assert.throws(
+  () => normalizeHomeV2PublishMultipleRequest('qortium', {
+    resources: [item(0, { payload: { data64: 'aGk=' } })],
+  }),
+  /resource 1: .*sourceToken/,
+)
+
 // One approved file selection cannot back two transactions.
 assert.throws(
   () => normalizeHomeV2PublishMultipleRequest('qortium', {

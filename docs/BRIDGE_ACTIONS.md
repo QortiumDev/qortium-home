@@ -51,7 +51,8 @@ separate durable capabilities and revision-checked mutations; see
 the structured target, safe action, result, desktop-native, Android-sheet, and
 standalone-gateway boundaries. Desktop isolated QDN apps and Android tokenized
 APP/WEBSITE pages also support `PUBLISH_QDN_RESOURCE`,
-`PUBLISH_MULTIPLE_QDN_RESOURCES`, `DELETE_QDN_RESOURCE`,
+`PUBLISH_MULTIPLE_QDN_RESOURCES` and `DELETE_QDN_RESOURCE` (both of these
+two desktop-only in Home 2 — Android filters them from `SHOW_ACTIONS`),
 `APPROVE_GROUP_JOIN_REQUEST`, `INVITE_TO_GROUP`, `JOIN_GROUP`, `LEAVE_GROUP`,
 `CANCEL_GROUP_INVITE`, `ADD_GROUP_ADMIN`, `REMOVE_GROUP_ADMIN`, `GROUP_BAN`,
 `CANCEL_GROUP_BAN`, `GROUP_KICK`,
@@ -1135,11 +1136,19 @@ distinct (1.x released tokens only after the loop, so one approved file
 selection could quietly back several transactions). Where the 1.x prompt for
 `N > 1` showed only "N resources" with no targets, the Home 2 prompt lists
 **every item** — coordinate, file name, byte size, and SHA-256 of the exact
-bytes that will be attested — before anything is signed. On `qdnRequest`
+bytes that will be attested — before anything is signed, and any mutable
+metadata being published with an item (title, description, category, tags)
+gets its own numbered rows: a metadata row appears exactly when that field
+is being published, and an omitted row means nothing is. On `qdnRequest`
 (Qortium) each item is fee-free with on-device MemoryPoW; on `qortalRequest`
 (Qortal) **each item pays the chain's ARBITRARY unit fee**, so the prompt adds
 a per-item Fee row and a batch Total fee row, and a fee that changes between
-approval and signing refuses rather than signing an undisclosed amount. Every
+approval and signing refuses rather than signing an undisclosed amount. The
+same standard now applies to single `PUBLISH_QDN_RESOURCE`: its Qortal
+prompt carries the pinned Fee row, and its metadata values are disclosed as
+rows. App-provided `fee` values are refused outright on BOTH chains — Home
+derives the fee from the selected chain (an intentional tightening of the
+1.x contract, where an app could name its own fee). Every
 distinct publisher name is ownership-checked before the prompt and again per
 item at signing. Execution is serial and per-item (the 1.x contract): the
 result is `{accepted, published: [...], failures: [...]}` where a

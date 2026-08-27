@@ -1261,6 +1261,17 @@ async function requireAccountReadPermission(
     readonly routeLabel: string
     readonly size: number
     readonly targetChainLabel: string
+    // The Qortal chain fee this publish pays, pre-read and PINNED (the
+    // signing path refuses a fee that moved after approval). Present exactly
+    // when the chain charges one; Qortium publishes are fee-free mempow.
+    readonly fee?: string
+    // The mutable-metadata values that will be signed alongside the bytes
+    // (Qortium only — the Qortal path refuses metadata). Escaped for the
+    // prompt; each row appears exactly when that field is being published.
+    readonly metadataCategory?: string
+    readonly metadataDescription?: string
+    readonly metadataTags?: string
+    readonly metadataTitle?: string
   } | {
     readonly kind: 'direct'
     readonly targetChainLabel: string
@@ -1580,7 +1591,12 @@ async function requireAccountReadPermission(
             ? {
                 writeKind: 'publish',
                 publishContentHash: writeDetails.contentHash,
+                publishFee: writeDetails.fee ?? null,
                 publishFileName: writeDetails.fileName,
+                publishMetadataCategory: writeDetails.metadataCategory ?? null,
+                publishMetadataDescription: writeDetails.metadataDescription ?? null,
+                publishMetadataTags: writeDetails.metadataTags ?? null,
+                publishMetadataTitle: writeDetails.metadataTitle ?? null,
                 publishResourceCoordinate: writeDetails.resourceCoordinate,
                 publishSize: writeDetails.size,
                 writeOperationLabel: writeDetails.operationLabel,
@@ -1894,10 +1910,20 @@ async function publishHomeV2PublicPublishSource(
   if (stringField(nameValue, 'owner') !== profile.address) {
     throw new Error('The selected account does not currently own the requested publisher name on this chain.')
   }
+  // On Qortal this publish pays the chain's ARBITRARY unit fee: read it
+  // BEFORE the prompt so it is disclosed, and pin it so the signing path
+  // refuses a fee that moved after approval (a lying node could otherwise
+  // build an arbitrarily high valid fee the user never saw).
+  const feeAtomic = network === 'qortal' ? await getHomeV2QortalArbitraryUnitFee(node.nodeApiUrl) : 0n
   await requireAccountReadPermission(sender, context, protocol, 'PUBLISH_QDN_RESOURCE', {
     kind: 'publish',
     contentHash,
+    ...(network === 'qortal' ? { fee: `${homeV2AtomicDecimal(feeAtomic)} coins` } : {}),
     fileName: source.fileName,
+    ...(request.resource.title ? { metadataTitle: homeV2PollApprovalText(request.resource.title, 'The resource title') } : {}),
+    ...(request.resource.description ? { metadataDescription: homeV2PollApprovalText(request.resource.description, 'The resource description') } : {}),
+    ...(request.resource.category ? { metadataCategory: homeV2PollApprovalText(request.resource.category, 'The resource category') } : {}),
+    ...(request.resource.tags.length ? { metadataTags: homeV2PollApprovalText(request.resource.tags.join(', '), 'The resource tags') } : {}),
     operationLabel: 'Publish a public QDN resource',
     resourceCoordinate: `${request.resource.service}/${request.resource.name}/${request.resource.identifier ?? 'default'}`,
     routeLabel: `${node.mode} · ${node.nodeApiUrl}`,
@@ -1921,6 +1947,7 @@ async function publishHomeV2PublicPublishSource(
   }
   const result = await publishHomeV2PublicResource({
     accountId,
+    ...(network === 'qortal' ? { expectedFeeAtomic: feeAtomic } : {}),
     fileName: source.fileName,
     isStillValid,
     network,
@@ -2009,6 +2036,14 @@ async function publishHomeV2MultiplePublishSources(
     rows.push({ label: `File ${position}`, value: homeV2PollApprovalText(entry.source.fileName, 'The file name') })
     rows.push({ label: `Size ${position}`, value: `${entry.sourceBytes.byteLength} bytes` })
     rows.push({ label: `SHA-256 ${position}`, value: entry.contentHash })
+    // The mutable-metadata values signed alongside the bytes (Qortium only —
+    // the item normalizer refuses metadata on Qortal). A row appears exactly
+    // when that field is being published; an omitted row means nothing is.
+    const metadata = entry.item.resource
+    if (metadata.title) rows.push({ label: `Title ${position}`, value: homeV2PollApprovalText(metadata.title, 'The resource title') })
+    if (metadata.description) rows.push({ label: `Description ${position}`, value: homeV2PollApprovalText(metadata.description, 'The resource description') })
+    if (metadata.category) rows.push({ label: `Category ${position}`, value: homeV2PollApprovalText(metadata.category, 'The resource category') })
+    if (metadata.tags.length) rows.push({ label: `Tags ${position}`, value: homeV2PollApprovalText(metadata.tags.join(', '), 'The resource tags') })
     if (network === 'qortal') rows.push({ label: `Fee ${position}`, value: `${homeV2AtomicDecimal(feeAtomic)} coins` })
   })
   if (network === 'qortal') {

@@ -497,6 +497,13 @@ function isSequencedDetailRows(
   return position === value.length
 }
 
+function isPublishPromptText(candidate: unknown): candidate is string {
+  return typeof candidate === 'string' &&
+    candidate.length >= 1 &&
+    candidate.length <= 4_000 &&
+    !/[\u0000-\u001f\u007f]/.test(candidate)
+}
+
 // The multi-publish rows: an Items count, then for every item the numbered
 // Resource/File/Size/SHA-256 rows — with a numbered Fee row per item and one
 // trailing Total fee row on Qortal, where each item pays the chain fee. The
@@ -518,13 +525,20 @@ function isPublishMultipleDetailRows(
   if (!validRow(value[0], 'Items')) return false
   const count = Number((value[0] as { value: string }).value)
   if (!Number.isInteger(count) || count < 1 || count > 10) return false
-  const perItem = network === 'qortal'
-    ? ['Resource', 'File', 'Size', 'SHA-256', 'Fee']
-    : ['Resource', 'File', 'Size', 'SHA-256']
+  // Metadata rows are optional per item and strictly ordered: a row appears
+  // exactly when that field is being published.
+  const optionalMetadata = ['Title', 'Description', 'Category', 'Tags']
   let position = 1
   for (let item = 1; item <= count; item += 1) {
-    for (const label of perItem) {
+    for (const label of ['Resource', 'File', 'Size', 'SHA-256']) {
       if (!validRow(value[position], `${label} ${item}`)) return false
+      position += 1
+    }
+    for (const label of optionalMetadata) {
+      if (validRow(value[position], `${label} ${item}`)) position += 1
+    }
+    if (network === 'qortal') {
+      if (!validRow(value[position], `Fee ${item}`)) return false
       position += 1
     }
   }
@@ -3097,6 +3111,18 @@ export function HomeV2LiveApp() {
             typeof value.publishFileName !== 'string' ||
             typeof value.publishResourceCoordinate !== 'string' ||
             typeof value.publishSize !== 'number' ||
+            // A Qortal PUBLISH_QDN_RESOURCE pays the chain fee, so its
+            // prompt must carry the pinned Fee row; everywhere else the
+            // field must be absent (fee-free mempow, or a non-publish
+            // member of this kind).
+            (value.action === 'PUBLISH_QDN_RESOURCE' && value.targetNetwork === 'qortal'
+              ? !isPublishPromptText(value.publishFee)
+              : value.publishFee !== null && value.publishFee !== undefined) ||
+            // Metadata rows: present only as validated strings, and only on
+            // the one action that signs metadata.
+            [value.publishMetadataTitle, value.publishMetadataDescription, value.publishMetadataCategory, value.publishMetadataTags]
+              .some((field) => !(field === null || field === undefined ||
+                (value.action === 'PUBLISH_QDN_RESOURCE' && isPublishPromptText(field)))) ||
             typeof value.writeOperationLabel !== 'string' ||
             typeof value.writeRouteLabel !== 'string' ||
             typeof value.writeTargetChainLabel !== 'string'))
@@ -3555,9 +3581,12 @@ export function HomeV2LiveApp() {
               { label: 'Account', value: account?.label ?? accountId },
               { label: 'Operation', value: operationLabel },
               // The Items row and every numbered per-item row, re-checked by
-              // isPublishMultipleDetailRows above.
+              // isPublishMultipleDetailRows above. Description rows can carry
+              // up to 500 escaped bytes, so they scroll like the poll rows.
               ...(value.publishMultipleDetails as readonly { label: string; value: string }[])
-                .map((detail) => ({ label: detail.label, value: detail.value })),
+                .map((detail) => detail.label.startsWith('Description ')
+                  ? { label: detail.label, value: detail.value, variant: 'scroll' as const }
+                  : { label: detail.label, value: detail.value }),
               { label: 'Route', value: String(value.writeRouteLabel) },
               { label: 'Chain', value: String(value.writeTargetChainLabel) },
               { label: 'Scope', value: 'Exactly the transactions listed above' },
@@ -3719,6 +3748,21 @@ export function HomeV2LiveApp() {
                 { label: 'Route', value: String(value.writeRouteLabel) },
                 { label: 'Resource', value: String(value.publishResourceCoordinate) },
                 { label: 'File', value: String(value.publishFileName) },
+                ...(typeof value.publishMetadataTitle === 'string'
+                  ? [{ label: 'Title', value: value.publishMetadataTitle }]
+                  : []),
+                ...(typeof value.publishMetadataDescription === 'string'
+                  ? [{ label: 'Description', value: value.publishMetadataDescription, variant: 'scroll' as const }]
+                  : []),
+                ...(typeof value.publishMetadataCategory === 'string'
+                  ? [{ label: 'Category', value: value.publishMetadataCategory }]
+                  : []),
+                ...(typeof value.publishMetadataTags === 'string'
+                  ? [{ label: 'Tags', value: value.publishMetadataTags }]
+                  : []),
+                ...(typeof value.publishFee === 'string'
+                  ? [{ label: 'Fee', value: value.publishFee }]
+                  : []),
                 { label: 'Size', value: `${Number(value.publishSize).toLocaleString()} bytes` },
                 { label: 'SHA-256', value: String(value.publishContentHash) },
               ]

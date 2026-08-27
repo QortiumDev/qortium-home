@@ -40,9 +40,11 @@ Restores the fifth deferred action family: the publishing extras. An app can
 now ask to publish up to ten QDN resources in one request, and to delete a
 published resource on-chain. Where the old batch prompt said only "N
 resources", the new one lists every single item — which resource, which file,
-how many bytes, and its exact content fingerprint — before anything is
-signed, and on the Qortal network it also shows the fee each item pays and
-the batch total. Deleting is shown for what it really is: a signed
+how many bytes, and its exact content fingerprint, along with any title,
+description, category, or tags being attached — before anything is signed,
+and on the Qortal network it also shows the fee each item pays and the
+batch total, with that fee locked to what was approved. The single-resource
+publish prompt gains the same fee and metadata disclosure. Deleting is shown for what it really is: a signed
 transaction that marks the resource deleted for everyone on the Qortium
 network, not a cleanup of your own copy, and it is only offered when the
 selected account still owns the publishing name. As with every restored
