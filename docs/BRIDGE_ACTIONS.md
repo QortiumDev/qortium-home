@@ -1071,8 +1071,10 @@ signature, a non-pending transaction, or an app-supplied `groupId` that
 does not match the transaction's real group refuses before any prompt. The
 prompt also states that an opposition vote does not immediately reject the
 pending transaction (it stays pending until approved by others or it
-expires), and the transaction is re-read after approval with every disclosed
-field compared between the two reads. The type/creator/status rows are
+expires), and the transaction is re-read after approval with every
+transaction-sourced field (signature, type, creator, approval group, status)
+compared between the two reads — the group *name* row comes from a separate
+group lookup and is display context only. The type/creator/status rows are
 **node-reported context, not byte-verified fact**: what is signed binds only
 the pending transaction's signature (which the app supplied and the user
 sees), so a node lying consistently across both reads can mislabel the
