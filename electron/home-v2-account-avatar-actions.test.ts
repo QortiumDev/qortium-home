@@ -43,7 +43,12 @@ assert.throws(
   () => normalizeHomeV2SetAccountAvatarRequest({ avatar: { identifier: 'i'.repeat(65), name: 'Alice', service: 'THUMBNAIL' } }),
   /64 UTF-8/,
 )
-assert.throws(() => normalizeHomeV2SetAccountAvatarRequest({ avatar: { name: 'Alice', service: 'NOT_A_SERVICE' } }), /Unknown public QDN service/)
+assert.throws(() => normalizeHomeV2SetAccountAvatarRequest({ avatar: { name: 'Alice', service: 'NOT_A_SERVICE' } }), /cannot be an avatar/)
+// Core's avatar rule: public single-file services only.
+assert.throws(() => normalizeHomeV2SetAccountAvatarRequest({ avatar: { name: 'Alice', service: 'WEBSITE' } }), /public single-file/)
+assert.throws(() => normalizeHomeV2SetAccountAvatarRequest({ avatar: { name: 'Alice', service: 'AUDIO' } }), /public single-file/)
+assert.throws(() => normalizeHomeV2SetAccountAvatarRequest({ avatar: { name: 'Alice', service: 'QCHAT_ATTACHMENT_PRIVATE' } }), /public single-file/)
+assert.equal(normalizeHomeV2SetAccountAvatarRequest({ avatar: { name: 'Alice', service: 'IMAGE' } }).avatar?.serviceId, 400)
 assert.throws(() => normalizeHomeV2SetAccountAvatarRequest({ avatar: null, fee: 1 }), /app-provided fee/)
 assert.throws(() => normalizeHomeV2SetAccountAvatarRequest({ avatar: null, txGroupId: 3 }), /txGroupId must be 0/)
 

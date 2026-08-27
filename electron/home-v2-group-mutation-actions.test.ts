@@ -107,6 +107,12 @@ assert.throws(() => normalizeHomeV2SetGroupRequest({ defaultGroupId: 0 }))
 }
 for (const bad of [
   { avatar: { name: 'Alice', service: 'NOT_A_SERVICE' }, groupId: 5 },
+  // Core's avatar rule: public single-file services only (avatar family
+  // review round 1 — a WEBSITE or private pointer signs a transaction Core
+  // deterministically rejects).
+  { avatar: { name: 'Alice', service: 'WEBSITE' }, groupId: 5 },
+  { avatar: { name: 'Alice', service: 'VIDEO' }, groupId: 5 },
+  { avatar: { name: 'Alice', service: 'QCHAT_ATTACHMENT_PRIVATE' }, groupId: 5 },
   { avatar: { service: 'THUMBNAIL' }, groupId: 5 },        // missing name
   { avatar: { name: 'x'.repeat(41), service: 'THUMBNAIL' }, groupId: 5 },
   { avatar: { identifier: 'y'.repeat(65), name: 'Alice', service: 'THUMBNAIL' }, groupId: 5 },

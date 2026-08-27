@@ -8,7 +8,7 @@ import {
   sizedUtf8,
 } from './home-v2-group-admin-actions.js'
 import { homeV2FlattenPayloadRequest } from './home-v2-app-actions.js'
-import { getStaticQdnServiceId } from './public-transaction-validation.js'
+import { getAvatarQdnServiceId } from './public-transaction-validation.js'
 
 /**
  * SET_ACCOUNT_AVATAR (type 50): the SET_GROUP_AVATAR wire body minus the
@@ -63,10 +63,10 @@ export function normalizeHomeV2SetAccountAvatarRequest(request: Record<string, u
   const record = avatarRaw as Record<string, unknown>
   const service = typeof record.service === 'string' ? record.service.trim().toUpperCase() : ''
   if (!service) throw new Error('avatar.service is required.')
-  // Known QDN services only; Core additionally requires the service to be
-  // public and single-file, and enforces the raster/500 KiB rules when the
-  // avatar is SERVED, not here — the transaction is a pointer.
-  const serviceId = getStaticQdnServiceId(service)
+  // Core's avatar rule exactly: public single-file services only. The
+  // raster/500 KiB bounds are enforced when the avatar is SERVED, not here —
+  // the transaction is a pointer.
+  const serviceId = getAvatarQdnServiceId(service)
   const name = typeof record.name === 'string' ? record.name.trim() : ''
   if (!name) throw new Error('avatar.name is required.')
   if (utf8Length(name) > 40) throw new Error('avatar.name must be at most 40 UTF-8 bytes.')

@@ -37,12 +37,15 @@ both networks through explicit compatibility and security boundaries.
 ### 2026-08-28 - feat(home-v2): apps can set the account avatar again
 
 Restores the seventh deferred action: setting (or removing) the selected
-account's public avatar. The avatar transaction only points at an already
-published QDN image — the image itself still goes through the normal
-publish approval — and the prompt shows both the current pointer and the
-new one, with removal clearly worded as its own operation. Home checks the
-current pointer again after approval, so an avatar that changed underneath
-the approval is never silently replaced. As with the ratings restored
+account's public avatar. The avatar transaction signs only a pointer to a
+public single-file QDN resource — the image itself is published separately
+through the normal publish approval, may not exist yet, and its image type
+and size are checked when it is served — and the prompt shows both the
+current pointer and the new one, with removal clearly worded as its own
+operation. Home reads the current pointer again after approval, so a
+pointer the selected node reports as changed refuses rather than silently
+replacing it (the node's answers are preflight information; the chain
+remains the authority). As with the ratings restored
 alongside it, the old implementation sent the account's private key to the
 node to sign; now the bytes are built, checked, and signed entirely on the
 device.

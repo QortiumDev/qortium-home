@@ -2690,12 +2690,10 @@ async function handleHomeV2SetAccountAvatarAction(
     })
   }
   const remove = request.avatar === null
-  const pointerLabel = (pointer: { identifier: string; name: string; service: string }) =>
-    `${pointer.service}/${pointer.name}/${pointer.identifier || 'default'}`
   await requireAccountReadPermission(sender, context, protocol, action, {
     kind: 'account-avatar',
-    avatarValue: request.avatar ? pointerLabel(request.avatar) : 'Remove the current avatar',
-    currentValue: current ? pointerLabel(current) : null,
+    avatarValue: request.avatar ? homeV2AvatarPointerText(request.avatar) : 'Remove the current avatar',
+    currentValue: current ? homeV2AvatarPointerText(current) : null,
     operationLabel: homeV2AccountAvatarOperationLabel(remove),
     routeLabel: `${node.mode} \u00b7 ${node.nodeApiUrl}`,
     targetChainLabel: 'Qortium',
@@ -7409,6 +7407,21 @@ function homeV2PollTimeRow(label: string, value: number | undefined) {
 // description reaches the prompt as a visible "\\u000a" instead of being
 // refused by the renderer's control-character check and dying as a silent
 // 60-second timeout. (Security review 2026-08-26, findings 2 and 4.)
+// INJECTIVE avatar-pointer display: each component is escaped to printable
+// ASCII and any literal '/' inside a component becomes its \uXXXX escape, so
+// the joined 'service/name/identifier' line parses back to exactly one
+// component triple — a name of "a/b" can no longer masquerade as a different
+// coordinate (avatar family review, round 1).
+function homeV2AvatarPointerText(pointer: { readonly identifier: string; readonly name: string; readonly service: string }) {
+  const component = (value: string, label: string) =>
+    homeV2PollApprovalText(value, label).split('/').join('\\u002f')
+  return [
+    component(pointer.service, 'The avatar service'),
+    component(pointer.name, 'The avatar name'),
+    component(pointer.identifier || 'default', 'The avatar identifier'),
+  ].join('/')
+}
+
 function homeV2PollApprovalText(value: string, label: string) {
   const escaped = value
     .replace(/\\/g, '\\\\')
@@ -8406,12 +8419,12 @@ async function handleHomeV2GroupMutationAction(
                 { label: 'Group', value: homeV2PollApprovalText(`#${avatarRequest.groupId} · ${meta.groupName}`, 'The group name') },
                 {
                   label: 'Avatar',
+                  // Injective component encoding: a '/' INSIDE a name or
+                  // identifier is escaped, so the displayed coordinate
+                  // parses back to exactly one component triple.
                   value: avatarRequest.avatar === null
                     ? 'Clear the group avatar'
-                    : homeV2PollApprovalText(
-                        `${avatarRequest.avatar.service} / ${avatarRequest.avatar.name}${avatarRequest.avatar.identifier ? ` / ${avatarRequest.avatar.identifier}` : ''}`,
-                        'The avatar pointer',
-                      ),
+                    : homeV2AvatarPointerText(avatarRequest.avatar),
                 },
               ]
             : []

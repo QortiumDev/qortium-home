@@ -845,9 +845,18 @@ pointer is re-read after approval so a pointer that moved underneath the
 approval refuses; a no-op answers `changed: false`. `fee`/`txGroupId` must
 be 0; single-request `account.avatar.write` capability, never durable; one
 unreconciled avatar write blocks the next (coarse per-account journal key).
+The pointer's service must be one of Core's PUBLIC SINGLE-FILE services
+(the shared avatar allowlist, also enforced for `SET_GROUP_AVATAR`) — a
+multi-file or private service would sign a transaction Core
+deterministically rejects. The displayed coordinate uses an injective
+component encoding: a `/` inside a name or identifier is shown as its
+escape, so the line parses back to exactly one component triple.
 Avatar transactions are consensus-gated by the `avatarTransactionsHeight`
-feature trigger — active on Previewnet, not yet configured on mainnet,
-where Core answers `NOT_YET_RELEASED` at broadcast.
+feature trigger — active on Previewnet, not yet configured on mainnet.
+Like every broadcast failure in the signed families, a post-signing Core
+rejection (including `NOT_YET_RELEASED`) is conservatively journaled as an
+unknown outcome rather than trusted as a definitive refusal from a
+possibly-lying node.
 
 ## Minting actions (Home 2)
 
