@@ -34,6 +34,23 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-27 - feat(home-v2): QDN lists work on Android
+
+The first family to cross to Android under the new node-ownership rule. If
+you have attached your node's API key — including a node reached through an
+SSH tunnel — the list actions apps use for blocking and following now work on
+your phone exactly as they do on the desktop: reads answer directly, and a
+change asks you first, naming the list, the items, and the node it will
+change. Your key stays inside Home's node layer and is never handed to the
+app or the interface, and if the node or its key changes while that approval
+is on screen, the change is refused rather than applied to something else.
+
+Two pieces of groundwork came with it: the reasons Home gives for an action
+being unavailable on Android are now derived in one place instead of three
+overlapping lists that had to be edited in lockstep, and Home can hold
+several selected files for a batch publish while staying inside a memory
+budget suited to a phone.
+
 ### 2026-08-27 - feat(home-v2): manage your own node, wherever you run it
 
 Home used to allow node management — QDN lists and minting — only for the

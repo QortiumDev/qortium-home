@@ -267,17 +267,6 @@ export function homeV2WidgetWithholdsSelfSubject(action: string) {
  */
 const ANDROID_UNSUPPORTED_ACTIONS = new Set<string>([
   'SEND_MESSAGE',
-  // The list family administers a node. Home now allows that for any node the
-  // user attached their own API key to (evaluateHomeV2AdminTrust), so this is
-  // no longer a platform rule — the Android arm that builds the approval
-  // prompt simply is not implemented yet, and SHOW_ACTIONS must not advertise
-  // what cannot run. Removing these four is parity-wave work, not a policy
-  // change. The portable client refuses direct calls for the same stated
-  // reason as defense in depth.
-  'GET_ALL_LISTS',
-  'GET_LIST',
-  'ADD_TO_LIST',
-  'REMOVE_FROM_LIST',
   // Poll writes sign transactions, and Android has no signing path — the same
   // reason SEND_MESSAGE is here. The generic portable-client refusal names
   // signing, which is exactly the reason, so no special arm is needed.
@@ -316,6 +305,37 @@ const ANDROID_UNSUPPORTED_ACTIONS = new Set<string>([
 
 export function isHomeV2AndroidUnsupportedAction(action: string) {
   return ANDROID_UNSUPPORTED_ACTIONS.has(action)
+}
+
+/**
+ * The ONE answer to "why can Android not run this action?".
+ *
+ * This replaces three overlapping gates in the portable client, the last of
+ * which was a hand-maintained NEGATION of the second's action list — so
+ * porting a single family meant editing four places in step, and forgetting
+ * one produced either a wrong message or a silent hole. Now the refusal is
+ * derived: membership in ANDROID_UNSUPPORTED_ACTIONS decides IF, this
+ * function decides WHY, and an action not advertised on the calling protocol
+ * falls through to the generic unsupported-protocol answer instead of being
+ * described with the wrong network.
+ *
+ * Returns null when Android has no objection of its own — the caller then
+ * applies its ordinary route/protocol checks.
+ */
+export function homeV2AndroidActionRefusal(
+  action: string,
+  protocol: HomeV2AppBridgeProtocol,
+): { readonly message: string; readonly network: HomeV2AppNetwork } | null {
+  if (!ANDROID_UNSUPPORTED_ACTIONS.has(action)) return null
+  // Not advertised on this protocol at all: the generic gate answers
+  // UNSUPPORTED_PROTOCOL, which is the honest reply — naming a capability on
+  // the wrong network would not be.
+  if (!getHomeV2AppActions(protocol).includes(action)) return null
+  const network = getHomeV2AppNetwork(protocol, action)
+  return {
+    message: `${action} requires transaction signing, which is only available in Qortium Home desktop.`,
+    network,
+  }
 }
 
 export function getHomeV2ContextualAppActions(

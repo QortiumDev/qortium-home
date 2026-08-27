@@ -1076,12 +1076,14 @@ their own API key to. On any other route the family answers the coded
 message names the fix (attach the key, use HTTPS or a tunnel) rather than a
 locality rule. Home 1.x drew a narrower line
 (`assertLocalWriteConnection`), so on a real phone these actions never worked
-there either. On Android the four actions are still filtered out of
-`SHOW_ACTIONS` (`ANDROID_UNSUPPORTED_ACTIONS`) — but ONLY because the Android
-approval-prompt arm is not built yet, which is parity work rather than a
-policy: node administration itself is now permitted wherever the user
-attached a key. The refusal says exactly that, and an advertised action that
-cannot run would make `SHOW_ACTIONS` lie.
+there either. **The family now works on Android too.** It is advertised there and
+implemented against the same administered node: reads are permissionless and
+served directly, and a write raises the same single-request approval — with
+the node's origin named on it — before the client performs it. The API key
+never reaches the React layer on Android any more than it leaves the main
+process on desktop: the portable client resolves trust, holds the key, and
+re-checks that neither the node nor the key moved while the prompt was open.
+A write that somehow reaches the client without an approval is refused.
 
 `GET_ALL_LISTS` takes no parameters and answers Core's sorted array of list
 names. `GET_LIST` takes `listName` and answers the array of items in stored
