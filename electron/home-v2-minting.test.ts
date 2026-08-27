@@ -489,13 +489,23 @@ assert.equal(
 for (const handler of [
   'startHomeV2Minting',
   'removeHomeV2MintingAccount',
-  'resolveHomeV2MintingNode',
+  // The node-administration resolver: minting shares it with the list family
+  // (and later node settings). It answers for Home's own managed Core AND for
+  // a custom node the user attached their own API key to.
+  'resolveHomeV2AdminNode',
   'readHomeV2SelfMintingKey',
   'deleteHomeV2MintingKey',
 ]) {
   assert.equal(bridgeSource.includes(handler), true, `${handler} must exist in the bridge.`)
 }
-assert.equal(bridgeSource.includes('getHomeV2TrustedWriteApiKey(network, node.nodeApiUrl)'), true)
+assert.equal(bridgeSource.includes('evaluateHomeV2AdminTrust('), true)
+// The ordinary signed-write key fetch must NOT be what authorizes an
+// administrative family — its callers are chat/group/poll/name writes.
+assert.equal(
+  bridgeSource.includes('getHomeV2TrustedWriteApiKey'),
+  false,
+  'The misleading trusted-write helper name must be gone.',
+)
 assert.equal(bridgeSource.includes("assertHomeV2TrustedMintingNode('START_MINTING'"), true)
 assert.equal(bridgeSource.includes("assertHomeV2TrustedMintingNode('REMOVE_MINTING_ACCOUNT'"), true)
 // The public reward-share reads are keyless: GET_MINTING_STATUS runs before
@@ -519,12 +529,17 @@ assert.equal(
   'The minting private key must never appear in a returned value.',
 )
 
-// The trusted-node predicate is given the node URL, so the loopback check
-// above actually runs on the real route.
+// The trust evaluator is given the real route AND the attached-key record,
+// so its transport/origin checks run on what will actually be contacted.
 assert.equal(
-  /isHomeV2TrustedMintingNode\(\{[^}]*nodeApiUrl/s.test(bridgeSource),
+  /evaluateHomeV2AdminTrust\(\{[^}]*nodeApiUrl/s.test(bridgeSource),
   true,
-  'The bridge must pass the node URL to the trusted-minting-node predicate.',
+  'The bridge must pass the node URL to the admin-trust evaluator.',
+)
+assert.equal(
+  /evaluateHomeV2AdminTrust\(\{[^}]*attached/s.test(bridgeSource),
+  true,
+  'The bridge must pass the attached-key record to the admin-trust evaluator.',
 )
 
 const mintingSection = (() => {

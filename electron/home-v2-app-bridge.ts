@@ -412,7 +412,6 @@ import {
   homeV2MintingOperationLabel,
   isHomeV2MintingReadAction,
   isHomeV2MintingWriteAction,
-  isHomeV2TrustedMintingNode,
   normalizeHomeV2MintingPublicKey,
   resolveHomeV2SelfMintingPublicKey,
   selectHomeV2SelfRewardShares,
@@ -436,6 +435,12 @@ import { assertHomeV2UnlockCompleted } from './home-v2-unlock-contract.js'
 import { base58Decode, base58Encode } from './base58.js'
 import { computeHomeV2ChatNonce } from './home-v2-chat-pow.js'
 import { deriveHomeV2RewardSharePrivateKey } from './home-v2-reward-share-key.js'
+import {
+  evaluateHomeV2AdminTrust,
+  homeV2AdminTrustMessage,
+  type HomeV2AdminTrust,
+} from './home-v2-admin-trust.js'
+import { getHomeV2NodeAdminKey } from './home-v2-node-admin-key.js'
 import { readableNodeErrorMessage } from './node-error-body.js'
 import { getNodeConnection } from './node-settings.js'
 import {
@@ -3331,7 +3336,7 @@ async function publishHomeV2PrivateAttachmentSource(
     : `chat-attachment-${opaqueId}`
   const approvedSenderPublicKey = getAccountSigningPublicKey(accountId)
   const apiKey = network === 'qortium'
-    ? await getHomeV2TrustedWriteApiKey(network, node.nodeApiUrl)
+    ? await getHomeV2SignedWriteApiKey(network, node.nodeApiUrl)
     : ''
   const directBaseline = request.conversation.kind === 'direct'
     ? await readHomeV2DirectPublicKey(node.nodeApiUrl, network, request.conversation.otherAddress, apiKey)
@@ -3623,7 +3628,7 @@ async function decryptHomeV2PrivateAttachment(
   if (!(await isStillValid())) throw new Error('The app, account, or node route changed before attachment decryption.')
   const approvedPublicKey = getAccountSigningPublicKey(accountId)
   const apiKey = network === 'qortium'
-    ? await getHomeV2TrustedWriteApiKey(network, node.nodeApiUrl)
+    ? await getHomeV2SignedWriteApiKey(network, node.nodeApiUrl)
     : ''
   let peerKey: Awaited<ReturnType<typeof readHomeV2DirectPublicKey>> | null = null
   let qpgcState: HomeV2QpgcGroupState | null = null
@@ -3993,7 +3998,14 @@ async function postHomeV2ChatText(
 
 type HomeV2ChatSigningKey = { address: string; publicKey58: string; secretKey: Uint8Array }
 
-async function getHomeV2TrustedWriteApiKey(
+/**
+ * The API key for ORDINARY signed writes (chat, group membership/admin,
+ * polls, names, group mutations, attachments): it is whatever key the current
+ * connection carries, and it exists only so those calls work against a local
+ * Core that requires one. It is NOT an authorization decision and must never
+ * gate an administrative family — resolveHomeV2AdminNode does that.
+ */
+async function getHomeV2SignedWriteApiKey(
   network: HomeV2AppNetwork,
   expectedNodeApiUrl: string,
 ) {
@@ -4262,7 +4274,7 @@ async function sendHomeV2AtMessage(
     throw new Error('The selected account is locked.')
   }
   const node = await getHomeV2ReadableNode(network)
-  const nodeApiKey = await getHomeV2TrustedWriteApiKey(network, node.nodeApiUrl)
+  const nodeApiKey = await getHomeV2SignedWriteApiKey(network, node.nodeApiUrl)
   const nodeRoute = `${node.mode}|${node.nodeApiUrl}`
   const profile = await getAccountProfile(accountId)
   const approvedSenderPublicKey = getAccountSigningPublicKey(accountId)
@@ -4301,7 +4313,7 @@ async function sendHomeV2AtMessage(
     const nodeNow = await getHomeV2ReadableNode(network).catch(() => null)
     return !!nodeNow &&
       `${nodeNow.mode}|${nodeNow.nodeApiUrl}` === nodeRoute &&
-      (await getHomeV2TrustedWriteApiKey(network, node.nodeApiUrl).catch(() => null)) === nodeApiKey
+      (await getHomeV2SignedWriteApiKey(network, node.nodeApiUrl).catch(() => null)) === nodeApiKey
   }
   try {
     if (!(await isStillValid())) {
@@ -4376,7 +4388,7 @@ async function sendHomeV2PublicChatAction(
     throw new Error('The selected account is locked.')
   }
   const node = await getHomeV2ReadableNode(network)
-  const nodeApiKey = await getHomeV2TrustedWriteApiKey(network, node.nodeApiUrl)
+  const nodeApiKey = await getHomeV2SignedWriteApiKey(network, node.nodeApiUrl)
   const nodeRoute = `${node.mode}|${node.nodeApiUrl}`
   const profile = await getAccountProfile(accountId)
   const approvedSenderPublicKey = getAccountSigningPublicKey(accountId)
@@ -4422,7 +4434,7 @@ async function sendHomeV2PublicChatAction(
     const nodeNow = await getHomeV2ReadableNode(network).catch(() => null)
     return !!nodeNow &&
       `${nodeNow.mode}|${nodeNow.nodeApiUrl}` === nodeRoute &&
-      (await getHomeV2TrustedWriteApiKey(network, node.nodeApiUrl).catch(() => null)) === nodeApiKey
+      (await getHomeV2SignedWriteApiKey(network, node.nodeApiUrl).catch(() => null)) === nodeApiKey
   }
   try {
     if (!(await isStillValid())) {
@@ -4900,7 +4912,7 @@ async function sendHomeV2DirectChatAction(
     target: { kind: 'direct', otherAddress: request.otherAddress },
   })
   const node = await getHomeV2ReadableNode(network)
-  const apiKey = await getHomeV2TrustedWriteApiKey(network, node.nodeApiUrl)
+  const apiKey = await getHomeV2SignedWriteApiKey(network, node.nodeApiUrl)
   const nodeRoute = `${node.mode}|${node.nodeApiUrl}`
   const profile = await getAccountProfile(accountId)
   if (profile.address === request.otherAddress) throw new Error('Direct-message recipient must be another account.')
@@ -4947,7 +4959,7 @@ async function sendHomeV2DirectChatAction(
     const nodeNow = await getHomeV2ReadableNode(network).catch(() => null)
     return !!nodeNow &&
       `${nodeNow.mode}|${nodeNow.nodeApiUrl}` === nodeRoute &&
-      (await getHomeV2TrustedWriteApiKey(network, node.nodeApiUrl).catch(() => null)) === apiKey
+      (await getHomeV2SignedWriteApiKey(network, node.nodeApiUrl).catch(() => null)) === apiKey
   }
   try {
     if (!(await isStillValid())) throw new Error('Account access context changed before approval completed.')
@@ -4993,7 +5005,7 @@ async function readHomeV2DirectChatAction(
     ...(request.otherAddress ? { target: { kind: 'direct' as const, otherAddress: request.otherAddress } } : {}),
   })
   const node = await getHomeV2ReadableNode(network)
-  const apiKey = await getHomeV2TrustedWriteApiKey(network, node.nodeApiUrl)
+  const apiKey = await getHomeV2SignedWriteApiKey(network, node.nodeApiUrl)
   const nodeRoute = `${node.mode}|${node.nodeApiUrl}`
   const profile = await getAccountProfile(accountId)
   await requireAccountReadPermission(sender, context, protocol, action, {
@@ -6158,7 +6170,7 @@ async function readHomeV2PrivateGroupChatAction(
     ...(request.groupId ? { target: { kind: 'group' as const, groupId: request.groupId } } : {}),
   })
   const node = await getHomeV2ReadableNode('qortium')
-  const apiKey = await getHomeV2TrustedWriteApiKey('qortium', node.nodeApiUrl)
+  const apiKey = await getHomeV2SignedWriteApiKey('qortium', node.nodeApiUrl)
   const nodeRoute = `${node.mode}|${node.nodeApiUrl}`
   const profile = await getAccountProfile(accountId)
   await requireAccountReadPermission(sender, context, protocol, action, {
@@ -6272,7 +6284,7 @@ async function sendHomeV2PrivateGroupChatAction(
     target: { kind: 'group', groupId: request.groupId },
   })
   const node = await getHomeV2ReadableNode('qortium')
-  const apiKey = await getHomeV2TrustedWriteApiKey('qortium', node.nodeApiUrl)
+  const apiKey = await getHomeV2SignedWriteApiKey('qortium', node.nodeApiUrl)
   const nodeRoute = `${node.mode}|${node.nodeApiUrl}`
   const profile = await getAccountProfile(accountId)
   const state = await readHomeV2QpgcState(node.nodeApiUrl, request.groupId, apiKey)
@@ -7003,7 +7015,7 @@ async function sendHomeV2GroupAdminAction(
   const request = normalizeHomeV2GroupAdminRequest(action, requestValue)
   if (!isAccountUnlocked(accountId)) throw new Error('The selected account is locked.')
   const node = await getHomeV2ReadableNode(network)
-  const nodeApiKey = await getHomeV2TrustedWriteApiKey(network, node.nodeApiUrl)
+  const nodeApiKey = await getHomeV2SignedWriteApiKey(network, node.nodeApiUrl)
   const nodeRoute = `${node.mode}|${node.nodeApiUrl}`
   const profile = await getAccountProfile(accountId)
   const initial = await readHomeV2GroupAdminTarget(node.nodeApiUrl, network, request, nodeApiKey)
@@ -7039,7 +7051,7 @@ async function sendHomeV2GroupAdminAction(
     const nodeNow = await getHomeV2ReadableNode(network).catch(() => null)
     return !!nodeNow &&
       `${nodeNow.mode}|${nodeNow.nodeApiUrl}` === nodeRoute &&
-      (await getHomeV2TrustedWriteApiKey(network, node.nodeApiUrl).catch(() => null)) === nodeApiKey
+      (await getHomeV2SignedWriteApiKey(network, node.nodeApiUrl).catch(() => null)) === nodeApiKey
   }
   const validateTarget = async () => {
     const current = await readHomeV2GroupAdminTarget(node.nodeApiUrl, network, request, nodeApiKey)
@@ -7074,7 +7086,7 @@ async function sendHomeV2GroupMembershipAction(
   const request = normalizeHomeV2GroupMembershipRequest(action, requestValue)
   if (!isAccountUnlocked(accountId)) throw new Error('The selected account is locked.')
   const node = await getHomeV2ReadableNode(network)
-  const nodeApiKey = await getHomeV2TrustedWriteApiKey(network, node.nodeApiUrl)
+  const nodeApiKey = await getHomeV2SignedWriteApiKey(network, node.nodeApiUrl)
   const nodeRoute = `${node.mode}|${node.nodeApiUrl}`
   const profile = await getAccountProfile(accountId)
   const target = await readHomeV2GroupTarget(node.nodeApiUrl, network, request.groupId, nodeApiKey)
@@ -7101,7 +7113,7 @@ async function sendHomeV2GroupMembershipAction(
     const nodeNow = await getHomeV2ReadableNode(network).catch(() => null)
     return !!nodeNow &&
       `${nodeNow.mode}|${nodeNow.nodeApiUrl}` === nodeRoute &&
-      (await getHomeV2TrustedWriteApiKey(network, node.nodeApiUrl).catch(() => null)) === nodeApiKey
+      (await getHomeV2SignedWriteApiKey(network, node.nodeApiUrl).catch(() => null)) === nodeApiKey
   }
   const validateTarget = async () => {
     const currentTarget = await readHomeV2GroupTarget(
@@ -7216,41 +7228,53 @@ async function deleteHomeV2MintingKey(
   return result.body.trim()
 }
 
-async function resolveHomeV2MintingNode(network: HomeV2AppNetwork) {
+/**
+ * The administrative-trust resolver for the families that administer a NODE
+ * (lists, minting, later node settings) — as opposed to the signing families,
+ * which administer nothing and work against any node.
+ *
+ * Trust comes from Home's own managed Core OR from a key the user attached to
+ * their own custom node (see home-v2-admin-trust). It is deliberately NOT
+ * derived from `getHomeV2SignedWriteApiKey`, whose callers are ordinary
+ * signed writes that must never inherit administrative authority.
+ */
+async function resolveHomeV2AdminNode(network: HomeV2AppNetwork) {
   const node = await getHomeV2ReadableNode(network)
-  const apiKey = await getHomeV2TrustedWriteApiKey(network, node.nodeApiUrl)
+  const managedApiKey = node.mode === 'local'
+    ? await getHomeV2SignedWriteApiKey(network, node.nodeApiUrl)
+    : ''
+  const trust = evaluateHomeV2AdminTrust({
+    attached: network === 'qortium' ? getHomeV2NodeAdminKey(network) : null,
+    managedApiKey,
+    mode: node.mode,
+    network,
+    nodeApiUrl: node.nodeApiUrl,
+  })
   return {
-    apiKey,
+    apiKey: trust.trusted ? trust.apiKey : '',
     node,
     nodeRoute: `${node.mode}|${node.nodeApiUrl}`,
-    trusted: isHomeV2TrustedMintingNode({
-      apiKey,
-      mode: node.mode,
-      nodeApiUrl: node.nodeApiUrl,
-    }),
+    trust,
+    trusted: trust.trusted,
   }
 }
 
 function assertHomeV2TrustedMintingNode(
   action: HomeV2MintingWriteAction,
   network: HomeV2AppNetwork,
-  trusted: boolean,
+  trust: HomeV2AdminTrust,
 ) {
-  if (trusted) return
+  if (trust.trusted) return
   const operation = action === 'START_MINTING' ? 'Starting minting' : 'Removing a minting key'
-  throw createHomeV2BridgeError(
-    // Home holds an administrative key only for the Qortium Core it runs
-    // itself; see getHomeV2TrustedWriteApiKey, which returns none for Qortal.
-    network === 'qortal'
-      ? `${operation} is not available for Qortal: Home holds no administrative key for a Qortal node.`
-      : `${operation} needs the local Core that Home runs and reaches over loopback; the selected node is not one.`,
-    {
-      action,
-      code: 'NODE_CAPABILITY_MISSING',
-      network,
-      retryable: false,
-    },
-  )
+  // The refusal NAMES THE FIX (attach your node's key, use HTTPS or a
+  // tunnel) instead of asserting a platform or locality rule: a user running
+  // their own Core is entitled to administer it from wherever they are.
+  throw createHomeV2BridgeError(homeV2AdminTrustMessage(trust.reason, operation), {
+    action,
+    code: 'NODE_CAPABILITY_MISSING',
+    network,
+    retryable: false,
+  })
 }
 
 async function readHomeV2MintingAddress(
@@ -7270,7 +7294,7 @@ async function readHomeV2MintingStatus(
   requestValue: Record<string, unknown>,
 ) {
   const address = await readHomeV2MintingAddress(context, requestValue)
-  const { apiKey, node, trusted } = await resolveHomeV2MintingNode(network)
+  const { apiKey, node, trusted } = await resolveHomeV2AdminNode(network)
   // Public endpoint: the API key is never attached to it. This read runs
   // before the trusted check, and a mis-set "local" mode can hold a confirmed
   // remote HTTPS URL with a sendable key — the key must not travel to any
@@ -7299,7 +7323,7 @@ async function readHomeV2MintingStatus(
 }
 
 async function readHomeV2MintingAccounts(network: HomeV2AppNetwork) {
-  const { apiKey, node, trusted } = await resolveHomeV2MintingNode(network)
+  const { apiKey, node, trusted } = await resolveHomeV2AdminNode(network)
   // `available: false` is the honest answer for every node Home does not run,
   // and for a local Core that will not answer its admin route. It is what the
   // Minting app already renders as "node-side minting unavailable".
@@ -7362,7 +7386,7 @@ function homeV2MintingContextGuard(
     const nodeNow = await getHomeV2ReadableNode(network).catch(() => null)
     return !!nodeNow &&
       `${nodeNow.mode}|${nodeNow.nodeApiUrl}` === nodeRoute &&
-      (await getHomeV2TrustedWriteApiKey(network, nodeApiUrl).catch(() => null)) === apiKey
+      (await getHomeV2SignedWriteApiKey(network, nodeApiUrl).catch(() => null)) === apiKey
   }
 }
 
@@ -7375,8 +7399,8 @@ async function startHomeV2Minting(
   if (!context.accountId) throw new Error('No account is selected for this tab.')
   const accountId = context.accountId
   if (!isAccountUnlocked(accountId)) throw new Error('The selected account is locked.')
-  const { apiKey, node, nodeRoute, trusted } = await resolveHomeV2MintingNode(network)
-  assertHomeV2TrustedMintingNode('START_MINTING', network, trusted)
+  const { apiKey, node, nodeRoute, trust } = await resolveHomeV2AdminNode(network)
+  assertHomeV2TrustedMintingNode('START_MINTING', network, trust)
   const profile = await getAccountProfile(accountId)
   const address = profile.address
   await requireAccountReadPermission(sender, context, protocol, 'START_MINTING', {
@@ -7526,8 +7550,8 @@ async function removeHomeV2MintingAccount(
     requestValue.publicKey === undefined || requestValue.publicKey === null || requestValue.publicKey === ''
       ? null
       : normalizeHomeV2MintingPublicKey(requestValue.publicKey)
-  const { apiKey, node, nodeRoute, trusted } = await resolveHomeV2MintingNode(network)
-  assertHomeV2TrustedMintingNode('REMOVE_MINTING_ACCOUNT', network, trusted)
+  const { apiKey, node, nodeRoute, trust } = await resolveHomeV2AdminNode(network)
+  assertHomeV2TrustedMintingNode('REMOVE_MINTING_ACCOUNT', network, trust)
   const profile = await getAccountProfile(accountId)
   const address = profile.address
   const publicKey = await readHomeV2SelfMintingKey(node.nodeApiUrl, apiKey, address)
@@ -7678,10 +7702,12 @@ const LIST_READ_MAX_BYTES = 2_097_152
  * (assertLocalWriteConnection), reads included.
  */
 async function resolveHomeV2ListNode(action: string) {
-  const resolved = await resolveHomeV2MintingNode('qortium')
-  if (!resolved.trusted) {
+  const resolved = await resolveHomeV2AdminNode('qortium')
+  if (!resolved.trust.trusted) {
+    // Lists are node-local policy state (blocking/following), so they need an
+    // administered node — the user's own, wherever it runs.
     throw createHomeV2BridgeError(
-      'QDN lists live on the local Core that Home runs and reaches over loopback; the selected node is not one.',
+      homeV2AdminTrustMessage(resolved.trust.reason, 'Using QDN lists'),
       { action, code: 'NODE_CAPABILITY_MISSING', network: 'qortium', retryable: false },
     )
   }
@@ -7921,7 +7947,7 @@ async function handleHomeV2PollAction(
   const accountId = context.accountId
   if (!isAccountUnlocked(accountId)) throw new Error('The selected account is locked.')
   const node = await getHomeV2ReadableNode('qortium')
-  const apiKey = await getHomeV2TrustedWriteApiKey('qortium', node.nodeApiUrl)
+  const apiKey = await getHomeV2SignedWriteApiKey('qortium', node.nodeApiUrl)
   const nodeRoute = `${node.mode}|${node.nodeApiUrl}`
   const profile = await getAccountProfile(accountId)
   const routeLabel = `${node.mode} · ${node.nodeApiUrl}`
@@ -8029,7 +8055,7 @@ async function handleHomeV2PollAction(
     const nodeNow = await getHomeV2ReadableNode('qortium').catch(() => null)
     return !!nodeNow &&
       `${nodeNow.mode}|${nodeNow.nodeApiUrl}` === nodeRoute &&
-      (await getHomeV2TrustedWriteApiKey('qortium', node.nodeApiUrl).catch(() => null)) === apiKey
+      (await getHomeV2SignedWriteApiKey('qortium', node.nodeApiUrl).catch(() => null)) === apiKey
   }
   // A vote or update means what it means only against the poll the user SAW.
   // If the poll\'s name or option list changed while the prompt was open — an
@@ -8286,7 +8312,7 @@ async function handleHomeV2NameAction(
   const accountId = context.accountId
   if (!isAccountUnlocked(accountId)) throw new Error('The selected account is locked.')
   const node = await getHomeV2ReadableNode('qortium')
-  const apiKey = await getHomeV2TrustedWriteApiKey('qortium', node.nodeApiUrl)
+  const apiKey = await getHomeV2SignedWriteApiKey('qortium', node.nodeApiUrl)
   const nodeRoute = `${node.mode}|${node.nodeApiUrl}`
   const profile = await getAccountProfile(accountId)
   const routeLabel = `${node.mode} · ${node.nodeApiUrl}`
@@ -8422,7 +8448,7 @@ async function handleHomeV2NameAction(
     const nodeNow = await getHomeV2ReadableNode('qortium').catch(() => null)
     return !!nodeNow &&
       `${nodeNow.mode}|${nodeNow.nodeApiUrl}` === nodeRoute &&
-      (await getHomeV2TrustedWriteApiKey('qortium', node.nodeApiUrl).catch(() => null)) === apiKey
+      (await getHomeV2SignedWriteApiKey('qortium', node.nodeApiUrl).catch(() => null)) === apiKey
   }
   // The action means what it means only against the state the user SAW: the
   // owner, sale flag, price, and restriction are re-read after approval and
@@ -8660,7 +8686,7 @@ async function handleHomeV2GroupMutationAction(
   const accountId = context.accountId
   if (!isAccountUnlocked(accountId)) throw new Error('The selected account is locked.')
   const node = await getHomeV2ReadableNode('qortium')
-  const apiKey = await getHomeV2TrustedWriteApiKey('qortium', node.nodeApiUrl)
+  const apiKey = await getHomeV2SignedWriteApiKey('qortium', node.nodeApiUrl)
   const nodeRoute = `${node.mode}|${node.nodeApiUrl}`
   const profile = await getAccountProfile(accountId)
   const routeLabel = `${node.mode} · ${node.nodeApiUrl}`
@@ -8914,7 +8940,7 @@ async function handleHomeV2GroupMutationAction(
     const nodeNow = await getHomeV2ReadableNode('qortium').catch(() => null)
     return !!nodeNow &&
       `${nodeNow.mode}|${nodeNow.nodeApiUrl}` === nodeRoute &&
-      (await getHomeV2TrustedWriteApiKey('qortium', node.nodeApiUrl).catch(() => null)) === apiKey
+      (await getHomeV2SignedWriteApiKey('qortium', node.nodeApiUrl).catch(() => null)) === apiKey
   }
   // The action means what it means only against the state the user SAW.
   const validateMutationTarget = async () => {

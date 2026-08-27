@@ -129,19 +129,27 @@ export function isHomeV2LoopbackNodeUrl(value: unknown): boolean {
 }
 
 /**
- * The node-side minting surface (`/admin/mintingaccounts`, the minting fields
- * of `/admin/status`, and both write actions) is reachable ONLY through a
- * local Core that Home itself runs, holds the API key for, and reaches over
- * loopback.
+ * SUPERSEDED by evaluateHomeV2AdminTrust (home-v2-admin-trust.ts), which the
+ * bridge now uses: administration is allowed for Home's managed Core OR for a
+ * custom node the user attached their own API key to, so a self-hosted node —
+ * including one reached through an SSH tunnel — is administrable from any
+ * platform. This predicate remains as the loopback half of that rule and for
+ * the historical record below.
+ *
+ * The original rule: the node-side minting surface
+ * (`/admin/mintingaccounts`, the minting fields of `/admin/status`, and both
+ * write actions) is reachable ONLY through a local Core that Home itself
+ * runs, holds the API key for, and reaches over loopback.
  *
  * A public node is somebody else's node: its minting state is not the user's
  * to read and its admin endpoints are not the user's to write. A custom node
  * is reachable but not owned by Home, so it is treated the same way — this is
  * deliberately stricter than Home 1.x, which only excluded public nodes.
  *
- * The loopback requirement is the backstop: both the mode and the API key come
- * from Home's own settings, so a mis-set or tampered node URL could otherwise
- * send an administrative key — or an account private key — to a remote host.
+ * The loopback requirement was the backstop: both the mode and the API key
+ * come from Home's own settings, so a mis-set or tampered node URL could
+ * otherwise send an administrative key to a remote host. (The account private
+ * key no longer travels at all — the reward-share key is derived locally.)
  */
 export function isHomeV2TrustedMintingNode(input: {
   readonly apiKey: string
