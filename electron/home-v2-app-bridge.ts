@@ -315,6 +315,13 @@ import {
   normalizeHomeV2QdnDeleteRequest,
 } from './home-v2-publish-extras-contract.js'
 import {
+  assertUnsignedHomeV2SetAccountAvatarTransaction,
+  buildUnsignedQortiumSetAccountAvatarTransactionBytes,
+  homeV2AccountAvatarOperationLabel,
+  normalizeHomeV2SetAccountAvatarRequest,
+  selectHomeV2AccountAvatarPointer,
+} from './home-v2-account-avatar-actions.js'
+import {
   assertUnsignedHomeV2RatingTransaction,
   buildUnsignedQortiumRatingTransactionBytes,
   homeV2RatingOperationLabel,
@@ -559,6 +566,7 @@ type AccountReadAction =
   | 'DELETE_QDN_RESOURCE'
   | 'RATE_ACCOUNT'
   | 'RATE_RESOURCE'
+  | 'SET_ACCOUNT_AVATAR'
   | 'GET_PENDING_TRANSACTIONS'
   | 'FORGET_PENDING_TRANSACTION'
   | 'UNLOCK_SELECTED_ACCOUNT'
@@ -1393,6 +1401,15 @@ async function requireAccountReadPermission(
     readonly routeLabel: string
     readonly targetChainLabel: string
   } | {
+    readonly kind: 'account-avatar'
+    // 'service/name/identifier' for a pointer, or the fixed removal wording;
+    // the shell renders these two values into its own fixed row structure.
+    readonly avatarValue: string
+    readonly currentValue: string | null
+    readonly operationLabel: string
+    readonly routeLabel: string
+    readonly targetChainLabel: string
+  } | {
     readonly kind: 'rating'
     readonly operationLabel: string
     // The per-action rows, escaped and re-validated in the shell. A
@@ -1450,6 +1467,8 @@ async function requireAccountReadPermission(
           ? `qdn-delete:${writeDetails.resourceCoordinate}`
         : writeDetails?.kind === 'rating'
           ? writeDetails.target
+        : writeDetails?.kind === 'account-avatar'
+          ? 'account-avatar'
         : ''
   const grantKey = homeV2PermissionGrantKey({
     accountId: context.accountId,
@@ -1490,6 +1509,8 @@ async function requireAccountReadPermission(
     writeDetails?.kind === 'qdn-delete' ||
     // Rating writes sign chain transactions. Never a session/durable grant.
     writeDetails?.kind === 'rating' ||
+    // The account avatar signs a chain transaction too.
+    writeDetails?.kind === 'account-avatar' ||
     (writeDetails?.kind === 'group' || writeDetails?.kind === 'direct' || writeDetails?.kind === 'private-group') &&
     writeDetails.singleRequestOnly === true
   // A durable per-app chat-send grant ("always allow", revocable in QDN Apps
@@ -1722,6 +1743,16 @@ async function requireAccountReadPermission(
             ? {
                 ratingDetails: writeDetails.ratingDetails.map((detail) => ({ ...detail })),
                 writeKind: 'rating',
+                writeOperationLabel: writeDetails.operationLabel,
+                writeRouteLabel: writeDetails.routeLabel,
+                writeSingleRequestOnly: true,
+                writeTargetChainLabel: writeDetails.targetChainLabel,
+              }
+          : writeDetails?.kind === 'account-avatar'
+            ? {
+                avatarCurrentValue: writeDetails.currentValue,
+                avatarValue: writeDetails.avatarValue,
+                writeKind: 'account-avatar',
                 writeOperationLabel: writeDetails.operationLabel,
                 writeRouteLabel: writeDetails.routeLabel,
                 writeSingleRequestOnly: true,
@@ -2596,6 +2627,174 @@ async function handleHomeV2RatingAction(
       timestamp: outcome.timestamp,
     }),
   })
+}
+
+async function handleHomeV2SetAccountAvatarAction(
+  sender: WebContents,
+  context: QdnViewContext,
+  protocol: HomeV2AppBridgeProtocol,
+  network: HomeV2AppNetwork,
+  routeRevision: string,
+  requestValue: Record<string, unknown>,
+) {
+  const action = 'SET_ACCOUNT_AVATAR'
+  if (protocol !== 'qdnRequest' || network !== 'qortium') {
+    throw createHomeV2BridgeError('SET_ACCOUNT_AVATAR is available on the Qortium chain only.', {
+      action,
+      code: 'NODE_CAPABILITY_MISSING',
+      network,
+      retryable: false,
+      routeRevision,
+    })
+  }
+  if (!context.accountId) throw new Error('No account is selected for this tab.')
+  if (!isAccountUnlocked(context.accountId)) throw createHomeV2BridgeError('The selected account is locked.', {
+    action,
+    code: 'ACCOUNT_LOCKED',
+    network,
+    retryable: false,
+    routeRevision,
+  })
+  const accountId = context.accountId
+  const request = normalizeHomeV2SetAccountAvatarRequest(requestValue)
+  const node = await getHomeV2ReadableNode('qortium')
+  const nodeRoute = `${node.mode}|${node.nodeApiUrl}`
+  const profile = await getAccountProfile(accountId)
+  const readCurrentPointer = async (label: string) => {
+    try {
+      return selectHomeV2AccountAvatarPointer(await readHomeV2ChatJson(
+        node.nodeApiUrl,
+        `/addresses/${encodeURIComponent(profile.address)}/avatar/info`,
+        `Qortium account-avatar ${label}`,
+      ))
+    } catch (error) {
+      if ((error as { status?: unknown })?.status === 404) return null
+      throw error
+    }
+  }
+  const current = await readCurrentPointer('lookup')
+  const samePointer = current !== null && request.avatar !== null &&
+    current.service === request.avatar.service &&
+    current.name === request.avatar.name &&
+    current.identifier === request.avatar.identifier
+  if ((request.avatar === null && current === null) || samePointer) {
+    return Object.freeze({
+      accepted: true,
+      action,
+      address: profile.address,
+      avatar: request.avatar
+        ? { identifier: request.avatar.identifier || null, name: request.avatar.name, service: request.avatar.service }
+        : null,
+      changed: false,
+      network,
+    })
+  }
+  const remove = request.avatar === null
+  const pointerLabel = (pointer: { identifier: string; name: string; service: string }) =>
+    `${pointer.service}/${pointer.name}/${pointer.identifier || 'default'}`
+  await requireAccountReadPermission(sender, context, protocol, action, {
+    kind: 'account-avatar',
+    avatarValue: request.avatar ? pointerLabel(request.avatar) : 'Remove the current avatar',
+    currentValue: current ? pointerLabel(current) : null,
+    operationLabel: homeV2AccountAvatarOperationLabel(remove),
+    routeLabel: `${node.mode} \u00b7 ${node.nodeApiUrl}`,
+    targetChainLabel: 'Qortium',
+  })
+  const isStillValid = async () => {
+    const fresh = getQdnViewContextForWebContents(sender)
+    if (!fresh || !sameViewContext(context, fresh) || !liveResourceMatchesGrant(fresh) || !isAccountUnlocked(accountId)) return false
+    const nodeNow = await getHomeV2ReadableNode('qortium').catch(() => null)
+    return !!nodeNow && `${nodeNow.mode}|${nodeNow.nodeApiUrl}` === nodeRoute
+  }
+  if (!(await isStillValid())) throw new Error('The app, account, or node route changed before the avatar was staged.')
+  let difficulty: number
+  try {
+    difficulty = parseMempowFeeAlternativeDifficulty(await readHomeV2ChatJson(
+      node.nodeApiUrl,
+      '/polls/public/capabilities',
+      'MemoryPoW capability lookup',
+    ))
+  } catch (error) {
+    if (groupBuilderUnavailable(error)) {
+      throw createHomeV2BridgeError(
+        'The selected Qortium node does not expose the MemoryPoW capability needed for avatar writes.',
+        { action, code: 'NODE_CAPABILITY_MISSING', network, retryable: false, routeRevision },
+      )
+    }
+    throw error
+  }
+  const timestamp = Date.now()
+  const signingKey = getAccountSecretKey(accountId)
+  try {
+    const unsignedBytes = buildUnsignedQortiumSetAccountAvatarTransactionBytes({
+      avatar: request.avatar,
+      senderPublicKey: signingKey.publicKey58,
+      timestamp,
+    })
+    assertUnsignedHomeV2SetAccountAvatarTransaction(unsignedBytes, {
+      avatar: request.avatar,
+      senderPublicKey: signingKey.publicKey58,
+      timestamp,
+    })
+    const nonce = await computeHomeV2ChatNonce(unsignedBytes, difficulty, isStillValid)
+    if (!(await isStillValid())) throw new Error('The signing context changed before the avatar could be submitted.')
+    // Re-read the live pointer: the change the user approved was RELATIVE to
+    // the disclosed current value, so a pointer that moved underneath the
+    // approval refuses rather than silently replacing something else.
+    const fresh = await readCurrentPointer('recheck')
+    const freshSame = fresh === null ? current === null : current !== null &&
+      fresh.service === current.service && fresh.name === current.name && fresh.identifier === current.identifier
+    if (!freshSame) throw new Error('The account avatar changed after approval.')
+    if (!(await isStillValid())) throw new Error('The signing context changed before the avatar could be submitted.')
+    const stampedBytes = stampTransactionNonce(unsignedBytes, nonce)
+    assertUnsignedHomeV2SetAccountAvatarTransaction(stampedBytes, {
+      avatar: request.avatar,
+      nonce,
+      senderPublicKey: signingKey.publicKey58,
+      timestamp,
+    })
+    const signedBytes = appendHomeV2GroupAdminSignature(
+      stampedBytes,
+      signDetached(stampedBytes, signingKey.secretKey),
+    )
+    const transactionSignature = getSignatureFromSignedTransactionBytes(signedBytes)
+    const avatarResult = request.avatar
+      ? { identifier: request.avatar.identifier || null, name: request.avatar.name, service: request.avatar.service }
+      : null
+    try {
+      await postHomeV2ChatText(
+        node.nodeApiUrl,
+        '/transactions/process?apiVersion=2',
+        base58Encode(signedBytes),
+        'text/plain',
+        `${homeV2AccountAvatarOperationLabel(remove)} transaction processing failed.`,
+      )
+      return Object.freeze({
+        accepted: true,
+        action,
+        address: profile.address,
+        avatar: avatarResult,
+        network,
+        transactionSignature,
+      })
+    } catch (error) {
+      return Object.freeze({
+        accepted: false,
+        action,
+        address: profile.address,
+        avatar: avatarResult,
+        error: error instanceof Error ? error.message : 'Avatar broadcast outcome is unknown.',
+        errorType: 'BROADCAST_UNKNOWN' as const,
+        network,
+        outcome: 'unknown' as const,
+        retryable: false as const,
+        timestamp,
+        transactionSignature,
+      })
+    }
+  } finally {
+    signingKey.secretKey.fill(0)
+  }
 }
 
 function wipeQortalPrivateGroupKeyRing(keyRing: QortalPrivateGroupKeyRing) {
@@ -8580,6 +8779,16 @@ async function handleRequestWithRuntime(
       network,
       hostInfo.route.revision,
       action,
+      requestValue,
+    )
+  }
+  if (action === 'SET_ACCOUNT_AVATAR') {
+    return handleHomeV2SetAccountAvatarAction(
+      sender,
+      context,
+      protocol,
+      network,
+      hostInfo.route.revision,
       requestValue,
     )
   }

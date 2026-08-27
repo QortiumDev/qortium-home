@@ -94,6 +94,10 @@ export const HOME_V2_JOURNALED_MUTATIONS = Object.freeze([
   // on the exact target-key + category edge it signs.
   'RATE_ACCOUNT',
   'RATE_RESOURCE',
+  // One avatar slot per account: the coarse operation target is exactly the
+  // right key — one unreconciled avatar write blocks this app's next one for
+  // the account (the catch-all derivation arm already answers it).
+  'SET_ACCOUNT_AVATAR',
 ] as const)
 
 export type HomeV2JournaledMutation = (typeof HOME_V2_JOURNALED_MUTATIONS)[number]

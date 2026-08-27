@@ -830,6 +830,25 @@ RATE_RESOURCE under its resource coordinate — and block the same logical
 target until reconciled. Results keep the 1.x fields minus Core's `result`
 blob, plus `network`.
 
+### Account avatar (Home 2)
+
+`SET_ACCOUNT_AVATAR` is restored on `qdnRequest` only, desktop only, as the
+fee-free type-50 transaction built ON DEVICE — the SET_GROUP_AVATAR wire
+body without the group id. Like the group variant it signs **only a QDN
+pointer** `{service, name, identifier}` (or clears it with `avatar: null`,
+a distinctly-captioned operation): avatar bytes travel through
+`PUBLISH_QDN_RESOURCE` with its own prompt, Core's pointer rule is owner-
+and existence-agnostic, and the raster/500 KiB bounds are enforced when the
+avatar is SERVED. The prompt shows the current pointer (from the
+`/addresses/{address}/avatar/info` read) and the new one; the current
+pointer is re-read after approval so a pointer that moved underneath the
+approval refuses; a no-op answers `changed: false`. `fee`/`txGroupId` must
+be 0; single-request `account.avatar.write` capability, never durable; one
+unreconciled avatar write blocks the next (coarse per-account journal key).
+Avatar transactions are consensus-gated by the `avatarTransactionsHeight`
+feature trigger — active on Previewnet, not yet configured on mainnet,
+where Core answers `NOT_YET_RELEASED` at broadcast.
+
 ## Minting actions (Home 2)
 
 Home 2 exposes four minting actions on both `qdnRequest` and `qortalRequest`:

@@ -85,6 +85,11 @@ export type PermissionCapability =
   // approval. Never durable, never reachable through any read grant:
   // single-request prompt only.
   | 'rating.write'
+  // Setting or removing the selected account's avatar POINTER
+  // (SET_ACCOUNT_AVATAR). Signs one fee-free transaction per approval —
+  // avatar bytes travel through the separate publish flow. Never durable:
+  // single-request prompt only.
+  | 'account.avatar.write'
   // Signing one zero-fee, zero-payment chain MESSAGE to an AT (SEND_MESSAGE).
   // Deliberately NOT 'account.read' and not any 'chat.*' capability: durable
   // grants unify on the capability string, so a signing action must never be
@@ -126,6 +131,7 @@ export interface PermissionPrompt {
     | 'DELETE_QDN_RESOURCE'
     | 'RATE_ACCOUNT'
     | 'RATE_RESOURCE'
+    | 'SET_ACCOUNT_AVATAR'
     | 'PUBLISH_CHAT_ATTACHMENT'
     | 'GET_CHAT_ATTACHMENT_STREAM_URL'
     | 'OPEN_CHAT_ATTACHMENT_VIEWER'
