@@ -273,7 +273,30 @@ export interface HomeV2VaultClient {
   signPollWrite?(request: {
     readonly accountId: string
     readonly action: 'CREATE_POLL' | 'UPDATE_POLL' | 'VOTE_ON_POLL'
-    readonly isStillValid?: () => boolean | Promise<boolean>
+    // The account the PROMPT named, and the poll state it was shown against.
+    // Both are required: the vault reads live state again before it signs, and
+    // without these it would only be able to compare that read against itself
+    // — which agrees with anything that changed while the prompt was open.
+    readonly approvedAddress: string
+    readonly approvedPoll: HomeV2ApprovedPollTarget | null
+    readonly isStillValid: () => boolean | Promise<boolean>
+    readonly nodeApiUrl: string
+    readonly requestValue: Record<string, unknown>
+  }): Promise<unknown>
+  /**
+   * Signs one Qortium name write. Same discipline as signPollWrite, plus the
+   * live-sale binding BUY_NAME needs: seller and price come from the chain,
+   * and an app-supplied value must match rather than override.
+   */
+  signNameWrite?(request: {
+    readonly accountId: string
+    readonly action: 'BUY_NAME' | 'CANCEL_SELL_NAME' | 'REGISTER_NAME' | 'SELL_NAME' | 'UPDATE_NAME'
+    // As signPollWrite. For BUY_NAME this is what makes the disclosure
+    // binding: the price and seller in the SIGNED bytes come from here, not
+    // from whatever the chain says after the user has already tapped Approve.
+    readonly approvedAddress: string
+    readonly approvedTarget: HomeV2ApprovedNameTarget | null
+    readonly isStillValid: () => boolean | Promise<boolean>
     readonly nodeApiUrl: string
     readonly requestValue: Record<string, unknown>
   }): Promise<unknown>
@@ -289,6 +312,28 @@ export interface HomeV2VaultClient {
     password?: string
     rememberUnlock?: boolean
   }): Promise<HomeV2VaultState>
+}
+
+/**
+ * The live name state a name-write approval was granted against.
+ *
+ * Carried from the shell into the vault so the signature is bound to what the
+ * user SAW. Amounts travel as exact atomic decimal-digit strings — never a
+ * number, never a float — and are compared as strings.
+ */
+export type HomeV2ApprovedNameTarget = {
+  readonly isForSale: boolean
+  readonly name: string
+  readonly owner: string
+  readonly salePriceAtomic: string | null
+  readonly saleRecipient: string | null
+}
+
+/** The live poll state a poll-write approval was granted against. */
+export type HomeV2ApprovedPollTarget = {
+  readonly optionNames: readonly string[]
+  readonly pollId: number
+  readonly pollName: string
 }
 
 export function getHomeV2VaultClient() {

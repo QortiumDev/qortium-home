@@ -151,8 +151,13 @@ import { getPollOptionsInput } from '../electron/qdn-poll-options-input';
 import { isSameQdnWriteRoute } from '../electron/qdn-write-route';
 import {
   assertPublicArbitraryTransaction,
+  assertPublicBuyNameTransaction,
+  assertPublicCancelSellNameTransaction,
   assertPublicChatTransaction,
   assertPublicCreatePollTransaction,
+  assertPublicRegisterNameTransaction,
+  assertPublicSellNameTransaction,
+  assertPublicUpdateNameTransaction,
   assertPublicJoinGroupTransaction,
   assertPublicLeaveGroupTransaction,
   assertPublicUpdatePollTransaction,
@@ -160,6 +165,17 @@ import {
   getStaticQdnServiceId,
 } from '../electron/public-transaction-validation';
 import { parsePublicPollCapabilities, type PublicPollCapabilities } from '../electron/public-poll-capabilities';
+import { parsePublicNameCapabilities } from '../electron/public-name-capabilities';
+import type { HomeV2ApprovedNameTarget, HomeV2ApprovedPollTarget } from './home-v2-live/vault-client';
+import {
+  normalizeHomeV2BuyNameRequest,
+  normalizeHomeV2CancelSellNameRequest,
+  normalizeHomeV2RegisterNameRequest,
+  normalizeHomeV2SellNameRequest,
+  normalizeHomeV2UpdateNameRequest,
+  selectHomeV2NameTarget,
+  type HomeV2NameWriteAction,
+} from '../electron/home-v2-app-actions';
 import {
   canonicalHomeV2VoteSelection,
   normalizeHomeV2CreatePollRequest,
@@ -14063,12 +14079,18 @@ function homeV2IdempotentGroupAdminResult(
 async function signAndroidHomeV2QortiumPollWrite(input: {
   readonly action: HomeV2PollWriteAction;
   readonly address: string;
+  readonly approvedPoll: HomeV2ApprovedPollTarget | null;
   readonly isStillValid: () => Promise<boolean>;
   readonly nodeApiUrl: string;
   readonly requestValue: Record<string, unknown>;
-  readonly signingKey: { publicKey58: string; secretKey: Uint8Array };
+  readonly signingKey: { address: string; publicKey58: string; secretKey: Uint8Array };
 }) {
-  const { action, address, isStillValid, nodeApiUrl, requestValue, signingKey } = input;
+  const { action, address, approvedPoll, isStillValid, nodeApiUrl, requestValue, signingKey } = input;
+  // CREATE_POLL defaults `owner` to this address, and the prompt showed it, so
+  // the key that signs must be the account the prompt named.
+  if (signingKey.address !== address) {
+    throw new Error('The selected account changed before the poll action could be signed.');
+  }
   const createRequest = action === 'CREATE_POLL'
     ? normalizeHomeV2CreatePollRequest(requestValue, address)
     : null;
@@ -14091,6 +14113,19 @@ async function signAndroidHomeV2QortiumPollWrite(input: {
     );
   };
   const target = await readTarget();
+  // The approval is the baseline: a poll renamed or re-optioned while the
+  // prompt was open would leave the approved indexes naming different labels,
+  // and comparing the vault's own reads against each other would not see it.
+  if (target) {
+    if (!approvedPoll) throw new Error('The poll action was not approved against any poll state.');
+    if (
+      approvedPoll.pollId !== target.pollId ||
+      approvedPoll.pollName !== target.pollName ||
+      JSON.stringify(approvedPoll.optionNames) !== JSON.stringify(target.optionNames)
+    ) {
+      throw new Error(`Poll ${target.pollId} changed after it was approved; nothing was signed.`);
+    }
+  }
   if (target && selection) {
     for (const index of selection) {
       if (index > target.optionNames.length) {
@@ -14202,6 +14237,12 @@ async function signAndroidHomeV2QortiumPollWrite(input: {
       '',
     )).mempowFeeAlternativeDifficulty;
   } catch (error) {
+    // Only a capability problem is reported as one. Anything else — a size-cap
+    // violation, a bug in this file — keeps its own message rather than being
+    // relabelled as the node's fault.
+    if (!homeV2GroupBuilderUnavailable(error) && !/capability/i.test(error instanceof Error ? error.message : '')) {
+      throw error;
+    }
     throw new Error('The selected Qortium node does not advertise a compatible MemoryPoW poll capability.');
   }
   const nonce = await computeChatNonce(unsignedBytes, difficulty, isStillValid);
@@ -14209,12 +14250,12 @@ async function signAndroidHomeV2QortiumPollWrite(input: {
   // A vote or update means what it means only against the poll the user SAW:
   // an owner can rename it or replace its options before votes exist, which
   // would leave the approved indexes naming different labels.
-  if (pollId !== null && target) {
+  if (pollId !== null && approvedPoll) {
     const currentTarget = await readTarget();
     if (
       !currentTarget ||
-      currentTarget.pollName !== target.pollName ||
-      JSON.stringify(currentTarget.optionNames) !== JSON.stringify(target.optionNames)
+      currentTarget.pollName !== approvedPoll.pollName ||
+      JSON.stringify(currentTarget.optionNames) !== JSON.stringify(approvedPoll.optionNames)
     ) {
       throw new Error('The poll changed before the poll action could be signed.');
     }
@@ -14262,6 +14303,291 @@ async function signAndroidHomeV2QortiumPollWrite(input: {
   } catch (error) {
     // Signed and submitted with an unclear answer: never invite an automatic
     // retry. retainUnknownTransaction journals this for reconciliation.
+    return Object.freeze({
+      accepted: false,
+      action,
+      ...identity,
+      error: error instanceof Error ? error.message : String(error),
+      errorType: 'BROADCAST_OUTCOME_UNKNOWN' as const,
+      network: 'qortium' as const,
+      outcome: 'unknown' as const,
+      retryable: false as const,
+      signature,
+      timestamp,
+      transactionSignature: signature,
+    });
+  }
+}
+
+/**
+ * Signs and broadcasts one Qortium name write on Android.
+ *
+ * Same discipline as the poll path: the vault re-normalizes the raw request,
+ * re-reads the live name state it must agree with, and byte-asserts the
+ * builder's answer before a signature exists. BUY_NAME additionally binds
+ * seller and amount to the LIVE sale — an app-supplied value must match Core
+ * exactly, and the chain's price is what gets signed, never the app's.
+ */
+async function signAndroidHomeV2QortiumNameWrite(input: {
+  readonly action: HomeV2NameWriteAction;
+  readonly address: string;
+  readonly approvedTarget: HomeV2ApprovedNameTarget | null;
+  readonly isStillValid: () => Promise<boolean>;
+  readonly nodeApiUrl: string;
+  readonly requestValue: Record<string, unknown>;
+  readonly signingKey: { address: string; publicKey58: string; secretKey: Uint8Array };
+}) {
+  const { action, address, approvedTarget, isStillValid, nodeApiUrl, requestValue, signingKey } = input;
+  // The prompt named an account; the vault derived a key. If those ever
+  // disagree the user approved one account and another would sign.
+  if (signingKey.address !== address) {
+    throw new Error('The selected account changed before the name action could be signed.');
+  }
+  const registerRequest = action === 'REGISTER_NAME' ? normalizeHomeV2RegisterNameRequest(requestValue) : null;
+  const updateRequest = action === 'UPDATE_NAME' ? normalizeHomeV2UpdateNameRequest(requestValue) : null;
+  const sellRequest = action === 'SELL_NAME' ? normalizeHomeV2SellNameRequest(requestValue) : null;
+  const cancelRequest = action === 'CANCEL_SELL_NAME' ? normalizeHomeV2CancelSellNameRequest(requestValue) : null;
+  const buyRequest = action === 'BUY_NAME' ? normalizeHomeV2BuyNameRequest(requestValue) : null;
+  const subjectName = registerRequest?.name ?? updateRequest?.name ?? sellRequest?.name ??
+    cancelRequest?.name ?? buyRequest!.name;
+  const readTarget = async () => selectHomeV2NameTarget(await fetchLocalNodeApiPayload(
+    nodeApiUrl,
+    `/names/${encodeURIComponent(subjectName)}`,
+    `The name "${subjectName}" does not exist.`,
+    CHAT_SIGNING_RESPONSE_MAX_BYTES,
+    '',
+  ));
+  const target = registerRequest ? null : await readTarget();
+  // The stored spelling is authoritative: Core resolves by REDUCED name, so a
+  // homoglyph or case variant must never be silently substituted.
+  if (target && target.name !== subjectName) {
+    throw new Error(`This chain stores that name as "${target.name}"; use that exact spelling.`);
+  }
+  // THE APPROVAL IS THE BASELINE, not this read. Comparing the vault's own
+  // two reads against each other would agree with anything that changed while
+  // the prompt was open — which for BUY_NAME means paying a price the user
+  // never saw.
+  if (target) {
+    if (!approvedTarget) throw new Error('The name action was not approved against any name state.');
+    if (
+      approvedTarget.name !== target.name ||
+      approvedTarget.owner !== target.owner ||
+      approvedTarget.isForSale !== target.isForSale ||
+      approvedTarget.salePriceAtomic !== (target.salePrice === null ? null : target.salePrice.atomic.toString()) ||
+      approvedTarget.saleRecipient !== target.saleRecipient
+    ) {
+      throw new Error(`The name "${subjectName}" changed after it was approved; nothing was signed.`);
+    }
+  }
+  if (target && (updateRequest || sellRequest || cancelRequest) && target.owner !== address) {
+    throw new Error(`The name "${subjectName}" is owned by ${target.owner}, not the selected account.`);
+  }
+  if (sellRequest && target?.isForSale) {
+    throw new Error(`The name "${subjectName}" is already for sale; cancel the current sale first.`);
+  }
+  if (cancelRequest && target && !target.isForSale) {
+    throw new Error(`The name "${subjectName}" is not for sale.`);
+  }
+  let buySeller: string | null = null;
+  let buyAmountAtomic = 0n;
+  let buyAmountDecimal = '';
+  if (buyRequest && target) {
+    if (!target.isForSale || target.salePrice === null) {
+      throw new Error(`The name "${subjectName}" is not for sale.`);
+    }
+    if (target.saleRecipient && target.saleRecipient !== address) {
+      throw new Error(`The sale of "${subjectName}" is restricted to ${target.saleRecipient}.`);
+    }
+    if (target.owner === address) {
+      throw new Error(`The selected account already owns "${subjectName}".`);
+    }
+    buySeller = buyRequest.seller ?? target.owner;
+    if (buySeller !== target.owner) {
+      throw new Error(`The seller of "${subjectName}" is ${target.owner}, not ${buySeller}.`);
+    }
+    if (buyRequest.amount && buyRequest.amount.atomic !== target.salePrice.atomic) {
+      throw new Error(`The sale price of "${subjectName}" is ${target.salePrice.decimal}, not ${buyRequest.amount.decimal}.`);
+    }
+    // Equal to the live values by the approval check above, but taken from the
+    // approved record deliberately: what gets signed is what was disclosed.
+    if (approvedTarget!.owner !== buySeller || approvedTarget!.salePriceAtomic !== target.salePrice.atomic.toString()) {
+      throw new Error(`The sale of "${subjectName}" changed after it was approved; nothing was signed.`);
+    }
+    buyAmountAtomic = BigInt(approvedTarget!.salePriceAtomic!);
+    buyAmountDecimal = target.salePrice.decimal;
+  }
+  const timestamp = Date.now();
+  const buildPath = registerRequest
+    ? '/names/public/register'
+    : updateRequest
+      ? '/names/public/update'
+      : sellRequest
+        ? '/names/public/sell'
+        : cancelRequest
+          ? '/names/public/sell/cancel'
+          : '/names/public/buy';
+  const common = { fee: 0, timestamp, txGroupId: 0 };
+  const buildBody = JSON.stringify(
+    registerRequest
+      ? { ...common, data: registerRequest.data, name: registerRequest.name, registrantPublicKey: signingKey.publicKey58 }
+      : updateRequest
+        ? {
+            ...common,
+            name: updateRequest.name,
+            newData: updateRequest.newData,
+            newName: updateRequest.newName,
+            ownerPublicKey: signingKey.publicKey58,
+            ...(updateRequest.primary === undefined ? {} : { primary: updateRequest.primary }),
+          }
+        : sellRequest
+          ? {
+              ...common,
+              amount: sellRequest.amount.decimal,
+              name: sellRequest.name,
+              ownerPublicKey: signingKey.publicKey58,
+              ...(sellRequest.recipient === undefined ? {} : { recipient: sellRequest.recipient }),
+            }
+          : cancelRequest
+            ? { ...common, name: cancelRequest.name, ownerPublicKey: signingKey.publicKey58 }
+            : {
+                ...common,
+                amount: buyAmountDecimal,
+                buyerPublicKey: signingKey.publicKey58,
+                name: subjectName,
+                seller: buySeller,
+              },
+  );
+  let unsignedText: string;
+  try {
+    const built = await postLocalNodeText(
+      nodeApiUrl,
+      buildPath,
+      buildBody,
+      '',
+      'Name transaction build failed.',
+      'application/json',
+      CHAT_SIGNING_RESPONSE_MAX_BYTES,
+      true,
+    );
+    unsignedText = built.body.trim();
+  } catch (error) {
+    if (homeV2GroupBuilderUnavailable(error)) {
+      throw new Error('The selected Qortium node does not expose the public name builders.');
+    }
+    throw error;
+  }
+  const unsignedBytes = base58Decode(unsignedText);
+  const expectedCommon = {
+    publicKey: base58Decode(signingKey.publicKey58),
+    timestamp,
+    txGroupId: 0,
+  };
+  if (registerRequest) {
+    assertPublicRegisterNameTransaction(unsignedBytes, {
+      ...expectedCommon,
+      data: registerRequest.data,
+      name: registerRequest.name,
+    });
+  } else if (updateRequest) {
+    assertPublicUpdateNameTransaction(unsignedBytes, {
+      ...expectedCommon,
+      name: updateRequest.name,
+      newData: updateRequest.newData,
+      newName: updateRequest.newName,
+      primary: updateRequest.primary,
+    });
+  } else if (sellRequest) {
+    assertPublicSellNameTransaction(unsignedBytes, {
+      ...expectedCommon,
+      amount: sellRequest.amount.atomic,
+      name: sellRequest.name,
+      recipient: sellRequest.recipient === undefined ? undefined : base58Decode(sellRequest.recipient),
+    });
+  } else if (cancelRequest) {
+    assertPublicCancelSellNameTransaction(unsignedBytes, {
+      ...expectedCommon,
+      name: cancelRequest.name,
+    });
+  } else {
+    assertPublicBuyNameTransaction(unsignedBytes, {
+      ...expectedCommon,
+      amount: buyAmountAtomic,
+      name: subjectName,
+      seller: base58Decode(buySeller!),
+    });
+  }
+  let difficulty: number;
+  try {
+    difficulty = parsePublicNameCapabilities(await fetchLocalNodeApiPayload(
+      nodeApiUrl,
+      '/names/public/capabilities',
+      'MemoryPoW capability lookup failed.',
+      CHAT_SIGNING_RESPONSE_MAX_BYTES,
+      '',
+    )).mempowFeeAlternativeDifficulty;
+  } catch (error) {
+    // As the poll path: relabel only what is actually a capability problem.
+    if (!homeV2GroupBuilderUnavailable(error) && !/capability/i.test(error instanceof Error ? error.message : '')) {
+      throw error;
+    }
+    throw new Error('The selected Qortium node does not advertise a compatible MemoryPoW name capability.');
+  }
+  const nonce = await computeChatNonce(unsignedBytes, difficulty, isStillValid);
+  if (!(await isStillValid())) throw new Error('The signing context changed before the name action could be submitted.');
+  // Re-read the live state the approval was granted against: an owner, sale
+  // flag, price or restriction that moved makes the approved action mean
+  // something the user never saw.
+  if (!registerRequest) {
+    const current = await readTarget();
+    if (
+      current.name !== approvedTarget!.name ||
+      current.owner !== approvedTarget!.owner ||
+      current.isForSale !== approvedTarget!.isForSale ||
+      (current.salePrice === null ? null : current.salePrice.atomic.toString()) !== approvedTarget!.salePriceAtomic ||
+      current.saleRecipient !== approvedTarget!.saleRecipient
+    ) {
+      throw new Error('The name state changed before the name action could be signed.');
+    }
+  }
+  if (!(await isStillValid())) throw new Error('The signing context changed before the name action could be submitted.');
+  const stampedBytes = stampTransactionNonce(unsignedBytes, nonce);
+  const signedBytes = new Uint8Array(stampedBytes.length + 64);
+  signedBytes.set(stampedBytes, 0);
+  signedBytes.set(nacl.sign.detached(stampedBytes, signingKey.secretKey), stampedBytes.length);
+  const signature = getSignatureFromSignedTransactionBytes(signedBytes);
+  const identity = registerRequest
+    ? { name: registerRequest.name }
+    : updateRequest
+      ? { name: updateRequest.name, newName: updateRequest.newName || null }
+      : sellRequest
+        ? { amount: sellRequest.amount.decimal, name: sellRequest.name, recipient: sellRequest.recipient ?? null }
+        : cancelRequest
+          ? { name: cancelRequest.name }
+          : { amount: buyAmountDecimal, name: subjectName, seller: buySeller };
+  try {
+    const processed = await postLocalNodeText(
+      nodeApiUrl,
+      '/transactions/process?apiVersion=2',
+      base58Encode(signedBytes),
+      '',
+      'Name transaction processing failed.',
+      'text/plain',
+      CHAT_SIGNING_RESPONSE_MAX_BYTES,
+      true,
+    );
+    let processResult: unknown = processed.body;
+    try { processResult = JSON.parse(processed.body); } catch { /* text answer stays text */ }
+    return Object.freeze({
+      accepted: true,
+      action,
+      ...identity,
+      network: 'qortium' as const,
+      result: processResult,
+      signature,
+      timestamp,
+      transactionSignature: signature,
+    });
+  } catch (error) {
     return Object.freeze({
       accepted: false,
       action,
@@ -15282,8 +15608,25 @@ export function createAndroidHomeV2VaultClient(): HomeV2VaultClient {
       try {
         return await signAndroidHomeV2QortiumPollWrite({
           action: request.action,
-          address: signingKey.address,
-          isStillValid: async () => (await (request.isStillValid ?? (() => true))()) === true,
+          address: request.approvedAddress,
+          approvedPoll: request.approvedPoll,
+          isStillValid: async () => (await request.isStillValid()) === true,
+          nodeApiUrl: request.nodeApiUrl,
+          requestValue: request.requestValue,
+          signingKey,
+        });
+      } finally {
+        signingKey.secretKey.fill(0);
+      }
+    },
+    async signNameWrite(request) {
+      const signingKey = await getAccountSecretKey(request.accountId);
+      try {
+        return await signAndroidHomeV2QortiumNameWrite({
+          action: request.action,
+          address: request.approvedAddress,
+          approvedTarget: request.approvedTarget,
+          isStillValid: async () => (await request.isStillValid()) === true,
           nodeApiUrl: request.nodeApiUrl,
           requestValue: request.requestValue,
           signingKey,

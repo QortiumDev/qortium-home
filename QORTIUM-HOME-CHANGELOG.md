@@ -34,6 +34,44 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-27 - feat(home-v2): polls and names work on Android
+
+Polls and names now work on your phone. Creating a poll, voting in one,
+editing one, registering a name, renaming it, offering it for sale,
+cancelling that sale, and buying someone else's name are all available on
+Android, where before every one of them was hidden from apps and refused if
+asked for directly.
+
+Nothing about them ever actually needed a desktop. Each is one fee-free
+transaction that Qortium's node builds without needing a key, that Home
+checks byte by byte against what you approved, that your device pays for with
+a little proof-of-work, and that Home then signs with your account key — a key
+that stays inside Home's own vault on Android exactly as it stays in the main
+process on the desktop. The phone runs the identical sequence.
+
+Buying a name is included on purpose, even though it is the one action here
+that moves money. A purchase you can make on your desktop but not on your
+phone is not a safer product, it is a half-working one. So the approval you
+see before a purchase is the same payment-grade disclosure the desktop shows:
+the exact price, who is paid, any restriction on who is allowed to buy, all
+read from the live sale rather than taken from the app's word for it. What you
+approved is what travels through to the signature: the price and seller in the
+signed transaction are the ones the screen showed you, and if the sale changes
+between your approval and the signature, Home refuses rather than signing
+something you did not see.
+
+Every one of these approval screens is checked against a fixed list of rows
+for its action before it can be shown, so an app cannot dress a purchase up as
+something harmless by leaving rows out or reordering them. And a request that
+tries to reach the node directly, without going through the approval, is now
+turned away with a message that says exactly that — rather than the old reply
+blaming your phone for a limitation it no longer has.
+
+One defect was found and fixed while porting: a state lookup added with the
+poll work was reading the node's response envelope instead of the record
+inside it, which would have made voting and poll edits fail on Android with a
+message that blamed the node. That unwrapping is now shared and tested.
+
 ### 2026-08-27 - feat(home-v2): QDN lists work on Android
 
 The first family to cross to Android under the new node-ownership rule. If

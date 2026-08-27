@@ -267,13 +267,7 @@ export function homeV2WidgetWithholdsSelfSubject(action: string) {
  */
 const ANDROID_UNSUPPORTED_ACTIONS = new Set<string>([
   'SEND_MESSAGE',
-  // The name writes sign too (and BUY_NAME pays); same reason.
-  'BUY_NAME',
-  'CANCEL_SELL_NAME',
-  'REGISTER_NAME',
-  'SELL_NAME',
-  'UPDATE_NAME',
-  // And the group mutations.
+  // The group mutations.
   'CREATE_GROUP',
   'GROUP_APPROVAL',
   'SET_GROUP',
