@@ -71,6 +71,15 @@ export type PermissionCapability =
   // one fee-free transaction per approval. Never durable, never reachable
   // through any read grant: single-request prompt only.
   | 'group.mutation'
+  // A bounded batch of QDN publishes (PUBLISH_MULTIPLE_QDN_RESOURCES): up to
+  // ten signed transactions per approval, every one disclosed with its own
+  // coordinate, file, size and content hash. Never durable, never reachable
+  // through 'qdn.publish' or any read grant: single-request prompt only.
+  | 'qdn.publish.multiple'
+  // The on-chain QDN deletion tombstone (DELETE_QDN_RESOURCE). Signs one
+  // fee-free transaction that marks the resource DELETED for every peer —
+  // not a local-copy removal. Never durable: single-request prompt only.
+  | 'qdn.delete'
   // Signing one zero-fee, zero-payment chain MESSAGE to an AT (SEND_MESSAGE).
   // Deliberately NOT 'account.read' and not any 'chat.*' capability: durable
   // grants unify on the capability string, so a signing action must never be
@@ -108,6 +117,8 @@ export interface PermissionPrompt {
     | 'KICK_FROM_GROUP'
     | 'UNLOCK_SELECTED_ACCOUNT'
     | 'PUBLISH_QDN_RESOURCE'
+    | 'PUBLISH_MULTIPLE_QDN_RESOURCES'
+    | 'DELETE_QDN_RESOURCE'
     | 'PUBLISH_CHAT_ATTACHMENT'
     | 'GET_CHAT_ATTACHMENT_STREAM_URL'
     | 'OPEN_CHAT_ATTACHMENT_VIEWER'

@@ -168,6 +168,8 @@ const QDN_ACTIONS = [
   'SEND_PRIVATE_GROUP_CHAT_MESSAGE',
   'SEND_PRIVATE_GROUP_CHAT_REACTION',
   'PUBLISH_QDN_RESOURCE',
+  'PUBLISH_MULTIPLE_QDN_RESOURCES',
+  'DELETE_QDN_RESOURCE',
   'PUBLISH_CHAT_ATTACHMENT',
   'SELL_NAME',
   'SET_GROUP',
@@ -270,6 +272,11 @@ const QORTAL_ACTIONS = [
   'SEND_PRIVATE_GROUP_CHAT_MESSAGE',
   'SEND_PRIVATE_GROUP_CHAT_REACTION',
   'PUBLISH_QDN_RESOURCE',
+  // Multi-publish loops the same dual-chain single-publish primitive, so it
+  // is advertised wherever its single sibling is. DELETE_QDN_RESOURCE is NOT
+  // here: Qortal has no keyless delete builder, and advertising it would
+  // make SHOW_ACTIONS lie.
+  'PUBLISH_MULTIPLE_QDN_RESOURCES',
   'PUBLISH_CHAT_ATTACHMENT',
   // Unlocking is a HOME-account operation, not a chain one: the same wallet,
   // the same password dialog, the same key, whichever protocol asked. It was
@@ -1784,6 +1791,32 @@ export function homeV2NameOperationLabel(action: HomeV2NameWriteAction) {
   if (action === 'SELL_NAME') return 'Offer a name for sale'
   if (action === 'CANCEL_SELL_NAME') return 'Cancel a name sale'
   return 'Buy a name'
+}
+
+// The restored publishing extras. PUBLISH_MULTIPLE_QDN_RESOURCES loops the
+// Home 2 single-publish contract over a bounded batch with full per-item
+// prompt disclosure; DELETE_QDN_RESOURCE publishes the on-chain deletion
+// tombstone (Qortium only — the keyless delete builder is a Qortium Core
+// addition, so it is not advertised on qortalRequest at all).
+export const HOME_V2_PUBLISH_EXTRA_ACTIONS = Object.freeze([
+  'DELETE_QDN_RESOURCE',
+  'PUBLISH_MULTIPLE_QDN_RESOURCES',
+] as const)
+
+export type HomeV2PublishExtraAction = (typeof HOME_V2_PUBLISH_EXTRA_ACTIONS)[number]
+
+const PUBLISH_EXTRA_ACTIONS = new Set<string>(HOME_V2_PUBLISH_EXTRA_ACTIONS)
+
+export function isHomeV2PublishExtraAction(action: string): action is HomeV2PublishExtraAction {
+  return PUBLISH_EXTRA_ACTIONS.has(action)
+}
+
+// Shared between the bridge (which stamps it on the prompt) and the shell
+// (which refuses a prompt whose label does not match its action).
+export function homeV2PublishExtraOperationLabel(action: HomeV2PublishExtraAction) {
+  return action === 'PUBLISH_MULTIPLE_QDN_RESOURCES'
+    ? 'Publish multiple QDN resources'
+    : 'Delete a QDN resource on-chain'
 }
 
 export type HomeV2CoinAmount = {

@@ -141,6 +141,7 @@ import {
   normalizeHomeV2ReadPath,
   normalizeHomeV2ResponseMaxBytes,
   withHomeV2SelectedAddress,
+  homeV2PublishExtraOperationLabel,
   type HomeV2AppBridgeProtocol,
   type HomeV2AppNetwork,
 } from './home-v2-app-actions.js'
@@ -303,7 +304,16 @@ import {
   normalizeHomeV2PublicPublishRequest,
   sha256Hex,
 } from './home-v2-public-publish-contract.js'
-import { publishHomeV2EncryptedResource, publishHomeV2PublicResource } from './home-v2-public-publish.js'
+import {
+  deleteHomeV2QortiumResource,
+  getHomeV2QortalArbitraryUnitFee,
+  publishHomeV2EncryptedResource,
+  publishHomeV2PublicResource,
+} from './home-v2-public-publish.js'
+import {
+  normalizeHomeV2PublishMultipleRequest,
+  normalizeHomeV2QdnDeleteRequest,
+} from './home-v2-publish-extras-contract.js'
 import type { HomeV2PublishSourceBinding } from './home-v2-publish-source-tokens.js'
 import {
   appendHomeV2GroupMembershipSignature,
@@ -531,6 +541,8 @@ type AccountReadAction =
   | HomeV2GroupAdminAction
   | HomeV2PrivateAttachmentAction
   | 'PUBLISH_QDN_RESOURCE'
+  | 'PUBLISH_MULTIPLE_QDN_RESOURCES'
+  | 'DELETE_QDN_RESOURCE'
   | 'GET_PENDING_TRANSACTIONS'
   | 'FORGET_PENDING_TRANSACTION'
   | 'UNLOCK_SELECTED_ACCOUNT'
@@ -1333,6 +1345,26 @@ async function requireAccountReadPermission(
     // 'default-group:<id>'.
     readonly target: string
     readonly targetChainLabel: string
+  } | {
+    readonly kind: 'publish-multiple'
+    // The numbered per-item rows (Items, then Resource/File/Size/SHA-256 —
+    // and Fee plus a Total fee row on Qortal — for every item), escaped and
+    // re-validated in the shell. Never a bare count: the 1.x prompt showed
+    // only "N resources" and hid every target.
+    readonly publishMultipleDetails: readonly { readonly label: string; readonly value: string }[]
+    readonly operationLabel: string
+    readonly routeLabel: string
+    // 'publish-multiple:<sha256 of the ordered coordinate list>'.
+    readonly target: string
+    readonly targetChainLabel: string
+  } | {
+    readonly kind: 'qdn-delete'
+    readonly operationLabel: string
+    // '<service>/<name>/<identifier or default>' — the shell renders it with
+    // its own fixed tombstone explanation copy.
+    readonly resourceCoordinate: string
+    readonly routeLabel: string
+    readonly targetChainLabel: string
   },
 ) {
   if (!context.accountId) throw new Error('No account is selected for this tab.')
@@ -1374,6 +1406,10 @@ async function requireAccountReadPermission(
           ? writeDetails.target
         : writeDetails?.kind === 'group-mutation'
           ? writeDetails.target
+        : writeDetails?.kind === 'publish-multiple'
+          ? writeDetails.target
+        : writeDetails?.kind === 'qdn-delete'
+          ? `qdn-delete:${writeDetails.resourceCoordinate}`
         : ''
   const grantKey = homeV2PermissionGrantKey({
     accountId: context.accountId,
@@ -1408,6 +1444,10 @@ async function requireAccountReadPermission(
     writeDetails?.kind === 'name' ||
     // Group mutations sign chain transactions. Never a session/durable grant.
     writeDetails?.kind === 'group-mutation' ||
+    // A publish batch signs up to ten transactions and a deletion signs the
+    // permanent on-chain tombstone. Never a session or durable grant.
+    writeDetails?.kind === 'publish-multiple' ||
+    writeDetails?.kind === 'qdn-delete' ||
     (writeDetails?.kind === 'group' || writeDetails?.kind === 'direct' || writeDetails?.kind === 'private-group') &&
     writeDetails.singleRequestOnly === true
   // A durable per-app chat-send grant ("always allow", revocable in QDN Apps
@@ -1608,6 +1648,24 @@ async function requireAccountReadPermission(
             ? {
                 groupMutationDetails: writeDetails.groupMutationDetails.map((detail) => ({ ...detail })),
                 writeKind: 'group-mutation',
+                writeOperationLabel: writeDetails.operationLabel,
+                writeRouteLabel: writeDetails.routeLabel,
+                writeSingleRequestOnly: true,
+                writeTargetChainLabel: writeDetails.targetChainLabel,
+              }
+          : writeDetails?.kind === 'publish-multiple'
+            ? {
+                publishMultipleDetails: writeDetails.publishMultipleDetails.map((detail) => ({ ...detail })),
+                writeKind: 'publish-multiple',
+                writeOperationLabel: writeDetails.operationLabel,
+                writeRouteLabel: writeDetails.routeLabel,
+                writeSingleRequestOnly: true,
+                writeTargetChainLabel: writeDetails.targetChainLabel,
+              }
+          : writeDetails?.kind === 'qdn-delete'
+            ? {
+                deleteResourceCoordinate: writeDetails.resourceCoordinate,
+                writeKind: 'qdn-delete',
                 writeOperationLabel: writeDetails.operationLabel,
                 writeRouteLabel: writeDetails.routeLabel,
                 writeSingleRequestOnly: true,
@@ -1874,6 +1932,265 @@ async function publishHomeV2PublicPublishSource(
     homeV2DesktopPublishSources.release(request.sourceToken)
   }
   return result
+}
+
+function homeV2AtomicDecimal(atomic: bigint) {
+  return `${atomic / 100_000_000n}.${(atomic % 100_000_000n).toString().padStart(8, '0')}`
+}
+
+async function publishHomeV2MultiplePublishSources(
+  sender: WebContents,
+  context: QdnViewContext,
+  protocol: HomeV2AppBridgeProtocol,
+  network: HomeV2AppNetwork,
+  routeRevision: string,
+  requestValue: Record<string, unknown>,
+) {
+  if (!context.accountId) throw new Error('No account is selected for this tab.')
+  if (!isAccountUnlocked(context.accountId)) throw createHomeV2BridgeError('The selected account is locked.', {
+    action: 'PUBLISH_MULTIPLE_QDN_RESOURCES',
+    code: 'ACCOUNT_LOCKED',
+    network,
+    retryable: false,
+    routeRevision,
+  })
+  const accountId = context.accountId
+  const request = normalizeHomeV2PublishMultipleRequest(network, requestValue)
+  const node = await getHomeV2ReadableNode(network)
+  const nodeRoute = `${node.mode}|${node.nodeApiUrl}`
+  const chainLabel = network === 'qortal' ? 'Qortal' : 'Qortium'
+  const binding = homeV2PublishSourceBinding({
+    context,
+    network,
+    nodeApiUrl: node.nodeApiUrl,
+    protocol,
+    routeRevision,
+  })
+  // Resolve, reopen and hash EVERY selected source before the prompt, so the
+  // rows describe the exact bytes each transaction will attest — the token
+  // store's device/inode/size recheck makes a swapped file refuse here.
+  const items = [] as {
+    readonly contentHash: string
+    readonly item: (typeof request.items)[number]
+    readonly source: ReturnType<typeof homeV2DesktopPublishSources.resolve>
+    readonly sourceBytes: Uint8Array
+  }[]
+  for (const item of request.items) {
+    const source = homeV2DesktopPublishSources.resolve(item.sourceToken, binding)
+    const sourceBytes = await readHomeV2DesktopPublishSource(source)
+    items.push({ contentHash: await sha256Hex(sourceBytes), item, source, sourceBytes })
+  }
+  const profile = await getAccountProfile(accountId)
+  // Every DISTINCT publisher name must be owned by the selected account —
+  // checked before the prompt and again per item at signing time. (1.x read
+  // only the first item's context and never checked ownership per target.)
+  const assertNameOwned = async (name: string, label: string) => {
+    const nameValue = await readHomeV2ChatJson(
+      node.nodeApiUrl,
+      `/names/${encodeURIComponent(name)}`,
+      `${chainLabel} publisher-name ${label}`,
+    )
+    if (stringField(nameValue, 'owner') !== profile.address) {
+      throw new Error(`The selected account does not currently own the publisher name ${name} on this chain.`)
+    }
+  }
+  const distinctNames = [...new Set(items.map((entry) => entry.item.resource.name))]
+  for (const name of distinctNames) await assertNameOwned(name, 'lookup')
+  // On Qortal every item pays the chain's ARBITRARY unit fee. It is read
+  // once here so the prompt can disclose each fee and the batch total, and
+  // publishQortal refuses if the chain answers a different fee at signing.
+  const feeAtomic = network === 'qortal' ? await getHomeV2QortalArbitraryUnitFee(node.nodeApiUrl) : 0n
+  const coordinateOf = (entry: (typeof items)[number]) =>
+    `${entry.item.resource.service}/${entry.item.resource.name}/${entry.item.resource.identifier ?? 'default'}`
+  const rows: { label: string; value: string }[] = [{ label: 'Items', value: String(items.length) }]
+  items.forEach((entry, index) => {
+    const position = index + 1
+    rows.push({ label: `Resource ${position}`, value: homeV2PollApprovalText(coordinateOf(entry), 'The resource coordinate') })
+    rows.push({ label: `File ${position}`, value: homeV2PollApprovalText(entry.source.fileName, 'The file name') })
+    rows.push({ label: `Size ${position}`, value: `${entry.sourceBytes.byteLength} bytes` })
+    rows.push({ label: `SHA-256 ${position}`, value: entry.contentHash })
+    if (network === 'qortal') rows.push({ label: `Fee ${position}`, value: `${homeV2AtomicDecimal(feeAtomic)} coins` })
+  })
+  if (network === 'qortal') {
+    rows.push({ label: 'Total fee', value: `${homeV2AtomicDecimal(feeAtomic * BigInt(items.length))} coins` })
+  }
+  const target = `publish-multiple:${await sha256Hex(new TextEncoder().encode(items.map(coordinateOf).join('\n')))}`
+  await requireAccountReadPermission(sender, context, protocol, 'PUBLISH_MULTIPLE_QDN_RESOURCES', {
+    kind: 'publish-multiple',
+    operationLabel: homeV2PublishExtraOperationLabel('PUBLISH_MULTIPLE_QDN_RESOURCES'),
+    publishMultipleDetails: rows,
+    routeLabel: `${node.mode} \u00b7 ${node.nodeApiUrl}`,
+    target,
+    targetChainLabel: chainLabel,
+  })
+  const isStillValid = async () => {
+    const fresh = getQdnViewContextForWebContents(sender)
+    if (!fresh || !sameViewContext(context, fresh) || !liveResourceMatchesGrant(fresh) || !isAccountUnlocked(accountId)) return false
+    const current = await getHomeV2ReadableNode(network).catch(() => null)
+    return !!current && `${current.mode}|${current.nodeApiUrl}` === nodeRoute
+  }
+  if (!(await isStillValid())) throw new Error('The app, account, or node route changed before batch publishing.')
+  for (const name of distinctNames) await assertNameOwned(name, 'recheck')
+  if (!(await isStillValid())) throw new Error('The app, account, or node route changed after approval.')
+  const published: unknown[] = []
+  const failures: unknown[] = []
+  for (const entry of items) {
+    const resource = Object.freeze({
+      identifier: entry.item.resource.identifier ?? null,
+      name: entry.item.resource.name,
+      service: entry.item.resource.service,
+    })
+    try {
+      if (!(await isStillValid())) throw new Error('The app, account, or node route changed during batch publishing.')
+      const result = await publishHomeV2PublicResource({
+        accountId,
+        ...(network === 'qortal' ? { expectedFeeAtomic: feeAtomic } : {}),
+        fileName: entry.source.fileName,
+        isStillValid,
+        network,
+        nodeApiUrl: node.nodeApiUrl,
+        resource: entry.item.resource,
+        sourceBytes: entry.sourceBytes,
+        validateTarget: () => assertNameOwned(entry.item.resource.name, 'signing recheck'),
+      })
+      if (result.accepted) {
+        published.push(Object.freeze({ ...result, resource }))
+        homeV2DesktopPublishSources.release(entry.item.sourceToken)
+        continue
+      }
+      // Signed but the broadcast outcome is unknown: retain the ITEM in the
+      // journal as the PUBLISH_QDN_RESOURCE transaction it is, keyed on its
+      // own coordinate, and surface it as a failure carrying the signature.
+      try {
+        const journalEntry = createHomeV2PendingTransactionFromResult({
+          accountId,
+          action: 'PUBLISH_QDN_RESOURCE',
+          appIdentity: homeV2AppIdentityKey(context),
+          protocol,
+          request: { identifier: resource.identifier ?? undefined, name: resource.name, service: resource.service },
+          result,
+        })
+        if (journalEntry) recordHomeV2PendingTransaction(app.getPath('userData'), journalEntry)
+      } catch (journalError) {
+        console.warn('[home-v2-app] Unable to retain an ambiguous batch publish item:', journalError)
+      }
+      failures.push(Object.freeze({
+        error: result.error ?? 'Publish broadcast outcome is unknown.',
+        errorType: result.errorType,
+        outcome: result.outcome,
+        resource,
+        transactionSignature: result.transactionSignature,
+      }))
+      homeV2DesktopPublishSources.release(entry.item.sourceToken)
+    } catch (error) {
+      failures.push(Object.freeze({
+        error: error instanceof Error ? error.message : 'QDN publish failed.',
+        resource,
+      }))
+    }
+  }
+  return Object.freeze({
+    accepted: true,
+    action: 'PUBLISH_MULTIPLE_QDN_RESOURCES',
+    failures: Object.freeze(failures),
+    network,
+    published: Object.freeze(published),
+  })
+}
+
+async function deleteHomeV2QdnResourceForApp(
+  sender: WebContents,
+  context: QdnViewContext,
+  protocol: HomeV2AppBridgeProtocol,
+  network: HomeV2AppNetwork,
+  routeRevision: string,
+  requestValue: Record<string, unknown>,
+) {
+  if (network !== 'qortium') {
+    throw createHomeV2BridgeError('DELETE_QDN_RESOURCE is available on the Qortium chain only.', {
+      action: 'DELETE_QDN_RESOURCE',
+      code: 'NODE_CAPABILITY_MISSING',
+      network,
+      retryable: false,
+      routeRevision,
+    })
+  }
+  if (!context.accountId) throw new Error('No account is selected for this tab.')
+  if (!isAccountUnlocked(context.accountId)) throw createHomeV2BridgeError('The selected account is locked.', {
+    action: 'DELETE_QDN_RESOURCE',
+    code: 'ACCOUNT_LOCKED',
+    network,
+    retryable: false,
+    routeRevision,
+  })
+  const accountId = context.accountId
+  const request = normalizeHomeV2QdnDeleteRequest(requestValue)
+  const node = await getHomeV2ReadableNode(network)
+  const nodeRoute = `${node.mode}|${node.nodeApiUrl}`
+  const profile = await getAccountProfile(accountId)
+  const assertNameOwned = async (label: string) => {
+    const nameValue = await readHomeV2ChatJson(
+      node.nodeApiUrl,
+      `/names/${encodeURIComponent(request.name)}`,
+      `Qortium publisher-name ${label}`,
+    )
+    if (stringField(nameValue, 'owner') !== profile.address) {
+      throw new Error(`The selected account does not currently own the publisher name ${request.name}.`)
+    }
+  }
+  await assertNameOwned('lookup')
+  const coordinate = `${request.service}/${request.name}/${request.identifier ?? 'default'}`
+  await requireAccountReadPermission(sender, context, protocol, 'DELETE_QDN_RESOURCE', {
+    kind: 'qdn-delete',
+    operationLabel: homeV2PublishExtraOperationLabel('DELETE_QDN_RESOURCE'),
+    resourceCoordinate: coordinate,
+    routeLabel: `${node.mode} \u00b7 ${node.nodeApiUrl}`,
+    targetChainLabel: 'Qortium',
+  })
+  const isStillValid = async () => {
+    const fresh = getQdnViewContextForWebContents(sender)
+    if (!fresh || !sameViewContext(context, fresh) || !liveResourceMatchesGrant(fresh) || !isAccountUnlocked(accountId)) return false
+    const current = await getHomeV2ReadableNode(network).catch(() => null)
+    return !!current && `${current.mode}|${current.nodeApiUrl}` === nodeRoute
+  }
+  if (!(await isStillValid())) throw new Error('The app, account, or node route changed before the deletion was staged.')
+  await assertNameOwned('recheck')
+  const outcome = await deleteHomeV2QortiumResource({
+    accountId,
+    isStillValid,
+    nodeApiUrl: node.nodeApiUrl,
+    resource: { name: request.name, identifier: request.identifier ?? undefined, service: request.service, tags: [] },
+    validateTarget: () => assertNameOwned('signing recheck'),
+  })
+  const resource = Object.freeze({
+    identifier: request.identifier,
+    name: request.name,
+    service: request.service,
+  })
+  if (outcome.accepted) {
+    return Object.freeze({
+      accepted: true,
+      action: 'DELETE_QDN_RESOURCE',
+      network,
+      resource,
+      transactionSignature: outcome.transactionSignature,
+    })
+  }
+  // Broadcast outcome unknown: the dispatcher records the journal entry from
+  // these fields (outcome/transactionSignature/timestamp) under the delete's
+  // own resource-coordinate key.
+  return Object.freeze({
+    accepted: false,
+    action: 'DELETE_QDN_RESOURCE',
+    error: outcome.error,
+    errorType: outcome.errorType,
+    network,
+    outcome: outcome.outcome,
+    resource,
+    retryable: false,
+    timestamp: outcome.timestamp,
+    transactionSignature: outcome.transactionSignature,
+  })
 }
 
 function wipeQortalPrivateGroupKeyRing(keyRing: QortalPrivateGroupKeyRing) {
@@ -7822,6 +8139,26 @@ async function handleRequestWithRuntime(
   }
   if (action === 'PUBLISH_QDN_RESOURCE') {
     return publishHomeV2PublicPublishSource(
+      sender,
+      context,
+      protocol,
+      network,
+      hostInfo.route.revision,
+      requestValue,
+    )
+  }
+  if (action === 'PUBLISH_MULTIPLE_QDN_RESOURCES') {
+    return publishHomeV2MultiplePublishSources(
+      sender,
+      context,
+      protocol,
+      network,
+      hostInfo.route.revision,
+      requestValue,
+    )
+  }
+  if (action === 'DELETE_QDN_RESOURCE') {
+    return deleteHomeV2QdnResourceForApp(
       sender,
       context,
       protocol,

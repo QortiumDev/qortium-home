@@ -31,6 +31,10 @@ const RESPONSE_MAX_BYTES = 2 * 1024 * 1024
 
 type PublishInput = {
   readonly accountId: string
+  // When set (the multi-publish prompt disclosed a Qortal fee), the fee the
+  // chain answers at signing time must equal this exact atomic amount — a fee
+  // that moved after approval refuses rather than signing an undisclosed one.
+  readonly expectedFeeAtomic?: bigint
   readonly fileName: string
   readonly isStillValid: () => boolean | Promise<boolean>
   readonly network: HomeV2PublicPublishNetwork
@@ -228,6 +232,9 @@ async function publishQortal(input: PublishInput, signingKey: ReturnType<typeof 
     getText(input.nodeApiUrl, `/addresses/lastreference/${encodeURIComponent(signingKey.address)}`, 'Qortal publish reference lookup'),
   ])
   const fee = atomicFee(feeText)
+  if (input.expectedFeeAtomic !== undefined && fee !== input.expectedFeeAtomic) {
+    throw new Error('The Qortal ARBITRARY fee changed after it was approved.')
+  }
   const reference = base58Decode(referenceText)
   if (reference.byteLength !== 64 || base58Encode(reference) !== referenceText) {
     throw new Error('Qortal publish reference is invalid.')
@@ -325,6 +332,99 @@ export async function publishHomeV2EncryptedResource(input: Omit<PublishInput, '
   readonly serviceId: 121 | 400
 }) {
   return publishHomeV2ResourceBytes(input)
+}
+
+// The Qortal ARBITRARY unit fee, read once BEFORE the multi-publish prompt so
+// each item's fee and the batch total can be disclosed; publishQortal then
+// refuses if the chain answers a different fee at signing time.
+export async function getHomeV2QortalArbitraryUnitFee(nodeApiUrl: string): Promise<bigint> {
+  const feeText = await getText(
+    nodeApiUrl,
+    `/transactions/unitfee?txType=ARBITRARY&timestamp=${Date.now()}`,
+    'Qortal publish fee lookup',
+  )
+  return atomicFee(feeText)
+}
+
+export type HomeV2DeletedResourceOutcome = Readonly<{
+  accepted: boolean
+  error?: string
+  errorType?: 'BROADCAST_UNKNOWN'
+  outcome?: 'unknown'
+  retryable?: false
+  timestamp: number
+  transactionSignature: string
+}>
+
+/**
+ * Signs and broadcasts the on-chain QDN deletion TOMBSTONE for one resource —
+ * an ARBITRARY transaction with method DELETE (2), zero data, no secret, no
+ * metadata and no payments. Qortium only: the keyless
+ * `/arbitrary/public/resource/.../delete` builder is a Qortium Core addition.
+ * This is NOT Core's HTTP DELETE endpoint, which merely unhosts local bytes.
+ */
+export async function deleteHomeV2QortiumResource(input: {
+  readonly accountId: string
+  readonly isStillValid: () => boolean | Promise<boolean>
+  readonly nodeApiUrl: string
+  readonly resource: QdnWriteResourceRequest
+  readonly validateTarget?: () => void | Promise<void>
+}): Promise<HomeV2DeletedResourceOutcome> {
+  const signingKey = getAccountSecretKey(input.accountId)
+  try {
+    const started = Date.now()
+    const unsignedBase58 = await postText(
+      input.nodeApiUrl,
+      `/arbitrary/public/resource${resourcePath(input.resource)}/delete`,
+      '',
+      'Qortium QDN delete staging',
+    )
+    if (!(await input.isStillValid())) throw new Error('The app, account, or node route changed before QDN delete verification.')
+    const unsignedBytes = base58Decode(unsignedBase58)
+    // assertPublicArbitraryTransaction enforces the exact tombstone form for
+    // method 2: zero secret, no compression, raw data type, zero data length,
+    // zero raw size and no metadata hash — plus the pinned coordinate, key,
+    // group and zero fee shared with publishing.
+    assertPublicArbitraryTransaction(unsignedBytes, {
+      identifier: input.resource.identifier && input.resource.identifier !== 'default' ? input.resource.identifier : undefined,
+      method: 2,
+      name: input.resource.name,
+      publicKey: base58Decode(signingKey.publicKey58),
+      service: getStaticQdnServiceId(input.resource.service),
+      txGroupId: 0,
+    })
+    const signingBytes = arbitraryRawToSigningBytes(unsignedBytes)
+    const nonce = await computeHomeV2ChatNonce(signingBytes, ARBITRARY_POW_DIFFICULTY, input.isStillValid)
+    if (!(await input.isStillValid())) throw new Error('The app, account, or node route changed before QDN delete signing.')
+    await input.validateTarget?.()
+    if (!(await input.isStillValid())) throw new Error('The app, account, or node route changed before QDN delete signing.')
+    const rawWithNonce = stampTransactionNonce(unsignedBytes, nonce)
+    const signingWithNonce = stampTransactionNonce(signingBytes, nonce)
+    const signatureBytes = nacl.sign.detached(signingWithNonce, signingKey.secretKey)
+    const signedBytes = appendSignatureToTransactionBytes(rawWithNonce, signatureBytes)
+    const transactionSignature = getSignatureFromSignedTransactionBytes(signedBytes)
+    try {
+      await postText(
+        input.nodeApiUrl,
+        '/transactions/process?apiVersion=2',
+        base58Encode(signedBytes),
+        'Qortium QDN delete broadcast',
+      )
+      return Object.freeze({ accepted: true, timestamp: started, transactionSignature })
+    } catch (error) {
+      return Object.freeze({
+        accepted: false,
+        error: error instanceof Error ? error.message : 'QDN delete broadcast outcome is unknown.',
+        errorType: 'BROADCAST_UNKNOWN' as const,
+        outcome: 'unknown' as const,
+        retryable: false as const,
+        timestamp: started,
+        transactionSignature,
+      })
+    }
+  } finally {
+    signingKey.secretKey.fill(0)
+  }
 }
 
 export async function publishHomeV2PublicResource(input: Omit<PublishInput, 'serviceId'>) {
