@@ -1091,12 +1091,22 @@ Group names are 3–32 UTF-8 bytes in Core's normalized form (approximated
 locally, Core authoritative), descriptions are required at 1–128 bytes
 (1.x defaulted to empty and let Core reject), thresholds are the seven enum
 names, and delays are validated locally (`max ≥ 1`, `max ≥ min`). 1.x
-aliases and payload nesting are preserved. `fee` and `txGroupId`, when
-present, must be 0 — and one valid group class is unsupported by design:
-a group **created inside a transaction group** cannot be updated or have
-its avatar changed through Home, because its update must carry the original
-creation group and Core keeps `creationGroupId` unexposed (`@XmlTransient`);
-such an attempt surfaces Core's rejection through the unknown-outcome path.
+aliases and payload nesting are preserved with one exception: 1.x accepted
+`txGroupId` as a fallback TARGET group id for updates and avatars, which
+conflated the target with the approval-group field — Home 2 takes the
+target from `groupId` only. `fee` and `txGroupId`, when present, must be 0 —
+and two valid group classes are unsupported by design: a group **created
+inside a transaction group** cannot be updated or have its avatar changed
+through Home, because its update must carry the original creation group and
+Core keeps `creationGroupId` unexposed (`@XmlTransient`), so such an attempt
+surfaces Core's rejection through the unknown-outcome path; and null-owned
+governance groups are refused by the owner-equality check (Core's
+usable-admin governance path for them is deliberately out of this slice).
+One residual is inherent to live-state merging and therefore DISPLAYED
+rather than solved: the current values an update inherits come from the
+configured node, so a lying node can steer what the omitted fields resolve
+to — but every resolved value is shown on the prompt and byte-bound into
+what is signed, so nothing is ever signed that the user did not see.
 On Android all five are filtered out of `SHOW_ACTIONS` (no signing path)
 with `UNSUPPORTED_PROTOCOL` kept for `qortalRequest`; Hub's `qortalRequest`
 group forms stay deferred.

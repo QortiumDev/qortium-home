@@ -7361,6 +7361,10 @@ async function handleHomeV2GroupMutationAction(
 
   // SET_GROUP: membership + current default (changed:false when already set).
   if (setGroupRequest && meta) {
+    // Fail CLOSED: a default group the account is not a member of would be
+    // rejected by Core only AFTER signing, journaling a phantom unknown
+    // outcome — so an unanswerable membership lookup refuses up front rather
+    // than proceeding to a prompt.
     const membershipText = await postHomeV2ChatText(
       node.nodeApiUrl,
       `/groups/members/${encodeURIComponent(String(setGroupRequest.defaultGroupId))}/validate`,
@@ -7368,11 +7372,14 @@ async function handleHomeV2GroupMutationAction(
       'application/json',
       'Membership lookup failed.',
       '',
-    ).catch(() => null)
-    const membership = membershipText === null
-      ? null
-      : (() => { try { return JSON.parse(membershipText) as unknown } catch { return null } })()
-    if (membership !== null && !selectHomeV2GroupMembership(membership, profile.address)) {
+    )
+    let membership: unknown
+    try {
+      membership = JSON.parse(membershipText)
+    } catch {
+      throw new Error('The membership lookup answered with an unrecognized shape.')
+    }
+    if (!selectHomeV2GroupMembership(membership, profile.address)) {
       throw new Error(`The selected account is not a member of group ${setGroupRequest.defaultGroupId} ("${meta.groupName}").`)
     }
     const account = await readHomeV2ChatJson(
@@ -7548,7 +7555,12 @@ async function handleHomeV2GroupMutationAction(
         ),
         approvalRequest.pendingSignature,
       )
-      if (current.approvalStatus !== 'PENDING' || current.txGroupId !== pending.txGroupId) {
+      if (
+        current.approvalStatus !== 'PENDING' ||
+        current.txGroupId !== pending.txGroupId ||
+        current.type !== pending.type ||
+        current.creatorAddress !== pending.creatorAddress
+      ) {
         throw new Error('The pending transaction changed before the vote could be signed.')
       }
     }
@@ -7596,7 +7608,21 @@ async function handleHomeV2GroupMutationAction(
     if (!(await isStillValid())) throw new Error('The signing context changed before the group action could be submitted.')
     await validateMutationTarget()
     if (!(await isStillValid())) throw new Error('The signing context changed before the group action could be submitted.')
-    const signedBytes = signTransactionWithNonce(unsignedBytes, nonce, signingKey.secretKey)
+    // Stamp, verify the STAMPED bytes with the exact nonce, then detached-
+    // sign exactly those bytes — the admin family's sequence (security
+    // review 2026-08-26: signing must never touch bytes that were not
+    // themselves verified).
+    const stampedBytes = stampTransactionNonce(unsignedBytes, nonce)
+    assertUnsignedHomeV2GroupMutationTransaction(stampedBytes, {
+      nonce,
+      payload,
+      senderPublicKey: signingKey.publicKey58,
+      timestamp,
+    })
+    const signedBytes = appendHomeV2GroupAdminSignature(
+      stampedBytes,
+      signDetached(stampedBytes, signingKey.secretKey),
+    )
     const signature = getSignatureFromSignedTransactionBytes(signedBytes)
     const identity = createRequest
       ? { groupName: createRequest.groupName }

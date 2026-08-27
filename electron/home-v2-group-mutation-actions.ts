@@ -417,9 +417,58 @@ export function assertUnsignedHomeV2GroupMutationTransaction(
   if (!Number.isInteger(expectedNonce) || expectedNonce < 0 || expectedNonce > 0xffff_ffff || actualNonce !== expectedNonce) {
     throw new Error(`${label} changed the MemoryPoW nonce.`)
   }
-  const expectedBody = mutationBody(expected.payload)
-  if (!equalBytes(reader.exact(expectedBody.byteLength, 'Transaction body'), expectedBody)) {
-    throw new Error(`${label} changed the approved transaction fields.`)
+  // INDEPENDENT field-by-field reading — deliberately NOT a comparison
+  // against mutationBody()'s re-serialization, which would let one shared
+  // builder/verifier bug pass both sides (security review 2026-08-26).
+  const payload = expected.payload
+  const fail = (field: string) => new Error(`${label} changed the approved ${field}.`)
+  const readBoolean = (field: string) => {
+    const value = reader.exact(1, field)[0]
+    if (value !== 0 && value !== 1) throw new Error(`${label} carried an invalid ${field} byte.`)
+    return value === 1
+  }
+  if (payload.action === 'CREATE_GROUP' || payload.action === 'UPDATE_GROUP') {
+    const resolved = payload.action === 'CREATE_GROUP'
+      ? {
+          approvalThreshold: payload.request.approvalThreshold,
+          description: payload.request.description,
+          isOpen: payload.request.isOpen,
+          maximumBlockDelay: payload.request.maximumBlockDelay,
+          minimumBlockDelay: payload.request.minimumBlockDelay,
+          name: payload.request.groupName,
+        }
+      : {
+          approvalThreshold: payload.resolved.approvalThreshold,
+          description: payload.resolved.description,
+          isOpen: payload.resolved.isOpen,
+          maximumBlockDelay: payload.resolved.maximumBlockDelay,
+          minimumBlockDelay: payload.resolved.minimumBlockDelay,
+          name: payload.resolved.newName,
+        }
+    if (payload.action === 'UPDATE_GROUP' && reader.int32('Group ID') !== payload.groupId) throw fail('group')
+    if (reader.sizedUtf8('Group name', 32) !== resolved.name) throw fail('group name')
+    if (reader.sizedUtf8('Group description', 128) !== resolved.description) throw fail('group description')
+    if (readBoolean('open flag') !== resolved.isOpen) throw fail('membership openness')
+    const threshold = reader.exact(1, 'approval threshold')[0]
+    if (threshold !== HOME_V2_APPROVAL_THRESHOLDS[resolved.approvalThreshold]) throw fail('approval threshold')
+    if (reader.int32('Minimum block delay') !== resolved.minimumBlockDelay) throw fail('minimum block delay')
+    if (reader.int32('Maximum block delay') !== resolved.maximumBlockDelay) throw fail('maximum block delay')
+  } else if (payload.action === 'GROUP_APPROVAL') {
+    if (!equalBytes(reader.exact(64, 'Pending transaction signature'), exactBytes(payload.pendingSignature, 64, 'Pending transaction signature'))) {
+      throw fail('pending transaction signature')
+    }
+    if (readBoolean('approval decision') !== payload.approval) throw fail('approval decision')
+  } else if (payload.action === 'SET_GROUP') {
+    if (reader.int32('Default group ID') !== payload.defaultGroupId) throw fail('default group')
+  } else {
+    if (reader.int32('Group ID') !== payload.groupId) throw fail('group')
+    const present = readBoolean('avatar presence flag')
+    if (present !== (payload.avatar !== null)) throw fail('avatar presence')
+    if (payload.avatar !== null) {
+      if (reader.int32('Avatar service') !== payload.avatar.serviceId) throw fail('avatar service')
+      if (reader.sizedUtf8('Avatar name', 40) !== payload.avatar.name) throw fail('avatar name')
+      if (reader.sizedUtf8('Avatar identifier', 64) !== payload.avatar.identifier) throw fail('avatar identifier')
+    }
   }
   if (reader.int64('Transaction fee') !== 0n) throw new Error(`${label} changed the approved fee.`)
   reader.done(label)
@@ -514,9 +563,10 @@ export function selectHomeV2PendingTransactionSummary(value: unknown, signature:
   if (value.signature !== signature) {
     throw new Error('The pending-transaction lookup answered about a different transaction.')
   }
-  const creatorAddress = typeof value.creatorAddress === 'string' && value.creatorAddress
-    ? value.creatorAddress
-    : typeof value.recipient === 'string' && value.recipient ? '' : ''
+  // Shown on the vote prompt: only an address-SHAPED value renders; a lying
+  // node's arbitrary text is dropped rather than painted into the dialog.
+  const creatorRaw = typeof value.creatorAddress === 'string' ? value.creatorAddress.trim() : ''
+  const creatorAddress = /^Q[1-9A-HJ-NP-Za-km-z]{20,40}$/.test(creatorRaw) ? creatorRaw : ''
   return Object.freeze({
     approvalStatus: typeof value.approvalStatus === 'string' ? value.approvalStatus : '',
     creatorAddress,
