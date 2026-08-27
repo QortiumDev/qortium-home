@@ -1,4 +1,6 @@
 import { base58Decode, base58Encode } from './base58.js'
+import { parseHomeV2CoinAmount } from './home-v2-app-actions.js'
+import { normalizeHomeV2PaymentRecipient } from './home-v2-payment-actions.js'
 import { canonicalHomeV2GroupAdminAction, type HomeV2GroupAdminAction } from './home-v2-group-admin-actions.js'
 import type {
   HomeV2AppBridgeProtocol,
@@ -98,12 +100,21 @@ export const HOME_V2_JOURNALED_MUTATIONS = Object.freeze([
   // right key — one unreconciled avatar write blocks this app's next one for
   // the account (the catch-all derivation arm already answers it).
   'SET_ACCOUNT_AVATAR',
+  // The payment family: the target is the exact spend intent (recipient +
+  // asset + atomic amount), so an automatic same-intent retry blocks until
+  // reconciled while a deliberately different payment does not. PAYMENT and
+  // native SEND_COIN share one conflict-action key (aliases of one send).
+  'PAYMENT',
+  'SEND_COIN',
+  'SEND_QORT',
+  'TRANSFER_ASSET',
 ] as const)
 
 export type HomeV2JournaledMutation = (typeof HOME_V2_JOURNALED_MUTATIONS)[number]
 
 export type HomeV2TransactionTarget =
   | { readonly kind: 'account-rating'; readonly category: string; readonly targetPublicKey: string }
+  | { readonly kind: 'payment'; readonly amountAtomic: string; readonly assetId: number; readonly recipient: string }
   | { readonly kind: 'direct'; readonly otherAddress: string }
   | { readonly kind: 'group'; readonly groupId: number }
   | { readonly kind: 'poll'; readonly pollId: number }
@@ -214,6 +225,22 @@ function normalizeTarget(value: unknown): HomeV2TransactionTarget {
       kind: 'resource',
       name: boundedString(value.name, 'Pending transaction resource name', 128),
       service: boundedString(value.service, 'Pending transaction resource service', 64).toUpperCase(),
+    })
+  }
+  if (value.kind === 'payment') {
+    // The exact spend intent. Amount is kept as the atomic decimal-digit
+    // string (bigints do not survive JSON); the journal stays deliberately
+    // looser than the handler — an unparseable stored intent can only block.
+    const amountAtomic = boundedString(value.amountAtomic, 'Pending payment amount', 32)
+    if (!/^\d+$/.test(amountAtomic)) throw new Error('Pending payment amount is invalid.')
+    if (!Number.isSafeInteger(value.assetId) || Number(value.assetId) < 0) {
+      throw new Error('Pending payment asset is invalid.')
+    }
+    return Object.freeze({
+      amountAtomic,
+      assetId: Number(value.assetId),
+      kind: 'payment',
+      recipient: boundedString(value.recipient, 'Pending payment recipient', 128),
     })
   }
   if (value.kind === 'account-rating') {
@@ -390,6 +417,8 @@ const GROUP_TARGET_JOURNAL_ACTIONS = new Set<string>([
  * round 2).
  */
 function journalConflictActionKey(action: string) {
+  // PAYMENT and native SEND_COIN are 1.x aliases of one coin send.
+  if (action === 'SEND_COIN') return 'PAYMENT'
   // The three QDN resource writes share ONE conflict key: a multi-publish
   // item IS a PUBLISH_QDN_RESOURCE transaction, and a publish and a delete
   // of the same coordinate are order-dependent writes to one resource — an
@@ -491,6 +520,58 @@ export function homeV2TransactionTargetFromRequest(action: string, value: unknow
     const conversation = isRecord(value.conversation) ? value.conversation : null
     if (conversation?.kind === 'group') return derivedTarget({ kind: 'group', groupId: conversation.groupId })
     if (conversation?.kind === 'direct') return derivedTarget({ kind: 'direct', otherAddress: conversation.otherAddress })
+    return OPERATION_TARGET
+  }
+  if (action === 'PAYMENT' || action === 'SEND_COIN' || action === 'SEND_QORT' || action === 'TRANSFER_ASSET') {
+    // The payment normalizers read recipient aliases and amount with NO
+    // payload precedence (divergent duplicates refuse in the handler); the
+    // journal reads the same fields leniently and falls COARSE on anything
+    // ambiguous — a coarse key only ever blocks more.
+    const payload = isRecord(value.payload) ? value.payload : null
+    const read = (fields: string[]) => {
+      let seen: unknown
+      for (const source of payload ? [payload, value] : [value]) {
+        for (const field of fields) {
+          const candidate = source[field]
+          if (candidate === undefined || candidate === null || candidate === '') continue
+          if (seen !== undefined && candidate !== seen) return Symbol('divergent')
+          seen = candidate
+        }
+      }
+      return seen
+    }
+    const recipient = read(action === 'SEND_QORT'
+      ? ['recipient', 'recipientAddress', 'address']
+      : ['recipient', 'recipientAddress', 'address', 'destinationAddress'])
+    const amountRaw = read(['amount'])
+    const assetRaw = action === 'TRANSFER_ASSET' ? read(['assetId']) : 0
+    // A SEND_QORT NAME recipient falls COARSE on purpose: the SIGNED intent
+    // is the resolved owner address, which this request-side derivation
+    // cannot know — a precise name-keyed target would let a retry spelled
+    // with the displayed resolved address slip the retained block (payments
+    // review round 1, HIGH). An operation target blocks every SEND_QORT for
+    // the app+account until the unknown is reconciled.
+    if (action === 'SEND_QORT' && typeof recipient === 'string') {
+      try {
+        normalizeHomeV2PaymentRecipient(recipient.trim(), 'The recipient address')
+      } catch {
+        return OPERATION_TARGET
+      }
+    }
+    if (typeof recipient === 'string' && recipient.trim() && typeof assetRaw !== 'symbol' && typeof amountRaw !== 'symbol') {
+      const assetId = typeof assetRaw === 'number'
+        ? assetRaw
+        : typeof assetRaw === 'string' && /^\d+$/.test(assetRaw.trim()) ? Number(assetRaw.trim()) : NaN
+      let amountAtomic: string | null = null
+      try {
+        amountAtomic = String(parseHomeV2CoinAmount(amountRaw, 'The amount').atomic)
+      } catch {
+        amountAtomic = null
+      }
+      if (amountAtomic !== null && Number.isSafeInteger(assetId) && assetId >= 0) {
+        return derivedTarget({ amountAtomic, assetId, kind: 'payment', recipient: recipient.trim() })
+      }
+    }
     return OPERATION_TARGET
   }
   if (action === 'RATE_ACCOUNT') {

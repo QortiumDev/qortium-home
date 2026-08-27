@@ -446,4 +446,75 @@ assert.equal(
   'a pending rating does not block publishing the coordinate (different operations)',
 )
 
+// --- Payments ---
+
+// The target is the exact spend intent; PAYMENT and native SEND_COIN share
+// one conflict-action key so neither alias slips the other's block.
+assert.deepEqual(
+  homeV2TransactionTargetFromRequest('PAYMENT', { amount: '1.5', recipient: 'Qtest' }),
+  { amountAtomic: '150000000', assetId: 0, kind: 'payment', recipient: 'Qtest' },
+)
+assert.deepEqual(
+  homeV2TransactionTargetFromRequest('TRANSFER_ASSET', { amount: 2, assetId: 7, recipientAddress: 'Qtest' }),
+  { amountAtomic: '200000000', assetId: 7, kind: 'payment', recipient: 'Qtest' },
+)
+// Divergent duplicate money fields fall COARSE (blocks more, never less).
+assert.deepEqual(
+  homeV2TransactionTargetFromRequest('PAYMENT', { amount: 1, payload: { recipient: 'Qreal' }, recipient: 'Qdecoy' }),
+  { kind: 'operation' },
+)
+assert.deepEqual(
+  homeV2TransactionTargetFromRequest('PAYMENT', { amount: 'garbage', recipient: 'Qtest' }),
+  { kind: 'operation' },
+)
+const paymentEntry = {
+  ...entry,
+  action: 'PAYMENT' as const,
+  target: { amountAtomic: '150000000', assetId: 0, kind: 'payment' as const, recipient: 'Qtest' },
+}
+const paymentJournal = upsertHomeV2PendingTransaction(createEmptyHomeV2TransactionJournal(), paymentEntry, now)
+assert.deepEqual(
+  findHomeV2PendingTransactionConflict(paymentJournal, conflictInput('SEND_COIN', { amount: '1.5', recipient: 'Qtest' }), now),
+  paymentEntry,
+  'the SEND_COIN alias must not slip a retained PAYMENT block for the same intent',
+)
+assert.equal(
+  findHomeV2PendingTransactionConflict(paymentJournal, conflictInput('PAYMENT', { amount: '2.5', recipient: 'Qtest' }), now),
+  null,
+  'a deliberately different amount is a different intent',
+)
+assert.equal(
+  findHomeV2PendingTransactionConflict(paymentJournal, conflictInput('SEND_QORT', { amount: '1.5', recipient: 'Qtest' }), now),
+  null,
+  'SEND_QORT is a different chain and action key',
+)
+// A SEND_QORT NAME recipient derives the COARSE operation target: the
+// signed intent is the resolved address, which the request cannot prove —
+// so an unknown name-send blocks EVERY later SEND_QORT (including one
+// respelled with the displayed resolved address) until reconciled
+// (payments review round 1, HIGH).
+assert.deepEqual(
+  homeV2TransactionTargetFromRequest('SEND_QORT', { amount: 1, recipient: 'Alice' }),
+  { kind: 'operation' },
+)
+const nameSendEntry = {
+  ...entry,
+  action: 'SEND_QORT' as const,
+  network: 'qortal' as const,
+  protocol: 'qortalRequest' as const,
+  target: { kind: 'operation' as const },
+}
+const nameSendJournal = upsertHomeV2PendingTransaction(createEmptyHomeV2TransactionJournal(), nameSendEntry, now)
+assert.deepEqual(
+  findHomeV2PendingTransactionConflict(nameSendJournal, {
+    accountId: entry.accountId,
+    action: 'SEND_QORT',
+    appIdentity: entry.appIdentity,
+    network: 'qortal',
+    request: { amount: 1, recipient: `Q${'a'.repeat(33)}` },
+  }, now),
+  nameSendEntry,
+  'an address-respelled retry must not slip an unknown name-send block',
+)
+
 console.log('Home v2 pending transaction journal tests passed')

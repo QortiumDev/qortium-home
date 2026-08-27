@@ -860,6 +860,66 @@ rejection (including `NOT_YET_RELEASED`) is conservatively journaled as an
 unknown outcome rather than trusted as a definitive refusal from a
 possibly-lying node.
 
+### Payments (Home 2)
+
+The payment family is restored desktop-only with every guarantee the other
+signed families earned, plus the payment-specific ones:
+
+- **`PAYMENT` and native `SEND_COIN` are one canonical operation** — a
+  locally-built Qortium PAYMENT (type 2, the native asset). A nonzero
+  `assetId` routes to `TRANSFER_ASSET`; a foreign `coin`/`blockchain`
+  selector or any 1.x foreign-arm field (`sendMax`, `feePerByte`,
+  `receivingAddress`) refuses loudly with `FOREIGN_SEND_UNAVAILABLE` —
+  Home must never let an app believe it sent BTC while native funds moved.
+- **`TRANSFER_ASSET`** (type 12, Qortium) pre-reads and re-reads the asset
+  (existence, canonical name for display, divisibility — whole units
+  enforced for indivisible assets — and unspendability, refused toward AT
+  recipients). The numeric asset id is signed and shown.
+- **`SEND_QORT`** is the Qortal compatibility action on `qortalRequest`,
+  using the repo's existing Qortal PAYMENT serializer (64-byte last
+  reference, fetched fresh at signing). A name recipient is resolved once,
+  shown with its resolved address, and re-resolved after approval; drift
+  refuses.
+- **Money fields have no precedence rules**: a financially relevant field
+  appearing twice (payload and top level, or two aliases) with different
+  values refuses outright. Amounts are exact atomic bigints (canonical
+  decimal AND atomic units both shown); over-precision refuses; zero and
+  negative refuse.
+- **Fees are Home-quoted and pinned**: these types have NO MemoryPoW
+  alternative, so Home reads the chain unit fee FOR THE EXACT timestamp the
+  transaction will carry, shows it and the checked total debit, re-quotes
+  after approval, and refuses a fee that moved. An approval that sat open
+  more than ten minutes refuses rather than signing a stale timestamp.
+  App `fee`/`txGroupId` values must be 0 (a 1.x pass-through, removed).
+  One bounded residual: the quote reads the chain's timestamp fee
+  SCHEDULE, while consensus applies the parameter effective at the next
+  block height — a unit-fee governance activation landing between the
+  re-quote and inclusion can make the signed fee insufficient, in which
+  case the payment is rejected or journals as an unknown outcome; it can
+  never sign a HIGHER fee than the user saw.
+- **Recipients are validated 25-byte checksummed addresses** (account or AT
+  version — AT destinations are labeled as contract addresses; a
+  self-payment gets its own disclosure row).
+- **One in-flight payment per account and chain** (process-level send
+  lock), single-request `payment.send` capability that no session or
+  durable grant can ever cover, and unknown-outcome journaling under the
+  exact spend intent `{recipient, assetId, atomic amount}` — the aliases
+  share one conflict key, and a journal-write failure FAILS CLOSED,
+  blocking further payments for the account instead of allowing a retry
+  the journal can no longer prevent. Balance checks are node-reported
+  preflight; Core consensus stays authoritative. Deliberately, EVERY
+  post-signing failure — an HTTP-level rejection included — journals as
+  an unknown outcome: no answer from an untrusted node can prove the
+  bytes were never relayed, and a "rejected" verdict that invites an
+  immediate retry is exactly the double spend the journal exists to
+  prevent. A name-mode SEND_QORT with an unknown outcome blocks EVERY
+  later SEND_QORT for that app and account until reconciled — the signed
+  intent was the resolved address, which a request-side key cannot prove.
+
+On today's Qortium Previewnet — which deliberately has no native asset
+yet — the Qortium arms refuse at the balance/asset pre-checks with named
+errors; the implementation is ready for the chain's coin decision.
+
 ## Minting actions (Home 2)
 
 Home 2 exposes four minting actions on both `qdnRequest` and `qortalRequest`:

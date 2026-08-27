@@ -34,6 +34,24 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-27 - feat(home-v2): apps can send payments again
+
+Restores the final deferred family: payments. An app can ask to send the
+native coin, transfer an asset, or send QORT on the Qortal network — and
+the approval is built for money: it shows exactly who gets paid, the exact
+amount down to the smallest unit, the network fee Home itself quoted from
+the chain, and the total that will leave the account, with special notice
+when the destination is an automated contract or the account itself. Every
+approval covers one payment only and can never be remembered or reused.
+If the network's answer to a signed payment is ever uncertain, Home records
+it and refuses to retry the same payment until it is reconciled — and if
+that record itself cannot be written, payments stop rather than risk a
+double spend. The old implementation sent the account's private key to the
+node and let apps pick their own fee; both are gone. Requests for foreign
+coins are clearly refused rather than quietly doing something else. On the
+current Qortium preview network, which does not yet have its coin, these
+actions politely refuse until it does.
+
 ### 2026-08-28 - feat(home-v2): apps can set the account avatar again
 
 Restores the seventh deferred action: setting (or removing) the selected

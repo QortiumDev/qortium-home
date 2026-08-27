@@ -428,4 +428,45 @@ assert.throws(() => assertPublicBuyNameTransaction(concat(common(7), sized('alic
   assert.throws(() => assertUnsignedHomeV2SetAccountAvatarTransaction(concat(clearBytes, new Uint8Array([0])), aExpected(null)), /trailing/);
 }
 
+// ---- Payment verifiers (types 2/12, Qortium forms) against bytes built
+// INDEPENDENTLY with this script's own encoders. ----
+{
+  const {
+    assertUnsignedHomeV2QortiumPaymentTransaction,
+    assertUnsignedHomeV2QortiumTransferAssetTransaction,
+  } = await import('../dist-electron/home-v2-payment-actions.js');
+  const { default: base58 } = await import('../dist-electron/base58.js').then((m) => ({ default: m }));
+  const senderKey58 = base58.base58Encode(publicKey);
+  const recipientBytes = sequence(25, 40);
+  const pCommon = (type) => concat(int32(type), int64(timestamp), int32(0), publicKey);
+  const paymentBytes = concat(pCommon(2), recipientBytes, int64(150000000), int64(1000000));
+  assert.equal(paymentBytes.byteLength, 89);
+  const pExpected = (over) => ({
+    amountAtomic: 150000000n,
+    feeAtomic: 1000000n,
+    recipientBytes,
+    senderPublicKey: senderKey58,
+    timestamp,
+    ...over,
+  });
+  assert.doesNotThrow(() => assertUnsignedHomeV2QortiumPaymentTransaction(paymentBytes, pExpected({})));
+  assert.throws(() => assertUnsignedHomeV2QortiumPaymentTransaction(paymentBytes, pExpected({ amountAtomic: 150000001n })), /amount/);
+  assert.throws(() => assertUnsignedHomeV2QortiumPaymentTransaction(paymentBytes, pExpected({ feeAtomic: 2000000n })), /fee/);
+  assert.throws(() => assertUnsignedHomeV2QortiumPaymentTransaction(paymentBytes, pExpected({ recipientBytes: sequence(25, 41) })), /recipient/);
+  assert.throws(() => assertUnsignedHomeV2QortiumPaymentTransaction(concat(paymentBytes, new Uint8Array([0])), pExpected({})), /trailing/);
+  const transferBytes = concat(pCommon(12), recipientBytes, int64(7), int64(225000000), int64(1000000));
+  assert.equal(transferBytes.byteLength, 97);
+  const tExpected = (over) => ({
+    amountAtomic: 225000000n,
+    assetId: 7,
+    feeAtomic: 1000000n,
+    recipientBytes,
+    senderPublicKey: senderKey58,
+    timestamp,
+    ...over,
+  });
+  assert.doesNotThrow(() => assertUnsignedHomeV2QortiumTransferAssetTransaction(transferBytes, tExpected({})));
+  assert.throws(() => assertUnsignedHomeV2QortiumTransferAssetTransaction(transferBytes, tExpected({ assetId: 8 })), /asset/);
+}
+
 console.log('Public transaction validation tests passed.');

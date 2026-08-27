@@ -315,6 +315,27 @@ import {
   normalizeHomeV2QdnDeleteRequest,
 } from './home-v2-publish-extras-contract.js'
 import {
+  assertUnsignedHomeV2QortalPaymentTransaction,
+  assertUnsignedHomeV2QortiumPaymentTransaction,
+  assertUnsignedHomeV2QortiumTransferAssetTransaction,
+  buildUnsignedQortiumPaymentTransactionBytes,
+  buildUnsignedQortiumTransferAssetTransactionBytes,
+  canonicalHomeV2PaymentAction,
+  homeV2CheckedTotalDebit,
+  homeV2FeeForLength,
+  homeV2PaymentOperationLabel,
+  HomeV2ForeignSendError,
+  isHomeV2PaymentAction,
+  normalizeHomeV2NativeSendRequest,
+  normalizeHomeV2SendQortRequest,
+  normalizeHomeV2TransferAssetRequest,
+  parseHomeV2UnitFee,
+  selectHomeV2AssetInfo,
+  selectHomeV2AtomicBalance,
+  type HomeV2PaymentAction,
+  type HomeV2PaymentRecipient,
+} from './home-v2-payment-actions.js'
+import {
   assertUnsignedHomeV2SetAccountAvatarTransaction,
   buildUnsignedQortiumSetAccountAvatarTransactionBytes,
   homeV2AccountAvatarOperationLabel,
@@ -458,6 +479,8 @@ import {
 } from './qortal-chat.js'
 import {
   appendSignatureToTransactionBytes,
+  buildUnsignedPaymentTransactionBytes,
+  formatQortAtomic,
   getSignatureFromSignedTransactionBytes,
 } from './qortal-payment.js'
 import {
@@ -567,6 +590,10 @@ type AccountReadAction =
   | 'RATE_ACCOUNT'
   | 'RATE_RESOURCE'
   | 'SET_ACCOUNT_AVATAR'
+  | 'PAYMENT'
+  | 'SEND_COIN'
+  | 'SEND_QORT'
+  | 'TRANSFER_ASSET'
   | 'GET_PENDING_TRANSACTIONS'
   | 'FORGET_PENDING_TRANSACTION'
   | 'UNLOCK_SELECTED_ACCOUNT'
@@ -1410,6 +1437,17 @@ async function requireAccountReadPermission(
     readonly routeLabel: string
     readonly targetChainLabel: string
   } | {
+    readonly kind: 'payment'
+    // The per-action rows, escaped and re-validated in the shell. Payment
+    // rows are payment-grade: exact canonical decimal AND atomic units,
+    // who is paid, the Home-quoted fee, and the checked total debit.
+    readonly paymentDetails: readonly { readonly label: string; readonly value: string }[]
+    readonly operationLabel: string
+    readonly routeLabel: string
+    // 'payment:<chain>:<recipient>:<assetId>:<amountAtomic>'.
+    readonly target: string
+    readonly targetChainLabel: string
+  } | {
     readonly kind: 'rating'
     readonly operationLabel: string
     // The per-action rows, escaped and re-validated in the shell. A
@@ -1469,6 +1507,8 @@ async function requireAccountReadPermission(
           ? writeDetails.target
         : writeDetails?.kind === 'account-avatar'
           ? 'account-avatar'
+        : writeDetails?.kind === 'payment'
+          ? writeDetails.target
         : ''
   const grantKey = homeV2PermissionGrantKey({
     accountId: context.accountId,
@@ -1511,6 +1551,8 @@ async function requireAccountReadPermission(
     writeDetails?.kind === 'rating' ||
     // The account avatar signs a chain transaction too.
     writeDetails?.kind === 'account-avatar' ||
+    // Payments MOVE FUNDS. Never a session or durable grant, ever.
+    writeDetails?.kind === 'payment' ||
     (writeDetails?.kind === 'group' || writeDetails?.kind === 'direct' || writeDetails?.kind === 'private-group') &&
     writeDetails.singleRequestOnly === true
   // A durable per-app chat-send grant ("always allow", revocable in QDN Apps
@@ -1753,6 +1795,15 @@ async function requireAccountReadPermission(
                 avatarCurrentValue: writeDetails.currentValue,
                 avatarValue: writeDetails.avatarValue,
                 writeKind: 'account-avatar',
+                writeOperationLabel: writeDetails.operationLabel,
+                writeRouteLabel: writeDetails.routeLabel,
+                writeSingleRequestOnly: true,
+                writeTargetChainLabel: writeDetails.targetChainLabel,
+              }
+          : writeDetails?.kind === 'payment'
+            ? {
+                paymentDetails: writeDetails.paymentDetails.map((detail) => ({ ...detail })),
+                writeKind: 'payment',
                 writeOperationLabel: writeDetails.operationLabel,
                 writeRouteLabel: writeDetails.routeLabel,
                 writeSingleRequestOnly: true,
@@ -2792,6 +2843,424 @@ async function handleHomeV2SetAccountAvatarAction(
     }
   } finally {
     signingKey.secretKey.fill(0)
+  }
+}
+
+// One in-flight payment per account+chain: two approvals must never
+// interleave into a double spend. UI state is not a security boundary; this
+// process-level lock plus the journal is.
+const homeV2PaymentSendLocks = new Set<string>()
+// FAIL-CLOSED journal guard: if a signed payment's unknown outcome could not
+// be persisted, further payment actions for that account refuse until Home
+// restarts or the user reconciles — a spend must never be retried on the
+// strength of a journal entry that was silently dropped.
+const homeV2PaymentJournalFailures = new Set<string>()
+
+export function recordHomeV2PaymentJournalFailure(accountId: string) {
+  homeV2PaymentJournalFailures.add(accountId)
+}
+
+function homeV2AtomicUnitsText(amount: { readonly atomic: bigint; readonly decimal: string }) {
+  return `${amount.decimal} (${amount.atomic} atomic units)`
+}
+
+async function handleHomeV2PaymentAction(
+  sender: WebContents,
+  context: QdnViewContext,
+  protocol: HomeV2AppBridgeProtocol,
+  network: HomeV2AppNetwork,
+  routeRevision: string,
+  action: HomeV2PaymentAction,
+  requestValue: Record<string, unknown>,
+) {
+  const qortalAction = action === 'SEND_QORT'
+  if (qortalAction ? (protocol !== 'qortalRequest' || network !== 'qortal') : (protocol !== 'qdnRequest' || network !== 'qortium')) {
+    throw createHomeV2BridgeError(
+      qortalAction
+        ? 'SEND_QORT is a Qortal action; call it on qortalRequest.'
+        : `${action} is available on the Qortium chain only.`,
+      { action, code: 'NODE_CAPABILITY_MISSING', network, retryable: false, routeRevision },
+    )
+  }
+  if (!context.accountId) throw new Error('No account is selected for this tab.')
+  if (!isAccountUnlocked(context.accountId)) throw createHomeV2BridgeError('The selected account is locked.', {
+    action,
+    code: 'ACCOUNT_LOCKED',
+    network,
+    retryable: false,
+    routeRevision,
+  })
+  const accountId = context.accountId
+  if (homeV2PaymentJournalFailures.has(accountId)) {
+    throw createHomeV2BridgeError(
+      'A previously signed payment could not be recorded for reconciliation. Payment actions are blocked for this account until it is reconciled.',
+      { action, code: 'PAYMENT_JOURNAL_UNAVAILABLE', network, retryable: false, routeRevision },
+    )
+  }
+  let request: ReturnType<typeof normalizeHomeV2NativeSendRequest> | ReturnType<typeof normalizeHomeV2TransferAssetRequest> | ReturnType<typeof normalizeHomeV2SendQortRequest>
+  try {
+    request = action === 'TRANSFER_ASSET'
+      ? normalizeHomeV2TransferAssetRequest(requestValue)
+      : action === 'SEND_QORT'
+        ? normalizeHomeV2SendQortRequest(requestValue)
+        : normalizeHomeV2NativeSendRequest(action, requestValue)
+  } catch (error) {
+    if (error instanceof HomeV2ForeignSendError) {
+      throw createHomeV2BridgeError(error.message, {
+        action,
+        code: 'FOREIGN_SEND_UNAVAILABLE',
+        network,
+        retryable: false,
+        routeRevision,
+      })
+    }
+    throw error
+  }
+  const lockKey = `${accountId}|${network}`
+  if (homeV2PaymentSendLocks.has(lockKey)) {
+    throw createHomeV2BridgeError('Another payment for this account is already in progress.', {
+      action,
+      code: 'PAYMENT_IN_PROGRESS',
+      network,
+      retryable: true,
+      routeRevision,
+    })
+  }
+  homeV2PaymentSendLocks.add(lockKey)
+  try {
+    const node = await getHomeV2ReadableNode(network)
+    const nodeRoute = `${node.mode}|${node.nodeApiUrl}`
+    const routeLabel = `${node.mode} \u00b7 ${node.nodeApiUrl}`
+    const chainLabel = network === 'qortal' ? 'Qortal' : 'Qortium'
+    const profile = await getAccountProfile(accountId)
+    const isStillValid = async () => {
+      const fresh = getQdnViewContextForWebContents(sender)
+      if (!fresh || !sameViewContext(context, fresh) || !liveResourceMatchesGrant(fresh) || !isAccountUnlocked(accountId)) return false
+      const current = await getHomeV2ReadableNode(network).catch(() => null)
+      return !!current && `${current.mode}|${current.nodeApiUrl}` === nodeRoute
+    }
+    // The fee is quoted for the EXACT timestamp the transaction will carry
+    // (chosen up front and reused at signing): Core's unitfee endpoint
+    // defaults an omitted timestamp to its own clock, and consensus applies
+    // the fee schedule effective for the transaction's timestamp — quoting
+    // one moment and signing another could straddle a fee boundary.
+    const paymentTimestamp = Date.now()
+    // An approval that sat open too long must not sign a stale timestamp:
+    // Core expires ordinary transactions 24h after their timestamp, and a
+    // long-delayed signing would produce a doomed transaction journaled as
+    // an unknown outcome. Ten minutes is far inside every real flow (the
+    // prompt itself times out in one) and far outside any legitimate delay.
+    const assertPaymentFresh = () => {
+      if (Date.now() - paymentTimestamp > 10 * 60_000) {
+        throw new Error('This payment approval took too long and was not signed; please start it again.')
+      }
+    }
+    const readUnitFee = async (txType: string) => parseHomeV2UnitFee(await readHomeV2ChatJson(
+      node.nodeApiUrl,
+      `/transactions/unitfee?txType=${txType}&timestamp=${paymentTimestamp}`,
+      `${chainLabel} fee lookup`,
+    ))
+    const readAtomicBalance = async (address: string, assetId?: number) => selectHomeV2AtomicBalance(await readHomeV2ChatJson(
+      node.nodeApiUrl,
+      `/addresses/balance/${encodeURIComponent(address)}${assetId !== undefined && assetId !== 0 ? `?assetId=${assetId}` : ''}`,
+      `${chainLabel} balance lookup`,
+    ))
+    if (action === 'SEND_QORT') {
+      const sendRequest = request as ReturnType<typeof normalizeHomeV2SendQortRequest>
+      const resolveRecipient = async (label: string): Promise<HomeV2PaymentRecipient> => {
+        if (sendRequest.recipientAddress) {
+          const { normalizeHomeV2PaymentRecipient } = await import('./home-v2-payment-actions.js')
+          return normalizeHomeV2PaymentRecipient(sendRequest.recipientAddress, 'The recipient address')
+        }
+        const nameValue = await readHomeV2ChatJson(
+          node.nodeApiUrl,
+          `/names/${encodeURIComponent(sendRequest.recipientName ?? '')}`,
+          `Qortal recipient-name ${label}`,
+        )
+        const owner = stringField(nameValue, 'owner')
+        if (!owner) throw new Error(`The Qortal name ${sendRequest.recipientName} does not resolve to an owner address.`)
+        const { normalizeHomeV2PaymentRecipient } = await import('./home-v2-payment-actions.js')
+        return normalizeHomeV2PaymentRecipient(owner, 'The resolved recipient address')
+      }
+      const recipient = await resolveRecipient('lookup')
+      const unitFee = await readUnitFee('PAYMENT')
+      // Qortal PAYMENT signed length: 4+8+4+64+32+25+8+8+64 = 217.
+      const feeAtomic = homeV2FeeForLength(unitFee, 217)
+      const total = homeV2CheckedTotalDebit(sendRequest.amount.atomic, feeAtomic)
+      const balance = await readAtomicBalance(profile.address)
+      if (balance < total) {
+        throw createHomeV2BridgeError(
+          `Insufficient QORT balance: this send needs ${formatQortAtomic(total)} QORT including the fee, but the node reports ${formatQortAtomic(balance)} QORT.`,
+          { action, code: 'INSUFFICIENT_BALANCE', network, retryable: false, routeRevision },
+        )
+      }
+      await requireAccountReadPermission(sender, context, protocol, action, {
+        kind: 'payment',
+        operationLabel: homeV2PaymentOperationLabel(action),
+        paymentDetails: [
+          { label: 'You pay', value: homeV2AtomicUnitsText({ atomic: sendRequest.amount.atomic, decimal: `${sendRequest.amount.decimal} QORT` }) },
+          { label: 'Paid to', value: recipient.address },
+          ...(sendRequest.recipientName
+            ? [{ label: 'Resolved from name', value: homeV2PollApprovalText(sendRequest.recipientName, 'The recipient name') }]
+            : []),
+          ...(recipient.isAt ? [{ label: 'Destination type', value: 'AT contract address (an automated contract, not a person)' }] : []),
+          ...(recipient.address === profile.address ? [{ label: 'Self-payment', value: 'The recipient IS the selected account' }] : []),
+          { label: 'Fee', value: `${formatQortAtomic(feeAtomic)} QORT` },
+          { label: 'Total debit', value: `${formatQortAtomic(total)} QORT` },
+        ],
+        routeLabel,
+        target: `payment:qortal:${recipient.address}:0:${sendRequest.amount.atomic}`,
+        targetChainLabel: 'Qortal',
+      })
+      if (!(await isStillValid())) throw new Error('The app, account, or node route changed before the payment was staged.')
+      // Re-resolve everything the prompt disclosed; refuse any drift.
+      const freshRecipient = await resolveRecipient('recheck')
+      if (freshRecipient.address !== recipient.address) throw new Error('The recipient resolution changed after approval.')
+      if ((await readUnitFee('PAYMENT')) !== unitFee) throw new Error('The Qortal fee changed after it was approved.')
+      if ((await readAtomicBalance(profile.address)) < total) {
+        throw new Error('The QORT balance changed after approval and no longer covers this send.')
+      }
+      const referenceText = await readHomeV2ChatJson(
+        node.nodeApiUrl,
+        `/addresses/lastreference/${encodeURIComponent(profile.address)}`,
+        'Qortal last-reference lookup',
+      )
+      const lastReference = typeof referenceText === 'string' ? referenceText.trim() : ''
+      if (!lastReference) throw new Error('The selected Qortal account has no last reference; it may need QORT first.')
+      assertPaymentFresh()
+      const timestamp = paymentTimestamp
+      const signingKey = getAccountSecretKey(accountId)
+      try {
+        const unsignedBytes = buildUnsignedPaymentTransactionBytes({
+          amountAtomic: sendRequest.amount.atomic,
+          feeAtomic,
+          lastReference,
+          recipient: recipient.address,
+          senderPublicKey: signingKey.publicKey58,
+          timestamp,
+        })
+        assertUnsignedHomeV2QortalPaymentTransaction(unsignedBytes, {
+          amountAtomic: sendRequest.amount.atomic,
+          feeAtomic,
+          lastReference: base58Decode(lastReference),
+          recipientBytes: recipient.bytes,
+          senderPublicKey: signingKey.publicKey58,
+          timestamp,
+        })
+        if (!(await isStillValid())) throw new Error('The signing context changed before the payment could be submitted.')
+        // The awaited check above can itself take time: re-assert freshness
+        // as the LAST act before the signature exists (review round 3).
+        assertPaymentFresh()
+        const signedBytes = appendSignatureToTransactionBytes(unsignedBytes, signDetached(unsignedBytes, signingKey.secretKey))
+        const transactionSignature = getSignatureFromSignedTransactionBytes(signedBytes)
+        return await broadcastHomeV2Payment({
+          action,
+          amount: sendRequest.amount,
+          assetId: 0,
+          network,
+          nodeApiUrl: node.nodeApiUrl,
+          recipient,
+          recipientName: sendRequest.recipientName,
+          signedBytes,
+          timestamp,
+          transactionSignature,
+        })
+      } finally {
+        signingKey.secretKey.fill(0)
+      }
+    }
+    // --- Qortium arms (PAYMENT / native SEND_COIN / TRANSFER_ASSET) ---
+    const isTransfer = action === 'TRANSFER_ASSET'
+    const transferRequest = isTransfer ? request as ReturnType<typeof normalizeHomeV2TransferAssetRequest> : null
+    const nativeRequest = isTransfer ? null : request as ReturnType<typeof normalizeHomeV2NativeSendRequest>
+    const recipient = (transferRequest ?? nativeRequest)!.recipient
+    const amount = (transferRequest ?? nativeRequest)!.amount
+    const assetId = transferRequest ? transferRequest.assetId : 0
+    const readAssetInfo = async (label: string) => selectHomeV2AssetInfo(await readHomeV2ChatJson(
+      node.nodeApiUrl,
+      `/assets/info?assetId=${assetId}`,
+      `Qortium asset ${label}`,
+    ), assetId)
+    let assetInfo: ReturnType<typeof selectHomeV2AssetInfo> | null = null
+    if (transferRequest) {
+      assetInfo = await readAssetInfo('lookup')
+      if (!assetInfo.isDivisible && amount.atomic % 100_000_000n !== 0n) {
+        throw new Error(`The ${assetInfo.name} asset is indivisible: the amount must be a whole number of units.`)
+      }
+      if (assetInfo.isUnspendable && recipient.isAt) {
+        throw new Error(`The ${assetInfo.name} asset is unspendable and cannot be sent to an AT contract.`)
+      }
+    }
+    const unitFee = await readUnitFee(isTransfer ? 'TRANSFER_ASSET' : 'PAYMENT')
+    // Qortium signed lengths: PAYMENT 153, TRANSFER_ASSET 161.
+    const feeAtomic = homeV2FeeForLength(unitFee, isTransfer ? 161 : 153)
+    const nativeDebit = isTransfer ? feeAtomic : homeV2CheckedTotalDebit(amount.atomic, feeAtomic)
+    const checkBalances = async () => {
+      const nativeBalance = await readAtomicBalance(profile.address)
+      if (nativeBalance < nativeDebit) {
+        throw createHomeV2BridgeError(
+          `Insufficient native balance: this ${isTransfer ? 'transfer needs the fee of' : 'payment needs'} ${formatQortAtomic(nativeDebit)}, but the node reports ${formatQortAtomic(nativeBalance)}.`,
+          { action, code: 'INSUFFICIENT_BALANCE', network, retryable: false, routeRevision },
+        )
+      }
+      if (transferRequest && assetId !== 0) {
+        const assetBalance = await readAtomicBalance(profile.address, assetId)
+        if (assetBalance < amount.atomic) {
+          throw createHomeV2BridgeError(
+            `Insufficient asset balance: the transfer needs ${amount.decimal}, but the node reports ${formatQortAtomic(assetBalance)}.`,
+            { action, code: 'INSUFFICIENT_BALANCE', network, retryable: false, routeRevision },
+          )
+        }
+      }
+    }
+    await checkBalances()
+    const coinLabel = 'native coin'
+    await requireAccountReadPermission(sender, context, protocol, action, {
+      kind: 'payment',
+      operationLabel: homeV2PaymentOperationLabel(action),
+      paymentDetails: [
+        ...(assetInfo
+          ? [
+              { label: 'Asset', value: homeV2PollApprovalText(assetInfo.name, 'The asset name') },
+              { label: 'Asset ID', value: String(assetId) },
+              { label: 'You send', value: homeV2AtomicUnitsText(amount) },
+            ]
+          : [
+              { label: 'You pay', value: homeV2AtomicUnitsText({ atomic: amount.atomic, decimal: `${amount.decimal} ${coinLabel}` }) },
+            ]),
+        { label: 'Paid to', value: recipient.address },
+        ...(recipient.isAt ? [{ label: 'Destination type', value: 'AT contract address (an automated contract, not a person)' }] : []),
+        ...(recipient.address === profile.address ? [{ label: 'Self-payment', value: 'The recipient IS the selected account' }] : []),
+        { label: 'Fee', value: `${formatQortAtomic(feeAtomic)} ${coinLabel}` },
+        { label: 'Total native debit', value: `${formatQortAtomic(nativeDebit)} ${coinLabel}` },
+      ],
+      routeLabel,
+      target: `payment:qortium:${recipient.address}:${assetId}:${amount.atomic}`,
+      targetChainLabel: 'Qortium',
+    })
+    if (!(await isStillValid())) throw new Error('The app, account, or node route changed before the payment was staged.')
+    if ((await readUnitFee(isTransfer ? 'TRANSFER_ASSET' : 'PAYMENT')) !== unitFee) {
+      throw new Error('The chain fee changed after it was approved.')
+    }
+    if (transferRequest) {
+      const freshAsset = await readAssetInfo('recheck')
+      if (freshAsset.name !== assetInfo!.name || freshAsset.isDivisible !== assetInfo!.isDivisible ||
+        freshAsset.isUnspendable !== assetInfo!.isUnspendable) {
+        throw new Error('The asset description changed after approval.')
+      }
+    }
+    await checkBalances()
+    assertPaymentFresh()
+    const timestamp = paymentTimestamp
+    const signingKey = getAccountSecretKey(accountId)
+    try {
+      const unsignedBytes = transferRequest
+        ? buildUnsignedQortiumTransferAssetTransactionBytes({
+            amountAtomic: amount.atomic,
+            assetId,
+            feeAtomic,
+            recipientBytes: recipient.bytes,
+            senderPublicKey: signingKey.publicKey58,
+            timestamp,
+          })
+        : buildUnsignedQortiumPaymentTransactionBytes({
+            amountAtomic: amount.atomic,
+            feeAtomic,
+            recipientBytes: recipient.bytes,
+            senderPublicKey: signingKey.publicKey58,
+            timestamp,
+          })
+      if (transferRequest) {
+        assertUnsignedHomeV2QortiumTransferAssetTransaction(unsignedBytes, {
+          amountAtomic: amount.atomic,
+          assetId,
+          feeAtomic,
+          recipientBytes: recipient.bytes,
+          senderPublicKey: signingKey.publicKey58,
+          timestamp,
+        })
+      } else {
+        assertUnsignedHomeV2QortiumPaymentTransaction(unsignedBytes, {
+          amountAtomic: amount.atomic,
+          feeAtomic,
+          recipientBytes: recipient.bytes,
+          senderPublicKey: signingKey.publicKey58,
+          timestamp,
+        })
+      }
+      if (!(await isStillValid())) throw new Error('The signing context changed before the payment could be submitted.')
+      // Same rule as the Qortal arm: freshness is the LAST act before the
+      // signature exists (review round 3).
+      assertPaymentFresh()
+      const signedBytes = appendSignatureToTransactionBytes(unsignedBytes, signDetached(unsignedBytes, signingKey.secretKey))
+      const transactionSignature = getSignatureFromSignedTransactionBytes(signedBytes)
+      return await broadcastHomeV2Payment({
+        action,
+        amount,
+        assetId,
+        assetName: assetInfo?.name,
+        network,
+        nodeApiUrl: node.nodeApiUrl,
+        recipient,
+        recipientName: null,
+        signedBytes,
+        timestamp,
+        transactionSignature,
+      })
+    } finally {
+      signingKey.secretKey.fill(0)
+    }
+  } finally {
+    homeV2PaymentSendLocks.delete(lockKey)
+  }
+}
+
+async function broadcastHomeV2Payment(input: {
+  readonly action: HomeV2PaymentAction
+  readonly amount: { readonly atomic: bigint; readonly decimal: string }
+  readonly assetId: number
+  readonly assetName?: string
+  readonly network: HomeV2AppNetwork
+  readonly nodeApiUrl: string
+  readonly recipient: HomeV2PaymentRecipient
+  readonly recipientName: string | null
+  readonly signedBytes: Uint8Array
+  readonly timestamp: number
+  readonly transactionSignature: string
+}) {
+  const base = {
+    action: input.action,
+    amount: input.amount.decimal,
+    assetId: input.assetId,
+    ...(input.assetName ? { assetName: input.assetName } : {}),
+    network: input.network,
+    recipient: input.recipient.address,
+    ...(input.recipientName ? { recipientName: input.recipientName } : {}),
+    transactionSignature: input.transactionSignature,
+  }
+  try {
+    await postHomeV2ChatText(
+      input.nodeApiUrl,
+      '/transactions/process?apiVersion=2',
+      base58Encode(input.signedBytes),
+      'text/plain',
+      `${homeV2PaymentOperationLabel(input.action)} transaction processing failed.`,
+    )
+    return Object.freeze({ ...base, accepted: true })
+  } catch (error) {
+    // Once a signature exists, ANY ambiguous failure is an unknown outcome:
+    // a lying node's error is not proof the network never saw the bytes.
+    // The dispatcher journals this from outcome/transactionSignature/
+    // timestamp; a failed journal write fail-closes further payments.
+    return Object.freeze({
+      ...base,
+      accepted: false,
+      error: error instanceof Error ? error.message : 'Payment broadcast outcome is unknown.',
+      errorType: 'BROADCAST_UNKNOWN' as const,
+      outcome: 'unknown' as const,
+      retryable: false as const,
+      timestamp: input.timestamp,
+    })
   }
 }
 
@@ -8805,6 +9274,17 @@ async function handleRequestWithRuntime(
       requestValue,
     )
   }
+  if (isHomeV2PaymentAction(action)) {
+    return handleHomeV2PaymentAction(
+      sender,
+      context,
+      protocol,
+      network,
+      hostInfo.route.revision,
+      action,
+      requestValue,
+    )
+  }
   if (action === 'PUBLISH_CHAT_ATTACHMENT') {
     return publishHomeV2PrivateAttachmentSource(
       sender,
@@ -9367,6 +9847,12 @@ async function handleRequest(
       return isHomeV2AppRecord(result) ? Object.freeze({ ...result, journalStored: true }) : result
     } catch (error) {
       console.warn('[home-v2-app] Unable to retain an ambiguous signed transaction:', error)
+      // FAIL CLOSED for money: a signed payment whose unknown outcome could
+      // not be persisted must block further payment actions for the account
+      // rather than allowing a retry the journal can no longer prevent.
+      if (isHomeV2PaymentAction(action) && context.accountId) {
+        recordHomeV2PaymentJournalFailure(context.accountId)
+      }
       return isHomeV2AppRecord(result) ? Object.freeze({ ...result, journalStored: false }) : result
     }
   } catch (error) {
