@@ -594,7 +594,7 @@ function deriveAddressSeed(seed: Uint8Array, nonce = 0) {
   return sha512(appendBuffer(firstHash, nonceSeed)).slice(0, 32);
 }
 
-function publicKeyToAddress(publicKey: Uint8Array) {
+export function publicKeyToAddress(publicKey: Uint8Array) {
   const publicKeyHash = ripemd160(sha256(publicKey));
   const versionedHash = appendBuffer([QORTIUM_ADDRESS_VERSION], publicKeyHash);
   const checksum = sha256(sha256(versionedHash)).slice(0, 4);

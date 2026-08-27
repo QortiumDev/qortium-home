@@ -89,11 +89,17 @@ export const HOME_V2_JOURNALED_MUTATIONS = Object.freeze([
   // resource target, which is what each item's transaction actually is.
   'DELETE_QDN_RESOURCE',
   'PUBLISH_MULTIPLE_QDN_RESOURCES',
+  // Rating writes. RATE_RESOURCE keys on its resource coordinate exactly as
+  // the QDN resource writes do (same normalizer fields); RATE_ACCOUNT keys
+  // on the exact target-key + category edge it signs.
+  'RATE_ACCOUNT',
+  'RATE_RESOURCE',
 ] as const)
 
 export type HomeV2JournaledMutation = (typeof HOME_V2_JOURNALED_MUTATIONS)[number]
 
 export type HomeV2TransactionTarget =
+  | { readonly kind: 'account-rating'; readonly category: string; readonly targetPublicKey: string }
   | { readonly kind: 'direct'; readonly otherAddress: string }
   | { readonly kind: 'group'; readonly groupId: number }
   | { readonly kind: 'poll'; readonly pollId: number }
@@ -204,6 +210,16 @@ function normalizeTarget(value: unknown): HomeV2TransactionTarget {
       kind: 'resource',
       name: boundedString(value.name, 'Pending transaction resource name', 128),
       service: boundedString(value.service, 'Pending transaction resource service', 64).toUpperCase(),
+    })
+  }
+  if (value.kind === 'account-rating') {
+    // The exact rated edge: target public key plus category. Both bounded
+    // strings — the journal stays deliberately looser than the handler
+    // (an off-enum category can only ever block, never loosen).
+    return Object.freeze({
+      category: boundedString(value.category, 'Pending transaction rating category', 32).toUpperCase(),
+      kind: 'account-rating',
+      targetPublicKey: boundedString(value.targetPublicKey, 'Pending transaction rating target', 64),
     })
   }
   throw new Error('Pending transaction target is invalid.')
@@ -473,22 +489,44 @@ export function homeV2TransactionTargetFromRequest(action: string, value: unknow
     if (conversation?.kind === 'direct') return derivedTarget({ kind: 'direct', otherAddress: conversation.otherAddress })
     return OPERATION_TARGET
   }
-  if (action === 'PUBLISH_QDN_RESOURCE' || action === 'DELETE_QDN_RESOURCE') {
+  if (action === 'RATE_ACCOUNT') {
+    // normalizeHomeV2RateAccountRequest reads targetPublicKey + category
+    // payload-first; the journal reads the same fields leniently.
+    const payload = isRecord(value.payload) ? value.payload : null
+    const targetPublicKey = payload?.targetPublicKey ?? value.targetPublicKey
+    const category = payload?.category ?? value.category
+    if (typeof targetPublicKey === 'string' && targetPublicKey.trim() && typeof category === 'string' && category.trim()) {
+      return derivedTarget({
+        category: category.trim().toUpperCase(),
+        kind: 'account-rating',
+        targetPublicKey: targetPublicKey.trim(),
+      })
+    }
+    return OPERATION_TARGET
+  }
+  if (action === 'PUBLISH_QDN_RESOURCE' || action === 'DELETE_QDN_RESOURCE' || action === 'RATE_RESOURCE') {
     // getQdnWriteResourceRequest reads flat service/name/identifier with the
-    // payload fallback (qdn-request-values getRequestValue); the delete
-    // normalizer consumes exactly the same coordinate fields. The literal
+    // payload fallback (qdn-request-values getRequestValue); the delete and
+    // resource-rating normalizers consume the same coordinate fields. The literal
     // identifier 'default' and an absent identifier are ONE coordinate on
     // chain (the delete normalizer maps 'default' to null, and the builders
     // treat them alike), so both spellings canonicalize to null here —
     // otherwise resubmitting the same operation with the other spelling
     // would derive a different key and slip the retained block.
     const payload = isRecord(value.payload) ? value.payload : null
-    const service = payload?.service ?? value.service
-    const name = payload?.name ?? value.name
-    const identifier = payload?.identifier ?? value.identifier
-    if (typeof service === 'string' && service && typeof name === 'string' && name) {
+    // CANONICAL spelling, matching what every consumer's normalizer signs:
+    // all three fields trim (qdn-request-values getString and the rating
+    // normalizer both do), service uppercases, and a trimmed ''/'default'
+    // identifier is the null coordinate — otherwise a whitespace- or
+    // case-wrapped resubmission of the same signed operation would derive a
+    // different key and slip the retained block (ratings review round 1).
+    const trimmed = (candidate: unknown) => typeof candidate === 'string' ? candidate.trim() : ''
+    const service = trimmed(payload?.service ?? value.service).toUpperCase()
+    const name = trimmed(payload?.name ?? value.name)
+    const identifier = trimmed(payload?.identifier ?? value.identifier)
+    if (service && name) {
       return derivedTarget({
-        identifier: typeof identifier === 'string' && identifier && identifier !== 'default' ? identifier : null,
+        identifier: identifier && identifier !== 'default' ? identifier : null,
         kind: 'resource',
         name,
         service,

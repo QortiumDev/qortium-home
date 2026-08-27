@@ -772,7 +772,63 @@ the same request fields and response shapes. Two Home 2 clarifications:
   `rater` back, so defaulting it there would disclose the selected account's
   address with no chrome to announce it; a widget must pass `rater` explicitly.
 
-`RATE_RESOURCE` and `RATE_ACCOUNT` remain deferred in Home 2.
+### Rating writes (Home 2)
+
+`RATE_ACCOUNT` and `RATE_RESOURCE` are restored on `qdnRequest` only (the
+rating system is a Qortium Core addition), desktop only, as fee-free signed
+transactions built ON DEVICE with the local transformer pattern — the 1.x
+path not only used API-keyed node builders, it sent the account's PRIVATE
+KEY to the node's `/transactions/sign`; in Home 2 the key never leaves the
+process, the unsigned and nonce-stamped bytes are both verified by an
+independent field-by-field reader, and only signed bytes reach the node.
+
+**`RATE_ACCOUNT`** takes an exact 32-byte `targetPublicKey`, a `category`
+(one of Core's `SUBJECT`, `PLAYER`, `TRAINER`, `MANAGER`, case-insensitive),
+and a `rating` from `-4` to `4` where `0` REMOVES the active rating — a
+distinct operation with its own prompt caption, never a neutral score. The
+prompt leads with **who is being rated**: the address Home derives locally
+from the exact key that will be signed (an app label or a lying node can
+never substitute a different identity), the key itself, the canonical
+category, the current rating when one exists, and the change. One
+`/account-ratings/cooldown` read pre-checks three things — the target
+account exists with that stored key, the rater's active rating on the exact
+edge, and the category cooldown; an active cooldown refuses BEFORE the
+prompt, and the edge is re-read after approval. Self-rating is refused
+locally. A no-op (same rating, or removing when none exists) answers
+`changed: false` without signing — Core would refuse it as unchanged.
+
+**`RATE_RESOURCE`** takes a public rateable service (Core's internal
+`AUTO_UPDATE`, `AUTO_UPDATE_BINARY`, and `ARBITRARY_DATA` are refused), a
+3-40 byte `name`, an optional identifier (`''`/`'default'` canonicalize to
+the null wire form Core signs), and a `rating` from `1` to `10` with `0`
+removing. The signed service id comes from Home's STATIC service map — 1.x
+let the node's own catalogue pick the signed id — and the prompt shows the
+exact numeric Service ID being signed, so a stale map has nowhere to hide.
+The resource must exist and be rateable: the public rating-summary read is
+the probe (Core answers 400 for a missing, non-rateable, or non-normalized
+coordinate — Core's own Unicode-normalization rule, authoritative over
+Home's local subset check), re-run after approval. A DELETED coordinate is
+NOT refused: Core's own target resolution accepts the latest transaction
+regardless of method, so rating one is Core-valid and Home mirrors Core. The
+current rating is disclosed and re-read, and no-ops answer `changed: false`.
+
+The Current/cooldown/no-op state on both prompts is **node-reported
+preflight**, not byte-verified fact: a lying node can misstate the current
+rating, answer a false `changed: false`, claim a cooldown that suppresses a
+legitimate rating, or wave through a doomed one Core then rejects. None of
+that can alter what is signed — the target, category, coordinate, rating,
+zero fee, and zero group are all byte-bound and independently verified —
+so the residual is a wrong advisory row or a wasted/blocked attempt, and
+Core's consensus rules stay authoritative.
+
+`fee` and `txGroupId`, when present, must be 0: rating transactions are
+never group-approved, and Home pays with on-device MemoryPoW (difficulty
+from the node's public capabilities). Both prompts are single-request with
+the never-durable `rating.write` capability. Unknown broadcast outcomes
+journal — RATE_ACCOUNT under its exact target-key + category edge,
+RATE_RESOURCE under its resource coordinate — and block the same logical
+target until reconciled. Results keep the 1.x fields minus Core's `result`
+blob, plus `network`.
 
 ## Minting actions (Home 2)
 

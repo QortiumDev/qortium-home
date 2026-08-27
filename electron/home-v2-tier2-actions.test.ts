@@ -582,7 +582,7 @@ assert.throws(() => withHomeV2SelectedAddress({}, null), /Address is required/)
 
 assert.deepEqual([...HOME_V2_RATING_READ_ACTIONS], ['GET_ACCOUNT_RATING', 'GET_RESOURCE_RATING'])
 assert.ok(isHomeV2RatingReadAction('GET_ACCOUNT_RATING'))
-assert.ok(!isHomeV2RatingReadAction('RATE_ACCOUNT'), 'the rating WRITES are not restored here')
+assert.ok(!isHomeV2RatingReadAction('RATE_ACCOUNT'), 'the rating WRITES are their own family, not reads')
 assert.ok(homeV2RatingReadNeedsSelectedAddress({}))
 assert.ok(!homeV2RatingReadNeedsSelectedAddress({ rater: ACCOUNT_ADDRESS }))
 

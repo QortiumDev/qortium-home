@@ -386,4 +386,64 @@ assert.deepEqual(
   { kind: 'operation' },
 )
 
+// --- Rating writes ---
+
+// RATE_ACCOUNT keys on the exact target-key + category edge.
+assert.deepEqual(
+  homeV2TransactionTargetFromRequest('RATE_ACCOUNT', { category: 'player', targetPublicKey: ' Abc123 ' }),
+  { category: 'PLAYER', kind: 'account-rating', targetPublicKey: 'Abc123' },
+)
+assert.deepEqual(
+  homeV2TransactionTargetFromRequest('RATE_ACCOUNT', { payload: { category: 'SUBJECT', targetPublicKey: 'Real' }, category: 'MANAGER', targetPublicKey: 'Decoy' }),
+  { category: 'SUBJECT', kind: 'account-rating', targetPublicKey: 'Real' },
+)
+assert.deepEqual(homeV2TransactionTargetFromRequest('RATE_ACCOUNT', { rating: 1 }), { kind: 'operation' })
+// RATE_RESOURCE shares the resource-coordinate derivation ('default' → null)
+// but NOT the QDN resource-write conflict-action key.
+assert.deepEqual(
+  homeV2TransactionTargetFromRequest('RATE_RESOURCE', { name: 'Alice', service: 'DOCUMENT', identifier: 'default' }),
+  { kind: 'resource', identifier: null, name: 'Alice', service: 'DOCUMENT' },
+)
+// The derivation is CANONICAL: whitespace- and case-wrapped spellings of the
+// same signed coordinate derive the same key (ratings review round 1).
+assert.deepEqual(
+  homeV2TransactionTargetFromRequest('RATE_RESOURCE', { name: ' Alice ', service: ' document ', identifier: ' default ' }),
+  { kind: 'resource', identifier: null, name: 'Alice', service: 'DOCUMENT' },
+)
+assert.deepEqual(
+  homeV2TransactionTargetFromRequest('PUBLISH_QDN_RESOURCE', { name: ' Alice ', service: ' document ' }),
+  { kind: 'resource', identifier: null, name: 'Alice', service: 'DOCUMENT' },
+)
+const ratingEntry = {
+  ...entry,
+  action: 'RATE_ACCOUNT' as const,
+  target: { kind: 'account-rating' as const, category: 'SUBJECT', targetPublicKey: 'TargetKey58' },
+}
+const ratingJournal = upsertHomeV2PendingTransaction(createEmptyHomeV2TransactionJournal(), ratingEntry, now)
+assert.deepEqual(
+  findHomeV2PendingTransactionConflict(ratingJournal, conflictInput('RATE_ACCOUNT', { category: 'subject', targetPublicKey: 'TargetKey58' }), now),
+  ratingEntry,
+  'the same rated edge blocks until reconciled',
+)
+assert.equal(
+  findHomeV2PendingTransactionConflict(ratingJournal, conflictInput('RATE_ACCOUNT', { category: 'PLAYER', targetPublicKey: 'TargetKey58' }), now),
+  null,
+  'a different category is a different edge',
+)
+const resourceRatingEntry = {
+  ...entry,
+  action: 'RATE_RESOURCE' as const,
+  target: { kind: 'resource' as const, identifier: null, name: 'Alice', service: 'DOCUMENT' },
+}
+const resourceRatingJournal = upsertHomeV2PendingTransaction(createEmptyHomeV2TransactionJournal(), resourceRatingEntry, now)
+assert.deepEqual(
+  findHomeV2PendingTransactionConflict(resourceRatingJournal, conflictInput('RATE_RESOURCE', { name: 'Alice', service: 'DOCUMENT' }), now),
+  resourceRatingEntry,
+)
+assert.equal(
+  findHomeV2PendingTransactionConflict(resourceRatingJournal, conflictInput('PUBLISH_QDN_RESOURCE', { name: 'Alice', service: 'DOCUMENT' }), now),
+  null,
+  'a pending rating does not block publishing the coordinate (different operations)',
+)
+
 console.log('Home v2 pending transaction journal tests passed')

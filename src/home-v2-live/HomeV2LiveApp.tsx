@@ -206,6 +206,7 @@ import {
 import { getHomeV2BridgeStateDetails } from '../../electron/home-v2-app-runtime'
 import { canonicalHomeV2AppAction, homeV2NameOperationLabel, homeV2PollOperationLabel, homeV2PublishExtraOperationLabel, isHomeV2ListWriteAction, isHomeV2NameWriteAction, isHomeV2PollWriteAction, isHomeV2PublishExtraAction } from '../../electron/home-v2-app-actions'
 import { homeV2GroupMutationOperationLabel, isHomeV2GroupMutationAction } from '../../electron/home-v2-group-mutation-actions'
+import { homeV2RatingOperationLabel, isHomeV2RatingAction } from '../../electron/home-v2-rating-actions'
 import {
   homeV2NotificationChainLabel,
   homeV2NotificationSourceKey,
@@ -469,6 +470,22 @@ const NAME_DETAIL_SEQUENCES: Record<string, readonly { label: string; optional?:
     { label: 'New name' },
     { label: 'New data' },
     { label: 'Primary' },
+  ],
+}
+
+const RATING_DETAIL_SEQUENCES: Record<string, readonly { label: string; optional?: true }[]> = {
+  RATE_ACCOUNT: [
+    { label: 'Rated account' },
+    { label: 'Public key' },
+    { label: 'Category' },
+    { label: 'Current', optional: true },
+    { label: 'Change' },
+  ],
+  RATE_RESOURCE: [
+    { label: 'Resource' },
+    { label: 'Service ID' },
+    { label: 'Current', optional: true },
+    { label: 'Change' },
   ],
 }
 
@@ -3066,6 +3083,7 @@ export function HomeV2LiveApp() {
             !isHomeV2NameWriteAction(value.action) &&
             !isHomeV2GroupMutationAction(value.action) &&
             !isHomeV2PublishExtraAction(value.action) &&
+            !isHomeV2RatingAction(value.action) &&
             !isHomeV2GroupAdminAction(value.action))) ||
         // The manager families and the Home-settings update act on Home-profile
         // data, not on an account, so they are prompted with no account selected
@@ -3212,6 +3230,20 @@ export function HomeV2LiveApp() {
             typeof value.writeRouteLabel !== 'string' ||
             value.writeTargetChainLabel !== 'Qortium' ||
             value.writeSingleRequestOnly !== true))
+        // Rating writes sign chain transactions: fully specified
+        // single-request, protocol/chain-pinned, caption-pinned (each action
+        // has exactly two legitimate captions — rate and remove), exact
+        // per-action row sequence.
+        || (isHomeV2RatingAction(value.action) &&
+          (value.writeKind !== 'rating' ||
+            value.protocol !== 'qdnRequest' ||
+            value.targetNetwork !== 'qortium' ||
+            !isSequencedDetailRows(RATING_DETAIL_SEQUENCES[value.action], value.ratingDetails) ||
+            (value.writeOperationLabel !== homeV2RatingOperationLabel(value.action, false) &&
+              value.writeOperationLabel !== homeV2RatingOperationLabel(value.action, true)) ||
+            typeof value.writeRouteLabel !== 'string' ||
+            value.writeTargetChainLabel !== 'Qortium' ||
+            value.writeSingleRequestOnly !== true))
         // Name writes sign chain transactions and BUY_NAME pays: prompts
         // must arrive fully specified single-request, protocol/chain-pinned,
         // caption-pinned, with exactly the per-action row sequence.
@@ -3350,6 +3382,7 @@ export function HomeV2LiveApp() {
       const isGroupMutation = isHomeV2GroupMutationAction(value.action)
       const isPublishMultiple = value.action === 'PUBLISH_MULTIPLE_QDN_RESOURCES'
       const isQdnDelete = value.action === 'DELETE_QDN_RESOURCE'
+      const isRatingWrite = isHomeV2RatingAction(value.action)
       // A zero-fee chain MESSAGE to an AT. Its own prompt kind: it signs, so it
       // must never inherit the read-only account prompt's wording, its
       // 'account.read' grant family, or its session/always scopes.
@@ -3365,7 +3398,7 @@ export function HomeV2LiveApp() {
       // access". Splitting the GRANT is a separate decision, not made here.
       const accountReadPromptKind = homeV2AccountReadPromptKind(value.action)
       const isGenericAccountRead = accountReadPromptKind === 'account'
-      const operationLabel = isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment || isNotification || isBookmarkManager || isNotificationManager || isHomeSettingsUpdate || isJournalForget || isMintingWrite || isListWrite || isPollWrite || isNameWrite || isGroupMutation || isPublishMultiple || isQdnDelete || isAtMessage
+      const operationLabel = isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment || isNotification || isBookmarkManager || isNotificationManager || isHomeSettingsUpdate || isJournalForget || isMintingWrite || isListWrite || isPollWrite || isNameWrite || isGroupMutation || isPublishMultiple || isQdnDelete || isRatingWrite || isAtMessage
         ? String(value.writeOperationLabel)
         : ''
       const prompt = createPermissionPrompt({
@@ -3434,6 +3467,10 @@ export function HomeV2LiveApp() {
               // single-request only.
               : isQdnDelete
                 ? 'qdn.delete'
+              // Signs a chain transaction: its own capability, never
+              // 'account.read', single-request only.
+              : isRatingWrite
+                ? 'rating.write'
               // Its own capability, never 'account.read': that string is what
               // bridge-permissions.ts unifies durable grants on, and a signing
               // action must not be reachable through a read grant.
@@ -3477,7 +3514,7 @@ export function HomeV2LiveApp() {
             ? 'Forget pending transaction?'
           : isAtMessage
             ? 'Send a message to a contract?'
-          : isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment || isMintingWrite || isListWrite || isPollWrite || isNameWrite || isGroupMutation || isPublishMultiple || isQdnDelete
+          : isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment || isMintingWrite || isListWrite || isPollWrite || isNameWrite || isGroupMutation || isPublishMultiple || isQdnDelete || isRatingWrite
           ? `Allow ${operationLabel.toLowerCase()}?`
           : 'Allow account access?',
         summary: isWidgetPrompt
@@ -3504,6 +3541,8 @@ export function HomeV2LiveApp() {
             : `${appTitle} wants to sign and broadcast the QDN publish transactions listed below from the selected account — one per resource. They cost no fee — Home pays for each with proof-of-work on this device. Every resource, file, size and content hash is listed exactly as it will be signed; this approval covers exactly these listed transactions.`
           : isQdnDelete
           ? `${appTitle} wants to sign and broadcast one QDN deletion transaction from the selected account. Approving marks the resource below DELETED on the Qortium chain for EVERY peer — this deletes the published resource itself, not just a local copy, and only publishing it again would replace it. It costs no fee — Home pays for it with proof-of-work on this device.`
+          : isRatingWrite
+          ? `${appTitle} wants to sign and broadcast one rating transaction from the selected account. Ratings are public on the Qortium chain and attributed to this account. It costs no fee \u2014 Home pays for it with proof-of-work on this device. Everything it does is shown below, exactly as it will be signed; this approval covers this one transaction only.`
           : isNameWrite
           ? value.action === 'BUY_NAME'
             ? `${appTitle} wants to buy a name with the selected account. Approving PAYS the amount shown below from this account to the seller — the transaction fee is zero, but the payment is real. Everything is shown exactly as it will be signed; this approval covers this one purchase only.`
@@ -3612,6 +3651,18 @@ export function HomeV2LiveApp() {
               // must not be forgeable by the thing asking for one.
               { label: 'Effect', value: 'The resource is marked DELETED on chain for every peer — this is not a local-copy removal' },
               { label: 'Route', value: String(value.writeRouteLabel) },
+              { label: 'Chain', value: String(value.writeTargetChainLabel) },
+              { label: 'Scope', value: 'This one transaction only' },
+            ]
+          : isRatingWrite
+          ? [
+              { label: 'Account', value: account?.label ?? accountId },
+              { label: 'Operation', value: operationLabel },
+              // The per-action rows, re-checked against the exact sequence
+              // above. RATE_ACCOUNT's first row is the address Home derived
+              // locally from the exact key being signed.
+              ...(value.ratingDetails as readonly { label: string; value: string }[])
+                .map((detail) => ({ label: detail.label, value: detail.value })),
               { label: 'Chain', value: String(value.writeTargetChainLabel) },
               { label: 'Scope', value: 'This one transaction only' },
             ]
