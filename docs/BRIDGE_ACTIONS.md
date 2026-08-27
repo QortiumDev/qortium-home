@@ -1071,7 +1071,14 @@ signature, a non-pending transaction, or an app-supplied `groupId` that
 does not match the transaction's real group refuses before any prompt. The
 prompt also states that an opposition vote does not immediately reject the
 pending transaction (it stays pending until approved by others or it
-expires), and the transaction is re-read after approval.
+expires), and the transaction is re-read after approval with every disclosed
+field compared between the two reads. The type/creator/status rows are
+**node-reported context, not byte-verified fact**: what is signed binds only
+the pending transaction's signature (which the app supplied and the user
+sees), so a node lying consistently across both reads can mislabel the
+description of that transaction but can never change which transaction the
+vote applies to. A creator value that is not address-shaped is dropped from
+the prompt rather than painted.
 
 `UPDATE_GROUP` merges omitted fields with the live group so the prompt and
 the signed bytes always carry the **complete replacement** (with

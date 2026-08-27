@@ -20,6 +20,7 @@ const QDN_SERVICE_IDS: Readonly<Record<string, number>> = Object.freeze({
   APP: 1000,
   ATTACHMENT: 130,
   AUDIO: 600,
+  AUTO_UPDATE_BINARY: 2,
   BLOG: 700,
   BLOG_COMMENT: 778,
   BLOG_POST: 777,
