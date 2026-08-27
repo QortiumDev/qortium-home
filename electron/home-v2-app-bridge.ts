@@ -3048,6 +3048,9 @@ async function handleHomeV2PaymentAction(
           timestamp,
         })
         if (!(await isStillValid())) throw new Error('The signing context changed before the payment could be submitted.')
+        // The awaited check above can itself take time: re-assert freshness
+        // as the LAST act before the signature exists (review round 3).
+        assertPaymentFresh()
         const signedBytes = appendSignatureToTransactionBytes(unsignedBytes, signDetached(unsignedBytes, signingKey.secretKey))
         const transactionSignature = getSignatureFromSignedTransactionBytes(signedBytes)
         return await broadcastHomeV2Payment({
@@ -3186,6 +3189,9 @@ async function handleHomeV2PaymentAction(
         })
       }
       if (!(await isStillValid())) throw new Error('The signing context changed before the payment could be submitted.')
+      // Same rule as the Qortal arm: freshness is the LAST act before the
+      // signature exists (review round 3).
+      assertPaymentFresh()
       const signedBytes = appendSignatureToTransactionBytes(unsignedBytes, signDetached(unsignedBytes, signingKey.secretKey))
       const transactionSignature = getSignatureFromSignedTransactionBytes(signedBytes)
       return await broadcastHomeV2Payment({
