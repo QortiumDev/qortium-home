@@ -33,6 +33,17 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-08-27 - fix(core): stop blocking routine managed upgrades
+
+Home no longer mistakes an ordinary Core configuration or fingerprint change
+for a reason to lock the entire managed Core workflow. When the installed Core
+and existing runtime both belong to the same network, Home now refreshes its
+diagnostic chain metadata, clears any stale block notice, and keeps the database,
+QDN data, API key, reward identity, and I2P identity in place. Core remains
+responsible for validating its own repository and consensus configuration. Home
+only blocks automatic reuse when the installed release belongs to a genuinely
+different network.
+
 ### 2026-08-16 - chore(release): prepare home 1.7.0
 
 Marks a focused Home 1 maintenance release for Core 1.7.0 compatibility. Home
