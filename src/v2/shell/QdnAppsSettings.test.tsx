@@ -64,6 +64,15 @@ function initialState() {
       revision: 3,
       version: 1,
     },
+    accountEncrypt: {
+      apps: [{
+        accountId: 'wallet:QAAA',
+        appKey: 'qdn://APP/Chat/Chat',
+        grantedAt: '2026-08-28T14:00:00.000Z',
+      }],
+      revision: 3,
+      version: 1,
+    },
     notifications: {
       apps: [{
         appKey: 'qdn://APP/Notify/Notify',
@@ -131,6 +140,10 @@ const adapter: HomeV2QdnSettingsAdapter = {
         ...state.accountRead,
         revision: state.accountRead.revision + 1,
       },
+      accountEncrypt: {
+        ...state.accountEncrypt,
+        revision: state.accountEncrypt.revision + 1,
+      },
       chatSend: {
         ...state.chatSend,
         revision: state.chatSend.revision + 1,
@@ -194,6 +207,16 @@ const adapter: HomeV2QdnSettingsAdapter = {
             appKey !== request.appKey || accountId !== request.accountId)
           : state.accountRead.apps,
         revision: state.accountRead.revision + 1,
+        version: 1,
+      },
+      accountEncrypt: {
+        // Same rule as accountRead: only the named account's grant is
+        // dropped, and only when THIS capability was the one requested.
+        apps: capability === 'account.encrypt'
+          ? state.accountEncrypt.apps.filter(({ accountId, appKey }) =>
+            appKey !== request.appKey || accountId !== request.accountId)
+          : state.accountEncrypt.apps,
+        revision: state.accountEncrypt.revision + 1,
         version: 1,
       },
       chatSend: {
@@ -420,6 +443,52 @@ assert.ok(
   container.querySelector('[data-qdn-notification-grant]'),
   'revoking the manager capability must not revoke the app’s own notification grant',
 )
+
+// The durable ENCRYPT grant gets its OWN card, and revoking it must send
+// capability 'account.encrypt'. The bug this pins is a misrouted revoke: both
+// dispatch sites used to pass the literal 'account.read' for any
+// account-scoped capability, which was invisible while that was the only one
+// and would silently have revoked the wrong grant as soon as there were two —
+// leaving the card the user clicked still standing.
+const accountEncryptCard = container.querySelector('[data-qdn-account-encrypt-grant]') as HTMLElement
+assert.ok(accountEncryptCard, 'a durable account.encrypt grant must be listed in QDN Apps settings')
+assert.match(accountEncryptCard.textContent ?? '', /qdn:\/\/APP\/Chat\/Chat/)
+// Account-scoped, so the card must name the account it covers.
+assert.ok(accountEncryptCard.querySelector('[data-qdn-grant-account="true"]'))
+const revokesBeforeEncrypt = bookmarkRevokeRequests.length
+await act(async () => {
+  button('Revoke', accountEncryptCard).click()
+})
+assert.equal(
+  bookmarkRevokeRequests.length,
+  revokesBeforeEncrypt,
+  'encrypt-grant revoke must require confirmation',
+)
+const accountEncryptConfirmation = accountEncryptCard
+  .querySelector('[data-qdn-account-encrypt-revoke-confirm="true"]') as HTMLElement
+assert.ok(accountEncryptConfirmation)
+await act(async () => {
+  button('Revoke', accountEncryptConfirmation).click()
+  await settle()
+})
+// bookmarkRevokeRequests is unknown[], so the request is narrowed here rather
+// than compared whole: the expected revision at this point depends on every
+// revoke before it, and hardcoding it would break for reasons unrelated to
+// what this assertion is about.
+const encryptRevoke = bookmarkRevokeRequests[revokesBeforeEncrypt] as {
+  accountId?: string
+  appKey?: string
+  capability?: string
+}
+assert.equal(
+  encryptRevoke.capability,
+  'account.encrypt',
+  'the encryption card must revoke account.encrypt, never account.read',
+)
+assert.equal(encryptRevoke.accountId, 'wallet:QAAA')
+assert.equal(encryptRevoke.appKey, 'qdn://APP/Chat/Chat')
+assert.equal(container.querySelector('[data-qdn-account-encrypt-grant]'), null)
+
 
 const grantCard = container.querySelector('[data-qdn-notification-grant]') as HTMLElement
 assert.match(grantCard.textContent ?? '', /qdn:\/\/APP\/Notify\/Notify/)

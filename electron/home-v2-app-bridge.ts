@@ -1604,6 +1604,19 @@ async function requireAccountReadPermission(
   if (chatSendGrantable && appGrantKey && hasQdnAppCapability(appGrantKey, 'chat.send')) {
     return
   }
+  // The durable ENCRYPT grant. Account-scoped like the read grant below, and
+  // checked against the SAME (principal, selected account) pair, so a grant
+  // approved under one account cannot cover another. Gated on the action name
+  // rather than on writeDetails.kind: nothing else may ever reach a signing
+  // or reading arm through this capability.
+  if (
+    action === 'ENCRYPT_DATA' &&
+    !singleRequestOnly &&
+    appGrantKey &&
+    hasQdnAccountCapability(appGrantKey, context.accountId, 'account.encrypt')
+  ) {
+    return
+  }
   // The durable read grant is checked against BOTH the canonical resource
   // principal and the currently selected account:
   // - hasQdnAccountCapability resolves the principal through
@@ -1923,6 +1936,30 @@ async function requireAccountReadPermission(
         appGrantKey,
         grantAccountId,
         durableAccountReadCapability,
+      ),
+    })) return
+  }
+  // The durable ENCRYPT grant, on the same terms as the read grant above:
+  // gated on the ACTION rather than on the scope alone, bound to the app and
+  // the selected account, and falling through to the session grant if the
+  // write does not stick. Kept a separate block rather than folded into
+  // durableAccountReadCapability, because that helper answers only for the
+  // read family and must keep doing so — collapsing them is exactly how an
+  // 'always allow' for reading would start covering use of the key.
+  if (
+    decision.scope === 'always' &&
+    action === 'ENCRYPT_DATA' &&
+    !singleRequestOnly &&
+    appGrantKey &&
+    grantAccountId
+  ) {
+    if (persistDurableGrant({
+      capability: 'account.encrypt',
+      isHeld: () => hasQdnAccountCapability(appGrantKey, grantAccountId, 'account.encrypt'),
+      write: () => grantQdnAccountCapabilityPermission(
+        appGrantKey,
+        grantAccountId,
+        'account.encrypt',
       ),
     })) return
   }

@@ -93,8 +93,15 @@ const service = createHomeV2QdnSettingsService({
     // the bookmarks grant instead. An account-scoped capability must also
     // arrive with the account it belongs to.
     if (accountId !== null) {
-      assert.equal(capability, 'account.read')
-      assignments = revokeQdnAccountCapability(assignments, appKey, accountId, 'account.read')
+      // Whichever account-scoped capability was requested — NOT a hardcoded
+      // one. The real bridge passed the literal 'account.read' here, which
+      // was invisible while that was the only account-scoped capability and
+      // silently revoked the wrong grant once there were two.
+      assert.ok(
+        capability === 'account.read' || capability === 'account.encrypt',
+        'an account-scoped revoke must name an account-scoped capability',
+      )
+      assignments = revokeQdnAccountCapability(assignments, appKey, accountId, capability)
       return assignments
     }
     assignments = revokeQdnAppCapability(assignments, appKey, capability)
@@ -450,5 +457,42 @@ let authorized = false
 const handlers = createAuthorizedHomeV2QdnSettingsHandlers(() => { authorized = true }, service)
 assert.throws(() => handlers.setAssignment({} as never, { malformed: true }), /exact/)
 assert.equal(authorized, true)
+
+// --- account.encrypt is revocable, account-scoped, and independent --------
+{
+  const app = 'qdn://APP/Chat/Chat'
+  assignments = grantQdnAccountCapability(assignments, app, READ_ACCOUNT_A, 'account.encrypt')
+  assignments = grantQdnAccountCapability(assignments, app, READ_ACCOUNT_A, 'account.read')
+
+  // Account-scoped: a revoke that does not name the account is refused rather
+  // than guessing which one to drop.
+  assert.throws(() => service.revokeBookmarks({
+    appKey: app,
+    capability: 'account.encrypt',
+    expectedAssignmentRevision: assignments.revision,
+    revision: 1,
+    schema: 'home-v2-qdn-settings-revoke-bookmarks-request',
+  }), /requires the account/)
+
+  const afterEncryptRevoke = service.revokeBookmarks({
+    accountId: READ_ACCOUNT_A,
+    appKey: app,
+    capability: 'account.encrypt',
+    expectedAssignmentRevision: assignments.revision,
+    revision: 1,
+    schema: 'home-v2-qdn-settings-revoke-bookmarks-request',
+  })
+  assert.equal(
+    afterEncryptRevoke.accountEncrypt.apps.some(({ accountId }) => accountId === READ_ACCOUNT_A),
+    false,
+    'the encryption grant is dropped',
+  )
+  // The whole point: revoking the KEY grant must leave the READ grant alone.
+  assert.equal(
+    afterEncryptRevoke.accountRead.apps.some(({ accountId }) => accountId === READ_ACCOUNT_A),
+    true,
+    'revoking account.encrypt must not drop account.read',
+  )
+}
 
 console.log('Home 2 QDN settings contract tests passed.')

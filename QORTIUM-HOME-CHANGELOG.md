@@ -34,6 +34,30 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-28 - feat(apps): let an app keep permission to encrypt, and take it back
+
+When an app asks to encrypt something with your account key, you could already
+allow it once or for as long as the tab stays open. You can now also allow it
+permanently, and every app you have allowed appears in Settings under QDN Apps
+with a Revoke button beside it.
+
+Permanent permission is offered here and not for signing or sending because
+encrypting cannot reveal anything: the app gets back only the encrypted result,
+and it still has to ask you separately before it can send or publish it.
+
+The permission is tied to one account. Allowing an app for one account does not
+allow it for another, and each card in Settings says which account it covers.
+
+Allowing an app to encrypt is also kept entirely separate from allowing an app
+to read your account. Neither implies the other, and revoking one leaves the
+other exactly as it was.
+
+While adding this we found and fixed a related fault that had not yet had a
+chance to cause harm. Taking back an account-specific permission always acted
+on read access, whichever permission you had actually clicked. With only one
+such permission in existence this was invisible; with two it would have taken
+away the wrong one and left the button you pressed looking untouched.
+
 ### 2026-08-28 - fix(apps): encryption did not work on Android at all
 
 The encryption support added earlier today worked on the desktop and failed
