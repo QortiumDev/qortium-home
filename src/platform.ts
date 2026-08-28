@@ -226,6 +226,10 @@ import {
   sanitizeQdnNotificationSubscriptions,
 } from '../electron/notification-rules';
 import { arbitraryRawToSigningBytes } from '../electron/arbitrary-tx';
+import {
+  normalizeHomeV2PublishMultipleRequest,
+  normalizeHomeV2QdnDeleteRequest,
+} from '../electron/home-v2-publish-extras-contract';
 import { fetchBoundedBytes } from '../electron/bounded-response';
 import {
   attestPublicQdnPublish,
@@ -14137,6 +14141,106 @@ function homeV2IdempotentGroupAdminResult(
  * rating that moved underneath the approval refuses rather than being replaced
  * by a change the user never saw.
  */
+/**
+ * Publishes one Qortium QDN deletion tombstone on Android.
+ *
+ * Mirrors deleteHomeV2QortiumResource: stage through Core's KEYLESS public
+ * delete builder, verify the exact tombstone form field by field (method 2,
+ * zero secret, no compression, raw data type, zero data length, zero raw size,
+ * no metadata hash) against the approved coordinate, MemoryPoW, then sign the
+ * ARBITRARY signing form. The account key never leaves this function.
+ */
+async function deleteAndroidHomeV2QortiumResource(input: {
+  readonly address: string;
+  readonly isStillValid: () => Promise<boolean>;
+  readonly nodeApiUrl: string;
+  readonly requestValue: Record<string, unknown>;
+  readonly signingKey: { address: string; publicKey58: string; secretKey: Uint8Array };
+  readonly validateTarget: () => Promise<void>;
+}) {
+  const { address, isStillValid, nodeApiUrl, requestValue, signingKey, validateTarget } = input;
+  if (signingKey.address !== address) {
+    throw new Error('The selected account changed before the deletion could be signed.');
+  }
+  const request = normalizeHomeV2QdnDeleteRequest(requestValue);
+  const resource = {
+    identifier: request.identifier ?? undefined,
+    name: request.name,
+    service: request.service,
+    tags: [] as string[],
+  };
+  const started = Date.now();
+  const staged = await postLocalNodeText(
+    nodeApiUrl,
+    `${buildQdnPublicDeletePath(resource)}`,
+    '',
+    '',
+    'Qortium QDN delete staging failed.',
+    'text/plain',
+    CHAT_SIGNING_RESPONSE_MAX_BYTES,
+    true,
+  );
+  if (!(await isStillValid())) throw new Error('The app, account, or node route changed before QDN delete verification.');
+  const unsignedBytes = base58Decode(staged.body.trim());
+  assertPublicArbitraryTransaction(unsignedBytes, {
+    identifier: request.identifier && request.identifier !== 'default' ? request.identifier : undefined,
+    method: 2,
+    name: request.name,
+    publicKey: base58Decode(signingKey.publicKey58),
+    service: getStaticQdnServiceId(request.service),
+    txGroupId: 0,
+  });
+  const signingBytes = arbitraryRawToSigningBytes(unsignedBytes);
+  const nonce = await computeChatNonce(signingBytes, ARBITRARY_POW_DIFFICULTY, isStillValid);
+  if (!(await isStillValid())) throw new Error('The app, account, or node route changed before QDN delete signing.');
+  await validateTarget();
+  if (!(await isStillValid())) throw new Error('The app, account, or node route changed before QDN delete signing.');
+  const rawWithNonce = stampTransactionNonce(unsignedBytes, nonce);
+  const signingWithNonce = stampTransactionNonce(signingBytes, nonce);
+  const signedBytes = appendSignatureToTransactionBytes(
+    rawWithNonce,
+    nacl.sign.detached(signingWithNonce, signingKey.secretKey),
+  );
+  const transactionSignature = getSignatureFromSignedTransactionBytes(signedBytes);
+  const identity = Object.freeze({
+    identifier: request.identifier,
+    name: request.name,
+    service: request.service,
+  });
+  try {
+    await postLocalNodeText(
+      nodeApiUrl,
+      '/transactions/process?apiVersion=2',
+      base58Encode(signedBytes),
+      '',
+      'Qortium QDN delete broadcast failed.',
+      'text/plain',
+      CHAT_SIGNING_RESPONSE_MAX_BYTES,
+      true,
+    );
+    return Object.freeze({
+      accepted: true,
+      action: 'DELETE_QDN_RESOURCE' as const,
+      network: 'qortium' as const,
+      resource: identity,
+      transactionSignature,
+    });
+  } catch (error) {
+    return Object.freeze({
+      accepted: false,
+      action: 'DELETE_QDN_RESOURCE' as const,
+      error: error instanceof Error ? error.message : 'QDN delete broadcast outcome is unknown.',
+      errorType: 'BROADCAST_UNKNOWN' as const,
+      network: 'qortium' as const,
+      outcome: 'unknown' as const,
+      resource: identity,
+      retryable: false as const,
+      timestamp: started,
+      transactionSignature,
+    });
+  }
+}
+
 async function signAndroidHomeV2QortiumRatingWrite(input: {
   readonly action: HomeV2RatingAction;
   readonly address: string;
@@ -16179,6 +16283,21 @@ export function createAndroidHomeV2VaultClient(): HomeV2VaultClient {
     },
     async deriveAddressFromPublicKey(publicKey58) {
       return publicKeyToAddress(base58Decode(publicKey58));
+    },
+    async deleteQdnResource(request) {
+      const signingKey = await getAccountSecretKey(request.accountId);
+      try {
+        return await deleteAndroidHomeV2QortiumResource({
+          address: request.approvedAddress,
+          isStillValid: async () => (await request.isStillValid()) === true,
+          nodeApiUrl: request.nodeApiUrl,
+          requestValue: request.requestValue,
+          signingKey,
+          validateTarget: request.validateTarget,
+        });
+      } finally {
+        signingKey.secretKey.fill(0);
+      }
     },
     async signRatingWrite(request) {
       const signingKey = await getAccountSecretKey(request.accountId);

@@ -294,6 +294,20 @@ export interface HomeV2VaultClient {
    */
   deriveAddressFromPublicKey?(publicKey58: string): Promise<string>
   /**
+   * Publishes the on-chain DELETION TOMBSTONE for one Qortium QDN resource.
+   *
+   * This is permanent and visible to every peer — it is not a local-copy
+   * removal — so it carries its own capability and its own approval.
+   */
+  deleteQdnResource?(request: {
+    readonly accountId: string
+    readonly approvedAddress: string
+    readonly isStillValid: () => boolean | Promise<boolean>
+    readonly nodeApiUrl: string
+    readonly requestValue: Record<string, unknown>
+    readonly validateTarget: () => Promise<void>
+  }): Promise<unknown>
+  /**
    * Signs one Qortium rating write (RATE_ACCOUNT / RATE_RESOURCE). Local
    * transformer, so the vault verifies both the unstamped and the stamped
    * bytes, and holds the signature to the rating state the prompt disclosed.

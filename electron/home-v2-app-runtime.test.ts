@@ -550,7 +550,11 @@ for (const action of ['GET_ALL_LISTS', 'GET_LIST', 'ADD_TO_LIST', 'REMOVE_FROM_L
   // so their Android arm additionally verifies the stamped bytes.
   'CREATE_GROUP', 'UPDATE_GROUP', 'GROUP_APPROVAL', 'SET_GROUP', 'SET_GROUP_AVATAR',
   // Ratings and the account avatar are local transformers too.
-  'RATE_ACCOUNT', 'RATE_RESOURCE', 'SET_ACCOUNT_AVATAR']) {
+  'RATE_ACCOUNT', 'RATE_RESOURCE', 'SET_ACCOUNT_AVATAR',
+  // The publishing extras: the batch became possible once the Android publish
+  // source store gained a total byte budget, and the tombstone is one signed
+  // transaction like any other.
+  'PUBLISH_MULTIPLE_QDN_RESOURCES', 'DELETE_QDN_RESOURCE']) {
   assert.equal(androidActions.includes(action), true, `android must advertise ${action}`)
 }
 // SEND_MESSAGE and the signing families stay filtered: no Android arm yet, and
