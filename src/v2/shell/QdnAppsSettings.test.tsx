@@ -471,12 +471,22 @@ await act(async () => {
   button('Revoke', accountEncryptConfirmation).click()
   await settle()
 })
+// bookmarkRevokeRequests is unknown[], so the request is narrowed here rather
+// than compared whole: the expected revision at this point depends on every
+// revoke before it, and hardcoding it would break for reasons unrelated to
+// what this assertion is about.
+const encryptRevoke = bookmarkRevokeRequests[revokesBeforeEncrypt] as {
+  accountId?: string
+  appKey?: string
+  capability?: string
+}
 assert.equal(
-  bookmarkRevokeRequests[revokesBeforeEncrypt].capability,
+  encryptRevoke.capability,
   'account.encrypt',
   'the encryption card must revoke account.encrypt, never account.read',
 )
-assert.equal(bookmarkRevokeRequests[revokesBeforeEncrypt].accountId, 'wallet:QAAA')
+assert.equal(encryptRevoke.accountId, 'wallet:QAAA')
+assert.equal(encryptRevoke.appKey, 'qdn://APP/Chat/Chat')
 assert.equal(container.querySelector('[data-qdn-account-encrypt-grant]'), null)
 
 
