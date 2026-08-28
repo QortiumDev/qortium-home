@@ -100,7 +100,7 @@ public class QdnRenderProxyTest {
     // Round 6 (owner-directed redesign): isAuthorizedAppResource is what
     // remains of round 4/5's isSameActiveAppTabResource — the coarser
     // name/identifier containment for DATA reads (RENDER-as-plain-content and
-    // PUBLIC_ARBITRARY), NOT the token/injection/CSP-strip security gate
+    // PUBLIC_ARBITRARY), NOT the token/injection security gate
     // (that is now isExactAuthorizedRenderDocument, tested below). The
     // initialPathname exemption is GONE — there is no third parameter and no
     // exemption branch to test; the exact-URL gate makes it unnecessary (the

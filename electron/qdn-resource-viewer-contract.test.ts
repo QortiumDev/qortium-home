@@ -315,9 +315,41 @@ assert(
   'fetchUpstream must take the stream-capability policy as a parameter (resolved once) rather than re-deriving it.',
 );
 assert(
-  androidWebViewClient.includes('setInstanceFollowRedirects(!streamCapability)') &&
+  // Redirects are never followed automatically. The stream routes refuse EVERY
+  // redirect (stricter, and pre-existing); the app routes follow at most a
+  // bounded number of hops and only back to the origin Home authorized, so a
+  // node cannot 302 the proxy into the user's loopback or LAN.
+  androidWebViewClient.includes('setInstanceFollowRedirects(false)') &&
+    !androidWebViewClient.includes('setInstanceFollowRedirects(true)') &&
+    !androidWebViewClient.includes('setInstanceFollowRedirects(!streamCapability)') &&
+    /if \(streamCapability\) \{\s*connection\.disconnect\(\);\s*return null;/.test(
+      androidWebViewClient,
+    ) &&
+    androidWebViewClient.includes('if (!isSameOrigin(authorized, next)) {') &&
+    androidWebViewClient.includes('MAX_UPSTREAM_REDIRECTS') &&
     androidWebViewClient.includes('new ByteLimitInputStream('),
-  'Android stream capabilities must refuse redirects and bound undeclared response bodies.',
+  'Android stream capabilities must refuse redirects, app routes must follow only bounded same-origin redirects, and undeclared response bodies must stay bounded.',
+)
+
+// The Android bridged-document sandbox is applied UNCONDITIONALLY. Making it
+// conditional on the upstream policy — the shape this file previously pinned —
+// let a hostile node suppress it by sending a permissive policy of its own.
+assert(
+  androidWebViewClient.includes('upstreamPolicies.add(HOME_QDN_MINIMUM_POLICY);') &&
+    !androidWebViewClient.includes('upstreamPolicies.isEmpty()\n            ? HOME_QDN_MINIMUM_POLICY') &&
+    ["form-action 'self'", "base-uri 'self'", "object-src 'none'", "webrtc 'block'"].every(
+      (directive) => androidWebViewClient.includes(directive),
+    ),
+  'The Android bridged-document CSP baseline must be unconditional and cover the directives that do not fall back to default-src.',
+)
+
+// CSP reporting is an egress channel the browser drives, so connect-src does
+// not govern it; the headers and directives must not survive the proxy.
+assert(
+  ['Content-Security-Policy-Report-Only', 'Reporting-Endpoints', 'Report-To', 'NEL'].every(
+    (header) => androidWebViewClient.includes(`"${header}"`),
+  ) && androidWebViewClient.includes('withoutReportingDirectives'),
+  'The Android proxy must strip CSP reporting headers and reporting directives.',
 );
 assert(
   homeV2DesktopStream.includes("redirect: 'error'") &&

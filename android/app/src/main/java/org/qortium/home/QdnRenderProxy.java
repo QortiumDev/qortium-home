@@ -149,9 +149,9 @@ final class QdnRenderProxy {
      *       #normalizePathnameFromSegments}, {@link #normalizeQuery}) exact
      *       document identity {@link #isExactAuthorizedRenderDocument} checks
      *       a RENDER document request against. This is the round-6 security
-     *       gate: the live signing/account-read bridge token is carried, and
-     *       the response is injected/CSP-stripped, ONLY for a request whose
-     *       normalized URL equals this exactly.</li>
+     *       gate: the live signing/account-read bridge token is carried and
+     *       the response is injected ONLY for a request whose normalized URL
+     *       equals this exactly. CSP remains enforced for every document.</li>
      *   <li>{@code name}/{@code identifier} — the coarser app-resource
      *       identity {@link #isAuthorizedAppResource} still checks for
      *       PUBLIC_ARBITRARY (data) reads, preserving round 4's containment
@@ -246,8 +246,8 @@ final class QdnRenderProxy {
     /**
      * @param authorizedDocumentUrl the tab's SHELL-computed, trusted render
      *     document URL (AppTabStage.tsx's {@code resolved.url}) — the sole
-     *     document this origin will ever carry the live bridge token / inject
-     *     / CSP-strip for (see {@link AuthorizedDocument}) — or null/blank
+     *     document this origin will ever carry the live bridge token and
+     *     inject (see {@link AuthorizedDocument}) — or null/blank
      *     when this authorization carries no per-tab document to enforce (v1's
      *     own non-Home-v2 QDN viewing, or a homeV2 origin authorized outside an
      *     app tab's launch — every check below then fails closed).
@@ -573,7 +573,7 @@ final class QdnRenderProxy {
 
     /**
      * Round 6: the actual security gate for the live signing/account-read
-     * bridge token, script injection, and Content-Security-Policy removal —
+     * bridge token and script injection —
      * {@link org.qortium.home.QdnBridgeWebViewClient#shouldCarryBridgeToken}
      * uses this directly (and {@code shouldOverrideUrlLoading} uses it to
      * refuse the doomed navigation outright so it never even loads).
@@ -591,8 +591,9 @@ final class QdnRenderProxy {
      * via path or query, a different app entirely, a non-APP service, or the
      * SAME app/identifier's own deeper in-app sub-route reached by a hard
      * (non-SPA) navigation — fails the comparison and gets neither the token
-     * nor injection nor a stripped CSP, regardless of how "close" it looks to
-     * the authorized resource.
+     * nor injection, regardless of how "close" it looks to the authorized
+     * resource. CSP remains independently enforced for both eligible and
+     * ineligible documents.
      *
      * <p>{@link #normalizeQuery} ignores exactly the query params that can
      * never distinguish one app resource from another (this proxy's own

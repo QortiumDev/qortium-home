@@ -2873,7 +2873,7 @@ function testGrantIdentityAndSendRateLimitHardening(): void {
   assert.match(appTabStage, /navigated away from its launch resource/)
   assert.match(renderPathIdentity, /export function isSameRenderResourcePath/)
   // Round 6 (owner-directed redesign, ending the round-2/4/5
-  // identifier-confusion class): the bridge token / injection / CSP-strip
+  // identifier-confusion class): the bridge token / injection
   // gate no longer compares identifiers AT ALL — the tab's EXACT
   // shell-computed render document URL (resolved.url, with the constant
   // homeV2Bridge marker folded in BEFORE either the authorize() call or the

