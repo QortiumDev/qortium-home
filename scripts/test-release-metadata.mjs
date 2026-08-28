@@ -8,7 +8,10 @@ import { findForbiddenProductionEntry } from './packaged-entry-policy.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const expectedVersion = '2.1.0';
-const expectedAndroidVersionCode = 39;
+// 40 is permanently occupied by the published Home 1.7.1 emergency APK, which
+// shipped from maint/home-1.x while 2.1 was in development. Codes are global to
+// the package, so 2.1 skips it rather than colliding with a release users have.
+const expectedAndroidVersionCode = 41;
 const expectedPlatformVersion = '2.1';
 
 function read(relativePath) {

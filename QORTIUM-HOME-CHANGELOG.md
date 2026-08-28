@@ -34,6 +34,25 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-27 - fix(core): stop blocking routine managed upgrades (from Home 1.7.1)
+
+Home no longer mistakes an ordinary Core configuration or fingerprint change for
+a reason to lock the entire managed Core workflow. When the installed Core and
+the existing runtime both belong to the same network, Home refreshes its
+diagnostic chain metadata, clears any stale block notice, and keeps the
+database, QDN data, API key, reward identity, and I2P identity in place. Core
+remains responsible for validating its own repository and consensus
+configuration; Home only blocks automatic reuse when the installed release
+belongs to a genuinely different network.
+
+This is the fix that shipped as the emergency Home 1.7.1 release, ported to the
+2.1 line. The 1.7.1 release's own version changes are deliberately not carried
+over — only the runtime policy and its regression coverage.
+
+Android `versionCode` also moves from 39 to 41. Code 40 belongs permanently to
+the published 1.7.1 APK, and version codes are global to the package, so 2.1
+skips it rather than colliding with a build users already have installed.
+
 ### 2026-08-27 - feat(home-v2): polls and names work on Android
 
 Polls and names now work on your phone. Creating a poll, voting in one,
