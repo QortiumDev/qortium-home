@@ -17,7 +17,7 @@ import {
   buildHomeV2RatingReadResult,
   buildHomeV2ResourcePath,
   buildHomeV2ResourceRenderPath,
-  canonicalHomeV2AppAction,
+  resolveHomeV2AppAlias,
   getHomeV2AppActions,
   getHomeV2AppNetwork,
   homeV2ChainReadNeedsSelectedAddress,
@@ -1230,11 +1230,13 @@ export function createPortableNodeClient(
     },
     async requestApp(protocol, requestValue, context) {
       if (!isHomeV2AppRecord(requestValue)) throw new Error('App requests must be objects.')
-      const request = requestValue
-      // Collapse a compatibility alias onto the action that implements it
-      // before anything else looks at `action`, so this host gates, dispatches
-      // and reports it exactly as the desktop bridge does.
-      const action = canonicalHomeV2AppAction(normalizeHomeV2AppAction(request), request)
+      // Collapse a compatibility alias onto the action that implements it —
+      // and onto the REQUEST that action expects — before anything else looks
+      // at either, so this host gates, dispatches and reports exactly as the
+      // desktop bridge does.
+      const alias = resolveHomeV2AppAlias(normalizeHomeV2AppAction(requestValue), requestValue)
+      const action = alias.action
+      const request = alias.request
       const network = getHomeV2AppNetwork(protocol, action)
       const selectedSettings = await readSettings(network)
       const selectedNode = await summary(network, selectedSettings)

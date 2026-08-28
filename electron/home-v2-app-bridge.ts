@@ -96,7 +96,7 @@ import {
   buildHomeV2RatingReadResult,
   buildHomeV2ResourcePath,
   buildHomeV2ResourceRenderPath,
-  canonicalHomeV2AppAction,
+  resolveHomeV2AppAlias,
   getHomeV2AppActions,
   getHomeV2AppNetwork,
   HOME_V2_APP_LIMITS,
@@ -9858,7 +9858,15 @@ async function handleRequest(
     // Collapse a compatibility alias onto the action that implements it before
     // anything else looks at `action`, so the catalogue gate, the network
     // choice, permission keys and error reports all see one canonical name.
-    action = canonicalHomeV2AppAction(normalizeHomeV2AppAction(requestValue), requestValue)
+    // Resolves the action AND the request together: the Qortal-compatibility
+    // aliases rewrite the request shape, so renaming without rewriting would
+    // fail deep inside the canonical handler.
+    const alias = resolveHomeV2AppAlias(
+      normalizeHomeV2AppAction(requestValue),
+      isHomeV2AppRecord(requestValue) ? requestValue : {},
+    )
+    action = alias.action
+    const aliasedRequest: Record<string, unknown> = alias.request
     const network = getHomeV2AppNetwork(protocol, action)
     const [qortalNode, qortiumNode] = await Promise.all([
       getHomeV2AppNodeState('qortal'),
@@ -9912,7 +9920,10 @@ async function handleRequest(
         action,
         appIdentity: homeV2AppIdentityKey(context),
         network,
-        request: requestValue,
+        // The ALIASED request: the journal key must describe the canonical
+        // action's target, and an alias that rewrote the shape would otherwise
+        // be keyed on fields the canonical action never sees.
+        request: aliasedRequest,
       })
       if (pending) {
         throw createHomeV2BridgeError(
@@ -9932,7 +9943,7 @@ async function handleRequest(
       sender,
       context,
       protocol,
-      requestValue,
+      aliasedRequest,
       action,
       hostInfo,
       contextualActions,

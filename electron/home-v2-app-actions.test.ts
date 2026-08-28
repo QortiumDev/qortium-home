@@ -8,9 +8,10 @@ import {
   buildHomeV2NamePath,
   buildHomeV2ResourcePath,
   buildHomeV2ResourceRenderPath,
-  canonicalHomeV2AppAction,
+  resolveHomeV2AppAlias,
   getHomeV2AppActions,
   homeV2AppAddressNamesIdentifier,
+  HOME_V2_QORTAL_COMPAT_ALIASES,
   HOME_V2_RESOURCE_VIEWER_ALIASES,
   normalizeHomeV2ChatMessageText,
   canonicalHomeV2VoteSelection,
@@ -824,29 +825,29 @@ assert.deepEqual(
   ['OPEN_QDN_DOCUMENT_VIEWER', 'OPEN_QDN_MEDIA_PLAYER'],
 )
 assert.equal(
-  canonicalHomeV2AppAction('OPEN_QDN_MEDIA_PLAYER', { name: 'Alice', service: 'VIDEO' }),
+  resolveHomeV2AppAlias('OPEN_QDN_MEDIA_PLAYER', { name: 'Alice', service: 'VIDEO' }).action,
   'OPEN_QDN_RESOURCE_VIEWER',
 )
 assert.equal(
-  canonicalHomeV2AppAction('OPEN_QDN_DOCUMENT_VIEWER', { name: 'Alice', service: 'DOCUMENT' }),
+  resolveHomeV2AppAlias('OPEN_QDN_DOCUMENT_VIEWER', { name: 'Alice', service: 'DOCUMENT' }).action,
   'OPEN_QDN_RESOURCE_VIEWER',
 )
 // Service matching is case- and whitespace-insensitive, and reads a nested
 // `payload` the same way the viewer contract's getRequestValue does.
 assert.equal(
-  canonicalHomeV2AppAction('OPEN_QDN_MEDIA_PLAYER', {
+  resolveHomeV2AppAlias('OPEN_QDN_MEDIA_PLAYER', {
     payload: { name: 'Alice', service: ' audio ' },
-  }),
+  }).action,
   'OPEN_QDN_RESOURCE_VIEWER',
 )
 // Each alias keeps the NARROWER service scope its Home 1.x handler enforced:
 // an alias must never reach a resource the action it replaced refused.
 assert.throws(
-  () => canonicalHomeV2AppAction('OPEN_QDN_MEDIA_PLAYER', { name: 'Alice', service: 'DOCUMENT' }),
+  () => resolveHomeV2AppAlias('OPEN_QDN_MEDIA_PLAYER', { name: 'Alice', service: 'DOCUMENT' }).action,
   /OPEN_QDN_MEDIA_PLAYER only supports AUDIO, PODCAST, VIDEO, VOICE resources/,
 )
 assert.throws(
-  () => canonicalHomeV2AppAction('OPEN_QDN_DOCUMENT_VIEWER', { name: 'Alice', service: 'VIDEO' }),
+  () => resolveHomeV2AppAlias('OPEN_QDN_DOCUMENT_VIEWER', { name: 'Alice', service: 'VIDEO' }).action,
   /OPEN_QDN_DOCUMENT_VIEWER only supports ATTACHMENT, DOCUMENT, FILE, FILES resources/,
 )
 // APP/WEBSITE/GAME stay out through both aliases too: neither scope contains
@@ -854,7 +855,7 @@ assert.throws(
 for (const service of ['APP', 'WEBSITE', 'GAME']) {
   for (const action of HOME_V2_RESOURCE_VIEWER_ALIASES) {
     assert.throws(
-      () => canonicalHomeV2AppAction(action, { name: 'Alice', service }),
+      () => resolveHomeV2AppAlias(action, { name: 'Alice', service }),
       /only supports/,
       `${action} must refuse ${service}.`,
     )
@@ -862,11 +863,11 @@ for (const service of ['APP', 'WEBSITE', 'GAME']) {
 }
 // A missing or non-string service is rejected before the alias resolves.
 assert.throws(
-  () => canonicalHomeV2AppAction('OPEN_QDN_MEDIA_PLAYER', { name: 'Alice' }),
+  () => resolveHomeV2AppAlias('OPEN_QDN_MEDIA_PLAYER', { name: 'Alice' }).action,
   /QDN resource service is required/,
 )
 assert.throws(
-  () => canonicalHomeV2AppAction('OPEN_QDN_DOCUMENT_VIEWER', { name: 'Alice', service: 42 }),
+  () => resolveHomeV2AppAlias('OPEN_QDN_DOCUMENT_VIEWER', { name: 'Alice', service: 42 }).action,
   /QDN resource service is required/,
 )
 // Every non-alias action passes through untouched, including the canonical one.
@@ -877,7 +878,70 @@ for (const action of [
   'GET_BALANCE',
   'SEND_CHAT_MESSAGE',
 ]) {
-  assert.equal(canonicalHomeV2AppAction(action, { service: 'APP' }), action)
+  const resolved = resolveHomeV2AppAlias(action, { service: 'APP' })
+  assert.equal(resolved.action, action)
+  // A non-alias must pass its request through untouched, not merely keep its
+  // name: the resolver is the one place that rewrites request shape.
+  assert.deepEqual(resolved.request, { service: 'APP' })
+}
+
+// --- Qortal-compatibility aliases -----------------------------------------
+// Each maps onto a capability Home already implements, adding none of its own.
+assert.deepEqual([...HOME_V2_QORTAL_COMPAT_ALIASES], ['LINK_TO_QDN_RESOURCE', 'SAVE_FILE'])
+
+// SAVE_FILE is SAVE_QDN_RESOURCE with the coordinate nested under `location`.
+// It takes a QDN COORDINATE, not a blob (verified against Qortal's Q-Sandbox).
+assert.deepEqual(
+  resolveHomeV2AppAlias('SAVE_FILE', {
+    filename: 'notes.txt',
+    location: { identifier: 'default', name: 'Alice', service: 'DOCUMENT' },
+  }),
+  {
+    action: 'SAVE_QDN_RESOURCE',
+    request: { filename: 'notes.txt', identifier: 'default', name: 'Alice', service: 'DOCUMENT' },
+  },
+)
+// The coordinate is built from `location` ALONE. A top-level name or service
+// alongside it must not be able to disagree with what actually gets saved.
+assert.deepEqual(
+  resolveHomeV2AppAlias('SAVE_FILE', {
+    location: { name: 'Alice', service: 'DOCUMENT' },
+    name: 'Mallory',
+    service: 'WEBSITE',
+  }).request,
+  { name: 'Alice', service: 'DOCUMENT' },
+)
+assert.throws(
+  () => resolveHomeV2AppAlias('SAVE_FILE', { filename: 'notes.txt' }),
+  /requires a location/,
+  'SAVE_FILE without a location refuses rather than saving something unspecified',
+)
+
+// LINK_TO_QDN_RESOURCE is OPEN_NEW_TAB with the coordinate as fields; Qortal's
+// own docs say it works "similar to the OPEN_NEW_TAB qortalRequest".
+assert.deepEqual(
+  resolveHomeV2AppAlias('LINK_TO_QDN_RESOURCE', {
+    identifier: 'Apps',
+    name: 'Alice',
+    service: 'app',
+  }),
+  { action: 'OPEN_NEW_TAB', request: { address: 'qdn://APP/Alice/Apps' } },
+)
+assert.equal(
+  resolveHomeV2AppAlias('LINK_TO_QDN_RESOURCE', {
+    identifier: 'Apps',
+    name: 'Alice',
+    path: '/index.html',
+    service: 'APP',
+  }).request.address,
+  'qdn://APP/Alice/Apps/index.html',
+  'a leading slash on the path does not double up',
+)
+for (const missing of [{ name: 'Alice' }, { service: 'APP' }]) {
+  assert.throws(
+    () => resolveHomeV2AppAlias('LINK_TO_QDN_RESOURCE', missing),
+    /LINK_TO_QDN_RESOURCE requires/,
+  )
 }
 
 // Prompt classification. None of the five re-adds may land in a prompt family
@@ -1001,7 +1065,7 @@ for (const [name, source] of [
   ['src/home-v2-live/HomeV2LiveApp.tsx', openTabShellSource],
 ] as const) {
   assert(
-    source.includes('canonicalHomeV2AppAction('),
+    source.includes('resolveHomeV2AppAlias('),
     `${name} must canonicalize compatibility aliases at its bridge entry point.`,
   )
 }

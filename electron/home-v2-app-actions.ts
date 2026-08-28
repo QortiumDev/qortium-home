@@ -147,6 +147,11 @@ const QDN_ACTIONS = [
   'OPEN_QDN_MEDIA_PLAYER',
   'OPEN_CHAT_ATTACHMENT_VIEWER',
   'SAVE_QDN_RESOURCE',
+  // Qortal compatibility aliases. Each resolves to the action above it and
+  // adds no capability of its own; they are advertised so a Qortal app can
+  // discover them in SHOW_ACTIONS and call the name it already knows.
+  'SAVE_FILE',
+  'LINK_TO_QDN_RESOURCE',
   'SAVE_CHAT_ATTACHMENT',
   'SELECT_QDN_PUBLISH_SOURCE',
   'RESOLVE_IDENTITIES',
@@ -254,6 +259,11 @@ const QORTAL_ACTIONS = [
   'OPEN_QDN_MEDIA_PLAYER',
   'OPEN_CHAT_ATTACHMENT_VIEWER',
   'SAVE_QDN_RESOURCE',
+  // Qortal compatibility aliases. Each resolves to the action above it and
+  // adds no capability of its own; they are advertised so a Qortal app can
+  // discover them in SHOW_ACTIONS and call the name it already knows.
+  'SAVE_FILE',
+  'LINK_TO_QDN_RESOURCE',
   'SAVE_CHAT_ATTACHMENT',
   'SELECT_QDN_PUBLISH_SOURCE',
   'SEARCH_CHAT_MESSAGES',
@@ -366,6 +376,21 @@ export const HOME_V2_RESOURCE_VIEWER_ALIASES = Object.freeze([
   'OPEN_QDN_MEDIA_PLAYER',
 ] as const)
 
+/**
+ * Qortal-compatibility aliases: the same capability Home already implements,
+ * under the name a Qortal app calls it by, with the request shape it sends.
+ *
+ * `SAVE_FILE` is `SAVE_QDN_RESOURCE` with the coordinate nested under
+ * `location` — it takes a QDN coordinate, not a blob. `LINK_TO_QDN_RESOURCE`
+ * is `OPEN_NEW_TAB` with the coordinate as fields rather than an address;
+ * Qortal's own documentation describes it as working "similar to the
+ * OPEN_NEW_TAB qortalRequest".
+ */
+export const HOME_V2_QORTAL_COMPAT_ALIASES = Object.freeze([
+  'LINK_TO_QDN_RESOURCE',
+  'SAVE_FILE',
+] as const)
+
 const READ_PREFIXES = [
   '/account-ratings',
   '/addresses',
@@ -449,19 +474,82 @@ function homeV2RequestField(request: Record<string, unknown>, key: string): unkn
  *
  * Every non-alias action is returned unchanged.
  */
-export function canonicalHomeV2AppAction(
+/**
+ * Resolves an alias to the canonical action AND the request that action
+ * expects, together.
+ *
+ * Returning both from ONE function is deliberate. Some aliases differ from
+ * their canonical action only in name (the resource-viewer pair), but the
+ * Qortal-compatibility aliases also differ in request SHAPE — Qortal's
+ * SAVE_FILE nests the coordinate under `location`, and its
+ * LINK_TO_QDN_RESOURCE passes a coordinate where Home takes an address. A
+ * separate "rewrite the request" helper would have to be called in lockstep
+ * with this one at every call site, and a caller that renamed the action
+ * without rewriting the request would produce a confusing validation failure
+ * deep inside the canonical handler rather than an obvious mistake here.
+ *
+ * An alias never adds a capability: after resolution the request is handled by
+ * the canonical action, inheriting its validation, its permission posture and
+ * its prompt.
+ */
+export function resolveHomeV2AppAlias(
   action: string,
   request: Record<string, unknown>,
-): string {
+): { readonly action: string; readonly request: Record<string, unknown> } {
   const aliasServices = RESOURCE_VIEWER_ALIAS_SERVICES.get(action)
-  if (!aliasServices) return action
-  const rawService = homeV2RequestField(request, 'service')
-  const service = typeof rawService === 'string' ? rawService.trim().toUpperCase() : ''
-  if (!service) throw new Error('QDN resource service is required.')
-  if (!aliasServices.includes(service)) {
-    throw new Error(`${action} only supports ${aliasServices.join(', ')} resources.`)
+  if (aliasServices) {
+    const rawService = homeV2RequestField(request, 'service')
+    const service = typeof rawService === 'string' ? rawService.trim().toUpperCase() : ''
+    if (!service) throw new Error('QDN resource service is required.')
+    if (!aliasServices.includes(service)) {
+      throw new Error(`${action} only supports ${aliasServices.join(', ')} resources.`)
+    }
+    return { action: 'OPEN_QDN_RESOURCE_VIEWER', request }
   }
-  return 'OPEN_QDN_RESOURCE_VIEWER'
+  // Qortal's SAVE_FILE is Home's SAVE_QDN_RESOURCE with the coordinate nested
+  // under `location`. It takes a QDN coordinate, NOT a blob, so this is a
+  // shape mapping and not a new capability.
+  if (action === 'SAVE_FILE') {
+    const location = homeV2RequestField(request, 'location')
+    if (!isHomeV2AppRecord(location)) {
+      throw new Error('SAVE_FILE requires a location with the QDN service, name, and identifier.')
+    }
+    const filename = homeV2RequestField(request, 'filename')
+    return {
+      action: 'SAVE_QDN_RESOURCE',
+      // Built explicitly from the location rather than merged over the
+      // original: a top-level `name` or `service` alongside `location` must
+      // not be able to disagree with the coordinate that gets saved.
+      request: {
+        ...(typeof filename === 'string' ? { filename } : {}),
+        ...(typeof location.identifier === 'string' ? { identifier: location.identifier } : {}),
+        name: location.name,
+        service: location.service,
+      },
+    }
+  }
+  // Qortal's LINK_TO_QDN_RESOURCE navigates to another q-app — its own docs
+  // say it "works similar to the OPEN_NEW_TAB qortalRequest" — but passes the
+  // coordinate as fields where Home takes an address.
+  if (action === 'LINK_TO_QDN_RESOURCE') {
+    const service = homeV2RequestField(request, 'service')
+    const name = homeV2RequestField(request, 'name')
+    const identifier = homeV2RequestField(request, 'identifier')
+    const path = homeV2RequestField(request, 'path')
+    if (typeof service !== 'string' || !service.trim()) {
+      throw new Error('LINK_TO_QDN_RESOURCE requires a QDN service.')
+    }
+    if (typeof name !== 'string' || !name.trim()) {
+      throw new Error('LINK_TO_QDN_RESOURCE requires a resource name.')
+    }
+    const segments = [service.trim().toUpperCase(), name.trim()]
+    if (typeof identifier === 'string' && identifier.trim()) segments.push(identifier.trim())
+    const suffix = typeof path === 'string' && path.trim()
+      ? `/${path.trim().replace(/^\/+/, '')}`
+      : ''
+    return { action: 'OPEN_NEW_TAB', request: { address: `qdn://${segments.join('/')}${suffix}` } }
+  }
+  return { action, request }
 }
 
 export function getHomeV2AppActions(protocol: HomeV2AppBridgeProtocol): readonly string[] {
