@@ -261,7 +261,7 @@ import {
   normalizeHomeV2SetAccountAvatarRequest,
   selectHomeV2AccountAvatarPointer,
 } from '../../electron/home-v2-account-avatar-actions'
-import { canonicalHomeV2VoteSelection, normalizeHomeV2CreatePollRequest, normalizeHomeV2UpdatePollRequest, normalizeHomeV2VoteOnPollRequest, selectHomeV2PollTarget, canonicalHomeV2AppAction, homeV2NameOperationLabel, homeV2PollOperationLabel, homeV2PublishExtraOperationLabel, isHomeV2ListAction, isHomeV2ListWriteAction, isHomeV2NameWriteAction, isHomeV2PollWriteAction, isHomeV2PublishExtraAction, normalizeHomeV2BuyNameRequest, normalizeHomeV2CancelSellNameRequest, normalizeHomeV2ListItems, normalizeHomeV2ListName, normalizeHomeV2RegisterNameRequest, normalizeHomeV2SellNameRequest, normalizeHomeV2UpdateNameRequest, selectHomeV2NameTarget, serializeHomeV2ListItemsForApproval } from '../../electron/home-v2-app-actions'
+import { canonicalHomeV2VoteSelection, normalizeHomeV2CreatePollRequest, normalizeHomeV2UpdatePollRequest, normalizeHomeV2VoteOnPollRequest, selectHomeV2PollTarget, resolveHomeV2AppAlias, homeV2NameOperationLabel, homeV2PollOperationLabel, homeV2PublishExtraOperationLabel, isHomeV2ListAction, isHomeV2ListWriteAction, isHomeV2NameWriteAction, isHomeV2PollWriteAction, isHomeV2PublishExtraAction, normalizeHomeV2BuyNameRequest, normalizeHomeV2CancelSellNameRequest, normalizeHomeV2ListItems, normalizeHomeV2ListName, normalizeHomeV2RegisterNameRequest, normalizeHomeV2SellNameRequest, normalizeHomeV2UpdateNameRequest, selectHomeV2NameTarget, serializeHomeV2ListItemsForApproval } from '../../electron/home-v2-app-actions'
 import { homeV2GroupMutationOperationLabel, isHomeV2GroupMutationAction } from '../../electron/home-v2-group-mutation-actions'
 import { homeV2RatingOperationLabel, isHomeV2RatingAction } from '../../electron/home-v2-rating-actions'
 import { homeV2AccountAvatarOperationLabel } from '../../electron/home-v2-account-avatar-actions'
@@ -4306,9 +4306,16 @@ export function HomeV2LiveApp() {
       // Same alias collapse the desktop bridge does, at this host's own entry
       // point: a compatibility alias must be dispatched, gated and reported as
       // the canonical action on every surface, never as a capability of its own.
-      const action = isRecord(requestValue) && typeof requestValue.action === 'string'
-        ? canonicalHomeV2AppAction(requestValue.action.trim().toUpperCase(), requestValue)
-        : ''
+      // Action AND request together: the Qortal-compatibility aliases rewrite
+      // the request shape, so every later use must see the rewritten one.
+      const alias = isRecord(requestValue) && typeof requestValue.action === 'string'
+        ? resolveHomeV2AppAlias(requestValue.action.trim().toUpperCase(), requestValue, protocol)
+        : { action: '', request: {} as Record<string, unknown> }
+      const action = alias.action
+      // The rewritten request must carry the canonical ACTION with it: this
+      // object is forwarded to the portable client, which reads `action` off
+      // the request itself and would otherwise refuse an alias outright.
+      requestValue = alias.action ? { ...alias.request, action: alias.action } : requestValue
       if (isAndroidHost && action === 'SHOW_CONTEXT_MENU') {
         const activeTab = productStateRef.current.tabs.find(
           (tab) => tab.id === productStateRef.current.activeTabId,

@@ -8,9 +8,10 @@ import {
   buildHomeV2NamePath,
   buildHomeV2ResourcePath,
   buildHomeV2ResourceRenderPath,
-  canonicalHomeV2AppAction,
+  resolveHomeV2AppAlias,
   getHomeV2AppActions,
   homeV2AppAddressNamesIdentifier,
+  HOME_V2_QORTAL_COMPAT_ALIASES,
   HOME_V2_RESOURCE_VIEWER_ALIASES,
   normalizeHomeV2ChatMessageText,
   canonicalHomeV2VoteSelection,
@@ -824,29 +825,29 @@ assert.deepEqual(
   ['OPEN_QDN_DOCUMENT_VIEWER', 'OPEN_QDN_MEDIA_PLAYER'],
 )
 assert.equal(
-  canonicalHomeV2AppAction('OPEN_QDN_MEDIA_PLAYER', { name: 'Alice', service: 'VIDEO' }),
+  resolveHomeV2AppAlias('OPEN_QDN_MEDIA_PLAYER', { name: 'Alice', service: 'VIDEO' }).action,
   'OPEN_QDN_RESOURCE_VIEWER',
 )
 assert.equal(
-  canonicalHomeV2AppAction('OPEN_QDN_DOCUMENT_VIEWER', { name: 'Alice', service: 'DOCUMENT' }),
+  resolveHomeV2AppAlias('OPEN_QDN_DOCUMENT_VIEWER', { name: 'Alice', service: 'DOCUMENT' }).action,
   'OPEN_QDN_RESOURCE_VIEWER',
 )
 // Service matching is case- and whitespace-insensitive, and reads a nested
 // `payload` the same way the viewer contract's getRequestValue does.
 assert.equal(
-  canonicalHomeV2AppAction('OPEN_QDN_MEDIA_PLAYER', {
+  resolveHomeV2AppAlias('OPEN_QDN_MEDIA_PLAYER', {
     payload: { name: 'Alice', service: ' audio ' },
-  }),
+  }).action,
   'OPEN_QDN_RESOURCE_VIEWER',
 )
 // Each alias keeps the NARROWER service scope its Home 1.x handler enforced:
 // an alias must never reach a resource the action it replaced refused.
 assert.throws(
-  () => canonicalHomeV2AppAction('OPEN_QDN_MEDIA_PLAYER', { name: 'Alice', service: 'DOCUMENT' }),
+  () => resolveHomeV2AppAlias('OPEN_QDN_MEDIA_PLAYER', { name: 'Alice', service: 'DOCUMENT' }).action,
   /OPEN_QDN_MEDIA_PLAYER only supports AUDIO, PODCAST, VIDEO, VOICE resources/,
 )
 assert.throws(
-  () => canonicalHomeV2AppAction('OPEN_QDN_DOCUMENT_VIEWER', { name: 'Alice', service: 'VIDEO' }),
+  () => resolveHomeV2AppAlias('OPEN_QDN_DOCUMENT_VIEWER', { name: 'Alice', service: 'VIDEO' }).action,
   /OPEN_QDN_DOCUMENT_VIEWER only supports ATTACHMENT, DOCUMENT, FILE, FILES resources/,
 )
 // APP/WEBSITE/GAME stay out through both aliases too: neither scope contains
@@ -854,7 +855,7 @@ assert.throws(
 for (const service of ['APP', 'WEBSITE', 'GAME']) {
   for (const action of HOME_V2_RESOURCE_VIEWER_ALIASES) {
     assert.throws(
-      () => canonicalHomeV2AppAction(action, { name: 'Alice', service }),
+      () => resolveHomeV2AppAlias(action, { name: 'Alice', service }),
       /only supports/,
       `${action} must refuse ${service}.`,
     )
@@ -862,11 +863,11 @@ for (const service of ['APP', 'WEBSITE', 'GAME']) {
 }
 // A missing or non-string service is rejected before the alias resolves.
 assert.throws(
-  () => canonicalHomeV2AppAction('OPEN_QDN_MEDIA_PLAYER', { name: 'Alice' }),
+  () => resolveHomeV2AppAlias('OPEN_QDN_MEDIA_PLAYER', { name: 'Alice' }).action,
   /QDN resource service is required/,
 )
 assert.throws(
-  () => canonicalHomeV2AppAction('OPEN_QDN_DOCUMENT_VIEWER', { name: 'Alice', service: 42 }),
+  () => resolveHomeV2AppAlias('OPEN_QDN_DOCUMENT_VIEWER', { name: 'Alice', service: 42 }).action,
   /QDN resource service is required/,
 )
 // Every non-alias action passes through untouched, including the canonical one.
@@ -877,8 +878,138 @@ for (const action of [
   'GET_BALANCE',
   'SEND_CHAT_MESSAGE',
 ]) {
-  assert.equal(canonicalHomeV2AppAction(action, { service: 'APP' }), action)
+  const resolved = resolveHomeV2AppAlias(action, { service: 'APP' })
+  assert.equal(resolved.action, action)
+  // A non-alias must pass its request through untouched, not merely keep its
+  // name: the resolver is the one place that rewrites request shape.
+  assert.deepEqual(resolved.request, { service: 'APP' })
 }
+
+// --- Qortal-compatibility aliases -----------------------------------------
+// Each maps onto a capability Home already implements, adding none of its own.
+assert.deepEqual([...HOME_V2_QORTAL_COMPAT_ALIASES], ['LINK_TO_QDN_RESOURCE', 'SAVE_FILE'])
+
+// SAVE_FILE is SAVE_QDN_RESOURCE with the coordinate nested under `location`.
+// It takes a QDN COORDINATE, not a blob (verified against Qortal's Q-Sandbox).
+assert.deepEqual(
+  resolveHomeV2AppAlias('SAVE_FILE', {
+    filename: 'notes.txt',
+    location: { identifier: 'default', name: 'Alice', service: 'DOCUMENT' },
+  }),
+  {
+    action: 'SAVE_QDN_RESOURCE',
+    request: { filename: 'notes.txt', identifier: 'default', name: 'Alice', service: 'DOCUMENT' },
+  },
+)
+// The coordinate is built from `location` ALONE. A top-level name or service
+// alongside it must not be able to disagree with what actually gets saved.
+assert.deepEqual(
+  resolveHomeV2AppAlias('SAVE_FILE', {
+    location: { name: 'Alice', service: 'DOCUMENT' },
+    name: 'Mallory',
+    service: 'WEBSITE',
+  }).request,
+  { name: 'Alice', service: 'DOCUMENT' },
+)
+assert.throws(
+  () => resolveHomeV2AppAlias('SAVE_FILE', { filename: 'notes.txt' }),
+  /requires a location/,
+  'SAVE_FILE without a location refuses rather than saving something unspecified',
+)
+
+// LINK_TO_QDN_RESOURCE is OPEN_NEW_TAB with the coordinate as fields; Qortal's
+// own docs say it works "similar to the OPEN_NEW_TAB qortalRequest".
+assert.deepEqual(
+  resolveHomeV2AppAlias('LINK_TO_QDN_RESOURCE', {
+    identifier: 'Apps',
+    name: 'Alice',
+    service: 'app',
+  }),
+  { action: 'OPEN_NEW_TAB', request: { address: 'qdn://APP/Alice/Apps' } },
+)
+assert.equal(
+  resolveHomeV2AppAlias('LINK_TO_QDN_RESOURCE', {
+    identifier: 'Apps',
+    name: 'Alice',
+    path: '/index.html',
+    service: 'APP',
+  }).request.address,
+  'qdn://APP/Alice/Apps/index.html',
+  'a leading slash on the path does not double up',
+)
+for (const missing of [{ name: 'Alice' }, { service: 'APP' }]) {
+  assert.throws(
+    () => resolveHomeV2AppAlias('LINK_TO_QDN_RESOURCE', missing),
+    /LINK_TO_QDN_RESOURCE requires/,
+  )
+}
+// The address is built by joining on '/', so a component containing one would
+// silently name a DIFFERENT coordinate than the app asked for. Names and
+// services cannot contain a slash, so refusing is honest.
+assert.throws(
+  () => resolveHomeV2AppAlias('LINK_TO_QDN_RESOURCE', { name: 'Alice/Bob', service: 'APP' }),
+  /name cannot contain a slash/,
+)
+assert.throws(
+  () => resolveHomeV2AppAlias('LINK_TO_QDN_RESOURCE', {
+    identifier: 'a/b',
+    name: 'Alice',
+    service: 'APP',
+  }),
+  /identifier cannot contain a slash/,
+)
+for (const name of ['.', '..']) {
+  assert.throws(
+    () => resolveHomeV2AppAlias('LINK_TO_QDN_RESOURCE', { name, service: 'APP' }),
+    /cannot be a dot segment/,
+  )
+}
+// And a traversal in the path would resolve above the resource root —
+// including PERCENT-ENCODED forms, because URL normalization decodes them
+// before the address is resolved.
+for (const path of ['../secrets', 'a/../../b', './x', '%2e%2e/Mallory', '/%2e%2e/%2e%2e/Mallory']) {
+  assert.throws(
+    () => resolveHomeV2AppAlias('LINK_TO_QDN_RESOURCE', { name: 'Alice', path, service: 'APP' }),
+    /path cannot contain dot segments/,
+    `path ${path} must not escape the coordinate`,
+  )
+}
+for (const path of ['a?b', 'a#b', '%2e%2e%2f..']) {
+  assert.throws(
+    () => resolveHomeV2AppAlias('LINK_TO_QDN_RESOURCE', { name: 'Alice', path, service: 'APP' }),
+    /cannot contain a query or fragment|dot segments/,
+  )
+}
+
+// THE CHAIN IS THE CALLER'S. `qdn://` means Qortium and `qortal://` means
+// Qortal, so resolving a qortalRequest to a qdn:// address would hand a Qortal
+// app the same-named QORTIUM resource — a collision an attacker could publish,
+// opened without a prompt. The invoked global fixes the network everywhere
+// else in this bridge; it must here too.
+assert.equal(
+  resolveHomeV2AppAlias(
+    'LINK_TO_QDN_RESOURCE',
+    { identifier: 'Wallet', name: 'Wallet', service: 'APP' },
+    'qortalRequest',
+  ).request.address,
+  'qortal://APP/Wallet/Wallet',
+)
+assert.equal(
+  resolveHomeV2AppAlias(
+    'LINK_TO_QDN_RESOURCE',
+    { identifier: 'Wallet', name: 'Wallet', service: 'APP' },
+    'qdnRequest',
+  ).request.address,
+  'qdn://APP/Wallet/Wallet',
+)
+
+// Qortal's SAVE_FILE also has a documented BLOB form. Writing app-supplied
+// bytes to disk is a new capability, not an alias, so it is refused BY NAME
+// rather than reported as a missing location.
+assert.throws(
+  () => resolveHomeV2AppAlias('SAVE_FILE', { blob: {}, filename: 'notes.txt' }),
+  /SAVE_FILE with a blob is not supported/,
+)
 
 // Prompt classification. None of the five re-adds may land in a prompt family
 // by accident: the four reads are plain public reads, and OPEN_CURRENT_TAB is
@@ -1001,7 +1132,7 @@ for (const [name, source] of [
   ['src/home-v2-live/HomeV2LiveApp.tsx', openTabShellSource],
 ] as const) {
   assert(
-    source.includes('canonicalHomeV2AppAction('),
+    source.includes('resolveHomeV2AppAlias('),
     `${name} must canonicalize compatibility aliases at its bridge entry point.`,
   )
 }
