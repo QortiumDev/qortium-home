@@ -46,13 +46,35 @@ Repeated node policies remain independently enforced, stale body-length headers
 are still removed after injection, and the bridge's inline script remains
 allowed by the node's existing app policy.
 
-A node that sends no policy at all is now given Home's full minimum sandbox
-rather than only a connection rule. Restricting connections alone would have
-left an ordinary image tag able to carry data out to any server — which needs
-no WebSocket and no fetch — so a node that simply omitted the header would
-have ended up with fewer restrictions than one that set a policy. Home talks
-to public nodes it does not control, so that is a real case rather than a
-theoretical one.
+Home now applies its own full sandbox to every app page it displays, in
+addition to whatever the node sent, instead of trusting a node that sent
+something to have sent something sensible. An earlier version of this fix
+added the full set of restrictions only when a node sent none at all, which
+would have let a node opt out of them simply by sending a permissive policy of
+its own. Because these policies combine rather than replace one another,
+always adding Home's own can only ever make an app more restricted, never
+less.
+
+The sandbox now also covers several ways of sending data out that the general
+rule does not reach on its own: submitting a form to another server, opening a
+peer-to-peer connection, embedding a plugin document, and rewriting the page's
+base address. An ordinary image tag or an auto-submitted form is enough to
+carry data out, so restricting connections alone was not enough.
+
+Error reports that the policy itself can generate are no longer forwarded.
+Those reports are sent by the browser rather than by the app, so they are not
+covered by the connection rules, and a node could otherwise have used them as
+a way out.
+
+Finally, when a node answers a request by pointing Home somewhere else, Home
+now follows that only back to the same node, and only a few times. Previously
+a node could have pointed Home at an address on the user's own device or home
+network and received back whatever was there — using the app as a way into a
+network it could not otherwise reach. Ordinary redirects within the same node
+still work as before.
+
+Home talks to public nodes it does not control, so these are real cases rather
+than theoretical ones.
 
 ### 2026-08-28 - fix(home-v2): three desktop checks the Android port had and the desktop did not
 
