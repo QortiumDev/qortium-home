@@ -594,6 +594,25 @@ export function selectHomeV2GroupMembership(value: unknown, address: string): bo
 }
 
 /** The account's current default group id from GET /addresses/{address}. */
+/**
+ * Whether the account belongs to `groupId`, answered from Core's
+ * GET /groups/member/{address} list.
+ *
+ * The desktop bridge asks POST /groups/members/{groupId}/validate instead.
+ * Android's app-facing node fetch is GET/HEAD only, so it asks the same
+ * question from the other direction: the groups this account is in. Both
+ * callers FAIL CLOSED — an unrecognized answer throws rather than being read
+ * as "not a member" or, worse, as "member" — because a default group the
+ * account has not joined is rejected by Core only AFTER signing, which would
+ * journal a phantom unknown outcome.
+ */
+export function selectHomeV2GroupMembershipFromGroups(value: unknown, groupId: number): boolean {
+  if (!Array.isArray(value)) {
+    throw new Error('The group membership lookup answered with an unrecognized shape.')
+  }
+  return value.some((entry) => isRecord(entry) && entry.groupId === groupId)
+}
+
 export function selectHomeV2DefaultGroupId(value: unknown): number | null {
   if (!isRecord(value)) return null
   return Number.isInteger(value.defaultGroupId) ? value.defaultGroupId as number : null

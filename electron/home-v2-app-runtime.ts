@@ -267,12 +267,6 @@ export function homeV2WidgetWithholdsSelfSubject(action: string) {
  */
 const ANDROID_UNSUPPORTED_ACTIONS = new Set<string>([
   'SEND_MESSAGE',
-  // The group mutations.
-  'CREATE_GROUP',
-  'GROUP_APPROVAL',
-  'SET_GROUP',
-  'SET_GROUP_AVATAR',
-  'UPDATE_GROUP',
   // The publishing extras sign transactions through the desktop bridge's
   // source-token and tombstone flows, neither of which the Android host
   // implements — unlike single PUBLISH_QDN_RESOURCE, which it mediates.

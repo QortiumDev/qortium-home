@@ -1354,9 +1354,23 @@ rather than solved: the current values an update inherits come from the
 configured node, so a lying node can steer what the omitted fields resolve
 to — but every resolved value is shown on the prompt and byte-bound into
 what is signed, so nothing is ever signed that the user did not see.
-On Android all five are filtered out of `SHOW_ACTIONS` (no signing path)
-with `UNSUPPORTED_PROTOCOL` kept for `qortalRequest`; Hub's `qortalRequest`
-group forms stay deferred.
+**The family works on Android too.** It is the first LOCAL-transformer family
+to cross, which raises the bar rather than lowering it: with no Core builder to
+cross-check, the Android vault verifies the transformer's bytes AND the
+nonce-stamped bytes before signing, so no byte reaches a signature unverified.
+The live group state the prompt was held to travels with the request and is the
+baseline for every later check — for `UPDATE_GROUP` it is also the SOURCE of
+the merged values, since omitted fields are filled from it, and merging from a
+post-approval read could rewrite settings the prompt reported as unchanged. The
+no-op answers (`changed: false` for an unchanged update, an already-set default
+group, or a matching avatar pointer) are decided before any prompt is raised,
+exactly as on desktop, so a no-op neither prompts nor signs. One divergence is
+deliberate: `SET_GROUP` membership is checked on Android through
+`GET /groups/member/{address}` rather than desktop's
+`POST /groups/members/{groupId}/validate`, because the app-facing node fetch is
+GET/HEAD only — both fail closed on an unrecognized answer. `UNSUPPORTED_PROTOCOL`
+is still kept for `qortalRequest`; Hub's `qortalRequest` group forms stay
+deferred.
 
 ## Publishing extras (Home 2)
 

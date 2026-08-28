@@ -34,6 +34,32 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-27 - feat(home-v2): group mutations work on Android
+
+Creating a group, changing its settings, voting on a pending group
+transaction, choosing your default group, and setting a group's avatar all
+work on your phone now.
+
+These are the first of the transactions Home builds entirely by itself. The
+poll and name transactions that crossed to Android earlier are assembled by
+your node, which gives Home something to check its work against. For these
+there is nothing to check against, so Home verifies the bytes it built, adds
+the proof-of-work, and then verifies them a second time before signing —
+nothing is ever signed that Home has not read back and confirmed.
+
+Editing a group is the one that needed the most care. You can change a single
+setting and leave the rest alone, which means Home has to fill in everything
+you did not mention from the group as it currently stands. The screen shows you
+the complete result, every field, with "(unchanged)" next to the ones you are
+keeping — and the values Home fills in are the ones from that screen, not from
+a fresh look at the group taken after you approved. If anything about the group
+moves in between, Home refuses instead of signing something you did not see.
+
+Actions that would change nothing still change nothing: an edit that matches
+the current settings, a default group that is already your default, and an
+avatar that is already the one set all answer immediately without asking you to
+approve anything and without signing.
+
 ### 2026-08-27 - fix(core): stop blocking routine managed upgrades (from Home 1.7.1)
 
 Home no longer mistakes an ordinary Core configuration or fingerprint change for

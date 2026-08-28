@@ -284,6 +284,22 @@ export interface HomeV2VaultClient {
     readonly requestValue: Record<string, unknown>
   }): Promise<unknown>
   /**
+   * Signs one Qortium group mutation. These are built by a LOCAL transformer
+   * — there is no Core builder to check against — so the vault also verifies
+   * the STAMPED bytes before signing, on top of the approved-state binding
+   * every Android signing arm carries.
+   */
+  signGroupMutation?(request: {
+    readonly accountId: string
+    readonly action: 'CREATE_GROUP' | 'GROUP_APPROVAL' | 'SET_GROUP' | 'SET_GROUP_AVATAR' | 'UPDATE_GROUP'
+    readonly approvedAddress: string
+    readonly approvedGroup: HomeV2ApprovedGroupTarget | null
+    readonly approvedPending: HomeV2ApprovedPendingTransaction | null
+    readonly isStillValid: () => boolean | Promise<boolean>
+    readonly nodeApiUrl: string
+    readonly requestValue: Record<string, unknown>
+  }): Promise<unknown>
+  /**
    * Signs one Qortium name write. Same discipline as signPollWrite, plus the
    * live-sale binding BUY_NAME needs: seller and price come from the chain,
    * and an app-supplied value must match rather than override.
@@ -334,6 +350,36 @@ export type HomeV2ApprovedPollTarget = {
   readonly optionNames: readonly string[]
   readonly pollId: number
   readonly pollName: string
+}
+
+/**
+ * The live group state a group-mutation approval was granted against.
+ *
+ * Mirrors HomeV2GroupMetadata. Carried from the shell so the vault signs the
+ * group the user saw — for UPDATE_GROUP especially, where omitted fields are
+ * merged FROM this record, so a stale read would silently rewrite live
+ * settings the prompt reported as unchanged.
+ */
+export type HomeV2ApprovedGroupTarget = {
+  readonly approvalThreshold: string
+  readonly avatar: { readonly identifier: string; readonly name: string; readonly service: string } | null
+  readonly description: string
+  readonly groupId: number
+  readonly groupName: string
+  readonly isOpen: boolean
+  readonly maximumBlockDelay: number
+  readonly minimumBlockDelay: number
+  readonly owner: string
+}
+
+/** The pending transaction a GROUP_APPROVAL vote was approved against. */
+export type HomeV2ApprovedPendingTransaction = {
+  readonly approvalStatus: string
+  readonly creatorAddress: string
+  readonly groupName: string
+  readonly signature: string
+  readonly txGroupId: number
+  readonly type: string
 }
 
 export function getHomeV2VaultClient() {

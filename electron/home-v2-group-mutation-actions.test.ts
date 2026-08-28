@@ -11,6 +11,7 @@ import {
   normalizeHomeV2UpdateGroupRequest,
   selectHomeV2DefaultGroupId,
   selectHomeV2GroupMembership,
+  selectHomeV2GroupMembershipFromGroups,
   selectHomeV2GroupMetadata,
   selectHomeV2PendingTransactionSummary,
   type HomeV2GroupMutationWirePayload,
@@ -236,5 +237,38 @@ assert.equal(selectHomeV2GroupMembership([{ address: 'Qx', isMember: false }], '
 assert.throws(() => selectHomeV2GroupMembership([{ address: 'Qy', isMember: true }], 'Qx'))
 assert.equal(selectHomeV2DefaultGroupId({ defaultGroupId: 3 }), 3)
 assert.equal(selectHomeV2DefaultGroupId({}), null)
+
+
+// --- Android membership answer (GET /groups/member/{address}) --------------
+// The desktop bridge asks POST /groups/members/{id}/validate; Android's
+// app-facing fetch is GET/HEAD only and asks this instead. Both must fail
+// CLOSED, because Core rejects a non-member default group only AFTER signing.
+assert.equal(
+  selectHomeV2GroupMembershipFromGroups([{ groupId: 5, groupName: 'droids' }, { groupId: 7 }], 5),
+  true,
+  'a listed group counts as membership',
+)
+assert.equal(
+  selectHomeV2GroupMembershipFromGroups([{ groupId: 7 }], 5),
+  false,
+  'a group the account is not in is not membership',
+)
+assert.equal(
+  selectHomeV2GroupMembershipFromGroups([], 5),
+  false,
+  'an account in no groups is not a member',
+)
+assert.equal(
+  selectHomeV2GroupMembershipFromGroups([{ groupId: '5' }], 5),
+  false,
+  'a string group id does not satisfy a numeric group id',
+)
+for (const answer of [null, undefined, {}, 'ok', 5]) {
+  assert.throws(
+    () => selectHomeV2GroupMembershipFromGroups(answer, 5),
+    /unrecognized shape/,
+    'a non-list membership answer refuses rather than reading as a member or a non-member',
+  )
+}
 
 console.log('Home v2 group mutation contract tests passed.')

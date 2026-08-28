@@ -459,6 +459,7 @@ import {
 } from './public-transaction-validation.js'
 import { parsePublicPollCapabilities } from './public-poll-capabilities.js'
 import { parsePublicNameCapabilities } from './public-name-capabilities.js'
+import { homeV2AvatarPointerText, homeV2PromptText } from './home-v2-prompt-text.js'
 import {
   assertUnsignedHomeV2GroupMutationTransaction,
   buildUnsignedQortiumGroupMutationTransactionBytes,
@@ -7920,33 +7921,7 @@ function homeV2PollTimeRow(label: string, value: number | undefined) {
 // description reaches the prompt as a visible "\\u000a" instead of being
 // refused by the renderer's control-character check and dying as a silent
 // 60-second timeout. (Security review 2026-08-26, findings 2 and 4.)
-// INJECTIVE avatar-pointer display: each component is escaped to printable
-// ASCII and any literal '/' inside a component becomes its \uXXXX escape, so
-// the joined 'service/name/identifier' line parses back to exactly one
-// component triple — a name of "a/b" can no longer masquerade as a different
-// coordinate (avatar family review, round 1).
-function homeV2AvatarPointerText(pointer: { readonly identifier: string; readonly name: string; readonly service: string }) {
-  const component = (value: string, label: string) =>
-    homeV2PollApprovalText(value, label).split('/').join('\\u002f')
-  return [
-    component(pointer.service, 'The avatar service'),
-    component(pointer.name, 'The avatar name'),
-    component(pointer.identifier || 'default', 'The avatar identifier'),
-  ].join('/')
-}
-
-function homeV2PollApprovalText(value: string, label: string) {
-  const escaped = value
-    .replace(/\\/g, '\\\\')
-    .replace(
-      /[\u0000-\u001f\u007f-\uffff]/g,
-      (ch) => `\\u${ch.charCodeAt(0).toString(16).padStart(4, '0')}`,
-    )
-  if (escaped.length > 4_000) {
-    throw new Error(`${label} is too large to display safely for approval (4000 characters maximum).`)
-  }
-  return escaped
-}
+const homeV2PollApprovalText = homeV2PromptText
 
 async function readHomeV2PollTarget(action: HomeV2PollWriteAction, nodeApiUrl: string, pollId: number) {
   let value: unknown

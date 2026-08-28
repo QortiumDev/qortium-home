@@ -205,6 +205,18 @@ import {
 } from '../../electron/home-v2-session-grants'
 import { getHomeV2BridgeStateDetails } from '../../electron/home-v2-app-runtime'
 import { unwrapAndroidNodeRecord } from './android-node-envelope'
+import {
+  normalizeHomeV2CreateGroupRequest,
+  normalizeHomeV2GroupApprovalRequest,
+  normalizeHomeV2SetGroupAvatarRequest,
+  normalizeHomeV2SetGroupRequest,
+  normalizeHomeV2UpdateGroupRequest,
+  selectHomeV2DefaultGroupId,
+  selectHomeV2GroupMembershipFromGroups,
+  selectHomeV2GroupMetadata,
+  selectHomeV2PendingTransactionSummary,
+} from '../../electron/home-v2-group-mutation-actions'
+import { homeV2AvatarPointerText } from '../../electron/home-v2-prompt-text'
 import { canonicalHomeV2VoteSelection, normalizeHomeV2CreatePollRequest, normalizeHomeV2UpdatePollRequest, normalizeHomeV2VoteOnPollRequest, selectHomeV2PollTarget, canonicalHomeV2AppAction, homeV2NameOperationLabel, homeV2PollOperationLabel, homeV2PublishExtraOperationLabel, isHomeV2ListAction, isHomeV2ListWriteAction, isHomeV2NameWriteAction, isHomeV2PollWriteAction, isHomeV2PublishExtraAction, normalizeHomeV2BuyNameRequest, normalizeHomeV2CancelSellNameRequest, normalizeHomeV2ListItems, normalizeHomeV2ListName, normalizeHomeV2RegisterNameRequest, normalizeHomeV2SellNameRequest, normalizeHomeV2UpdateNameRequest, selectHomeV2NameTarget, serializeHomeV2ListItemsForApproval } from '../../electron/home-v2-app-actions'
 import { homeV2GroupMutationOperationLabel, isHomeV2GroupMutationAction } from '../../electron/home-v2-group-mutation-actions'
 import { homeV2RatingOperationLabel, isHomeV2RatingAction } from '../../electron/home-v2-rating-actions'
@@ -4811,6 +4823,293 @@ export function HomeV2LiveApp() {
           approvedAddress: account.address,
           approvedPoll: target
             ? { optionNames: [...target.optionNames], pollId: target.pollId, pollName: target.pollName }
+            : null,
+          isStillValid,
+          nodeApiUrl: nodeBefore.nodeApiUrl,
+          requestValue: request,
+        }))
+      }
+      // Group mutations on Android. Unlike polls and names these have no Core
+      // builder — a LOCAL transformer produces the bytes — so the vault also
+      // verifies the stamped bytes. This arm resolves live group state, holds
+      // the prompt to it, and hands that approved record to the vault, which
+      // for UPDATE_GROUP is where the merged "unchanged" values come from.
+      if (isAndroidHost && protocol === 'qdnRequest' && isHomeV2GroupMutationAction(action)) {
+        if (!context.selectedAccountId) throw new Error('No account is selected for this tab.')
+        const accountId = context.selectedAccountId
+        const account = accountCatalogueRef.current.accounts.find((candidate) => candidate.id === accountId)
+        if (!account) throw new Error('The selected account is no longer available.')
+        if (!account.isUnlocked) throw new Error('The selected account is locked.')
+        if (!vaultClient?.signGroupMutation) throw new Error('Group signing is unavailable on this platform.')
+        const nodeBefore = parseHomeV2NodesSnapshot(await nodeClient.getSnapshot()).qortium
+        if (!nodeBefore.nodeApiUrl || !nodeBefore.capabilities.read) {
+          throw new Error(nodeBefore.error ?? 'Qortium is unavailable.')
+        }
+        const request = isRecord(requestValue) ? requestValue : {}
+        const createRequest = action === 'CREATE_GROUP' ? normalizeHomeV2CreateGroupRequest(request) : null
+        const updateRequest = action === 'UPDATE_GROUP' ? normalizeHomeV2UpdateGroupRequest(request) : null
+        const approvalRequest = action === 'GROUP_APPROVAL' ? normalizeHomeV2GroupApprovalRequest(request) : null
+        const setGroupRequest = action === 'SET_GROUP' ? normalizeHomeV2SetGroupRequest(request) : null
+        const avatarRequest = action === 'SET_GROUP_AVATAR' ? normalizeHomeV2SetGroupAvatarRequest(request) : null
+        const readGroupMeta = async (groupId: number) => selectHomeV2GroupMetadata(
+          unwrapAndroidNodeRecord(
+            await nodeClient.requestApp(
+              protocol,
+              { action: 'FETCH_NODE_API', path: `/groups/${encodeURIComponent(String(groupId))}` },
+              context,
+            ),
+            `Group ${groupId} does not exist.`,
+          ),
+          groupId,
+        )
+        const metaGroupId = updateRequest?.groupId ?? setGroupRequest?.defaultGroupId ?? avatarRequest?.groupId ?? null
+        const meta = metaGroupId === null ? null : await readGroupMeta(metaGroupId)
+        if (meta && (updateRequest || avatarRequest) && meta.owner !== account.address) {
+          throw new Error(`Group ${metaGroupId} ("${meta.groupName}") is owned by ${meta.owner}, not the selected account.`)
+        }
+        // UPDATE merges omitted fields with the live group so both the prompt
+        // and the signed bytes carry the COMPLETE replacement.
+        const resolvedUpdate = updateRequest && meta
+          ? {
+              approvalThreshold: updateRequest.newApprovalThreshold ?? meta.approvalThreshold,
+              description: updateRequest.newDescription ?? meta.description,
+              isOpen: updateRequest.newIsOpen ?? meta.isOpen,
+              maximumBlockDelay: updateRequest.newMaximumBlockDelay ?? meta.maximumBlockDelay,
+              minimumBlockDelay: updateRequest.newMinimumBlockDelay ?? meta.minimumBlockDelay,
+              newName: updateRequest.newName,
+            }
+          : null
+        if (resolvedUpdate) {
+          if (resolvedUpdate.maximumBlockDelay < 1 || resolvedUpdate.maximumBlockDelay < resolvedUpdate.minimumBlockDelay) {
+            throw new Error('Maximum block delay must be at least 1 and at least the minimum block delay.')
+          }
+          const unchanged =
+            resolvedUpdate.newName === '' &&
+            resolvedUpdate.description === meta!.description &&
+            resolvedUpdate.isOpen === meta!.isOpen &&
+            resolvedUpdate.approvalThreshold === meta!.approvalThreshold &&
+            resolvedUpdate.minimumBlockDelay === meta!.minimumBlockDelay &&
+            resolvedUpdate.maximumBlockDelay === meta!.maximumBlockDelay
+          // A no-op never raises a prompt and never signs.
+          if (unchanged) {
+            return Object.freeze({
+              accepted: true,
+              action,
+              changed: false,
+              groupId: updateRequest!.groupId,
+              groupName: meta!.groupName,
+              network: 'qortium',
+            })
+          }
+        }
+        const pending = approvalRequest
+          ? selectHomeV2PendingTransactionSummary(
+              unwrapAndroidNodeRecord(
+                await nodeClient.requestApp(
+                  protocol,
+                  {
+                    action: 'FETCH_NODE_API',
+                    path: `/transactions/signature/${encodeURIComponent(approvalRequest.pendingSignature)}`,
+                  },
+                  context,
+                ),
+                'The pending transaction signature is unknown to the selected node.',
+              ),
+              approvalRequest.pendingSignature,
+            )
+          : null
+        if (approvalRequest && pending) {
+          if (pending.approvalStatus !== 'PENDING') {
+            throw new Error(`The referenced transaction is not awaiting approval (status: ${pending.approvalStatus || 'unknown'}).`)
+          }
+          if (approvalRequest.assertedGroupId !== undefined && approvalRequest.assertedGroupId !== pending.txGroupId) {
+            throw new Error(`The pending transaction belongs to group ${pending.txGroupId}, not group ${approvalRequest.assertedGroupId}.`)
+          }
+        }
+        const approvalGroupMeta = pending ? await readGroupMeta(pending.txGroupId) : null
+        // SET_GROUP fails CLOSED on membership: a default group the account is
+        // not in would be rejected by Core only AFTER signing, journaling a
+        // phantom unknown outcome.
+        if (setGroupRequest && meta) {
+          const membership = unwrapAndroidNodeRecord(
+            await nodeClient.requestApp(
+              protocol,
+              {
+                action: 'FETCH_NODE_API',
+                // The GET twin of desktop's POST .../validate: Android's
+                // app-facing fetch is GET/HEAD only, so membership is answered
+                // from the account's own group list instead.
+                path: `/groups/member/${encodeURIComponent(account.address)}`,
+              },
+              context,
+            ),
+            'The group membership lookup is unavailable on the selected node.',
+          )
+          if (!selectHomeV2GroupMembershipFromGroups(membership, setGroupRequest.defaultGroupId)) {
+            throw new Error(`The selected account is not a member of group ${setGroupRequest.defaultGroupId} ("${meta.groupName}").`)
+          }
+          const accountRecord = await nodeClient
+            .requestApp(
+              protocol,
+              { action: 'FETCH_NODE_API', path: `/addresses/${encodeURIComponent(account.address)}` },
+              context,
+            )
+            .then((response) => unwrapAndroidNodeRecord(response, 'The selected account is unknown to the node.'))
+            .catch(() => null)
+          if (selectHomeV2DefaultGroupId(accountRecord) === setGroupRequest.defaultGroupId) {
+            return Object.freeze({
+              accepted: true,
+              action,
+              changed: false,
+              defaultGroupId: setGroupRequest.defaultGroupId,
+              groupName: meta.groupName,
+              network: 'qortium',
+            })
+          }
+        }
+        if (avatarRequest && meta) {
+          const current = meta.avatar
+          const same = avatarRequest.avatar === null
+            ? current === null
+            : current !== null &&
+              current.service === avatarRequest.avatar.service &&
+              current.name === avatarRequest.avatar.name &&
+              current.identifier === avatarRequest.avatar.identifier
+          if (same) {
+            return Object.freeze({
+              accepted: true,
+              action,
+              avatar: avatarRequest.avatar,
+              changed: false,
+              groupId: avatarRequest.groupId,
+              groupName: meta.groupName,
+              network: 'qortium',
+            })
+          }
+        }
+        const unchangedNote = (changed: boolean) => (changed ? '' : ' (unchanged)')
+        const rows = createRequest
+          ? [
+              { label: 'Name', value: createRequest.groupName },
+              { label: 'Description', value: createRequest.description, variant: 'scroll' as const },
+              { label: 'Membership', value: createRequest.isOpen ? 'Open - anyone can join' : 'Closed - joining requires approval' },
+              { label: 'Approval threshold', value: createRequest.approvalThreshold },
+              { label: 'Block delays', value: `${createRequest.minimumBlockDelay} to ${createRequest.maximumBlockDelay}` },
+            ]
+          : resolvedUpdate && meta
+            ? [
+                { label: 'Group', value: `#${meta.groupId} \u00b7 ${meta.groupName}` },
+                { label: 'New name', value: resolvedUpdate.newName || '(unchanged)' },
+                {
+                  label: 'Description',
+                  value: resolvedUpdate.description + unchangedNote(resolvedUpdate.description !== meta.description),
+                  variant: 'scroll' as const,
+                },
+                {
+                  label: 'Membership',
+                  value: (resolvedUpdate.isOpen ? 'Open - anyone can join' : 'Closed - joining requires approval') +
+                    unchangedNote(resolvedUpdate.isOpen !== meta.isOpen),
+                },
+                {
+                  label: 'Approval threshold',
+                  value: resolvedUpdate.approvalThreshold + unchangedNote(resolvedUpdate.approvalThreshold !== meta.approvalThreshold),
+                },
+                {
+                  label: 'Block delays',
+                  value: `${resolvedUpdate.minimumBlockDelay} to ${resolvedUpdate.maximumBlockDelay}` +
+                    unchangedNote(
+                      resolvedUpdate.minimumBlockDelay !== meta.minimumBlockDelay ||
+                      resolvedUpdate.maximumBlockDelay !== meta.maximumBlockDelay,
+                    ),
+                },
+              ]
+            : approvalRequest && pending && approvalGroupMeta
+              ? [
+                  {
+                    label: 'Decision',
+                    value: approvalRequest.approval
+                      ? 'APPROVE the pending transaction'
+                      : 'OPPOSE the pending transaction (it stays pending until approved by others or it expires)',
+                  },
+                  { label: 'Pending transaction', value: approvalRequest.pendingSignature },
+                  { label: 'Transaction type', value: pending.type },
+                  ...(pending.creatorAddress ? [{ label: 'Created by', value: pending.creatorAddress }] : []),
+                  { label: 'Group', value: `#${pending.txGroupId} \u00b7 ${approvalGroupMeta.groupName}` },
+                  { label: 'Status', value: 'PENDING' },
+                ]
+              : setGroupRequest && meta
+                ? [{ label: 'Default group', value: `#${setGroupRequest.defaultGroupId} \u00b7 ${meta.groupName}` }]
+                : avatarRequest && meta
+                  ? [
+                      { label: 'Group', value: `#${avatarRequest.groupId} \u00b7 ${meta.groupName}` },
+                      {
+                        label: 'Avatar',
+                        // Injective component encoding, shared with desktop: a
+                        // '/' inside a name or identifier is escaped, so the
+                        // displayed coordinate parses back to one triple.
+                        value: avatarRequest.avatar === null
+                          ? 'Clear the group avatar'
+                          : homeV2AvatarPointerText(avatarRequest.avatar),
+                      },
+                    ]
+                  : []
+        if (rows.length === 0) throw new Error(`${action} is not a supported group mutation.`)
+        const operationLabel = homeV2GroupMutationOperationLabel(action, approvalRequest ? !approvalRequest.approval : false)
+        const parsedApp = resolveAppIdentity()
+        const appId = brand<AppId>(`home-v2:permission-app:${parsedApp.identityKey}`)
+        const nodeRoute = `${nodeBefore.mode}|${nodeBefore.nodeApiUrl}`
+        const decision = await queueAndroidPermissionPrompt(createPermissionPrompt({
+          id: brand<PermissionRequestId>(globalThis.crypto.randomUUID()),
+          protocol,
+          action,
+          capability: 'group.mutation',
+          appId,
+          appIdentityKey: parsedApp.identityKey,
+          appTitle: parsedApp.title,
+          context: {
+            appId,
+            identityId: brand<IdentityId>(`home-v2:identity:${accountId}`),
+            nodeProfileRef: snapshot.nodes.qortium.ref,
+            tabId: brand<TabId>(context.tabId),
+            targetNetwork: 'qortium',
+            walletRef: brand<WalletRef>(`home-v2:wallet:${account.walletId}`),
+          },
+          title: `Allow ${operationLabel.toLowerCase()}?`,
+          summary: `${parsedApp.title} wants to sign and broadcast one group transaction from the selected account. It carries no payment and costs no fee \u2014 Home pays for it with proof-of-work on this device. Everything it does is shown below, exactly as it will be signed; this approval covers this one transaction only.`,
+          details: [
+            { label: 'Account', value: account.label },
+            { label: 'Operation', value: operationLabel },
+            ...androidSequencedDetails(action, GROUP_MUTATION_DETAIL_SEQUENCES[action], rows),
+            { label: 'Chain', value: 'Qortium' },
+            { label: 'Scope', value: 'This one transaction only' },
+          ],
+          allowedScopes: ['single-request'],
+        }), context.tabId)
+        if (!decision.approved || decision.scope !== 'single-request') {
+          throw new Error('The group transaction was denied.')
+        }
+        const rateLimitDecision = androidChatSendRateLimiter.current.checkAndRecordSend(`${context.tabId}|${accountId}`)
+        if (!rateLimitDecision.allowed) throw new Error(rateLimitDecision.message)
+        const isStillValid = async () => {
+          const currentTab = productStateRef.current.tabs.find((tab) => tab.id === context.tabId)
+          const currentAccount = accountCatalogueRef.current.accounts.find((candidate) => candidate.id === accountId)
+          const currentNode = parseHomeV2NodesSnapshot(await nodeClient.getSnapshot()).qortium
+          return !!currentTab &&
+            currentTab.context.resourceLocation === context.resourceLocation &&
+            String(currentTab.context.identityId) === `home-v2:identity:${accountId}` &&
+            !!currentAccount?.isUnlocked &&
+            currentNode.capabilities.read &&
+            `${currentNode.mode}|${currentNode.nodeApiUrl ?? ''}` === nodeRoute
+        }
+        if (!(await isStillValid())) throw new Error('The app, account, or node route changed before signing.')
+        await assertNoPendingTransactionConflict()
+        return retainUnknownTransaction(await vaultClient.signGroupMutation({
+          accountId,
+          action,
+          approvedAddress: account.address,
+          approvedGroup: meta,
+          approvedPending: pending && approvalGroupMeta
+            ? { ...pending, groupName: approvalGroupMeta.groupName }
             : null,
           isStillValid,
           nodeApiUrl: nodeBefore.nodeApiUrl,
