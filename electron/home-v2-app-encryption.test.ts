@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict'
+import ed2curve from 'ed2curve'
 import nacl from 'tweetnacl'
 
 import { base58Encode } from './base58.js'
 import {
+  decryptQortalDeprecatedEnvelope,
+  qortalEnvelopeKind,
   decryptQortalPublicKeyEnvelope,
   encryptQortalPublicKeyEnvelope,
   encryptQortalPublicKeyEnvelopeForTest,
@@ -359,6 +362,92 @@ for (const [input, pattern] of [
     if (savedBuffer !== undefined) (globalThis as { Buffer?: unknown }).Buffer = savedBuffer
     if (savedProcess !== undefined) (globalThis as { process?: unknown }).process = savedProcess
   }
+}
+
+// --- The DEPRECATED qortalEncryptedData envelope --------------------------
+// Built here from Qortal Hub's own algorithm (decryptDeprecatedSingle,
+// src/qdn/encryption/group-encryption.ts) rather than from our decryptor, so
+// this is a check against Qortal's format and not against ourselves.
+{
+  const alice = nacl.sign.keyPair()   // sender
+  const bob = nacl.sign.keyPair()     // reader
+  const PLAINTEXT = 'deprecated envelope payload'
+
+  const buildDeprecated = async (senderSecret: Uint8Array, readerPublic: Uint8Array) => {
+    const curvePriv = ed2curve.convertSecretKey(senderSecret)
+    const curvePub = ed2curve.convertPublicKey(readerPublic)!
+    const secret = nacl.scalarMult(curvePriv, curvePub)
+    // SHA-256 of the shared secret — the difference from the modern envelope.
+    const key = new Uint8Array(await crypto.subtle.digest('SHA-256', secret.slice()))
+    const nonce = new Uint8Array(24)
+    crypto.getRandomValues(nonce)
+    const box = nacl.secretbox(new TextEncoder().encode(PLAINTEXT), nonce, key)
+    const prefix = new TextEncoder().encode('qortalEncryptedData')
+    const out = new Uint8Array(prefix.length + nonce.length + box.length)
+    out.set(prefix, 0)
+    out.set(nonce, prefix.length)
+    out.set(box, prefix.length + nonce.length)
+    let binary = ''
+    for (const byte of out) binary += String.fromCharCode(byte)
+    return btoa(binary)
+  }
+
+  const envelope = await buildDeprecated(alice.secretKey, bob.publicKey)
+  assert.equal(qortalEnvelopeKind(envelope), 'deprecated', 'the form is decided by prefix')
+
+  const opened = await decryptQortalDeprecatedEnvelope({
+    encryptedBase64: envelope,
+    readerPrivateKey: bob.secretKey,
+    senderPublicKey58: base58Encode(alice.publicKey),
+  })
+  assert.equal(
+    new TextDecoder().decode(Uint8Array.from(atob(opened.data64), (c) => c.charCodeAt(0))),
+    PLAINTEXT,
+  )
+
+  // The sender key is what derives the secret, so a wrong one must fail rather
+  // than return plausible bytes.
+  await assert.rejects(
+    () => decryptQortalDeprecatedEnvelope({
+      encryptedBase64: envelope,
+      readerPrivateKey: bob.secretKey,
+      senderPublicKey58: base58Encode(nacl.sign.keyPair().publicKey),
+    }),
+    /could not be opened/,
+  )
+  // ...and so must a reader who was not the recipient.
+  await assert.rejects(
+    () => decryptQortalDeprecatedEnvelope({
+      encryptedBase64: envelope,
+      readerPrivateKey: nacl.sign.keyPair().secretKey,
+      senderPublicKey58: base58Encode(alice.publicKey),
+    }),
+    /could not be opened/,
+  )
+  // A modern envelope must not be accepted here, and vice versa: the two use
+  // DIFFERENT key derivations (raw vs SHA-256), so feeding one to the other
+  // fails silently-but-wrongly if the prefix is not checked.
+  const modern = encryptQortalPublicKeyEnvelope({
+    data64: 'aGk=',
+    recipientPublicKeys58: [base58Encode(bob.publicKey)],
+    senderPrivateKey: alice.secretKey,
+    senderPublicKey58: base58Encode(alice.publicKey),
+  })
+  assert.equal(qortalEnvelopeKind(modern), 'group')
+  await assert.rejects(
+    () => decryptQortalDeprecatedEnvelope({
+      encryptedBase64: modern,
+      readerPrivateKey: bob.secretKey,
+      senderPublicKey58: base58Encode(alice.publicKey),
+    }),
+    /not a Qortal envelope/,
+  )
+  assert.throws(
+    () => decryptQortalPublicKeyEnvelope({ encryptedBase64: envelope, readerPrivateKey: bob.secretKey }),
+    /not a Qortal encrypted envelope/,
+  )
+  assert.equal(qortalEnvelopeKind('bm90IGFuIGVudmVsb3Bl'), 'unknown')
+  assert.equal(qortalEnvelopeKind('!!!not base64!!!'), 'unknown')
 }
 
 console.log('Home 2 app encryption envelope tests passed.')

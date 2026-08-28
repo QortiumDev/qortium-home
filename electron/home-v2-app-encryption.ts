@@ -344,3 +344,95 @@ export function decryptQortalPublicKeyEnvelope(input: {
   }
   throw new Error('This data was not encrypted for the selected account.')
 }
+
+// --- The DEPRECATED single-recipient envelope -------------------------------
+
+const DEPRECATED_ENVELOPE_PREFIX = 'qortalEncryptedData'
+const DEPRECATED_NONCE_LENGTH = 24
+
+/**
+ * Qortal's older `qortalEncryptedData` form, which DECRYPT_DATA still accepts.
+ *
+ *   "qortalEncryptedData"   19 bytes, ASCII
+ *   nonce                   24 bytes
+ *   encryptedData           variable   secretbox(payload, nonce, key)
+ *
+ * THE KEY DERIVATION DIFFERS FROM THE MODERN ENVELOPE, and that difference is
+ * the whole reason this cannot share code with it. Here the secretbox key is
+ * **SHA-256 of** the X25519 shared secret; in `qortalGroupEncryptedData` the
+ * wrapped-key secret is the RAW scalarmult output, unhashed. Deriving one the
+ * way the other does produces a key that is wrong but perfectly well-formed,
+ * so the failure is a silent "cannot decrypt" rather than an error that names
+ * itself. Home's own direct-chat derivation (deriveQortalDirectEncryptionKey)
+ * hashes, matching THIS form — which is precisely why it must not be reused
+ * for the modern one.
+ *
+ * Single-recipient: the sender's public key must be supplied by the caller,
+ * because unlike the modern envelope this form does not carry it.
+ */
+export async function decryptQortalDeprecatedEnvelope(input: {
+  readonly encryptedBase64: string
+  readonly readerPrivateKey: Uint8Array
+  readonly senderPublicKey58: string
+}): Promise<QortalDecryptedData> {
+  const combined = decodeStrictBase64(input.encryptedBase64, 'The encrypted data')
+  const prefix = textBytes(DEPRECATED_ENVELOPE_PREFIX)
+  if (combined.length < prefix.length + DEPRECATED_NONCE_LENGTH + nacl.secretbox.overheadLength) {
+    throw new Error('The encrypted data is too short to be a Qortal envelope.')
+  }
+  for (let index = 0; index < prefix.length; index += 1) {
+    if (combined[index] !== prefix[index]) {
+      throw new Error('The encrypted data is not a Qortal envelope.')
+    }
+  }
+  const senderPublicKey = requireBytes(
+    base58Decode(input.senderPublicKey58),
+    PUBLIC_KEY_LENGTH,
+    'Sender public key',
+  )
+  const nonce = combined.subarray(prefix.length, prefix.length + DEPRECATED_NONCE_LENGTH)
+  const encryptedData = combined.subarray(prefix.length + DEPRECATED_NONCE_LENGTH)
+  const secret = sharedSecret(input.readerPrivateKey, senderPublicKey)
+  try {
+    // SHA-256, unlike the modern envelope. See the note above.
+    const digest = new Uint8Array(
+      await crypto.subtle.digest('SHA-256', secret.slice()),
+    )
+    try {
+      const payload = nacl.secretbox.open(encryptedData, nonce, digest)
+      if (!payload) throw new Error('The encrypted payload could not be opened.')
+      return {
+        data64: bytesToBase64(payload),
+        senderPublicKey58: input.senderPublicKey58,
+      }
+    } finally {
+      digest.fill(0)
+    }
+  } finally {
+    secret.fill(0)
+  }
+}
+
+/** The envelope form, decided by prefix rather than by what the caller claims. */
+export function qortalEnvelopeKind(encryptedBase64: string): 'group' | 'deprecated' | 'unknown' {
+  let combined: Uint8Array
+  try {
+    combined = decodeStrictBase64(encryptedBase64, 'The encrypted data')
+  } catch {
+    return 'unknown'
+  }
+  const startsWith = (marker: string) => {
+    const bytes = textBytes(marker)
+    if (combined.length < bytes.length) return false
+    for (let index = 0; index < bytes.length; index += 1) {
+      if (combined[index] !== bytes[index]) return false
+    }
+    return true
+  }
+  // The group marker is checked FIRST: "qortalEncryptedData" is not a prefix of
+  // "qortalGroupEncryptedData", but checking the shorter one first would still
+  // be the kind of ordering that quietly breaks if either string ever changes.
+  if (startsWith(ENVELOPE_PREFIX)) return 'group'
+  if (startsWith(DEPRECATED_ENVELOPE_PREFIX)) return 'deprecated'
+  return 'unknown'
+}
