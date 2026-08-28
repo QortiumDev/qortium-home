@@ -226,6 +226,10 @@ import {
   normalizeHomeV2PublishMultipleRequest,
   normalizeHomeV2QdnDeleteRequest,
 } from '../../electron/home-v2-publish-extras-contract'
+import {
+  homeV2AtMessageOperationLabel,
+  normalizeHomeV2AtMessageRequest,
+} from '../../electron/home-v2-at-message-actions'
 import { getStaticQdnServiceId } from '../../electron/public-transaction-validation'
 import {
   normalizeHomeV2RateAccountRequest,
@@ -6181,6 +6185,91 @@ export function HomeV2LiveApp() {
         } finally {
           bytes.fill(0)
         }
+      }
+      // SEND_MESSAGE on Android: one zero-fee, zero-payment MESSAGE to an AT
+      // contract. The chain is asserted here as well as in the catalogue,
+      // because the serializer is Qortium-specific and a signing path must not
+      // depend on a catalogue entry staying correct.
+      //
+      // The prompt shows the COMPLETE message, never a preview: the contract
+      // may act on the text, so the user has to be able to read all of it.
+      if (isAndroidHost && protocol === 'qdnRequest' && action === 'SEND_MESSAGE') {
+        if (!context.selectedAccountId) throw new Error('No account is selected for this tab.')
+        const accountId = context.selectedAccountId
+        const account = accountCatalogueRef.current.accounts.find((candidate) => candidate.id === accountId)
+        if (!account) throw new Error('The selected account is no longer available.')
+        if (!account.isUnlocked) throw new Error('The selected account is locked.')
+        if (!vaultClient?.sendAtMessage || !vaultClient.getSigningPublicKey) {
+          throw new Error('Contract messaging is unavailable on this platform.')
+        }
+        const nodeBefore = parseHomeV2NodesSnapshot(await nodeClient.getSnapshot()).qortium
+        if (!nodeBefore.nodeApiUrl || !nodeBefore.capabilities.read) {
+          throw new Error(nodeBefore.error ?? 'Qortium is unavailable.')
+        }
+        const request = normalizeHomeV2AtMessageRequest(protocol, isRecord(requestValue) ? requestValue : {})
+        const approvedSenderPublicKey = await vaultClient.getSigningPublicKey(accountId)
+        const messageByteLength = new TextEncoder().encode(request.message).length
+        const parsedApp = resolveAppIdentity()
+        const appId = brand<AppId>(`home-v2:permission-app:${parsedApp.identityKey}`)
+        const nodeRoute = `${nodeBefore.mode}|${nodeBefore.nodeApiUrl}`
+        const decision = await queueAndroidPermissionPrompt(createPermissionPrompt({
+          id: brand<PermissionRequestId>(globalThis.crypto.randomUUID()),
+          protocol,
+          action,
+          capability: 'contract.message.send',
+          appId,
+          appIdentityKey: parsedApp.identityKey,
+          appTitle: parsedApp.title,
+          context: {
+            appId,
+            identityId: brand<IdentityId>(`home-v2:identity:${accountId}`),
+            nodeProfileRef: snapshot.nodes.qortium.ref,
+            tabId: brand<TabId>(context.tabId),
+            targetNetwork: 'qortium',
+            walletRef: brand<WalletRef>(`home-v2:wallet:${account.walletId}`),
+          },
+          title: 'Allow a message to a contract?',
+          summary: `${parsedApp.title} wants to sign and broadcast one message from the selected account to the contract below. It carries no payment and costs no fee \u2014 Home pays for it with proof-of-work on this device. The complete message text is shown below, exactly as it will be signed; read all of it, as the contract may act on it.`,
+          details: [
+            { label: 'Account', value: account.label },
+            { label: 'Operation', value: homeV2AtMessageOperationLabel() },
+            { label: 'Contract', value: androidPromptText(request.recipient) },
+            // The complete text, scrollable and bounded, with its byte count —
+            // the prompt discloses exactly the bytes that will be signed.
+            { label: 'Message', value: androidPromptText(request.message), variant: 'scroll' as const },
+            { label: 'Message size', value: `${messageByteLength} bytes` },
+            { label: 'Payment', value: 'None - this message moves no funds' },
+            { label: 'Chain', value: 'Qortium' },
+            { label: 'Scope', value: 'This one transaction only' },
+          ],
+          allowedScopes: ['single-request'],
+        }), context.tabId)
+        if (!decision.approved || decision.scope !== 'single-request') {
+          throw new Error('The contract message was denied.')
+        }
+        const rateLimitDecision = androidChatSendRateLimiter.current.checkAndRecordSend(`${context.tabId}|${accountId}`)
+        if (!rateLimitDecision.allowed) throw new Error(rateLimitDecision.message)
+        const isStillValid = async () => {
+          const currentTab = productStateRef.current.tabs.find((tab) => tab.id === context.tabId)
+          const currentAccount = accountCatalogueRef.current.accounts.find((candidate) => candidate.id === accountId)
+          const currentNode = parseHomeV2NodesSnapshot(await nodeClient.getSnapshot()).qortium
+          return !!currentTab &&
+            currentTab.context.resourceLocation === context.resourceLocation &&
+            String(currentTab.context.identityId) === `home-v2:identity:${accountId}` &&
+            !!currentAccount?.isUnlocked &&
+            currentNode.capabilities.read &&
+            `${currentNode.mode}|${currentNode.nodeApiUrl ?? ''}` === nodeRoute
+        }
+        if (!(await isStillValid())) throw new Error('The app, account, or node route changed before signing.')
+        await assertNoPendingTransactionConflict()
+        return retainUnknownTransaction(await vaultClient.sendAtMessage({
+          accountId,
+          approvedAddress: account.address,
+          approvedSenderPublicKey,
+          isStillValid,
+          nodeApiUrl: nodeBefore.nodeApiUrl,
+          requestValue: isRecord(requestValue) ? requestValue : {},
+        }))
       }
       // The publishing extras on Android. PUBLISH_MULTIPLE_QDN_RESOURCES loops
       // the single-publish contract over a bounded batch with FULL per-item

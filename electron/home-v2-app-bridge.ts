@@ -465,6 +465,7 @@ import {
   homeV2QuotedPromptText,
   homeV2ResourceCoordinateText,
 } from './home-v2-prompt-text.js'
+import { assertUnsignedQortiumAtMessageTransaction } from './qdn-at-message-validation.js'
 import {
   assertUnsignedHomeV2GroupMutationTransaction,
   buildUnsignedQortiumGroupMutationTransactionBytes,

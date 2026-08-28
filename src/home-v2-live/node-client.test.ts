@@ -1177,19 +1177,23 @@ await client.setMode('qortal', 'public')
 await client.setMode('qortium', 'public')
 const androidQdnActions = (await client.requestApp('qdnRequest', { action: 'SHOW_ACTIONS' }, appContext)) as string[]
 const androidQortalActions = (await client.requestApp('qortalRequest', { action: 'SHOW_ACTIONS' }, appContext)) as string[]
-// SEND_MESSAGE signs, which Android cannot do — it must be filtered out of
-// SHOW_ACTIONS so the result does not lie.
-assert.equal(androidQdnActions.includes('SEND_MESSAGE'), false, 'Android SHOW_ACTIONS must not advertise SEND_MESSAGE')
+// SEND_MESSAGE now signs on Android too, so it IS advertised on qdnRequest —
+// and never on qortalRequest, where the Qortium-specific MESSAGE serializer
+// has no meaning.
+assert.equal(androidQdnActions.includes('SEND_MESSAGE'), true, 'Android SHOW_ACTIONS must advertise SEND_MESSAGE')
 assert.equal(androidQortalActions.includes('SEND_MESSAGE'), false)
 // UNLOCK_SELECTED_ACCOUNT is a Home-account operation and IS available on
 // Android — on both protocols, so the legacy wallet's qortalRequest works.
 assert.equal(androidQortalActions.includes('UNLOCK_SELECTED_ACCOUNT'), true, 'Android must advertise UNLOCK on qortalRequest')
 assert.equal(androidQdnActions.includes('UNLOCK_SELECTED_ACCOUNT'), true)
-// And calling the filtered signing action anyway is rejected with a clear
-// desktop-only reason, not the generic read-only message.
+// The Home shell raises the approval and the vault signs, so the node client
+// is not where a MESSAGE can be signed from: one arriving here bypassed the
+// prompt, and the refusal says that rather than blaming the platform.
 await assert.rejects(
   client.requestApp('qdnRequest', { action: 'SEND_MESSAGE', recipient: 'AG9QWs1tEBTmXoH2rrQXwV4LdMAM99o5WD', message: 'hi' }, appContext),
-  /only available in Qortium Home desktop/,
+  (error: Error) =>
+    /must be approved through Home/.test(error.message) &&
+    !/only available in Qortium Home desktop|read-only mode/i.test(error.message),
 )
 
 console.log('Home v2 portable node client tests passed.')

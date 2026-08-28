@@ -266,7 +266,6 @@ export function homeV2WidgetWithholdsSelfSubject(action: string) {
  * on Android on both protocols.
  */
 const ANDROID_UNSUPPORTED_ACTIONS = new Set<string>([
-  'SEND_MESSAGE',
   // The payment family MOVES FUNDS and stays desktop-only until an
   // independently reviewed Android signing path exists.
   'PAYMENT',

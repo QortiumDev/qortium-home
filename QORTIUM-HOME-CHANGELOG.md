@@ -34,6 +34,23 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-27 - feat(home-v2): messages to contracts work on Android
+
+Sending a message to a contract now works on your phone. It carries no payment
+and costs no fee — your device pays for it with a little work instead.
+
+These messages are the one kind of transaction your node cannot help Home
+build, so Home builds them alone. That means there was nothing to check the
+result against, on either the desktop or the phone. Home now reads its own
+finished transaction back field by field and confirms every part of it before
+signing — including that the amount is zero and the text is unencrypted, so a
+message that quietly carried a payment could not be signed as if it did not.
+That check is new on the desktop as well.
+
+The approval screen shows you the complete message, not a shortened preview,
+in a scrollable box with its exact size. The contract may act on what the
+message says, so you need to be able to read all of it before you agree to it.
+
 ### 2026-08-27 - feat(home-v2): batch publishing and on-chain deletion work on Android
 
 Publishing several resources at once, and deleting a published resource on
