@@ -625,4 +625,66 @@ import {
   )
 }
 
+// --- account.encrypt is a SEPARATE account-scoped grant ------------------
+// The failure this pins: if the two capabilities shared storage, or if a
+// revoke misrouted between them, an "always allow" the user gave for READING
+// their account would govern use of their KEY — or revoking one card would
+// silently drop the other grant.
+{
+  const app = 'qdn://APP/Demo/Demo'
+  const account = 'account-1'
+  let store = grantQdnAccountCapability(createDefaultQdnAppRolesStore(), app, account, 'account.read')
+  store = grantQdnAccountCapability(store, app, account, 'account.encrypt')
+  assert.equal(storeHoldsQdnAccountCapability(store, app, account, 'account.read'), true)
+  assert.equal(storeHoldsQdnAccountCapability(store, app, account, 'account.encrypt'), true)
+
+  // Revoking one leaves the other standing.
+  const withoutEncrypt = revokeQdnAccountCapability(store, app, account, 'account.encrypt')
+  assert.equal(storeHoldsQdnAccountCapability(withoutEncrypt, app, account, 'account.encrypt'), false)
+  assert.equal(
+    storeHoldsQdnAccountCapability(withoutEncrypt, app, account, 'account.read'),
+    true,
+    'revoking encryption must not drop the read grant',
+  )
+  const withoutRead = revokeQdnAccountCapability(store, app, account, 'account.read')
+  assert.equal(storeHoldsQdnAccountCapability(withoutRead, app, account, 'account.read'), false)
+  assert.equal(
+    storeHoldsQdnAccountCapability(withoutRead, app, account, 'account.encrypt'),
+    true,
+    'revoking read must not drop the encryption grant',
+  )
+
+  // Holding one must never imply the other.
+  const encryptOnly = grantQdnAccountCapability(createDefaultQdnAppRolesStore(), app, account, 'account.encrypt')
+  assert.equal(
+    storeHoldsQdnAccountCapability(encryptOnly, app, account, 'account.read'),
+    false,
+    'an encryption grant is not a read grant',
+  )
+  const readOnly = grantQdnAccountCapability(createDefaultQdnAppRolesStore(), app, account, 'account.read')
+  assert.equal(
+    storeHoldsQdnAccountCapability(readOnly, app, account, 'account.encrypt'),
+    false,
+    'a read grant is not an encryption grant',
+  )
+  // Still account-scoped: a grant under one account never covers another.
+  assert.equal(
+    storeHoldsQdnAccountCapability(encryptOnly, app, 'account-2', 'account.encrypt'),
+    false,
+  )
+  // ...and it must survive a sanitize round trip, or it would be silently
+  // stripped on every read (the failure mode when a capability is missing
+  // from QDN_ACCOUNT_SCOPED_CAPABILITIES).
+  assert.equal(
+    storeHoldsQdnAccountCapability(
+      sanitizeQdnAppRolesStore(JSON.parse(JSON.stringify(encryptOnly))),
+      app,
+      account,
+      'account.encrypt',
+    ),
+    true,
+    'account.encrypt survives sanitize; a capability missing from the scoped list would not',
+  )
+}
+
 console.log('QDN capability principal tests passed')

@@ -286,6 +286,10 @@ function NotificationGrantCard({
  * account access render and revoke through exactly one code path.
  */
 const GRANT_CARD_ACCESS_LABEL_KEYS = {
+  // Worded as use of the KEY, never as reading account data. The two are
+  // separate grants with separate cards precisely so a user revoking one is
+  // not shown wording that could describe the other.
+  'account.encrypt': 'managerPermissions.access.accountEncrypt',
   'account.read': 'managerPermissions.access.accountRead',
   'bookmarks.manage': 'managerPermissions.access.bookmarks',
   'chat.send': 'managerPermissions.access.chatSend',
@@ -327,6 +331,7 @@ function BookmarkGrantCard<Grant extends HomeV2QdnBookmarkGrant>({
   return (
     <article
       className="home-v2-setting-row"
+      data-qdn-account-encrypt-grant={capability === 'account.encrypt' ? grant.appKey : undefined}
       data-qdn-account-read-grant={capability === 'account.read' ? grant.appKey : undefined}
       data-qdn-bookmark-grant={capability === 'bookmarks.manage' ? grant.appKey : undefined}
       data-qdn-chat-send-grant={capability === 'chat.send' ? grant.appKey : undefined}
@@ -348,6 +353,7 @@ function BookmarkGrantCard<Grant extends HomeV2QdnBookmarkGrant>({
       <div className="home-v2-setting-row__control">
         {confirmingRevoke ? (
           <div
+            data-qdn-account-encrypt-revoke-confirm={capability === 'account.encrypt' ? 'true' : undefined}
             data-qdn-account-read-revoke-confirm={capability === 'account.read' ? 'true' : undefined}
             data-qdn-bookmark-revoke-confirm={capability === 'bookmarks.manage' ? 'true' : undefined}
             data-qdn-chat-send-revoke-confirm={capability === 'chat.send' ? 'true' : undefined}
@@ -512,6 +518,21 @@ export function QdnAppsSettings({
       }))
   }
 
+  // Revoking this drops the durable "always allow" for encrypting with the
+  // account key, so the app is asked again the next time it calls
+  // ENCRYPT_DATA. It does NOT touch the same app's account.read grant: they
+  // are separate capabilities with separate cards.
+  const revokeAccountEncrypt = async (grant: HomeV2QdnAccountGrant) => {
+    if (!snapshot) return
+    await applyMutation(`accountEncrypt:${grant.appKey}:${grant.accountId}`, () =>
+      client.revokeBookmarks({
+        accountId: grant.accountId,
+        appKey: grant.appKey,
+        capability: 'account.encrypt',
+        expectedAssignmentRevision: snapshot.accountEncrypt.revision,
+      }))
+  }
+
   // Chat-send "always allow" grants were persisted and reported here from the
   // start but never rendered, which made them unrevokable in practice. They
   // revoke through the same path as every other durable capability.
@@ -601,6 +622,29 @@ export function QdnAppsSettings({
               key={`${grant.appKey}:${grant.accountId}`}
               loadVisibleAppIcon={loadVisibleAppIcon}
               onRevoke={revokeAccountRead}
+            />
+          ))}
+        </section>
+      ) : null}
+
+      {snapshot?.accountEncrypt.apps.length ? (
+        <section aria-labelledby="home-v2-qdn-account-encrypt-controls-title">
+          <div className="home-v2-settings-panel__heading">
+            <h3 id="home-v2-qdn-account-encrypt-controls-title">
+              {t('qdnApps.accountEncryptControlsTitle')}
+            </h3>
+            <p>{t('managerPermissions.access.accountEncrypt')}</p>
+          </div>
+          {snapshot.accountEncrypt.apps.map((grant) => (
+            <BookmarkGrantCard
+              accountLabel={resolveAccountLabel?.(grant.accountId) ?? shortenAccountId(grant.accountId)}
+              busy={busy === `accountEncrypt:${grant.appKey}:${grant.accountId}`}
+              capability="account.encrypt"
+              disabled={actionsDisabled || busy !== null}
+              grant={grant}
+              key={`${grant.appKey}:${grant.accountId}`}
+              loadVisibleAppIcon={loadVisibleAppIcon}
+              onRevoke={revokeAccountEncrypt}
             />
           ))}
         </section>

@@ -33,6 +33,24 @@ export const QDN_APP_SEND_CAPABILITIES = ['chat.send'] as const;
  */
 export const QDN_APP_READ_CAPABILITIES = ['account.read'] as const;
 /**
+ * Durable per-app permission to encrypt with the account's key (ENCRYPT_DATA),
+ * granted by choosing "always allow" on an encryption prompt and revocable in
+ * QDN Apps settings.
+ *
+ * Its OWN capability, deliberately not a member of the read family above. An
+ * "always allow" the user gave for READING their account must never widen into
+ * use of the KEY — home-v2-session-grants.test.ts pins ENCRYPT_DATA out of the
+ * account.read family for exactly this reason, and giving it a separate
+ * capability is what keeps the two grants, and the two revocation cards,
+ * distinct.
+ *
+ * Durable is safe here because encryption is not an oracle: it consumes the
+ * private key but returns only ciphertext, no request shape makes it decrypt
+ * or reveal a shared secret, and its output is inert until some other action
+ * publishes or sends it — each of which prompts separately.
+ */
+export const QDN_APP_ENCRYPT_CAPABILITIES = ['account.encrypt'] as const;
+/**
  * Capabilities stored per (app principal, selected account) rather than per
  * app alone.
  *
@@ -46,7 +64,7 @@ export const QDN_APP_READ_CAPABILITIES = ['account.read'] as const;
  * chat.send and the manager capabilities stay app-scoped on purpose: they
  * shipped that way, and rekeying them would silently drop live user grants.
  */
-export const QDN_ACCOUNT_SCOPED_CAPABILITIES = ['account.read'] as const;
+export const QDN_ACCOUNT_SCOPED_CAPABILITIES = ['account.read', 'account.encrypt'] as const;
 export type QdnAccountScopedCapability = (typeof QDN_ACCOUNT_SCOPED_CAPABILITIES)[number];
 
 export function isQdnAccountScopedCapability(
@@ -60,6 +78,7 @@ export const QDN_APP_CAPABILITIES = [
   ...QDN_APP_ASSIGNMENT_CAPABILITIES,
   ...QDN_APP_SEND_CAPABILITIES,
   ...QDN_APP_READ_CAPABILITIES,
+  ...QDN_APP_ENCRYPT_CAPABILITIES,
 ] as const;
 
 export type QdnManagerCapability = (typeof QDN_MANAGER_CAPABILITIES)[number];

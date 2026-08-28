@@ -45,6 +45,18 @@ export type HomeV2QdnSettingsState = {
     revision: number
     version: 1
   }>
+  /**
+   * Apps holding the durable ENCRYPT capability, also per (app, account).
+   *
+   * A separate list from `accountRead` on purpose, and not folded into it:
+   * reading account data and using the account KEY are different powers, and
+   * a user revoking one must not be shown a card that silently governs both.
+   */
+  readonly accountEncrypt: Readonly<{
+    apps: readonly Readonly<{ accountId: string; appKey: string; grantedAt: string }>[]
+    revision: number
+    version: 1
+  }>
   readonly assignments: HomeV2QdnAssignmentState
   readonly chatSend: Readonly<{
     apps: readonly Readonly<{ appKey: string; grantedAt: string }>[]
@@ -182,6 +194,7 @@ function parseRevoke(value: unknown) {
 // it does not touch any managed app's own notification grant, and it does not
 // delete a single rule.
 const REVOCABLE_CAPABILITIES = [
+  'account.encrypt',
   'account.read',
   'bookmarks.manage',
   'chat.send',
@@ -190,7 +203,7 @@ const REVOCABLE_CAPABILITIES = [
 export type HomeV2RevocableCapability = (typeof REVOCABLE_CAPABILITIES)[number]
 // The subset stored per (app principal, account). Revoking one of these
 // must name the account, and only that account's grant is dropped.
-const ACCOUNT_SCOPED_REVOCABLE_CAPABILITIES = ['account.read'] as const
+const ACCOUNT_SCOPED_REVOCABLE_CAPABILITIES = ['account.read', 'account.encrypt'] as const
 export type HomeV2AccountScopedRevocableCapability =
   (typeof ACCOUNT_SCOPED_REVOCABLE_CAPABILITIES)[number]
 
@@ -261,6 +274,7 @@ export function redactHomeV2QdnSettingsState(
         : [])
       .sort((left, right) => left.appKey.localeCompare(right.appKey))
   const accountReadApps = listQdnAccountCapabilityGrants(assignmentsStore, 'account.read')
+  const accountEncryptApps = listQdnAccountCapabilityGrants(assignmentsStore, 'account.encrypt')
   const bookmarkApps = grantsFor('bookmarks.manage')
   const chatSendApps = grantsFor('chat.send')
   const notificationManagerApps = grantsFor('notifications.manage')
@@ -277,6 +291,11 @@ export function redactHomeV2QdnSettingsState(
     })
     .sort((left, right) => left.appKey.localeCompare(right.appKey)) : []
   return {
+    accountEncrypt: {
+      apps: accountEncryptApps,
+      revision: assignmentsStore.revision,
+      version: 1,
+    },
     accountRead: {
       apps: accountReadApps,
       revision: assignmentsStore.revision,

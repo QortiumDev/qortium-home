@@ -326,6 +326,7 @@ import {
   revokeQdnAppCapabilityPermission,
   setQdnAppAssignmentValue,
 } from '../qdnManagerPermissions'
+import { isQdnAccountScopedCapability } from '../../electron/qdn-manager-permissions'
 import {
   createPortableHomeV2QdnSettingsAdapter,
   resolveHomeV2QdnSettingsManagement,
@@ -1145,7 +1146,9 @@ function persistDurableChatSendGrant(appPrincipal: string): Promise<boolean> {
 function persistDurableAccountReadGrant(
   appPrincipal: string,
   accountId: string,
-  capability: 'account.read',
+  // Both account-scoped durable capabilities go through here. They are stored
+  // and revoked separately; only the write path is shared.
+  capability: 'account.read' | 'account.encrypt',
 ): Promise<boolean> {
   return persistDurableGrantAsync({
     capability,
@@ -1194,19 +1197,26 @@ export function HomeV2LiveApp() {
         },
         revokeNotifications: revokeAppNotifications,
         revokeBookmarks(appKey, expectedRevision, capability, accountId) {
-          // account.read is stored per (principal, account), so it revokes
-          // through the account-scoped store. Everything else keeps its
-          // app-scoped keying.
-          if (capability === 'account.read') {
+          // The account-scoped capabilities are stored per (principal,
+          // account), so they revoke through the account-scoped store.
+          // Everything else keeps its app-scoped keying.
+          //
+          // Membership comes from the shared list rather than a literal
+          // comparison, and the REQUESTED capability is forwarded. Both used
+          // to name 'account.read' directly, which was invisible while it was
+          // the only account-scoped capability and silently wrong as soon as
+          // there were two: revoking account.encrypt would have revoked
+          // account.read instead.
+          if (capability && isQdnAccountScopedCapability(capability)) {
             if (!accountId) {
               return Promise.reject(new Error(
-                'Revoking read-only account access requires the account it was granted for.',
+                'Revoking an account-scoped grant requires the account it was granted for.',
               ))
             }
             return revokeQdnAccountCapabilityPermission(
               appKey,
               accountId,
-              'account.read',
+              capability,
               expectedRevision,
             )
           }
@@ -4220,15 +4230,14 @@ export function HomeV2LiveApp() {
           // Second, and only after the signing arm above: a test pins
           // SEND_MESSAGE's arm first so no later edit can shadow it.
           //
-          // Session, not 'always'. Encryption is safe to grant durably — it is
-          // not an oracle — but the durable store is account-scoped and
-          // surfaces a revocation card in QDN Apps settings, and neither
-          // exists for this capability yet. Offering 'always' before that
-          // machinery lands would store a grant nothing reads: the user would
-          // be asked again anyway, having been told otherwise. A session grant
-          // already removes the per-request clicking.
+          // 'always' is offered now that the durable side actually exists:
+          // account.encrypt is an account-scoped capability the bridge checks,
+          // and QDN Apps settings shows a card for it that revokes it. It was
+          // deliberately withheld until then, because a stored grant nothing
+          // reads back would have re-prompted the user after telling them it
+          // would not.
           : isEncrypt
-          ? ['single-request', 'session']
+          ? ['single-request', 'session', 'always']
           : isWidgetPrompt
           ? ['single-request', 'session']
           : isNotification
@@ -4913,7 +4922,15 @@ export function HomeV2LiveApp() {
           protocol,
           tabId: context.tabId,
         })
-        if (!androidSessionAccountGrants.current.has(grantKey)) {
+        // A durable ENCRYPT grant skips the prompt outright, exactly as the
+        // desktop bridge does. Account-scoped and checked against the SAME
+        // (principal, selected account) pair, so a grant given under one
+        // account never covers another.
+        const encryptAppCapabilityKey = context.resourceLocation || ''
+        const heldEncryptGrant = encryptAppCapabilityKey
+          ? await hasQdnAccountCapability(encryptAppCapabilityKey, accountId, 'account.encrypt')
+          : false
+        if (!heldEncryptGrant && !androidSessionAccountGrants.current.has(grantKey)) {
           const parsedApp = resolveAppIdentity()
           const appId = brand<AppId>(`home-v2:permission-app:${parsedApp.identityKey}`)
           const decision = await queueAndroidPermissionPrompt(createPermissionPrompt({
@@ -4944,10 +4961,20 @@ export function HomeV2LiveApp() {
                 value: 'The app receives encrypted data. It cannot send or publish it without asking you again.',
               },
             ],
-            allowedScopes: ['single-request', 'session'],
+            allowedScopes: ['single-request', 'session', 'always'],
           }), context.tabId)
           if (!decision.approved) throw new Error('The encryption request was denied.')
-          if (decision.scope === 'session') {
+          if (decision.scope === 'always' && encryptAppCapabilityKey) {
+            // Verified, not assumed: a write that throws OR silently drops the
+            // key falls back to the session grant recorded below, so the user
+            // is never left with a grant that does not exist.
+            await persistDurableAccountReadGrant(
+              encryptAppCapabilityKey,
+              accountId,
+              'account.encrypt',
+            )
+          }
+          if (decision.scope === 'session' || decision.scope === 'always') {
             androidSessionAccountGrants.current.add(grantKey, {
               family: homeV2PermissionGrantFamily(action),
               hostWebContentsId: 'android',

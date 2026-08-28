@@ -78,6 +78,15 @@ const state = {
     revision: 3,
     version: 1,
   },
+  accountEncrypt: {
+    apps: [{
+      accountId: 'wallet:QAAA',
+      appKey: 'qdn://APP/Chat/Chat',
+      grantedAt: '2026-08-28T14:00:00.000Z',
+    }],
+    revision: 3,
+    version: 1,
+  },
   notifications: {
     apps: [{
       appKey: 'qdn://APP/Notify/Notify',
@@ -128,6 +137,24 @@ assert.throws(
   },
   /malformed/,
 )
+// Same reasoning for the durable ENCRYPT grants. Omitting them would hide a
+// live grant over the account KEY from the only surface that can revoke it,
+// which is strictly worse than hiding a read grant.
+assert.throws(
+  () => {
+    const { accountEncrypt: _omitted, ...withoutEncryptGrants } = state
+    return parseHomeV2QdnSettingsState(withoutEncryptGrants)
+  },
+  /malformed/,
+)
+// The two lists are parsed independently: an encryption grant must never be
+// reported as a read grant, or the wrong card would appear in settings.
+{
+  const parsed = parseHomeV2QdnSettingsState(state)
+  assert.equal(parsed.accountEncrypt.apps.length, 1)
+  assert.equal(parsed.accountRead.apps.length, 2)
+  assert.equal(parsed.accountEncrypt.apps[0].grantedAt, '2026-08-28T14:00:00.000Z')
+}
 // Same reasoning for the durable notification-manager grants: an omitted list
 // would hide a live administrative grant from the only place it can be revoked.
 assert.throws(

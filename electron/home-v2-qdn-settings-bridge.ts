@@ -20,6 +20,7 @@ import {
   revokeAppNotifications,
   setAppNotificationMuted,
 } from './notification-store.js'
+import { isQdnAccountScopedCapability } from './qdn-manager-permissions.js'
 
 const HOME_V2_QDN_SETTINGS_CHANGED = Object.freeze({
   revision: 1,
@@ -53,11 +54,20 @@ export function registerHomeV2QdnSettingsBridgeIpcHandlers() {
       // guarantees accountId is non-null for exactly the account-scoped
       // capabilities, so the two stores can never be crossed.
       if (accountId !== null) {
+        // Forward the REQUESTED capability. This used to pass the literal
+        // 'account.read', which was invisible while that was the only
+        // account-scoped capability and silently wrong the moment a second one
+        // existed: revoking account.encrypt would have revoked account.read
+        // instead, leaving the card the user clicked still standing and
+        // quietly dropping a different grant.
+        if (!isQdnAccountScopedCapability(capability)) {
+          throw new Error(`${capability} is not an account-scoped capability.`)
+        }
         return revokeQdnAccountCapabilityPermissionIfRevision(
           expectedRevision,
           appKey,
           accountId,
-          'account.read',
+          capability,
         )
       }
       return revokeQdnAppCapabilityPermissionIfRevision(
