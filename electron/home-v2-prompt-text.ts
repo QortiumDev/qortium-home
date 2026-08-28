@@ -14,7 +14,7 @@
  * output can be produced by two different inputs, so a crafted value cannot
  * forge the appearance of other rows or reorder text with bidi controls.
  */
-export function homeV2PromptText(value: string, label: string) {
+export function homeV2PromptText(value: string, label: string, maxLength = 4_000) {
   const escaped = value
     .replace(/\\/g, '\\\\')
     .replace(
@@ -29,11 +29,22 @@ export function homeV2PromptText(value: string, label: string) {
     // row would render byte-identically to the one that says the field is
     // being kept (group family review, 2026-08-27).
     .split('"').join('\\u0022')
-  if (escaped.length > 4_000) {
-    throw new Error(`${label} is too large to display safely for approval (4000 characters maximum).`)
+  if (escaped.length > maxLength) {
+    throw new Error(`${label} is too large to display safely for approval (${maxLength} characters maximum).`)
   }
   return escaped
 }
+
+/**
+ * The escaped-length ceiling for a row that carries a whole MESSAGE body.
+ *
+ * The default 4,000 bounds ROWS, but a MESSAGE is bounded at 4,000 UTF-8
+ * BYTES, and escaping is expansive: 1,000 emoji are a valid 4,000-byte message
+ * that escapes to 12,000 characters. Capping its row at 4,000 would refuse to
+ * display a message the chain accepts — and a message that cannot be displayed
+ * cannot be approved. Six characters per UTF-16 unit is the worst case.
+ */
+export const HOME_V2_MESSAGE_PROMPT_MAX_CHARS = 24_000
 
 /**
  * One app-derived value as a QUOTED prompt row fragment.

@@ -559,8 +559,6 @@ for (const action of ['GET_ALL_LISTS', 'GET_LIST', 'ADD_TO_LIST', 'REMOVE_FROM_L
   'SEND_MESSAGE']) {
   assert.equal(androidActions.includes(action), true, `android must advertise ${action}`)
 }
-// SEND_MESSAGE and the signing families stay filtered: no Android arm yet, and
-// an advertised action that cannot run would make SHOW_ACTIONS lie.
 // The payment family stays withheld until its own Android arm exists: it MOVES
 // FUNDS, and an advertised action that cannot run would make SHOW_ACTIONS lie.
 for (const action of ['PAYMENT', 'SEND_COIN', 'TRANSFER_ASSET']) {

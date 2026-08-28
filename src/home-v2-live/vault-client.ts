@@ -306,6 +306,12 @@ export interface HomeV2VaultClient {
   sendAtMessage?(request: {
     readonly accountId: string
     readonly approvedAddress: string
+    // The exact text and contract the PROMPT showed. The vault re-normalizes
+    // the raw request too and refuses if the two disagree, so the verifier
+    // proves prompt-vs-signed agreement rather than merely
+    // builder-vs-normalizer agreement.
+    readonly approvedMessage: string
+    readonly approvedRecipient: string
     // The public key the PROMPT was raised for. A key that does not match it
     // means the selected account moved under the approval.
     readonly approvedSenderPublicKey: string

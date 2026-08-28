@@ -8,7 +8,6 @@ import { base58Decode } from './base58.js'
 // V1), and a real 32-byte public key — so the builder and the verifier meet on
 // the exact wire form rather than on a synthetic fixture.
 const RECIPIENT = 'AG9QWs1tEBTmXoH2rrQXwV4LdMAM99o5WD'
-const OTHER_RECIPIENT = 'AG9QWs1tEBTmXoH2rrQXwV4LdMAM99o5WD'
 const SENDER_PUBLIC_KEY = '2tiMr5LTpaWCgbRvkPK8TFd7k63DyHJMMFFsz9uBg1ZP'
 
 function expectedFor(message: string, timestamp: number, nonce: number) {
@@ -56,7 +55,7 @@ assert.throws(
     // One byte different from the real AT: the verifier compares the exact
     // 25-byte address, so a near-miss is still a different contract.
     recipientBytes: (() => {
-      const bytes = new Uint8Array(base58Decode(OTHER_RECIPIENT))
+      const bytes = new Uint8Array(base58Decode(RECIPIENT))
       bytes[5] ^= 0x01
       return bytes
     })(),
@@ -107,6 +106,29 @@ for (const [offset, value, pattern] of [
     () => assertUnsignedQortiumAtMessageTransaction(tampered, expectedFor(message, timestamp, 0)),
     pattern,
   )
+}
+
+// The remaining asserted fields, each mutated in place. Without these a
+// regression that dropped one of these checks would keep the suite green.
+{
+  const SENDER_OFFSET = 4 + 8 + 4
+  const GROUP_OFFSET = 4 + 8
+  const RECIPIENT_FLAG_OFFSET = SENDER_OFFSET + 32 + 4
+  const FEE_OFFSET = bytes.length - 8
+  for (const [offset, pattern] of [
+    [SENDER_OFFSET + 3, /sender/],
+    [GROUP_OFFSET + 3, /transaction group/],
+    [RECIPIENT_FLAG_OFFSET, /recipient flag/],
+    [FEE_OFFSET + 7, /fee/],
+  ] as const) {
+    const tampered = new Uint8Array(bytes)
+    tampered[offset] ^= 0x01
+    assert.throws(
+      () => assertUnsignedQortiumAtMessageTransaction(tampered, expectedFor(message, timestamp, 0)),
+      pattern,
+      'every field the verifier claims to check is actually checked',
+    )
+  }
 }
 
 console.log('Qortium AT MESSAGE validation tests passed.')

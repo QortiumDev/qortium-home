@@ -4507,11 +4507,16 @@ async function signAndProcessKeylessStandardTransaction(
   validate: (bytes: Uint8Array) => void,
   isStillValid?: () => boolean | Promise<boolean>,
   apiKey = keylessContext.apiKey,
+  // Optional second check, run on the NONCE-STAMPED bytes immediately before
+  // they are signed. `validate` above sees the unstamped form only, so without
+  // this the bytes that actually get signed are never read back.
+  validateStamped?: (bytes: Uint8Array, nonce: number) => void,
 ) {
   const unsignedBytes = base58Decode(rawUnsignedBytes58);
   validate(unsignedBytes);
   const nonce = await computeChatNonce(clearTransactionNonce(unsignedBytes), difficulty, isStillValid);
   const bytesWithNonce = stampTransactionNonce(unsignedBytes, nonce);
+  validateStamped?.(bytesWithNonce, nonce);
   if (keylessContext.secretKey.length !== 64) throw new Error('ed25519 secret key must be 64 bytes.');
   const signature = nacl.sign.detached(bytesWithNonce, keylessContext.secretKey);
   const signedTransactionBytes = base58Encode(appendSignatureToTransactionBytes(bytesWithNonce, signature));
@@ -7514,7 +7519,13 @@ async function sendMessageForApp(request: QdnAppRequest, context: QdnAppRequestC
   let messageRequest: ReturnType<typeof getQortiumAtMessageRequest>;
 
   try {
-    messageRequest = getQortiumAtMessageRequest(request);
+    // The HARDENED normalizer, the same one the Home 2 arms use. This path
+    // previously called getQortiumAtMessageRequest directly, which reads only
+    // recipient and message: an app could send `amount: 5` alongside them,
+    // get accepted:true back, and reasonably conclude it had paid the
+    // contract — while the transaction carries no payment at all. Refusing
+    // the field is the point.
+    messageRequest = normalizeHomeV2AtMessageRequest('qdnRequest', request as Record<string, unknown>);
   } catch (error) {
     return {
       accepted: false,
@@ -7551,23 +7562,37 @@ async function sendMessageForApp(request: QdnAppRequest, context: QdnAppRequestC
     throw new Error('QDN write request is stale because the app view changed before approval.');
   }
 
+  const messageTimestamp = Date.now();
   const unsignedBytes = buildUnsignedQortiumAtMessageTransactionBytes({
     ...messageRequest,
     senderPublicKey: keylessContext.publicKey58,
-    timestamp: Date.now(),
+    timestamp: messageTimestamp,
   });
+  const expectedAtMessageFields = {
+    messageBytes: new TextEncoder().encode(messageRequest.message),
+    recipientBytes: base58Decode(messageRequest.recipient),
+    senderPublicKeyBytes: base58Decode(keylessContext.publicKey58),
+    timestamp: messageTimestamp,
+  };
   const result = await signAndProcessKeylessStandardTransaction(
     keylessContext,
     base58Encode(unsignedBytes),
     QORTIUM_AT_MESSAGE_POW_DIFFICULTY,
-    // The bridge never accepts raw transaction bytes from a QDN app. This
-    // assertion is intentionally a no-op because the bytes above come only
-    // from the fixed-field serializer, not from request data.
-    () => undefined,
+    // The unstamped bytes were verified above; this callback used to be a
+    // deliberate no-op on the grounds that they come from a fixed-field
+    // serializer — but that serializer is then the ONLY thing between the
+    // request and a signature, which is exactly why every MESSAGE build site
+    // now reads its bytes back.
+    (bytes) => assertUnsignedQortiumAtMessageTransaction(bytes, { ...expectedAtMessageFields, nonce: 0 }),
     () => isKeylessWriteContextFresh(context, keylessContext),
     // /transactions/process is public; do not disclose a custom-node API key
     // for a transaction that needs no protected Core endpoint.
     '',
+    // And the stamped bytes, immediately before signing.
+    (stampedBytes, nonce) => assertUnsignedQortiumAtMessageTransaction(stampedBytes, {
+      ...expectedAtMessageFields,
+      nonce,
+    }),
   );
 
   return {
@@ -14165,17 +14190,28 @@ function homeV2IdempotentGroupAdminResult(
  */
 async function sendAndroidHomeV2QortiumAtMessage(input: {
   readonly address: string;
+  readonly approvedMessage: string;
+  readonly approvedRecipient: string;
   readonly approvedSenderPublicKey: string;
   readonly isStillValid: () => Promise<boolean>;
   readonly nodeApiUrl: string;
   readonly requestValue: Record<string, unknown>;
   readonly signingKey: { address: string; publicKey58: string; secretKey: Uint8Array };
 }) {
-  const { address, approvedSenderPublicKey, isStillValid, nodeApiUrl, requestValue, signingKey } = input;
+  const {
+    address, approvedMessage, approvedRecipient, approvedSenderPublicKey,
+    isStillValid, nodeApiUrl, requestValue, signingKey,
+  } = input;
   if (signingKey.address !== address || signingKey.publicKey58 !== approvedSenderPublicKey) {
     throw new Error('Selected account signing key changed before the message could be signed.');
   }
   const request = normalizeHomeV2AtMessageRequest('qdnRequest', requestValue);
+  // What the prompt showed IS what gets signed: the verifier below is fed
+  // these values, so a request that changed between the prompt and here
+  // refuses rather than being signed under an approval it never had.
+  if (request.message !== approvedMessage || request.recipient !== approvedRecipient) {
+    throw new Error('The message changed after it was approved; nothing was signed.');
+  }
   if (!(await isStillValid())) throw new Error('Account access context changed before approval completed.');
   const timestamp = Date.now();
   const unsignedBytes = buildUnsignedQortiumAtMessageTransactionBytes({
@@ -16391,6 +16427,8 @@ export function createAndroidHomeV2VaultClient(): HomeV2VaultClient {
       try {
         return await sendAndroidHomeV2QortiumAtMessage({
           address: request.approvedAddress,
+          approvedMessage: request.approvedMessage,
+          approvedRecipient: request.approvedRecipient,
           approvedSenderPublicKey: request.approvedSenderPublicKey,
           isStillValid: async () => (await request.isStillValid()) === true,
           nodeApiUrl: request.nodeApiUrl,

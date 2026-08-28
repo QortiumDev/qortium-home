@@ -218,6 +218,7 @@ import {
   selectHomeV2PendingTransactionSummary,
 } from '../../electron/home-v2-group-mutation-actions'
 import {
+  HOME_V2_MESSAGE_PROMPT_MAX_CHARS,
   homeV2AvatarPointerText,
   homeV2PromptText,
   homeV2ResourceCoordinateText,
@@ -515,6 +516,16 @@ const NAME_DETAIL_SEQUENCES: Record<string, readonly { label: string; optional?:
 // The desktop account-avatar prompt carries its rows as discrete fields rather
 // than a sequence; the Android arm builds them locally, so it states the same
 // shape explicitly and holds itself to it.
+// SEND_MESSAGE's action-specific rows. The message body is the whole point of
+// the disclosure, so its row is required, and the Payment row states in Home's
+// own words that this transaction moves no funds.
+const AT_MESSAGE_DETAIL_SEQUENCE: readonly { label: string; optional?: true }[] = [
+  { label: 'Contract' },
+  { label: 'Message' },
+  { label: 'Message size' },
+  { label: 'Payment' },
+]
+
 const ACCOUNT_AVATAR_DETAIL_SEQUENCE: readonly { label: string; optional?: true }[] = [
   { label: 'Current', optional: true },
   { label: 'Avatar' },
@@ -650,6 +661,10 @@ function androidSequencedDetails(
     label: string
     value: string
     variant?: 'scroll'
+    // Already escaped by the caller (a message escaped at the MESSAGE cap, a
+    // component-escaped coordinate); escaping again would render its escapes
+    // as literal text.
+    preEscaped?: true
     // Wrap the escaped value in quotes. Use this on any row where Home appends
     // its own words to an app-derived value: the quote character cannot occur
     // inside an escaped value, so `"(unchanged)"` (a rename TO that string) and
@@ -661,7 +676,7 @@ function androidSequencedDetails(
   }[],
 ): readonly { label: string; value: string; variant?: 'scroll' }[] {
   const escaped = rows.map((row) => {
-    const value = androidPromptText(row.value)
+    const value = row.preEscaped ? row.value : androidPromptText(row.value)
     return { label: row.label, value: `${row.quote ? `"${value}"` : value}${row.suffix ?? ''}` }
   })
   if (!isSequencedDetailRows(sequence, escaped)) {
@@ -6233,12 +6248,25 @@ export function HomeV2LiveApp() {
           details: [
             { label: 'Account', value: account.label },
             { label: 'Operation', value: homeV2AtMessageOperationLabel() },
-            { label: 'Contract', value: androidPromptText(request.recipient) },
-            // The complete text, scrollable and bounded, with its byte count —
-            // the prompt discloses exactly the bytes that will be signed.
-            { label: 'Message', value: androidPromptText(request.message), variant: 'scroll' as const },
-            { label: 'Message size', value: `${messageByteLength} bytes` },
-            { label: 'Payment', value: 'None - this message moves no funds' },
+            ...androidSequencedDetails(action, AT_MESSAGE_DETAIL_SEQUENCE, [
+              { label: 'Contract', value: request.recipient },
+              // The complete text, scrollable and bounded, with its byte count
+              // — the prompt discloses exactly the bytes that will be signed.
+              {
+                label: 'Message',
+                // Escaped at the MESSAGE cap rather than the row cap: a
+                // message is bounded at 4,000 UTF-8 BYTES and escaping is
+                // expansive, so 1,000 emoji is a valid message that would
+                // exceed the ordinary row limit. A message the chain accepts
+                // must remain displayable, or it can never be approved.
+                preEscaped: true as const,
+                value: homeV2PromptText(request.message, 'The message text', HOME_V2_MESSAGE_PROMPT_MAX_CHARS),
+                variant: 'scroll' as const,
+              },
+              { label: 'Message size', value: `${messageByteLength} bytes` },
+              { label: 'Payment', value: 'None - this message moves no funds' },
+            ]),
+            { label: 'Route', value: `${nodeBefore.mode} \u00b7 ${nodeBefore.nodeApiUrl}` },
             { label: 'Chain', value: 'Qortium' },
             { label: 'Scope', value: 'This one transaction only' },
           ],
@@ -6265,6 +6293,11 @@ export function HomeV2LiveApp() {
         return retainUnknownTransaction(await vaultClient.sendAtMessage({
           accountId,
           approvedAddress: account.address,
+          // The exact values the PROMPT showed. Without them the vault's
+          // verifier would only prove that its own re-normalization agrees
+          // with the builder — not that either agrees with what the user saw.
+          approvedMessage: request.message,
+          approvedRecipient: request.recipient,
           approvedSenderPublicKey,
           isStillValid,
           nodeApiUrl: nodeBefore.nodeApiUrl,

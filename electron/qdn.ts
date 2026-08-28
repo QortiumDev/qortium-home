@@ -178,6 +178,8 @@ import {
   getQortiumAtMessageRequest,
   QORTIUM_AT_MESSAGE_POW_DIFFICULTY,
 } from './qdn-at-message.js';
+import { assertUnsignedQortiumAtMessageTransaction } from './qdn-at-message-validation.js';
+import { normalizeHomeV2AtMessageRequest } from './home-v2-at-message-actions.js';
 import {
   QDN_ACCOUNT_AVATAR_ACTIONS,
   QDN_ACCOUNT_FREE_WRITE_ACTIONS,
@@ -4285,11 +4287,16 @@ async function signAndProcessKeylessStandardTransaction(
   validate: (bytes: Uint8Array) => void,
   isStillValid?: () => boolean | Promise<boolean>,
   apiKey = keylessContext.apiKey,
+  // Optional second check, run on the NONCE-STAMPED bytes immediately before
+  // they are signed. `validate` above sees the unstamped form only, so without
+  // this the bytes that actually get signed are never read back.
+  validateStamped?: (bytes: Uint8Array, nonce: number) => void,
 ) {
   const unsignedBytes = base58Decode(rawUnsignedBytes58);
   validate(unsignedBytes);
   const nonce = await computeChatNonce(clearTransactionNonce(unsignedBytes), difficulty, isStillValid);
   const bytesWithNonce = stampTransactionNonce(unsignedBytes, nonce);
+  validateStamped?.(bytesWithNonce, nonce);
   if (keylessContext.secretKey.length !== 64) throw new Error('ed25519 secret key must be 64 bytes.');
   const signature = nacl.sign.detached(bytesWithNonce, keylessContext.secretKey);
   const signedTransactionBytes = base58Encode(appendSignatureToTransactionBytes(bytesWithNonce, signature));
@@ -8521,7 +8528,11 @@ async function sendMessageForApp(
   let messageRequest: ReturnType<typeof getQortiumAtMessageRequest>;
 
   try {
-    messageRequest = getQortiumAtMessageRequest(request);
+    // The HARDENED normalizer, the same one the Home 2 paths use. Reading only
+    // recipient and message let an app send `amount: 5` alongside them, get
+    // accepted:true back, and reasonably conclude it had paid the contract —
+    // while the transaction carries no payment at all.
+    messageRequest = normalizeHomeV2AtMessageRequest('qdnRequest', request as Record<string, unknown>);
   } catch (error) {
     return {
       accepted: false,
@@ -8556,23 +8567,36 @@ async function sendMessageForApp(
 
   assertFreshQdnWriteContext(sender, context);
 
+  const messageTimestamp = Date.now();
   const unsignedBytes = buildUnsignedQortiumAtMessageTransactionBytes({
     ...messageRequest,
     senderPublicKey: keylessContext.publicKey58,
-    timestamp: Date.now(),
+    timestamp: messageTimestamp,
   });
+  const expectedAtMessageFields = {
+    messageBytes: new TextEncoder().encode(messageRequest.message),
+    recipientBytes: base58Decode(messageRequest.recipient),
+    senderPublicKeyBytes: base58Decode(keylessContext.publicKey58),
+    timestamp: messageTimestamp,
+  };
   const result = await signAndProcessKeylessStandardTransaction(
     keylessContext,
     base58Encode(unsignedBytes),
     QORTIUM_AT_MESSAGE_POW_DIFFICULTY,
-    // The bridge never accepts raw transaction bytes from a QDN app. This
-    // assertion is intentionally a no-op because the bytes above come only
-    // from the fixed-field serializer, not from request data.
-    () => undefined,
+    // Read back field by field. This was a deliberate no-op on the grounds
+    // that the bytes come from a fixed-field serializer — but that serializer
+    // is then the ONLY thing between the request and a signature, which is
+    // why every MESSAGE build site now verifies its own output.
+    (bytes) => assertUnsignedQortiumAtMessageTransaction(bytes, { ...expectedAtMessageFields, nonce: 0 }),
     () => isKeylessWriteContextFresh(sender, context, keylessContext),
     // /transactions/process is public; do not disclose a custom-node API key
     // for a transaction that needs no protected Core endpoint.
     '',
+    // And the stamped bytes, immediately before signing.
+    (stampedBytes, nonce) => assertUnsignedQortiumAtMessageTransaction(stampedBytes, {
+      ...expectedAtMessageFields,
+      nonce,
+    }),
   );
 
   return {

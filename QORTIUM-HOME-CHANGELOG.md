@@ -45,11 +45,20 @@ result against, on either the desktop or the phone. Home now reads its own
 finished transaction back field by field and confirms every part of it before
 signing — including that the amount is zero and the text is unencrypted, so a
 message that quietly carried a payment could not be signed as if it did not.
-That check is new on the desktop as well.
+That check is new on the desktop as well, and on the
+older in-app path that could still build one.
+
+One older path also accepted an `amount` field alongside the message and
+answered as though the message had been sent successfully. A message of this
+kind never carries a payment, so an app could reasonably have concluded it had
+paid a contract when nothing was paid. That field is now refused outright.
 
 The approval screen shows you the complete message, not a shortened preview,
 in a scrollable box with its exact size. The contract may act on what the
 message says, so you need to be able to read all of it before you agree to it.
+The text is also shown with any hidden or direction-changing characters made
+visible, on the desktop as well as the phone: without that, a message could be
+made to read one way on screen while a different instruction was signed.
 
 ### 2026-08-27 - feat(home-v2): batch publishing and on-chain deletion work on Android
 
