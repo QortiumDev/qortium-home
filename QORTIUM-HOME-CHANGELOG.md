@@ -34,6 +34,30 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-28 - fix(home-v2): three desktop checks the Android port had and the desktop did not
+
+While bringing each action family to the phone, reviewers found three places
+where the phone ended up doing something more careful than the desktop. Rather
+than leave the two halves disagreeing, the desktop now does the same three
+things.
+
+Voting on a pending group transaction checks first that your account is
+actually an admin of that group. Without it your node accepts the vote, the
+chain rejects it, and you are left with an unclear result that blocks you from
+voting on that transaction again until it is sorted out by hand.
+
+Choosing a default group asks your node what your current default is. If that
+question cannot be answered — the node is unreachable, or replies with
+something Home cannot read — Home now stops rather than assuming the default
+must be different. Assuming would put a pointless transaction in front of you
+to approve. An account with no history on the chain is still handled as simply
+having no default yet.
+
+Publishing several resources at once now checks each item, not just the batch,
+against previous publishes whose outcome is unknown. One batch can list the
+same resource twice, and an earlier item in the same batch can be the very
+thing that leaves an unclear result.
+
 ### 2026-08-27 - feat(home-v2): payments work on Android, completing the parity wave
 
 Sending the native coin, transferring an asset, and sending QORT on Qortal all

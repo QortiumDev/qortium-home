@@ -1381,11 +1381,11 @@ closest existing implementation to diff this arm against.
 The live group state the prompt was held to travels with the request and is the
 baseline for every later check — for `UPDATE_GROUP` it is also the SOURCE of
 the merged values, since omitted fields are filled from it, and merging from a
-post-approval read could rewrite settings the prompt reported as unchanged. `GROUP_APPROVAL` additionally refuses on Android when the selected account is
-not an admin of the pending transaction's group — desktop does not check this
-yet, and without it Core rejects the vote only after a signature exists, which
-journals an unknown outcome and blocks the account from voting on that
-transaction until it is reconciled by hand. The
+post-approval read could rewrite settings the prompt reported as unchanged. `GROUP_APPROVAL` additionally refuses when the selected account is not an admin
+of the pending transaction's group — on BOTH platforms as of 2026-08-28.
+Without it Core rejects the vote only after a signature exists, which journals
+an unknown outcome and blocks the account from voting on that transaction until
+it is reconciled by hand. The
 no-op answers (`changed: false` for an unchanged update, an already-set default
 group, or a matching avatar pointer) are decided before any prompt is raised,
 so a no-op neither prompts nor signs — and the reads those decisions rest on
@@ -1416,8 +1416,9 @@ Android prompt is held to the SAME structural validator the desktop prompt is
 its exact bytes is refused rather than rendered. Each item is journaled as the
 `PUBLISH_QDN_RESOURCE` it is, keyed on its OWN coordinate, and the
 pending-transaction conflict gate is re-run per item rather than once for the
-batch: an earlier item in the same batch can have just retained an unknown
-outcome for that coordinate, and two batches approved in separate tabs can both
+batch — on BOTH platforms as of 2026-08-28: an earlier item in the same batch
+can have just retained an unknown outcome for that coordinate, one batch can
+list a coordinate twice, and two batches approved in separate tabs can both
 clear a single pre-approval check. The tombstone's "what this
 does" row is Home's own wording on both platforms, never a row the requesting
 app can influence.

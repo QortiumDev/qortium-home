@@ -282,11 +282,23 @@ assert.ok(
   /contextualActions\.includes\(action\) &&\s*isHomeV2JournaledMutation\(action\)/.test(bridgeSource),
   'the journal-conflict block must be gated on contextual availability, before any signature is revealed',
 )
+// Anchored on the DISPATCHER's lookup specifically. There is a second, later
+// call site inside the batch-publish handler (one per item, keyed on that
+// item's own coordinate), which runs after the dispatcher has already
+// authorized the action — so an assertion on "the first occurrence anywhere in
+// the file" would be about the wrong call.
 assert.ok(
   bridgeSource.indexOf('const contextualActions =') !== -1 &&
     bridgeSource.indexOf('const contextualActions =') <
-      bridgeSource.indexOf('findStoredHomeV2PendingTransactionConflict(app.getPath'),
-  'contextual availability must be computed before the journal lookup call',
+      bridgeSource.indexOf('const pending = findStoredHomeV2PendingTransactionConflict(app.getPath'),
+  'contextual availability must be computed before the dispatcher journal lookup call',
+)
+// And the per-item batch gate exists: the dispatcher's gate ran against the
+// BATCH request, so it cannot see a coordinate an earlier item of the same
+// batch has just retained an unknown outcome for.
+assert.ok(
+  /const pendingItem = findStoredHomeV2PendingTransactionConflict\(app\.getPath/.test(bridgeSource),
+  'batch publishing must re-check the journal per item, not once for the batch',
 )
 
 // The Android UNLOCK handler binds its route freshness recheck to the network
