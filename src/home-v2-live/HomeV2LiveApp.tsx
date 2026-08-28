@@ -4313,15 +4313,24 @@ export function HomeV2LiveApp() {
           throw new Error('App request is missing its stable app identity.')
         }
       }
-      const retainUnknownTransaction = async (result: unknown) => {
+      // `journalAction`/`journalRequest` default to the request being handled.
+      // A batch item overrides them: it is a PUBLISH_QDN_RESOURCE keyed on its
+      // OWN coordinate, and journaling it under the batch action would derive
+      // the coarse operation target instead — blocking every unrelated publish
+      // by this app and account until someone reconciled it by hand.
+      const retainUnknownTransaction = async (
+        result: unknown,
+        journalAction: string = action,
+        journalRequest: unknown = requestValue,
+      ) => {
         if (!context.selectedAccountId) return result
         try {
           const entry = createHomeV2PendingTransactionFromResult({
             accountId: context.selectedAccountId,
-            action,
+            action: journalAction,
             appIdentity: resolveAppIdentity().identityKey,
             protocol,
-            request: requestValue,
+            request: journalRequest,
             result,
           })
           if (!entry) return result
@@ -6330,8 +6339,31 @@ export function HomeV2LiveApp() {
             name: entry.item.resource.name,
             service: entry.item.resource.service,
           })
+          // The journal identity of this item: it IS a single publish, and its
+          // conflict key is its own coordinate.
+          const itemRequest = {
+            ...(entry.item.resource.identifier === undefined ? {} : { identifier: entry.item.resource.identifier }),
+            name: entry.item.resource.name,
+            service: entry.item.resource.service,
+          }
           try {
             if (!(await isStillValid())) throw new Error('The app, account, or node route changed during batch publishing.')
+            // Re-checked per ITEM, not once for the batch: an earlier item in
+            // this very batch can have just retained an unknown outcome for
+            // this coordinate, and two batches approved in separate tabs can
+            // both have cleared the pre-approval gate.
+            const pendingItem = await findAndroidHomeV2PendingTransactionConflict({
+              accountId,
+              action: 'PUBLISH_QDN_RESOURCE',
+              appIdentity: resolveAppIdentity().identityKey,
+              network: targetNetwork,
+              request: itemRequest,
+            })
+            if (pendingItem) {
+              throw new Error(
+                `A previous publish of this resource has an unknown outcome. Reconcile signature ${pendingItem.signature} before publishing it again.`,
+              )
+            }
             await assertNameOwned(entry.item.resource.name)
             const result = await vaultClient.publishPublicResource({
               accountId,
@@ -6342,6 +6374,10 @@ export function HomeV2LiveApp() {
               nodeApiUrl: nodeBefore.nodeApiUrl,
               resource: entry.item.resource,
               sourceBase64: entry.source.dataBase64,
+              // Ownership once more at signing time, inside the vault: a name
+              // transferred during staging or proof-of-work must not have this
+              // item signed under it.
+              validateTarget: () => assertNameOwned(entry.item.resource.name),
             })
             if (isRecord(result) && result.accepted === true) {
               published.push(Object.freeze({ ...result, resource }))
@@ -6352,7 +6388,7 @@ export function HomeV2LiveApp() {
             // the PUBLISH_QDN_RESOURCE it is, keyed on its own coordinate, and
             // surface it as a failure carrying the signature. Without the wrap
             // this item would be permanently blocked while recording nothing.
-            retainUnknownTransaction(result)
+            await retainUnknownTransaction(result, 'PUBLISH_QDN_RESOURCE', itemRequest)
             failures.push(Object.freeze({
               error: (isRecord(result) && typeof result.error === 'string' ? result.error : null) ??
                 'Publish broadcast outcome is unknown.',
