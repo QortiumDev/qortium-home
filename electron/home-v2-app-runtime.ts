@@ -265,14 +265,23 @@ export function homeV2WidgetWithholdsSelfSubject(action: string) {
  * the legacy wallet reaches it through qortalRequest — so it stays advertised
  * on Android on both protocols.
  */
-const ANDROID_UNSUPPORTED_ACTIONS = new Set<string>([
-  // The payment family MOVES FUNDS and stays desktop-only until an
-  // independently reviewed Android signing path exists.
-  'PAYMENT',
-  'SEND_COIN',
-  'SEND_QORT',
-  'TRANSFER_ASSET',
-])
+/**
+ * Actions Android cannot run.
+ *
+ * DELIBERATELY EMPTY as of 2026-08-27: the parity wave finished, and every
+ * action Home 2 implements now runs on Android — polls, names, group
+ * mutations, ratings, the account avatar, QDN lists, the publishing extras,
+ * contract messages, and payments. What used to be here was never a security
+ * posture; it was a list of things not yet ported, and describing an
+ * unimplemented feature as a safety measure is how a half-working platform
+ * gets mistaken for a careful one.
+ *
+ * The mechanism stays because a future action may genuinely need it — a
+ * capability that depends on a desktop-only OS integration, say. Anything
+ * added here needs a reason that is true of the ACTION rather than of the
+ * porting schedule.
+ */
+const ANDROID_UNSUPPORTED_ACTIONS = new Set<string>([])
 
 export function isHomeV2AndroidUnsupportedAction(action: string) {
   return ANDROID_UNSUPPORTED_ACTIONS.has(action)

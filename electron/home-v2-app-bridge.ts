@@ -322,6 +322,7 @@ import {
   buildUnsignedQortiumTransferAssetTransactionBytes,
   canonicalHomeV2PaymentAction,
   homeV2CheckedTotalDebit,
+  homeV2AtomicUnitsText,
   homeV2FeeForLength,
   homeV2PaymentOperationLabel,
   HomeV2ForeignSendError,
@@ -2878,10 +2879,6 @@ const homeV2PaymentJournalFailures = new Set<string>()
 
 export function recordHomeV2PaymentJournalFailure(accountId: string) {
   homeV2PaymentJournalFailures.add(accountId)
-}
-
-function homeV2AtomicUnitsText(amount: { readonly atomic: bigint; readonly decimal: string }) {
-  return `${amount.decimal} (${amount.atomic} atomic units)`
 }
 
 async function handleHomeV2PaymentAction(

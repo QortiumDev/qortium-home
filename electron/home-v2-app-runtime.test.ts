@@ -559,11 +559,14 @@ for (const action of ['GET_ALL_LISTS', 'GET_LIST', 'ADD_TO_LIST', 'REMOVE_FROM_L
   'SEND_MESSAGE']) {
   assert.equal(androidActions.includes(action), true, `android must advertise ${action}`)
 }
-// The payment family stays withheld until its own Android arm exists: it MOVES
-// FUNDS, and an advertised action that cannot run would make SHOW_ACTIONS lie.
+// The payment family crossed last, deliberately: it MOVES FUNDS. Nothing Home
+// 2 implements is withheld from Android any more, so this asserts the END of
+// the parity wave rather than a remaining gap.
 for (const action of ['PAYMENT', 'SEND_COIN', 'TRANSFER_ASSET']) {
-  assert.equal(androidActions.includes(action), false, `android must not advertise ${action}`)
+  assert.equal(androidActions.includes(action), true, `android must advertise ${action}`)
 }
+// SEND_QORT is Qortal-only and lives on the qortalRequest catalogue.
+assert.equal(androidActions.includes('SEND_QORT'), false, 'SEND_QORT is not a qdnRequest action')
 
 // ---------------------------------------------------------------------------
 // The app-facing notification manager family.

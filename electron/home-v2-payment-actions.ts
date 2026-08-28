@@ -371,6 +371,18 @@ export function parseHomeV2UnitFee(value: unknown): bigint {
 }
 
 // Core: recommended fee = effective unit fee * ceil(dataLength / 1024).
+/**
+ * An amount as a payment prompt shows it: the human decimal AND the exact
+ * atomic units.
+ *
+ * Both are shown on purpose. The decimal is what a person reads; the atomic
+ * count is what is actually signed, and it is the form in which a
+ * scaling mistake (a factor of 100,000,000) is impossible to miss.
+ */
+export function homeV2AtomicUnitsText(amount: { readonly atomic: bigint; readonly decimal: string }) {
+  return `${amount.decimal} (${amount.atomic} atomic units)`
+}
+
 export function homeV2FeeForLength(unitFeeAtomic: bigint, signedByteLength: number): bigint {
   if (!Number.isSafeInteger(signedByteLength) || signedByteLength <= 0) throw new Error('Invalid transaction length.')
   const units = (BigInt(signedByteLength) + MAX_BYTES_PER_UNIT_FEE - 1n) / MAX_BYTES_PER_UNIT_FEE

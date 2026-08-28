@@ -39,6 +39,7 @@ import {
 } from '../../electron/home-v2-app-actions'
 import { isHomeV2GroupMutationAction } from '../../electron/home-v2-group-mutation-actions'
 import { isHomeV2RatingAction } from '../../electron/home-v2-rating-actions'
+import { isHomeV2PaymentAction } from '../../electron/home-v2-payment-actions'
 import { isHomeV2PublishExtraAction } from '../../electron/home-v2-app-actions'
 import {
   isHomeV2CrosschainReadAction,
@@ -1306,7 +1307,8 @@ export function createPortableNodeClient(
           isHomeV2RatingAction(action) ||
           action === 'SET_ACCOUNT_AVATAR' ||
           isHomeV2PublishExtraAction(action) ||
-          action === 'SEND_MESSAGE')
+          action === 'SEND_MESSAGE' ||
+          isHomeV2PaymentAction(action))
       ) {
         throw createHomeV2BridgeError(
           `${action} must be approved through Home before it can be signed.`,
