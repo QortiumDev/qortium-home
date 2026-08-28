@@ -34,6 +34,24 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-28 - fix(apps): encryption did not work on Android at all
+
+The encryption support added earlier today worked on the desktop and failed
+immediately on Android, because it relied on a piece of the desktop's
+programming environment that phones do not have. Every attempt stopped with an
+error before anything was encrypted.
+
+This is fixed, and encryption now works on the phone: it was checked on a real
+device by encrypting something, reading it back with a key held outside Home,
+and confirming both that the right text came out and that an unrelated key
+could not open it.
+
+Worth recording why the automated checks missed it. They run in the same
+environment the desktop uses, where the missing piece is present, so they all
+passed while the feature was broken for every phone user. The checks now run
+that part of the code with that environment deliberately taken away, so the
+same mistake cannot pass unnoticed again.
+
 ### 2026-08-28 - feat(apps): apps can encrypt data with your account key
 
 Qortal apps can ask a wallet to encrypt something so that only chosen people
