@@ -236,6 +236,7 @@ import {
   homeV2AtomicUnitsText,
   homeV2CheckedTotalDebit,
   homeV2FeeForLength,
+  HomeV2ForeignSendError,
   normalizeHomeV2NativeSendRequest,
   normalizeHomeV2PaymentRecipient,
   normalizeHomeV2SendQortRequest,
@@ -6233,8 +6234,9 @@ export function HomeV2LiveApp() {
       // The prompt is payment-grade — the amount in BOTH human and atomic
       // units, the recipient, whether the destination is a contract rather
       // than a person, whether it is a self-payment, the fee and the total
-      // debit — and every one of those numbers travels with the request so the
-      // vault refuses if its own re-derivation disagrees.
+      // debit. The amount, asset, recipient, fee and timestamp travel with the
+      // request and the vault refuses if its own re-derivation of any of them
+      // disagrees; the total debit follows from the amount and the fee.
       if (isAndroidHost && isHomeV2PaymentAction(action)) {
         const qortalPayment = action === 'SEND_QORT'
         // The serializers are chain-specific, so the chain is asserted here as
@@ -6250,19 +6252,60 @@ export function HomeV2LiveApp() {
         const account = accountCatalogueRef.current.accounts.find((candidate) => candidate.id === accountId)
         if (!account) throw new Error('The selected account is no longer available.')
         if (!account.isUnlocked) throw new Error('The selected account is locked.')
-        if (!vaultClient?.sendPayment) throw new Error('Payments are unavailable on this platform.')
+        // Every one of these is REQUIRED, not optional-with-a-fallback: the
+        // fail-closed rule and the lock are the two things standing between an
+        // ambiguous payment and a duplicate one, and a build that implements
+        // signing without them must not sign at all.
+        if (
+          !vaultClient?.sendPayment || !vaultClient.reportPaymentJournalFailure ||
+          !vaultClient.paymentsBlocked || !vaultClient.acquirePaymentLock || !vaultClient.releasePaymentLock
+        ) {
+          throw new Error('Payments are unavailable on this platform.')
+        }
         const targetNetwork: NetworkId = qortalPayment ? 'qortal' : 'qortium'
+        // Checked BEFORE the prompt, as desktop does: an account whose last
+        // signed payment could not be recorded must not be asked to authorize
+        // another spend that was never going to happen.
+        if (await vaultClient.paymentsBlocked(accountId)) {
+          throw new Error(
+            'A previously signed payment could not be recorded for reconciliation. Payment actions are blocked for this account until it is reconciled.',
+          )
+        }
+        // The lock spans the approval too, so two payment prompts for one
+        // account and chain cannot be open at once.
+        if (!(await vaultClient.acquirePaymentLock(accountId, targetNetwork))) {
+          throw new Error('Another payment for this account is already in progress.')
+        }
+        try {
         const nodeBefore = parseHomeV2NodesSnapshot(await nodeClient.getSnapshot())[targetNetwork]
         if (!nodeBefore.nodeApiUrl || !nodeBefore.capabilities.read) {
           throw new Error(nodeBefore.error ?? `${targetNetwork} is unavailable.`)
         }
         const rawRequest = isRecord(requestValue) ? requestValue : {}
         const isTransfer = action === 'TRANSFER_ASSET'
-        const paymentRequest = isTransfer
-          ? normalizeHomeV2TransferAssetRequest(rawRequest)
-          : qortalPayment
-            ? normalizeHomeV2SendQortRequest(rawRequest)
-            : normalizeHomeV2NativeSendRequest(action, rawRequest)
+        let paymentRequest: ReturnType<typeof normalizeHomeV2TransferAssetRequest>
+          | ReturnType<typeof normalizeHomeV2SendQortRequest>
+          | ReturnType<typeof normalizeHomeV2NativeSendRequest>
+        try {
+          paymentRequest = isTransfer
+            ? normalizeHomeV2TransferAssetRequest(rawRequest)
+            : qortalPayment
+              ? normalizeHomeV2SendQortRequest(rawRequest)
+              : normalizeHomeV2NativeSendRequest(action, rawRequest)
+        } catch (error) {
+          // The foreign-coin refusal carries a machine-readable code on
+          // desktop, and a 1.x app branches on it. Losing the code here would
+          // make the same request behave differently on the two platforms.
+          if (error instanceof HomeV2ForeignSendError) {
+            throw Object.assign(new Error(error.message), {
+              action,
+              code: 'FOREIGN_SEND_UNAVAILABLE',
+              network: qortalPayment ? 'qortal' : 'qortium',
+              retryable: false,
+            })
+          }
+          throw error
+        }
         const readNodeValue = async (path: string, missing: string) => unwrapAndroidNodeRecord(
           await nodeClient.requestApp(protocol, { action: 'FETCH_NODE_API', path }, context),
           missing,
@@ -6398,8 +6441,10 @@ export function HomeV2LiveApp() {
         if (!decision.approved || decision.scope !== 'single-request') {
           throw new Error('The payment was denied.')
         }
-        const rateLimitDecision = androidChatSendRateLimiter.current.checkAndRecordSend(`${context.tabId}|${accountId}`)
-        if (!rateLimitDecision.allowed) throw new Error(rateLimitDecision.message)
+        // No chat-rate-limiter charge here, matching desktop: payments are
+        // bounded by the one-at-a-time lock, and charging them against the
+        // chat quota would let a burst of messages refuse a payment the user
+        // has already approved, for a reason that has nothing to do with it.
         const isStillValid = async () => {
           const currentTab = productStateRef.current.tabs.find((tab) => tab.id === context.tabId)
           const currentAccount = accountCatalogueRef.current.accounts.find((candidate) => candidate.id === accountId)
@@ -6413,12 +6458,13 @@ export function HomeV2LiveApp() {
         }
         if (!(await isStillValid())) throw new Error('The app, account, or node route changed before the payment was staged.')
         await assertNoPendingTransactionConflict()
-        return retainUnknownTransaction(await vaultClient.sendPayment({
+        return await retainUnknownTransaction(await vaultClient.sendPayment({
           accountId,
           action,
           approvedAddress: account.address,
           approvedAmountAtomic: amount.atomic.toString(),
           approvedAssetId: assetId,
+          approvedAssetName: assetInfo?.name ?? null,
           approvedFeeAtomic: feeAtomic.toString(),
           approvedRecipientAddress: recipient.address,
           approvedTimestamp: paymentTimestamp,
@@ -6427,6 +6473,9 @@ export function HomeV2LiveApp() {
           nodeApiUrl: nodeBefore.nodeApiUrl,
           requestValue: rawRequest,
         }), canonicalHomeV2PaymentAction(action), rawRequest)
+        } finally {
+          await vaultClient.releasePaymentLock(accountId, targetNetwork)
+        }
       }
       // SEND_MESSAGE on Android: one zero-fee, zero-payment MESSAGE to an AT
       // contract. The chain is asserted here as well as in the catalogue,

@@ -220,6 +220,17 @@ export function normalizeHomeV2TransferAssetRequest(request: Record<string, unkn
     ? assetIdRaw
     : typeof assetIdRaw === 'string' && /^\d+$/.test(String(assetIdRaw).trim()) ? Number(String(assetIdRaw).trim()) : NaN
   if (!Number.isSafeInteger(assetId) || assetId < 0) throw new Error('A non-negative numeric assetId is required.')
+  // Asset 0 is the NATIVE coin, and this arm treats its subject as a
+  // non-native asset throughout: the total-debit row and the balance check
+  // both count only the fee, because a normal asset transfer debits the
+  // native balance for the fee alone. Accepting assetId 0 here would show a
+  // total debit that omits the entire payment and check a balance that never
+  // covered it, so the native coin is routed to PAYMENT — the exact mirror of
+  // normalizeHomeV2NativeSendRequest refusing a non-zero assetId (payments
+  // review, 2026-08-27).
+  if (assetId === 0) {
+    throw new Error('Use PAYMENT or SEND_COIN for the native coin; TRANSFER_ASSET is for other assets.')
+  }
   const recipientRaw = moneyField(request, RECIPIENT_FIELDS, 'The recipient address')
   if (typeof recipientRaw !== 'string' || !recipientRaw.trim()) throw new Error('Recipient address is required.')
   const recipient = normalizeHomeV2PaymentRecipient(recipientRaw.trim(), 'The recipient address')

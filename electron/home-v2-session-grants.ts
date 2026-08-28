@@ -1,4 +1,5 @@
 import type { HomeV2RuntimeInvalidation } from './home-v2-runtime-invalidation.js'
+import { canonicalHomeV2PaymentAction, isHomeV2PaymentAction } from './home-v2-payment-actions.js'
 
 export type HomeV2PermissionNetwork = 'qortal' | 'qortium'
 
@@ -252,6 +253,13 @@ export function homeV2PermissionGrantFamily(action: string): string {
   if (PUBLIC_CHAT_MUTATIONS.has(action)) return 'chat.public.mutate'
   if (DIRECT_CHAT_MUTATIONS.has(action)) return 'chat.direct.mutate'
   if (PRIVATE_GROUP_CHAT_MUTATIONS.has(action)) return 'chat.private-group.mutate'
+  // PAYMENT and SEND_COIN are one operation with one label and identical
+  // disclosure rows, so two of them render as visually indistinguishable
+  // prompts. Without canonicalizing here the pending-prompt dedupe treats them
+  // as different families and stacks both — the journal's conflict key already
+  // canonicalizes the alias, and this is the other place that must
+  // (payments review, 2026-08-27).
+  if (isHomeV2PaymentAction(action)) return `payment.${canonicalHomeV2PaymentAction(action)}`
   return action
 }
 

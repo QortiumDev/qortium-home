@@ -305,6 +305,20 @@ export interface HomeV2VaultClient {
    * entry to reconcile against, so a second payment could duplicate the first.
    */
   reportPaymentJournalFailure?(accountId: string): Promise<void>
+  /** Whether payments are fail-closed for this account (see above). */
+  paymentsBlocked?(accountId: string): Promise<boolean>
+  /**
+   * Takes the one-payment-at-a-time lock for an account and chain, returning
+   * false when it is already held.
+   *
+   * The SHELL takes this before it raises the approval and releases it after
+   * signing, so the lock spans the whole window desktop's does. Holding it
+   * only across the signing call would let two prompts stack: both preflight
+   * against the same confirmed balance, and the second still sees that balance
+   * after the first broadcasts, because an unconfirmed spend does not move it.
+   */
+  acquirePaymentLock?(accountId: string, network: 'qortal' | 'qortium'): Promise<boolean>
+  releasePaymentLock?(accountId: string, network: 'qortal' | 'qortium'): Promise<void>
   /**
    * Signs one payment, refusing unless the amounts, recipient, fee and
    * timestamp still match the approval.
@@ -323,6 +337,10 @@ export interface HomeV2VaultClient {
     readonly approvedAddress: string
     readonly approvedAmountAtomic: string
     readonly approvedAssetId: number
+    // The asset NAME the prompt displayed, re-derived in the vault. Desktop
+    // re-reads the asset after approval and refuses on drift; without this the
+    // Android prompt's asset name would rest on a single pre-prompt read.
+    readonly approvedAssetName: string | null
     readonly approvedFeeAtomic: string
     readonly approvedRecipientAddress: string
     readonly approvedTimestamp: number

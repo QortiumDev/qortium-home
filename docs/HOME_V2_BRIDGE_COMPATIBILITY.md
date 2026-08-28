@@ -416,7 +416,14 @@ exact spend intent with a fail-closed guard. `SEND_COIN`'s 1.x foreign-coin
 arm refuses loudly (`FOREIGN_SEND_UNAVAILABLE`) — foreign wallets stay
 deferred behind W3. On today's Qortium Previewnet, which deliberately has
 no native asset yet, the Qortium arms refuse honestly at the balance and
-asset pre-checks. See [QDN bridge action notes](BRIDGE_ACTIONS.md).
+asset pre-checks. **All four work on Android**, on the same terms: every
+number the prompt disclosed travels with the request and the vault refuses if
+its own re-derivation disagrees; the timestamp the fee was quoted for is the
+timestamp signed; a ten-minute freshness bound is asserted as the last act
+before a signature exists; one payment at a time per account and chain; and a
+signed payment that could not be journaled fail-closes payments for that
+account, because without an entry to reconcile against a second payment could
+duplicate the first. See [QDN bridge action notes](BRIDGE_ACTIONS.md).
 
 ## Known limitations of this slice
 

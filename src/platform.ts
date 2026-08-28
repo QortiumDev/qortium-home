@@ -241,6 +241,7 @@ import {
   normalizeHomeV2SendQortRequest,
   normalizeHomeV2TransferAssetRequest,
   parseHomeV2UnitFee,
+  selectHomeV2AssetInfo,
   selectHomeV2AtomicBalance,
   type HomeV2NativeSendRequest,
   type HomeV2PaymentAction,
@@ -14208,30 +14209,86 @@ function homeV2IdempotentGroupAdminResult(
  * to cross-check; the independent verifier is what stands in for that, applied
  * to the unstamped bytes and again to the stamped ones.
  */
-// One payment at a time per account and chain, and a permanent fail-closed
-// marker if a signed payment could not be journaled. Both mirror desktop: a
-// second concurrent payment could spend a balance the first already committed,
-// and an unrecordable signed payment must not be followed by another the user
-// cannot reconcile against.
+// One payment at a time per account and chain, and a fail-closed marker if a
+// signed payment could not be journaled.
+//
+// The lock is taken by the SHELL before it raises the approval and released
+// after signing, so it spans the whole window the desktop lock spans. Holding
+// it only across the signing call would let two prompts stack: both would
+// preflight against the same confirmed balance, and the second would still see
+// that balance after the first broadcast, because an unconfirmed spend does
+// not move it.
 const androidHomeV2PaymentSendLocks = new Set<string>();
 const androidHomeV2PaymentJournalFailures = new Set<string>();
+const ANDROID_PAYMENT_BLOCKED_KEY = 'home-v2-payment-journal-failures-v1';
 
-export function recordAndroidHomeV2PaymentJournalFailure(accountId: string) {
-  androidHomeV2PaymentJournalFailures.add(accountId);
+export function acquireAndroidHomeV2PaymentLock(accountId: string, network: string) {
+  const key = `${accountId}|${network}`;
+  if (androidHomeV2PaymentSendLocks.has(key)) return false;
+  androidHomeV2PaymentSendLocks.add(key);
+  return true;
 }
 
-export function androidHomeV2PaymentsBlocked(accountId: string) {
+export function releaseAndroidHomeV2PaymentLock(accountId: string, network: string) {
+  androidHomeV2PaymentSendLocks.delete(`${accountId}|${network}`);
+}
+
+/**
+ * Marks payments blocked for an account, and PERSISTS that.
+ *
+ * The marker's whole premise is that the journal has no record of a payment
+ * that was signed. Keeping it only in memory would lose it exactly when it
+ * matters — Android kills backgrounded processes routinely — leaving neither
+ * a journal entry nor a block, so an identical payment could be repeated.
+ */
+export async function recordAndroidHomeV2PaymentJournalFailure(accountId: string) {
+  androidHomeV2PaymentJournalFailures.add(accountId);
+  try {
+    await setStoredValue(
+      ANDROID_PAYMENT_BLOCKED_KEY,
+      JSON.stringify([...androidHomeV2PaymentJournalFailures]),
+    );
+  } catch (error) {
+    // The in-memory block still stands for this process; surface the failure
+    // rather than letting a caller read silence as success.
+    throw new Error(`The payment block could not be persisted: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+let androidHomeV2PaymentBlockLoad: Promise<void> | null = null;
+
+async function loadAndroidHomeV2PaymentBlocks() {
+  androidHomeV2PaymentBlockLoad ??= (async () => {
+    try {
+      const raw = await getStoredValue(ANDROID_PAYMENT_BLOCKED_KEY);
+      if (!raw) return;
+      const parsed: unknown = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        for (const entry of parsed) if (typeof entry === 'string') androidHomeV2PaymentJournalFailures.add(entry);
+      }
+    } catch {
+      // An unreadable marker store must not unblock payments, but it also
+      // cannot be repaired here; the in-memory set stays authoritative.
+    }
+  })();
+  await androidHomeV2PaymentBlockLoad;
+}
+
+export async function androidHomeV2PaymentsBlocked(accountId: string) {
+  await loadAndroidHomeV2PaymentBlocks();
   return androidHomeV2PaymentJournalFailures.has(accountId);
 }
 
 /**
  * Signs and broadcasts one payment on Android.
  *
- * THIS MOVES FUNDS. Every number the prompt showed is passed in and re-derived
- * here, and any disagreement refuses: the amount, the asset, the recipient,
- * the fee, and the timestamp the fee was quoted for. The vault re-normalizes
- * the raw request as well, so a request that changed after approval cannot be
- * signed under it.
+ * THIS MOVES FUNDS. Every value the prompt showed is passed in and re-derived
+ * here, and any disagreement refuses: the amount, the asset id AND its
+ * description, the recipient, the fee, and the timestamp the fee was quoted
+ * for. The vault re-normalizes the raw request as well, so a request that
+ * changed after approval cannot be signed under it. The total debit is not
+ * passed: it is a function of the amount and the fee, both of which are, and
+ * it is recomputed here only as a balance threshold.
  *
  * The fee is re-read for the SAME timestamp that gets signed. Core applies the
  * fee schedule effective for a transaction's timestamp, so quoting one moment
@@ -14243,6 +14300,7 @@ async function sendAndroidHomeV2Payment(input: {
   readonly address: string;
   readonly approvedAmountAtomic: bigint;
   readonly approvedAssetId: number;
+  readonly approvedAssetName: string | null;
   readonly approvedFeeAtomic: bigint;
   readonly approvedRecipientAddress: string;
   readonly approvedTimestamp: number;
@@ -14253,9 +14311,9 @@ async function sendAndroidHomeV2Payment(input: {
   readonly signingKey: { address: string; publicKey58: string; secretKey: Uint8Array };
 }) {
   const {
-    action, address, approvedAmountAtomic, approvedAssetId, approvedFeeAtomic,
-    approvedRecipientAddress, approvedTimestamp, isStillValid, network, nodeApiUrl,
-    requestValue, signingKey,
+    action, address, approvedAmountAtomic, approvedAssetId, approvedAssetName,
+    approvedFeeAtomic, approvedRecipientAddress, approvedTimestamp, isStillValid,
+    network, nodeApiUrl, requestValue, signingKey,
   } = input;
   if (signingKey.address !== address) {
     throw new Error('The selected account changed before the payment could be signed.');
@@ -14333,6 +14391,31 @@ async function sendAndroidHomeV2Payment(input: {
   }
   if (recipient.address !== approvedRecipientAddress) {
     throw new Error('The recipient changed after it was approved; nothing was signed.');
+  }
+  // The asset the prompt DESCRIBED, re-read and required to still describe the
+  // same thing. The id and amount are in the signed bytes, but the name and the
+  // divisibility/unspendable rules the prompt gated on are not, so without this
+  // they would rest on a single pre-prompt read.
+  if (isTransfer) {
+    const freshAsset = selectHomeV2AssetInfo(
+      await fetchLocalNodeApiPayload(
+        nodeApiUrl,
+        `/assets/info?assetId=${assetId}`,
+        `Asset ${assetId} does not exist.`,
+        CHAT_SIGNING_RESPONSE_MAX_BYTES,
+        '',
+      ),
+      assetId,
+    );
+    if (freshAsset.name !== approvedAssetName) {
+      throw new Error('The asset description changed after it was approved; nothing was signed.');
+    }
+    if (!freshAsset.isDivisible && amount.atomic % 100_000_000n !== 0n) {
+      throw new Error(`The ${freshAsset.name} asset is indivisible: the amount must be a whole number of units.`);
+    }
+    if (freshAsset.isUnspendable && recipient.isAt) {
+      throw new Error(`The ${freshAsset.name} asset is unspendable and cannot be sent to an AT contract.`);
+    }
   }
   const nativeDebit = isTransfer ? feeAtomic : homeV2CheckedTotalDebit(amount.atomic, feeAtomic);
   const nativeBalance = await readAtomicBalance(address);
@@ -16681,28 +16764,37 @@ export function createAndroidHomeV2VaultClient(): HomeV2VaultClient {
       return publicKeyToAddress(base58Decode(publicKey58));
     },
     async reportPaymentJournalFailure(accountId) {
-      recordAndroidHomeV2PaymentJournalFailure(accountId);
+      await recordAndroidHomeV2PaymentJournalFailure(accountId);
+    },
+    async paymentsBlocked(accountId) {
+      return androidHomeV2PaymentsBlocked(accountId);
+    },
+    async acquirePaymentLock(accountId, network) {
+      return acquireAndroidHomeV2PaymentLock(accountId, network);
+    },
+    async releasePaymentLock(accountId, network) {
+      releaseAndroidHomeV2PaymentLock(accountId, network);
     },
     async sendPayment(request) {
-      if (androidHomeV2PaymentsBlocked(request.accountId)) {
+      // Backstop: the shell holds the lock and checks the block before it
+      // prompts, but a signing path must not depend on its caller.
+      if (await androidHomeV2PaymentsBlocked(request.accountId)) {
         throw new Error(
           'A previously signed payment could not be recorded for reconciliation. Payment actions are blocked for this account until it is reconciled.',
         );
       }
-      // One payment at a time per account and chain: a second concurrent
-      // payment could spend a balance the first has already committed.
-      const lockKey = `${request.accountId}|${request.network}`;
-      if (androidHomeV2PaymentSendLocks.has(lockKey)) {
-        throw new Error('Another payment for this account is already in progress.');
-      }
-      androidHomeV2PaymentSendLocks.add(lockKey);
-      const signingKey = await getAccountSecretKey(request.accountId);
+      // The key derivation is INSIDE the try: it can reject (an auto-lock
+      // between approval and signing), and a throw before the try would leave
+      // the shell's lock held with no way for the user to clear it.
+      let signingKey: Awaited<ReturnType<typeof getAccountSecretKey>> | null = null;
       try {
+        signingKey = await getAccountSecretKey(request.accountId);
         return await sendAndroidHomeV2Payment({
           action: request.action,
           address: request.approvedAddress,
           approvedAmountAtomic: BigInt(request.approvedAmountAtomic),
           approvedAssetId: request.approvedAssetId,
+          approvedAssetName: request.approvedAssetName,
           approvedFeeAtomic: BigInt(request.approvedFeeAtomic),
           approvedRecipientAddress: request.approvedRecipientAddress,
           approvedTimestamp: request.approvedTimestamp,
@@ -16713,8 +16805,7 @@ export function createAndroidHomeV2VaultClient(): HomeV2VaultClient {
           signingKey,
         });
       } finally {
-        signingKey.secretKey.fill(0);
-        androidHomeV2PaymentSendLocks.delete(lockKey);
+        signingKey?.secretKey.fill(0);
       }
     },
     async sendAtMessage(request) {
