@@ -283,6 +283,7 @@
     "smoke:desktop:home-v2-tab-detach": "node scripts/smoke-desktop-home-v2-tab-detach.mjs",
     "smoke:desktop:home-v2-window-geometry": "node scripts/smoke-desktop-home-v2-window-geometry.mjs",
     "test:home-v2-group-mutations": "npm run build:electron && node dist-electron/home-v2-group-mutation-actions.test.js",
+    "test:home-v2-prompt-text": "npm run build:electron && node dist-electron/home-v2-prompt-text.test.js",
     "test:home-v2-publish-extras": "npm run build:electron && node dist-electron/home-v2-publish-extras-contract.test.js",
     "test:home-v2-ratings": "npm run build:electron && node dist-electron/home-v2-rating-actions.test.js",
     "test:home-v2-account-avatar": "npm run build:electron && node dist-electron/home-v2-account-avatar-actions.test.js",

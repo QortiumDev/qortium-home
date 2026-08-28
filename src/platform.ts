@@ -14152,17 +14152,27 @@ function homeV2IdempotentGroupAdminResult(
  */
 async function deleteAndroidHomeV2QortiumResource(input: {
   readonly address: string;
+  readonly approvedResource: { identifier?: string | null; name: string; service: string };
   readonly isStillValid: () => Promise<boolean>;
   readonly nodeApiUrl: string;
   readonly requestValue: Record<string, unknown>;
   readonly signingKey: { address: string; publicKey58: string; secretKey: Uint8Array };
   readonly validateTarget: () => Promise<void>;
 }) {
-  const { address, isStillValid, nodeApiUrl, requestValue, signingKey, validateTarget } = input;
+  const { address, approvedResource, isStillValid, nodeApiUrl, requestValue, signingKey, validateTarget } = input;
   if (signingKey.address !== address) {
     throw new Error('The selected account changed before the deletion could be signed.');
   }
   const request = normalizeHomeV2QdnDeleteRequest(requestValue);
+  // The tombstone is PERMANENT, so the coordinate it names must be the one the
+  // user was shown — not merely whatever this normalization produces.
+  if (
+    request.service !== approvedResource.service ||
+    request.name !== approvedResource.name ||
+    (request.identifier ?? null) !== (approvedResource.identifier ?? null)
+  ) {
+    throw new Error('The deletion request does not match the resource that was approved.');
+  }
   const resource = {
     identifier: request.identifier ?? undefined,
     name: request.name,
@@ -15436,6 +15446,10 @@ async function publishAndroidHomeV2PublicResource(
   request: HomeV2PublicPublishMutationRequest,
   signingKey: { address: string; publicKey58: string; secretKey: Uint8Array },
 ) {
+  // The account the PROMPT named must be the one that signs.
+  if (request.approvedAddress !== undefined && request.approvedAddress !== signingKey.address) {
+    throw new Error('The selected account changed before the publish could be signed.');
+  }
   const isStillValid = request.isStillValid ?? (() => true);
   const sourceBytes = base64ToBytes(request.sourceBase64);
   if (sourceBytes.byteLength < 1 || sourceBytes.byteLength > QDN_PUBLIC_STREAMED_PUBLISH_MAX_BYTES) {
@@ -16289,6 +16303,7 @@ export function createAndroidHomeV2VaultClient(): HomeV2VaultClient {
       try {
         return await deleteAndroidHomeV2QortiumResource({
           address: request.approvedAddress,
+          approvedResource: request.approvedResource,
           isStillValid: async () => (await request.isStillValid()) === true,
           nodeApiUrl: request.nodeApiUrl,
           requestValue: request.requestValue,

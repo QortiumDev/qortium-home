@@ -189,6 +189,9 @@ export interface HomeV2PublicPublishMutationRequest {
   // DISCLOSED on the approval prompt. The vault refuses to sign if the
   // chain answers a different fee at signing time.
   readonly expectedFeeAtomic?: string
+  // The account the PROMPT named. The vault refuses when the key it derives
+  // does not belong to it, so an approval cannot be signed by another account.
+  readonly approvedAddress?: string
   readonly fileName: string
   readonly isStillValid?: () => boolean | Promise<boolean>
   readonly validateTarget?: () => Promise<void>
@@ -302,6 +305,15 @@ export interface HomeV2VaultClient {
   deleteQdnResource?(request: {
     readonly accountId: string
     readonly approvedAddress: string
+    // The coordinate the PROMPT disclosed. The vault re-normalizes the raw
+    // request too and refuses if the two disagree — the tombstone is
+    // permanent, so it must not rest on the request object being identical to
+    // the one the prompt was built from.
+    readonly approvedResource: {
+      readonly identifier?: string | null
+      readonly name: string
+      readonly service: string
+    }
     readonly isStillValid: () => boolean | Promise<boolean>
     readonly nodeApiUrl: string
     readonly requestValue: Record<string, unknown>

@@ -47,6 +47,31 @@ export function homeV2QuotedPromptText(value: string, label: string) {
 }
 
 /**
+ * INJECTIVE resource-coordinate display: `service/name/identifier` with each
+ * component escaped and any literal '/' inside a component rendered as its
+ * \uXXXX escape, so the joined line parses back to exactly one triple.
+ *
+ * Without this an identifier of "b/c" renders WEBSITE/alice/b/c, which reads
+ * as name "alice/b", identifier "c" — the same ambiguity the avatar pointer
+ * encoding below was written to remove (publishing-extras review,
+ * 2026-08-27). Identifiers legitimately allow '/', so escaping is the fix
+ * rather than rejecting them.
+ */
+export function homeV2ResourceCoordinateText(resource: {
+  readonly identifier?: string | null
+  readonly name: string
+  readonly service: string
+}) {
+  const component = (value: string, label: string) =>
+    homeV2PromptText(value, label).split('/').join('\\u002f')
+  return [
+    component(resource.service, 'The resource service'),
+    component(resource.name, 'The resource name'),
+    component(resource.identifier || 'default', 'The resource identifier'),
+  ].join('/')
+}
+
+/**
  * INJECTIVE avatar-pointer display: each component is escaped to printable
  * ASCII and any literal '/' inside a component becomes its \uXXXX escape, so
  * the joined 'service/name/identifier' line parses back to exactly one

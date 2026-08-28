@@ -217,7 +217,11 @@ import {
   selectHomeV2GroupMetadata,
   selectHomeV2PendingTransactionSummary,
 } from '../../electron/home-v2-group-mutation-actions'
-import { homeV2AvatarPointerText, homeV2PromptText } from '../../electron/home-v2-prompt-text'
+import {
+  homeV2AvatarPointerText,
+  homeV2PromptText,
+  homeV2ResourceCoordinateText,
+} from '../../electron/home-v2-prompt-text'
 import {
   normalizeHomeV2PublishMultipleRequest,
   normalizeHomeV2QdnDeleteRequest,
@@ -618,9 +622,14 @@ function isSequencedDetailRows(
  */
 function androidPublishMultipleDetails(
   network: 'qortal' | 'qortium',
-  rows: readonly { label: string; value: string; variant?: 'scroll' }[],
+  rows: readonly { label: string; value: string; variant?: 'scroll'; preEscaped?: true }[],
 ): readonly { label: string; value: string; variant?: 'scroll' }[] {
-  const escaped = rows.map((row) => ({ label: row.label, value: androidPromptText(row.value) }))
+  // `preEscaped` rows are already component-escaped (resource coordinates),
+  // and escaping them again would render their separators as literal escapes.
+  const escaped = rows.map((row) => ({
+    label: row.label,
+    value: row.preEscaped ? row.value : androidPromptText(row.value),
+  }))
   if (!isPublishMultipleDetailRows(network, escaped)) {
     throw new Error('PUBLISH_MULTIPLE_QDN_RESOURCES prompt rows do not match its disclosure contract.')
   }
@@ -6248,15 +6257,17 @@ export function HomeV2LiveApp() {
         }
         const atomicDecimal = (atomic: bigint) =>
           `${atomic / 100_000_000n}.${(atomic % 100_000_000n).toString().padStart(8, '0')}`
+        // Injective: an identifier may legitimately contain '/', and raw
+        // concatenation would let WEBSITE/alice/b/c read as name "alice/b".
         const coordinateOf = (entry: (typeof items)[number]) =>
-          `${entry.item.resource.service}/${entry.item.resource.name}/${entry.item.resource.identifier ?? 'default'}`
-        const rows: { label: string; value: string; variant?: 'scroll' }[] = [
+          homeV2ResourceCoordinateText(entry.item.resource)
+        const rows: { label: string; value: string; variant?: 'scroll'; preEscaped?: true }[] = [
           { label: 'Items', value: String(items.length) },
         ]
         items.forEach((entry, index) => {
           const position = index + 1
           const metadata = entry.item.resource
-          rows.push({ label: `Resource ${position}`, value: coordinateOf(entry) })
+          rows.push({ label: `Resource ${position}`, preEscaped: true as const, value: coordinateOf(entry) })
           rows.push({ label: `File ${position}`, value: entry.source.fileName })
           rows.push({ label: `Size ${position}`, value: `${entry.sourceBytes.byteLength} bytes` })
           rows.push({ label: `SHA-256 ${position}`, value: entry.contentHash })
@@ -6315,8 +6326,13 @@ export function HomeV2LiveApp() {
         if (!decision.approved || decision.scope !== 'single-request') {
           throw new Error('The batch publication was denied.')
         }
-        const rateLimitDecision = androidChatSendRateLimiter.current.checkAndRecordSend(`${context.tabId}|${accountId}`)
-        if (!rateLimitDecision.allowed) throw new Error(rateLimitDecision.message)
+        // One token PER ITEM: this approval authorizes `items.length`
+        // signatures, and charging it as a single send would let a batch
+        // multiply the ceiling the limiter exists to impose.
+        for (let charge = 0; charge < items.length; charge += 1) {
+          const rateLimitDecision = androidChatSendRateLimiter.current.checkAndRecordSend(`${context.tabId}|${accountId}`)
+          if (!rateLimitDecision.allowed) throw new Error(rateLimitDecision.message)
+        }
         const isStillValid = async () => {
           const currentTab = productStateRef.current.tabs.find((tab) => tab.id === context.tabId)
           const currentAccount = accountCatalogueRef.current.accounts.find((candidate) => candidate.id === accountId)
@@ -6372,6 +6388,7 @@ export function HomeV2LiveApp() {
               isStillValid,
               network: targetNetwork,
               nodeApiUrl: nodeBefore.nodeApiUrl,
+              approvedAddress: account.address,
               resource: entry.item.resource,
               sourceBase64: entry.source.dataBase64,
               // Ownership once more at signing time, inside the vault: a name
@@ -6436,7 +6453,7 @@ export function HomeV2LiveApp() {
           }
         }
         await assertNameOwned()
-        const coordinate = `${request.service}/${request.name}/${request.identifier ?? 'default'}`
+        const coordinate = homeV2ResourceCoordinateText(request)
         const parsedApp = resolveAppIdentity()
         const appId = brand<AppId>(`home-v2:permission-app:${parsedApp.identityKey}`)
         const nodeRoute = `${nodeBefore.mode}|${nodeBefore.nodeApiUrl}`
@@ -6461,7 +6478,7 @@ export function HomeV2LiveApp() {
           details: [
             { label: 'Account', value: account.label },
             { label: 'Operation', value: homeV2PublishExtraOperationLabel('DELETE_QDN_RESOURCE') },
-            { label: 'Resource', value: androidPromptText(coordinate) },
+            { label: 'Resource', value: coordinate },
             // Home's OWN words, not a row the requesting app can influence:
             // what a tombstone is must not be forgeable by the thing asking
             // for one.
@@ -6494,6 +6511,7 @@ export function HomeV2LiveApp() {
         return retainUnknownTransaction(await vaultClient.deleteQdnResource({
           accountId,
           approvedAddress: account.address,
+          approvedResource: { identifier: request.identifier, name: request.name, service: request.service },
           isStillValid,
           nodeApiUrl: nodeBefore.nodeApiUrl,
           requestValue: isRecord(requestValue) ? requestValue : {},
@@ -6646,6 +6664,7 @@ export function HomeV2LiveApp() {
         }
         const result = await vaultClient.publishPublicResource({
           accountId,
+          approvedAddress: account.address,
           ...(expectedFeeAtomic !== undefined ? { expectedFeeAtomic } : {}),
           fileName: source.fileName,
           isStillValid,
