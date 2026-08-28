@@ -324,4 +324,41 @@ for (const [input, pattern] of [
   assert.equal(survivor.data64, PLAINTEXT, 'a remaining recipient still reads a stripped envelope')
 }
 
+// --- The module must not need ANY Node global ----------------------------
+// This module runs in the Electron main process AND, since ENCRYPT_DATA, in
+// the Android WebView via the vault in src/platform.ts. It used Node's Buffer,
+// which is simply absent there: every encrypt threw "Buffer is not defined" on
+// the phone while every test here passed, because Node has Buffer. Removing it
+// for the duration of a real round trip is what makes that reachable from a
+// Node test at all.
+{
+  const savedBuffer = (globalThis as { Buffer?: unknown }).Buffer
+  const savedProcess = (globalThis as { process?: unknown }).process
+  delete (globalThis as { Buffer?: unknown }).Buffer
+  delete (globalThis as { process?: unknown }).process
+  try {
+    const alice = nacl.sign.keyPair()
+    const bob = nacl.sign.keyPair()
+    const encrypted = encryptQortalPublicKeyEnvelope({
+      data64: 'aGVsbG8gd2l0aG91dCBub2Rl',
+      recipientPublicKeys58: [base58Encode(bob.publicKey)],
+      senderPrivateKey: alice.secretKey,
+      senderPublicKey58: base58Encode(alice.publicKey),
+    })
+    const opened = decryptQortalPublicKeyEnvelope({
+      encryptedBase64: encrypted,
+      readerPrivateKey: bob.secretKey,
+    })
+    assert.equal(opened.data64, 'aGVsbG8gd2l0aG91dCBub2Rl', 'a full round trip works with no Node globals')
+    // The strict decoder must still refuse malformed input without Buffer.
+    assert.throws(
+      () => decryptQortalPublicKeyEnvelope({ encryptedBase64: 'not base64!', readerPrivateKey: bob.secretKey }),
+      /not valid base64/,
+    )
+  } finally {
+    if (savedBuffer !== undefined) (globalThis as { Buffer?: unknown }).Buffer = savedBuffer
+    if (savedProcess !== undefined) (globalThis as { process?: unknown }).process = savedProcess
+  }
+}
+
 console.log('Home 2 app encryption envelope tests passed.')

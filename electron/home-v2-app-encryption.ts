@@ -75,13 +75,45 @@ function requireBytes(value: Uint8Array, length: number, label: string) {
 }
 
 /**
+ * Base64 primitives that work in BOTH runtimes.
+ *
+ * This module runs in the Electron main process AND, since ENCRYPT_DATA, in
+ * the Android WebView through the vault in src/platform.ts. `Buffer` is a Node
+ * global: on Android it is simply not defined, and every call here threw
+ * "Buffer is not defined" at the first encrypt. Node's own unit tests could
+ * not see that, because Node has it — only running on the device did.
+ * `atob`/`btoa` exist in both runtimes, so they are what this uses now.
+ */
+function base64ToBytes(value: string) {
+  const binary = atob(value)
+  const bytes = new Uint8Array(binary.length)
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index)
+  }
+  return bytes
+}
+
+function bytesToBase64(bytes: Uint8Array) {
+  // Chunked: spreading 32MB of bytes into String.fromCharCode at once
+  // overflows the call stack, and the envelope cap allows exactly that much.
+  const CHUNK = 0x8000
+  let binary = ''
+  for (let offset = 0; offset < bytes.length; offset += CHUNK) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + CHUNK))
+  }
+  return btoa(binary)
+}
+
+/**
  * Decodes base64 STRICTLY, and bounds the result.
  *
- * Node's Buffer decoder silently ignores characters outside the alphabet, so
- * `Buffer.from(x, 'base64')` accepts corrupt input and returns something
- * plausible — where Qortal Hub's `atob` throws. Accepting what another client
- * rejects is its own interoperability bug, and for an envelope it means
- * tampered input can decode to a valid-looking structure.
+ * The explicit pattern check stays even though `atob` throws on characters
+ * outside the alphabet: it also enforces the length and padding rules, and it
+ * bounds the size BEFORE any allocation. The Node decoder this used to use
+ * silently ignored stray characters and accepted corrupt input where Qortal
+ * Hub's `atob` throws. Accepting what another client rejects is its own
+ * interoperability bug, and for an envelope it means tampered input can decode
+ * to a valid-looking structure.
  */
 function decodeStrictBase64(value: string, label: string) {
   if (typeof value !== 'string') throw new Error(`${label} must be base64 text.`)
@@ -93,10 +125,10 @@ function decodeStrictBase64(value: string, label: string) {
   if (value.length / 4 * 3 > MAX_ENVELOPE_BYTES) {
     throw new Error(`${label} is too large.`)
   }
-  const decoded = Buffer.from(value, 'base64')
+  const decoded = base64ToBytes(value)
   // A canonical round trip catches the residual cases the pattern allows,
   // such as a final quantum with non-zero padding bits.
-  if (decoded.toString('base64') !== value) {
+  if (bytesToBase64(decoded) !== value) {
     throw new Error(`${label} is not canonical base64.`)
   }
   return new Uint8Array(decoded.buffer, decoded.byteOffset, decoded.byteLength)
@@ -230,7 +262,7 @@ function encryptQortalPublicKeyEnvelopeInternal(
   // The message key has done its work; a test-supplied one belongs to the
   // caller, so only a generated one is cleared here.
   if (!seams) messageKey.fill(0)
-  return Buffer.from(combined).toString('base64')
+  return bytesToBase64(combined)
 }
 
 export type QortalDecryptedData = {
@@ -300,7 +332,7 @@ export function decryptQortalPublicKeyEnvelope(input: {
         const payload = nacl.secretbox.open(encryptedData, nonce, messageKey)
         if (!payload) throw new Error('The encrypted payload could not be opened.')
         return {
-          data64: Buffer.from(payload).toString('base64'),
+          data64: bytesToBase64(payload),
           senderPublicKey58: base58Encode(senderPublicKey),
         }
       } finally {
