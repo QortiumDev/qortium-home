@@ -9864,6 +9864,7 @@ async function handleRequest(
     const alias = resolveHomeV2AppAlias(
       normalizeHomeV2AppAction(requestValue),
       isHomeV2AppRecord(requestValue) ? requestValue : {},
+      protocol,
     )
     action = alias.action
     const aliasedRequest: Record<string, unknown> = alias.request
@@ -9955,7 +9956,11 @@ async function handleRequest(
             action,
             appIdentity: homeV2AppIdentityKey(context),
             protocol,
-            request: requestValue,
+            // The ALIASED request, matching the conflict lookup above. Storing
+            // one target and checking retries against another would make the
+            // block unreachable for a future shape-changing alias on a
+            // journaled mutation.
+            request: aliasedRequest,
             result,
           })
         : null

@@ -495,6 +495,13 @@ function homeV2RequestField(request: Record<string, unknown>, key: string): unkn
 export function resolveHomeV2AppAlias(
   action: string,
   request: Record<string, unknown>,
+  // The calling global. An alias that builds an ADDRESS must stamp the chain
+  // the caller is on: `qdn://` means Qortium and `qortal://` means Qortal, so
+  // resolving a qortalRequest to a `qdn://` address would hand a Qortal app
+  // the same-named QORTIUM resource — an attacker-controlled collision on the
+  // other chain, opened without a prompt. The invoked global fixes the
+  // network everywhere else in this bridge; it must here too.
+  protocol: HomeV2AppBridgeProtocol = 'qdnRequest',
 ): { readonly action: string; readonly request: Record<string, unknown> } {
   const aliasServices = RESOURCE_VIEWER_ALIAS_SERVICES.get(action)
   if (aliasServices) {
@@ -506,12 +513,20 @@ export function resolveHomeV2AppAlias(
     }
     return { action: 'OPEN_QDN_RESOURCE_VIEWER', request }
   }
-  // Qortal's SAVE_FILE is Home's SAVE_QDN_RESOURCE with the coordinate nested
-  // under `location`. It takes a QDN coordinate, NOT a blob, so this is a
-  // shape mapping and not a new capability.
+  // Qortal's SAVE_FILE has TWO documented forms: a QDN `location` coordinate,
+  // and a `blob` the app already holds. Only the location form is an alias —
+  // it maps onto SAVE_QDN_RESOURCE and adds no capability. Writing an
+  // app-supplied blob to disk is a NEW capability with its own trust
+  // question, so it is refused HERE and by name, rather than being silently
+  // mishandled or quietly reported as unsupported after the fact.
   if (action === 'SAVE_FILE') {
     const location = homeV2RequestField(request, 'location')
     if (!isHomeV2AppRecord(location)) {
+      if (homeV2RequestField(request, 'blob') !== undefined) {
+        throw new Error(
+          'SAVE_FILE with a blob is not supported; pass a QDN location, or publish the data and save that.',
+        )
+      }
       throw new Error('SAVE_FILE requires a location with the QDN service, name, and identifier.')
     }
     const filename = homeV2RequestField(request, 'filename')
@@ -542,12 +557,62 @@ export function resolveHomeV2AppAlias(
     if (typeof name !== 'string' || !name.trim()) {
       throw new Error('LINK_TO_QDN_RESOURCE requires a resource name.')
     }
-    const segments = [service.trim().toUpperCase(), name.trim()]
-    if (typeof identifier === 'string' && identifier.trim()) segments.push(identifier.trim())
-    const suffix = typeof path === 'string' && path.trim()
-      ? `/${path.trim().replace(/^\/+/, '')}`
-      : ''
-    return { action: 'OPEN_NEW_TAB', request: { address: `qdn://${segments.join('/')}${suffix}` } }
+    // The address is built by joining on '/', so a component containing one
+    // would silently name a DIFFERENT coordinate than the app asked for — the
+    // same ambiguity the avatar and resource-coordinate prompt encodings exist
+    // to remove. Qortal names and services cannot contain a slash, so refusing
+    // is honest; the app can still call OPEN_NEW_TAB directly with a literal
+    // address if it means something else.
+    const components: Array<readonly [string, string]> = [
+      ['service', service.trim().toUpperCase()],
+      ['name', name.trim()],
+    ]
+    if (typeof identifier === 'string' && identifier.trim()) {
+      components.push(['identifier', identifier.trim()])
+    }
+    for (const [label, value] of components) {
+      if (value.includes('/')) {
+        throw new Error(`LINK_TO_QDN_RESOURCE ${label} cannot contain a slash.`)
+      }
+      if (value === '.' || value === '..') {
+        throw new Error(`LINK_TO_QDN_RESOURCE ${label} cannot be a dot segment.`)
+      }
+    }
+    const trimmedPath = typeof path === 'string' ? path.trim() : ''
+    if (trimmedPath) {
+      // Traversal would resolve above the resource root. Percent-encoded forms
+      // count: URL normalization decodes `%2e%2e` to `..` before the address
+      // is resolved, so checking only the literal spelling would miss it.
+      let decodedPath = trimmedPath
+      try {
+        decodedPath = decodeURIComponent(trimmedPath)
+      } catch {
+        throw new Error('LINK_TO_QDN_RESOURCE path is not valid percent-encoding.')
+      }
+      if (/[?#]/.test(decodedPath)) {
+        throw new Error('LINK_TO_QDN_RESOURCE path cannot contain a query or fragment.')
+      }
+      const segments = decodedPath.split('/').filter((segment) => segment !== '')
+      if (segments.some((segment) => segment === '.' || segment === '..')) {
+        throw new Error('LINK_TO_QDN_RESOURCE path cannot contain dot segments.')
+      }
+    }
+    const scheme = protocol === 'qortalRequest' ? 'qortal' : 'qdn'
+    const coordinate = components.map(([, value]) => value).join('/')
+    const suffix = trimmedPath ? `/${trimmedPath.replace(/^\/+/, '')}` : ''
+    const address = `${scheme}://${coordinate}${suffix}`
+    // The built address must still NAME the coordinate that was asked for
+    // after the URL layer normalizes it. This is the round-trip check: if any
+    // component or path fragment re-segments the address, the first three
+    // segments would no longer be the requested service/name/identifier.
+    const parsed = new URL(address)
+    const parsedSegments = `${parsed.host}${parsed.pathname}`.split('/').filter((part) => part !== '')
+    for (const [index, [label, value]] of components.entries()) {
+      if (parsedSegments[index]?.toUpperCase() !== value.toUpperCase()) {
+        throw new Error(`LINK_TO_QDN_RESOURCE ${label} does not survive address normalization.`)
+      }
+    }
+    return { action: 'OPEN_NEW_TAB', request: { address } }
   }
   return { action, request }
 }

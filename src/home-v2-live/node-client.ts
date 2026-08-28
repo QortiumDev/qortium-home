@@ -1234,7 +1234,7 @@ export function createPortableNodeClient(
       // and onto the REQUEST that action expects — before anything else looks
       // at either, so this host gates, dispatches and reports exactly as the
       // desktop bridge does.
-      const alias = resolveHomeV2AppAlias(normalizeHomeV2AppAction(requestValue), requestValue)
+      const alias = resolveHomeV2AppAlias(normalizeHomeV2AppAction(requestValue), requestValue, protocol)
       const action = alias.action
       const request = alias.request
       const network = getHomeV2AppNetwork(protocol, action)

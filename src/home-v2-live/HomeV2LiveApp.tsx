@@ -4309,10 +4309,13 @@ export function HomeV2LiveApp() {
       // Action AND request together: the Qortal-compatibility aliases rewrite
       // the request shape, so every later use must see the rewritten one.
       const alias = isRecord(requestValue) && typeof requestValue.action === 'string'
-        ? resolveHomeV2AppAlias(requestValue.action.trim().toUpperCase(), requestValue)
+        ? resolveHomeV2AppAlias(requestValue.action.trim().toUpperCase(), requestValue, protocol)
         : { action: '', request: {} as Record<string, unknown> }
       const action = alias.action
-      requestValue = alias.action ? alias.request : requestValue
+      // The rewritten request must carry the canonical ACTION with it: this
+      // object is forwarded to the portable client, which reads `action` off
+      // the request itself and would otherwise refuse an alias outright.
+      requestValue = alias.action ? { ...alias.request, action: alias.action } : requestValue
       if (isAndroidHost && action === 'SHOW_CONTEXT_MENU') {
         const activeTab = productStateRef.current.tabs.find(
           (tab) => tab.id === productStateRef.current.activeTabId,

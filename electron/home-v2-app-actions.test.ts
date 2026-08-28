@@ -943,6 +943,73 @@ for (const missing of [{ name: 'Alice' }, { service: 'APP' }]) {
     /LINK_TO_QDN_RESOURCE requires/,
   )
 }
+// The address is built by joining on '/', so a component containing one would
+// silently name a DIFFERENT coordinate than the app asked for. Names and
+// services cannot contain a slash, so refusing is honest.
+assert.throws(
+  () => resolveHomeV2AppAlias('LINK_TO_QDN_RESOURCE', { name: 'Alice/Bob', service: 'APP' }),
+  /name cannot contain a slash/,
+)
+assert.throws(
+  () => resolveHomeV2AppAlias('LINK_TO_QDN_RESOURCE', {
+    identifier: 'a/b',
+    name: 'Alice',
+    service: 'APP',
+  }),
+  /identifier cannot contain a slash/,
+)
+for (const name of ['.', '..']) {
+  assert.throws(
+    () => resolveHomeV2AppAlias('LINK_TO_QDN_RESOURCE', { name, service: 'APP' }),
+    /cannot be a dot segment/,
+  )
+}
+// And a traversal in the path would resolve above the resource root —
+// including PERCENT-ENCODED forms, because URL normalization decodes them
+// before the address is resolved.
+for (const path of ['../secrets', 'a/../../b', './x', '%2e%2e/Mallory', '/%2e%2e/%2e%2e/Mallory']) {
+  assert.throws(
+    () => resolveHomeV2AppAlias('LINK_TO_QDN_RESOURCE', { name: 'Alice', path, service: 'APP' }),
+    /path cannot contain dot segments/,
+    `path ${path} must not escape the coordinate`,
+  )
+}
+for (const path of ['a?b', 'a#b', '%2e%2e%2f..']) {
+  assert.throws(
+    () => resolveHomeV2AppAlias('LINK_TO_QDN_RESOURCE', { name: 'Alice', path, service: 'APP' }),
+    /cannot contain a query or fragment|dot segments/,
+  )
+}
+
+// THE CHAIN IS THE CALLER'S. `qdn://` means Qortium and `qortal://` means
+// Qortal, so resolving a qortalRequest to a qdn:// address would hand a Qortal
+// app the same-named QORTIUM resource — a collision an attacker could publish,
+// opened without a prompt. The invoked global fixes the network everywhere
+// else in this bridge; it must here too.
+assert.equal(
+  resolveHomeV2AppAlias(
+    'LINK_TO_QDN_RESOURCE',
+    { identifier: 'Wallet', name: 'Wallet', service: 'APP' },
+    'qortalRequest',
+  ).request.address,
+  'qortal://APP/Wallet/Wallet',
+)
+assert.equal(
+  resolveHomeV2AppAlias(
+    'LINK_TO_QDN_RESOURCE',
+    { identifier: 'Wallet', name: 'Wallet', service: 'APP' },
+    'qdnRequest',
+  ).request.address,
+  'qdn://APP/Wallet/Wallet',
+)
+
+// Qortal's SAVE_FILE also has a documented BLOB form. Writing app-supplied
+// bytes to disk is a new capability, not an alias, so it is refused BY NAME
+// rather than reported as a missing location.
+assert.throws(
+  () => resolveHomeV2AppAlias('SAVE_FILE', { blob: {}, filename: 'notes.txt' }),
+  /SAVE_FILE with a blob is not supported/,
+)
 
 // Prompt classification. None of the five re-adds may land in a prompt family
 // by accident: the four reads are plain public reads, and OPEN_CURRENT_TAB is
