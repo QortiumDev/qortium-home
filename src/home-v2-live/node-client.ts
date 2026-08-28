@@ -39,6 +39,7 @@ import {
 } from '../../electron/home-v2-app-actions'
 import { isHomeV2GroupMutationAction } from '../../electron/home-v2-group-mutation-actions'
 import { isHomeV2RatingAction } from '../../electron/home-v2-rating-actions'
+import { isHomeV2PaymentAction } from '../../electron/home-v2-payment-actions'
 import { isHomeV2PublishExtraAction } from '../../electron/home-v2-app-actions'
 import {
   isHomeV2CrosschainReadAction,
@@ -1271,16 +1272,13 @@ export function createPortableNodeClient(
       if (action === 'OPEN_AS_WIDGET' || action.startsWith('WIDGET_')) {
         throw new Error(`${action} is only available in Qortium Home desktop.`)
       }
-      // Signing actions have no Android path (this client is read-only plus a
-      // few Home-mediated actions). Reject them explicitly with a clear reason
-      // rather than letting them fall to the generic "read-only mode" message —
-      // and they are already withheld from Android's SHOW_ACTIONS, so a
-      // well-behaved app never reaches here. See
-      // ANDROID_UNSUPPORTED_ACTIONS in home-v2-app-runtime.ts, and
-      // homeV2AndroidActionRefusal decides the REASON. One derived answer
-      // replaces the three overlapping gates that used to live here — the
-      // last of which was a hand-maintained negation of the second's action
-      // list, so porting one family meant editing four places in step.
+      // Signing actions DO have an Android path now — the Home shell raises the
+      // approval and the vault signs — but that path does not run through this
+      // client, which is read-only plus a few Home-mediated actions. So a
+      // signing action arriving here bypassed the prompt, and the refusals
+      // below say exactly that rather than blaming the platform.
+      // homeV2AndroidActionRefusal still decides the reason for anything
+      // Android genuinely cannot do; its list is empty today.
       // Lists administer the user's own node. Reads are permissionless, so
       // the client serves them directly; a WRITE must carry an approval, and
       // the Home shell raises that before calling listWrite — so a write
@@ -1306,7 +1304,8 @@ export function createPortableNodeClient(
           isHomeV2RatingAction(action) ||
           action === 'SET_ACCOUNT_AVATAR' ||
           isHomeV2PublishExtraAction(action) ||
-          action === 'SEND_MESSAGE')
+          action === 'SEND_MESSAGE' ||
+          isHomeV2PaymentAction(action))
       ) {
         throw createHomeV2BridgeError(
           `${action} must be approved through Home before it can be signed.`,

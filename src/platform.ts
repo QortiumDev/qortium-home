@@ -229,6 +229,27 @@ import { arbitraryRawToSigningBytes } from '../electron/arbitrary-tx';
 import { assertUnsignedQortiumAtMessageTransaction } from '../electron/qdn-at-message-validation';
 import { normalizeHomeV2AtMessageRequest } from '../electron/home-v2-at-message-actions';
 import {
+  assertUnsignedHomeV2QortalPaymentTransaction,
+  assertUnsignedHomeV2QortiumPaymentTransaction,
+  assertUnsignedHomeV2QortiumTransferAssetTransaction,
+  buildUnsignedQortiumPaymentTransactionBytes,
+  buildUnsignedQortiumTransferAssetTransactionBytes,
+  homeV2CheckedTotalDebit,
+  homeV2FeeForLength,
+  normalizeHomeV2NativeSendRequest,
+  normalizeHomeV2PaymentRecipient,
+  normalizeHomeV2SendQortRequest,
+  normalizeHomeV2TransferAssetRequest,
+  parseHomeV2UnitFee,
+  selectHomeV2AssetInfo,
+  selectHomeV2AtomicBalance,
+  type HomeV2NativeSendRequest,
+  type HomeV2PaymentAction,
+  type HomeV2PaymentRecipient,
+  type HomeV2SendQortRequest,
+  type HomeV2TransferAssetRequest,
+} from '../electron/home-v2-payment-actions';
+import {
   normalizeHomeV2PublishMultipleRequest,
   normalizeHomeV2QdnDeleteRequest,
 } from '../electron/home-v2-publish-extras-contract';
@@ -14188,6 +14209,326 @@ function homeV2IdempotentGroupAdminResult(
  * to cross-check; the independent verifier is what stands in for that, applied
  * to the unstamped bytes and again to the stamped ones.
  */
+// One payment at a time per account and chain, and a fail-closed marker if a
+// signed payment could not be journaled.
+//
+// The lock is taken by the SHELL before it raises the approval and released
+// after signing, so it spans the whole window the desktop lock spans. Holding
+// it only across the signing call would let two prompts stack: both would
+// preflight against the same confirmed balance, and the second would still see
+// that balance after the first broadcast, because an unconfirmed spend does
+// not move it.
+const androidHomeV2PaymentSendLocks = new Set<string>();
+const androidHomeV2PaymentJournalFailures = new Set<string>();
+const ANDROID_PAYMENT_BLOCKED_KEY = 'home-v2-payment-journal-failures-v1';
+
+export function acquireAndroidHomeV2PaymentLock(accountId: string, network: string) {
+  const key = `${accountId}|${network}`;
+  if (androidHomeV2PaymentSendLocks.has(key)) return false;
+  androidHomeV2PaymentSendLocks.add(key);
+  return true;
+}
+
+export function releaseAndroidHomeV2PaymentLock(accountId: string, network: string) {
+  androidHomeV2PaymentSendLocks.delete(`${accountId}|${network}`);
+}
+
+/**
+ * Marks payments blocked for an account, and PERSISTS that.
+ *
+ * The marker's whole premise is that the journal has no record of a payment
+ * that was signed. Keeping it only in memory would lose it exactly when it
+ * matters — Android kills backgrounded processes routinely — leaving neither
+ * a journal entry nor a block, so an identical payment could be repeated.
+ */
+export async function recordAndroidHomeV2PaymentJournalFailure(accountId: string) {
+  androidHomeV2PaymentJournalFailures.add(accountId);
+  try {
+    await setStoredValue(
+      ANDROID_PAYMENT_BLOCKED_KEY,
+      JSON.stringify([...androidHomeV2PaymentJournalFailures]),
+    );
+  } catch (error) {
+    // The in-memory block still stands for this process; surface the failure
+    // rather than letting a caller read silence as success.
+    throw new Error(`The payment block could not be persisted: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+let androidHomeV2PaymentBlockLoad: Promise<void> | null = null;
+
+async function loadAndroidHomeV2PaymentBlocks() {
+  androidHomeV2PaymentBlockLoad ??= (async () => {
+    try {
+      const raw = await getStoredValue(ANDROID_PAYMENT_BLOCKED_KEY);
+      if (!raw) return;
+      const parsed: unknown = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        for (const entry of parsed) if (typeof entry === 'string') androidHomeV2PaymentJournalFailures.add(entry);
+      }
+    } catch {
+      // An unreadable marker store must not unblock payments, but it also
+      // cannot be repaired here; the in-memory set stays authoritative.
+    }
+  })();
+  await androidHomeV2PaymentBlockLoad;
+}
+
+export async function androidHomeV2PaymentsBlocked(accountId: string) {
+  await loadAndroidHomeV2PaymentBlocks();
+  return androidHomeV2PaymentJournalFailures.has(accountId);
+}
+
+/**
+ * Signs and broadcasts one payment on Android.
+ *
+ * THIS MOVES FUNDS. Every value the prompt showed is passed in and re-derived
+ * here, and any disagreement refuses: the amount, the asset id AND its
+ * description, the recipient, the fee, and the timestamp the fee was quoted
+ * for. The vault re-normalizes the raw request as well, so a request that
+ * changed after approval cannot be signed under it. The total debit is not
+ * passed: it is a function of the amount and the fee, both of which are, and
+ * it is recomputed here only as a balance threshold.
+ *
+ * The fee is re-read for the SAME timestamp that gets signed. Core applies the
+ * fee schedule effective for a transaction's timestamp, so quoting one moment
+ * and signing another could straddle a fee boundary and produce a transaction
+ * the chain rejects — or one that costs more than the prompt said.
+ */
+async function sendAndroidHomeV2Payment(input: {
+  readonly action: HomeV2PaymentAction;
+  readonly address: string;
+  readonly approvedAmountAtomic: bigint;
+  readonly approvedAssetId: number;
+  readonly approvedAssetName: string | null;
+  readonly approvedFeeAtomic: bigint;
+  readonly approvedRecipientAddress: string;
+  readonly approvedTimestamp: number;
+  readonly isStillValid: () => Promise<boolean>;
+  readonly network: 'qortal' | 'qortium';
+  readonly nodeApiUrl: string;
+  readonly requestValue: Record<string, unknown>;
+  readonly signingKey: { address: string; publicKey58: string; secretKey: Uint8Array };
+}) {
+  const {
+    action, address, approvedAmountAtomic, approvedAssetId, approvedAssetName,
+    approvedFeeAtomic, approvedRecipientAddress, approvedTimestamp, isStillValid,
+    network, nodeApiUrl, requestValue, signingKey,
+  } = input;
+  if (signingKey.address !== address) {
+    throw new Error('The selected account changed before the payment could be signed.');
+  }
+  // An approval that sat open too long must not sign a stale timestamp: Core
+  // expires ordinary transactions 24h after their timestamp, and a long-delayed
+  // signing would produce a doomed transaction journaled as an unknown outcome.
+  const assertPaymentFresh = () => {
+    if (Date.now() - approvedTimestamp > 10 * 60_000) {
+      throw new Error('This payment approval took too long and was not signed; please start it again.');
+    }
+  };
+  assertPaymentFresh();
+  const isTransfer = action === 'TRANSFER_ASSET';
+  const isQortal = action === 'SEND_QORT';
+  const request = isTransfer
+    ? normalizeHomeV2TransferAssetRequest(requestValue)
+    : isQortal
+      ? normalizeHomeV2SendQortRequest(requestValue)
+      : normalizeHomeV2NativeSendRequest(action, requestValue);
+  const amount = request.amount;
+  if (amount.atomic !== approvedAmountAtomic) {
+    throw new Error('The payment amount changed after it was approved; nothing was signed.');
+  }
+  const assetId = isTransfer ? (request as HomeV2TransferAssetRequest).assetId : 0;
+  if (assetId !== approvedAssetId) {
+    throw new Error('The asset changed after it was approved; nothing was signed.');
+  }
+  const readUnitFee = async (txType: string) => parseHomeV2UnitFee(await fetchLocalNodeApiPayload(
+    nodeApiUrl,
+    `/transactions/unitfee?txType=${txType}&timestamp=${approvedTimestamp}`,
+    'Fee lookup failed.',
+    CHAT_SIGNING_RESPONSE_MAX_BYTES,
+    '',
+  ));
+  const readAtomicBalance = async (target: string, balanceAssetId?: number) => selectHomeV2AtomicBalance(
+    await fetchLocalNodeApiPayload(
+      nodeApiUrl,
+      `/addresses/balance/${encodeURIComponent(target)}${balanceAssetId !== undefined && balanceAssetId !== 0 ? `?assetId=${balanceAssetId}` : ''}`,
+      'Balance lookup failed.',
+      CHAT_SIGNING_RESPONSE_MAX_BYTES,
+      '',
+    ),
+  );
+  // Qortium signed lengths: PAYMENT 153, TRANSFER_ASSET 161. Qortal PAYMENT
+  // carries a 64-byte last reference: 217.
+  const feeLength = isQortal ? 217 : isTransfer ? 161 : 153;
+  const unitFee = await readUnitFee(isTransfer ? 'TRANSFER_ASSET' : 'PAYMENT');
+  const feeAtomic = homeV2FeeForLength(unitFee, feeLength);
+  if (feeAtomic !== approvedFeeAtomic) {
+    throw new Error('The chain fee changed after it was approved; nothing was signed.');
+  }
+  // Resolve the recipient the same way the prompt did, and require the same
+  // answer: a Qortal name that re-points between approval and signing must not
+  // silently redirect the funds.
+  let recipient: HomeV2PaymentRecipient;
+  if (isQortal) {
+    const sendRequest = request as HomeV2SendQortRequest;
+    if (sendRequest.recipientAddress) {
+      recipient = normalizeHomeV2PaymentRecipient(sendRequest.recipientAddress, 'The recipient address');
+    } else {
+      const nameValue = await fetchLocalNodeApiPayload(
+        nodeApiUrl,
+        `/names/${encodeURIComponent(sendRequest.recipientName ?? '')}`,
+        'Recipient-name lookup failed.',
+        CHAT_SIGNING_RESPONSE_MAX_BYTES,
+        '',
+      );
+      const owner = isRecord(nameValue) && typeof nameValue.owner === 'string' ? nameValue.owner : '';
+      if (!owner) throw new Error(`The Qortal name ${sendRequest.recipientName} does not resolve to an owner address.`);
+      recipient = normalizeHomeV2PaymentRecipient(owner, 'The resolved recipient address');
+    }
+  } else {
+    recipient = (request as HomeV2NativeSendRequest | HomeV2TransferAssetRequest).recipient;
+  }
+  if (recipient.address !== approvedRecipientAddress) {
+    throw new Error('The recipient changed after it was approved; nothing was signed.');
+  }
+  // The asset the prompt DESCRIBED, re-read and required to still describe the
+  // same thing. The id and amount are in the signed bytes, but the name and the
+  // divisibility/unspendable rules the prompt gated on are not, so without this
+  // they would rest on a single pre-prompt read.
+  if (isTransfer) {
+    const freshAsset = selectHomeV2AssetInfo(
+      await fetchLocalNodeApiPayload(
+        nodeApiUrl,
+        `/assets/info?assetId=${assetId}`,
+        `Asset ${assetId} does not exist.`,
+        CHAT_SIGNING_RESPONSE_MAX_BYTES,
+        '',
+      ),
+      assetId,
+    );
+    if (freshAsset.name !== approvedAssetName) {
+      throw new Error('The asset description changed after it was approved; nothing was signed.');
+    }
+    if (!freshAsset.isDivisible && amount.atomic % 100_000_000n !== 0n) {
+      throw new Error(`The ${freshAsset.name} asset is indivisible: the amount must be a whole number of units.`);
+    }
+    if (freshAsset.isUnspendable && recipient.isAt) {
+      throw new Error(`The ${freshAsset.name} asset is unspendable and cannot be sent to an AT contract.`);
+    }
+  }
+  const nativeDebit = isTransfer ? feeAtomic : homeV2CheckedTotalDebit(amount.atomic, feeAtomic);
+  const nativeBalance = await readAtomicBalance(address);
+  if (nativeBalance < nativeDebit) {
+    throw new Error('The balance changed after approval and no longer covers this payment.');
+  }
+  if (isTransfer && assetId !== 0 && (await readAtomicBalance(address, assetId)) < amount.atomic) {
+    throw new Error('The asset balance changed after approval and no longer covers this transfer.');
+  }
+  if (!(await isStillValid())) throw new Error('The signing context changed before the payment could be submitted.');
+  let unsignedBytes: Uint8Array;
+  if (isQortal) {
+    const referenceValue = await fetchLocalNodeApiPayload(
+      nodeApiUrl,
+      `/addresses/lastreference/${encodeURIComponent(address)}`,
+      'Last-reference lookup failed.',
+      CHAT_SIGNING_RESPONSE_MAX_BYTES,
+      '',
+    );
+    const lastReference = typeof referenceValue === 'string' ? referenceValue.trim() : '';
+    if (!lastReference) throw new Error('The selected Qortal account has no last reference; it may need QORT first.');
+    unsignedBytes = buildUnsignedPaymentTransactionBytes({
+      amountAtomic: amount.atomic,
+      feeAtomic,
+      lastReference,
+      recipient: recipient.address,
+      senderPublicKey: signingKey.publicKey58,
+      timestamp: approvedTimestamp,
+    });
+    assertUnsignedHomeV2QortalPaymentTransaction(unsignedBytes, {
+      amountAtomic: amount.atomic,
+      feeAtomic,
+      lastReference: base58Decode(lastReference),
+      recipientBytes: recipient.bytes,
+      senderPublicKey: signingKey.publicKey58,
+      timestamp: approvedTimestamp,
+    });
+  } else if (isTransfer) {
+    unsignedBytes = buildUnsignedQortiumTransferAssetTransactionBytes({
+      amountAtomic: amount.atomic,
+      assetId,
+      feeAtomic,
+      recipientBytes: recipient.bytes,
+      senderPublicKey: signingKey.publicKey58,
+      timestamp: approvedTimestamp,
+    });
+    assertUnsignedHomeV2QortiumTransferAssetTransaction(unsignedBytes, {
+      amountAtomic: amount.atomic,
+      assetId,
+      feeAtomic,
+      recipientBytes: recipient.bytes,
+      senderPublicKey: signingKey.publicKey58,
+      timestamp: approvedTimestamp,
+    });
+  } else {
+    unsignedBytes = buildUnsignedQortiumPaymentTransactionBytes({
+      amountAtomic: amount.atomic,
+      feeAtomic,
+      recipientBytes: recipient.bytes,
+      senderPublicKey: signingKey.publicKey58,
+      timestamp: approvedTimestamp,
+    });
+    assertUnsignedHomeV2QortiumPaymentTransaction(unsignedBytes, {
+      amountAtomic: amount.atomic,
+      feeAtomic,
+      recipientBytes: recipient.bytes,
+      senderPublicKey: signingKey.publicKey58,
+      timestamp: approvedTimestamp,
+    });
+  }
+  if (!(await isStillValid())) throw new Error('The signing context changed before the payment could be submitted.');
+  // Freshness is the LAST act before a signature exists.
+  assertPaymentFresh();
+  const signedBytes = appendSignatureToTransactionBytes(
+    unsignedBytes,
+    nacl.sign.detached(unsignedBytes, signingKey.secretKey),
+  );
+  const transactionSignature = getSignatureFromSignedTransactionBytes(signedBytes);
+  const base = {
+    action,
+    amount: amount.decimal,
+    assetId,
+    network,
+    recipient: recipient.address,
+    transactionSignature,
+  };
+  try {
+    await postLocalNodeText(
+      nodeApiUrl,
+      '/transactions/process?apiVersion=2',
+      base58Encode(signedBytes),
+      '',
+      'Payment transaction processing failed.',
+      'text/plain',
+      CHAT_SIGNING_RESPONSE_MAX_BYTES,
+      true,
+    );
+    return Object.freeze({ ...base, accepted: true });
+  } catch (error) {
+    // Once a signature exists, ANY ambiguous failure is an unknown outcome: a
+    // lying node's error is not proof the network never saw the bytes.
+    return Object.freeze({
+      ...base,
+      accepted: false,
+      error: error instanceof Error ? error.message : 'Payment broadcast outcome is unknown.',
+      errorType: 'BROADCAST_UNKNOWN' as const,
+      outcome: 'unknown' as const,
+      retryable: false as const,
+      timestamp: approvedTimestamp,
+    });
+  }
+}
+
 async function sendAndroidHomeV2QortiumAtMessage(input: {
   readonly address: string;
   readonly approvedMessage: string;
@@ -16421,6 +16762,51 @@ export function createAndroidHomeV2VaultClient(): HomeV2VaultClient {
     },
     async deriveAddressFromPublicKey(publicKey58) {
       return publicKeyToAddress(base58Decode(publicKey58));
+    },
+    async reportPaymentJournalFailure(accountId) {
+      await recordAndroidHomeV2PaymentJournalFailure(accountId);
+    },
+    async paymentsBlocked(accountId) {
+      return androidHomeV2PaymentsBlocked(accountId);
+    },
+    async acquirePaymentLock(accountId, network) {
+      return acquireAndroidHomeV2PaymentLock(accountId, network);
+    },
+    async releasePaymentLock(accountId, network) {
+      releaseAndroidHomeV2PaymentLock(accountId, network);
+    },
+    async sendPayment(request) {
+      // Backstop: the shell holds the lock and checks the block before it
+      // prompts, but a signing path must not depend on its caller.
+      if (await androidHomeV2PaymentsBlocked(request.accountId)) {
+        throw new Error(
+          'A previously signed payment could not be recorded for reconciliation. Payment actions are blocked for this account until it is reconciled.',
+        );
+      }
+      // The key derivation is INSIDE the try: it can reject (an auto-lock
+      // between approval and signing), and a throw before the try would leave
+      // the shell's lock held with no way for the user to clear it.
+      let signingKey: Awaited<ReturnType<typeof getAccountSecretKey>> | null = null;
+      try {
+        signingKey = await getAccountSecretKey(request.accountId);
+        return await sendAndroidHomeV2Payment({
+          action: request.action,
+          address: request.approvedAddress,
+          approvedAmountAtomic: BigInt(request.approvedAmountAtomic),
+          approvedAssetId: request.approvedAssetId,
+          approvedAssetName: request.approvedAssetName,
+          approvedFeeAtomic: BigInt(request.approvedFeeAtomic),
+          approvedRecipientAddress: request.approvedRecipientAddress,
+          approvedTimestamp: request.approvedTimestamp,
+          isStillValid: async () => (await request.isStillValid()) === true,
+          network: request.network,
+          nodeApiUrl: request.nodeApiUrl,
+          requestValue: request.requestValue,
+          signingKey,
+        });
+      } finally {
+        signingKey?.secretKey.fill(0);
+      }
     },
     async sendAtMessage(request) {
       const signingKey = await getAccountSecretKey(request.accountId);

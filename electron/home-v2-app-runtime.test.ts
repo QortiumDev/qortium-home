@@ -10,6 +10,7 @@ import {
   homeV2WidgetWithholdsSelfSubject,
   normalizeHomeV2BridgeError,
 } from './home-v2-app-runtime.js'
+import { getHomeV2AppActions } from './home-v2-app-actions.js'
 import { HOME_V2_RUNTIME_INVALIDATION_KINDS } from './home-v2-runtime-invalidation.js'
 
 const reachablePublic = {
@@ -559,10 +560,48 @@ for (const action of ['GET_ALL_LISTS', 'GET_LIST', 'ADD_TO_LIST', 'REMOVE_FROM_L
   'SEND_MESSAGE']) {
   assert.equal(androidActions.includes(action), true, `android must advertise ${action}`)
 }
-// The payment family stays withheld until its own Android arm exists: it MOVES
-// FUNDS, and an advertised action that cannot run would make SHOW_ACTIONS lie.
+// The payment family crossed last, deliberately: it MOVES FUNDS. Nothing Home
+// 2 implements is withheld from Android any more, so this asserts the END of
+// the parity wave rather than a remaining gap.
 for (const action of ['PAYMENT', 'SEND_COIN', 'TRANSFER_ASSET']) {
-  assert.equal(androidActions.includes(action), false, `android must not advertise ${action}`)
+  assert.equal(androidActions.includes(action), true, `android must advertise ${action}`)
+}
+// SEND_QORT is Qortal-only and lives on the qortalRequest catalogue.
+assert.equal(androidActions.includes('SEND_QORT'), false, 'SEND_QORT is not a qdnRequest action')
+
+// DERIVED, not hand-listed: whatever the catalogue advertises to a desktop app
+// on a given protocol, Android advertises too. A hand-written list of families
+// can only assert what someone remembered to add; this asserts the property
+// the empty ANDROID_UNSUPPORTED_ACTIONS actually claims, so a future action
+// filtered from Android without a stated reason fails here.
+for (const protocol of ['qdnRequest', 'qortalRequest'] as const) {
+  const desktopSurface = getHomeV2ContextualAppActions(getHomeV2AppActions(protocol), 'tab')
+  const androidSurface = getHomeV2ContextualAppActions(getHomeV2AppActions(protocol), 'android')
+  const withheld = desktopSurface.filter((entry) => !androidSurface.includes(entry))
+  assert.deepEqual(
+    // OPEN_AS_WIDGET is the one documented difference and is not a capability:
+    // Android has no widget surface to open onto.
+    withheld.filter((entry) => entry !== 'OPEN_AS_WIDGET'),
+    [],
+    `android must advertise everything the ${protocol} catalogue advertises to a tab`,
+  )
+}
+
+// And the withholding MECHANISM still works, even though nothing uses it: an
+// empty list is not the same as a broken filter, and the next action that
+// genuinely needs to be withheld should not discover that here.
+{
+  const probe = 'GET_NODE_STATUS'
+  assert.equal(
+    getHomeV2ContextualAppActions([probe, 'GET_HOST_INFO'], 'android', new Set([probe])).includes(probe),
+    false,
+    'a withheld action is filtered from the Android surface',
+  )
+  assert.equal(
+    getHomeV2ContextualAppActions([probe, 'GET_HOST_INFO'], 'tab', new Set([probe])).includes(probe),
+    true,
+    'the same action stays on the desktop surface',
+  )
 }
 
 // ---------------------------------------------------------------------------

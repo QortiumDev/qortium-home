@@ -231,6 +231,25 @@ import {
   homeV2AtMessageOperationLabel,
   normalizeHomeV2AtMessageRequest,
 } from '../../electron/home-v2-at-message-actions'
+import {
+  canonicalHomeV2PaymentAction,
+  homeV2AtomicUnitsText,
+  homeV2CheckedTotalDebit,
+  homeV2FeeForLength,
+  HomeV2ForeignSendError,
+  normalizeHomeV2NativeSendRequest,
+  normalizeHomeV2PaymentRecipient,
+  normalizeHomeV2SendQortRequest,
+  normalizeHomeV2TransferAssetRequest,
+  parseHomeV2UnitFee,
+  selectHomeV2AssetInfo,
+  selectHomeV2AtomicBalance,
+  type HomeV2NativeSendRequest,
+  type HomeV2PaymentRecipient,
+  type HomeV2SendQortRequest,
+  type HomeV2TransferAssetRequest,
+} from '../../electron/home-v2-payment-actions'
+import { formatQortAtomic } from '../../electron/qortal-payment'
 import { getStaticQdnServiceId } from '../../electron/public-transaction-validation'
 import {
   normalizeHomeV2RateAccountRequest,
@@ -4366,6 +4385,13 @@ export function HomeV2LiveApp() {
           return isRecord(result) ? { ...result, journalStored: true } : result
         } catch (error) {
           console.warn('[home-v2-app] Unable to retain an ambiguous signed transaction:', error)
+          // For a PAYMENT this is not a warning, it is a stop condition: the
+          // user has no entry to reconcile against, so a second payment could
+          // duplicate the first. Desktop fail-closes the account here and so
+          // does this.
+          if (isHomeV2PaymentAction(journalAction) && context.selectedAccountId) {
+            await vaultClient?.reportPaymentJournalFailure?.(context.selectedAccountId).catch(() => undefined)
+          }
           return isRecord(result) ? { ...result, journalStored: false } : result
         }
       }
@@ -6199,6 +6225,256 @@ export function HomeV2LiveApp() {
           return true
         } finally {
           bytes.fill(0)
+        }
+      }
+      // Payments on Android. THIS FAMILY MOVES FUNDS, and it is the last one
+      // to cross deliberately: everything before it was a signature the user
+      // could reason about after the fact, and this one is not.
+      //
+      // The prompt is payment-grade — the amount in BOTH human and atomic
+      // units, the recipient, whether the destination is a contract rather
+      // than a person, whether it is a self-payment, the fee and the total
+      // debit. The amount, asset, recipient, fee and timestamp travel with the
+      // request and the vault refuses if its own re-derivation of any of them
+      // disagrees; the total debit follows from the amount and the fee.
+      if (isAndroidHost && isHomeV2PaymentAction(action)) {
+        const qortalPayment = action === 'SEND_QORT'
+        // The serializers are chain-specific, so the chain is asserted here as
+        // well as in the catalogue: a signing path must not depend on a
+        // catalogue entry staying correct.
+        if (qortalPayment ? protocol !== 'qortalRequest' : protocol !== 'qdnRequest') {
+          throw new Error(qortalPayment
+            ? 'SEND_QORT is a Qortal action; call it on qortalRequest.'
+            : `${action} is available on the Qortium chain only.`)
+        }
+        if (!context.selectedAccountId) throw new Error('No account is selected for this tab.')
+        const accountId = context.selectedAccountId
+        const account = accountCatalogueRef.current.accounts.find((candidate) => candidate.id === accountId)
+        if (!account) throw new Error('The selected account is no longer available.')
+        if (!account.isUnlocked) throw new Error('The selected account is locked.')
+        // Every one of these is REQUIRED, not optional-with-a-fallback: the
+        // fail-closed rule and the lock are the two things standing between an
+        // ambiguous payment and a duplicate one, and a build that implements
+        // signing without them must not sign at all.
+        if (
+          !vaultClient?.sendPayment || !vaultClient.reportPaymentJournalFailure ||
+          !vaultClient.paymentsBlocked || !vaultClient.acquirePaymentLock || !vaultClient.releasePaymentLock
+        ) {
+          throw new Error('Payments are unavailable on this platform.')
+        }
+        const targetNetwork: NetworkId = qortalPayment ? 'qortal' : 'qortium'
+        // Checked BEFORE the prompt, as desktop does: an account whose last
+        // signed payment could not be recorded must not be asked to authorize
+        // another spend that was never going to happen.
+        if (await vaultClient.paymentsBlocked(accountId)) {
+          throw new Error(
+            'A previously signed payment could not be recorded for reconciliation. Payment actions are blocked for this account until it is reconciled.',
+          )
+        }
+        // The lock spans the approval too, so two payment prompts for one
+        // account and chain cannot be open at once.
+        if (!(await vaultClient.acquirePaymentLock(accountId, targetNetwork))) {
+          throw new Error('Another payment for this account is already in progress.')
+        }
+        try {
+        const nodeBefore = parseHomeV2NodesSnapshot(await nodeClient.getSnapshot())[targetNetwork]
+        if (!nodeBefore.nodeApiUrl || !nodeBefore.capabilities.read) {
+          throw new Error(nodeBefore.error ?? `${targetNetwork} is unavailable.`)
+        }
+        const rawRequest = isRecord(requestValue) ? requestValue : {}
+        const isTransfer = action === 'TRANSFER_ASSET'
+        let paymentRequest: ReturnType<typeof normalizeHomeV2TransferAssetRequest>
+          | ReturnType<typeof normalizeHomeV2SendQortRequest>
+          | ReturnType<typeof normalizeHomeV2NativeSendRequest>
+        try {
+          paymentRequest = isTransfer
+            ? normalizeHomeV2TransferAssetRequest(rawRequest)
+            : qortalPayment
+              ? normalizeHomeV2SendQortRequest(rawRequest)
+              : normalizeHomeV2NativeSendRequest(action, rawRequest)
+        } catch (error) {
+          // The foreign-coin refusal carries a machine-readable code on
+          // desktop, and a 1.x app branches on it. Losing the code here would
+          // make the same request behave differently on the two platforms.
+          if (error instanceof HomeV2ForeignSendError) {
+            throw Object.assign(new Error(error.message), {
+              action,
+              code: 'FOREIGN_SEND_UNAVAILABLE',
+              network: qortalPayment ? 'qortal' : 'qortium',
+              retryable: false,
+            })
+          }
+          throw error
+        }
+        const readNodeValue = async (path: string, missing: string) => unwrapAndroidNodeRecord(
+          await nodeClient.requestApp(protocol, { action: 'FETCH_NODE_API', path }, context),
+          missing,
+        )
+        // The timestamp the fee is QUOTED for is the timestamp that gets
+        // signed. Core applies the fee schedule effective for a transaction's
+        // timestamp, so quoting one moment and signing another could straddle
+        // a fee boundary.
+        const paymentTimestamp = Date.now()
+        const readUnitFee = async (txType: string) => parseHomeV2UnitFee(await readNodeValue(
+          `/transactions/unitfee?txType=${txType}&timestamp=${paymentTimestamp}`,
+          'The fee lookup is unavailable on the selected node.',
+        ))
+        const readAtomicBalance = async (target: string, balanceAssetId?: number) => selectHomeV2AtomicBalance(
+          await readNodeValue(
+            `/addresses/balance/${encodeURIComponent(target)}${balanceAssetId !== undefined && balanceAssetId !== 0 ? `?assetId=${balanceAssetId}` : ''}`,
+            'The balance lookup is unavailable on the selected node.',
+          ),
+        )
+        const amount = paymentRequest.amount
+        const assetId = isTransfer ? (paymentRequest as HomeV2TransferAssetRequest).assetId : 0
+        let recipient: HomeV2PaymentRecipient
+        let recipientName: string | null = null
+        if (qortalPayment) {
+          const sendRequest = paymentRequest as HomeV2SendQortRequest
+          if (sendRequest.recipientAddress) {
+            recipient = normalizeHomeV2PaymentRecipient(sendRequest.recipientAddress, 'The recipient address')
+          } else {
+            recipientName = sendRequest.recipientName ?? null
+            const nameValue = await readNodeValue(
+              `/names/${encodeURIComponent(recipientName ?? '')}`,
+              `The Qortal name ${recipientName} does not exist.`,
+            )
+            const owner = isRecord(nameValue) && typeof nameValue.owner === 'string' ? nameValue.owner : ''
+            if (!owner) throw new Error(`The Qortal name ${recipientName} does not resolve to an owner address.`)
+            recipient = normalizeHomeV2PaymentRecipient(owner, 'The resolved recipient address')
+          }
+        } else {
+          recipient = (paymentRequest as HomeV2NativeSendRequest | HomeV2TransferAssetRequest).recipient
+        }
+        let assetInfo: ReturnType<typeof selectHomeV2AssetInfo> | null = null
+        if (isTransfer) {
+          assetInfo = selectHomeV2AssetInfo(
+            await readNodeValue(`/assets/info?assetId=${assetId}`, `Asset ${assetId} does not exist.`),
+            assetId,
+          )
+          if (!assetInfo.isDivisible && amount.atomic % 100_000_000n !== 0n) {
+            throw new Error(`The ${assetInfo.name} asset is indivisible: the amount must be a whole number of units.`)
+          }
+          if (assetInfo.isUnspendable && recipient.isAt) {
+            throw new Error(`The ${assetInfo.name} asset is unspendable and cannot be sent to an AT contract.`)
+          }
+        }
+        // Qortium signed lengths: PAYMENT 153, TRANSFER_ASSET 161. Qortal
+        // PAYMENT carries a 64-byte last reference: 217.
+        const unitFee = await readUnitFee(isTransfer ? 'TRANSFER_ASSET' : 'PAYMENT')
+        const feeAtomic = homeV2FeeForLength(unitFee, qortalPayment ? 217 : isTransfer ? 161 : 153)
+        const nativeDebit = isTransfer ? feeAtomic : homeV2CheckedTotalDebit(amount.atomic, feeAtomic)
+        const coinLabel = qortalPayment ? 'QORT' : 'native coin'
+        const nativeBalance = await readAtomicBalance(account.address)
+        if (nativeBalance < nativeDebit) {
+          throw new Error(
+            `Insufficient balance: this ${isTransfer ? 'transfer needs the fee of' : 'payment needs'} ${formatQortAtomic(nativeDebit)} ${coinLabel}, but the node reports ${formatQortAtomic(nativeBalance)}.`,
+          )
+        }
+        if (isTransfer && assetId !== 0 && (await readAtomicBalance(account.address, assetId)) < amount.atomic) {
+          throw new Error(`Insufficient asset balance: the transfer needs ${amount.decimal}.`)
+        }
+        const rows = [
+          ...(assetInfo
+            ? [
+                { label: 'Asset', value: assetInfo.name },
+                { label: 'Asset ID', value: String(assetId) },
+                { label: 'You send', value: homeV2AtomicUnitsText(amount), preEscaped: true as const },
+              ]
+            : [
+                {
+                  label: 'You pay',
+                  preEscaped: true as const,
+                  value: homeV2AtomicUnitsText({
+                    atomic: amount.atomic,
+                    decimal: `${amount.decimal} ${coinLabel}`,
+                  }),
+                },
+              ]),
+          { label: 'Paid to', value: recipient.address },
+          ...(recipientName ? [{ label: 'Resolved from name', value: recipientName }] : []),
+          ...(recipient.isAt
+            ? [{ label: 'Destination type', value: 'AT contract address (an automated contract, not a person)' }]
+            : []),
+          ...(recipient.address === account.address
+            ? [{ label: 'Self-payment', value: 'The recipient IS the selected account' }]
+            : []),
+          { label: 'Fee', value: `${formatQortAtomic(feeAtomic)} ${coinLabel}` },
+          {
+            label: qortalPayment ? 'Total debit' : 'Total native debit',
+            value: `${formatQortAtomic(nativeDebit)} ${coinLabel}`,
+          },
+        ]
+        const operationLabel = homeV2PaymentOperationLabel(action)
+        const parsedApp = resolveAppIdentity()
+        const appId = brand<AppId>(`home-v2:permission-app:${parsedApp.identityKey}`)
+        const nodeRoute = `${nodeBefore.mode}|${nodeBefore.nodeApiUrl}`
+        const chainLabel = qortalPayment ? 'Qortal' : 'Qortium'
+        const decision = await queueAndroidPermissionPrompt(createPermissionPrompt({
+          id: brand<PermissionRequestId>(globalThis.crypto.randomUUID()),
+          protocol,
+          action,
+          capability: 'payment.send',
+          appId,
+          appIdentityKey: parsedApp.identityKey,
+          appTitle: parsedApp.title,
+          context: {
+            appId,
+            identityId: brand<IdentityId>(`home-v2:identity:${accountId}`),
+            nodeProfileRef: snapshot.nodes[targetNetwork].ref,
+            tabId: brand<TabId>(context.tabId),
+            targetNetwork,
+            walletRef: brand<WalletRef>(`home-v2:wallet:${account.walletId}`),
+          },
+          title: `Allow ${operationLabel.toLowerCase()}?`,
+          summary: `${parsedApp.title} wants to PAY from the selected account. Approving signs and broadcasts one transaction that moves the funds shown below out of this account \u2014 the amount, the recipient, and the chain fee are all listed exactly as they will be signed, and this approval covers this one payment only. Nothing about this approval can be remembered or reused.`,
+          details: [
+            { label: 'Account', value: account.label },
+            { label: 'Operation', value: operationLabel },
+            ...androidSequencedDetails(canonicalHomeV2PaymentAction(action), PAYMENT_DETAIL_SEQUENCES[action], rows),
+            { label: 'Route', value: `${nodeBefore.mode} \u00b7 ${nodeBefore.nodeApiUrl}` },
+            { label: 'Chain', value: chainLabel },
+            { label: 'Scope', value: 'This one payment only' },
+          ],
+          allowedScopes: ['single-request'],
+        }), context.tabId)
+        if (!decision.approved || decision.scope !== 'single-request') {
+          throw new Error('The payment was denied.')
+        }
+        // No chat-rate-limiter charge here, matching desktop: payments are
+        // bounded by the one-at-a-time lock, and charging them against the
+        // chat quota would let a burst of messages refuse a payment the user
+        // has already approved, for a reason that has nothing to do with it.
+        const isStillValid = async () => {
+          const currentTab = productStateRef.current.tabs.find((tab) => tab.id === context.tabId)
+          const currentAccount = accountCatalogueRef.current.accounts.find((candidate) => candidate.id === accountId)
+          const currentNode = parseHomeV2NodesSnapshot(await nodeClient.getSnapshot())[targetNetwork]
+          return !!currentTab &&
+            currentTab.context.resourceLocation === context.resourceLocation &&
+            String(currentTab.context.identityId) === `home-v2:identity:${accountId}` &&
+            !!currentAccount?.isUnlocked &&
+            currentNode.capabilities.read &&
+            `${currentNode.mode}|${currentNode.nodeApiUrl ?? ''}` === nodeRoute
+        }
+        if (!(await isStillValid())) throw new Error('The app, account, or node route changed before the payment was staged.')
+        await assertNoPendingTransactionConflict()
+        return await retainUnknownTransaction(await vaultClient.sendPayment({
+          accountId,
+          action,
+          approvedAddress: account.address,
+          approvedAmountAtomic: amount.atomic.toString(),
+          approvedAssetId: assetId,
+          approvedAssetName: assetInfo?.name ?? null,
+          approvedFeeAtomic: feeAtomic.toString(),
+          approvedRecipientAddress: recipient.address,
+          approvedTimestamp: paymentTimestamp,
+          isStillValid,
+          network: targetNetwork,
+          nodeApiUrl: nodeBefore.nodeApiUrl,
+          requestValue: rawRequest,
+        }), canonicalHomeV2PaymentAction(action), rawRequest)
+        } finally {
+          await vaultClient.releasePaymentLock(accountId, targetNetwork)
         }
       }
       // SEND_MESSAGE on Android: one zero-fee, zero-payment MESSAGE to an AT

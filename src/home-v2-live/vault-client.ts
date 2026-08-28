@@ -297,6 +297,59 @@ export interface HomeV2VaultClient {
    */
   deriveAddressFromPublicKey?(publicKey58: string): Promise<string>
   /**
+   * Marks payments blocked for this account after a signed payment could not
+   * be journaled.
+   *
+   * A signed payment whose outcome is unknown and which was NOT recorded is
+   * the one case where continuing is worse than stopping: the user has no
+   * entry to reconcile against, so a second payment could duplicate the first.
+   */
+  reportPaymentJournalFailure?(accountId: string): Promise<void>
+  /** Whether payments are fail-closed for this account (see above). */
+  paymentsBlocked?(accountId: string): Promise<boolean>
+  /**
+   * Takes the one-payment-at-a-time lock for an account and chain, returning
+   * false when it is already held.
+   *
+   * The SHELL takes this before it raises the approval and releases it after
+   * signing, so the lock spans the whole window desktop's does. Holding it
+   * only across the signing call would let two prompts stack: both preflight
+   * against the same confirmed balance, and the second still sees that balance
+   * after the first broadcasts, because an unconfirmed spend does not move it.
+   */
+  acquirePaymentLock?(accountId: string, network: 'qortal' | 'qortium'): Promise<boolean>
+  releasePaymentLock?(accountId: string, network: 'qortal' | 'qortium'): Promise<void>
+  /**
+   * Signs one payment, refusing unless the amounts, recipient, fee and
+   * timestamp still match the approval.
+   *
+   * This family MOVES FUNDS, so every number the prompt showed travels with
+   * the request and the vault refuses if its own re-derivation disagrees.
+   * Amounts and fees are exact atomic decimal-digit strings — never numbers,
+   * never floats. `approvedTimestamp` is the one the fee was QUOTED for and
+   * the one that gets signed: Core applies the fee schedule effective for a
+   * transaction's timestamp, so quoting one moment and signing another could
+   * straddle a fee boundary.
+   */
+  sendPayment?(request: {
+    readonly accountId: string
+    readonly action: 'PAYMENT' | 'SEND_COIN' | 'SEND_QORT' | 'TRANSFER_ASSET'
+    readonly approvedAddress: string
+    readonly approvedAmountAtomic: string
+    readonly approvedAssetId: number
+    // The asset NAME the prompt displayed, re-derived in the vault. Desktop
+    // re-reads the asset after approval and refuses on drift; without this the
+    // Android prompt's asset name would rest on a single pre-prompt read.
+    readonly approvedAssetName: string | null
+    readonly approvedFeeAtomic: string
+    readonly approvedRecipientAddress: string
+    readonly approvedTimestamp: number
+    readonly isStillValid: () => boolean | Promise<boolean>
+    readonly network: 'qortal' | 'qortium'
+    readonly nodeApiUrl: string
+    readonly requestValue: Record<string, unknown>
+  }): Promise<unknown>
+  /**
    * Signs one zero-fee, zero-payment Qortium MESSAGE to an AT contract.
    *
    * Core has no build endpoint for MESSAGE, so the bytes are produced by a

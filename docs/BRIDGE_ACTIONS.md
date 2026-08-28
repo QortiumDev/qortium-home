@@ -51,8 +51,7 @@ separate durable capabilities and revision-checked mutations; see
 the structured target, safe action, result, desktop-native, Android-sheet, and
 standalone-gateway boundaries. Desktop isolated QDN apps and Android tokenized
 APP/WEBSITE pages also support `PUBLISH_QDN_RESOURCE`,
-`PUBLISH_MULTIPLE_QDN_RESOURCES` and `DELETE_QDN_RESOURCE` (both of these
-two desktop-only in Home 2 — Android filters them from `SHOW_ACTIONS`),
+`PUBLISH_MULTIPLE_QDN_RESOURCES` and `DELETE_QDN_RESOURCE`,
 `APPROVE_GROUP_JOIN_REQUEST`, `INVITE_TO_GROUP`, `JOIN_GROUP`, `LEAVE_GROUP`,
 `CANCEL_GROUP_INVITE`, `ADD_GROUP_ADMIN`, `REMOVE_GROUP_ADMIN`, `GROUP_BAN`,
 `CANCEL_GROUP_BAN`, `GROUP_KICK`,
@@ -875,8 +874,14 @@ possibly-lying node.
 
 ### Payments (Home 2)
 
-The payment family is restored desktop-only with every guarantee the other
-signed families earned, plus the payment-specific ones:
+The payment family carries every guarantee the other signed families earned,
+plus the payment-specific ones below. **It works on desktop and on Android**,
+and it crossed to Android LAST on purpose: every other action is a signature a
+user can reason about afterwards, and this one moves funds. On Android the
+approved amount, asset, recipient, fee and timestamp all travel with the
+request, and the vault refuses if its own re-derivation of any of them
+disagrees — the disclosure is the thing being signed, not a description of it.
+
 
 - **`PAYMENT` and native `SEND_COIN` are one canonical operation** — a
   locally-built Qortium PAYMENT (type 2, the native asset). A nonzero

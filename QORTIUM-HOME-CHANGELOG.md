@@ -34,6 +34,41 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-27 - feat(home-v2): payments work on Android, completing the parity wave
+
+Sending the native coin, transferring an asset, and sending QORT on Qortal all
+work on your phone now. With this, everything Qortium Home can do on a desktop
+it can also do on a phone — nothing is held back any more.
+
+Payments came last on purpose. Every other action that crossed to the phone
+signs something you can look at afterwards and reason about; this one moves
+money, and a mistake is not something you can take back. So the approval screen
+for a payment shows more than the others: the amount both the ordinary way and
+as the exact whole number the chain works in, who is being paid, whether that
+destination is an automated contract rather than a person, whether you are
+paying yourself, the fee, and the total leaving your account.
+
+Every one of those numbers is carried through to the signature. Home works them
+out again at the moment of signing and refuses if anything has moved — a
+different amount, a different recipient, a different fee. If you are paying a
+Qortal name rather than an address, the name is looked up again and must still
+point at the same account, so a name changing hands mid-payment cannot redirect
+your funds.
+
+The fee is quoted for the exact moment the transaction will claim, because the
+chain charges according to that moment; quoting one time and signing another
+could land on the wrong side of a fee change. An approval left sitting for more
+than ten minutes is refused rather than signed, since a stale transaction would
+be rejected by the chain and leave you with an unclear result to sort out.
+
+Only one payment at a time is allowed per account, from the moment the
+approval appears until it is signed, so two payment screens cannot be open at
+once against the same balance. And if a payment is signed but Home cannot
+record it for you to check against afterwards, further payments from that
+account stop until it is sorted out — a stop that is written down, so closing
+the app does not quietly lift it — that is the one situation where carrying
+on is worse than stopping, because a second payment could repeat the first.
+
 ### 2026-08-27 - feat(home-v2): messages to contracts work on Android
 
 Sending a message to a contract now works on your phone. It carries no payment
