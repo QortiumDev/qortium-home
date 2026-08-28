@@ -480,6 +480,7 @@ import {
   normalizeHomeV2UpdateGroupRequest,
   selectHomeV2DefaultGroupId,
   selectHomeV2GroupMembership,
+  selectHomeV2GroupAdminshipFromGroups,
   selectHomeV2GroupMetadata,
   selectHomeV2PendingTransactionSummary,
   type HomeV2GroupMutationAction,
@@ -2220,6 +2221,27 @@ async function publishHomeV2MultiplePublishSources(
     })
     try {
       if (!(await isStillValid())) throw new Error('The app, account, or node route changed during batch publishing.')
+      // Per ITEM, not once for the batch. The dispatcher's gate ran against the
+      // batch request before any of this, so it cannot see a coordinate an
+      // EARLIER ITEM of this same batch has just retained an unknown outcome
+      // for — and nothing stops a batch listing one coordinate twice. (Ported
+      // from the Android arm, publishing-extras review 2026-08-27.)
+      const pendingItem = findStoredHomeV2PendingTransactionConflict(app.getPath('userData'), {
+        accountId,
+        action: 'PUBLISH_QDN_RESOURCE',
+        appIdentity: homeV2AppIdentityKey(context),
+        network,
+        request: {
+          ...(resource.identifier === null ? {} : { identifier: resource.identifier }),
+          name: resource.name,
+          service: resource.service,
+        },
+      })
+      if (pendingItem) {
+        throw new Error(
+          `A previous publish of this resource has an unknown outcome. Reconcile signature ${pendingItem.signature} before publishing it again.`,
+        )
+      }
       const result = await publishHomeV2PublicResource({
         accountId,
         ...(network === 'qortal' ? { expectedFeeAtomic: feeAtomic } : {}),
@@ -8815,6 +8837,25 @@ async function handleHomeV2GroupMutationAction(
   const approvalGroupMeta = pending
     ? await readHomeV2GroupMutationMeta(action, node.nodeApiUrl, pending.txGroupId)
     : null
+  if (pending) {
+    // Fail CLOSED on adminship, for the same reason SET_GROUP fails closed on
+    // membership: Core rejects a non-admin vote only AFTER a signature exists,
+    // which journals an unknown outcome and blocks this account from voting on
+    // that transaction until it is manually reconciled. (Ported from the
+    // Android arm, group family review 2026-08-27.)
+    const memberGroups = await readHomeV2ChatJson(
+      node.nodeApiUrl,
+      `/groups/member/${encodeURIComponent(profile.address)}`,
+      'Group membership lookup',
+      '',
+    )
+    if (!selectHomeV2GroupAdminshipFromGroups(memberGroups, pending.txGroupId)) {
+      throw createHomeV2BridgeError(
+        `The selected account is not an admin of group ${pending.txGroupId} ("${approvalGroupMeta!.groupName}"), so it cannot vote on this transaction.`,
+        { action, code: 'TARGET_NOT_FOUND', network: 'qortium', retryable: false },
+      )
+    }
+  }
 
   // SET_GROUP: membership + current default (changed:false when already set).
   if (setGroupRequest && meta) {
@@ -8839,12 +8880,20 @@ async function handleHomeV2GroupMutationAction(
     if (!selectHomeV2GroupMembership(membership, profile.address)) {
       throw new Error(`The selected account is not a member of group ${setGroupRequest.defaultGroupId} ("${meta.groupName}").`)
     }
+    // Fail CLOSED on anything but a genuinely absent account record. An
+    // account with no on-chain history 404s here and simply has no default
+    // group — but a timeout or a malformed answer must NOT be read as "the
+    // default differs", which prompts and signs a SET_GROUP that is already
+    // set. (Ported from the Android arm, group family review 2026-08-27.)
     const account = await readHomeV2ChatJson(
       node.nodeApiUrl,
       `/addresses/${encodeURIComponent(profile.address)}`,
       'Account lookup',
       '',
-    ).catch(() => null)
+    ).catch((error) => {
+      if (isHomeV2AppRecord(error) && error.status === 404) return null
+      throw error
+    })
     if (selectHomeV2DefaultGroupId(account) === setGroupRequest.defaultGroupId) {
       return Object.freeze({
         accepted: true,
