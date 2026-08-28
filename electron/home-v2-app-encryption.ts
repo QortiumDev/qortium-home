@@ -45,13 +45,47 @@ const MESSAGE_KEY_LENGTH = 32
 // secretbox adds a 16-byte authenticator to the 32-byte message key.
 const WRAPPED_KEY_LENGTH = MESSAGE_KEY_LENGTH + 16
 const COUNT_LENGTH = 4
-// A bound on recipients, so a hostile request cannot make Home do unbounded
-// scalar multiplications. Qortal Hub does not bound this; Home does.
-const MAX_RECIPIENTS = 256
+// A bound on how much work one ENCRYPT request may ask for. It deliberately
+// does NOT apply when reading: Hub appends the sender to a caller's list and
+// can emit 257, and refusing to open a structurally valid envelope Hub wrote
+// would break the interoperability this format exists for. Limits belong on
+// what Home is asked to DO, not on what it will READ.
+const MAX_ENCRYPT_RECIPIENTS = 256
+// Reading is still bounded, by the envelope's own length: a declared count
+// that does not fit the bytes present is rejected below.
+const MAX_ENVELOPE_BYTES = 32 * 1024 * 1024
 
 function requireBytes(value: Uint8Array, length: number, label: string) {
   if (value.length !== length) throw new Error(`${label} must be ${length} bytes.`)
   return value
+}
+
+/**
+ * Decodes base64 STRICTLY, and bounds the result.
+ *
+ * Node's Buffer decoder silently ignores characters outside the alphabet, so
+ * `Buffer.from(x, 'base64')` accepts corrupt input and returns something
+ * plausible — where Qortal Hub's `atob` throws. Accepting what another client
+ * rejects is its own interoperability bug, and for an envelope it means
+ * tampered input can decode to a valid-looking structure.
+ */
+function decodeStrictBase64(value: string, label: string) {
+  if (typeof value !== 'string') throw new Error(`${label} must be base64 text.`)
+  if (!/^[A-Za-z0-9+/]*={0,2}$/.test(value) || value.length % 4 !== 0) {
+    throw new Error(`${label} is not valid base64.`)
+  }
+  // Bound BEFORE decoding: base64 is 4 characters per 3 bytes, so this caps
+  // the allocation rather than discovering the size after paying for it.
+  if (value.length / 4 * 3 > MAX_ENVELOPE_BYTES) {
+    throw new Error(`${label} is too large.`)
+  }
+  const decoded = Buffer.from(value, 'base64')
+  // A canonical round trip catches the residual cases the pattern allows,
+  // such as a final quantum with non-zero padding bits.
+  if (decoded.toString('base64') !== value) {
+    throw new Error(`${label} is not canonical base64.`)
+  }
+  return new Uint8Array(decoded.buffer, decoded.byteOffset, decoded.byteLength)
 }
 
 function textBytes(value: string) {
@@ -64,9 +98,17 @@ function textBytes(value: string) {
  */
 function sharedSecret(senderPrivateKey: Uint8Array, recipientPublicKey: Uint8Array) {
   const curvePrivate = ed2curve.convertSecretKey(senderPrivateKey)
-  const curvePublic = ed2curve.convertPublicKey(recipientPublicKey)
-  if (!curvePublic) throw new Error('A recipient public key is not a valid ed25519 key.')
-  const secret = nacl.scalarMult(curvePrivate, curvePublic)
+  try {
+    const curvePublic = ed2curve.convertPublicKey(recipientPublicKey)
+    if (!curvePublic) throw new Error('A recipient public key is not a valid ed25519 key.')
+    return finishSharedSecret(nacl.scalarMult(curvePrivate, curvePublic))
+  } finally {
+    // The converted X25519 scalar is key material in its own right.
+    curvePrivate.fill(0)
+  }
+}
+
+function finishSharedSecret(secret: Uint8Array) {
   // An all-zero agreement means a small-order public key: the "shared" secret
   // would be one every holder of such a key could reproduce.
   if (secret.every((byte) => byte === 0)) {
@@ -81,13 +123,37 @@ export type QortalEncryptedDataInput = {
   readonly recipientPublicKeys58: readonly string[]
   readonly senderPrivateKey: Uint8Array
   readonly senderPublicKey58: string
-  /** Test seams: supplied so the layout can be pinned against fixed bytes. */
-  readonly keyNonce?: Uint8Array
-  readonly messageKey?: Uint8Array
-  readonly nonce?: Uint8Array
+}
+
+/**
+ * Deterministic construction, for pinning the wire layout against fixed bytes.
+ *
+ * Kept OUT of the production signature on purpose: reusing a nonce with the
+ * same message key leaks the relationship between plaintexts, and an optional
+ * parameter on the exported encryptor is an invitation to supply one. Callers
+ * outside tests cannot reach this.
+ */
+export type QortalEncryptedDataTestSeams = {
+  readonly keyNonce: Uint8Array
+  readonly messageKey: Uint8Array
+  readonly nonce: Uint8Array
 }
 
 export function encryptQortalGroupData(input: QortalEncryptedDataInput): string {
+  return encryptQortalGroupDataInternal(input)
+}
+
+export function encryptQortalGroupDataForTest(
+  input: QortalEncryptedDataInput,
+  seams: QortalEncryptedDataTestSeams,
+): string {
+  return encryptQortalGroupDataInternal(input, seams)
+}
+
+function encryptQortalGroupDataInternal(
+  input: QortalEncryptedDataInput,
+  seams?: QortalEncryptedDataTestSeams,
+): string {
   const senderPublicKey = requireBytes(
     base58Decode(input.senderPublicKey58),
     PUBLIC_KEY_LENGTH,
@@ -97,25 +163,19 @@ export function encryptQortalGroupData(input: QortalEncryptedDataInput): string 
   // The sender is always a recipient of their own data, and the list is
   // deduplicated so a repeated key does not produce a second wrapped copy.
   const recipients = [...new Set([...input.recipientPublicKeys58, input.senderPublicKey58])]
-  if (recipients.length < 1 || recipients.length > MAX_RECIPIENTS) {
-    throw new Error(`Encryption supports 1 to ${MAX_RECIPIENTS} recipients.`)
+  if (recipients.length < 1 || recipients.length > MAX_ENCRYPT_RECIPIENTS) {
+    throw new Error(`Encryption supports 1 to ${MAX_ENCRYPT_RECIPIENTS} recipients.`)
   }
-  let payload: Uint8Array
-  try {
-    payload = Uint8Array.from(Buffer.from(input.data64, 'base64'))
-  } catch {
-    throw new Error('The data to encrypt must be base64.')
-  }
-  if (payload.length < 1) throw new Error('The data to encrypt is empty.')
+  const payload = decodeStrictBase64(input.data64, 'The data to encrypt')
 
   const messageKey = requireBytes(
-    input.messageKey ?? nacl.randomBytes(MESSAGE_KEY_LENGTH),
+    seams?.messageKey ?? nacl.randomBytes(MESSAGE_KEY_LENGTH),
     MESSAGE_KEY_LENGTH,
     'Message key',
   )
-  const nonce = requireBytes(input.nonce ?? nacl.randomBytes(NONCE_LENGTH), NONCE_LENGTH, 'Nonce')
+  const nonce = requireBytes(seams?.nonce ?? nacl.randomBytes(NONCE_LENGTH), NONCE_LENGTH, 'Nonce')
   const keyNonce = requireBytes(
-    input.keyNonce ?? nacl.randomBytes(KEY_NONCE_LENGTH),
+    seams?.keyNonce ?? nacl.randomBytes(KEY_NONCE_LENGTH),
     KEY_NONCE_LENGTH,
     'Key nonce',
   )
@@ -153,6 +213,9 @@ export function encryptQortalGroupData(input: QortalEncryptedDataInput): string 
   // Uint32Array buffer, which is little-endian on every platform Qortal runs
   // on; spelling it out here keeps that from depending on host endianness.
   new DataView(combined.buffer).setUint32(size - COUNT_LENGTH, recipients.length, true)
+  // The message key has done its work; a test-supplied one belongs to the
+  // caller, so only a generated one is cleared here.
+  if (!seams) messageKey.fill(0)
   return Buffer.from(combined).toString('base64')
 }
 
@@ -164,6 +227,14 @@ export type QortalDecryptedData = {
 /**
  * Opens a `qortalGroupEncryptedData` envelope with the reader's own key.
  *
+ * PROTOCOL LIMITATION, inherited from Qortal and not fixable here: the
+ * authenticator covers the payload and each wrapped key individually, but NOT
+ * the recipient block as a whole. Anyone can strip a 48-byte wrapped key and
+ * decrement the trailing count; the remaining recipients still decrypt
+ * normally. That cannot forge plaintext, but it means an opened envelope is
+ * NOT evidence of who else could read it — callers must not treat the
+ * recipient count as an authenticated fact.
+ *
  * The reader is not told which wrapped key is theirs — Qortal's format does not
  * say — so every wrapped key is tried against the one shared secret the reader
  * can compute. A failure to open any of them means the data was not encrypted
@@ -174,12 +245,7 @@ export function decryptQortalGroupData(input: {
   readonly readerPrivateKey: Uint8Array
 }): QortalDecryptedData {
   requireBytes(input.readerPrivateKey, 64, 'Reader private key')
-  let combined: Uint8Array
-  try {
-    combined = Uint8Array.from(Buffer.from(input.encryptedBase64, 'base64'))
-  } catch {
-    throw new Error('The encrypted data must be base64.')
-  }
+  const combined = decodeStrictBase64(input.encryptedBase64, 'The encrypted data')
   const prefix = textBytes(ENVELOPE_PREFIX)
   const headerLength = prefix.length + NONCE_LENGTH + KEY_NONCE_LENGTH + PUBLIC_KEY_LENGTH
   if (combined.length < headerLength + COUNT_LENGTH) {
@@ -192,7 +258,10 @@ export function decryptQortalGroupData(input: {
   }
   const view = new DataView(combined.buffer, combined.byteOffset, combined.byteLength)
   const count = view.getUint32(combined.length - COUNT_LENGTH, true)
-  if (count < 1 || count > MAX_RECIPIENTS) {
+  // Bounded by the envelope's own length rather than by a policy number: any
+  // count whose key block actually fits is one Hub could legitimately have
+  // written, and the dataEnd check below rejects the rest.
+  if (count < 1 || count > (combined.length - headerLength - COUNT_LENGTH) / WRAPPED_KEY_LENGTH) {
     throw new Error('The encrypted envelope declares an unusable recipient count.')
   }
   const keysLength = count * WRAPPED_KEY_LENGTH

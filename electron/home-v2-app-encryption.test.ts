@@ -2,7 +2,11 @@ import assert from 'node:assert/strict'
 import nacl from 'tweetnacl'
 
 import { base58Encode } from './base58.js'
-import { decryptQortalGroupData, encryptQortalGroupData } from './home-v2-app-encryption.js'
+import {
+  decryptQortalGroupData,
+  encryptQortalGroupData,
+  encryptQortalGroupDataForTest,
+} from './home-v2-app-encryption.js'
 
 // Deterministic identities: a seeded key pair is reproducible, so the layout
 // assertions below pin exact byte positions rather than "something plausible".
@@ -25,13 +29,12 @@ const fixed = {
 // Data encrypted here must be readable by every other Qortal client, so the
 // envelope is pinned field by field against Qortal Hub's encryptDataGroup.
 {
-  const encrypted = encryptQortalGroupData({
-    ...fixed,
+  const encrypted = encryptQortalGroupDataForTest({
     data64: PLAINTEXT,
     recipientPublicKeys58: [bob58],
     senderPrivateKey: alice.secretKey,
     senderPublicKey58: alice58,
-  })
+  }, fixed)
   const bytes = Uint8Array.from(Buffer.from(encrypted, 'base64'))
   assert.equal(
     Buffer.from(bytes.subarray(0, 24)).toString('utf8'),
@@ -133,32 +136,6 @@ const fixed = {
 }
 
 // --- Refusals --------------------------------------------------------------
-assert.throws(
-  () => encryptQortalGroupData({
-    data64: '',
-    recipientPublicKeys58: [bob58],
-    senderPrivateKey: alice.secretKey,
-    senderPublicKey58: alice58,
-  }),
-  /empty/,
-)
-assert.throws(
-  () => encryptQortalGroupData({
-    data64: PLAINTEXT,
-    // Genuinely distinct keys: a seed that varies across two bytes, so the
-    // deduplication does not quietly bring the count back under the bound.
-    recipientPublicKeys58: Array.from({ length: 300 }, (_, index) => {
-      const seed = new Uint8Array(32)
-      seed[0] = index % 256
-      seed[1] = Math.floor(index / 256) + 1
-      return base58Encode(nacl.sign.keyPair.fromSeed(seed).publicKey)
-    }),
-    senderPrivateKey: alice.secretKey,
-    senderPublicKey58: alice58,
-  }),
-  /1 to 256 recipients/,
-  'an unbounded recipient list would make Home do unbounded scalar multiplications',
-)
 // A small-order public key yields an all-zero "shared" secret that anyone
 // holding such a key could reproduce.
 assert.throws(
@@ -214,6 +191,137 @@ for (const [input, pattern] of [
     }),
     /could not be opened/,
   )
+}
+
+
+// --- CROSS-IMPLEMENTATION GOLDEN VECTOR ------------------------------------
+// This envelope was produced by QORTAL HUB'S OWN encryptDataGroup
+// (Qortal-Hub/src/qdn/encryption/group-encryption.ts), run against the same
+// seeded identities used above.
+//
+// It exists because every other test here uses Home's encryptor AND Home's
+// decryptor, so they would ALL still pass if both sides hashed the shared
+// secret — which is exactly the mistake this format is most likely to make,
+// since Home's own deriveQortalDirectEncryptionKey SHA-256s that value. A test
+// suite that cannot fail on the one bug you are worried about is not covering
+// it. This vector can only be opened with the raw X25519 secret.
+{
+  const hubEnvelope =
+    'cW9ydGFsR3JvdXBFbmNyeXB0ZWREYXRhFsvmMJ54IvmDDgItpo2iAHqPsCWo+9QAk60SeVXLUA+0' +
+    'HheutDe+8ZAMICnnEXr7iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1zffo4CjTYLFSvt' +
+    '/a0xDcQMyrfJwxI3rXTDGFWKGhO5Vq32IJ4sXaDA1sDWokIAQq+KApnUxOeudWIhwIRZinMuK+MM' +
+    'tfx3fhEclltxfLfOaGUSVVAlP8a35rUht3xmRoSQFX4Fxd6vd/MFaYXRFziBMW4s/657EtX0wiwW' +
+    'fC7mKIo7hgIAAAA='
+  const asBob = decryptQortalGroupData({
+    encryptedBase64: hubEnvelope,
+    readerPrivateKey: bob.secretKey,
+  })
+  assert.equal(asBob.data64, PLAINTEXT, 'Home opens an envelope Qortal Hub wrote')
+  assert.equal(asBob.senderPublicKey58, alice58)
+  // Hub adds the sender to the recipient list too, so the sender reads it back.
+  assert.equal(
+    decryptQortalGroupData({ encryptedBase64: hubEnvelope, readerPrivateKey: alice.secretKey }).data64,
+    PLAINTEXT,
+    'and so does the sender, as Hub intends',
+  )
+  assert.throws(
+    () => decryptQortalGroupData({ encryptedBase64: hubEnvelope, readerPrivateKey: carol.secretKey }),
+    /not encrypted for the selected account/,
+  )
+}
+
+// Hub appends the sender to whatever list it is given, so it can legitimately
+// emit MORE recipients than Home will accept on an encrypt request. Refusing to
+// READ such an envelope would break the interoperability this format exists
+// for: limits belong on what Home is asked to do, not on what it will read.
+{
+  const many = Array.from({ length: 260 }, (_, index) => {
+    const seed = new Uint8Array(32)
+    seed[0] = index % 256
+    seed[1] = Math.floor(index / 256) + 40
+    return nacl.sign.keyPair.fromSeed(seed)
+  })
+  assert.throws(
+    () => encryptQortalGroupData({
+      data64: PLAINTEXT,
+      recipientPublicKeys58: many.map((pair) => base58Encode(pair.publicKey)),
+      senderPrivateKey: alice.secretKey,
+      senderPublicKey58: alice58,
+    }),
+    /1 to 256 recipients/,
+    'Home bounds what one request may ask it to compute',
+  )
+}
+
+// Hub encrypts empty plaintext without complaint, so Home must read it back
+// rather than refusing a valid envelope.
+{
+  const encrypted = encryptQortalGroupData({
+    data64: '',
+    recipientPublicKeys58: [bob58],
+    senderPrivateKey: alice.secretKey,
+    senderPublicKey58: alice58,
+  })
+  assert.equal(
+    decryptQortalGroupData({ encryptedBase64: encrypted, readerPrivateKey: bob.secretKey }).data64,
+    '',
+    'an empty payload round-trips, as it does in Hub',
+  )
+}
+
+// Base64 is validated STRICTLY. Node's decoder silently ignores characters
+// outside the alphabet, so an envelope with junk spliced in would otherwise
+// decode to something plausible — where Hub's atob rejects it outright.
+{
+  const encrypted = encryptQortalGroupData({
+    data64: PLAINTEXT,
+    recipientPublicKeys58: [bob58],
+    senderPrivateKey: alice.secretKey,
+    senderPublicKey58: alice58,
+  })
+  assert.throws(
+    () => decryptQortalGroupData({
+      encryptedBase64: `${encrypted.slice(0, 20)}!${encrypted.slice(20)}`,
+      readerPrivateKey: bob.secretKey,
+    }),
+    /not valid base64|not canonical base64/,
+  )
+  assert.throws(
+    () => encryptQortalGroupData({
+      data64: 'not base64!!',
+      recipientPublicKeys58: [bob58],
+      senderPrivateKey: alice.secretKey,
+      senderPublicKey58: alice58,
+    }),
+    /not valid base64/,
+  )
+}
+
+// The recipient block is not authenticated as a whole (a Qortal protocol
+// limitation): a wrapped key can be stripped and the count decremented, and
+// the remaining recipients still read the message. Pinned so the behaviour is
+// a known property rather than a surprise, and so nobody later treats an
+// opened envelope as proof of the original recipient set.
+{
+  const encrypted = encryptQortalGroupData({
+    data64: PLAINTEXT,
+    recipientPublicKeys58: [bob58, carol58],
+    senderPrivateKey: alice.secretKey,
+    senderPublicKey58: alice58,
+  })
+  const bytes = Uint8Array.from(Buffer.from(encrypted, 'base64'))
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  assert.equal(view.getUint32(bytes.length - 4, true), 3, 'Bob, Carol and Alice')
+  // Strip the LAST wrapped key and decrement the count.
+  const stripped = new Uint8Array(bytes.length - 48)
+  stripped.set(bytes.subarray(0, bytes.length - 4 - 48))
+  new DataView(stripped.buffer).setUint32(stripped.length - 4, 2, true)
+  const strippedBase64 = Buffer.from(stripped).toString('base64')
+  const survivor = decryptQortalGroupData({
+    encryptedBase64: strippedBase64,
+    readerPrivateKey: bob.secretKey,
+  })
+  assert.equal(survivor.data64, PLAINTEXT, 'a remaining recipient still reads a stripped envelope')
 }
 
 console.log('Home 2 app encryption envelope tests passed.')
