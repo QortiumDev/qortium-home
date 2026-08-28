@@ -42,7 +42,15 @@ contracts relevant to the release. At minimum for Home 2.1:
 npm run smoke:desktop:home-v2-onboarding
 npm run smoke:desktop:home-v2-settings
 npm run smoke:desktop:widgets
+npm run smoke:desktop:home-v2-app-zoom
 ```
+
+The app-zoom smoke is here rather than in the test suite because it drives the
+real shell. It exists because the layout broke only AWAY from 100% zoom, so it
+was invisible on the developer's machine and reached us as a user report from
+someone else's. It measures what `100vh` inside the shell actually paints to at
+several zoom levels, and self-checks that it can still detect a deliberately
+zoomed shell — so it cannot go quietly green.
 
 Build the unsigned Android release package for local packaging verification:
 

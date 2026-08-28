@@ -68,6 +68,7 @@
     "smoke:desktop:qdn-game": "node scripts/smoke-desktop-qdn-game.mjs",
     "smoke:desktop:qdn-api:packaged": "node scripts/smoke-desktop-qdn-api.mjs --packaged",
     "smoke:desktop:home-v2-collections-migration": "node scripts/smoke-home-v2-collections-migration.mjs",
+    "smoke:desktop:home-v2-app-zoom": "node scripts/smoke-home-v2-app-zoom.mjs",
     "smoke:desktop:home-v2-bookmark-toolbar": "node scripts/smoke-home-v2-bookmark-toolbar.mjs",
     "smoke:desktop:qdn-media-seek": "node scripts/smoke-desktop-qdn-media-seek.mjs",
     "smoke:desktop:qdn-write": "node scripts/smoke-desktop-qdn-write.mjs",
