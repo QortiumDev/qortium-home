@@ -212,11 +212,23 @@ import {
   normalizeHomeV2SetGroupRequest,
   normalizeHomeV2UpdateGroupRequest,
   selectHomeV2DefaultGroupId,
+  selectHomeV2GroupAdminshipFromGroups,
   selectHomeV2GroupMembershipFromGroups,
   selectHomeV2GroupMetadata,
   selectHomeV2PendingTransactionSummary,
 } from '../../electron/home-v2-group-mutation-actions'
-import { homeV2AvatarPointerText } from '../../electron/home-v2-prompt-text'
+import { homeV2AvatarPointerText, homeV2PromptText } from '../../electron/home-v2-prompt-text'
+import { getStaticQdnServiceId } from '../../electron/public-transaction-validation'
+import {
+  normalizeHomeV2RateAccountRequest,
+  normalizeHomeV2RateResourceRequest,
+  selectHomeV2AccountRatingEdge,
+  selectHomeV2CurrentResourceRating,
+} from '../../electron/home-v2-rating-actions'
+import {
+  normalizeHomeV2SetAccountAvatarRequest,
+  selectHomeV2AccountAvatarPointer,
+} from '../../electron/home-v2-account-avatar-actions'
 import { canonicalHomeV2VoteSelection, normalizeHomeV2CreatePollRequest, normalizeHomeV2UpdatePollRequest, normalizeHomeV2VoteOnPollRequest, selectHomeV2PollTarget, canonicalHomeV2AppAction, homeV2NameOperationLabel, homeV2PollOperationLabel, homeV2PublishExtraOperationLabel, isHomeV2ListAction, isHomeV2ListWriteAction, isHomeV2NameWriteAction, isHomeV2PollWriteAction, isHomeV2PublishExtraAction, normalizeHomeV2BuyNameRequest, normalizeHomeV2CancelSellNameRequest, normalizeHomeV2ListItems, normalizeHomeV2ListName, normalizeHomeV2RegisterNameRequest, normalizeHomeV2SellNameRequest, normalizeHomeV2UpdateNameRequest, selectHomeV2NameTarget, serializeHomeV2ListItemsForApproval } from '../../electron/home-v2-app-actions'
 import { homeV2GroupMutationOperationLabel, isHomeV2GroupMutationAction } from '../../electron/home-v2-group-mutation-actions'
 import { homeV2RatingOperationLabel, isHomeV2RatingAction } from '../../electron/home-v2-rating-actions'
@@ -488,6 +500,14 @@ const NAME_DETAIL_SEQUENCES: Record<string, readonly { label: string; optional?:
   ],
 }
 
+// The desktop account-avatar prompt carries its rows as discrete fields rather
+// than a sequence; the Android arm builds them locally, so it states the same
+// shape explicitly and holds itself to it.
+const ACCOUNT_AVATAR_DETAIL_SEQUENCE: readonly { label: string; optional?: true }[] = [
+  { label: 'Current', optional: true },
+  { label: 'Avatar' },
+]
+
 const RATING_DETAIL_SEQUENCES: Record<string, readonly { label: string; optional?: true }[]> = {
   RATE_ACCOUNT: [
     { label: 'Rated account' },
@@ -586,9 +606,24 @@ function isSequencedDetailRows(
 function androidSequencedDetails(
   action: string,
   sequence: readonly { label: string; optional?: true }[] | undefined,
-  rows: readonly { label: string; value: string; variant?: 'scroll' }[],
+  rows: readonly {
+    label: string
+    value: string
+    variant?: 'scroll'
+    // Wrap the escaped value in quotes. Use this on any row where Home appends
+    // its own words to an app-derived value: the quote character cannot occur
+    // inside an escaped value, so `"(unchanged)"` (a rename TO that string) and
+    // `(unchanged)` (the field is being kept) cannot be confused.
+    quote?: true
+    // Home's own annotation, appended AFTER the escaped value so it is never
+    // part of the text the app controls.
+    suffix?: string
+  }[],
 ): readonly { label: string; value: string; variant?: 'scroll' }[] {
-  const escaped = rows.map((row) => ({ label: row.label, value: androidPromptText(row.value) }))
+  const escaped = rows.map((row) => {
+    const value = androidPromptText(row.value)
+    return { label: row.label, value: `${row.quote ? `"${value}"` : value}${row.suffix ?? ''}` }
+  })
   if (!isSequencedDetailRows(sequence, escaped)) {
     throw new Error(`${action} prompt rows do not match its disclosure contract.`)
   }
@@ -600,16 +635,13 @@ function androidSequencedDetails(
   })
 }
 
-// Printable-ASCII escaping for prompt rows the Android flow builds locally —
-// the same rule the desktop bridge applies (backslash doubled first, then C0
-// controls and everything above U+007E rendered as \\uXXXX escapes) so a
-// crafted metadata value cannot visually forge other rows or reorder text
-// with bidi controls.
+// Prompt-row escaping for the Android arms. This is the SAME implementation
+// the desktop bridge uses, not a twin of it: the two platforms' rows are
+// validated against the same per-action contracts, so a second copy that
+// drifted would let a value render differently on one platform than the
+// reviewer of the other expects.
 function androidPromptText(value: string) {
-  return value
-    .replace(/\\/g, '\\\\')
-    .replace(/[\u0000-\u001f\u007f-\uffff]/g, (char) =>
-      `\\u${char.charCodeAt(0).toString(16).padStart(4, '0')}`)
+  return homeV2PromptText(value, 'The prompt value')
 }
 
 function isPublishPromptText(candidate: unknown): candidate is string {
@@ -4829,6 +4861,253 @@ export function HomeV2LiveApp() {
           requestValue: request,
         }))
       }
+      // Rating writes and the account avatar on Android. Both are local
+      // transformers (types 45/46 and 50), and both are RELATIVE changes: the
+      // prompt discloses the current value and the new one, so the approved
+      // reading is what the vault holds the signature to.
+      //
+      // Home 1.x sent the account's PRIVATE KEY to the node for all three of
+      // these. Nothing of that path survives on either platform.
+      if (
+        isAndroidHost && protocol === 'qdnRequest' &&
+        (isHomeV2RatingAction(action) || action === 'SET_ACCOUNT_AVATAR')
+      ) {
+        if (!context.selectedAccountId) throw new Error('No account is selected for this tab.')
+        const accountId = context.selectedAccountId
+        const account = accountCatalogueRef.current.accounts.find((candidate) => candidate.id === accountId)
+        if (!account) throw new Error('The selected account is no longer available.')
+        if (!account.isUnlocked) throw new Error('The selected account is locked.')
+        const isRating = isHomeV2RatingAction(action)
+        if (isRating ? !vaultClient?.signRatingWrite : !vaultClient?.signAccountAvatar) {
+          throw new Error('Signing is unavailable on this platform.')
+        }
+        const nodeBefore = parseHomeV2NodesSnapshot(await nodeClient.getSnapshot()).qortium
+        if (!nodeBefore.nodeApiUrl || !nodeBefore.capabilities.read) {
+          throw new Error(nodeBefore.error ?? 'Qortium is unavailable.')
+        }
+        const request = isRecord(requestValue) ? requestValue : {}
+        const readNode = async (path: string, missing: string) => unwrapAndroidNodeRecord(
+          await nodeClient.requestApp(protocol, { action: 'FETCH_NODE_API', path }, context),
+          missing,
+        )
+        const accountRatingRequest = action === 'RATE_ACCOUNT' ? normalizeHomeV2RateAccountRequest(request) : null
+        const resourceRatingRequest = action === 'RATE_RESOURCE' ? normalizeHomeV2RateResourceRequest(request) : null
+        const avatarRequest = action === 'SET_ACCOUNT_AVATAR' ? normalizeHomeV2SetAccountAvatarRequest(request) : null
+        const raterPublicKey = await vaultClient!.getSigningPublicKey!(accountId)
+        let rows: { label: string; value: string; variant?: 'scroll' }[] = []
+        let operationLabel = ''
+        let approvedRating: { canChangeNow: boolean; currentRating: number | null } | null = null
+        let approvedAvatarPointer: { identifier: string; name: string; service: string } | null = null
+
+        if (accountRatingRequest) {
+          // WHO is being rated is derived LOCALLY from the exact 32-byte key
+          // that will be signed — an app label or a lying node can never
+          // substitute a different identity on the prompt.
+          const targetAddress = await vaultClient!.deriveAddressFromPublicKey!(accountRatingRequest.targetPublicKey)
+          if (targetAddress === account.address) throw new Error('An account cannot rate itself.')
+          // One read answers three questions: the target exists with this
+          // stored key, the rater's ACTIVE rating on this exact edge, and
+          // whether the category cooldown allows a change now.
+          const edge = selectHomeV2AccountRatingEdge(await readNode(
+            `/account-ratings/cooldown?target=${encodeURIComponent(accountRatingRequest.targetPublicKey)}` +
+              `&rater=${encodeURIComponent(raterPublicKey)}` +
+              `&category=${encodeURIComponent(accountRatingRequest.category)}`,
+            'The account-rating lookup is unavailable on the selected node.',
+          ))
+          const remove = accountRatingRequest.rating === 0
+          if ((remove && edge.activeRating === null) || (!remove && accountRatingRequest.rating === edge.activeRating)) {
+            return Object.freeze({
+              accepted: true,
+              action,
+              category: accountRatingRequest.category,
+              changed: false,
+              network: 'qortium',
+              rating: accountRatingRequest.rating,
+              targetPublicKey: accountRatingRequest.targetPublicKey,
+            })
+          }
+          if (!edge.canChangeNow) {
+            throw new Error(`This account rating is in its category cooldown for another ${edge.blocksRemaining} blocks.`)
+          }
+          operationLabel = homeV2RatingOperationLabel('RATE_ACCOUNT', remove)
+          approvedRating = { canChangeNow: edge.canChangeNow, currentRating: edge.activeRating }
+          rows = [
+            { label: 'Rated account', value: targetAddress },
+            { label: 'Public key', value: accountRatingRequest.targetPublicKey },
+            { label: 'Category', value: accountRatingRequest.category },
+            ...(edge.activeRating !== null
+              ? [{ label: 'Current', value: edge.activeRating > 0 ? `+${edge.activeRating}` : `${edge.activeRating}` }]
+              : []),
+            {
+              label: 'Change',
+              value: remove
+                ? 'Remove rating'
+                : accountRatingRequest.rating > 0 ? `+${accountRatingRequest.rating}` : `${accountRatingRequest.rating}`,
+            },
+          ]
+        } else if (resourceRatingRequest) {
+          const coordinateLabel =
+            `${resourceRatingRequest.service}/${resourceRatingRequest.name}/${resourceRatingRequest.identifier ?? 'default'}`
+          const query = `service=${encodeURIComponent(resourceRatingRequest.service)}` +
+            `&name=${encodeURIComponent(resourceRatingRequest.name)}` +
+            (resourceRatingRequest.identifier ? `&identifier=${encodeURIComponent(resourceRatingRequest.identifier)}` : '')
+          // The resource must EXIST before anything is promptable. Core's
+          // summary read is the probe: 400 INVALID_CRITERIA means the
+          // coordinate is not a rateable existing resource.
+          try {
+            await readNode(`/resource-ratings/summary?${query}`, `There is no rateable published QDN resource at ${coordinateLabel}.`)
+          } catch (error) {
+            throw new Error(
+              /HTTP 400/.test(error instanceof Error ? error.message : '')
+                ? `There is no rateable published QDN resource at ${coordinateLabel}.`
+                : error instanceof Error ? error.message : String(error),
+            )
+          }
+          let current: number | null = null
+          try {
+            current = selectHomeV2CurrentResourceRating(await readNode(
+              `/resource-ratings/rating?${query}&rater=${encodeURIComponent(account.address)}`,
+              'unrated',
+            ))
+          } catch (error) {
+            // Core's 404 is "exists but this rater has no rating".
+            if (!/unrated|HTTP 404/.test(error instanceof Error ? error.message : '')) throw error
+            current = null
+          }
+          const remove = resourceRatingRequest.rating === 0
+          if ((remove && current === null) || (!remove && resourceRatingRequest.rating === current)) {
+            return Object.freeze({
+              accepted: true,
+              action,
+              changed: false,
+              identifier: resourceRatingRequest.identifier,
+              name: resourceRatingRequest.name,
+              network: 'qortium',
+              rating: resourceRatingRequest.rating,
+              service: resourceRatingRequest.service,
+            })
+          }
+          operationLabel = homeV2RatingOperationLabel('RATE_RESOURCE', remove)
+          approvedRating = { canChangeNow: true, currentRating: current }
+          rows = [
+            { label: 'Resource', value: coordinateLabel },
+            // The exact numeric id that will be SIGNED, so a static map that
+            // drifted from the visible service name has nowhere to hide.
+            { label: 'Service ID', value: String(getStaticQdnServiceId(resourceRatingRequest.service)) },
+            ...(current !== null ? [{ label: 'Current', value: `${current}/10` }] : []),
+            { label: 'Change', value: remove ? 'Remove rating' : `${resourceRatingRequest.rating}/10` },
+          ]
+        } else {
+          let currentPointer: { identifier: string; name: string; service: string } | null = null
+          try {
+            currentPointer = selectHomeV2AccountAvatarPointer(await readNode(
+              `/addresses/${encodeURIComponent(account.address)}/avatar/info`,
+              'none',
+            ))
+          } catch (error) {
+            if (!/none|HTTP 404/.test(error instanceof Error ? error.message : '')) throw error
+            currentPointer = null
+          }
+          const requested = avatarRequest!.avatar
+          const same = currentPointer !== null && requested !== null &&
+            currentPointer.service === requested.service &&
+            currentPointer.name === requested.name &&
+            currentPointer.identifier === requested.identifier
+          if ((requested === null && currentPointer === null) || same) {
+            return Object.freeze({
+              accepted: true,
+              action,
+              address: account.address,
+              avatar: requested
+                ? { identifier: requested.identifier || null, name: requested.name, service: requested.service }
+                : null,
+              changed: false,
+              network: 'qortium',
+            })
+          }
+          operationLabel = homeV2AccountAvatarOperationLabel(requested === null)
+          approvedAvatarPointer = currentPointer
+          rows = [
+            ...(currentPointer ? [{ label: 'Current', value: homeV2AvatarPointerText(currentPointer) }] : []),
+            {
+              label: 'Avatar',
+              value: requested === null ? 'Remove the current avatar' : homeV2AvatarPointerText(requested),
+            },
+          ]
+        }
+        const parsedApp = resolveAppIdentity()
+        const appId = brand<AppId>(`home-v2:permission-app:${parsedApp.identityKey}`)
+        const nodeRoute = `${nodeBefore.mode}|${nodeBefore.nodeApiUrl}`
+        const decision = await queueAndroidPermissionPrompt(createPermissionPrompt({
+          id: brand<PermissionRequestId>(globalThis.crypto.randomUUID()),
+          protocol,
+          action,
+          capability: isRating ? 'rating.write' : 'account.avatar.write',
+          appId,
+          appIdentityKey: parsedApp.identityKey,
+          appTitle: parsedApp.title,
+          context: {
+            appId,
+            identityId: brand<IdentityId>(`home-v2:identity:${accountId}`),
+            nodeProfileRef: snapshot.nodes.qortium.ref,
+            tabId: brand<TabId>(context.tabId),
+            targetNetwork: 'qortium',
+            walletRef: brand<WalletRef>(`home-v2:wallet:${account.walletId}`),
+          },
+          title: `Allow ${operationLabel.toLowerCase()}?`,
+          summary: isRating
+            ? `${parsedApp.title} wants to sign and broadcast one rating transaction from the selected account. Ratings are public on the Qortium chain and attributed to this account. It costs no fee \u2014 Home pays for it with proof-of-work on this device. Everything it does is shown below, exactly as it will be signed; this approval covers this one transaction only.`
+            : `${parsedApp.title} wants to sign and broadcast one transaction that changes the selected account's public avatar pointer on the Qortium chain. The avatar image itself is a separate published QDN resource \u2014 this signs only which resource the account points at. It costs no fee \u2014 Home pays for it with proof-of-work on this device; this approval covers this one transaction only.`,
+          details: [
+            { label: 'Account', value: account.label },
+            { label: 'Operation', value: operationLabel },
+            ...androidSequencedDetails(
+              action,
+              isRating ? RATING_DETAIL_SEQUENCES[action] : ACCOUNT_AVATAR_DETAIL_SEQUENCE,
+              rows,
+            ),
+            { label: 'Chain', value: 'Qortium' },
+            { label: 'Scope', value: 'This one transaction only' },
+          ],
+          allowedScopes: ['single-request'],
+        }), context.tabId)
+        if (!decision.approved || decision.scope !== 'single-request') {
+          throw new Error(isRating ? 'The rating transaction was denied.' : 'The avatar transaction was denied.')
+        }
+        const rateLimitDecision = androidChatSendRateLimiter.current.checkAndRecordSend(`${context.tabId}|${accountId}`)
+        if (!rateLimitDecision.allowed) throw new Error(rateLimitDecision.message)
+        const isStillValid = async () => {
+          const currentTab = productStateRef.current.tabs.find((tab) => tab.id === context.tabId)
+          const currentAccount = accountCatalogueRef.current.accounts.find((candidate) => candidate.id === accountId)
+          const currentNode = parseHomeV2NodesSnapshot(await nodeClient.getSnapshot()).qortium
+          return !!currentTab &&
+            currentTab.context.resourceLocation === context.resourceLocation &&
+            String(currentTab.context.identityId) === `home-v2:identity:${accountId}` &&
+            !!currentAccount?.isUnlocked &&
+            currentNode.capabilities.read &&
+            `${currentNode.mode}|${currentNode.nodeApiUrl ?? ''}` === nodeRoute
+        }
+        if (!(await isStillValid())) throw new Error('The app, account, or node route changed before signing.')
+        await assertNoPendingTransactionConflict()
+        return retainUnknownTransaction(isRating
+          ? await vaultClient!.signRatingWrite!({
+              accountId,
+              action: action as 'RATE_ACCOUNT' | 'RATE_RESOURCE',
+              approvedAddress: account.address,
+              approvedTarget: approvedRating!,
+              isStillValid,
+              nodeApiUrl: nodeBefore.nodeApiUrl,
+              requestValue: request,
+            })
+          : await vaultClient!.signAccountAvatar!({
+              accountId,
+              approvedAddress: account.address,
+              approvedAvatar: { pointer: approvedAvatarPointer },
+              isStillValid,
+              nodeApiUrl: nodeBefore.nodeApiUrl,
+              requestValue: request,
+            }))
+      }
       // Group mutations on Android. Unlike polls and names these have no Core
       // builder — a LOCAL transformer produces the bytes — so the vault also
       // verifies the stamped bytes. This arm resolves live group state, holds
@@ -4927,6 +5206,27 @@ export function HomeV2LiveApp() {
           }
         }
         const approvalGroupMeta = pending ? await readGroupMeta(pending.txGroupId) : null
+        if (pending) {
+          // Fail CLOSED on adminship, for the same reason SET_GROUP fails
+          // closed on membership: Core rejects a non-admin vote only AFTER a
+          // signature exists, which journals an unknown outcome and blocks
+          // this account from voting on that transaction until it is manually
+          // reconciled. Desktop does not check this yet; the read is one this
+          // arm is already positioned to make.
+          const groups = unwrapAndroidNodeRecord(
+            await nodeClient.requestApp(
+              protocol,
+              { action: 'FETCH_NODE_API', path: `/groups/member/${encodeURIComponent(account.address)}` },
+              context,
+            ),
+            'The group membership lookup is unavailable on the selected node.',
+          )
+          if (!selectHomeV2GroupAdminshipFromGroups(groups, pending.txGroupId)) {
+            throw new Error(
+              `The selected account is not an admin of group ${pending.txGroupId} ("${approvalGroupMeta!.groupName}"), so it cannot vote on this transaction.`,
+            )
+          }
+        }
         // SET_GROUP fails CLOSED on membership: a default group the account is
         // not in would be rejected by Core only AFTER signing, journaling a
         // phantom unknown outcome.
@@ -4948,14 +5248,23 @@ export function HomeV2LiveApp() {
           if (!selectHomeV2GroupMembershipFromGroups(membership, setGroupRequest.defaultGroupId)) {
             throw new Error(`The selected account is not a member of group ${setGroupRequest.defaultGroupId} ("${meta.groupName}").`)
           }
+          // Fail CLOSED on anything but a genuine "no record yet". An account
+          // with no on-chain history 404s here and simply has no default group
+          // — but a timeout or a malformed answer must NOT be read as "the
+          // default differs", which would prompt and sign a SET_GROUP that is
+          // already set (group family review, 2026-08-27).
+          const ACCOUNT_ABSENT = 'This account has no on-chain record yet.'
           const accountRecord = await nodeClient
             .requestApp(
               protocol,
               { action: 'FETCH_NODE_API', path: `/addresses/${encodeURIComponent(account.address)}` },
               context,
             )
-            .then((response) => unwrapAndroidNodeRecord(response, 'The selected account is unknown to the node.'))
-            .catch(() => null)
+            .then((response) => unwrapAndroidNodeRecord(response, ACCOUNT_ABSENT))
+            .catch((error: unknown) => {
+              if (error instanceof Error && error.message === ACCOUNT_ABSENT) return null
+              throw error
+            })
           if (selectHomeV2DefaultGroupId(accountRecord) === setGroupRequest.defaultGroupId) {
             return Object.freeze({
               accepted: true,
@@ -4999,10 +5308,18 @@ export function HomeV2LiveApp() {
           : resolvedUpdate && meta
             ? [
                 { label: 'Group', value: `#${meta.groupId} \u00b7 ${meta.groupName}` },
-                { label: 'New name', value: resolvedUpdate.newName || '(unchanged)' },
+                // Quoted, because Home's "(unchanged)" wording sits beside an
+                // app-derived value here: without quotes an app could send the
+                // literal string "(unchanged)" as the new name and have a real
+                // rename render exactly like the row that says it is kept.
+                resolvedUpdate.newName
+                  ? { label: 'New name', quote: true as const, value: resolvedUpdate.newName }
+                  : { label: 'New name', value: '(unchanged)' },
                 {
                   label: 'Description',
-                  value: resolvedUpdate.description + unchangedNote(resolvedUpdate.description !== meta.description),
+                  quote: true as const,
+                  suffix: unchangedNote(resolvedUpdate.description !== meta.description),
+                  value: resolvedUpdate.description,
                   variant: 'scroll' as const,
                 },
                 {
@@ -5205,12 +5522,17 @@ export function HomeV2LiveApp() {
           : updateRequest
             ? [
                 { label: 'Name', value: updateRequest.name },
-                { label: 'New name', value: updateRequest.newName || '(unchanged)' },
-                {
-                  label: 'New data',
-                  value: updateRequest.newData || '(unchanged - existing data is kept)',
-                  variant: 'scroll' as const,
-                },
+                updateRequest.newName
+                  ? { label: 'New name', quote: true as const, value: updateRequest.newName }
+                  : { label: 'New name', value: '(unchanged)' },
+                updateRequest.newData
+                  ? {
+                      label: 'New data',
+                      quote: true as const,
+                      value: updateRequest.newData,
+                      variant: 'scroll' as const,
+                    }
+                  : { label: 'New data', value: '(unchanged - existing data is kept)', variant: 'scroll' as const },
                 {
                   label: 'Primary',
                   value: updateRequest.primary === undefined

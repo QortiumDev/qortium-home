@@ -548,7 +548,9 @@ for (const action of ['GET_ALL_LISTS', 'GET_LIST', 'ADD_TO_LIST', 'REMOVE_FROM_L
   'REGISTER_NAME', 'UPDATE_NAME', 'SELL_NAME', 'CANCEL_SELL_NAME', 'BUY_NAME',
   // The group mutations are LOCAL-transformer families with no Core builder,
   // so their Android arm additionally verifies the stamped bytes.
-  'CREATE_GROUP', 'UPDATE_GROUP', 'GROUP_APPROVAL', 'SET_GROUP', 'SET_GROUP_AVATAR']) {
+  'CREATE_GROUP', 'UPDATE_GROUP', 'GROUP_APPROVAL', 'SET_GROUP', 'SET_GROUP_AVATAR',
+  // Ratings and the account avatar are local transformers too.
+  'RATE_ACCOUNT', 'RATE_RESOURCE', 'SET_ACCOUNT_AVATAR']) {
   assert.equal(androidActions.includes(action), true, `android must advertise ${action}`)
 }
 // SEND_MESSAGE and the signing families stay filtered: no Android arm yet, and

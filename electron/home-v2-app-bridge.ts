@@ -459,7 +459,7 @@ import {
 } from './public-transaction-validation.js'
 import { parsePublicPollCapabilities } from './public-poll-capabilities.js'
 import { parsePublicNameCapabilities } from './public-name-capabilities.js'
-import { homeV2AvatarPointerText, homeV2PromptText } from './home-v2-prompt-text.js'
+import { homeV2AvatarPointerText, homeV2PromptText, homeV2QuotedPromptText } from './home-v2-prompt-text.js'
 import {
   assertUnsignedHomeV2GroupMutationTransaction,
   buildUnsignedQortiumGroupMutationTransactionBytes,
@@ -8390,12 +8390,14 @@ async function handleHomeV2NameAction(
           { label: 'Name', value: homeV2PollApprovalText(updateRequest.name, 'The name') },
           {
             label: 'New name',
-            value: updateRequest.newName ? homeV2PollApprovalText(updateRequest.newName, 'The new name') : '(unchanged)',
+            // QUOTED for the same reason as the group update rows: Home's own
+            // "(unchanged)" wording must not be forgeable as a value.
+            value: updateRequest.newName ? homeV2QuotedPromptText(updateRequest.newName, 'The new name') : '(unchanged)',
           },
           {
             label: 'New data',
             value: updateRequest.newData
-              ? homeV2PollApprovalText(updateRequest.newData, 'The new name data')
+              ? homeV2QuotedPromptText(updateRequest.newData, 'The new name data')
               : '(unchanged — existing data is kept)',
           },
           {
@@ -8860,13 +8862,16 @@ async function handleHomeV2GroupMutationAction(
           { label: 'Group', value: homeV2PollApprovalText(`#${meta.groupId} · ${meta.groupName}`, 'The group name') },
           {
             label: 'New name',
+            // QUOTED: an app could otherwise send the literal string
+            // "(unchanged)" as the new name and have the rename render exactly
+            // like the row that says the name is being kept.
             value: resolvedUpdate.newName
-              ? homeV2PollApprovalText(resolvedUpdate.newName, 'The new group name')
+              ? homeV2QuotedPromptText(resolvedUpdate.newName, 'The new group name')
               : '(unchanged)',
           },
           {
             label: 'Description',
-            value: homeV2PollApprovalText(resolvedUpdate.description, 'The group description') +
+            value: homeV2QuotedPromptText(resolvedUpdate.description, 'The group description') +
               unchangedNote(resolvedUpdate.description !== meta.description),
           },
           {

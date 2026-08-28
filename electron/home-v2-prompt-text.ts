@@ -21,10 +21,29 @@ export function homeV2PromptText(value: string, label: string) {
       /[\u0000-\u001f\u007f-\uffff]/g,
       (ch) => `\\u${ch.charCodeAt(0).toString(16).padStart(4, '0')}`,
     )
+    // The double quote is escaped too, so a row may QUOTE an app-derived
+    // value and have the quotes mean something. Rows that append Home's own
+    // annotation to a value — "(unchanged)" on an update prompt — were
+    // otherwise forgeable: an app could send the literal string "(unchanged)"
+    // as the new name, or end a new description with " (unchanged)", and the
+    // row would render byte-identically to the one that says the field is
+    // being kept (group family review, 2026-08-27).
+    .split('"').join('\\u0022')
   if (escaped.length > 4_000) {
     throw new Error(`${label} is too large to display safely for approval (4000 characters maximum).`)
   }
   return escaped
+}
+
+/**
+ * One app-derived value as a QUOTED prompt row fragment.
+ *
+ * Use this wherever Home appends its own words to a value. The quotes cannot
+ * occur inside the escaped value, so `"(unchanged)"` (a rename TO that string)
+ * and `(unchanged)` (the field is being kept) are unambiguous.
+ */
+export function homeV2QuotedPromptText(value: string, label: string) {
+  return `"${homeV2PromptText(value, label)}"`
 }
 
 /**

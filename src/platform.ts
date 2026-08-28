@@ -170,7 +170,9 @@ import type {
   HomeV2ApprovedGroupTarget,
   HomeV2ApprovedNameTarget,
   HomeV2ApprovedPendingTransaction,
+  HomeV2ApprovedAccountAvatar,
   HomeV2ApprovedPollTarget,
+  HomeV2ApprovedRatingTarget,
 } from './home-v2-live/vault-client';
 import {
   assertUnsignedHomeV2GroupMutationTransaction,
@@ -186,6 +188,22 @@ import {
   type HomeV2GroupMutationAction,
   type HomeV2GroupMutationWirePayload,
 } from '../electron/home-v2-group-mutation-actions';
+import {
+  assertUnsignedHomeV2RatingTransaction,
+  buildUnsignedQortiumRatingTransactionBytes,
+  normalizeHomeV2RateAccountRequest,
+  normalizeHomeV2RateResourceRequest,
+  selectHomeV2AccountRatingEdge,
+  selectHomeV2CurrentResourceRating,
+  type HomeV2RatingAction,
+  type HomeV2RatingWirePayload,
+} from '../electron/home-v2-rating-actions';
+import {
+  assertUnsignedHomeV2SetAccountAvatarTransaction,
+  buildUnsignedQortiumSetAccountAvatarTransactionBytes,
+  normalizeHomeV2SetAccountAvatarRequest,
+  selectHomeV2AccountAvatarPointer,
+} from '../electron/home-v2-account-avatar-actions';
 import {
   normalizeHomeV2BuyNameRequest,
   normalizeHomeV2CancelSellNameRequest,
@@ -14107,6 +14125,289 @@ function homeV2IdempotentGroupAdminResult(
  * that merged from its own post-approval read could rewrite settings the
  * prompt reported as unchanged.
  */
+/**
+ * Signs and broadcasts one Qortium rating write on Android (types 45/46).
+ *
+ * Home 1.x sent the account's PRIVATE KEY to the node for this family. Nothing
+ * of that path survives: the bytes are built and verified here, mempow'd here,
+ * verified again after stamping, and signed here.
+ *
+ * A rating is a RELATIVE change — the prompt discloses the current rating and
+ * the new one — so the approved reading is what the signature is held to. A
+ * rating that moved underneath the approval refuses rather than being replaced
+ * by a change the user never saw.
+ */
+async function signAndroidHomeV2QortiumRatingWrite(input: {
+  readonly action: HomeV2RatingAction;
+  readonly address: string;
+  readonly approvedTarget: HomeV2ApprovedRatingTarget;
+  readonly isStillValid: () => Promise<boolean>;
+  readonly nodeApiUrl: string;
+  readonly requestValue: Record<string, unknown>;
+  readonly signingKey: { address: string; publicKey58: string; secretKey: Uint8Array };
+}) {
+  const { action, address, approvedTarget, isStillValid, nodeApiUrl, requestValue, signingKey } = input;
+  if (signingKey.address !== address) {
+    throw new Error('The selected account changed before the rating could be signed.');
+  }
+  const accountRequest = action === 'RATE_ACCOUNT' ? normalizeHomeV2RateAccountRequest(requestValue) : null;
+  const resourceRequest = action === 'RATE_RESOURCE' ? normalizeHomeV2RateResourceRequest(requestValue) : null;
+  const readAccountEdge = async () => selectHomeV2AccountRatingEdge(await fetchLocalNodeApiPayload(
+    nodeApiUrl,
+    `/account-ratings/cooldown?target=${encodeURIComponent(accountRequest!.targetPublicKey)}` +
+      `&rater=${encodeURIComponent(signingKey.publicKey58)}&category=${encodeURIComponent(accountRequest!.category)}`,
+    'Account-rating lookup failed.',
+    CHAT_SIGNING_RESPONSE_MAX_BYTES,
+    '',
+  ));
+  const readResourceRating = async () => {
+    try {
+      return selectHomeV2CurrentResourceRating(await fetchLocalNodeApiPayload(
+        nodeApiUrl,
+        `/resource-ratings/rating?service=${encodeURIComponent(resourceRequest!.service)}` +
+          `&name=${encodeURIComponent(resourceRequest!.name)}` +
+          (resourceRequest!.identifier ? `&identifier=${encodeURIComponent(resourceRequest!.identifier)}` : '') +
+          `&rater=${encodeURIComponent(address)}`,
+        'Resource-rating lookup failed.',
+        CHAT_SIGNING_RESPONSE_MAX_BYTES,
+        '',
+      ));
+    } catch (error) {
+      // Core answers 404 for "exists but this rater has no rating".
+      if ((error as { status?: unknown })?.status === 404) return null;
+      throw error;
+    }
+  };
+  const readCurrent = async () => (accountRequest
+    ? (await readAccountEdge())
+    : { activeRating: await readResourceRating(), canChangeNow: true });
+  const before = await readCurrent();
+  if (before.activeRating !== approvedTarget.currentRating || (accountRequest && !before.canChangeNow)) {
+    throw new Error('The rating state changed after it was approved; nothing was signed.');
+  }
+  if (accountRequest) {
+    // Derived from the exact key that will be signed — never from an app label.
+    if ((await publicKeyToAddress(base58Decode(accountRequest.targetPublicKey))) === address) {
+      throw new Error('An account cannot rate itself.');
+    }
+  }
+  const payload: HomeV2RatingWirePayload = accountRequest
+    ? accountRequest
+    : { ...resourceRequest!, serviceId: getStaticQdnServiceId(resourceRequest!.service) };
+  let difficulty: number;
+  try {
+    difficulty = parsePublicPollCapabilities(await fetchLocalNodeApiPayload(
+      nodeApiUrl,
+      '/polls/public/capabilities',
+      'MemoryPoW capability lookup failed.',
+      CHAT_SIGNING_RESPONSE_MAX_BYTES,
+      '',
+    )).mempowFeeAlternativeDifficulty;
+  } catch (error) {
+    if (!homeV2GroupBuilderUnavailable(error) && !/capability/i.test(error instanceof Error ? error.message : '')) {
+      throw error;
+    }
+    throw new Error('The selected Qortium node does not expose the MemoryPoW capability needed for rating writes.');
+  }
+  const timestamp = Date.now();
+  const unsignedBytes = buildUnsignedQortiumRatingTransactionBytes({
+    payload,
+    senderPublicKey: signingKey.publicKey58,
+    timestamp,
+  });
+  assertUnsignedHomeV2RatingTransaction(unsignedBytes, {
+    payload,
+    senderPublicKey: signingKey.publicKey58,
+    timestamp,
+  });
+  const nonce = await computeChatNonce(unsignedBytes, difficulty, isStillValid);
+  if (!(await isStillValid())) throw new Error('The signing context changed before the rating could be submitted.');
+  const after = await readCurrent();
+  if (after.activeRating !== approvedTarget.currentRating || (accountRequest && !after.canChangeNow)) {
+    throw new Error('The rating state changed after approval.');
+  }
+  if (!(await isStillValid())) throw new Error('The signing context changed before the rating could be submitted.');
+  const stampedBytes = stampTransactionNonce(unsignedBytes, nonce);
+  assertUnsignedHomeV2RatingTransaction(stampedBytes, {
+    nonce,
+    payload,
+    senderPublicKey: signingKey.publicKey58,
+    timestamp,
+  });
+  const signedBytes = appendHomeV2GroupAdminSignature(
+    stampedBytes,
+    nacl.sign.detached(stampedBytes, signingKey.secretKey),
+  );
+  const transactionSignature = getSignatureFromSignedTransactionBytes(signedBytes);
+  const identity = accountRequest
+    ? { category: accountRequest.category, rating: accountRequest.rating, targetPublicKey: accountRequest.targetPublicKey }
+    : {
+        identifier: resourceRequest!.identifier,
+        name: resourceRequest!.name,
+        rating: resourceRequest!.rating,
+        service: resourceRequest!.service,
+      };
+  try {
+    await postLocalNodeText(
+      nodeApiUrl,
+      '/transactions/process?apiVersion=2',
+      base58Encode(signedBytes),
+      '',
+      'Rating transaction processing failed.',
+      'text/plain',
+      CHAT_SIGNING_RESPONSE_MAX_BYTES,
+      true,
+    );
+    return Object.freeze({
+      accepted: true,
+      action,
+      ...identity,
+      network: 'qortium' as const,
+      transactionSignature,
+    });
+  } catch (error) {
+    return Object.freeze({
+      accepted: false,
+      action,
+      ...identity,
+      error: error instanceof Error ? error.message : 'Rating broadcast outcome is unknown.',
+      errorType: 'BROADCAST_UNKNOWN' as const,
+      network: 'qortium' as const,
+      outcome: 'unknown' as const,
+      retryable: false as const,
+      timestamp,
+      transactionSignature,
+    });
+  }
+}
+
+/**
+ * Signs and broadcasts one Qortium account-avatar pointer change on Android.
+ *
+ * Only the POINTER is signed — the avatar image itself is a separate published
+ * QDN resource. Like a rating, the change is relative to the disclosed current
+ * pointer, so a pointer that moved underneath the approval refuses.
+ */
+async function signAndroidHomeV2QortiumAccountAvatar(input: {
+  readonly address: string;
+  readonly approvedAvatar: HomeV2ApprovedAccountAvatar;
+  readonly isStillValid: () => Promise<boolean>;
+  readonly nodeApiUrl: string;
+  readonly requestValue: Record<string, unknown>;
+  readonly signingKey: { address: string; publicKey58: string; secretKey: Uint8Array };
+}) {
+  const { address, approvedAvatar, isStillValid, nodeApiUrl, requestValue, signingKey } = input;
+  if (signingKey.address !== address) {
+    throw new Error('The selected account changed before the avatar could be signed.');
+  }
+  const request = normalizeHomeV2SetAccountAvatarRequest(requestValue);
+  const readCurrentPointer = async () => {
+    try {
+      return selectHomeV2AccountAvatarPointer(await fetchLocalNodeApiPayload(
+        nodeApiUrl,
+        `/addresses/${encodeURIComponent(address)}/avatar/info`,
+        'Account-avatar lookup failed.',
+        CHAT_SIGNING_RESPONSE_MAX_BYTES,
+        '',
+      ));
+    } catch (error) {
+      if ((error as { status?: unknown })?.status === 404) return null;
+      throw error;
+    }
+  };
+  const samePointer = (
+    left: { identifier: string; name: string; service: string } | null,
+    right: { identifier: string; name: string; service: string } | null,
+  ) => (left === null || right === null
+    ? left === right
+    : left.service === right.service && left.name === right.name && left.identifier === right.identifier);
+  if (!samePointer(await readCurrentPointer(), approvedAvatar.pointer)) {
+    throw new Error('The account avatar changed after it was approved; nothing was signed.');
+  }
+  let difficulty: number;
+  try {
+    difficulty = parsePublicPollCapabilities(await fetchLocalNodeApiPayload(
+      nodeApiUrl,
+      '/polls/public/capabilities',
+      'MemoryPoW capability lookup failed.',
+      CHAT_SIGNING_RESPONSE_MAX_BYTES,
+      '',
+    )).mempowFeeAlternativeDifficulty;
+  } catch (error) {
+    if (!homeV2GroupBuilderUnavailable(error) && !/capability/i.test(error instanceof Error ? error.message : '')) {
+      throw error;
+    }
+    throw new Error('The selected Qortium node does not expose the MemoryPoW capability needed for avatar writes.');
+  }
+  const timestamp = Date.now();
+  const unsignedBytes = buildUnsignedQortiumSetAccountAvatarTransactionBytes({
+    avatar: request.avatar,
+    senderPublicKey: signingKey.publicKey58,
+    timestamp,
+  });
+  assertUnsignedHomeV2SetAccountAvatarTransaction(unsignedBytes, {
+    avatar: request.avatar,
+    senderPublicKey: signingKey.publicKey58,
+    timestamp,
+  });
+  const nonce = await computeChatNonce(unsignedBytes, difficulty, isStillValid);
+  if (!(await isStillValid())) throw new Error('The signing context changed before the avatar could be submitted.');
+  if (!samePointer(await readCurrentPointer(), approvedAvatar.pointer)) {
+    throw new Error('The account avatar changed after approval.');
+  }
+  if (!(await isStillValid())) throw new Error('The signing context changed before the avatar could be submitted.');
+  const stampedBytes = stampTransactionNonce(unsignedBytes, nonce);
+  assertUnsignedHomeV2SetAccountAvatarTransaction(stampedBytes, {
+    avatar: request.avatar,
+    nonce,
+    senderPublicKey: signingKey.publicKey58,
+    timestamp,
+  });
+  const signedBytes = appendHomeV2GroupAdminSignature(
+    stampedBytes,
+    nacl.sign.detached(stampedBytes, signingKey.secretKey),
+  );
+  const transactionSignature = getSignatureFromSignedTransactionBytes(signedBytes);
+  const avatar = request.avatar
+    ? { identifier: request.avatar.identifier || null, name: request.avatar.name, service: request.avatar.service }
+    : null;
+  try {
+    await postLocalNodeText(
+      nodeApiUrl,
+      '/transactions/process?apiVersion=2',
+      base58Encode(signedBytes),
+      '',
+      'Account avatar transaction processing failed.',
+      'text/plain',
+      CHAT_SIGNING_RESPONSE_MAX_BYTES,
+      true,
+    );
+    return Object.freeze({
+      accepted: true,
+      action: 'SET_ACCOUNT_AVATAR' as const,
+      address,
+      avatar,
+      changed: true,
+      network: 'qortium' as const,
+      transactionSignature,
+    });
+  } catch (error) {
+    return Object.freeze({
+      accepted: false,
+      action: 'SET_ACCOUNT_AVATAR' as const,
+      address,
+      avatar,
+      error: error instanceof Error ? error.message : 'Avatar broadcast outcome is unknown.',
+      errorType: 'BROADCAST_UNKNOWN' as const,
+      network: 'qortium' as const,
+      outcome: 'unknown' as const,
+      retryable: false as const,
+      timestamp,
+      transactionSignature,
+    });
+  }
+}
+
 async function signAndroidHomeV2QortiumGroupMutation(input: {
   readonly action: HomeV2GroupMutationAction;
   readonly address: string;
@@ -15867,6 +16168,40 @@ export function createAndroidHomeV2VaultClient(): HomeV2VaultClient {
           action: request.action,
           address: request.approvedAddress,
           approvedPoll: request.approvedPoll,
+          isStillValid: async () => (await request.isStillValid()) === true,
+          nodeApiUrl: request.nodeApiUrl,
+          requestValue: request.requestValue,
+          signingKey,
+        });
+      } finally {
+        signingKey.secretKey.fill(0);
+      }
+    },
+    async deriveAddressFromPublicKey(publicKey58) {
+      return publicKeyToAddress(base58Decode(publicKey58));
+    },
+    async signRatingWrite(request) {
+      const signingKey = await getAccountSecretKey(request.accountId);
+      try {
+        return await signAndroidHomeV2QortiumRatingWrite({
+          action: request.action,
+          address: request.approvedAddress,
+          approvedTarget: request.approvedTarget,
+          isStillValid: async () => (await request.isStillValid()) === true,
+          nodeApiUrl: request.nodeApiUrl,
+          requestValue: request.requestValue,
+          signingKey,
+        });
+      } finally {
+        signingKey.secretKey.fill(0);
+      }
+    },
+    async signAccountAvatar(request) {
+      const signingKey = await getAccountSecretKey(request.accountId);
+      try {
+        return await signAndroidHomeV2QortiumAccountAvatar({
+          address: request.approvedAddress,
+          approvedAvatar: request.approvedAvatar,
           isStillValid: async () => (await request.isStillValid()) === true,
           nodeApiUrl: request.nodeApiUrl,
           requestValue: request.requestValue,

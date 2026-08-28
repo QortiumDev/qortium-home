@@ -522,16 +522,23 @@ export function selectHomeV2GroupMetadata(value: unknown, groupId: number): Home
   if (!(value.approvalThreshold in HOME_V2_APPROVAL_THRESHOLDS)) {
     throw new Error('The group lookup returned an unrecognized approval threshold.')
   }
+  // Only ABSENCE or an explicit null means "no avatar". A malformed non-null
+  // pointer used to collapse to null here, which let a hostile node turn a
+  // real "clear the avatar" request into a changed:false no-op — no prompt, no
+  // signature, and the avatar still set (group family review, 2026-08-27).
   const avatarRaw = value.avatar
-  const avatar = !isRecord(avatarRaw)
+  const avatarAbsent = avatarRaw === undefined || avatarRaw === null
+  const avatar = avatarAbsent
     ? null
-    : typeof avatarRaw.service === 'string' && avatarRaw.service && typeof avatarRaw.name === 'string' && avatarRaw.name
+    : isRecord(avatarRaw) &&
+      typeof avatarRaw.service === 'string' && avatarRaw.service &&
+      typeof avatarRaw.name === 'string' && avatarRaw.name
       ? Object.freeze({
           identifier: typeof avatarRaw.identifier === 'string' ? avatarRaw.identifier : '',
           name: avatarRaw.name,
           service: avatarRaw.service.toUpperCase(),
         })
-      : null
+      : (() => { throw new Error('The group lookup returned an unrecognized avatar pointer.') })()
   return Object.freeze({
     approvalThreshold: value.approvalThreshold,
     avatar,
@@ -610,7 +617,45 @@ export function selectHomeV2GroupMembershipFromGroups(value: unknown, groupId: n
   if (!Array.isArray(value)) {
     throw new Error('The group membership lookup answered with an unrecognized shape.')
   }
-  return value.some((entry) => isRecord(entry) && entry.groupId === groupId)
+  // Core answers this route with GroupData records. A bare {"groupId": n} is
+  // NOT one, and accepting it would let a node manufacture membership for an
+  // account that has not joined — Home would then prompt and sign a SET_GROUP
+  // that Core rejects only after a signature exists (group family review,
+  // 2026-08-27). Every entry must be a plausible record, and the matching one
+  // must carry the fields a real group record has.
+  let member = false
+  for (const entry of value) {
+    if (!isRecord(entry) || !Number.isInteger(entry.groupId)) {
+      throw new Error('The group membership lookup answered with an unrecognized shape.')
+    }
+    if (entry.groupId !== groupId) continue
+    if (typeof entry.groupName !== 'string' || !entry.groupName || typeof entry.owner !== 'string' || !entry.owner) {
+      throw new Error('The group membership lookup returned an incomplete group record.')
+    }
+    member = true
+  }
+  return member
+}
+
+/**
+ * Whether the account ADMINISTERS `groupId`, from the same
+ * GET /groups/member/{address} answer.
+ *
+ * A GROUP_APPROVAL vote from a non-admin is rejected by Core only AFTER the
+ * signature exists, which journals an unknown outcome and blocks the account
+ * from voting on that transaction until it is manually reconciled. Checking
+ * first costs one read the caller is already making. Fails closed on an
+ * unrecognized answer, like the membership check it sits beside.
+ */
+export function selectHomeV2GroupAdminshipFromGroups(value: unknown, groupId: number): boolean {
+  if (!selectHomeV2GroupMembershipFromGroups(value, groupId)) return false
+  const entry = (value as readonly unknown[]).find(
+    (candidate) => isRecord(candidate) && candidate.groupId === groupId,
+  )
+  if (!isRecord(entry) || typeof entry.isAdmin !== 'boolean') {
+    throw new Error('The group membership lookup did not say whether this account is an admin.')
+  }
+  return entry.isAdmin
 }
 
 export function selectHomeV2DefaultGroupId(value: unknown): number | null {
