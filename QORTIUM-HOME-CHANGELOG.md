@@ -34,6 +34,29 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-27 - feat(home-v2): batch publishing and on-chain deletion work on Android
+
+Publishing several resources at once, and deleting a published resource on
+chain, now work on your phone.
+
+Batch publishing was the last thing waiting on a memory fix that shipped
+earlier: the phone could only hold one selected file at a time, and ten large
+files kept in the browser's memory at once would have been well over a
+gigabyte. With that budget in place, the batch works the way it does on the
+desktop — every item is listed on the approval screen with its coordinate, its
+file name, its size, and the fingerprint of the exact bytes that will be
+published. If Home cannot show you all of them, it refuses to show the screen
+at all rather than asking you to approve a summary.
+
+Your publisher name is checked before the screen appears and again for each
+item as it is signed, so a name that changes hands part-way through a batch
+stops the rest instead of publishing under it.
+
+Deleting a resource publishes a permanent on-chain marker that every peer
+sees — it is not a "remove my copy" action, and the approval screen says so in
+Home's own words, which the app asking for the deletion cannot influence or
+replace.
+
 ### 2026-08-27 - feat(home-v2): ratings and account avatars work on Android
 
 Rating an account, rating a published QDN resource, and setting or clearing

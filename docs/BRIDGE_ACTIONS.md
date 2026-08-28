@@ -1389,8 +1389,20 @@ deferred.
 ## Publishing extras (Home 2)
 
 `PUBLISH_MULTIPLE_QDN_RESOURCES` and `DELETE_QDN_RESOURCE`, restored on the
-Home 2 signing model. Both are desktop-only signing actions filtered out of
-Android's `SHOW_ACTIONS`.
+Home 2 signing model. **Both work on Android**, on the same contracts as
+desktop. The batch was the last thing waiting on the publish-source store's
+total byte budget: the Android store held ONE selection, and ten 100 MiB files
+retained as Base64 in WebView memory would have been roughly 1.3 GB. Its
+Android prompt is held to the SAME structural validator the desktop prompt is
+— per item and strictly ordered, so a prompt that cannot show every item with
+its exact bytes is refused rather than rendered. Each item is journaled as the
+`PUBLISH_QDN_RESOURCE` it is, keyed on its OWN coordinate, and the
+pending-transaction conflict gate is re-run per item rather than once for the
+batch: an earlier item in the same batch can have just retained an unknown
+outcome for that coordinate, and two batches approved in separate tabs can both
+clear a single pre-approval check. The tombstone's "what this
+does" row is Home's own wording on both platforms, never a row the requesting
+app can influence.
 
 **`PUBLISH_MULTIPLE_QDN_RESOURCES` is a bounded batch of Home 2 single
 publishes.** Each of at most **ten** items carries the exact single-publish

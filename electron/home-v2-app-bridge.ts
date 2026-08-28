@@ -459,7 +459,12 @@ import {
 } from './public-transaction-validation.js'
 import { parsePublicPollCapabilities } from './public-poll-capabilities.js'
 import { parsePublicNameCapabilities } from './public-name-capabilities.js'
-import { homeV2AvatarPointerText, homeV2PromptText, homeV2QuotedPromptText } from './home-v2-prompt-text.js'
+import {
+  homeV2AvatarPointerText,
+  homeV2PromptText,
+  homeV2QuotedPromptText,
+  homeV2ResourceCoordinateText,
+} from './home-v2-prompt-text.js'
 import {
   assertUnsignedHomeV2GroupMutationTransaction,
   buildUnsignedQortiumGroupMutationTransactionBytes,
@@ -2158,10 +2163,16 @@ async function publishHomeV2MultiplePublishSources(
   const feeAtomic = network === 'qortal' ? await getHomeV2QortalArbitraryUnitFee(node.nodeApiUrl) : 0n
   const coordinateOf = (entry: (typeof items)[number]) =>
     `${entry.item.resource.service}/${entry.item.resource.name}/${entry.item.resource.identifier ?? 'default'}`
+  // DISPLAY form is component-escaped: an identifier may legitimately contain
+  // '/', and raw concatenation would let WEBSITE/alice/b/c read as name
+  // "alice/b" (publishing-extras review, 2026-08-27). The raw form above stays
+  // the target-hash input, which must not change.
+  const displayCoordinateOf = (entry: (typeof items)[number]) =>
+    homeV2ResourceCoordinateText(entry.item.resource)
   const rows: { label: string; value: string }[] = [{ label: 'Items', value: String(items.length) }]
   items.forEach((entry, index) => {
     const position = index + 1
-    rows.push({ label: `Resource ${position}`, value: homeV2PollApprovalText(coordinateOf(entry), 'The resource coordinate') })
+    rows.push({ label: `Resource ${position}`, value: displayCoordinateOf(entry) })
     rows.push({ label: `File ${position}`, value: homeV2PollApprovalText(entry.source.fileName, 'The file name') })
     rows.push({ label: `Size ${position}`, value: `${entry.sourceBytes.byteLength} bytes` })
     rows.push({ label: `SHA-256 ${position}`, value: entry.contentHash })
@@ -2303,7 +2314,7 @@ async function deleteHomeV2QdnResourceForApp(
     }
   }
   await assertNameOwned('lookup')
-  const coordinate = `${request.service}/${request.name}/${request.identifier ?? 'default'}`
+  const coordinate = homeV2ResourceCoordinateText(request)
   await requireAccountReadPermission(sender, context, protocol, 'DELETE_QDN_RESOURCE', {
     kind: 'qdn-delete',
     operationLabel: homeV2PublishExtraOperationLabel('DELETE_QDN_RESOURCE'),

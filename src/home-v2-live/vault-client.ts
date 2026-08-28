@@ -189,6 +189,9 @@ export interface HomeV2PublicPublishMutationRequest {
   // DISCLOSED on the approval prompt. The vault refuses to sign if the
   // chain answers a different fee at signing time.
   readonly expectedFeeAtomic?: string
+  // The account the PROMPT named. The vault refuses when the key it derives
+  // does not belong to it, so an approval cannot be signed by another account.
+  readonly approvedAddress?: string
   readonly fileName: string
   readonly isStillValid?: () => boolean | Promise<boolean>
   readonly validateTarget?: () => Promise<void>
@@ -293,6 +296,29 @@ export interface HomeV2VaultClient {
    * the key material — so it asks here.
    */
   deriveAddressFromPublicKey?(publicKey58: string): Promise<string>
+  /**
+   * Publishes the on-chain DELETION TOMBSTONE for one Qortium QDN resource.
+   *
+   * This is permanent and visible to every peer — it is not a local-copy
+   * removal — so it carries its own capability and its own approval.
+   */
+  deleteQdnResource?(request: {
+    readonly accountId: string
+    readonly approvedAddress: string
+    // The coordinate the PROMPT disclosed. The vault re-normalizes the raw
+    // request too and refuses if the two disagree — the tombstone is
+    // permanent, so it must not rest on the request object being identical to
+    // the one the prompt was built from.
+    readonly approvedResource: {
+      readonly identifier?: string | null
+      readonly name: string
+      readonly service: string
+    }
+    readonly isStillValid: () => boolean | Promise<boolean>
+    readonly nodeApiUrl: string
+    readonly requestValue: Record<string, unknown>
+    readonly validateTarget: () => Promise<void>
+  }): Promise<unknown>
   /**
    * Signs one Qortium rating write (RATE_ACCOUNT / RATE_RESOURCE). Local
    * transformer, so the vault verifies both the unstamped and the stamped

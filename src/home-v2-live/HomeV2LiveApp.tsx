@@ -217,7 +217,15 @@ import {
   selectHomeV2GroupMetadata,
   selectHomeV2PendingTransactionSummary,
 } from '../../electron/home-v2-group-mutation-actions'
-import { homeV2AvatarPointerText, homeV2PromptText } from '../../electron/home-v2-prompt-text'
+import {
+  homeV2AvatarPointerText,
+  homeV2PromptText,
+  homeV2ResourceCoordinateText,
+} from '../../electron/home-v2-prompt-text'
+import {
+  normalizeHomeV2PublishMultipleRequest,
+  normalizeHomeV2QdnDeleteRequest,
+} from '../../electron/home-v2-publish-extras-contract'
 import { getStaticQdnServiceId } from '../../electron/public-transaction-validation'
 import {
   normalizeHomeV2RateAccountRequest,
@@ -603,6 +611,34 @@ function isSequencedDetailRows(
  * arms is written in plain ASCII: an em dash or a curly apostrophe in a
  * Home-authored row would reach the user as a literal \u2014 escape.
  */
+/**
+ * Batch-publish prompt rows, escaped and then held to the SAME structural
+ * validator the desktop prompt is held to (isPublishMultipleDetailRows).
+ *
+ * That validator is per-item and strictly ordered rather than a fixed label
+ * sequence, so this cannot go through androidSequencedDetails — but the
+ * requirement is identical: a prompt that cannot show every item, with its
+ * exact bytes, is refused rather than rendered.
+ */
+function androidPublishMultipleDetails(
+  network: 'qortal' | 'qortium',
+  rows: readonly { label: string; value: string; variant?: 'scroll'; preEscaped?: true }[],
+): readonly { label: string; value: string; variant?: 'scroll' }[] {
+  // `preEscaped` rows are already component-escaped (resource coordinates),
+  // and escaping them again would render their separators as literal escapes.
+  const escaped = rows.map((row) => ({
+    label: row.label,
+    value: row.preEscaped ? row.value : androidPromptText(row.value),
+  }))
+  if (!isPublishMultipleDetailRows(network, escaped)) {
+    throw new Error('PUBLISH_MULTIPLE_QDN_RESOURCES prompt rows do not match its disclosure contract.')
+  }
+  return escaped.map((row, index) => {
+    const variant = rows[index]?.variant
+    return variant ? { ...row, variant } : row
+  })
+}
+
 function androidSequencedDetails(
   action: string,
   sequence: readonly { label: string; optional?: true }[] | undefined,
@@ -4286,15 +4322,24 @@ export function HomeV2LiveApp() {
           throw new Error('App request is missing its stable app identity.')
         }
       }
-      const retainUnknownTransaction = async (result: unknown) => {
+      // `journalAction`/`journalRequest` default to the request being handled.
+      // A batch item overrides them: it is a PUBLISH_QDN_RESOURCE keyed on its
+      // OWN coordinate, and journaling it under the batch action would derive
+      // the coarse operation target instead — blocking every unrelated publish
+      // by this app and account until someone reconciled it by hand.
+      const retainUnknownTransaction = async (
+        result: unknown,
+        journalAction: string = action,
+        journalRequest: unknown = requestValue,
+      ) => {
         if (!context.selectedAccountId) return result
         try {
           const entry = createHomeV2PendingTransactionFromResult({
             accountId: context.selectedAccountId,
-            action,
+            action: journalAction,
             appIdentity: resolveAppIdentity().identityKey,
             protocol,
-            request: requestValue,
+            request: journalRequest,
             result,
           })
           if (!entry) return result
@@ -6137,6 +6182,345 @@ export function HomeV2LiveApp() {
           bytes.fill(0)
         }
       }
+      // The publishing extras on Android. PUBLISH_MULTIPLE_QDN_RESOURCES loops
+      // the single-publish contract over a bounded batch with FULL per-item
+      // disclosure; DELETE_QDN_RESOURCE publishes the permanent on-chain
+      // tombstone (Qortium only — the keyless delete builder is a Qortium Core
+      // addition, so it is not advertised on qortalRequest at all).
+      //
+      // The batch was blocked on Android until the publish-source store gained
+      // a total byte budget: it held ONE selection, and ten 100 MiB files kept
+      // as Base64 in WebView memory would be ~1.3 GB.
+      if (isAndroidHost && action === 'PUBLISH_MULTIPLE_QDN_RESOURCES') {
+        if (!context.selectedAccountId) throw new Error('No account is selected for this tab.')
+        const accountId = context.selectedAccountId
+        const account = accountCatalogueRef.current.accounts.find((candidate) => candidate.id === accountId)
+        if (!account) throw new Error('The selected account is no longer available.')
+        if (!account.isUnlocked) throw new Error('The selected account is locked.')
+        if (!vaultClient?.publishPublicResource) {
+          throw new Error('Public QDN publishing is unavailable on this platform.')
+        }
+        const targetNetwork: NetworkId = protocol === 'qortalRequest' ? 'qortal' : 'qortium'
+        const nodeBefore = parseHomeV2NodesSnapshot(await nodeClient.getSnapshot())[targetNetwork]
+        if (!nodeBefore.nodeApiUrl || !nodeBefore.capabilities.read) {
+          throw new Error(nodeBefore.error ?? `${targetNetwork} is unavailable.`)
+        }
+        const hostInfo = await nodeClient.requestApp(protocol, { action: 'GET_HOST_INFO' }, context)
+        if (!isRecord(hostInfo) || !isRecord(hostInfo.route) || typeof hostInfo.route.revision !== 'string') {
+          throw new Error('Home bridge route identity is unavailable.')
+        }
+        const batch = normalizeHomeV2PublishMultipleRequest(targetNetwork, isRecord(requestValue) ? requestValue : {})
+        const binding: HomeV2PublishSourceBinding = Object.freeze({
+          accountId,
+          appIdentity: context.resourceLocation || `home-v2-tab:${context.tabId}`,
+          network: targetNetwork,
+          nodeApiUrl: nodeBefore.nodeApiUrl,
+          protocol,
+          routeRevision: hostInfo.route.revision,
+          tabId: context.tabId,
+        })
+        // Resolve and hash EVERY selected source before the prompt, so the rows
+        // describe the exact bytes each transaction will attest. The token
+        // store's own binding recheck makes a swapped selection refuse here.
+        const items = [] as {
+          readonly contentHash: string
+          readonly item: (typeof batch.items)[number]
+          readonly source: ReturnType<typeof homeV2AndroidPublishSources.resolve>
+          readonly sourceBytes: Uint8Array
+        }[]
+        for (const item of batch.items) {
+          const source = homeV2AndroidPublishSources.resolve(item.sourceToken, binding)
+          const sourceBytes = decodeHomeV2AndroidPublishSource(source.dataBase64)
+          items.push({ contentHash: await sha256Hex(sourceBytes), item, source, sourceBytes })
+        }
+        // Every DISTINCT publisher name must be owned by the selected account,
+        // checked before the prompt and again per item at signing time. (1.x
+        // read only the first item's context and never checked per target.)
+        const assertNameOwned = async (name: string) => {
+          const nameValue = await nodeClient.requestApp(protocol, { action: 'GET_NAME_DATA', name }, context)
+          if (!isRecord(nameValue) || nameValue.owner !== account.address) {
+            throw new Error(`The selected account does not currently own the publisher name ${name} on this chain.`)
+          }
+        }
+        const distinctNames = [...new Set(items.map((entry) => entry.item.resource.name))]
+        for (const name of distinctNames) await assertNameOwned(name)
+        // On Qortal every item pays the chain's ARBITRARY unit fee. Read once
+        // so the prompt can disclose each fee and the batch total, and pinned
+        // so the vault refuses a fee that moved after approval.
+        let expectedFeeAtomic: string | undefined
+        if (targetNetwork === 'qortal') {
+          if (!vaultClient.readQortalArbitraryUnitFee) {
+            throw new Error('Qortal publishing requires fee disclosure, which is unavailable on this platform build.')
+          }
+          expectedFeeAtomic = await vaultClient.readQortalArbitraryUnitFee({ nodeApiUrl: nodeBefore.nodeApiUrl })
+          if (!/^\d+$/.test(expectedFeeAtomic)) throw new Error('Qortal ARBITRARY fee response is invalid.')
+        }
+        const atomicDecimal = (atomic: bigint) =>
+          `${atomic / 100_000_000n}.${(atomic % 100_000_000n).toString().padStart(8, '0')}`
+        // Injective: an identifier may legitimately contain '/', and raw
+        // concatenation would let WEBSITE/alice/b/c read as name "alice/b".
+        const coordinateOf = (entry: (typeof items)[number]) =>
+          homeV2ResourceCoordinateText(entry.item.resource)
+        const rows: { label: string; value: string; variant?: 'scroll'; preEscaped?: true }[] = [
+          { label: 'Items', value: String(items.length) },
+        ]
+        items.forEach((entry, index) => {
+          const position = index + 1
+          const metadata = entry.item.resource
+          rows.push({ label: `Resource ${position}`, preEscaped: true as const, value: coordinateOf(entry) })
+          rows.push({ label: `File ${position}`, value: entry.source.fileName })
+          rows.push({ label: `Size ${position}`, value: `${entry.sourceBytes.byteLength} bytes` })
+          rows.push({ label: `SHA-256 ${position}`, value: entry.contentHash })
+          // The mutable metadata signed alongside the bytes (Qortium only —
+          // the item normalizer refuses metadata on Qortal). A row appears
+          // exactly when that field is being published; an omitted row means
+          // nothing is.
+          if (metadata.title) rows.push({ label: `Title ${position}`, value: metadata.title })
+          if (metadata.description) {
+            rows.push({ label: `Description ${position}`, value: metadata.description, variant: 'scroll' as const })
+          }
+          if (metadata.category) rows.push({ label: `Category ${position}`, value: metadata.category })
+          if (metadata.tags.length) rows.push({ label: `Tags ${position}`, value: metadata.tags.join(', ') })
+          if (expectedFeeAtomic !== undefined) {
+            rows.push({ label: `Fee ${position}`, value: `${atomicDecimal(BigInt(expectedFeeAtomic))} coins` })
+          }
+        })
+        if (expectedFeeAtomic !== undefined) {
+          rows.push({
+            label: 'Total fee',
+            value: `${atomicDecimal(BigInt(expectedFeeAtomic) * BigInt(items.length))} coins`,
+          })
+        }
+        const parsedApp = resolveAppIdentity()
+        const appId = brand<AppId>(`home-v2:permission-app:${parsedApp.identityKey}`)
+        const nodeRoute = `${nodeBefore.mode}|${nodeBefore.nodeApiUrl}`
+        const chainLabel = targetNetwork === 'qortal' ? 'Qortal' : 'Qortium'
+        const decision = await queueAndroidPermissionPrompt(createPermissionPrompt({
+          id: brand<PermissionRequestId>(globalThis.crypto.randomUUID()),
+          protocol,
+          action,
+          capability: 'qdn.publish.multiple',
+          appId,
+          appIdentityKey: parsedApp.identityKey,
+          appTitle: parsedApp.title,
+          context: {
+            appId,
+            identityId: brand<IdentityId>(`home-v2:identity:${accountId}`),
+            nodeProfileRef: snapshot.nodes[targetNetwork].ref,
+            tabId: brand<TabId>(context.tabId),
+            targetNetwork,
+            walletRef: brand<WalletRef>(`home-v2:wallet:${account.walletId}`),
+          },
+          title: `Allow ${items.length} resources to be published?`,
+          summary: `${parsedApp.title} wants to publish ${items.length} resources as the selected account. Every one of them is listed below with the exact bytes it will attest; approving covers exactly these and nothing else.`,
+          details: [
+            { label: 'Account', value: account.label },
+            { label: 'Operation', value: homeV2PublishExtraOperationLabel('PUBLISH_MULTIPLE_QDN_RESOURCES') },
+            ...androidPublishMultipleDetails(targetNetwork, rows),
+            { label: 'Route', value: `${nodeBefore.mode} \u00b7 ${nodeBefore.nodeApiUrl}` },
+            { label: 'Chain', value: chainLabel },
+            { label: 'Scope', value: 'Exactly the transactions listed above' },
+          ],
+          allowedScopes: ['single-request'],
+        }), context.tabId)
+        if (!decision.approved || decision.scope !== 'single-request') {
+          throw new Error('The batch publication was denied.')
+        }
+        // One token PER ITEM: this approval authorizes `items.length`
+        // signatures, and charging it as a single send would let a batch
+        // multiply the ceiling the limiter exists to impose.
+        for (let charge = 0; charge < items.length; charge += 1) {
+          const rateLimitDecision = androidChatSendRateLimiter.current.checkAndRecordSend(`${context.tabId}|${accountId}`)
+          if (!rateLimitDecision.allowed) throw new Error(rateLimitDecision.message)
+        }
+        const isStillValid = async () => {
+          const currentTab = productStateRef.current.tabs.find((tab) => tab.id === context.tabId)
+          const currentAccount = accountCatalogueRef.current.accounts.find((candidate) => candidate.id === accountId)
+          const currentNode = parseHomeV2NodesSnapshot(await nodeClient.getSnapshot())[targetNetwork]
+          return !!currentTab &&
+            currentTab.context.resourceLocation === context.resourceLocation &&
+            String(currentTab.context.identityId) === `home-v2:identity:${accountId}` &&
+            !!currentAccount?.isUnlocked &&
+            currentNode.capabilities.read &&
+            `${currentNode.mode}|${currentNode.nodeApiUrl ?? ''}` === nodeRoute
+        }
+        if (!(await isStillValid())) throw new Error('The app, account, or node route changed before batch publishing.')
+        for (const name of distinctNames) await assertNameOwned(name)
+        if (!(await isStillValid())) throw new Error('The app, account, or node route changed after approval.')
+        const published: unknown[] = []
+        const failures: unknown[] = []
+        for (const entry of items) {
+          const resource = Object.freeze({
+            identifier: entry.item.resource.identifier ?? null,
+            name: entry.item.resource.name,
+            service: entry.item.resource.service,
+          })
+          // The journal identity of this item: it IS a single publish, and its
+          // conflict key is its own coordinate.
+          const itemRequest = {
+            ...(entry.item.resource.identifier === undefined ? {} : { identifier: entry.item.resource.identifier }),
+            name: entry.item.resource.name,
+            service: entry.item.resource.service,
+          }
+          try {
+            if (!(await isStillValid())) throw new Error('The app, account, or node route changed during batch publishing.')
+            // Re-checked per ITEM, not once for the batch: an earlier item in
+            // this very batch can have just retained an unknown outcome for
+            // this coordinate, and two batches approved in separate tabs can
+            // both have cleared the pre-approval gate.
+            const pendingItem = await findAndroidHomeV2PendingTransactionConflict({
+              accountId,
+              action: 'PUBLISH_QDN_RESOURCE',
+              appIdentity: resolveAppIdentity().identityKey,
+              network: targetNetwork,
+              request: itemRequest,
+            })
+            if (pendingItem) {
+              throw new Error(
+                `A previous publish of this resource has an unknown outcome. Reconcile signature ${pendingItem.signature} before publishing it again.`,
+              )
+            }
+            await assertNameOwned(entry.item.resource.name)
+            const result = await vaultClient.publishPublicResource({
+              accountId,
+              ...(expectedFeeAtomic !== undefined ? { expectedFeeAtomic } : {}),
+              fileName: entry.source.fileName,
+              isStillValid,
+              network: targetNetwork,
+              nodeApiUrl: nodeBefore.nodeApiUrl,
+              approvedAddress: account.address,
+              resource: entry.item.resource,
+              sourceBase64: entry.source.dataBase64,
+              // Ownership once more at signing time, inside the vault: a name
+              // transferred during staging or proof-of-work must not have this
+              // item signed under it.
+              validateTarget: () => assertNameOwned(entry.item.resource.name),
+            })
+            if (isRecord(result) && result.accepted === true) {
+              published.push(Object.freeze({ ...result, resource }))
+              homeV2AndroidPublishSources.release(entry.item.sourceToken)
+              continue
+            }
+            // Signed with an unclear outcome: retain the ITEM in the journal as
+            // the PUBLISH_QDN_RESOURCE it is, keyed on its own coordinate, and
+            // surface it as a failure carrying the signature. Without the wrap
+            // this item would be permanently blocked while recording nothing.
+            await retainUnknownTransaction(result, 'PUBLISH_QDN_RESOURCE', itemRequest)
+            failures.push(Object.freeze({
+              error: (isRecord(result) && typeof result.error === 'string' ? result.error : null) ??
+                'Publish broadcast outcome is unknown.',
+              errorType: isRecord(result) ? result.errorType : undefined,
+              outcome: isRecord(result) ? result.outcome : 'unknown',
+              resource,
+              transactionSignature: isRecord(result) ? result.transactionSignature : undefined,
+            }))
+            homeV2AndroidPublishSources.release(entry.item.sourceToken)
+          } catch (error) {
+            failures.push(Object.freeze({
+              error: error instanceof Error ? error.message : 'QDN publish failed.',
+              resource,
+            }))
+          }
+        }
+        return Object.freeze({
+          accepted: true,
+          action: 'PUBLISH_MULTIPLE_QDN_RESOURCES',
+          failures: Object.freeze(failures),
+          network: targetNetwork,
+          published: Object.freeze(published),
+        })
+      }
+      if (isAndroidHost && protocol === 'qdnRequest' && action === 'DELETE_QDN_RESOURCE') {
+        if (!context.selectedAccountId) throw new Error('No account is selected for this tab.')
+        const accountId = context.selectedAccountId
+        const account = accountCatalogueRef.current.accounts.find((candidate) => candidate.id === accountId)
+        if (!account) throw new Error('The selected account is no longer available.')
+        if (!account.isUnlocked) throw new Error('The selected account is locked.')
+        if (!vaultClient?.deleteQdnResource) throw new Error('QDN deletion is unavailable on this platform.')
+        const nodeBefore = parseHomeV2NodesSnapshot(await nodeClient.getSnapshot()).qortium
+        if (!nodeBefore.nodeApiUrl || !nodeBefore.capabilities.read) {
+          throw new Error(nodeBefore.error ?? 'Qortium is unavailable.')
+        }
+        const request = normalizeHomeV2QdnDeleteRequest(isRecord(requestValue) ? requestValue : {})
+        const assertNameOwned = async () => {
+          const nameValue = await nodeClient.requestApp(
+            protocol,
+            { action: 'GET_NAME_DATA', name: request.name },
+            context,
+          )
+          if (!isRecord(nameValue) || nameValue.owner !== account.address) {
+            throw new Error(`The selected account does not currently own the publisher name ${request.name}.`)
+          }
+        }
+        await assertNameOwned()
+        const coordinate = homeV2ResourceCoordinateText(request)
+        const parsedApp = resolveAppIdentity()
+        const appId = brand<AppId>(`home-v2:permission-app:${parsedApp.identityKey}`)
+        const nodeRoute = `${nodeBefore.mode}|${nodeBefore.nodeApiUrl}`
+        const decision = await queueAndroidPermissionPrompt(createPermissionPrompt({
+          id: brand<PermissionRequestId>(globalThis.crypto.randomUUID()),
+          protocol,
+          action,
+          capability: 'qdn.delete',
+          appId,
+          appIdentityKey: parsedApp.identityKey,
+          appTitle: parsedApp.title,
+          context: {
+            appId,
+            identityId: brand<IdentityId>(`home-v2:identity:${accountId}`),
+            nodeProfileRef: snapshot.nodes.qortium.ref,
+            tabId: brand<TabId>(context.tabId),
+            targetNetwork: 'qortium',
+            walletRef: brand<WalletRef>(`home-v2:wallet:${account.walletId}`),
+          },
+          title: 'Allow this resource to be deleted on chain?',
+          summary: `${parsedApp.title} wants to publish a permanent on-chain deletion for the resource below, as the selected account.`,
+          details: [
+            { label: 'Account', value: account.label },
+            { label: 'Operation', value: homeV2PublishExtraOperationLabel('DELETE_QDN_RESOURCE') },
+            { label: 'Resource', value: coordinate },
+            // Home's OWN words, not a row the requesting app can influence:
+            // what a tombstone is must not be forgeable by the thing asking
+            // for one.
+            { label: 'Effect', value: 'The resource is marked DELETED on chain for every peer - this is not a local-copy removal' },
+            { label: 'Route', value: `${nodeBefore.mode} \u00b7 ${nodeBefore.nodeApiUrl}` },
+            { label: 'Chain', value: 'Qortium' },
+            { label: 'Scope', value: 'This one transaction only' },
+          ],
+          allowedScopes: ['single-request'],
+        }), context.tabId)
+        if (!decision.approved || decision.scope !== 'single-request') {
+          throw new Error('The QDN deletion was denied.')
+        }
+        const rateLimitDecision = androidChatSendRateLimiter.current.checkAndRecordSend(`${context.tabId}|${accountId}`)
+        if (!rateLimitDecision.allowed) throw new Error(rateLimitDecision.message)
+        const isStillValid = async () => {
+          const currentTab = productStateRef.current.tabs.find((tab) => tab.id === context.tabId)
+          const currentAccount = accountCatalogueRef.current.accounts.find((candidate) => candidate.id === accountId)
+          const currentNode = parseHomeV2NodesSnapshot(await nodeClient.getSnapshot()).qortium
+          return !!currentTab &&
+            currentTab.context.resourceLocation === context.resourceLocation &&
+            String(currentTab.context.identityId) === `home-v2:identity:${accountId}` &&
+            !!currentAccount?.isUnlocked &&
+            currentNode.capabilities.read &&
+            `${currentNode.mode}|${currentNode.nodeApiUrl ?? ''}` === nodeRoute
+        }
+        if (!(await isStillValid())) throw new Error('The app, account, or node route changed before the deletion was staged.')
+        await assertNameOwned()
+        await assertNoPendingTransactionConflict()
+        return retainUnknownTransaction(await vaultClient.deleteQdnResource({
+          accountId,
+          approvedAddress: account.address,
+          approvedResource: { identifier: request.identifier, name: request.name, service: request.service },
+          isStillValid,
+          nodeApiUrl: nodeBefore.nodeApiUrl,
+          requestValue: isRecord(requestValue) ? requestValue : {},
+          // Ownership is re-asserted once more inside the vault, immediately
+          // before the signature: a name transferred mid-flow must not have a
+          // tombstone signed against it.
+          validateTarget: assertNameOwned,
+        }))
+      }
       if (isAndroidHost && (action === 'SELECT_QDN_PUBLISH_SOURCE' || action === 'PUBLISH_QDN_RESOURCE')) {
         if (!context.selectedAccountId) throw new Error('No account is selected for this tab.')
         const accountId = context.selectedAccountId
@@ -6280,6 +6664,7 @@ export function HomeV2LiveApp() {
         }
         const result = await vaultClient.publishPublicResource({
           accountId,
+          approvedAddress: account.address,
           ...(expectedFeeAtomic !== undefined ? { expectedFeeAtomic } : {}),
           fileName: source.fileName,
           isStillValid,

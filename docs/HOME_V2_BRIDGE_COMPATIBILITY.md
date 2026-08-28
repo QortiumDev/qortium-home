@@ -377,7 +377,10 @@ disclosure — including per-item and total fee rows on Qortal, where each item
 pays the chain fee. `DELETE_QDN_RESOURCE` is implemented on `qdnRequest`
 only, publishing the byte-asserted on-chain deletion tombstone (the keyless
 delete builder is a Qortium Core addition, so the action is not advertised
-on `qortalRequest`). See [QDN bridge action notes](BRIDGE_ACTIONS.md).
+on `qortalRequest`). **Both work on Android**, the batch holding its prompt to
+the same per-item structural validator desktop uses, and re-asserting
+publisher-name ownership per item at signing time. See
+[QDN bridge action notes](BRIDGE_ACTIONS.md).
 `PREVIEW_QDN_PUBLISH_SOURCE` stays deferred. The Hub-catalogue QDN-writes
 row above still covers legacy inline/path publishing, which stays refused in
 favor of source tokens.
