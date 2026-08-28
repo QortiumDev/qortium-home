@@ -459,6 +459,7 @@ import {
 } from './public-transaction-validation.js'
 import { parsePublicPollCapabilities } from './public-poll-capabilities.js'
 import { parsePublicNameCapabilities } from './public-name-capabilities.js'
+import { homeV2AvatarPointerText, homeV2PromptText, homeV2QuotedPromptText } from './home-v2-prompt-text.js'
 import {
   assertUnsignedHomeV2GroupMutationTransaction,
   buildUnsignedQortiumGroupMutationTransactionBytes,
@@ -7920,33 +7921,7 @@ function homeV2PollTimeRow(label: string, value: number | undefined) {
 // description reaches the prompt as a visible "\\u000a" instead of being
 // refused by the renderer's control-character check and dying as a silent
 // 60-second timeout. (Security review 2026-08-26, findings 2 and 4.)
-// INJECTIVE avatar-pointer display: each component is escaped to printable
-// ASCII and any literal '/' inside a component becomes its \uXXXX escape, so
-// the joined 'service/name/identifier' line parses back to exactly one
-// component triple — a name of "a/b" can no longer masquerade as a different
-// coordinate (avatar family review, round 1).
-function homeV2AvatarPointerText(pointer: { readonly identifier: string; readonly name: string; readonly service: string }) {
-  const component = (value: string, label: string) =>
-    homeV2PollApprovalText(value, label).split('/').join('\\u002f')
-  return [
-    component(pointer.service, 'The avatar service'),
-    component(pointer.name, 'The avatar name'),
-    component(pointer.identifier || 'default', 'The avatar identifier'),
-  ].join('/')
-}
-
-function homeV2PollApprovalText(value: string, label: string) {
-  const escaped = value
-    .replace(/\\/g, '\\\\')
-    .replace(
-      /[\u0000-\u001f\u007f-\uffff]/g,
-      (ch) => `\\u${ch.charCodeAt(0).toString(16).padStart(4, '0')}`,
-    )
-  if (escaped.length > 4_000) {
-    throw new Error(`${label} is too large to display safely for approval (4000 characters maximum).`)
-  }
-  return escaped
-}
+const homeV2PollApprovalText = homeV2PromptText
 
 async function readHomeV2PollTarget(action: HomeV2PollWriteAction, nodeApiUrl: string, pollId: number) {
   let value: unknown
@@ -8415,12 +8390,14 @@ async function handleHomeV2NameAction(
           { label: 'Name', value: homeV2PollApprovalText(updateRequest.name, 'The name') },
           {
             label: 'New name',
-            value: updateRequest.newName ? homeV2PollApprovalText(updateRequest.newName, 'The new name') : '(unchanged)',
+            // QUOTED for the same reason as the group update rows: Home's own
+            // "(unchanged)" wording must not be forgeable as a value.
+            value: updateRequest.newName ? homeV2QuotedPromptText(updateRequest.newName, 'The new name') : '(unchanged)',
           },
           {
             label: 'New data',
             value: updateRequest.newData
-              ? homeV2PollApprovalText(updateRequest.newData, 'The new name data')
+              ? homeV2QuotedPromptText(updateRequest.newData, 'The new name data')
               : '(unchanged — existing data is kept)',
           },
           {
@@ -8885,13 +8862,16 @@ async function handleHomeV2GroupMutationAction(
           { label: 'Group', value: homeV2PollApprovalText(`#${meta.groupId} · ${meta.groupName}`, 'The group name') },
           {
             label: 'New name',
+            // QUOTED: an app could otherwise send the literal string
+            // "(unchanged)" as the new name and have the rename render exactly
+            // like the row that says the name is being kept.
             value: resolvedUpdate.newName
-              ? homeV2PollApprovalText(resolvedUpdate.newName, 'The new group name')
+              ? homeV2QuotedPromptText(resolvedUpdate.newName, 'The new group name')
               : '(unchanged)',
           },
           {
             label: 'Description',
-            value: homeV2PollApprovalText(resolvedUpdate.description, 'The group description') +
+            value: homeV2QuotedPromptText(resolvedUpdate.description, 'The group description') +
               unchangedNote(resolvedUpdate.description !== meta.description),
           },
           {

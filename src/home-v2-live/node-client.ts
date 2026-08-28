@@ -38,6 +38,7 @@ import {
   withHomeV2SelectedAddress,
 } from '../../electron/home-v2-app-actions'
 import { isHomeV2GroupMutationAction } from '../../electron/home-v2-group-mutation-actions'
+import { isHomeV2RatingAction } from '../../electron/home-v2-rating-actions'
 import {
   isHomeV2CrosschainReadAction,
   projectHomeV2CrosschainReadResult,
@@ -1296,7 +1297,14 @@ export function createPortableNodeClient(
       // the client means the approval was bypassed, so refuse plainly rather
       // than falling through to the generic read-only message, which would
       // misdescribe a family this platform DOES implement.
-      if (protocol === 'qdnRequest' && (isHomeV2PollWriteAction(action) || isHomeV2NameWriteAction(action))) {
+      if (
+        protocol === 'qdnRequest' &&
+        (isHomeV2PollWriteAction(action) ||
+          isHomeV2NameWriteAction(action) ||
+          isHomeV2GroupMutationAction(action) ||
+          isHomeV2RatingAction(action) ||
+          action === 'SET_ACCOUNT_AVATAR')
+      ) {
         throw createHomeV2BridgeError(
           `${action} must be approved through Home before it can be signed.`,
           { action, code: 'NODE_CAPABILITY_MISSING', network: 'qortium', retryable: false },

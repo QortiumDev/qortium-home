@@ -1354,9 +1354,37 @@ rather than solved: the current values an update inherits come from the
 configured node, so a lying node can steer what the omitted fields resolve
 to — but every resolved value is shown on the prompt and byte-bound into
 what is signed, so nothing is ever signed that the user did not see.
-On Android all five are filtered out of `SHOW_ACTIONS` (no signing path)
-with `UNSUPPORTED_PROTOCOL` kept for `qortalRequest`; Hub's `qortalRequest`
-group forms stay deferred.
+**The family works on Android too.** Like the group ADMIN family already on
+Android (types 24-30), these are built by a LOCAL transformer with no Core
+builder to cross-check, so the Android vault verifies the transformer's bytes
+AND the nonce-stamped bytes before signing — no byte reaches a signature
+unverified. `sendAndroidHomeV2QortiumGroupAdmin` in `src/platform.ts` is the
+closest existing implementation to diff this arm against.
+The live group state the prompt was held to travels with the request and is the
+baseline for every later check — for `UPDATE_GROUP` it is also the SOURCE of
+the merged values, since omitted fields are filled from it, and merging from a
+post-approval read could rewrite settings the prompt reported as unchanged. `GROUP_APPROVAL` additionally refuses on Android when the selected account is
+not an admin of the pending transaction's group — desktop does not check this
+yet, and without it Core rejects the vote only after a signature exists, which
+journals an unknown outcome and blocks the account from voting on that
+transaction until it is reconciled by hand. The
+no-op answers (`changed: false` for an unchanged update, an already-set default
+group, or a matching avatar pointer) are decided before any prompt is raised,
+so a no-op neither prompts nor signs — and the reads those decisions rest on
+fail CLOSED: an unreadable default-group lookup refuses instead of being read
+as "the default differs", and a malformed avatar pointer refuses instead of
+collapsing to "no avatar", which would turn a real clear request into a no-op
+with the avatar still set. One divergence is
+deliberate: `SET_GROUP` membership is checked on Android through
+`GET /groups/member/{address}` rather than desktop's
+`POST /groups/members/{groupId}/validate`, because the app-facing node fetch is
+GET/HEAD only. Both fail closed on an unrecognized answer, and the Android
+route additionally requires the matching entry to be a complete group record: a
+bare `{"groupId": n}` is not proof of membership, or a node could manufacture
+it and Home would sign a `SET_GROUP` that Core rejects only after a signature
+exists. `UNSUPPORTED_PROTOCOL`
+is still kept for `qortalRequest`; Hub's `qortalRequest` group forms stay
+deferred.
 
 ## Publishing extras (Home 2)
 

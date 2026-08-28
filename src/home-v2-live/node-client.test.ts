@@ -422,7 +422,9 @@ for (const groupRequest of [
 ]) {
   await assert.rejects(
     () => client.requestApp('qdnRequest', groupRequest),
-    /requires transaction signing/,
+    (error: Error) =>
+      /must be approved through Home/.test(error.message) &&
+      !/only available in Qortium Home desktop|read-only mode/i.test(error.message),
   )
   await assert.rejects(
     () => client.requestApp('qortalRequest', groupRequest),

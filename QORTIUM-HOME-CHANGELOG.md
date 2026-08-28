@@ -34,6 +34,66 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-27 - feat(home-v2): ratings and account avatars work on Android
+
+Rating an account, rating a published QDN resource, and setting or clearing
+your account's avatar now work on your phone.
+
+All three are transactions Home builds itself, so they get the same treatment
+as the group transactions: Home verifies the bytes it built, adds the
+proof-of-work, and verifies them again before signing.
+
+Each of these is a change relative to something that already exists — a rating
+you may have given before, an avatar you may already have set — so the screen
+shows you both the current value and the new one. What Home signs is held to
+what that screen said. If the rating or the avatar moves in between, Home
+refuses rather than signing a change to something you were never shown.
+
+Rating an account names the account being rated, and that name is worked out
+from the exact key the transaction will be signed against, not from anything
+the app claimed. An app cannot label one account and have you rate another.
+
+As on the desktop, a rating identical to your current one, or an avatar that is
+already set, changes nothing and asks you nothing.
+
+### 2026-08-27 - feat(home-v2): group mutations work on Android
+
+Creating a group, changing its settings, voting on a pending group
+transaction, choosing your default group, and setting a group's avatar all
+work on your phone now.
+
+These are transactions Home builds entirely by itself, the way group
+membership actions already did on the phone. The poll and name transactions
+that crossed to Android earlier are assembled by your node, which gives Home
+something to check its work against; for these there is nothing to check
+against, so Home verifies the bytes it built, adds the proof-of-work, and then
+verifies them a second time before signing — nothing is ever signed that Home
+has not read back and confirmed.
+
+Editing a group is the one that needed the most care. You can change a single
+setting and leave the rest alone, which means Home has to fill in everything
+you did not mention from the group as it currently stands. The screen shows you
+the complete result, every field, with "(unchanged)" next to the ones you are
+keeping — and the values you supplied are shown in quotes, so an app cannot
+send the words "(unchanged)" as the new name and have a real rename look like
+a field being kept — and the values Home fills in are the ones from that screen, not from
+a fresh look at the group taken after you approved. If anything about the group
+moves in between, Home refuses instead of signing something you did not see.
+
+Voting on a pending group transaction now checks first that your account is
+actually an admin of that group. Without it, your node accepts the vote, the
+chain rejects it, and the outcome is left ambiguous — which blocks you from
+voting on that transaction again until it is sorted out by hand.
+
+Actions that would change nothing still change nothing: an edit that matches
+the current settings, a default group that is already your default, and an
+avatar that is already the one set all answer immediately without asking you to
+approve anything and without signing. Where that decision depends on asking
+your node a question, an answer Home cannot make sense of stops the action
+rather than being guessed at — otherwise a node that answered badly could turn
+a real change into a silent no-op, or push a pointless transaction in front of
+you to approve.
+
 ### 2026-08-27 - fix(core): stop blocking routine managed upgrades (from Home 1.7.1)
 
 Home no longer mistakes an ordinary Core configuration or fingerprint change for

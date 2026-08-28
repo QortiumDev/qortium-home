@@ -11,6 +11,8 @@ import {
   normalizeHomeV2UpdateGroupRequest,
   selectHomeV2DefaultGroupId,
   selectHomeV2GroupMembership,
+  selectHomeV2GroupAdminshipFromGroups,
+  selectHomeV2GroupMembershipFromGroups,
   selectHomeV2GroupMetadata,
   selectHomeV2PendingTransactionSummary,
   type HomeV2GroupMutationWirePayload,
@@ -236,5 +238,118 @@ assert.equal(selectHomeV2GroupMembership([{ address: 'Qx', isMember: false }], '
 assert.throws(() => selectHomeV2GroupMembership([{ address: 'Qy', isMember: true }], 'Qx'))
 assert.equal(selectHomeV2DefaultGroupId({ defaultGroupId: 3 }), 3)
 assert.equal(selectHomeV2DefaultGroupId({}), null)
+
+
+// Adminship rides the same answer, and must be explicit: a membership record
+// that does not say whether the account is an admin refuses rather than being
+// read either way. A non-admin GROUP_APPROVAL is rejected by Core only AFTER
+// signing, which journals an unknown outcome and blocks the next vote.
+assert.equal(
+  selectHomeV2GroupAdminshipFromGroups(
+    [{ groupId: 5, groupName: 'droids', isAdmin: true, owner: 'Qowner' }],
+    5,
+  ),
+  true,
+  'an admin record is adminship',
+)
+assert.equal(
+  selectHomeV2GroupAdminshipFromGroups(
+    [{ groupId: 5, groupName: 'droids', isAdmin: false, owner: 'Qowner' }],
+    5,
+  ),
+  false,
+  'a plain member is not an admin',
+)
+assert.equal(
+  selectHomeV2GroupAdminshipFromGroups(
+    [{ groupId: 7, groupName: 'other', isAdmin: true, owner: 'Qother' }],
+    5,
+  ),
+  false,
+  'admin of another group is not admin of this one',
+)
+assert.throws(
+  () => selectHomeV2GroupAdminshipFromGroups([{ groupId: 5, groupName: 'droids', owner: 'Qowner' }], 5),
+  /whether this account is an admin/,
+  'a record with no isAdmin field refuses rather than being guessed',
+)
+
+// A malformed non-null avatar pointer must REFUSE, not collapse to "no
+// avatar" — that collapse turned a real "clear the avatar" request into a
+// changed:false no-op with the avatar still set.
+{
+  const base = {
+    approvalThreshold: 'ONE',
+    description: 'd',
+    groupId: 5,
+    groupName: 'droids',
+    isOpen: true,
+    maximumBlockDelay: 10,
+    minimumBlockDelay: 1,
+    owner: 'Qowner',
+  }
+  assert.equal(selectHomeV2GroupMetadata({ ...base, avatar: null }, 5).avatar, null, 'an explicit null avatar is no avatar')
+  assert.equal(selectHomeV2GroupMetadata(base, 5).avatar, null, 'an absent avatar is no avatar')
+  for (const avatar of ['bad', 5, {}, { service: 'THUMBNAIL' }, { name: 'alice' }]) {
+    assert.throws(
+      () => selectHomeV2GroupMetadata({ ...base, avatar }, 5),
+      /unrecognized avatar pointer/,
+      'a malformed avatar pointer refuses rather than reading as no avatar',
+    )
+  }
+}
+
+// --- Android membership answer (GET /groups/member/{address}) --------------
+// The desktop bridge asks POST /groups/members/{id}/validate; Android's
+// app-facing fetch is GET/HEAD only and asks this instead. Both must fail
+// CLOSED, because Core rejects a non-member default group only AFTER signing.
+assert.equal(
+  selectHomeV2GroupMembershipFromGroups(
+    [{ groupId: 5, groupName: 'droids', owner: 'Qowner' }, { groupId: 7, groupName: 'other', owner: 'Qother' }],
+    5,
+  ),
+  true,
+  'a listed group record counts as membership',
+)
+// A bare {groupId} is not a group record. Accepting one would let a node
+// manufacture membership, and Home would prompt and sign a SET_GROUP that Core
+// rejects only after a signature exists.
+assert.throws(
+  () => selectHomeV2GroupMembershipFromGroups([{ groupId: 5 }], 5),
+  /incomplete group record/,
+  'a bare group id is not proof of membership',
+)
+assert.throws(
+  () => selectHomeV2GroupMembershipFromGroups([{ groupId: 5, groupName: '', owner: 'Qowner' }], 5),
+  /incomplete group record/,
+  'an empty group name is not a complete record',
+)
+assert.throws(
+  () => selectHomeV2GroupMembershipFromGroups(['droids'], 5),
+  /unrecognized shape/,
+  'a non-record entry refuses rather than being skipped',
+)
+assert.equal(
+  selectHomeV2GroupMembershipFromGroups([{ groupId: 7, groupName: 'other', owner: 'Qother' }], 5),
+  false,
+  'a group the account is not in is not membership',
+)
+assert.equal(
+  selectHomeV2GroupMembershipFromGroups([], 5),
+  false,
+  'an account in no groups is not a member',
+)
+assert.throws(
+  () => selectHomeV2GroupMembershipFromGroups([{ groupId: '5' }], 5),
+  /unrecognized shape/,
+  'a string group id refuses rather than reading as a non-member',
+)
+for (const answer of [null, undefined, {}, 'ok', 5]) {
+  assert.throws(
+    () => selectHomeV2GroupMembershipFromGroups(answer, 5),
+    /unrecognized shape/,
+    'a non-list membership answer refuses rather than reading as a member or a non-member',
+  )
+}
 
 console.log('Home v2 group mutation contract tests passed.')

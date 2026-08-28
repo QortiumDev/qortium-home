@@ -284,6 +284,59 @@ export interface HomeV2VaultClient {
     readonly requestValue: Record<string, unknown>
   }): Promise<unknown>
   /**
+   * Derives a Qortium address from a Base58 public key, using the same
+   * primitives the vault signs with.
+   *
+   * RATE_ACCOUNT's prompt must name WHO is being rated, derived from the exact
+   * key that will be signed rather than from an app-supplied label or a node's
+   * word for it. The shell cannot do this itself — the address math lives with
+   * the key material — so it asks here.
+   */
+  deriveAddressFromPublicKey?(publicKey58: string): Promise<string>
+  /**
+   * Signs one Qortium rating write (RATE_ACCOUNT / RATE_RESOURCE). Local
+   * transformer, so the vault verifies both the unstamped and the stamped
+   * bytes, and holds the signature to the rating state the prompt disclosed.
+   */
+  signRatingWrite?(request: {
+    readonly accountId: string
+    readonly action: 'RATE_ACCOUNT' | 'RATE_RESOURCE'
+    readonly approvedAddress: string
+    readonly approvedTarget: HomeV2ApprovedRatingTarget
+    readonly isStillValid: () => boolean | Promise<boolean>
+    readonly nodeApiUrl: string
+    readonly requestValue: Record<string, unknown>
+  }): Promise<unknown>
+  /**
+   * Signs one Qortium account-avatar pointer change. The avatar IMAGE is a
+   * separate published QDN resource; this signs only which resource the
+   * account points at.
+   */
+  signAccountAvatar?(request: {
+    readonly accountId: string
+    readonly approvedAddress: string
+    readonly approvedAvatar: HomeV2ApprovedAccountAvatar
+    readonly isStillValid: () => boolean | Promise<boolean>
+    readonly nodeApiUrl: string
+    readonly requestValue: Record<string, unknown>
+  }): Promise<unknown>
+  /**
+   * Signs one Qortium group mutation. These are built by a LOCAL transformer
+   * — there is no Core builder to check against — so the vault also verifies
+   * the STAMPED bytes before signing, on top of the approved-state binding
+   * every Android signing arm carries.
+   */
+  signGroupMutation?(request: {
+    readonly accountId: string
+    readonly action: 'CREATE_GROUP' | 'GROUP_APPROVAL' | 'SET_GROUP' | 'SET_GROUP_AVATAR' | 'UPDATE_GROUP'
+    readonly approvedAddress: string
+    readonly approvedGroup: HomeV2ApprovedGroupTarget | null
+    readonly approvedPending: HomeV2ApprovedPendingTransaction | null
+    readonly isStillValid: () => boolean | Promise<boolean>
+    readonly nodeApiUrl: string
+    readonly requestValue: Record<string, unknown>
+  }): Promise<unknown>
+  /**
    * Signs one Qortium name write. Same discipline as signPollWrite, plus the
    * live-sale binding BUY_NAME needs: seller and price come from the chain,
    * and an app-supplied value must match rather than override.
@@ -334,6 +387,54 @@ export type HomeV2ApprovedPollTarget = {
   readonly optionNames: readonly string[]
   readonly pollId: number
   readonly pollName: string
+}
+
+/**
+ * The live group state a group-mutation approval was granted against.
+ *
+ * Mirrors HomeV2GroupMetadata. Carried from the shell so the vault signs the
+ * group the user saw — for UPDATE_GROUP especially, where omitted fields are
+ * merged FROM this record, so a stale read would silently rewrite live
+ * settings the prompt reported as unchanged.
+ */
+export type HomeV2ApprovedGroupTarget = {
+  readonly approvalThreshold: string
+  readonly avatar: { readonly identifier: string; readonly name: string; readonly service: string } | null
+  readonly description: string
+  readonly groupId: number
+  readonly groupName: string
+  readonly isOpen: boolean
+  readonly maximumBlockDelay: number
+  readonly minimumBlockDelay: number
+  readonly owner: string
+}
+
+/** The pending transaction a GROUP_APPROVAL vote was approved against. */
+export type HomeV2ApprovedPendingTransaction = {
+  readonly approvalStatus: string
+  readonly creatorAddress: string
+  readonly groupName: string
+  readonly signature: string
+  readonly txGroupId: number
+  readonly type: string
+}
+
+/**
+ * The live rating state a rating-write approval was granted against.
+ *
+ * `currentRating` is what the prompt showed under "Current" (null when the
+ * account has no active rating on this edge or coordinate). The vault refuses
+ * if the chain has moved away from it, so an approval that read "no current
+ * rating" cannot become a change to one the user never saw.
+ */
+export type HomeV2ApprovedRatingTarget = {
+  readonly canChangeNow: boolean
+  readonly currentRating: number | null
+}
+
+/** The live account-avatar pointer a SET_ACCOUNT_AVATAR approval was granted against. */
+export type HomeV2ApprovedAccountAvatar = {
+  readonly pointer: { readonly identifier: string; readonly name: string; readonly service: string } | null
 }
 
 export function getHomeV2VaultClient() {

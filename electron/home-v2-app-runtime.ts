@@ -267,22 +267,11 @@ export function homeV2WidgetWithholdsSelfSubject(action: string) {
  */
 const ANDROID_UNSUPPORTED_ACTIONS = new Set<string>([
   'SEND_MESSAGE',
-  // The group mutations.
-  'CREATE_GROUP',
-  'GROUP_APPROVAL',
-  'SET_GROUP',
-  'SET_GROUP_AVATAR',
-  'UPDATE_GROUP',
   // The publishing extras sign transactions through the desktop bridge's
   // source-token and tombstone flows, neither of which the Android host
   // implements — unlike single PUBLISH_QDN_RESOURCE, which it mediates.
   'DELETE_QDN_RESOURCE',
   'PUBLISH_MULTIPLE_QDN_RESOURCES',
-  // The rating writes sign transactions too; same reason.
-  'RATE_ACCOUNT',
-  'RATE_RESOURCE',
-  // And the account avatar pointer.
-  'SET_ACCOUNT_AVATAR',
   // The payment family MOVES FUNDS and stays desktop-only until an
   // independently reviewed Android signing path exists.
   'PAYMENT',

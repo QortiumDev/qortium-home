@@ -545,13 +545,17 @@ for (const action of ['GET_ALL_LISTS', 'GET_LIST', 'ADD_TO_LIST', 'REMOVE_FROM_L
   // Name writes too, on the same in-vault signing path. BUY_NAME is included
   // deliberately: it PAYS, and a payment the user can make on desktop but not
   // on their phone is a platform that half works, not a safer one.
-  'REGISTER_NAME', 'UPDATE_NAME', 'SELL_NAME', 'CANCEL_SELL_NAME', 'BUY_NAME']) {
+  'REGISTER_NAME', 'UPDATE_NAME', 'SELL_NAME', 'CANCEL_SELL_NAME', 'BUY_NAME',
+  // The group mutations are LOCAL-transformer families with no Core builder,
+  // so their Android arm additionally verifies the stamped bytes.
+  'CREATE_GROUP', 'UPDATE_GROUP', 'GROUP_APPROVAL', 'SET_GROUP', 'SET_GROUP_AVATAR',
+  // Ratings and the account avatar are local transformers too.
+  'RATE_ACCOUNT', 'RATE_RESOURCE', 'SET_ACCOUNT_AVATAR']) {
   assert.equal(androidActions.includes(action), true, `android must advertise ${action}`)
 }
 // SEND_MESSAGE and the signing families stay filtered: no Android arm yet, and
 // an advertised action that cannot run would make SHOW_ACTIONS lie.
-for (const action of ['SEND_MESSAGE',
-  'CREATE_GROUP', 'UPDATE_GROUP', 'GROUP_APPROVAL', 'SET_GROUP', 'SET_GROUP_AVATAR']) {
+for (const action of ['SEND_MESSAGE']) {
   assert.equal(androidActions.includes(action), false, `android must not advertise ${action}`)
 }
 
