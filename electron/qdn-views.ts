@@ -55,8 +55,9 @@ const ACCENT_VALUES = new Set(['blue', 'clay', 'cyan', 'green', 'orange', 'pink'
 const UI_VALUES = new Set(['classic', 'modern', 'fun']);
 // Exact Qortal node origins the cross-chain bridge can return for direct resource URLs. QDN apps
 // render from the node's own origin, so the rendered Content-Security-Policy must allow connecting
-// to these for read-only cross-chain reads (e.g. an emulator streaming a ROM from Qortal). Android
-// strips the CSP entirely; on desktop we relax it narrowly to just these origins.
+// to these for read-only cross-chain reads (e.g. an emulator streaming a ROM from Qortal). Desktop
+// relaxes the policy narrowly to these origins. Android retains the node policy and intersects it
+// with a Home-owned same-origin connection policy; raw cross-origin node URLs are not relaxed there.
 const QORTAL_RENDER_ALLOWED_ORIGINS = [
   'http://127.0.0.1:12391',
   'https://127.0.0.1:12391',

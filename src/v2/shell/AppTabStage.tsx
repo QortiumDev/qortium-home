@@ -313,7 +313,7 @@ function AndroidAppStage(props: AppTabStageProps) {
   //
   // Round 6 (owner-directed redesign, ending the round-2/4/5
   // identifier-confusion class): QdnBridgeWebViewClient/QdnRenderProxy now
-  // gate the live bridge token / injection / CSP-strip on an EXACT match
+  // gate the live bridge token / injection on an EXACT match
   // against this tab's registered authorized document URL (see
   // QdnRenderProxy.isExactAuthorizedRenderDocument and the authorize() call
   // below, which registers that EXACT trusted URL before the iframe is
@@ -489,7 +489,7 @@ function AndroidAppStage(props: AppTabStageProps) {
       .then(({ authorizeHomeV2AndroidAppOrigin }) =>
         // Registers this EXACT document natively BEFORE the iframe is
         // created below, so QdnBridgeWebViewClient can refuse the bridge
-        // token / injection / CSP-strip to anything else from the very
+        // token / injection to anything else from the very
         // first request — see QdnRenderProxy.authorize's doc comment.
         authorizeHomeV2AndroidAppOrigin(resolved.nodeApiUrl, authorizedDocument.toString()),
       )

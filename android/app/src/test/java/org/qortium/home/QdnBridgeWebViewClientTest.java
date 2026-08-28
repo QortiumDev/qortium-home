@@ -13,11 +13,98 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.junit.Test;
 
 public class QdnBridgeWebViewClientTest {
+
+    @Test
+    public void injectedHtmlPreservesNodeCspAndAddsAHomeConnectionPolicy() {
+        Map<String, String> headers = new LinkedHashMap<>();
+        String upstream =
+            "default-src 'self' 'unsafe-inline' 'unsafe-eval'; " +
+            "img-src 'self' data: blob:; connect-src 'self' wss: blob:;";
+        String secondUpstreamPolicy = "object-src 'none';";
+        String legacy = "default-src 'self';";
+
+        headers.put("content-security-policy", upstream);
+        headers.put("Content-Security-Policy", secondUpstreamPolicy);
+        headers.put("X-Content-Security-Policy", legacy);
+        headers.put("content-length", "1234");
+        headers.put("Content-Encoding", "gzip");
+        headers.put("TRANSFER-ENCODING", "chunked");
+        headers.put("referrer-policy", "unsafe-url");
+
+        Map<String, String> prepared = QdnBridgeWebViewClient.prepareInjectedHtmlResponseHeaders(
+            QdnBridgeWebViewClient.prepareProxiedResponseHeaders(headers)
+        );
+
+        assertEquals(
+            upstream + ", " + secondUpstreamPolicy + ", " +
+                QdnBridgeWebViewClient.HOME_QDN_CONNECTION_POLICY,
+            prepared.get("Content-Security-Policy")
+        );
+        assertEquals(legacy, prepared.get("X-Content-Security-Policy"));
+        assertEquals("no-referrer", prepared.get("Referrer-Policy"));
+        assertFalse(prepared.containsKey("referrer-policy"));
+        assertFalse(prepared.containsKey("content-length"));
+        assertFalse(prepared.containsKey("Content-Encoding"));
+        assertFalse(prepared.containsKey("TRANSFER-ENCODING"));
+        assertFalse(QdnBridgeWebViewClient.HOME_QDN_CONNECTION_POLICY.contains(" ws:"));
+        assertFalse(QdnBridgeWebViewClient.HOME_QDN_CONNECTION_POLICY.contains(" wss:"));
+    }
+
+    @Test
+    public void injectedHtmlGetsAHomeConnectionPolicyWhenTheNodeOmitsModernCsp() {
+        Map<String, String> headers = new HashMap<>();
+        headers.put("X-Content-Security-Policy", "default-src 'self';");
+
+        Map<String, String> prepared =
+            QdnBridgeWebViewClient.prepareProxiedResponseHeaders(headers);
+
+        assertEquals(
+            QdnBridgeWebViewClient.HOME_QDN_CONNECTION_POLICY,
+            prepared.get("Content-Security-Policy")
+        );
+        assertEquals("default-src 'self';", prepared.get("X-Content-Security-Policy"));
+    }
+
+    @Test
+    public void nonInjectedProxyResponsesAlsoGetTheHomeConnectionPolicy() {
+        for (String contentType : Arrays.asList("text/html", "text/javascript", "application/wasm")) {
+            Map<String, String> headers = new HashMap<>();
+            headers.put("Content-Type", contentType);
+
+            Map<String, String> prepared =
+                QdnBridgeWebViewClient.prepareProxiedResponseHeaders(headers);
+
+            assertEquals(
+                contentType + " proxy response must receive the Home CSP",
+                QdnBridgeWebViewClient.HOME_QDN_CONNECTION_POLICY,
+                prepared.get("Content-Security-Policy")
+            );
+        }
+    }
+
+    @Test
+    public void repeatedModernCspHeadersRemainIndependentPolicies() {
+        assertEquals(
+            "default-src 'self';, img-src 'self' data:;",
+            QdnBridgeWebViewClient.serializeResponseHeaderValue(
+                "content-security-policy",
+                Arrays.asList("default-src 'self';", "img-src 'self' data:;")
+            )
+        );
+        assertEquals(
+            "first",
+            QdnBridgeWebViewClient.serializeResponseHeaderValue(
+                "Cache-Control",
+                Arrays.asList("first", "second")
+            )
+        );
+    }
 
     @Test
     public void homeV2BridgeAddsSeparateQortalRequestWithoutChangingProductionBridge() {

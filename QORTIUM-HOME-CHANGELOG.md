@@ -34,6 +34,18 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-28 - fix(android): enforce same-origin QDN app connections
+
+Android now keeps the Qortium node's Content Security Policy when it injects
+Home's QDN bridge instead of removing that browser protection. Home also adds
+an independent same-origin connection policy, so an older or custom node cannot
+reopen arbitrary external WebSockets with a broad scheme permission. The Home
+policy covers every response served through the app's synthetic proxy origin,
+including helper documents and workers rather than only the bridged top page.
+Repeated node policies remain independently enforced, stale body-length headers
+are still removed after injection, and the bridge's inline script remains
+allowed by the node's existing app policy.
+
 ### 2026-08-28 - fix(home-v2): three desktop checks the Android port had and the desktop did not
 
 While bringing each action family to the phone, reviewers found three places
