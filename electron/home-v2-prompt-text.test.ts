@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 
 import {
+  HOME_V2_MESSAGE_PROMPT_MAX_CHARS,
   homeV2AvatarPointerText,
   homeV2PromptText,
   homeV2QuotedPromptText,
@@ -40,6 +41,26 @@ for (const attempt of ['(unchanged)', '"(unchanged)"', 'x" (unchanged)', '\\"'])
 // read in full is not an approval.
 assert.throws(() => homeV2PromptText('x'.repeat(4_001), 'The value'), /too large to display safely/)
 assert.equal(homeV2PromptText('x'.repeat(4_000), 'v').length, 4_000, 'the cap itself is allowed')
+
+// The cap is per-ROW by default, but a MESSAGE body is bounded in UTF-8 BYTES
+// and escaping is expansive. 1,000 emoji is a valid 4,000-byte message that
+// escapes to 12,000 characters: at the row cap its prompt would be refused, so
+// a message the chain accepts could never be approved.
+const emojiMessage = '\u{1f600}'.repeat(1_000)
+assert.equal(new TextEncoder().encode(emojiMessage).length, 4_000, 'the fixture is exactly a maximum-length message')
+assert.throws(
+  () => homeV2PromptText(emojiMessage, 'The message text'),
+  /too large to display safely/,
+  'the ordinary row cap cannot carry a maximum-length message',
+)
+const escapedMessage = homeV2PromptText(emojiMessage, 'The message text', HOME_V2_MESSAGE_PROMPT_MAX_CHARS)
+assert.equal(escapedMessage.length, 12_000, 'each surrogate half escapes to six characters')
+assert.equal(/[\u0000-\u001f\u007f-\uffff]/.test(escapedMessage), false, 'nothing unprintable survives')
+// The message cap is still a REFUSAL, not a licence to truncate.
+assert.throws(
+  () => homeV2PromptText('x'.repeat(HOME_V2_MESSAGE_PROMPT_MAX_CHARS + 1), 'v', HOME_V2_MESSAGE_PROMPT_MAX_CHARS),
+  /too large to display safely/,
+)
 
 // --- Coordinates and pointers parse back to exactly one triple ---------------
 assert.equal(

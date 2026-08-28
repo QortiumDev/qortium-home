@@ -464,7 +464,9 @@ import {
   homeV2PromptText,
   homeV2QuotedPromptText,
   homeV2ResourceCoordinateText,
+  HOME_V2_MESSAGE_PROMPT_MAX_CHARS,
 } from './home-v2-prompt-text.js'
+import { assertUnsignedQortiumAtMessageTransaction } from './qdn-at-message-validation.js'
 import {
   assertUnsignedHomeV2GroupMutationTransaction,
   buildUnsignedQortiumGroupMutationTransactionBytes,
@@ -4299,7 +4301,12 @@ async function sendHomeV2AtMessage(
   // signed, in a bounded scrollable field, with a byte count.
   await requireAccountReadPermission(sender, context, protocol, 'SEND_MESSAGE', {
     kind: 'direct',
-    messagePreview: request.message,
+    // ESCAPED for display. The renderer prints this row as-is, so a raw
+    // message could use bidi controls to reorder what the user reads while
+    // the ORIGINAL bytes are what get signed — the user would be approving
+    // text different from the instruction the contract receives. The signed
+    // bytes still come from request.message; only the display is escaped.
+    messagePreview: homeV2PromptText(request.message, 'The message text', HOME_V2_MESSAGE_PROMPT_MAX_CHARS),
     operationLabel: homeV2AtMessageOperationLabel(),
     otherAddress: request.recipient,
     routeLabel: node.nodeApiUrl,
@@ -4338,6 +4345,19 @@ async function sendHomeV2AtMessage(
       senderPublicKey: signingKey.publicKey58,
       timestamp,
     })
+    // Verified field by field against the approved inputs by an INDEPENDENT
+    // reader before anything is signed. Core has no build endpoint for
+    // MESSAGE, so the transformer is the only thing between the request and
+    // the signature; this is the posture the other locally-built families
+    // already carry.
+    const expectedMessageBytes = new TextEncoder().encode(request.message)
+    const expectedAtMessageFields = {
+      messageBytes: expectedMessageBytes,
+      recipientBytes: base58Decode(request.recipient),
+      senderPublicKeyBytes: base58Decode(signingKey.publicKey58),
+      timestamp,
+    }
+    assertUnsignedQortiumAtMessageTransaction(unsignedBytes, { ...expectedAtMessageFields, nonce: 0 })
     // MESSAGE puts its nonce at the same offset CHAT does — txType(4) +
     // timestamp(8) + txGroupId(4) + senderPublicKey(32) = 48 — so the shared
     // stampTransactionNonce/signTransactionWithNonce pair applies unchanged.
@@ -4349,6 +4369,11 @@ async function sendHomeV2AtMessage(
     if (!(await isStillValid())) {
       throw new Error('The signing context changed before the message could be submitted.')
     }
+    // And the STAMPED bytes: nothing is signed that was not itself verified.
+    assertUnsignedQortiumAtMessageTransaction(
+      stampTransactionNonce(unsignedBytes, nonce),
+      { ...expectedAtMessageFields, nonce },
+    )
     const signedBytes = signTransactionWithNonce(unsignedBytes, nonce, signingKey.secretKey)
     const signature = getSignatureFromSignedTransactionBytes(signedBytes)
     try {

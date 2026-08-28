@@ -42,8 +42,14 @@ for (const [name, source, importSpecifier] of [
   const body = readFunction(source, 'sendMessageForApp');
   for (const required of [
     "action: 'SEND_MESSAGE'",
-    'getQortiumAtMessageRequest(request)',
+    // The HARDENED normalizer, not the bare field reader: the latter accepts
+    // an `amount` alongside the message and answers accepted:true, so an app
+    // could conclude it had paid a contract that was never paid.
+    "normalizeHomeV2AtMessageRequest('qdnRequest', request as Record<string, unknown>)",
     'buildUnsignedQortiumAtMessageTransactionBytes',
+    // And both bridges read their own bytes back — unstamped, then stamped —
+    // because Core has no MESSAGE builder to cross-check against.
+    'assertUnsignedQortiumAtMessageTransaction',
     'QORTIUM_AT_MESSAGE_POW_DIFFICULTY',
     'signAndProcessKeylessStandardTransaction',
     "permissionScope: 'single-request'",
@@ -51,6 +57,14 @@ for (const [name, source, importSpecifier] of [
     assert(body.includes(required), `${name} SEND_MESSAGE must include ${required}.`);
   }
 
+  assert(
+    (body.match(/assertUnsignedQortiumAtMessageTransaction\(/g) ?? []).length === 2,
+    `${name} must verify the MESSAGE bytes unstamped AND stamped before signing.`,
+  );
+  assert(
+    !body.includes('getQortiumAtMessageRequest(request)'),
+    `${name} must not fall back to the bare MESSAGE field reader.`,
+  );
   assert(!body.includes('/transactions/mempow'), `${name} must not use the unsupported generic mempow endpoint for MESSAGE.`);
   assert(!body.includes('/transactions/sign'), `${name} must never send a private key to sign MESSAGE.`);
   assert(body.includes("// /transactions/process is public; do not disclose a custom-node API key"), `${name} must not disclose an API key for MESSAGE broadcast.`);

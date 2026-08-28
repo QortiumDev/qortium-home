@@ -218,6 +218,7 @@ import {
   selectHomeV2PendingTransactionSummary,
 } from '../../electron/home-v2-group-mutation-actions'
 import {
+  HOME_V2_MESSAGE_PROMPT_MAX_CHARS,
   homeV2AvatarPointerText,
   homeV2PromptText,
   homeV2ResourceCoordinateText,
@@ -226,6 +227,10 @@ import {
   normalizeHomeV2PublishMultipleRequest,
   normalizeHomeV2QdnDeleteRequest,
 } from '../../electron/home-v2-publish-extras-contract'
+import {
+  homeV2AtMessageOperationLabel,
+  normalizeHomeV2AtMessageRequest,
+} from '../../electron/home-v2-at-message-actions'
 import { getStaticQdnServiceId } from '../../electron/public-transaction-validation'
 import {
   normalizeHomeV2RateAccountRequest,
@@ -511,6 +516,16 @@ const NAME_DETAIL_SEQUENCES: Record<string, readonly { label: string; optional?:
 // The desktop account-avatar prompt carries its rows as discrete fields rather
 // than a sequence; the Android arm builds them locally, so it states the same
 // shape explicitly and holds itself to it.
+// SEND_MESSAGE's action-specific rows. The message body is the whole point of
+// the disclosure, so its row is required, and the Payment row states in Home's
+// own words that this transaction moves no funds.
+const AT_MESSAGE_DETAIL_SEQUENCE: readonly { label: string; optional?: true }[] = [
+  { label: 'Contract' },
+  { label: 'Message' },
+  { label: 'Message size' },
+  { label: 'Payment' },
+]
+
 const ACCOUNT_AVATAR_DETAIL_SEQUENCE: readonly { label: string; optional?: true }[] = [
   { label: 'Current', optional: true },
   { label: 'Avatar' },
@@ -646,6 +661,10 @@ function androidSequencedDetails(
     label: string
     value: string
     variant?: 'scroll'
+    // Already escaped by the caller (a message escaped at the MESSAGE cap, a
+    // component-escaped coordinate); escaping again would render its escapes
+    // as literal text.
+    preEscaped?: true
     // Wrap the escaped value in quotes. Use this on any row where Home appends
     // its own words to an app-derived value: the quote character cannot occur
     // inside an escaped value, so `"(unchanged)"` (a rename TO that string) and
@@ -657,7 +676,7 @@ function androidSequencedDetails(
   }[],
 ): readonly { label: string; value: string; variant?: 'scroll' }[] {
   const escaped = rows.map((row) => {
-    const value = androidPromptText(row.value)
+    const value = row.preEscaped ? row.value : androidPromptText(row.value)
     return { label: row.label, value: `${row.quote ? `"${value}"` : value}${row.suffix ?? ''}` }
   })
   if (!isSequencedDetailRows(sequence, escaped)) {
@@ -6181,6 +6200,109 @@ export function HomeV2LiveApp() {
         } finally {
           bytes.fill(0)
         }
+      }
+      // SEND_MESSAGE on Android: one zero-fee, zero-payment MESSAGE to an AT
+      // contract. The chain is asserted here as well as in the catalogue,
+      // because the serializer is Qortium-specific and a signing path must not
+      // depend on a catalogue entry staying correct.
+      //
+      // The prompt shows the COMPLETE message, never a preview: the contract
+      // may act on the text, so the user has to be able to read all of it.
+      if (isAndroidHost && protocol === 'qdnRequest' && action === 'SEND_MESSAGE') {
+        if (!context.selectedAccountId) throw new Error('No account is selected for this tab.')
+        const accountId = context.selectedAccountId
+        const account = accountCatalogueRef.current.accounts.find((candidate) => candidate.id === accountId)
+        if (!account) throw new Error('The selected account is no longer available.')
+        if (!account.isUnlocked) throw new Error('The selected account is locked.')
+        if (!vaultClient?.sendAtMessage || !vaultClient.getSigningPublicKey) {
+          throw new Error('Contract messaging is unavailable on this platform.')
+        }
+        const nodeBefore = parseHomeV2NodesSnapshot(await nodeClient.getSnapshot()).qortium
+        if (!nodeBefore.nodeApiUrl || !nodeBefore.capabilities.read) {
+          throw new Error(nodeBefore.error ?? 'Qortium is unavailable.')
+        }
+        const request = normalizeHomeV2AtMessageRequest(protocol, isRecord(requestValue) ? requestValue : {})
+        const approvedSenderPublicKey = await vaultClient.getSigningPublicKey(accountId)
+        const messageByteLength = new TextEncoder().encode(request.message).length
+        const parsedApp = resolveAppIdentity()
+        const appId = brand<AppId>(`home-v2:permission-app:${parsedApp.identityKey}`)
+        const nodeRoute = `${nodeBefore.mode}|${nodeBefore.nodeApiUrl}`
+        const decision = await queueAndroidPermissionPrompt(createPermissionPrompt({
+          id: brand<PermissionRequestId>(globalThis.crypto.randomUUID()),
+          protocol,
+          action,
+          capability: 'contract.message.send',
+          appId,
+          appIdentityKey: parsedApp.identityKey,
+          appTitle: parsedApp.title,
+          context: {
+            appId,
+            identityId: brand<IdentityId>(`home-v2:identity:${accountId}`),
+            nodeProfileRef: snapshot.nodes.qortium.ref,
+            tabId: brand<TabId>(context.tabId),
+            targetNetwork: 'qortium',
+            walletRef: brand<WalletRef>(`home-v2:wallet:${account.walletId}`),
+          },
+          title: 'Allow a message to a contract?',
+          summary: `${parsedApp.title} wants to sign and broadcast one message from the selected account to the contract below. It carries no payment and costs no fee \u2014 Home pays for it with proof-of-work on this device. The complete message text is shown below, exactly as it will be signed; read all of it, as the contract may act on it.`,
+          details: [
+            { label: 'Account', value: account.label },
+            { label: 'Operation', value: homeV2AtMessageOperationLabel() },
+            ...androidSequencedDetails(action, AT_MESSAGE_DETAIL_SEQUENCE, [
+              { label: 'Contract', value: request.recipient },
+              // The complete text, scrollable and bounded, with its byte count
+              // — the prompt discloses exactly the bytes that will be signed.
+              {
+                label: 'Message',
+                // Escaped at the MESSAGE cap rather than the row cap: a
+                // message is bounded at 4,000 UTF-8 BYTES and escaping is
+                // expansive, so 1,000 emoji is a valid message that would
+                // exceed the ordinary row limit. A message the chain accepts
+                // must remain displayable, or it can never be approved.
+                preEscaped: true as const,
+                value: homeV2PromptText(request.message, 'The message text', HOME_V2_MESSAGE_PROMPT_MAX_CHARS),
+                variant: 'scroll' as const,
+              },
+              { label: 'Message size', value: `${messageByteLength} bytes` },
+              { label: 'Payment', value: 'None - this message moves no funds' },
+            ]),
+            { label: 'Route', value: `${nodeBefore.mode} \u00b7 ${nodeBefore.nodeApiUrl}` },
+            { label: 'Chain', value: 'Qortium' },
+            { label: 'Scope', value: 'This one transaction only' },
+          ],
+          allowedScopes: ['single-request'],
+        }), context.tabId)
+        if (!decision.approved || decision.scope !== 'single-request') {
+          throw new Error('The contract message was denied.')
+        }
+        const rateLimitDecision = androidChatSendRateLimiter.current.checkAndRecordSend(`${context.tabId}|${accountId}`)
+        if (!rateLimitDecision.allowed) throw new Error(rateLimitDecision.message)
+        const isStillValid = async () => {
+          const currentTab = productStateRef.current.tabs.find((tab) => tab.id === context.tabId)
+          const currentAccount = accountCatalogueRef.current.accounts.find((candidate) => candidate.id === accountId)
+          const currentNode = parseHomeV2NodesSnapshot(await nodeClient.getSnapshot()).qortium
+          return !!currentTab &&
+            currentTab.context.resourceLocation === context.resourceLocation &&
+            String(currentTab.context.identityId) === `home-v2:identity:${accountId}` &&
+            !!currentAccount?.isUnlocked &&
+            currentNode.capabilities.read &&
+            `${currentNode.mode}|${currentNode.nodeApiUrl ?? ''}` === nodeRoute
+        }
+        if (!(await isStillValid())) throw new Error('The app, account, or node route changed before signing.')
+        await assertNoPendingTransactionConflict()
+        return retainUnknownTransaction(await vaultClient.sendAtMessage({
+          accountId,
+          approvedAddress: account.address,
+          // The exact values the PROMPT showed. Without them the vault's
+          // verifier would only prove that its own re-normalization agrees
+          // with the builder — not that either agrees with what the user saw.
+          approvedMessage: request.message,
+          approvedRecipient: request.recipient,
+          approvedSenderPublicKey,
+          isStillValid,
+          nodeApiUrl: nodeBefore.nodeApiUrl,
+          requestValue: isRecord(requestValue) ? requestValue : {},
+        }))
       }
       // The publishing extras on Android. PUBLISH_MULTIPLE_QDN_RESOURCES loops
       // the single-publish contract over a bounded batch with FULL per-item

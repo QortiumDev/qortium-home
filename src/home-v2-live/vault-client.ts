@@ -297,6 +297,29 @@ export interface HomeV2VaultClient {
    */
   deriveAddressFromPublicKey?(publicKey58: string): Promise<string>
   /**
+   * Signs one zero-fee, zero-payment Qortium MESSAGE to an AT contract.
+   *
+   * Core has no build endpoint for MESSAGE, so the bytes are produced by a
+   * local transformer and verified field by field — unstamped and stamped —
+   * before anything is signed.
+   */
+  sendAtMessage?(request: {
+    readonly accountId: string
+    readonly approvedAddress: string
+    // The exact text and contract the PROMPT showed. The vault re-normalizes
+    // the raw request too and refuses if the two disagree, so the verifier
+    // proves prompt-vs-signed agreement rather than merely
+    // builder-vs-normalizer agreement.
+    readonly approvedMessage: string
+    readonly approvedRecipient: string
+    // The public key the PROMPT was raised for. A key that does not match it
+    // means the selected account moved under the approval.
+    readonly approvedSenderPublicKey: string
+    readonly isStillValid: () => boolean | Promise<boolean>
+    readonly nodeApiUrl: string
+    readonly requestValue: Record<string, unknown>
+  }): Promise<unknown>
+  /**
    * Publishes the on-chain DELETION TOMBSTONE for one Qortium QDN resource.
    *
    * This is permanent and visible to every peer — it is not a local-copy

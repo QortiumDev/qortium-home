@@ -233,12 +233,25 @@ assert.ok(
 )
 
 // FIX 2 — the bridge must disclose the FULL message, never a truncated
-// preview: what the user approves must be exactly what is signed. The bridge
-// passes `request.message` unchanged, and the module no longer exports a
-// truncating preview helper.
+// preview: what the user approves must be exactly what is signed. The module
+// no longer exports a truncating preview helper.
+//
+// The displayed form is ESCAPED (2026-08-27): the renderer prints this row
+// as-is, so a raw message could use bidi controls to reorder what the user
+// reads while the original bytes are what get signed. It is escaped at the
+// MESSAGE cap rather than the ordinary row cap, because a 4,000-BYTE message
+// can escape past 4,000 characters and must still be displayable.
 assert.ok(
-  /messagePreview: request\.message\b/.test(bridgeSource),
-  'the SEND_MESSAGE prompt must be given the full message, not a truncated preview',
+  /messagePreview: homeV2PromptText\(request\.message, 'The message text', HOME_V2_MESSAGE_PROMPT_MAX_CHARS\)/
+    .test(bridgeSource),
+  'the SEND_MESSAGE prompt must show the full message, escaped for display',
+)
+// And the locally-built bytes are verified before AND after stamping: Core has
+// no MESSAGE builder to cross-check against.
+assert.equal(
+  (bridgeSource.match(/assertUnsignedQortiumAtMessageTransaction\(/g) ?? []).length,
+  2,
+  'the MESSAGE bytes must be verified unstamped and stamped before signing',
 )
 const atMessageModule = readRepoSource('../electron/home-v2-at-message-actions.ts', './home-v2-at-message-actions.ts')
 assert.ok(

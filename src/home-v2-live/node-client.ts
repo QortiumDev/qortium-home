@@ -1305,7 +1305,8 @@ export function createPortableNodeClient(
           isHomeV2GroupMutationAction(action) ||
           isHomeV2RatingAction(action) ||
           action === 'SET_ACCOUNT_AVATAR' ||
-          isHomeV2PublishExtraAction(action))
+          isHomeV2PublishExtraAction(action) ||
+          action === 'SEND_MESSAGE')
       ) {
         throw createHomeV2BridgeError(
           `${action} must be approved through Home before it can be signed.`,

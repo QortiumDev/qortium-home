@@ -649,10 +649,23 @@ next one for that app and account regardless of which AT it addressed. That is
 deliberate — the shipped caller is a once-per-account faucet claim, where a
 duplicate is exactly what reconciliation exists to prevent.
 
-Signing is desktop-only. The Android host cannot sign, so it does not advertise
-`SEND_MESSAGE` in `SHOW_ACTIONS` at all, and rejects a direct call with a clear
-"only available in Qortium Home desktop" error rather than the generic
-read-only message. `UNLOCK_SELECTED_ACCOUNT`, by contrast, is a Home-account
+**It works on Android too.** Core has no build endpoint for MESSAGE, so unlike
+the poll and name families there are never node-provided bytes to cross-check —
+the local transformer is the only thing between the request and the signature.
+That gap is now closed at EVERY site that builds a MESSAGE — the desktop
+bridge, the Android vault, and the legacy v1 app path — by an independent
+field-by-field verifier applied to the unstamped bytes and again to the
+nonce-stamped ones, so nothing is signed that was not itself read back and
+confirmed: the type, the
+zero transaction group, the sender key, the exact nonce, the recipient, the
+ZERO amount, the message bytes, the plaintext and text flags, and the zero fee.
+A MESSAGE that carried a payment, or arrived encrypted, is not the transaction
+the prompt described. The Android prompt shows the COMPLETE message text in a
+bounded scrollable row with its byte count, never a preview — the contract may
+act on the text, so the user has to be able to read all of it. A direct call
+that reaches the node client is refused for bypassing the prompt.
+
+`UNLOCK_SELECTED_ACCOUNT` is a Home-account
 operation with no chain semantics and IS available on Android, on both
 `qdnRequest` and `qortalRequest`, which is what the legacy wallet needs.
 

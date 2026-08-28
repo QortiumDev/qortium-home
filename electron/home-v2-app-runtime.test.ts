@@ -554,12 +554,14 @@ for (const action of ['GET_ALL_LISTS', 'GET_LIST', 'ADD_TO_LIST', 'REMOVE_FROM_L
   // The publishing extras: the batch became possible once the Android publish
   // source store gained a total byte budget, and the tombstone is one signed
   // transaction like any other.
-  'PUBLISH_MULTIPLE_QDN_RESOURCES', 'DELETE_QDN_RESOURCE']) {
+  'PUBLISH_MULTIPLE_QDN_RESOURCES', 'DELETE_QDN_RESOURCE',
+  // And the AT contract message, the last non-payment signing family.
+  'SEND_MESSAGE']) {
   assert.equal(androidActions.includes(action), true, `android must advertise ${action}`)
 }
-// SEND_MESSAGE and the signing families stay filtered: no Android arm yet, and
-// an advertised action that cannot run would make SHOW_ACTIONS lie.
-for (const action of ['SEND_MESSAGE']) {
+// The payment family stays withheld until its own Android arm exists: it MOVES
+// FUNDS, and an advertised action that cannot run would make SHOW_ACTIONS lie.
+for (const action of ['PAYMENT', 'SEND_COIN', 'TRANSFER_ASSET']) {
   assert.equal(androidActions.includes(action), false, `android must not advertise ${action}`)
 }
 
