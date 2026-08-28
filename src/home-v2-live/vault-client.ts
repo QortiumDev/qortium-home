@@ -287,6 +287,24 @@ export interface HomeV2VaultClient {
     readonly requestValue: Record<string, unknown>
   }): Promise<unknown>
   /**
+   * Encrypts app-supplied data to a set of recipient public keys with the
+   * account's key (ENCRYPT_DATA).
+   *
+   * Lives in the vault for the same reason every signing method does: the key
+   * is here, and on Android it never crosses into the shell.
+   *
+   * `approvedRecipientPublicKeys` is what the PROMPT disclosed. The vault
+   * re-normalizes `requestValue` itself and refuses if the recipient list it
+   * derives differs — so an app cannot have one set of recipients approved and
+   * a different set encrypted to. Nothing here is taken on the shell's word:
+   * the shell describes, the vault re-derives, and the two must agree.
+   */
+  encryptData?(request: {
+    readonly accountId: string
+    readonly approvedRecipientPublicKeys: readonly string[]
+    readonly requestValue: Record<string, unknown>
+  }): Promise<string>
+  /**
    * Derives a Qortium address from a Base58 public key, using the same
    * primitives the vault signs with.
    *

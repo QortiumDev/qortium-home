@@ -101,6 +101,23 @@ export type PermissionCapability =
   // reachable through a grant the user gave for a read or a chat send. Always
   // a single-request approval; never retained.
   | 'contract.message.send'
+  // Encrypting app-supplied data to a set of recipient public keys with the
+  // account's key (ENCRYPT_DATA).
+  //
+  // DURABLE ON PURPOSE, unlike the signing capabilities above. This is not an
+  // oracle: it consumes the private key but returns only ciphertext, and there
+  // is no request shape that makes it decrypt, reveal a shared secret, or
+  // disclose the key. Its output is inert until some OTHER action publishes or
+  // sends it, and every one of those prompts separately. Forcing a click per
+  // encryption would therefore buy no security while making ordinary
+  // encrypted-messaging apps unusable.
+  //
+  // What an 'always' grant does widen is the RECIPIENT set: a later request
+  // may address different keys than the one the user saw. The prompt says so
+  // in as many words, because the disclosed rows describe one request while
+  // the grant covers the family — the same posture as a durable chat-send
+  // grant, which likewise covers messages not yet written.
+  | 'account.encrypt'
 
 export interface PermissionDetail {
   readonly label: string
@@ -116,6 +133,7 @@ export interface PermissionPrompt {
   readonly id: PermissionRequestId
   readonly protocol: BridgeProtocol
   readonly action:
+    | 'ENCRYPT_DATA'
     | 'GET_SELECTED_ACCOUNT'
     | 'GET_USER_ACCOUNT'
     | 'JOIN_GROUP'

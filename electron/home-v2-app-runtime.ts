@@ -50,6 +50,11 @@ export interface HomeV2BridgeStateDetail {
 
 export const HOME_V2_ROUTE_INDEPENDENT_ACTIONS = Object.freeze([
   'BOOKMARKS_APPLY',
+  // Encryption is arithmetic over the account's own key. It reads no chain
+  // state, contacts no node, and its result does not depend on which route is
+  // configured — refusing it because a node is unreachable would be a refusal
+  // with no cause.
+  'ENCRYPT_DATA',
   'BOOKMARKS_GET',
   'BOOKMARKS_HAS_PERMISSION',
   'BOOKMARKS_OPEN',

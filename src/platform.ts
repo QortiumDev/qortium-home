@@ -198,6 +198,11 @@ import {
   type HomeV2RatingAction,
   type HomeV2RatingWirePayload,
 } from '../electron/home-v2-rating-actions';
+import { encryptQortalPublicKeyEnvelope } from '../electron/home-v2-app-encryption';
+import {
+  assertApprovedEncryptRecipients,
+  normalizeHomeV2EncryptDataRequest,
+} from '../electron/home-v2-encryption-actions';
 import {
   assertUnsignedHomeV2SetAccountAvatarTransaction,
   buildUnsignedQortiumSetAccountAvatarTransactionBytes,
@@ -16755,6 +16760,27 @@ export function createAndroidHomeV2VaultClient(): HomeV2VaultClient {
           nodeApiUrl: request.nodeApiUrl,
           requestValue: request.requestValue,
           signingKey,
+        });
+      } finally {
+        signingKey.secretKey.fill(0);
+      }
+    },
+    async encryptData(request) {
+      // Re-normalize here rather than trusting the shell's parse: the vault
+      // must derive what it encrypts from the SAME input the prompt described,
+      // through the same normalizer, or the disclosure guarantees nothing.
+      const normalized = normalizeHomeV2EncryptDataRequest(request.requestValue);
+      assertApprovedEncryptRecipients(
+        normalized.publicKeys,
+        request.approvedRecipientPublicKeys,
+      );
+      const signingKey = await getAccountSecretKey(request.accountId);
+      try {
+        return encryptQortalPublicKeyEnvelope({
+          data64: normalized.data64,
+          recipientPublicKeys58: normalized.publicKeys,
+          senderPrivateKey: signingKey.secretKey,
+          senderPublicKey58: signingKey.publicKey58,
         });
       } finally {
         signingKey.secretKey.fill(0);

@@ -1294,6 +1294,18 @@ export function createPortableNodeClient(
         }
         return await this.listRead!(action, isRecord(requestValue) ? requestValue : {})
       }
+      // Same rule as the signing families below, but NOT protocol-scoped:
+      // ENCRYPT_DATA is served on both protocols, so a qortalRequest that
+      // reached the client would otherwise fall through to the generic
+      // read-only refusal and misdescribe an action this platform implements.
+      // It uses the account key, so reaching here means the shell's approval
+      // was bypassed.
+      if (action === 'ENCRYPT_DATA') {
+        throw createHomeV2BridgeError(
+          'ENCRYPT_DATA must be approved through Home before it can use the account key.',
+          { action, code: 'NODE_CAPABILITY_MISSING', network: 'qortium', retryable: false },
+        )
+      }
       // Signing families whose Android arm lives in the Home shell: reaching
       // the client means the approval was bypassed, so refuse plainly rather
       // than falling through to the generic read-only message, which would
