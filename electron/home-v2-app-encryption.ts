@@ -7,6 +7,20 @@ import { base58Decode, base58Encode } from './base58.js'
  * Qortal's `qortalGroupEncryptedData` envelope, for the app-facing
  * ENCRYPT_DATA / DECRYPT_DATA family.
  *
+ * NAMING, BECAUSE THE OBVIOUS READING IS WRONG. Despite the envelope's
+ * `qortalGroupEncryptedData` marker, this is NOT Qortal's
+ * `ENCRYPT_QORTAL_GROUP_DATA` action. This is Qortal Hub's `encryptDataGroup`,
+ * which backs plain **`ENCRYPT_DATA`**: it wraps one message key to a LIST OF
+ * RECIPIENT PUBLIC KEYS, and "group" in the marker means that set of readers.
+ *
+ * `ENCRYPT_QORTAL_GROUP_DATA` is a different mechanism entirely — it takes a
+ * `groupId`, fetches the group's shared symmetric key from a DOCUMENT_PRIVATE
+ * resource published by the group's admins, and encrypts with
+ * `encryptSingle` (see Qortal-Hub/src/qortal/get.ts `encryptQortalGroupData`).
+ * It shares no wire format with this file. These functions were originally
+ * named after the marker, which put a plausible-looking but incorrect
+ * implementation one autocomplete away from being wired to that action.
+ *
  * THE FORMAT IS THE POINT. Data an app encrypts through Home must be readable
  * by every other Qortal client, and data those clients produced must be
  * readable here — otherwise "encryption support" would mean an app's data is
@@ -139,18 +153,18 @@ export type QortalEncryptedDataTestSeams = {
   readonly nonce: Uint8Array
 }
 
-export function encryptQortalGroupData(input: QortalEncryptedDataInput): string {
-  return encryptQortalGroupDataInternal(input)
+export function encryptQortalPublicKeyEnvelope(input: QortalEncryptedDataInput): string {
+  return encryptQortalPublicKeyEnvelopeInternal(input)
 }
 
-export function encryptQortalGroupDataForTest(
+export function encryptQortalPublicKeyEnvelopeForTest(
   input: QortalEncryptedDataInput,
   seams: QortalEncryptedDataTestSeams,
 ): string {
-  return encryptQortalGroupDataInternal(input, seams)
+  return encryptQortalPublicKeyEnvelopeInternal(input, seams)
 }
 
-function encryptQortalGroupDataInternal(
+function encryptQortalPublicKeyEnvelopeInternal(
   input: QortalEncryptedDataInput,
   seams?: QortalEncryptedDataTestSeams,
 ): string {
@@ -240,7 +254,7 @@ export type QortalDecryptedData = {
  * can compute. A failure to open any of them means the data was not encrypted
  * to this account.
  */
-export function decryptQortalGroupData(input: {
+export function decryptQortalPublicKeyEnvelope(input: {
   readonly encryptedBase64: string
   readonly readerPrivateKey: Uint8Array
 }): QortalDecryptedData {

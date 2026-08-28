@@ -355,6 +355,11 @@ import {
   type HomeV2RatingAction,
   type HomeV2RatingWirePayload,
 } from './home-v2-rating-actions.js'
+import { encryptQortalPublicKeyEnvelope } from './home-v2-app-encryption.js'
+import {
+  HOME_V2_ENCRYPT_DATA_OPERATION_LABEL,
+  normalizeHomeV2EncryptDataRequest,
+} from './home-v2-encryption-actions.js'
 import type { HomeV2PublishSourceBinding } from './home-v2-publish-source-tokens.js'
 import {
   appendHomeV2GroupMembershipSignature,
@@ -578,6 +583,11 @@ const DIRECT_CHAT_READ_RESPONSE_MAX_BYTES = 1024 * 1024
 const PRIVATE_GROUP_CHAT_READ_RESPONSE_MAX_BYTES = 2 * 1024 * 1024
 
 type AccountReadAction =
+  // Uses the account key but reads no account data and signs nothing: it
+  // returns ciphertext. Named here only because every promptable action passes
+  // through requireAccountReadPermission; it is NOT in the 'account.read'
+  // grant family, and homeV2PermissionGrantFamily keeps it under its own name.
+  | 'ENCRYPT_DATA'
   | 'GET_SELECTED_ACCOUNT'
   | 'GET_USER_ACCOUNT'
   // Permissionless (home-v2-session-grants.ts); it appears here only because
@@ -1464,6 +1474,11 @@ async function requireAccountReadPermission(
     readonly target: string
     readonly targetChainLabel: string
   } | {
+    readonly kind: 'encrypt'
+    // The rows the user sees, already ordered to the disclosure contract.
+    readonly encryptDetails: readonly { readonly label: string; readonly value: string }[]
+    readonly operationLabel: string
+  } | {
     readonly kind: 'rating'
     readonly operationLabel: string
     // The per-action rows, escaped and re-validated in the shell. A
@@ -1796,6 +1811,17 @@ async function requireAccountReadPermission(
                 writeRouteLabel: writeDetails.routeLabel,
                 writeSingleRequestOnly: true,
                 writeTargetChainLabel: writeDetails.targetChainLabel,
+              }
+          : writeDetails?.kind === 'encrypt'
+            ? {
+                encryptDetails: writeDetails.encryptDetails.map((detail) => ({ ...detail })),
+                writeKind: 'encrypt',
+                writeOperationLabel: writeDetails.operationLabel,
+                // Deliberately NOT single-request: encryption returns
+                // ciphertext and is not an oracle, so a durable grant is
+                // offered. There is no route or chain row because the
+                // operation touches neither.
+                writeSingleRequestOnly: false,
               }
           : writeDetails?.kind === 'rating'
             ? {
@@ -9211,6 +9237,54 @@ async function handleRequestWithRuntime(
   }
   if (action === 'WHICH_UI') return 'QORTIUM_HOME_ELECTRON'
   if (action === 'GET_HOST_INFO') return hostInfo
+
+  if (action === 'ENCRYPT_DATA') {
+    if (!context.accountId) throw new Error('No account is selected for this tab.')
+    const accountId = context.accountId
+    // The key is needed to derive each recipient's shared secret, so a locked
+    // account refuses BEFORE the prompt: asking the user to approve something
+    // that cannot then run is a worse experience than saying why.
+    if (!isAccountUnlocked(accountId)) {
+      throw createHomeV2BridgeError('The selected account is locked.', {
+        action,
+        code: 'ACCOUNT_LOCKED',
+        network: hostInfo.network,
+        retryable: false,
+        routeRevision: hostInfo.route.revision,
+      })
+    }
+    const request = normalizeHomeV2EncryptDataRequest(requestValue)
+    await requireAccountReadPermission(sender, context, protocol, action, {
+      kind: 'encrypt',
+      encryptDetails: [
+        {
+          label: 'Recipients',
+          value: request.publicKeys.length === 0
+            // Qortal's documented default, and worth saying plainly: with no
+            // recipient keys the envelope is readable by this account alone.
+            ? 'You only'
+            : `${request.publicKeys.length} recipient${request.publicKeys.length === 1 ? '' : 's'}, plus you`,
+        },
+        ...request.publicKeys.map((key, index) => ({
+          label: `Recipient ${index + 1}`,
+          value: key,
+        })),
+      ],
+      operationLabel: HOME_V2_ENCRYPT_DATA_OPERATION_LABEL,
+    })
+    // Read the key only AFTER approval, and zero it on every path out.
+    const signingKey = getAccountSecretKey(accountId)
+    try {
+      return encryptQortalPublicKeyEnvelope({
+        data64: request.data64,
+        recipientPublicKeys58: request.publicKeys,
+        senderPrivateKey: signingKey.secretKey,
+        senderPublicKey58: signingKey.publicKey58,
+      })
+    } finally {
+      signingKey.secretKey.fill(0)
+    }
+  }
   if (action === 'SHOW_CONTEXT_MENU') {
     return showHomeV2DesktopContextMenu(sender, context, protocol, requestValue)
   }

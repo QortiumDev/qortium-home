@@ -26,6 +26,11 @@ const MAX_IDENTITY_ADDRESSES = 500
 const MAX_ADDRESS_LENGTH = 2_048
 
 const COMMON_ACTIONS = [
+  // Encryption belongs on BOTH protocols because it has no chain semantics at
+  // all: it uses the selected account's key, which is one keypair across
+  // Qortal and Qortium, and touches no node. A Qortal app calling
+  // ENCRYPT_DATA gets Qortal's exact behaviour and wire format.
+  'ENCRYPT_DATA',
   'FETCH_NODE_API',
   'FORGET_PENDING_TRANSACTION',
   'GET_PENDING_TRANSACTIONS',

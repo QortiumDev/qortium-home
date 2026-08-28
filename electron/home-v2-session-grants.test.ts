@@ -461,4 +461,31 @@ assert.equal(store.size(), 1)
   assert.equal(navigated.has('tab-a-mutation'), false)
 }
 
+// --- ENCRYPT_DATA must never inherit an account-read grant ---------------
+// This is the silent-failure case worth pinning: if ENCRYPT_DATA ever became a
+// member of the account-read family, a user's existing "always allow" for
+// reading their account would start covering use of their KEY, with no new
+// prompt and nothing in the UI to show it had widened.
+assert.equal(isHomeV2AccountReadAction('ENCRYPT_DATA'), false)
+assert.equal(homeV2DurableAccountReadCapability('ENCRYPT_DATA'), null)
+assert.equal(homeV2PermissionGrantFamily('ENCRYPT_DATA'), 'ENCRYPT_DATA')
+assert.notEqual(homeV2PermissionGrantFamily('ENCRYPT_DATA'), 'account.read')
+{
+  // ...and the grant KEYS must differ too, since the key is what the session
+  // store actually looks up.
+  const base = {
+    accountId: 'account-1',
+    accountUnlocked: true,
+    appIdentity: 'qdn://APP/Demo/Demo',
+    nodeRoute: 'none',
+    principalId: 'android' as const,
+    protocol: 'qdnRequest',
+    tabId: 'tab-1',
+  }
+  assert.notEqual(
+    homeV2PermissionGrantKey({ ...base, action: 'ENCRYPT_DATA' }),
+    homeV2PermissionGrantKey({ ...base, action: 'GET_SELECTED_ACCOUNT' }),
+  )
+}
+
 console.log('Home v2 session grant tests passed')

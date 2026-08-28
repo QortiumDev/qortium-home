@@ -9,6 +9,7 @@ import {
   buildHomeV2ResourcePath,
   buildHomeV2ResourceRenderPath,
   resolveHomeV2AppAlias,
+  getHomeV2AppNetwork,
   getHomeV2AppActions,
   homeV2AppAddressNamesIdentifier,
   HOME_V2_QORTAL_COMPAT_ALIASES,
@@ -1440,5 +1441,20 @@ for (const action of ['CREATE_GROUP', 'UPDATE_GROUP', 'GROUP_APPROVAL', 'SET_GRO
   assert.equal(qdnActions.includes(action), true, `qdnRequest should advertise ${action}`)
   assert.equal(qortalActions.includes(action), false, `qortalRequest must not advertise ${action}`)
 }
+
+// --- ENCRYPT_DATA is on BOTH protocols ----------------------------------
+// It has no chain semantics: one account key serves Qortal and Qortium, and it
+// touches no node. A Qortal app calling it must get Qortal's own behaviour.
+assert.equal(getHomeV2AppActions('qdnRequest').includes('ENCRYPT_DATA'), true)
+assert.equal(getHomeV2AppActions('qortalRequest').includes('ENCRYPT_DATA'), true)
+// The network helper must not claim a chain for it beyond the protocol's own
+// default — it is not a chain-scoped action.
+assert.equal(getHomeV2AppNetwork('qdnRequest', 'ENCRYPT_DATA'), 'qortium')
+assert.equal(getHomeV2AppNetwork('qortalRequest', 'ENCRYPT_DATA'), 'qortal')
+// ENCRYPT_QORTAL_GROUP_DATA is a DIFFERENT mechanism (a groupId and a shared
+// symmetric key fetched from QDN), not this envelope. It must not appear until
+// it is actually implemented, or SHOW_ACTIONS would advertise a lie.
+assert.equal(getHomeV2AppActions('qdnRequest').includes('ENCRYPT_QORTAL_GROUP_DATA'), false)
+assert.equal(getHomeV2AppActions('qortalRequest').includes('ENCRYPT_QORTAL_GROUP_DATA'), false)
 
 console.log('Home v2 app action contract tests passed.')

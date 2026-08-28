@@ -34,6 +34,34 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-28 - feat(apps): apps can encrypt data with your account key
+
+Qortal apps can ask a wallet to encrypt something so that only chosen people
+can read it. Home now answers that request, using the same encrypted format
+every other Qortal client uses, so data an app encrypts here can be read
+elsewhere and data written elsewhere can be read here.
+
+Home asks before it does this, and the request shows exactly who will be able
+to read the result. If an app names no recipients at all, the answer is
+spelled out plainly: only you will be able to read it. You can approve one
+request, or approve for the rest of the session so an app that encrypts
+repeatedly does not interrupt you each time.
+
+The app never sees your key, and it never receives anything readable — only
+the encrypted result. It still cannot send or publish what it encrypted
+without asking you separately.
+
+On Android the encryption happens inside the same protected component that
+holds your keys, and that component works out the recipients again from the
+original request rather than taking the rest of the app's word for it. If they
+do not match what you approved, it refuses.
+
+One related action, `ENCRYPT_QORTAL_GROUP_DATA`, is deliberately still not
+implemented. Its name suggests it is the same thing, and it is not: it
+encrypts to a Qortal group using a shared key that group administrators
+publish, which Home cannot yet read. Implementing it as though it were the
+same would have produced data nothing else could open.
+
 ### 2026-08-28 - fix(android): enforce same-origin QDN app connections
 
 Android now keeps the Qortium node's Content Security Policy when it injects

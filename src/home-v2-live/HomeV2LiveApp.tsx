@@ -141,6 +141,10 @@ import {
 } from '../../electron/qdn-resource-viewer-contract'
 import type { QdnAppRequest } from '../../electron/qdn-request-values'
 import {
+  HOME_V2_ENCRYPT_DATA_OPERATION_LABEL,
+  normalizeHomeV2EncryptDataRequest,
+} from '../../electron/home-v2-encryption-actions'
+import {
   validateBookmarkManagerMutationRequest,
   validateBookmarksOpenRequest,
   type BookmarkManagerDashboardPin,
@@ -794,6 +798,54 @@ function isPollDetailRows(
     if (!expected.optional) return false
   }
   return position === value.length
+}
+
+/**
+ * The ENCRYPT_DATA disclosure contract.
+ *
+ * Written as a rule rather than as a *_DETAIL_SEQUENCES entry because the row
+ * count is genuinely variable — up to 256 recipients — and enumerating 256
+ * optional labels would express the same thing far less clearly. The rule is
+ * still exact: row 0 is the summary, and every following row is
+ * `Recipient <n>` numbered from 1 with no gaps, in order. A forged payload
+ * cannot reorder, renumber, skip, or pad the recipient list.
+ */
+function isEncryptDetailRows(value: unknown): value is readonly { label: string; value: string }[] {
+  if (!Array.isArray(value) || value.length < 1 || value.length > 257) return false
+  const wellFormed = (candidate: unknown, label: string) =>
+    isRecord(candidate) &&
+    Object.keys(candidate).length === 2 &&
+    candidate.label === label &&
+    typeof candidate.value === 'string' &&
+    candidate.value.length >= 1 &&
+    candidate.value.length <= 4_000 &&
+    !/[\u0000-\u001f\u007f]/.test(candidate.value)
+  if (!wellFormed(value[0], 'Recipients')) return false
+  for (let index = 1; index < value.length; index += 1) {
+    if (!wellFormed(value[index], `Recipient ${index}`)) return false
+  }
+  return true
+}
+
+/**
+ * The ENCRYPT_DATA rows, escaped and then re-checked against the same rule the
+ * desktop prompt is checked against. Kept beside isEncryptDetailRows so the
+ * producer and the validator cannot drift.
+ */
+function androidEncryptDetails(publicKeys: readonly string[]) {
+  const rows = [
+    {
+      label: 'Recipients',
+      value: publicKeys.length === 0
+        ? 'You only'
+        : `${publicKeys.length} recipient${publicKeys.length === 1 ? '' : 's'}, plus you`,
+    },
+    ...publicKeys.map((key, index) => ({ label: `Recipient ${index + 1}`, value: key })),
+  ].map((row) => ({ label: row.label, value: androidPromptText(row.value) }))
+  if (!isEncryptDetailRows(rows)) {
+    throw new Error('ENCRYPT_DATA prompt rows do not match its disclosure contract.')
+  }
+  return rows
 }
 
 type HomeV2ReplaceTabTarget = ReplaceTabTarget
@@ -3242,7 +3294,8 @@ export function HomeV2LiveApp() {
         typeof value.requestId !== 'string' ||
         (value.protocol !== 'qdnRequest' && value.protocol !== 'qortalRequest') ||
         (typeof value.action !== 'string' ||
-          (value.action !== 'GET_SELECTED_ACCOUNT' &&
+          (value.action !== 'ENCRYPT_DATA' &&
+            value.action !== 'GET_SELECTED_ACCOUNT' &&
             value.action !== 'GET_USER_ACCOUNT' &&
             value.action !== 'GET_PENDING_TRANSACTIONS' &&
             value.action !== 'FORGET_PENDING_TRANSACTION' &&
@@ -3459,6 +3512,16 @@ export function HomeV2LiveApp() {
             typeof value.writeRouteLabel !== 'string' ||
             value.writeTargetChainLabel !== 'Qortium' ||
             value.writeSingleRequestOnly !== true))
+        // ENCRYPT_DATA is caption-pinned and row-pinned, and — unlike every
+        // clause around it — must NOT be single-request: it returns
+        // ciphertext, signs nothing, and is offered a session grant. It is
+        // deliberately not protocol- or chain-pinned, because it runs on both
+        // protocols and touches no chain.
+        || (value.action === 'ENCRYPT_DATA' &&
+          (value.writeKind !== 'encrypt' ||
+            !isEncryptDetailRows(value.encryptDetails) ||
+            value.writeOperationLabel !== HOME_V2_ENCRYPT_DATA_OPERATION_LABEL ||
+            value.writeSingleRequestOnly !== false))
         // Rating writes sign chain transactions: fully specified
         // single-request, protocol/chain-pinned, caption-pinned (each action
         // has exactly two legitimate captions — rate and remove), exact
@@ -3627,16 +3690,19 @@ export function HomeV2LiveApp() {
       // chains. Only the title, summary and details change, so the prompt
       // stops calling a private-group key resolution "read-only account
       // access". Splitting the GRANT is a separate decision, not made here.
+      const isEncrypt = value.action === 'ENCRYPT_DATA'
       const accountReadPromptKind = homeV2AccountReadPromptKind(value.action)
       const isGenericAccountRead = accountReadPromptKind === 'account'
-      const operationLabel = isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment || isNotification || isBookmarkManager || isNotificationManager || isHomeSettingsUpdate || isJournalForget || isMintingWrite || isListWrite || isPollWrite || isNameWrite || isGroupMutation || isPublishMultiple || isQdnDelete || isRatingWrite || isAccountAvatar || isPaymentSend || isAtMessage
+      const operationLabel = isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment || isNotification || isBookmarkManager || isNotificationManager || isHomeSettingsUpdate || isJournalForget || isMintingWrite || isListWrite || isPollWrite || isNameWrite || isGroupMutation || isPublishMultiple || isQdnDelete || isRatingWrite || isAccountAvatar || isPaymentSend || isAtMessage || isEncrypt
         ? String(value.writeOperationLabel)
         : ''
       const prompt = createPermissionPrompt({
         id: brand<PermissionRequestId>(value.requestId),
         protocol: value.protocol,
         action: value.action,
-        capability: isWidgetPrompt
+        capability: isEncrypt
+          ? 'account.encrypt'
+          : isWidgetPrompt
           ? 'window.widget.open'
           : isAccountRead
           ? 'account.read'
@@ -3921,6 +3987,18 @@ export function HomeV2LiveApp() {
               { label: 'Chain', value: String(value.writeTargetChainLabel) },
               { label: 'Scope', value: 'This one transaction only' },
             ]
+          : isEncrypt
+          ? [
+              { label: 'Account', value: account?.label ?? accountId },
+              { label: 'Operation', value: operationLabel },
+              // The recipient rows, re-checked against the rule above.
+              ...(value.encryptDetails as readonly { label: string; value: string }[])
+                .map((detail) => ({ label: detail.label, value: detail.value })),
+              {
+                label: 'Result',
+                value: 'The app receives encrypted data. It cannot send or publish it without asking you again.',
+              },
+            ]
           : isRatingWrite
           ? [
               { label: 'Account', value: account?.label ?? accountId },
@@ -4139,6 +4217,18 @@ export function HomeV2LiveApp() {
           // writeSingleRequestOnly reaching us intact, and the main process
           // independently refuses to retain a grant for it.
           ? ['single-request']
+          // Second, and only after the signing arm above: a test pins
+          // SEND_MESSAGE's arm first so no later edit can shadow it.
+          //
+          // Session, not 'always'. Encryption is safe to grant durably — it is
+          // not an oracle — but the durable store is account-scoped and
+          // surfaces a revocation card in QDN Apps settings, and neither
+          // exists for this capability yet. Offering 'always' before that
+          // machinery lands would store a grant nothing reads: the user would
+          // be asked again anyway, having been told otherwise. A session grant
+          // already removes the per-request clicking.
+          : isEncrypt
+          ? ['single-request', 'session']
           : isWidgetPrompt
           ? ['single-request', 'session']
           : isNotification
@@ -4791,6 +4881,90 @@ export function HomeV2LiveApp() {
             },
           )
         }
+      }
+      // ENCRYPT_DATA on Android. Deliberately BEFORE the pending-transaction
+      // conflict gate and outside every node check: it signs nothing, reaches
+      // no node, and has no chain to conflict with. Runs on both protocols,
+      // because the account key is one key across Qortal and Qortium.
+      if (isAndroidHost && action === 'ENCRYPT_DATA') {
+        if (!context.selectedAccountId) throw new Error('No account is selected for this tab.')
+        const accountId = context.selectedAccountId
+        const account = accountCatalogueRef.current.accounts.find((candidate) => candidate.id === accountId)
+        if (!account) throw new Error('The selected account is no longer available.')
+        if (!account.isUnlocked) throw new Error('The selected account is locked.')
+        if (!vaultClient?.encryptData) throw new Error('Encryption is unavailable on this platform.')
+        // Normalized HERE only to describe the operation. The vault
+        // re-normalizes the same request through the same shared code and
+        // refuses if the recipients differ, so the rows and the ciphertext
+        // cannot disagree.
+        if (!isRecord(requestValue)) throw new Error('ENCRYPT_DATA requires a request object.')
+        const encryptValue = requestValue
+        const encryptRequest = normalizeHomeV2EncryptDataRequest(encryptValue)
+        const grantKey = homeV2PermissionGrantKey({
+          accountId,
+          accountUnlocked: account.isUnlocked,
+          action,
+          appIdentity: context.resourceLocation,
+          // No node is involved, so there is no route to bind to. A constant
+          // keeps the key stable rather than tying the grant to whichever
+          // route happened to be selected when it was given.
+          nodeRoute: 'none',
+          principalId: 'android',
+          protocol,
+          tabId: context.tabId,
+        })
+        if (!androidSessionAccountGrants.current.has(grantKey)) {
+          const parsedApp = resolveAppIdentity()
+          const appId = brand<AppId>(`home-v2:permission-app:${parsedApp.identityKey}`)
+          const decision = await queueAndroidPermissionPrompt(createPermissionPrompt({
+            id: brand<PermissionRequestId>(globalThis.crypto.randomUUID()),
+            protocol,
+            action,
+            capability: 'account.encrypt',
+            appId,
+            appIdentityKey: parsedApp.identityKey,
+            appTitle: parsedApp.title,
+            context: {
+              appId,
+              identityId: brand<IdentityId>(`home-v2:identity:${accountId}`),
+              nodeProfileRef: snapshot.nodes.qortium.ref,
+              tabId: brand<TabId>(context.tabId),
+              targetNetwork: 'qortium',
+              walletRef: brand<WalletRef>(`home-v2:wallet:${account.walletId}`),
+            },
+            title: `Allow ${HOME_V2_ENCRYPT_DATA_OPERATION_LABEL.toLowerCase()}?`,
+            summary: `${parsedApp.title} wants to encrypt data with the selected account's key. The app receives only the encrypted result — it cannot read your messages, and it cannot send or publish what it encrypts without asking you again.`,
+            details: [
+              { label: 'Account', value: account.label },
+              { label: 'Operation', value: HOME_V2_ENCRYPT_DATA_OPERATION_LABEL },
+              // Held to the same rule the desktop prompt is held to.
+              ...androidEncryptDetails(encryptRequest.publicKeys),
+              {
+                label: 'Result',
+                value: 'The app receives encrypted data. It cannot send or publish it without asking you again.',
+              },
+            ],
+            allowedScopes: ['single-request', 'session'],
+          }), context.tabId)
+          if (!decision.approved) throw new Error('The encryption request was denied.')
+          if (decision.scope === 'session') {
+            androidSessionAccountGrants.current.add(grantKey, {
+              family: homeV2PermissionGrantFamily(action),
+              hostWebContentsId: 'android',
+              network: 'qortium',
+              tabId: context.tabId,
+            })
+          }
+        }
+        const currentAccount = accountCatalogueRef.current.accounts.find((candidate) => candidate.id === accountId)
+        if (!currentAccount?.isUnlocked) {
+          throw new Error('The selected account was locked before the data could be encrypted.')
+        }
+        return await vaultClient.encryptData({
+          accountId,
+          approvedRecipientPublicKeys: encryptRequest.publicKeys,
+          requestValue: encryptValue,
+        })
       }
       await assertNoPendingTransactionConflict()
       // Poll writes on Android. The builders are Core's keyless
