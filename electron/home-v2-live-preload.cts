@@ -244,8 +244,8 @@ contextBridge.exposeInMainWorld('homeV2CoreManagers', {
       schema: 'home-v2-core-maintenance-release-request',
     }),
   runMaintenanceAction: (
-    action: 'initial-install' | 'install-java' | 'strict-update',
-    release?: { channel: 'prerelease' | 'stable'; expectedTag: string },
+    action: 'downgrade' | 'initial-install' | 'install-java' | 'strict-update',
+    release?: { channel: 'prerelease' | 'stable'; confirmDowngrade?: boolean; expectedTag: string },
   ) => ipcRenderer.invoke('home-v2-core-manager:runMaintenanceAction', {
     action,
     ...(release ?? {}),

@@ -54,6 +54,8 @@ export function CoreMaintenancePanel({
     installJava,
     notice,
     policy,
+    confirmDowngrade,
+    pendingDowngrade,
     release,
     revealInstall,
     runCore,
@@ -203,7 +205,24 @@ export function CoreMaintenancePanel({
               {t('home2.core.nodeAutoUpdateMode', { mode: status.core.nodeAutoUpdateMode })}
             </small>
           ) : null}
-          {status.core.installModified ? (
+          {pendingDowngrade ? (
+        // Going backwards is never implicit. The prompt names both versions,
+        // because "downgrade?" without them is not something anyone can answer.
+        <div className="home-v2-core-notice" role="alert" data-home-v2-core-downgrade-confirm>
+          <p>
+            {t('home2.core.downgradeConfirm', {
+              installed: pendingDowngrade.installedVersion,
+              target: pendingDowngrade.targetVersion,
+            })}
+          </p>
+          <button className="home-v2-danger-button" type="button"
+            disabled={busy !== null}
+            onClick={() => void confirmDowngrade()}>
+            {t('home2.core.downgradeConfirmAction')}
+          </button>
+        </div>
+      ) : null}
+      {status.core.installModified ? (
             // 1.x said so plainly and used it to offer a way back. Home 2 never
             // showed it at all, so a tampered or damaged install was invisible.
             <small data-home-v2-core-install-modified role="status">
@@ -238,7 +257,8 @@ export function CoreMaintenancePanel({
               Show install folder
             </button>
           ) : null}
-          {release && release.offers.length > 1 ? (
+          {release && (release.offers.length > 1 ||
+            release.offers.some((offer) => offer.relation === 'downgrade')) ? (
             // Home 2 previously installed whatever channel was already
             // installed. Both are offered now: the newest stable always, and a
             // prerelease only when it is strictly newer than that stable.
@@ -253,15 +273,23 @@ export function CoreMaintenancePanel({
               >
                 {release.offers.map((offer) => (
                   <option key={`${offer.channel}:${offer.tag}`} value={offer.tag}>
-                    {offer.channel === 'prerelease'
-                      ? t('home2.core.releasePrerelease', { tag: offer.tag })
-                      : t('home2.core.releaseStable', { tag: offer.tag })}
+                    {offer.relation === 'downgrade'
+                      ? t('home2.core.releaseOlder', { tag: offer.tag })
+                      : offer.channel === 'prerelease'
+                        ? t('home2.core.releasePrerelease', { tag: offer.tag })
+                        : t('home2.core.releaseStable', { tag: offer.tag })}
                   </option>
                 ))}
               </select>
             </label>
           ) : null}
-          {release?.tag && release.action !== 'none' ? (() => {
+          {release?.tag && (release.action !== 'none' || release.offers.length > 0) ? (() => {
+            // `action` only ever describes the forward move, so a release that
+            // is offered ONLY as a downgrade would otherwise have no button.
+            const chosen = release.offers.find((offer) => offer.tag === selectedReleaseTag)
+              ?? release.offers[0]
+              ?? null
+            const isDowngrade = chosen?.relation === 'downgrade'
             // Same rule as the dashboard tile, deliberately read from the same
             // capability rather than re-derived: an update to a Home-started
             // Core no longer needs it stopped first. Leaving this panel on the
@@ -276,9 +304,11 @@ export function CoreMaintenancePanel({
                 disabled={busy !== null || blocked} onClick={() => void runCore()}>
                 {busy === 'core'
                   ? 'Working…'
-                  : release.action === 'initial-install'
-                    ? 'Install Core'
-                    : restarts ? 'Update and restart Core' : 'Update Core'}
+                  : isDowngrade
+                    ? t('home2.core.downgradeStart')
+                    : release.action === 'initial-install'
+                      ? 'Install Core'
+                      : restarts ? 'Update and restart Core' : 'Update Core'}
               </button>
             )
           })() : null}

@@ -34,6 +34,18 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-29 - feat(core): install an older Core version, with confirmation
+
+Home could only ever move forward. Older releases now appear in the release
+list, and choosing one asks before it happens: the prompt names the version
+being installed and the newer one it replaces, and nothing is installed until
+that question is answered. Home 1.x did not offer this at all.
+
+The permission that actually authorises going backwards is created and kept
+inside the part of Home that manages the Core, and is spent once. It is never
+handed to the part of Home that draws the interface, which only ever sends back
+a plain yes.
+
 ### 2026-08-29 - fix(core): say when the installed Core has been modified
 
 Home checks whether the Core it installed still matches what it installed, and

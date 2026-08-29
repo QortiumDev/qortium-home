@@ -45,6 +45,10 @@ export function useHomeV2CoreMaintenance(options: {
   const [notice, setNotice] = useState<string | null>(null)
   // Which offered release the user picked; null means take the default.
   const [selectedReleaseTag, setSelectedReleaseTag] = useState<string | null>(null)
+  // The downgrade the user has been asked to confirm, if any. Holds only the
+  // two version strings; the token authorising it stays in the main process.
+  const [pendingDowngrade, setPendingDowngrade] =
+    useState<{ installedVersion: string; targetVersion: string } | null>(null)
   const [initialLoadFailed, setInitialLoadFailed] = useState(false)
   // Live install/update progress. Null whenever nothing is running, so the UI
   // shows a bar only while there is something to report.
@@ -135,9 +139,12 @@ export function useHomeV2CoreMaintenance(options: {
     }
   }
 
-  const runCore = async () => {
+  const runCore = async (confirmDowngrade = false) => {
     if (!client) return
-    if (!release?.tag || release.action === 'none') return
+    //  describes only the forward move, so a release offered ONLY as a
+    // downgrade reports 'none'. An offer is enough to act on.
+    if (!release?.tag) return
+    if (release.action === 'none' && release.offers.length === 0) return
     // Install whichever release the user picked. The default is the newest
     // stable, which is offers[0]; a newer prerelease sits after it. Falling back
     // to release.tag keeps the old single-target behaviour when the node offers
@@ -146,8 +153,15 @@ export function useHomeV2CoreMaintenance(options: {
       ?? release.offers[0]
       ?? null
     const action = offer
-      ? (offer.relation === 'initial-install' ? 'initial-install' as const : 'strict-update' as const)
+      ? (offer.relation === 'initial-install'
+          ? 'initial-install' as const
+          : offer.relation === 'downgrade'
+            ? 'downgrade' as const
+            : 'strict-update' as const)
       : release.action
+    // With no offer to fall back on and no forward action, there is nothing to
+    // install. Narrowed here so 'none' can never reach the mutation request.
+    if (action === 'none') return
     setBusy('core')
     setNotice(null)
     try {
@@ -156,16 +170,29 @@ export function useHomeV2CoreMaintenance(options: {
         {
           channel: offer?.channel ?? release.channel,
           expectedTag: offer?.tag ?? release.tag,
+          ...(action === 'downgrade' ? { confirmDowngrade } : {}),
         },
       ))
+      // Not a failure -- the request for consent. Hold it so the panel can ask.
+      if (result.code === 'downgrade-confirmation-required' && result.downgrade) {
+        setPendingDowngrade(result.downgrade)
+      } else {
+        setPendingDowngrade(null)
+      }
+      const awaitingConsent =
+        result.code === 'downgrade-confirmation-required' && !!result.downgrade
       statusRef.current = result.status
       setStatus(result.status)
-      setRelease(null)
+      // Keep the release while consent is pending: clearing it would leave the
+      // confirm button with nothing to install.
+      if (!awaitingConsent) setRelease(null)
       setNotice(result.outcome === 'completed'
         ? 'Qortium Core maintenance completed.'
-        : result.code === 'release-changed'
-          ? 'The release changed. Check again before installing.'
-          : 'Qortium Core maintenance was not completed.')
+        : awaitingConsent
+          ? null
+          : result.code === 'release-changed'
+            ? 'The release changed. Check again before installing.'
+            : 'Qortium Core maintenance was not completed.')
       coreRefresh.current?.()
       void refresh().catch(() => undefined)
     } catch {
@@ -279,6 +306,8 @@ export function useHomeV2CoreMaintenance(options: {
     busy,
     canRevealInstall: typeof client?.revealInstall === 'function',
     check,
+    confirmDowngrade: () => runCore(true),
+    pendingDowngrade,
     selectedReleaseTag,
     setSelectedReleaseTag,
     initialLoadFailed,

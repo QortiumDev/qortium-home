@@ -128,7 +128,7 @@ export type HomeV2CoreMaintenanceStatus = {
  */
 export type HomeV2CoreReleaseOffer = {
   readonly channel: 'prerelease' | 'stable'
-  readonly relation: 'initial-install' | 'update'
+  readonly relation: 'downgrade' | 'initial-install' | 'update'
   readonly tag: string
 }
 
@@ -150,7 +150,21 @@ export type HomeV2CoreMaintenanceRelease = {
 }
 
 export type HomeV2CoreMaintenanceActionResult = {
-  readonly code: 'action-not-allowed' | 'operation-failed' | 'operation-in-progress' | 'release-changed' | null
+  readonly code:
+    | 'action-not-allowed'
+    | 'downgrade-confirmation-required'
+    | 'operation-failed'
+    | 'operation-in-progress'
+    | 'release-changed'
+    | null
+  /**
+   * The downgrade awaiting the user's yes, when `code` says one is required.
+   *
+   * Names both versions so the prompt can state exactly what is about to
+   * happen. The confirmation TOKEN is deliberately absent: it stays in the main
+   * process, and this contract forbids a token reaching the renderer at all.
+   */
+  readonly downgrade: { readonly installedVersion: string; readonly targetVersion: string } | null
   readonly outcome: 'blocked' | 'completed' | 'failed'
   readonly revision: 1
   readonly schema: 'home-v2-core-maintenance-action'
@@ -159,7 +173,7 @@ export type HomeV2CoreMaintenanceActionResult = {
 
 type CoreManagerResolver = (network: HomeV2CoreNetwork) => CoreManagerEntry
 type CoreAction = 'start' | 'stop'
-type MaintenanceAction = 'initial-install' | 'install-java' | 'strict-update'
+type MaintenanceAction = 'downgrade' | 'initial-install' | 'install-java' | 'strict-update'
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
@@ -192,10 +206,15 @@ function normalizeMaintenanceReleaseRequest(value: unknown) {
 function normalizeMaintenanceMutationRequest(value: unknown) {
   if (!isRecord(value) || value.schema !== 'home-v2-core-maintenance-mutation-request' ||
     value.revision !== 1 ||
-    (value.action !== 'initial-install' && value.action !== 'strict-update' && value.action !== 'install-java') ||
+    (value.action !== 'initial-install' && value.action !== 'strict-update' &&
+      value.action !== 'downgrade' && value.action !== 'install-java') ||
     (value.action === 'install-java'
       ? Object.keys(value).length !== 3 || 'channel' in value || 'expectedTag' in value
-      : Object.keys(value).length !== 5 ||
+      // A downgrade carries one extra key, the user's answer. It is a plain
+      // boolean: the token that actually authorises the downgrade never leaves
+      // the main process.
+      : Object.keys(value).length !== (value.action === 'downgrade' ? 6 : 5) ||
+        (value.action === 'downgrade' && typeof value.confirmDowngrade !== 'boolean') ||
         (value.channel !== 'stable' && value.channel !== 'prerelease') ||
         typeof value.expectedTag !== 'string' || !/^v?[a-z0-9][a-z0-9._-]*$/i.test(value.expectedTag))) {
     throw new Error('An exact Core maintenance mutation request is required.')
@@ -203,6 +222,7 @@ function normalizeMaintenanceMutationRequest(value: unknown) {
   return value as {
     action: MaintenanceAction
     channel?: 'prerelease' | 'stable'
+    confirmDowngrade?: boolean
     expectedTag?: string
   }
 }
@@ -300,8 +320,9 @@ function maintenanceActionResult(
   status: HomeV2CoreMaintenanceStatus,
   outcome: HomeV2CoreMaintenanceActionResult['outcome'],
   code: HomeV2CoreMaintenanceActionResult['code'],
+  downgrade: HomeV2CoreMaintenanceActionResult['downgrade'] = null,
 ): HomeV2CoreMaintenanceActionResult {
-  return { code, outcome, revision: 1, schema: 'home-v2-core-maintenance-action', status }
+  return { code, downgrade, outcome, revision: 1, schema: 'home-v2-core-maintenance-action', status }
 }
 
 function unavailableStatus(
@@ -638,14 +659,12 @@ function buildReleaseOffers(
     const comparison = compareCoreVersions(tag, installedVersion)
     if (comparison === null) return null
     if (comparison > 0) return 'update'
-    // Same version (repair) and older (downgrade) are deliberately NOT offered
-    // yet. core-manager has exactly two install modes, 'initial-install' and
-    // 'strict-update', and every guard tests for one of those by name --
-    // including the release commit verification and
-    // assertHomeV2CoreMaintenanceActivationSafe. `mode` is typed `unknown`, so
-    // inventing a third value would not repair anything; it would fall straight
-    // through those checks. 'strict-update' itself throws on a same-version
-    // install. Both cases need a real mode in core-manager first.
+    if (comparison < 0) return 'downgrade'
+    // Same version is still NOT offered. core-manager has exactly two install
+    // modes and every guard tests for one BY NAME, including the release commit
+    // verification and assertHomeV2CoreMaintenanceActivationSafe; `mode` is
+    // typed `unknown`, so inventing a third value would skip those rather than
+    // reinstall anything, and 'strict-update' throws on a same-version install.
     return null
   }
 
@@ -698,7 +717,22 @@ async function runMaintenanceAction(
     }
 
     const release = await checkMaintenanceRelease(request.channel!, () => manager)
-    if (release.tag !== request.expectedTag || release.action !== request.action) {
+    // A downgrade is validated against the OFFERS rather than `release.action`,
+    // which only ever describes the forward move. The requested tag must be one
+    // the user was actually shown as a downgrade.
+    if (request.action === 'downgrade') {
+      const offered = release.offers.some((offer) =>
+        offer.relation === 'downgrade' &&
+        offer.tag === request.expectedTag &&
+        offer.channel === request.channel)
+      if (!offered) {
+        return maintenanceActionResult(
+          await readMaintenanceStatus(() => manager),
+          'blocked',
+          'release-changed',
+        )
+      }
+    } else if (release.tag !== request.expectedTag || release.action !== request.action) {
       return maintenanceActionResult(
         await readMaintenanceStatus(() => manager),
         'blocked',
@@ -719,11 +753,25 @@ async function runMaintenanceAction(
       return maintenanceActionResult(status, 'blocked', 'action-not-allowed')
     }
 
-    await manager.install({
+    // Going backwards uses 'strict-update' as the install mode -- core-manager
+    // recognises only its two modes, and the downgrade itself is authorised by
+    // the confirmation token, not by the mode name.
+    const outcome = await manager.installForHomeV2({
       channel: request.channel,
+      confirmDowngrade: request.action === 'downgrade' && request.confirmDowngrade === true,
       expectedTag: request.expectedTag,
-      mode: request.action,
+      mode: request.action === 'downgrade' ? 'strict-update' : request.action,
     })
+    if (outcome.kind === 'downgrade-confirmation-required') {
+      // Not a failure: the request for consent. The token stays in the main
+      // process; only the two version strings cross.
+      return maintenanceActionResult(
+        await readMaintenanceStatus(() => manager),
+        'blocked',
+        'downgrade-confirmation-required',
+        { installedVersion: outcome.installedVersion, targetVersion: outcome.targetVersion },
+      )
+    }
     return maintenanceActionResult(await readMaintenanceStatus(() => manager), 'completed', null)
   } catch {
     return maintenanceActionResult(

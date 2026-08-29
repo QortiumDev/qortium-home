@@ -62,6 +62,7 @@ const client: HomeV2CoreManagerClient = {
   runMaintenanceAction: async (action, release) => {
     actions.push(`${action}:${release?.expectedTag ?? ''}`)
     return { code: null, outcome: 'completed', revision: 1,
+      downgrade: null,
       schema: 'home-v2-core-maintenance-action', status }
   },
   getUpdatePolicy: async () => currentPolicy,
@@ -395,6 +396,67 @@ try {
     })
     assert.equal(container.querySelector('[data-home-v2-core-install-modified]'), null)
     client.getMaintenanceStatus = originalStatus
+  }
+
+
+  // Going backwards asks first. The prompt must name BOTH versions, and nothing
+  // may be installed until the user answers.
+  {
+    const originalCheck = client.checkMaintenanceRelease
+    const originalRun = client.runMaintenanceAction
+    const calls: Array<{ action: string; confirmDowngrade?: boolean }> = []
+    client.checkMaintenanceRelease = async () => ({
+      action: 'none' as const, available: true, channel: 'stable' as const, revision: 1 as const,
+      offers: [{ channel: 'stable' as const, relation: 'downgrade' as const, tag: '1.5.0' }],
+      schema: 'home-v2-core-maintenance-release' as const, tag: '1.5.0',
+    })
+    client.runMaintenanceAction = async (action, release) => {
+      calls.push({ action, confirmDowngrade: release?.confirmDowngrade })
+      const confirmed = release?.confirmDowngrade === true
+      return {
+        code: confirmed ? null : 'downgrade-confirmation-required' as const,
+        downgrade: confirmed ? null : { installedVersion: '1.7.0', targetVersion: '1.5.0' },
+        outcome: confirmed ? 'completed' as const : 'blocked' as const,
+        revision: 1 as const,
+        schema: 'home-v2-core-maintenance-action' as const,
+        status: currentStatus,
+      }
+    }
+    act(() => root.unmount())
+    root = createRoot(container)
+    await act(async () => {
+      root.render(<CoreMaintenanceHarness />)
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    await act(async () => {
+      button('Check release').click()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    assert.match(container.textContent ?? '', /Older version 1\.5\.0/)
+
+    const startButton = button('Install older version')
+    await act(async () => {
+      startButton.click()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    assert(container.querySelector('[data-home-v2-core-downgrade-confirm]'),
+      'a downgrade must be confirmed before it happens')
+    assert.match(container.textContent ?? '', /replace the newer 1\.7\.0/)
+    assert.deepEqual(calls, [{ action: 'downgrade', confirmDowngrade: false }])
+
+    await act(async () => {
+      button('Install the older version').click()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    assert.deepEqual(calls[1], { action: 'downgrade', confirmDowngrade: true })
+    assert.equal(container.querySelector('[data-home-v2-core-downgrade-confirm]'), null)
+
+    client.checkMaintenanceRelease = originalCheck
+    client.runMaintenanceAction = originalRun
   }
 
 } finally {
