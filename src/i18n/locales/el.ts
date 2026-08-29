@@ -882,6 +882,8 @@ export const el: Record<TranslationKey, string> = {
   "home2.node.notConfigured": "δεν έχει ρυθμιστεί",
   "home2.node.peers": "{count} ομότιμοι",
   "home2.node.dataPeers": "{count} ομότιμοι δεδομένων",
+  "home2.node.peersWithI2p": "{count} ομότιμοι ({i2p} μέσω I2P)",
+  "home2.node.dataPeersWithI2p": "{count} ομότιμοι δεδομένων ({i2p} μέσω I2P)",
   "home2.node.waitingForStatus": "Αναμονή για την κατάσταση του κόμβου",
   "home2.nodeCore.description": "Συνδεθείτε σε ένα δίκτυο, διαχειριστείτε τον τοπικό Core του και κρατήστε το Home ενημερωμένο.",
   "home2.nodeCore.coreStateUnknown": "Το Home δεν μπορεί να επιβεβαιώσει αν ο Core έχει σταματήσει σε αυτό το σύστημα, γι' αυτό δεν θα εγκαταστήσει από πάνω του. Σταματήστε τον Core και μετά χρησιμοποιήστε την Ανανέωση.",

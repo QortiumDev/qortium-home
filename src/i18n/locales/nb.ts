@@ -882,6 +882,8 @@ export const nb: Record<TranslationKey, string> = {
   "home2.node.notConfigured": "ikke konfigurert",
   "home2.node.peers": "{count} noder",
   "home2.node.dataPeers": "{count} datanoder",
+  "home2.node.peersWithI2p": "{count} noder ({i2p} via I2P)",
+  "home2.node.dataPeersWithI2p": "{count} datanoder ({i2p} via I2P)",
   "home2.node.waitingForStatus": "Venter på nodestatus",
   "home2.nodeCore.description": "Koble til et nettverk, administrer den lokale Core-en og hold Home oppdatert.",
   "home2.nodeCore.coreStateUnknown": "Home kan ikke bekrefte om Core er stoppet på dette systemet, og installerer derfor ikke over den. Stopp Core, og bruk deretter Oppdater.",

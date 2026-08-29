@@ -881,6 +881,8 @@ export const ar: Record<TranslationKey, string> = {
   "home2.node.notConfigured": "غير مهيأ",
   "home2.node.peers": "{count} من الأقران",
   "home2.node.dataPeers": "{count} من أقران البيانات",
+  "home2.node.peersWithI2p": "{count} من الأقران ({i2p} عبر I2P)",
+  "home2.node.dataPeersWithI2p": "{count} من أقران البيانات ({i2p} عبر I2P)",
   "home2.node.waitingForStatus": "في انتظار حالة العقدة",
   "home2.nodeCore.description": "اتصل بشبكة، وأدر Core المحلي الخاص بها، وحافظ على تحديث Home.",
   "home2.nodeCore.coreStateUnknown": "لا يستطيع Home التأكد مما إذا كان Core متوقفًا على هذا النظام، لذلك لن يثبّت فوقه. أوقف Core ثم استخدم تحديث.",

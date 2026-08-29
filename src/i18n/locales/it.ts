@@ -881,6 +881,8 @@ export const it: Record<TranslationKey, string> = {
   "home2.node.notConfigured": "non configurato",
   "home2.node.peers": "{count} peer",
   "home2.node.dataPeers": "{count} peer di dati",
+  "home2.node.peersWithI2p": "{count} peer ({i2p} via I2P)",
+  "home2.node.dataPeersWithI2p": "{count} peer di dati ({i2p} via I2P)",
   "home2.node.waitingForStatus": "In attesa dello stato del nodo",
   "home2.nodeCore.description": "Connettiti a una rete, gestisci il suo Core locale e mantieni Home aggiornato.",
   "home2.nodeCore.coreStateUnknown": "Home non può confermare se il Core è arrestato su questo sistema, quindi non installerà sopra di esso. Arresta il Core, poi usa Aggiorna.",

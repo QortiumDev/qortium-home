@@ -881,6 +881,8 @@ export const et: Record<TranslationKey, string> = {
   "home2.node.notConfigured": "seadistamata",
   "home2.node.peers": "{count} partnerit",
   "home2.node.dataPeers": "{count} andmepartnerit",
+  "home2.node.peersWithI2p": "{count} partnerit ({i2p} üle I2P)",
+  "home2.node.dataPeersWithI2p": "{count} andmepartnerit ({i2p} üle I2P)",
   "home2.node.waitingForStatus": "Sõlme oleku ootamine",
   "home2.nodeCore.description": "Ühenda võrguga, halda selle kohalikku Core'i ja hoia Home ajakohasena.",
   "home2.nodeCore.coreStateUnknown": "Home ei suuda selles süsteemis kinnitada, kas Core on peatatud, seega ei paigalda ta selle peale. Peata Core ja kasuta seejärel Värskenda.",

@@ -34,6 +34,20 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-29 - feat(node): show how many peers are reached over I2P
+
+Home 1.x showed how a node's connections were split between direct internet
+addresses and I2P. Home 2 showed only totals, so there was no way to see whether
+I2P was carrying anything.
+
+The node panel now shows the split, for both the chain and the data network. It
+appears only when the node reports it: a node running an older Core does not send
+those numbers, and Home shows the plain totals rather than claiming that none of
+the connections use I2P, which is a different statement from not knowing.
+
+This needs a node running Qortium Core with the matching change. Nothing extra is
+asked of the node; the figures arrive in the same status reply Home already reads.
+
 ### 2026-08-29 - fix(account): offer name registration outside the first-run screen
 
 The welcome screen shown when Home is first set up explains that a name can be

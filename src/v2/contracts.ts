@@ -250,6 +250,12 @@ export interface NodeSummary {
   readonly peerCount: number | null
   /** Data-network peers, reported alongside chain peers by the same status call. */
   readonly dataPeerCount: number | null
+  /**
+   * Chain and data peers reached over I2P, or null on a Core too old to report
+   * them (qortium-core #282). The direct-IP count is the pool total minus this.
+   */
+  readonly i2pPeerCount: number | null
+  readonly i2pDataPeerCount: number | null
   readonly syncPercent: number | null
   readonly syncPhase: string | null
   readonly lastCheckedAt: number | null

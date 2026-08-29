@@ -881,6 +881,8 @@ export const pl: Record<TranslationKey, string> = {
   "home2.node.notConfigured": "nie skonfigurowany",
   "home2.node.peers": "{count} peerów",
   "home2.node.dataPeers": "{count} peerów danych",
+  "home2.node.peersWithI2p": "{count} peerów ({i2p} przez I2P)",
+  "home2.node.dataPeersWithI2p": "{count} peerów danych ({i2p} przez I2P)",
   "home2.node.waitingForStatus": "Oczekiwanie na stan węzła",
   "home2.nodeCore.description": "Połącz się z siecią, zarządzaj jej lokalnym Core i utrzymuj Home w aktualnej wersji.",
   "home2.nodeCore.coreStateUnknown": "Home nie może potwierdzić, czy Core jest zatrzymany w tym systemie, więc nie zainstaluje na nim aktualizacji. Zatrzymaj Core, a następnie użyj Odśwież.",

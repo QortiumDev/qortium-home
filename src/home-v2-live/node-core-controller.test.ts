@@ -249,4 +249,34 @@ for (const bad of [
   )
 }
 
+// The I2P split must survive the same round trip, and must stay NULL rather than
+// becoming 0 on a Core too old to report it (qortium-core #282) -- 0 would claim
+// every peer is direct IP, which is a different statement from "unknown".
+{
+  const base = createInitialHomeV2Nodes()
+  const split = parseHomeV2NodesSnapshot({
+    version: 1,
+    nodes: {
+      ...base,
+      qortium: {
+        ...base.qortium,
+        peerCount: 8,
+        dataPeerCount: 16,
+        i2pPeerCount: 8,
+        i2pDataPeerCount: 16,
+      },
+    },
+  })
+  assert.equal(split.qortium.i2pPeerCount, 8,
+    'i2pPeerCount must be RETURNED by the parser, not merely accepted')
+  assert.equal(split.qortium.i2pDataPeerCount, 16)
+
+  const olderCore = parseHomeV2NodesSnapshot({
+    version: 1,
+    nodes: { ...base, qortium: { ...base.qortium, peerCount: 8, dataPeerCount: 16 } },
+  })
+  assert.equal(olderCore.qortium.i2pPeerCount, null)
+  assert.equal(olderCore.qortium.i2pDataPeerCount, null)
+}
+
 console.log('home v2 node/core controller tests passed')

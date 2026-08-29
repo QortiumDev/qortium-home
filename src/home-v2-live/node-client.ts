@@ -793,6 +793,8 @@ function emptySummary(
     height: null,
     peerCount: null,
     dataPeerCount: null,
+    i2pPeerCount: null,
+    i2pDataPeerCount: null,
     syncPercent: null,
     syncPhase: null,
     lastCheckedAt: now,
@@ -955,6 +957,8 @@ export function createPortableNodeClient(
       // Mirrors electron/home-v2-node-bridge.ts. This assembly exists twice,
       // once per host; keep them together or the Android build silently drifts.
       dataPeerCount: numberField(status, 'numberOfDataConnections'),
+      i2pPeerCount: numberField(status, 'numberOfI2PConnections'),
+      i2pDataPeerCount: numberField(status, 'numberOfI2PDataConnections'),
       syncPercent: numberField(status, 'syncPercent'),
       syncPhase: stringField(status, 'syncPhase'),
       capabilities: {

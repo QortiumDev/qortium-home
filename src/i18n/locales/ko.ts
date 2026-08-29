@@ -881,6 +881,8 @@ export const ko: Record<TranslationKey, string> = {
   "home2.node.notConfigured": "구성되지 않음",
   "home2.node.peers": "{count} 피어",
   "home2.node.dataPeers": "{count} 데이터 피어",
+  "home2.node.peersWithI2p": "{count} 피어 ({i2p}개는 I2P 경유)",
+  "home2.node.dataPeersWithI2p": "{count} 데이터 피어 ({i2p}개는 I2P 경유)",
   "home2.node.waitingForStatus": "노드 상태를 기다리는 중",
   "home2.nodeCore.description": "네트워크에 연결하고 로컬 Core를 관리하며 Home을 최신 상태로 유지합니다.",
   "home2.nodeCore.coreStateUnknown": "이 시스템에서는 Core가 중지되었는지 Home이 확인할 수 없으므로 덮어써서 설치하지 않습니다. Core를 중지한 다음 새로 고침을 사용하세요.",
