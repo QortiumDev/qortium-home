@@ -1797,8 +1797,13 @@ function testCoreManagementRenderingAndAndroidDegrade(): void {
       layout="desktop"
       appUpdates={appUpdates}
       coreManagement={coreManagement}
+      onOpenReleaseNotes={() => undefined}
     />,
   )
+  // No release checked yet (result: null), so there is nothing to link to and
+  // no link is offered. The positive case is asserted below with a fixture
+  // that actually has a release.
+  assert.doesNotMatch(dashboard, /data-home-v2-node-core-action="home-release-notes"/)
   // Connections and Core management are one "Node & Core" section: exactly one
   // of them, one combined card per enabled network, in shell network order.
   assert.equal([...dashboard.matchAll(/class="home-v2-node-core"/g)].length, 1)
@@ -1839,6 +1844,47 @@ function testCoreManagementRenderingAndAndroidDegrade(): void {
     [...dashboard.matchAll(/data-home-v2-node-core-action="home-check"/g)].length,
     1,
   )
+  {
+    // Release notes reachable from the DASHBOARD once a release IS on offer —
+    // for the Home app and, the part Home 2 had lost, for the Core. 1.x
+    // offered these from six places; Home 2 had exactly one, in Settings,
+    // hard-coded to the Home product.
+    const withRelease = renderToStaticMarkup(
+      <HomeV2Prototype
+        snapshot={homeV2Fixture}
+        productState={createProductState()}
+        permissionState={createPermissionState()}
+        layout="desktop"
+        appUpdates={{
+          ...appUpdates,
+          result: {
+            platform: { label: 'Linux x64' },
+            release: { tagName: 'v2.1.0' },
+            state: 'available',
+          },
+        } as unknown as HomeV2AppUpdates}
+        coreManagement={coreManagement}
+        onOpenReleaseNotes={() => undefined}
+      />,
+    )
+    assert.match(withRelease, /data-home-v2-node-core-action="home-release-notes"/)
+  }
+  {
+    // Without a handler there are no release-notes links at all — the buttons
+    // are gated on the callback, not rendered dead.
+    const withoutHandler = renderToStaticMarkup(
+      <HomeV2Prototype
+        snapshot={homeV2Fixture}
+        productState={createProductState()}
+        permissionState={createPermissionState()}
+        layout="desktop"
+        appUpdates={appUpdates}
+        coreManagement={coreManagement}
+      />,
+    )
+    assert.doesNotMatch(withoutHandler, /data-home-v2-node-core-action="home-release-notes"/)
+    assert.doesNotMatch(withoutHandler, /data-home-v2-node-core-action="core-release-notes"/)
+  }
 
   const qortalDisabledSnapshot = {
     ...homeV2Fixture,

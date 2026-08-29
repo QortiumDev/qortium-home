@@ -36,9 +36,11 @@ function qortalPolicyDescription(policy: HomeV2CoreUpdatePolicy) {
 export function CoreMaintenancePanel({
   maintenance,
   networks = ['qortium', 'qortal'],
+  onOpenReleaseNotes,
 }: {
   readonly maintenance?: HomeV2CoreMaintenance
   readonly networks?: readonly NetworkId[]
+  readonly onOpenReleaseNotes?: (target: { product: 'core' | 'home'; tagName: string }) => void
 }) {
   const qortiumEnabled = networks.includes('qortium')
   const qortalEnabled = networks.includes('qortal')
@@ -211,6 +213,16 @@ export function CoreMaintenancePanel({
               </button>
             )
           })() : null}
+          {release?.tag && onOpenReleaseNotes ? (
+            <button
+              className="home-v2-link-button"
+              data-home-v2-core-release-notes={release.tag}
+              type="button"
+              onClick={() => onOpenReleaseNotes({ product: 'core', tagName: release.tag! })}
+            >
+              {t('releaseNotes.open')}
+            </button>
+          ) : null}
         </div>
         <CoreProgressBar progress={maintenance.progress} />
       </div> : null}

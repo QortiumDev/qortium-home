@@ -34,6 +34,15 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-29 - feat(updates): read the release notes before you install
+
+When an update is offered, there is now a link to read what changed — on the
+dashboard and in Settings, for the Core as well as for Home itself.
+
+Home could already display release notes for either, and the page for reading
+them was already there. There was simply only one link to it anywhere, and it
+always meant the Home app. Core release notes were unreachable.
+
 ### 2026-08-29 - feat(updates): a progress bar while Home downloads its own update
 
 Downloading a Home update showed only "Downloading…" until it finished. It now

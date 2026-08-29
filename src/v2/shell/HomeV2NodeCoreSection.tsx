@@ -26,6 +26,8 @@ const nodeModeLabelKeys: Readonly<Record<NodeConnectionMode, TranslationKey>> = 
 }
 
 export interface HomeV2NodeCoreSectionProps {
+  /** Opens the release-notes page for a product. Absent = no links shown. */
+  readonly onOpenReleaseNotes?: (target: { product: 'core' | 'home'; tagName: string }) => void
   readonly appUpdates?: HomeV2AppUpdates
   readonly coreManagement?: HomeV2CoreManagement
   /** The networks the user has enabled, in shell order. */
@@ -245,11 +247,13 @@ function CoreLifecycleActions({
   coreMaintenance,
   network,
   onChainCoreUpdates,
+  onOpenReleaseNotes,
   qortalMaintenance,
 }: {
   readonly coreMaintenance?: HomeV2CoreMaintenanceManagement
   readonly network: NetworkId
   readonly onChainCoreUpdates?: HomeV2OnChainCoreUpdates
+  readonly onOpenReleaseNotes?: (target: { product: 'core' | 'home'; tagName: string }) => void
   readonly qortalMaintenance?: HomeV2QortalMaintenanceManagement
 }) {
   if (network === 'qortal') {
@@ -352,6 +356,16 @@ function CoreLifecycleActions({
               : plan.releaseRestartsCore
                 ? t('home2.nodeCore.updateAndRestartCore')
                 : t('updates.installUpdate')}
+        </button>
+      ) : null}
+      {onOpenReleaseNotes && showRelease && release?.tag ? (
+        <button
+          type="button"
+          className="home-v2-link-button"
+          data-home-v2-node-core-action="core-release-notes"
+          onClick={() => onOpenReleaseNotes({ product: 'core', tagName: release.tag! })}
+        >
+          {t('releaseNotes.open')}
         </button>
       ) : null}
       <CoreProgressBar progress={coreMaintenance.progress} />
@@ -467,8 +481,10 @@ function TransportRow({
  * controls stay in Settings; this is only check / download / open.
  */
 function HomeUpdateRow({
+  onOpenReleaseNotes,
   updates,
 }: {
+  readonly onOpenReleaseNotes?: (target: { product: 'core' | 'home'; tagName: string }) => void
   readonly updates: HomeV2AppUpdates
 }) {
   const result = updates.result
@@ -494,6 +510,19 @@ function HomeUpdateRow({
         >
           {updates.busy === 'check' ? t('common.checking') : t('updates.checkForUpdates')}
         </button>
+        {onOpenReleaseNotes && result?.release?.tagName ? (
+          <button
+            type="button"
+            className="home-v2-link-button"
+            data-home-v2-node-core-action="home-release-notes"
+            onClick={() => onOpenReleaseNotes({
+              product: 'home',
+              tagName: result.release!.tagName,
+            })}
+          >
+            {t('releaseNotes.open')}
+          </button>
+        ) : null}
         {canDownload ? (
           <button
             type="button"
@@ -539,6 +568,7 @@ export function HomeV2NodeCoreSection({
   onChainCoreUpdates,
   onConfigureCustomNode,
   onOpenCoreDocs,
+  onOpenReleaseNotes,
   onOpenSettings,
   onRefreshNode,
   onSetNodeMode,
@@ -571,6 +601,7 @@ export function HomeV2NodeCoreSection({
               coreMaintenance={coreManagement?.coreMaintenance}
               network={network}
               onChainCoreUpdates={onChainCoreUpdates}
+              onOpenReleaseNotes={onOpenReleaseNotes}
               qortalMaintenance={coreManagement?.qortalMaintenance}
             />
           ) : null
@@ -608,7 +639,9 @@ export function HomeV2NodeCoreSection({
           )
         })}
       </div>
-      {appUpdates?.available ? <HomeUpdateRow updates={appUpdates} /> : null}
+      {appUpdates?.available
+        ? <HomeUpdateRow onOpenReleaseNotes={onOpenReleaseNotes} updates={appUpdates} />
+        : null}
     </section>
   )
 }
