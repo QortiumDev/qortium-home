@@ -1911,6 +1911,14 @@ export interface HomeV2WindowsBridge {
   getStartup(): Promise<{ address: string } | null>
   openTab(address: string): Promise<void>
   /**
+   * Offers a dragged tab to another Home window under the pointer. Resolves
+   * false when there is none, so the caller opens a new window instead.
+   * Optional: only the desktop shell has sibling windows.
+   */
+  adoptTabAt?(address: string, x: number, y: number): Promise<boolean>
+  /** Fires in the RECEIVING window when a tab is dropped onto it. */
+  onAdoptTab?(listener: (event: unknown) => void): () => void
+  /**
    * The app-level window settings — close to tray, and the multi-tab close
    * warning. Optional because only the desktop shell has them; both replies
    * are re-validated by window-behavior-client.ts rather than trusted.

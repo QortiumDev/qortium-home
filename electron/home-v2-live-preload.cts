@@ -76,6 +76,19 @@ contextBridge.exposeInMainWorld('homeV2Windows', {
     ipcRenderer.invoke('home-v2-windows:getStartup'),
   openTab: (address: string): Promise<void> =>
     ipcRenderer.invoke('home-v2-windows:openTab', address),
+  /**
+   * Offers a dragged tab to whichever other Home window is under the pointer.
+   * Resolves false when there is none, so the caller opens a new window
+   * instead — the previous behaviour, and why a miss cannot lose a tab.
+   */
+  adoptTabAt: (address: string, x: number, y: number): Promise<boolean> =>
+    ipcRenderer.invoke('home-v2-windows:adoptTabAt', { address, x, y }),
+  /** Fires in the RECEIVING window when a tab is dropped onto it. */
+  onAdoptTab: (listener: (event: unknown) => void) => {
+    const handler = (_event: unknown, payload: unknown) => listener(payload)
+    ipcRenderer.on('home-v2-windows:adopt-tab', handler)
+    return () => ipcRenderer.removeListener('home-v2-windows:adopt-tab', handler)
+  },
   // What closing the main window does. Main owns these two settings because it
   // is what has to act on them, at a moment when no renderer can be asked.
   getBehavior: (): Promise<HomeV2WindowBehavior> =>
