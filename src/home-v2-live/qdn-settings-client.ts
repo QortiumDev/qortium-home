@@ -49,6 +49,12 @@ export type HomeV2QdnSettingsState = Readonly<{
     revision: number
     version: 1
   }>
+  /** Apps granted the durable DECRYPT capability, per (app, account). */
+  accountDecrypt: Readonly<{
+    apps: readonly HomeV2QdnAccountGrant[]
+    revision: number
+    version: 1
+  }>
   assignments: Readonly<{
     assignments: Readonly<Record<string, HomeV2QdnAssignment>>
     revision: number
@@ -119,7 +125,7 @@ export type HomeV2QdnBookmarkRevokeRequest = Readonly<{
   // name one cannot identify a grant.
   accountId?: string
   appKey: string
-  capability?: 'account.encrypt' | 'account.read' | 'bookmarks.manage' | 'chat.send' | 'notifications.manage'
+  capability?: 'account.decrypt' | 'account.encrypt' | 'account.read' | 'bookmarks.manage' | 'chat.send' | 'notifications.manage'
   expectedAssignmentRevision: number
 }>
 
@@ -317,7 +323,7 @@ export function parseHomeV2QdnSettingsState(
 ): HomeV2QdnSettingsState {
   if (
     !isRecord(value) ||
-    !hasExactKeys(value, ['accountEncrypt', 'accountRead', 'assignments', 'bookmarks', 'chatSend', 'notifications', 'notificationsManage', 'revision', 'schema']) ||
+    !hasExactKeys(value, ['accountDecrypt', 'accountEncrypt', 'accountRead', 'assignments', 'bookmarks', 'chatSend', 'notifications', 'notificationsManage', 'revision', 'schema']) ||
     value.schema !== 'home-v2-qdn-settings-state' ||
     value.revision !== 1 ||
     !isRecord(value.assignments) ||
@@ -352,6 +358,12 @@ export function parseHomeV2QdnSettingsState(
     !safeGeneration(value.accountEncrypt.revision) ||
     !Array.isArray(value.accountEncrypt.apps) ||
     value.accountEncrypt.apps.length > 100 ||
+    !isRecord(value.accountDecrypt) ||
+    !hasExactKeys(value.accountDecrypt, ['apps', 'revision', 'version']) ||
+    value.accountDecrypt.version !== 1 ||
+    !safeGeneration(value.accountDecrypt.revision) ||
+    !Array.isArray(value.accountDecrypt.apps) ||
+    value.accountDecrypt.apps.length > 100 ||
     value.bookmarks.apps.length > 100 ||
     !isRecord(value.notifications) ||
     !hasExactKeys(value.notifications, ['apps', 'revision', 'status', 'version']) ||
@@ -375,6 +387,7 @@ export function parseHomeV2QdnSettingsState(
   const notificationManagerApps = value.notificationsManage.apps.map(parseBookmarkGrant)
   const accountReadApps = value.accountRead.apps.map(parseAccountGrant)
   const accountEncryptApps = value.accountEncrypt.apps.map(parseAccountGrant)
+  const accountDecryptApps = value.accountDecrypt.apps.map(parseAccountGrant)
   if (new Set(chatSendApps.map(({ appKey }) => appKey)).size !== chatSendApps.length) {
     throw new Error('Home 2 QDN settings contained duplicate chat-send grants.')
   }
@@ -391,6 +404,10 @@ export function parseHomeV2QdnSettingsState(
   if (new Set(accountEncryptKeys).size !== accountEncryptApps.length) {
     throw new Error('Home 2 QDN settings contained duplicate account-encrypt grants.')
   }
+  const accountDecryptKeys = accountDecryptApps.map(({ accountId, appKey }) => `${appKey}\n${accountId}`)
+  if (new Set(accountDecryptKeys).size !== accountDecryptApps.length) {
+    throw new Error('Home 2 QDN settings contained duplicate account-decrypt grants.')
+  }
   if (new Set(bookmarkApps.map(({ appKey }) => appKey)).size !== bookmarkApps.length) {
     throw new Error('Home 2 QDN settings contained duplicate bookmark grants.')
   }
@@ -404,6 +421,15 @@ export function parseHomeV2QdnSettingsState(
     throw new Error('Available Home 2 notification settings omitted its revision.')
   }
   return Object.freeze({
+    accountDecrypt: Object.freeze({
+      apps: Object.freeze(
+        [...accountDecryptApps].sort((left, right) =>
+          left.appKey.localeCompare(right.appKey) ||
+          left.accountId.localeCompare(right.accountId)),
+      ),
+      revision: value.accountDecrypt.revision,
+      version: 1,
+    }),
     accountEncrypt: Object.freeze({
       apps: Object.freeze(
         [...accountEncryptApps].sort((left, right) =>
@@ -529,7 +555,7 @@ export interface PortableHomeV2QdnSettingsDependencies {
     appKey: string,
     expectedRevision: number,
     // Omitted means 'bookmarks.manage', preserving the original signature.
-    capability?: 'account.encrypt' | 'account.read' | 'bookmarks.manage' | 'chat.send' | 'notifications.manage',
+    capability?: 'account.decrypt' | 'account.encrypt' | 'account.read' | 'bookmarks.manage' | 'chat.send' | 'notifications.manage',
     // Present only for account-scoped capabilities.
     accountId?: string,
   ): Promise<unknown>
@@ -581,7 +607,7 @@ function projectPortableAssignments(value: unknown) {
   // Parameterized by capability rather than duplicated per capability: the two
   // account-scoped grants are read the same way, and a copy-paste second
   // version is how one of them ends up reading the other's key.
-  const accountGrantsFor = (capability: 'account.read' | 'account.encrypt') =>
+  const accountGrantsFor = (capability: 'account.read' | 'account.encrypt' | 'account.decrypt') =>
     Object.entries(rawAccountGrants).flatMap(([appKey, accounts]) => {
       if (!isRecord(accounts)) return []
       return Object.entries(accounts).flatMap(([accountId, capabilities]) => {
@@ -595,7 +621,13 @@ function projectPortableAssignments(value: unknown) {
     })
   const accountReadApps = accountGrantsFor('account.read')
   const accountEncryptApps = accountGrantsFor('account.encrypt')
+  const accountDecryptApps = accountGrantsFor('account.decrypt')
   return {
+    accountDecrypt: {
+      apps: accountDecryptApps,
+      revision: value.revision,
+      version: 1 as const,
+    },
     accountEncrypt: {
       apps: accountEncryptApps,
       revision: value.revision,
@@ -699,6 +731,7 @@ export function createPortableHomeV2QdnSettingsAdapter(
       }
     }
     return parseHomeV2QdnSettingsState({
+      accountDecrypt: assignments.accountDecrypt,
       accountEncrypt: assignments.accountEncrypt,
       accountRead: assignments.accountRead,
       assignments: {

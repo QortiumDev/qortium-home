@@ -148,3 +148,45 @@ export function assertApprovedEncryptRecipients(
     derived.every((key, index) => key === approved[index])
   if (!same) throw new Error('The encryption recipients changed after approval.')
 }
+
+export const HOME_V2_DECRYPT_DATA_OPERATION_LABEL = 'Decrypt data with your account key'
+
+export type HomeV2DecryptDataRequest = Readonly<{
+  action: 'DECRYPT_DATA'
+  encryptedData: string
+  /**
+   * The SENDER's key, required only by the deprecated single-recipient
+   * envelope, which does not carry it. The modern envelope embeds the sender
+   * key, so supplying one there would be ignored — and silently ignoring a
+   * field the caller thought mattered is its own bug, so it is refused.
+   */
+  senderPublicKey: string | null
+}>
+
+export function normalizeHomeV2DecryptDataRequest(
+  request: Record<string, unknown>,
+  envelopeKind: 'group' | 'deprecated' | 'unknown',
+): HomeV2DecryptDataRequest {
+  const dataRaw = requestField(request, 'encryptedData') ?? requestField(request, 'data64')
+  if (typeof dataRaw !== 'string' || dataRaw === '') {
+    throw new Error('DECRYPT_DATA requires the encrypted data as base64 in encryptedData.')
+  }
+  if (envelopeKind === 'unknown') {
+    throw new Error('DECRYPT_DATA did not recognize the encrypted data as a Qortal envelope.')
+  }
+
+  const keyRaw = requestField(request, 'publicKey')
+  const hasKey = keyRaw !== undefined && keyRaw !== null && keyRaw !== ''
+  if (envelopeKind === 'deprecated' && !hasKey) {
+    throw new Error('This encrypted data needs the sender public key it was encrypted with.')
+  }
+  if (envelopeKind === 'group' && hasKey) {
+    throw new Error('This encrypted data carries its own sender key; publicKey must not be supplied.')
+  }
+
+  return Object.freeze({
+    action: 'DECRYPT_DATA',
+    encryptedData: dataRaw,
+    senderPublicKey: hasKey ? normalizePublicKey(keyRaw, 0) : null,
+  })
+}

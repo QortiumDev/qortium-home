@@ -30,6 +30,7 @@ const COMMON_ACTIONS = [
   // all: it uses the selected account's key, which is one keypair across
   // Qortal and Qortium, and touches no node. A Qortal app calling
   // ENCRYPT_DATA gets Qortal's exact behaviour and wire format.
+  'DECRYPT_DATA',
   'ENCRYPT_DATA',
   'FETCH_NODE_API',
   'FORGET_PENDING_TRANSACTION',

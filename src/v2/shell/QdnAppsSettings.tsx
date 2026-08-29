@@ -289,6 +289,9 @@ const GRANT_CARD_ACCESS_LABEL_KEYS = {
   // Worded as use of the KEY, never as reading account data. The two are
   // separate grants with separate cards precisely so a user revoking one is
   // not shown wording that could describe the other.
+  // Worded as READING, never as encrypting: the two are separate grants and
+  // the wording is what tells a user which card they are about to revoke.
+  'account.decrypt': 'managerPermissions.access.accountDecrypt',
   'account.encrypt': 'managerPermissions.access.accountEncrypt',
   'account.read': 'managerPermissions.access.accountRead',
   'bookmarks.manage': 'managerPermissions.access.bookmarks',
@@ -331,6 +334,7 @@ function BookmarkGrantCard<Grant extends HomeV2QdnBookmarkGrant>({
   return (
     <article
       className="home-v2-setting-row"
+      data-qdn-account-decrypt-grant={capability === 'account.decrypt' ? grant.appKey : undefined}
       data-qdn-account-encrypt-grant={capability === 'account.encrypt' ? grant.appKey : undefined}
       data-qdn-account-read-grant={capability === 'account.read' ? grant.appKey : undefined}
       data-qdn-bookmark-grant={capability === 'bookmarks.manage' ? grant.appKey : undefined}
@@ -353,6 +357,7 @@ function BookmarkGrantCard<Grant extends HomeV2QdnBookmarkGrant>({
       <div className="home-v2-setting-row__control">
         {confirmingRevoke ? (
           <div
+            data-qdn-account-decrypt-revoke-confirm={capability === 'account.decrypt' ? 'true' : undefined}
             data-qdn-account-encrypt-revoke-confirm={capability === 'account.encrypt' ? 'true' : undefined}
             data-qdn-account-read-revoke-confirm={capability === 'account.read' ? 'true' : undefined}
             data-qdn-bookmark-revoke-confirm={capability === 'bookmarks.manage' ? 'true' : undefined}
@@ -522,6 +527,20 @@ export function QdnAppsSettings({
   // account key, so the app is asked again the next time it calls
   // ENCRYPT_DATA. It does NOT touch the same app's account.read grant: they
   // are separate capabilities with separate cards.
+  // Revoking this stops the app reading encrypted data addressed to this
+  // account. It does NOT touch the same app's encrypt or read grants: three
+  // separate capabilities, three separate cards.
+  const revokeAccountDecrypt = async (grant: HomeV2QdnAccountGrant) => {
+    if (!snapshot) return
+    await applyMutation(`accountDecrypt:${grant.appKey}:${grant.accountId}`, () =>
+      client.revokeBookmarks({
+        accountId: grant.accountId,
+        appKey: grant.appKey,
+        capability: 'account.decrypt',
+        expectedAssignmentRevision: snapshot.accountDecrypt.revision,
+      }))
+  }
+
   const revokeAccountEncrypt = async (grant: HomeV2QdnAccountGrant) => {
     if (!snapshot) return
     await applyMutation(`accountEncrypt:${grant.appKey}:${grant.accountId}`, () =>
@@ -622,6 +641,29 @@ export function QdnAppsSettings({
               key={`${grant.appKey}:${grant.accountId}`}
               loadVisibleAppIcon={loadVisibleAppIcon}
               onRevoke={revokeAccountRead}
+            />
+          ))}
+        </section>
+      ) : null}
+
+      {snapshot?.accountDecrypt.apps.length ? (
+        <section aria-labelledby="home-v2-qdn-account-decrypt-controls-title">
+          <div className="home-v2-settings-panel__heading">
+            <h3 id="home-v2-qdn-account-decrypt-controls-title">
+              {t('qdnApps.accountDecryptControlsTitle')}
+            </h3>
+            <p>{t('managerPermissions.access.accountDecrypt')}</p>
+          </div>
+          {snapshot.accountDecrypt.apps.map((grant) => (
+            <BookmarkGrantCard
+              accountLabel={resolveAccountLabel?.(grant.accountId) ?? shortenAccountId(grant.accountId)}
+              busy={busy === `accountDecrypt:${grant.appKey}:${grant.accountId}`}
+              capability="account.decrypt"
+              disabled={actionsDisabled || busy !== null}
+              grant={grant}
+              key={`${grant.appKey}:${grant.accountId}`}
+              loadVisibleAppIcon={loadVisibleAppIcon}
+              onRevoke={revokeAccountDecrypt}
             />
           ))}
         </section>

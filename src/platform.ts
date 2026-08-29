@@ -198,9 +198,15 @@ import {
   type HomeV2RatingAction,
   type HomeV2RatingWirePayload,
 } from '../electron/home-v2-rating-actions';
-import { encryptQortalPublicKeyEnvelope } from '../electron/home-v2-app-encryption';
+import {
+  decryptQortalDeprecatedEnvelope,
+  decryptQortalPublicKeyEnvelope,
+  encryptQortalPublicKeyEnvelope,
+  qortalEnvelopeKind,
+} from '../electron/home-v2-app-encryption';
 import {
   assertApprovedEncryptRecipients,
+  normalizeHomeV2DecryptDataRequest,
   normalizeHomeV2EncryptDataRequest,
 } from '../electron/home-v2-encryption-actions';
 import {
@@ -16782,6 +16788,30 @@ export function createAndroidHomeV2VaultClient(): HomeV2VaultClient {
           senderPrivateKey: signingKey.secretKey,
           senderPublicKey58: signingKey.publicKey58,
         });
+      } finally {
+        signingKey.secretKey.fill(0);
+      }
+    },
+    async decryptData(request) {
+      const raw = request.requestValue.encryptedData ?? request.requestValue.data64
+      const kind = typeof raw === 'string' ? qortalEnvelopeKind(raw) : 'unknown'
+      const normalized = normalizeHomeV2DecryptDataRequest(request.requestValue, kind)
+      if (normalized.senderPublicKey !== request.approvedSenderPublicKey) {
+        throw new Error('The encrypted data changed after approval.')
+      }
+      const signingKey = await getAccountSecretKey(request.accountId);
+      try {
+        const decrypted = normalized.senderPublicKey
+          ? await decryptQortalDeprecatedEnvelope({
+            encryptedBase64: normalized.encryptedData,
+            readerPrivateKey: signingKey.secretKey,
+            senderPublicKey58: normalized.senderPublicKey,
+          })
+          : decryptQortalPublicKeyEnvelope({
+            encryptedBase64: normalized.encryptedData,
+            readerPrivateKey: signingKey.secretKey,
+          })
+        return decrypted.data64
       } finally {
         signingKey.secretKey.fill(0);
       }

@@ -98,7 +98,8 @@ const service = createHomeV2QdnSettingsService({
       // was invisible while that was the only account-scoped capability and
       // silently revoked the wrong grant once there were two.
       assert.ok(
-        capability === 'account.read' || capability === 'account.encrypt',
+        capability === 'account.read' || capability === 'account.encrypt' ||
+          capability === 'account.decrypt',
         'an account-scoped revoke must name an account-scoped capability',
       )
       assignments = revokeQdnAccountCapability(assignments, appKey, accountId, capability)
@@ -492,6 +493,31 @@ assert.equal(authorized, true)
     afterEncryptRevoke.accountRead.apps.some(({ accountId }) => accountId === READ_ACCOUNT_A),
     true,
     'revoking account.encrypt must not drop account.read',
+  )
+}
+
+// account.decrypt is revocable and independent of the other two.
+{
+  const app = 'qdn://APP/Chat/Chat'
+  assignments = grantQdnAccountCapability(assignments, app, READ_ACCOUNT_A, 'account.decrypt')
+  assignments = grantQdnAccountCapability(assignments, app, READ_ACCOUNT_A, 'account.encrypt')
+  const after = service.revokeBookmarks({
+    accountId: READ_ACCOUNT_A,
+    appKey: app,
+    capability: 'account.decrypt',
+    expectedAssignmentRevision: assignments.revision,
+    revision: 1,
+    schema: 'home-v2-qdn-settings-revoke-bookmarks-request',
+  })
+  assert.equal(
+    after.accountDecrypt.apps.some(({ accountId }) => accountId === READ_ACCOUNT_A),
+    false,
+    'the decryption grant is dropped',
+  )
+  assert.equal(
+    after.accountEncrypt.apps.some(({ accountId }) => accountId === READ_ACCOUNT_A),
+    true,
+    'revoking account.decrypt must not drop account.encrypt',
   )
 }
 

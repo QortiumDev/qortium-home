@@ -51,6 +51,24 @@ export const QDN_APP_READ_CAPABILITIES = ['account.read'] as const;
  */
 export const QDN_APP_ENCRYPT_CAPABILITIES = ['account.encrypt'] as const;
 /**
+ * Durable per-app permission to DECRYPT with the account's key (DECRYPT_DATA).
+ *
+ * Separate from account.encrypt, and not merged with it, because they are not
+ * the same power. Encryption returns ciphertext and is inert until some other
+ * approved action moves it; decryption returns PLAINTEXT and is an oracle over
+ * any ciphertext the app can get hold of. A user who allowed an app to encrypt
+ * has not thereby allowed it to read.
+ *
+ * Durable is still right: what an app may decrypt is bounded to data addressed
+ * to this account that the app already possesses, it cannot send or publish
+ * what it reads without a separate approval, and the alternative — a click per
+ * message — is what makes encrypted apps unusable. See
+ * qdn-app-exfiltration-channel-2026-08-28.md on the limit that a hostile
+ * SERVING NODE sees plaintext regardless, which is a node-trust question
+ * rather than a grant-scope one.
+ */
+export const QDN_APP_DECRYPT_CAPABILITIES = ['account.decrypt'] as const;
+/**
  * Capabilities stored per (app principal, selected account) rather than per
  * app alone.
  *
@@ -64,7 +82,7 @@ export const QDN_APP_ENCRYPT_CAPABILITIES = ['account.encrypt'] as const;
  * chat.send and the manager capabilities stay app-scoped on purpose: they
  * shipped that way, and rekeying them would silently drop live user grants.
  */
-export const QDN_ACCOUNT_SCOPED_CAPABILITIES = ['account.read', 'account.encrypt'] as const;
+export const QDN_ACCOUNT_SCOPED_CAPABILITIES = ['account.read', 'account.encrypt', 'account.decrypt'] as const;
 export type QdnAccountScopedCapability = (typeof QDN_ACCOUNT_SCOPED_CAPABILITIES)[number];
 
 export function isQdnAccountScopedCapability(
@@ -79,6 +97,7 @@ export const QDN_APP_CAPABILITIES = [
   ...QDN_APP_SEND_CAPABILITIES,
   ...QDN_APP_READ_CAPABILITIES,
   ...QDN_APP_ENCRYPT_CAPABILITIES,
+  ...QDN_APP_DECRYPT_CAPABILITIES,
 ] as const;
 
 export type QdnManagerCapability = (typeof QDN_MANAGER_CAPABILITIES)[number];

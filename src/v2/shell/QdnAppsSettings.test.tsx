@@ -73,6 +73,15 @@ function initialState() {
       revision: 3,
       version: 1,
     },
+    accountDecrypt: {
+      apps: [{
+        accountId: 'wallet:QAAA',
+        appKey: 'qdn://APP/Chat/Chat',
+        grantedAt: '2026-08-28T15:00:00.000Z',
+      }],
+      revision: 3,
+      version: 1,
+    },
     notifications: {
       apps: [{
         appKey: 'qdn://APP/Notify/Notify',
@@ -143,6 +152,10 @@ const adapter: HomeV2QdnSettingsAdapter = {
       accountEncrypt: {
         ...state.accountEncrypt,
         revision: state.accountEncrypt.revision + 1,
+      },
+      accountDecrypt: {
+        ...state.accountDecrypt,
+        revision: state.accountDecrypt.revision + 1,
       },
       chatSend: {
         ...state.chatSend,
@@ -217,6 +230,14 @@ const adapter: HomeV2QdnSettingsAdapter = {
             appKey !== request.appKey || accountId !== request.accountId)
           : state.accountEncrypt.apps,
         revision: state.accountEncrypt.revision + 1,
+        version: 1,
+      },
+      accountDecrypt: {
+        apps: capability === 'account.decrypt'
+          ? state.accountDecrypt.apps.filter(({ accountId, appKey }) =>
+            appKey !== request.appKey || accountId !== request.accountId)
+          : state.accountDecrypt.apps,
+        revision: state.accountDecrypt.revision + 1,
         version: 1,
       },
       chatSend: {

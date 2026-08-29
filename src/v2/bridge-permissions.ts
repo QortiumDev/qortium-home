@@ -118,6 +118,19 @@ export type PermissionCapability =
   // the grant covers the family — the same posture as a durable chat-send
   // grant, which likewise covers messages not yet written.
   | 'account.encrypt'
+  // Decrypting data addressed to this account with the account's key
+  // (DECRYPT_DATA).
+  //
+  // Its OWN capability, never merged with 'account.encrypt'. Encryption
+  // returns ciphertext and is inert until some other approved action moves it;
+  // decryption returns PLAINTEXT and is an oracle over any ciphertext the app
+  // can obtain. Allowing an app to encrypt is not allowing it to read.
+  //
+  // Durable all the same: what it can read is bounded to data already
+  // addressed to this account that the app already holds, it cannot send or
+  // publish what it reads without a separate approval, and a click per message
+  // is what makes an encrypted-messaging app unusable.
+  | 'account.decrypt'
 
 export interface PermissionDetail {
   readonly label: string
@@ -133,6 +146,7 @@ export interface PermissionPrompt {
   readonly id: PermissionRequestId
   readonly protocol: BridgeProtocol
   readonly action:
+    | 'DECRYPT_DATA'
     | 'ENCRYPT_DATA'
     | 'GET_SELECTED_ACCOUNT'
     | 'GET_USER_ACCOUNT'
