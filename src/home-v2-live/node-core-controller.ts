@@ -250,6 +250,10 @@ export function useHomeV2NodeCoreController(options: {
 }) {
   const { coreClient, nodeClient } = options
   const [nodes, setNodes] = useState<HomeV2Nodes>(createInitialHomeV2Nodes)
+  // Read at call time so the start handler sees the CURRENT mode without
+  // being recreated on every poll.
+  const nodesRef = useRef(nodes)
+  nodesRef.current = nodes
   const [coreStatuses, setCoreStatuses] =
     useState<HomeV2CoreManagerStatuses>(initialCoreStatuses)
   const [nodeBusyNetwork, setNodeBusyNetwork] = useState<NetworkId | null>(null)
@@ -445,6 +449,15 @@ export function useHomeV2NodeCoreController(options: {
         ...current,
         [network]: { action, failed: false, network, result },
       }))
+      // Starting a Core through Home means using it: 1.x switched the node to
+      // local at exactly this point. Deliberately ONE-TIME, tied to the start
+      // action rather than to the Core being up -- otherwise a user who moved
+      // back to a public or custom node afterwards would be dragged to local
+      // again on the next poll, and could never leave.
+      if (action === 'start' && result.outcome === 'completed' &&
+        nodesRef.current[network]?.mode !== 'local') {
+        await setNodeMode(network, 'local')
+      }
       await refreshNodes()
       options.onLifecycleSettled?.()
       return result
@@ -466,7 +479,7 @@ export function useHomeV2NodeCoreController(options: {
       if (actions[network] === action) actions[network] = null
       setCoreBusyActions({ ...actions })
     }
-  }, [coreClient, options, refreshCoreStatuses, refreshNodes])
+  }, [coreClient, options, refreshCoreStatuses, refreshNodes, setNodeMode])
 
   return {
     coreAvailable: coreClient !== null,
