@@ -1,5 +1,6 @@
 import type { HomeV2AppUpdates } from '../../home-v2-live/app-update-controller'
 import type { HomeV2AppUpdatePolicy } from '../../home-v2-live/app-update-preferences'
+import { formatUpdateBytes } from '../../home-v2-live/app-update-controller'
 import { t } from '../../i18n'
 
 export function homeUpdateStatusText(updates: HomeV2AppUpdates) {
@@ -121,6 +122,40 @@ export function HomeUpdateSettings({
           <div><dt>{t('common.downloaded')}</dt><dd>{updates.download.fileName}</dd></div>
         ) : null}
       </dl>
+
+      {updates.progress ? (
+        <div
+          className="home-v2-core-progress"
+          data-home-v2-update-progress={updates.progress.action}
+        >
+          <div
+            aria-label={updates.progress.message}
+            aria-valuemax={updates.progress.percent === null ? undefined : 100}
+            aria-valuemin={updates.progress.percent === null ? undefined : 0}
+            aria-valuenow={updates.progress.percent ?? undefined}
+            className="home-v2-core-progress__track"
+            data-indeterminate={updates.progress.percent === null ? 'true' : undefined}
+            role="progressbar"
+          >
+            <div
+              className="home-v2-core-progress__fill"
+              style={updates.progress.percent === null
+                ? undefined
+                : { width: `${updates.progress.percent}%` }}
+            />
+          </div>
+          <span className="home-v2-core-progress__message">
+            {/* Bytes as well as percent: a download with no content-length
+                still shows movement, which is the case 1.x covered and
+                "Downloading…" did not. */}
+            {updates.progress.totalBytes === null
+              ? `${updates.progress.message} (${formatUpdateBytes(updates.progress.receivedBytes)})`
+              : `${updates.progress.message} ${updates.progress.percent}% (${
+                formatUpdateBytes(updates.progress.receivedBytes)
+              } / ${formatUpdateBytes(updates.progress.totalBytes)})`}
+          </span>
+        </div>
+      ) : null}
 
       <div className="home-v2-update-actions">
         {result?.state === 'available' && result.asset?.digestAvailable && !updates.download ? (

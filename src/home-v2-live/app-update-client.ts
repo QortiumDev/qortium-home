@@ -67,7 +67,55 @@ export type HomeV2AppUpdateActionResult = {
   readonly schema: 'home-v2-app-update-action'
 }
 
+export type HomeV2AppUpdateProgress = Readonly<{
+  action: 'downloading' | 'verifying'
+  fileName: string
+  message: string
+  /** null when the server sent no content-length. */
+  percent: number | null
+  receivedBytes: number
+  releaseTag: string
+  totalBytes: number | null
+}>
+
+/** Parsed, never trusted; a malformed event yields null and is dropped. */
+export function parseHomeV2AppUpdateProgress(
+  value: unknown,
+): HomeV2AppUpdateProgress | null {
+  if (!isRecord(value) ||
+    !hasExactKeys(value, [
+      'action', 'fileName', 'message', 'percent', 'receivedBytes',
+      'releaseTag', 'revision', 'schema', 'totalBytes',
+    ]) ||
+    value.schema !== 'home-v2-app-update-progress' || value.revision !== 1 ||
+    (value.action !== 'downloading' && value.action !== 'verifying') ||
+    typeof value.fileName !== 'string' || value.fileName.length > 300 ||
+    typeof value.message !== 'string' || value.message.length > 500 ||
+    typeof value.releaseTag !== 'string' || value.releaseTag.length > 200 ||
+    typeof value.receivedBytes !== 'number' || !Number.isFinite(value.receivedBytes) ||
+    value.receivedBytes < 0 ||
+    !(value.percent === null ||
+      (typeof value.percent === 'number' && Number.isFinite(value.percent) &&
+        value.percent >= 0 && value.percent <= 100)) ||
+    !(value.totalBytes === null ||
+      (typeof value.totalBytes === 'number' && Number.isFinite(value.totalBytes) &&
+        value.totalBytes >= 0))) {
+    return null
+  }
+  return Object.freeze({
+    action: value.action,
+    fileName: value.fileName,
+    message: value.message,
+    percent: value.percent as number | null,
+    receivedBytes: value.receivedBytes,
+    releaseTag: value.releaseTag,
+    totalBytes: value.totalBytes as number | null,
+  })
+}
+
 export interface HomeV2AppUpdateClient {
+  /** Optional: absent on hosts without the Electron preload. */
+  onDownloadProgress?(listener: (event: unknown) => void): () => void
   check(
     channel: HomeV2AppUpdateChannel,
     settingsGeneration?: number | null,

@@ -12,6 +12,7 @@ function fixture(os: 'android' | 'linux', withDownload = false): HomeV2AppUpdate
   return {
     available: true,
     busy: null,
+  progress: null,
     channel: 'stable',
     check: async () => undefined,
     download: withDownload ? {

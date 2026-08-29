@@ -34,6 +34,15 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-29 - feat(updates): a progress bar while Home downloads its own update
+
+Downloading a Home update showed only "Downloading…" until it finished. It now
+shows a progress bar with the percentage and how much has been received of the
+total.
+
+When the server does not say how large the file is, Home shows the amount
+received rather than a percentage it cannot calculate.
+
 ### 2026-08-29 - feat(core): a progress bar while the Core installs
 
 Installing or updating the Core used to show only the word "Working…" for as
