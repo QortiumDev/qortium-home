@@ -830,6 +830,7 @@ export const et: Record<TranslationKey, string> = {
   "home2.core.action.unconfirmed": "Home taotles toimingut, kuid ei suutnud selle lõpetamist kinnitada.",
   "home2.core.adoptedStopped": "Ülevõetud {network} Core · peatatud",
   "home2.core.apiControl": "{network} Core töötab · autenditud API-juhtimine",
+  "home2.core.nodeAutoUpdateMode": "Sõlme automaatne uuendus: {mode}",
   "home2.core.installedVersion": "Versioon {version}",
   "home2.core.confirmExternalBody": "Home saadab autenditud API-päringu. See ei lõpeta protsessi otse.",
   "home2.core.confirmExternalTitle": "Kas peatada väliselt juhitav {network} Core?",

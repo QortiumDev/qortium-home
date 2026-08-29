@@ -84,6 +84,17 @@ export type HomeV2CoreMaintenanceStatus = {
     readonly channel: 'prerelease' | 'stable' | null
     /** The commit the installed jar was built from, or null. */
     readonly installedCommit: string | null
+    /**
+     * Why the runtime is blocked, in words, or null.
+     *
+     * The status already carried `issue: 'runtime-blocked'`, which tells the
+     * user THAT something is wrong and nothing about what. The message names
+     * the two networks and their chain hashes — no paths, which is what keeps
+     * it inside this contract's redaction rule.
+     */
+    readonly runtimeBlockedReason: string | null
+    /** The node's own on-chain auto-update mode, or null. */
+    readonly nodeAutoUpdateMode: string | null
     /** The release tag it was installed from, or null. */
     readonly installedTag: string | null
     readonly installedVersion: string | null
@@ -213,6 +224,14 @@ function qortiumMaintenanceStatus(
        * identity — deliberately NOT the install path or the jar path, which
        * this contract redacts (see assertRedacted in the contract test).
        */
+      nodeAutoUpdateMode: typeof status.nodeAutoUpdateMode === 'string' &&
+        status.nodeAutoUpdateMode.trim()
+        ? status.nodeAutoUpdateMode.trim().slice(0, 40)
+        : null,
+      runtimeBlockedReason: isRecord(runtime?.blocked) &&
+        typeof runtime.blocked.message === 'string' && runtime.blocked.message.trim()
+        ? runtime.blocked.message.trim().slice(0, 500)
+        : null,
       installedCommit: typeof installed?.jarCommit === 'string' && installed.jarCommit.trim()
         ? installed.jarCommit.trim().slice(0, 40)
         : null,

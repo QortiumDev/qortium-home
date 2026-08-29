@@ -831,6 +831,7 @@ export const nb: Record<TranslationKey, string> = {
   "home2.core.action.unconfirmed": "Home ba om handlingen, men kunne ikke bekrefte at den ble fullført.",
   "home2.core.adoptedStopped": "Overtatt {network} Core · stoppet",
   "home2.core.apiControl": "{network} Core kjører · autentisert API-kontroll",
+  "home2.core.nodeAutoUpdateMode": "Automatisk nodeoppdatering: {mode}",
   "home2.core.installedVersion": "Versjon {version}",
   "home2.core.confirmExternalBody": "Home sender en autentisert API-forespørsel. Prosessen avsluttes ikke direkte.",
   "home2.core.confirmExternalTitle": "Stoppe den eksternt kontrollerte {network} Core-prosessen?",

@@ -184,8 +184,12 @@ export function parseHomeV2CoreMaintenanceStatus(value: unknown): HomeV2CoreMain
     typeof value.capabilities.canInstallJava !== 'boolean' ||
     typeof value.capabilities.canUpdateRunningInPlace !== 'boolean' || !isRecord(value.core) ||
     !hasExactKeys(value.core, [
-      'channel', 'installedCommit', 'installedTag', 'installedVersion', 'runtime',
+      'channel', 'installedCommit', 'installedTag', 'installedVersion',
+      'nodeAutoUpdateMode', 'runtime', 'runtimeBlockedReason',
     ]) ||
+    !(value.core.nodeAutoUpdateMode === null || typeof value.core.nodeAutoUpdateMode === 'string') ||
+    !(value.core.runtimeBlockedReason === null ||
+      typeof value.core.runtimeBlockedReason === 'string') ||
     !(value.core.installedCommit === null || typeof value.core.installedCommit === 'string') ||
     !(value.core.installedTag === null || typeof value.core.installedTag === 'string') ||
     !(value.core.channel === null || value.core.channel === 'stable' || value.core.channel === 'prerelease') ||
@@ -211,6 +215,8 @@ export function parseHomeV2CoreMaintenanceStatus(value: unknown): HomeV2CoreMain
       // test passed (#436). The round trip is asserted in the client test.
       installedCommit: value.core.installedCommit,
       installedTag: value.core.installedTag,
+      nodeAutoUpdateMode: value.core.nodeAutoUpdateMode,
+      runtimeBlockedReason: value.core.runtimeBlockedReason,
       installedVersion: value.core.installedVersion,
       runtime: value.core.runtime,
     }),

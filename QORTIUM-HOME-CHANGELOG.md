@@ -34,6 +34,15 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-29 - feat(core): Settings explains a blocked Core, instead of just flagging it
+
+When Home refuses to start the Core because its stored data belongs to a
+different network, Settings said only that something was blocking it. It now
+shows the explanation, naming both networks, so the situation can be acted on
+rather than only noticed.
+
+Settings also shows whether the node is set to update itself.
+
 ### 2026-08-29 - feat(core): Settings shows which Core build is installed
 
 Settings showed the Core's version number, which does not distinguish two

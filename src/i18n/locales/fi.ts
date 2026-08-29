@@ -830,6 +830,7 @@ export const fi: Record<TranslationKey, string> = {
   "home2.core.action.unconfirmed": "Home pyysi toiminnon suorittamista, mutta ei voinut vahvistaa sen valmistumista.",
   "home2.core.adoptedStopped": "Käyttöön otettu {network} Core · pysäytetty",
   "home2.core.apiControl": "{network} Core käynnissä · todennettu API-hallinta",
+  "home2.core.nodeAutoUpdateMode": "Solmun automaattinen päivitys: {mode}",
   "home2.core.installedVersion": "Versio {version}",
   "home2.core.confirmExternalBody": "Home lähettää todennetun API-pyynnön. Se ei lopeta prosessia suoraan.",
   "home2.core.confirmExternalTitle": "Pysäytetäänkö ulkoisesti hallittu {network} Core?",

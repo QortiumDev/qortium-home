@@ -830,6 +830,7 @@ export const hu: Record<TranslationKey, string> = {
   "home2.core.action.unconfirmed": "A Home kérte a műveletet, de nem tudta megerősíteni annak befejezését.",
   "home2.core.adoptedStopped": "Átvett {network} Core · leállítva",
   "home2.core.apiControl": "A(z) {network} Core fut · hitelesített API-vezérlés",
+  "home2.core.nodeAutoUpdateMode": "Csomópont automatikus frissítése: {mode}",
   "home2.core.installedVersion": "{version} verzió",
   "home2.core.confirmExternalBody": "A Home hitelesített API-kérést küld. Nem állítja le közvetlenül a folyamatot.",
   "home2.core.confirmExternalTitle": "Leállítja a külső vezérlésű {network} Core-t?",

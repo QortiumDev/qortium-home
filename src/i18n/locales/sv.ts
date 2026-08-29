@@ -830,6 +830,7 @@ export const sv: Record<TranslationKey, string> = {
   "home2.core.action.unconfirmed": "Home begärde åtgärden men kunde inte bekräfta att den slutfördes.",
   "home2.core.adoptedStopped": "Övertagen {network} Core · stoppad",
   "home2.core.apiControl": "{network} Core körs · autentiserad API-styrning",
+  "home2.core.nodeAutoUpdateMode": "Automatisk noduppdatering: {mode}",
   "home2.core.installedVersion": "Version {version}",
   "home2.core.confirmExternalBody": "Home gör en autentiserad API-begäran. Processen avslutas inte direkt.",
   "home2.core.confirmExternalTitle": "Stoppa den externt styrda {network} Core?",

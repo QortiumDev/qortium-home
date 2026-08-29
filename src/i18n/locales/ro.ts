@@ -830,6 +830,7 @@ export const ro: Record<TranslationKey, string> = {
   "home2.core.action.unconfirmed": "Home a solicitat acțiunea, dar nu a putut confirma finalizarea.",
   "home2.core.adoptedStopped": "Core {network} preluat · oprit",
   "home2.core.apiControl": "Core {network} rulează · control API autentificat",
+  "home2.core.nodeAutoUpdateMode": "Actualizare automată a nodului: {mode}",
   "home2.core.installedVersion": "Versiunea {version}",
   "home2.core.confirmExternalBody": "Home va efectua o solicitare API autentificată. Nu va încheia procesul direct.",
   "home2.core.confirmExternalTitle": "Opriți Core-ul {network} controlat extern?",
