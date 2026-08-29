@@ -878,7 +878,7 @@ export const ko: Record<TranslationKey, string> = {
   "home2.node.mode.public": "공개",
   "home2.node.noConnection": "연결되지 않음",
   "home2.node.notConfigured": "구성되지 않음",
-  "home2.node.peers": "{count} 동료",
+  "home2.node.peers": "{count} 피어",
   "home2.node.dataPeers": "{count} 데이터 피어",
   "home2.node.waitingForStatus": "노드 상태를 기다리는 중",
   "home2.nodeCore.description": "네트워크에 연결하고 로컬 Core를 관리하며 Home을 최신 상태로 유지합니다.",
