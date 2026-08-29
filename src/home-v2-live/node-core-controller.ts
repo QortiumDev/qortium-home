@@ -227,6 +227,18 @@ function parseCoreStatusOrUnavailable(
 }
 
 export function useHomeV2NodeCoreController(options: {
+  /**
+   * Called after a start/stop settles, success or failure.
+   *
+   * Start and stop change state that OTHER controllers read — the maintenance
+   * slice's install gate and the transport row — and those poll on their own
+   * 30s timers. Without this, stopping the Core left the install gate reading
+   * "not stopped" for up to half a minute, so the tile told the user to stop a
+   * Core they had just stopped and kept the Update button disabled, with no way
+   * to force it fresh. The controllers cannot be reached from here directly
+   * (they are constructed after this one), so the app passes a callback.
+   */
+  readonly onLifecycleSettled?: () => void
   readonly coreClient: HomeV2CoreManagerClient | null
   readonly nodeClient: HomeV2NodeClient | null
 }) {
@@ -428,6 +440,7 @@ export function useHomeV2NodeCoreController(options: {
         [network]: { action, failed: false, network, result },
       }))
       await refreshNodes()
+      options.onLifecycleSettled?.()
       return result
     } catch {
       coreRefreshSequence.current[network] += 1
@@ -438,12 +451,16 @@ export function useHomeV2NodeCoreController(options: {
       if (actions[network] === action) actions[network] = null
       setCoreBusyActions({ ...actions })
       await refreshCoreStatuses()
+      // Also on failure: a stop that reported an error may still have stopped
+      // it, and leaving the gate stale is how the tile ends up contradicting
+      // itself.
+      options.onLifecycleSettled?.()
       return null
     } finally {
       if (actions[network] === action) actions[network] = null
       setCoreBusyActions({ ...actions })
     }
-  }, [coreClient, refreshCoreStatuses, refreshNodes])
+  }, [coreClient, options, refreshCoreStatuses, refreshNodes])
 
   return {
     coreAvailable: coreClient !== null,

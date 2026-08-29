@@ -313,7 +313,14 @@ function coreLifecycleNotice({
 }) {
   if (network === 'qortal') return qortalMaintenance?.notice ?? null
   if (coreLifecyclePlan(coreMaintenance, onChainCoreUpdates).releaseBlocked) {
-    return t('home2.nodeCore.stopCoreFirst')
+    // 'unknown' is NOT 'running', and telling the user to stop a Core that
+    // Home cannot see is how someone ends up stopping it repeatedly and being
+    // told to stop it again. The install gate stays closed either way — that
+    // conservatism is deliberate, because installing over a running Core
+    // corrupts it — but the reason has to be truthful about which case it is.
+    return coreMaintenance?.status?.core.runtime === 'unknown'
+      ? t('home2.nodeCore.coreStateUnknown')
+      : t('home2.nodeCore.stopCoreFirst')
   }
   return coreMaintenance?.notice ?? null
 }

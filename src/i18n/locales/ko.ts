@@ -876,6 +876,7 @@ export const ko: Record<TranslationKey, string> = {
   "home2.node.peers": "{count} 동료",
   "home2.node.waitingForStatus": "노드 상태를 기다리는 중",
   "home2.nodeCore.description": "네트워크에 연결하고 로컬 Core를 관리하며 Home을 최신 상태로 유지합니다.",
+  "home2.nodeCore.coreStateUnknown": "이 시스템에서는 Core가 중지되었는지 Home이 확인할 수 없으므로 덮어써서 설치하지 않습니다. Core를 중지한 다음 새로 고침을 사용하세요.",
   "home2.nodeCore.stopCoreFirst": "Core를 설치하거나 업데이트하기 전에 중지하세요.",
   "home2.nodeCore.title": "노드 및 Core",
   "home2.permission.action": "작업",
