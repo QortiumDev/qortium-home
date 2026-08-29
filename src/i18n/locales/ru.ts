@@ -877,6 +877,7 @@ export const ru: Record<TranslationKey, string> = {
   "home2.node.waitingForStatus": "Ожидание статуса узла",
   "home2.nodeCore.description": "Подключитесь к сети, управляйте её локальным Core и поддерживайте Home в актуальном состоянии.",
   "home2.nodeCore.coreStateUnknown": "Home не может определить, остановлен ли Core в этой системе, поэтому не станет устанавливать поверх него. Остановите Core, затем нажмите «Обновить».",
+  "home2.nodeCore.updateAndRestartCore": "Обновить и перезапустить Core",
   "home2.nodeCore.stopCoreFirst": "Остановите Core перед его установкой или обновлением.",
   "home2.nodeCore.title": "Узел и Core",
   "home2.permission.action": "Действие",

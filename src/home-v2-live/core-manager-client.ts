@@ -180,8 +180,9 @@ export function parseHomeV2CoreMaintenanceStatus(value: unknown): HomeV2CoreMain
   if (!isRecord(value) || !hasExactKeys(value, ['capabilities', 'core', 'java', 'revision', 'schema']) ||
     value.schema !== 'home-v2-core-maintenance' || value.revision !== 1 ||
     !isRecord(value.capabilities) || typeof value.capabilities.canInitialInstall !== 'boolean' ||
-    !hasExactKeys(value.capabilities, ['canInitialInstall', 'canInstallJava']) ||
-    typeof value.capabilities.canInstallJava !== 'boolean' || !isRecord(value.core) ||
+    !hasExactKeys(value.capabilities, ['canInitialInstall', 'canInstallJava', 'canUpdateRunningInPlace']) ||
+    typeof value.capabilities.canInstallJava !== 'boolean' ||
+    typeof value.capabilities.canUpdateRunningInPlace !== 'boolean' || !isRecord(value.core) ||
     !hasExactKeys(value.core, ['channel', 'installedVersion', 'runtime']) ||
     !(value.core.channel === null || value.core.channel === 'stable' || value.core.channel === 'prerelease') ||
     !(value.core.installedVersion === null || typeof value.core.installedVersion === 'string') ||

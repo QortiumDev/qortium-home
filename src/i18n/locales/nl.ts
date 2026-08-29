@@ -877,6 +877,7 @@ export const nl: Record<TranslationKey, string> = {
   "home2.node.waitingForStatus": "Wachten op knooppuntstatus",
   "home2.nodeCore.description": "Maak verbinding met een netwerk, beheer de lokale Core en houd Home up-to-date.",
   "home2.nodeCore.coreStateUnknown": "Home kan niet vaststellen of de Core op dit systeem gestopt is en installeert er daarom niet overheen. Stop de Core en gebruik daarna Vernieuwen.",
+  "home2.nodeCore.updateAndRestartCore": "Core bijwerken en opnieuw starten",
   "home2.nodeCore.stopCoreFirst": "Stop Core voordat je het installeert of bijwerkt.",
   "home2.nodeCore.title": "Node en Core",
   "home2.permission.action": "Actie",

@@ -877,6 +877,7 @@ export const sv: Record<TranslationKey, string> = {
   "home2.node.waitingForStatus": "Väntar på nodstatus",
   "home2.nodeCore.description": "Anslut till ett nätverk, hantera dess lokala Core och håll Home uppdaterat.",
   "home2.nodeCore.coreStateUnknown": "Home kan inte bekräfta om Core är stoppad på det här systemet och installerar därför inte över den. Stoppa Core och använd sedan Uppdatera.",
+  "home2.nodeCore.updateAndRestartCore": "Uppdatera och starta om Core",
   "home2.nodeCore.stopCoreFirst": "Stoppa Core innan du installerar eller uppdaterar det.",
   "home2.nodeCore.title": "Nod och Core",
   "home2.permission.action": "Åtgärd",

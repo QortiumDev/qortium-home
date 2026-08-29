@@ -1740,7 +1740,7 @@ function testCoreManagementRenderingAndAndroidDegrade(): void {
         tag: 'v1.7.3',
       },
       status: {
-        capabilities: { canInitialInstall: false, canInstallJava: true },
+        capabilities: { canInitialInstall: false, canInstallJava: true, canUpdateRunningInPlace: false },
         core: { channel: 'stable', installedVersion: '1.7.2', runtime: 'running' },
         java: { source: 'missing', updateAvailable: false, version: null },
         revision: 1,

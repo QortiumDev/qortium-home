@@ -175,13 +175,22 @@ function coreLifecyclePlan(
   const showOnChain = !showJava && !!onChainCoreUpdates?.canInstall
   const showRelease = !showJava && !showOnChain &&
     !!release?.tag && release.action !== 'none'
+  // An UPDATE to a Home-started Core no longer needs the Core stopped first:
+  // Home stops it, replaces it and starts it again, restoring the old install
+  // if that fails. Initial installs still require a stopped Core — there is no
+  // previous version to fall back to.
+  const canUpdateInPlace = release?.action !== undefined &&
+    release.action !== 'initial-install' &&
+    !!status?.capabilities.canUpdateRunningInPlace
   return {
     showJava,
     showOnChain,
     showRelease,
+    // Home stops and restarts the Core itself; the button says so.
+    releaseRestartsCore: showRelease && canUpdateInPlace && status?.core.runtime === 'running',
     // A verified release Home cannot install yet needs the reason spelled out;
     // a disabled button on its own reads as a broken tile.
-    releaseBlocked: showRelease && status?.core.runtime !== 'stopped',
+    releaseBlocked: showRelease && status?.core.runtime !== 'stopped' && !canUpdateInPlace,
   } as const
 }
 
@@ -236,10 +245,8 @@ function CoreLifecycleActions({
   const status = coreMaintenance?.status
   if (!coreMaintenance || !status) return null
   const { busy, release } = coreMaintenance
-  const { showJava, showOnChain, showRelease } = coreLifecyclePlan(
-    coreMaintenance,
-    onChainCoreUpdates,
-  )
+  const plan = coreLifecyclePlan(coreMaintenance, onChainCoreUpdates)
+  const { showJava, showOnChain, showRelease } = plan
   return (
     <>
       {!showRelease && coreMaintenance.onCheckRelease ? (
@@ -286,14 +293,18 @@ function CoreLifecycleActions({
           type="button"
           className="home-v2-primary-button"
           data-home-v2-node-core-action="core-release"
-          disabled={busy !== null || status.core.runtime !== 'stopped'}
+          disabled={busy !== null || plan.releaseBlocked}
           onClick={coreMaintenance.onRunRelease}
         >
           {busy === 'core'
             ? t('home2.common.working')
             : release.action === 'initial-install'
               ? t('core.installCore')
-              : t('updates.installUpdate')}
+              // Naming the restart on the button is the disclosure: Home is
+              // about to stop a Core the user is relying on.
+              : plan.releaseRestartsCore
+                ? t('home2.nodeCore.updateAndRestartCore')
+                : t('updates.installUpdate')}
         </button>
       ) : null}
     </>

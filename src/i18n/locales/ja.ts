@@ -877,6 +877,7 @@ export const ja: Record<TranslationKey, string> = {
   "home2.node.waitingForStatus": "ノードステータス待ち中",
   "home2.nodeCore.description": "ネットワークに接続し、そのローカル Core を管理して、Home を最新の状態に保ちます。",
   "home2.nodeCore.coreStateUnknown": "このシステムでは Core が停止しているかどうかを Home が確認できないため、上書きインストールは行いません。Core を停止してから「更新」を使用してください。",
+  "home2.nodeCore.updateAndRestartCore": "Core を更新して再起動",
   "home2.nodeCore.stopCoreFirst": "Core をインストールまたは更新する前に停止してください。",
   "home2.nodeCore.title": "ノードと Core",
   "home2.permission.action": "アクション",

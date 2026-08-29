@@ -877,6 +877,7 @@ export const he: Record<TranslationKey, string> = {
   "home2.node.waitingForStatus": "בהמתנה למצב הצומת",
   "home2.nodeCore.description": "התחברו לרשת, נהלו את ה-Core המקומי שלה ושמרו על Home מעודכן.",
   "home2.nodeCore.coreStateUnknown": "‏Home אינו יכול לוודא אם ה-Core עצור במערכת הזו, ולכן לא יתקין מעליו. עצור את ה-Core ולאחר מכן השתמש ברענון.",
+  "home2.nodeCore.updateAndRestartCore": "עדכון והפעלה מחדש של ה-Core",
   "home2.nodeCore.stopCoreFirst": "עצרו את Core לפני התקנתו או עדכונו.",
   "home2.nodeCore.title": "צומת ו-Core",
   "home2.permission.action": "פעולה",

@@ -877,6 +877,7 @@ export const ar: Record<TranslationKey, string> = {
   "home2.node.waitingForStatus": "في انتظار حالة العقدة",
   "home2.nodeCore.description": "اتصل بشبكة، وأدر Core المحلي الخاص بها، وحافظ على تحديث Home.",
   "home2.nodeCore.coreStateUnknown": "لا يستطيع Home التأكد مما إذا كان Core متوقفًا على هذا النظام، لذلك لن يثبّت فوقه. أوقف Core ثم استخدم تحديث.",
+  "home2.nodeCore.updateAndRestartCore": "تحديث Core وإعادة تشغيله",
   "home2.nodeCore.stopCoreFirst": "أوقف Core قبل تثبيته أو تحديثه.",
   "home2.nodeCore.title": "العقدة و Core",
   "home2.permission.action": "الإجراء",

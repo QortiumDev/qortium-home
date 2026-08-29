@@ -69,6 +69,16 @@ export type HomeV2CoreMaintenanceStatus = {
   readonly capabilities: {
     readonly canInitialInstall: boolean
     readonly canInstallJava: boolean
+    /**
+     * A running, Home-started Core may be updated in place: Home stops it,
+     * replaces the files, and starts it again, restoring the previous install
+     * if anything fails.
+     *
+     * Requires BOTH that Home owns the process (a Core someone else started is
+     * not ours to stop) and that an install already exists (otherwise there is
+     * nothing to roll back to). Never true for an initial install.
+     */
+    readonly canUpdateRunningInPlace: boolean
   }
   readonly core: {
     readonly channel: 'prerelease' | 'stable' | null
@@ -173,6 +183,7 @@ function qortiumMaintenanceStatus(
   return {
     capabilities: {
       canInitialInstall: supported && !installed && runtimeState === 'stopped',
+      canUpdateRunningInPlace: supported && !!installed && runtime?.owner === 'home',
       canInstallJava: supported && (
         javaSource === 'missing' || javaSource === 'unsupported' ||
         (javaSource === 'system' && typeof java?.majorVersion === 'number' &&
@@ -567,7 +578,14 @@ async function runMaintenanceAction(
     }
 
     const status = await readMaintenanceStatus(() => manager)
-    if (status.core.runtime !== 'stopped' ||
+    // A running Core no longer blocks an UPDATE outright — but only when Home
+    // started it and an install exists to fall back to, which is exactly what
+    // canUpdateRunningInPlace encodes and exactly what core-manager's
+    // stop -> replace -> restart dance requires. Initial installs still demand
+    // a stopped Core: they have no previous version to restore.
+    const runningUpdateAllowed = request.action !== 'initial-install' &&
+      status.capabilities.canUpdateRunningInPlace
+    if ((status.core.runtime !== 'stopped' && !runningUpdateAllowed) ||
       (request.action === 'initial-install' && !status.capabilities.canInitialInstall)) {
       return maintenanceActionResult(status, 'blocked', 'action-not-allowed')
     }
