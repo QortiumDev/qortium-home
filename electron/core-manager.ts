@@ -385,6 +385,63 @@ class DowngradeConfirmationRequiredError extends Error {
   }
 }
 
+/**
+ * The downgrade a Home 2 user has been asked to confirm, if any.
+ *
+ * The confirmation token is minted here and stays here. It is a single-use
+ * capability bound to a version pair, and the Home 2 status contracts forbid a
+ * `token` ever reaching the renderer -- so the renderer answers with a plain
+ * yes, and this module pairs that yes with the token it already holds.
+ */
+let pendingHomeV2Downgrade: DowngradeConfirmation | null = null;
+
+/**
+ * Install a Qortium Core release for Home 2, including going backwards.
+ *
+ * A lower version throws DowngradeConfirmationRequiredError on the first
+ * attempt. That is not an error the caller should show as a failure: it is the
+ * request for consent. The caller re-submits with `confirmDowngrade: true`, and
+ * the stored token is spent then. Consent is bound to the exact version pair the
+ * user was shown, so an install that changed underneath is refused rather than
+ * silently confirmed.
+ */
+export async function installCoreForHomeV2(request: {
+  channel?: unknown;
+  confirmDowngrade?: boolean;
+  expectedTag?: unknown;
+  mode?: unknown;
+}): Promise<
+  | { kind: 'completed'; status: Awaited<ReturnType<typeof installCore>> }
+  | { installedVersion: string; kind: 'downgrade-confirmation-required'; targetVersion: string }
+> {
+  const confirmed = request.confirmDowngrade === true ? pendingHomeV2Downgrade : null;
+  const attempt = {
+    channel: request.channel,
+    expectedTag: request.expectedTag,
+    mode: request.mode,
+    ...(confirmed
+      ? { allowDowngrade: true, downgradeToken: confirmed.token }
+      : {}),
+  };
+
+  try {
+    const status = await installCore(attempt);
+    pendingHomeV2Downgrade = null;
+    return { kind: 'completed', status };
+  } catch (error) {
+    if (error instanceof DowngradeConfirmationRequiredError) {
+      pendingHomeV2Downgrade = error.confirmation;
+      return {
+        installedVersion: error.confirmation.installedVersion,
+        kind: 'downgrade-confirmation-required',
+        targetVersion: error.confirmation.targetVersion,
+      };
+    }
+    pendingHomeV2Downgrade = null;
+    throw error;
+  }
+}
+
 const coreManagerStates = new CoreManagerStateRegistry<
   CoreNetworkId,
   CoreUpdateEngineStatus,
@@ -4542,6 +4599,7 @@ export type QortiumCoreManagerEntry = {
   getMaintenanceRuntimeStateForHomeV2: typeof observeQortiumMaintenanceRuntimeState;
   getTransportModeForHomeV2: typeof readQortiumTransportModeForHomeV2;
   install: typeof installCore;
+  installForHomeV2: typeof installCoreForHomeV2;
   installCoreAutomaticallyForHomeV2: typeof installCoreAutomaticallyForHomeV2;
   installJava: typeof installJava;
   installJavaAutomaticallyForHomeV2: typeof installJavaAutomaticallyForHomeV2;
@@ -4573,6 +4631,7 @@ const qortiumCoreManagerEntry: QortiumCoreManagerEntry = Object.freeze({
   getMaintenanceRuntimeStateForHomeV2: observeQortiumMaintenanceRuntimeState,
   getTransportModeForHomeV2: readQortiumTransportModeForHomeV2,
   install: installCore,
+  installForHomeV2: installCoreForHomeV2,
   installCoreAutomaticallyForHomeV2,
   installJava,
   installJavaAutomaticallyForHomeV2,

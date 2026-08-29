@@ -137,6 +137,7 @@ function maintenanceManager(options: {
   onInstallJava?: () => Promise<unknown>
   observedRuntime?: 'running' | 'stopped' | 'unknown'
   release?: Record<string, unknown>
+  onInstallForHomeV2?: (request: unknown) => Promise<unknown>
   prerelease?: Record<string, unknown>
   stable?: Record<string, unknown>
   runtime?: Record<string, unknown>
@@ -169,6 +170,10 @@ function maintenanceManager(options: {
     getStatus: async () => status(),
     getMaintenanceRuntimeStateForHomeV2: async () => options.observedRuntime ?? 'stopped',
     install: options.onInstall ?? (async () => status()),
+    installForHomeV2: options.onInstallForHomeV2 ?? (async (request: Record<string, unknown>) => {
+      const result = await (options.onInstall ?? (async () => status()))(request)
+      return { kind: 'completed' as const, status: result }
+    }),
     installJava: options.onInstallJava ?? (async () => status()),
     networkId: 'qortium',
     startForHomeV2: async () => status(),
@@ -247,6 +252,7 @@ function maintenanceManager(options: {
   assert.equal(result.outcome, 'completed')
   assert.deepEqual(installRequest, {
     channel: 'prerelease',
+    confirmDowngrade: false,
     expectedTag: 'v1.2.3',
     mode: 'initial-install',
   })
@@ -579,6 +585,7 @@ for (const nested of [
   assert.equal(result.outcome, 'completed', 'a Home-owned running Core may be updated in place')
   assert.deepEqual(installRequest, {
     channel: 'prerelease',
+    confirmDowngrade: false,
     expectedTag: 'v2.0.0',
     mode: 'strict-update',
   })
@@ -705,9 +712,11 @@ for (const nested of [
     { channel: 'stable', relation: 'initial-install', tag: '1.7.0' },
   ])
 
-  // Older than installed is withheld until the downgrade confirmation round
-  // trip is wired through the contract.
-  assert.deepEqual(await offersFor(rel('stable', '1.5.0'), undefined, '1.7.0'), [])
+  // Older than installed IS offered now, as a downgrade. Installing it still
+  // requires the user to confirm; the offer only makes the choice visible.
+  assert.deepEqual(await offersFor(rel('stable', '1.5.0'), undefined, '1.7.0'), [
+    { channel: 'stable', relation: 'downgrade', tag: '1.5.0' },
+  ])
 }
 
 // A modified install must reach the contract as installModified. Nothing else
@@ -731,6 +740,62 @@ for (const nested of [
     revision: 1, schema: 'home-v2-core-maintenance-request',
   })
   assert.equal(cleanStatus.core.installModified, false)
+}
+
+// The downgrade two-step. First attempt asks for consent; the token that
+// actually authorises it never appears in anything the renderer can see.
+{
+  const rel = (channel: string, tagName: string) => ({
+    asset: { digest: 'd', downloadUrl: 'u', name: 'n.zip', size: 1 },
+    available: true, channel, commit: 'c'.repeat(40), commitTimestamp: 't',
+    htmlUrl: 'h', name: 'n', publishedAt: 'p', tagName,
+  })
+  const seen: Array<Record<string, unknown>> = []
+  let confirmedYet = false
+  const manager = maintenanceManager({
+    installed: { jarSemver: '1.7.0', tagName: 'v1.7.0' },
+    stable: rel('stable', '1.5.0'),
+    onInstallForHomeV2: async (request) => {
+      seen.push(request as Record<string, unknown>)
+      if ((request as { confirmDowngrade?: boolean }).confirmDowngrade === true) {
+        confirmedYet = true
+        return { kind: 'completed' as const, status: {} }
+      }
+      return {
+        installedVersion: '1.7.0',
+        kind: 'downgrade-confirmation-required' as const,
+        targetVersion: '1.5.0',
+      }
+    },
+  })
+  const service = createHomeV2CoreManagerService(() => manager)
+  const ask = {
+    action: 'downgrade' as const,
+    channel: 'stable' as const,
+    confirmDowngrade: false,
+    expectedTag: '1.5.0',
+    revision: 1 as const,
+    schema: 'home-v2-core-maintenance-mutation-request' as const,
+  }
+
+  const first = await service.runMaintenanceAction(ask)
+  assert.equal(first.outcome, 'blocked')
+  assert.equal(first.code, 'downgrade-confirmation-required')
+  assert.deepEqual(first.downgrade, { installedVersion: '1.7.0', targetVersion: '1.5.0' })
+  assert.equal(confirmedYet, false, 'nothing may be installed before the user answers')
+  // The whole point: no token crosses the boundary.
+  assertRedacted(first)
+
+  const second = await service.runMaintenanceAction({ ...ask, confirmDowngrade: true })
+  assert.equal(second.outcome, 'completed')
+  assert.equal(confirmedYet, true)
+  assert.equal(seen[1].confirmDowngrade, true)
+  assertRedacted(second)
+
+  // A tag the user was never offered as a downgrade is refused outright.
+  const bogus = await service.runMaintenanceAction({ ...ask, expectedTag: '9.9.9' })
+  assert.equal(bogus.outcome, 'blocked')
+  assert.equal(bogus.code, 'release-changed')
 }
 
 console.log('Home v2 Core-manager contract tests passed.')

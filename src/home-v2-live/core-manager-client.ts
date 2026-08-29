@@ -244,7 +244,7 @@ export function parseHomeV2CoreMaintenanceRelease(value: unknown): HomeV2CoreMai
     !value.offers.every((offer) => isRecord(offer) &&
       hasExactKeys(offer, ['channel', 'relation', 'tag']) &&
       (offer.channel === 'stable' || offer.channel === 'prerelease') &&
-      ['initial-install', 'update'].includes(String(offer.relation)) &&
+      ['downgrade', 'initial-install', 'update'].includes(String(offer.relation)) &&
       typeof offer.tag === 'string' && offer.tag.length > 0 && offer.tag.length <= 80)) {
     throw new Error('Invalid Home 2 Core maintenance release.')
   }
@@ -266,14 +266,26 @@ export function parseHomeV2CoreMaintenanceRelease(value: unknown): HomeV2CoreMai
 }
 
 export function parseHomeV2CoreMaintenanceActionResult(value: unknown): HomeV2CoreMaintenanceActionResult {
-  if (!isRecord(value) || !hasExactKeys(value, ['code', 'outcome', 'revision', 'schema', 'status']) ||
+  if (!isRecord(value) ||
+    !hasExactKeys(value, ['code', 'downgrade', 'outcome', 'revision', 'schema', 'status']) ||
     value.schema !== 'home-v2-core-maintenance-action' || value.revision !== 1 ||
     !['blocked', 'completed', 'failed'].includes(String(value.outcome)) ||
-    !(value.code === null || ['action-not-allowed', 'operation-failed', 'operation-in-progress', 'release-changed'].includes(String(value.code)))) {
+    !(value.code === null || ['action-not-allowed', 'downgrade-confirmation-required',
+      'operation-failed', 'operation-in-progress', 'release-changed'].includes(String(value.code))) ||
+    !(value.downgrade === null || (isRecord(value.downgrade) &&
+      hasExactKeys(value.downgrade, ['installedVersion', 'targetVersion']) &&
+      typeof value.downgrade.installedVersion === 'string' &&
+      typeof value.downgrade.targetVersion === 'string')) ||
+    // A confirmation prompt with nothing to name would be unanswerable.
+    (value.code === 'downgrade-confirmation-required' && value.downgrade === null)) {
     throw new Error('Invalid Home 2 Core maintenance action result.')
   }
   return Object.freeze({
     code: value.code,
+    downgrade: value.downgrade === null ? null : Object.freeze({
+      installedVersion: (value.downgrade as Record<string, string>).installedVersion,
+      targetVersion: (value.downgrade as Record<string, string>).targetVersion,
+    }),
     outcome: value.outcome,
     revision: 1,
     schema: 'home-v2-core-maintenance-action',
@@ -975,8 +987,8 @@ export interface HomeV2CoreManagerClient {
   getMaintenanceStatus(): Promise<HomeV2CoreMaintenanceStatus>
   checkMaintenanceRelease(): Promise<HomeV2CoreMaintenanceRelease>
   runMaintenanceAction(
-    action: 'initial-install' | 'install-java' | 'strict-update',
-    release?: { channel: 'prerelease' | 'stable'; expectedTag: string },
+    action: 'downgrade' | 'initial-install' | 'install-java' | 'strict-update',
+    release?: { channel: 'prerelease' | 'stable'; confirmDowngrade?: boolean; expectedTag: string },
   ): Promise<HomeV2CoreMaintenanceActionResult>
   getUpdatePolicy(): Promise<HomeV2CoreUpdatePolicyState>
   setUpdatePolicy(

@@ -69,6 +69,7 @@ assert.throws(() => parseHomeV2CoreMaintenanceRelease({
 }))
 const maintenanceAction = {
   code: null, outcome: 'completed', revision: 1,
+  downgrade: null,
   schema: 'home-v2-core-maintenance-action', status: maintenanceStatus,
 } as const
 assert.deepEqual(parseHomeV2CoreMaintenanceActionResult(maintenanceAction), maintenanceAction)
