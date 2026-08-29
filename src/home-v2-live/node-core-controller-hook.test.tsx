@@ -73,11 +73,13 @@ let controller!: Controller
 function Harness({
   coreClient,
   nodeClient,
+  onLifecycleSettled,
 }: {
   readonly coreClient: HomeV2CoreManagerClient | null
   readonly nodeClient: HomeV2NodeClient | null
+  readonly onLifecycleSettled?: () => void
 }) {
-  controller = useHomeV2NodeCoreController({ coreClient, nodeClient })
+  controller = useHomeV2NodeCoreController({ coreClient, nodeClient, onLifecycleSettled })
   return <span>{controller.nodes.qortium.label}</span>
 }
 
@@ -252,6 +254,49 @@ try {
       'the failure streak must reset after a successful poll',
     )
     assert.equal(controller.nodes.qortium.label, 'recovered-qortium')
+  } finally {
+    act(() => root.unmount())
+    container.remove()
+  }
+}
+
+// --- A lifecycle action must invalidate everything that reads runtime -----
+// Start/stop changes state the maintenance slice and the transport row read
+// through their OWN 30s polls. Without this callback, stopping the Core left
+// the install gate reading "not stopped" for up to half a minute: the tile
+// told the user to stop a Core they had just stopped, kept Update disabled,
+// and the Refresh button did not reach the gate either.
+{
+  const container = document.createElement('div')
+  document.body.appendChild(container)
+  const root = createRoot(container)
+  try {
+    let settled = 0
+    const coreClient: HomeV2CoreManagerClient = {
+      getMaintenanceStatus: async () => ({} as never),
+      checkMaintenanceRelease: async () => ({} as never),
+      runMaintenanceAction: async () => ({} as never),
+      getUpdatePolicy: async () => ({} as never),
+      setUpdatePolicy: async () => ({} as never),
+      getStatus: async (network) => coreStatus(network, 'stopped'),
+      start: async (network) => actionResult(network, 'running'),
+      stop: async () => { throw new Error('stop failed') },
+    }
+    await act(async () => {
+      root.render(
+        <Harness coreClient={coreClient} nodeClient={null} onLifecycleSettled={() => { settled += 1 }} />,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    await act(async () => { await controller.runCoreAction('qortium', 'start') })
+    assert.equal(settled, 1, 'a successful start must invalidate the derived state')
+
+    // ...and on FAILURE too: a stop that reported an error may still have
+    // stopped it, and a stale gate is exactly how the tile contradicts itself.
+    await act(async () => { await controller.runCoreAction('qortal', 'stop') })
+    assert.equal(settled, 2, 'a failed action must invalidate the derived state as well')
   } finally {
     act(() => root.unmount())
     container.remove()

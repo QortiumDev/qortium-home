@@ -34,6 +34,30 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-29 - fix(core): the dashboard no longer tells you to stop a Core you already stopped
+
+A tester reported that Home showed the Core as running on the dashboard while
+the indicator at the top right said it was not, and that installing an update
+told them to stop the Core even after they had stopped it. Both came from the
+same place.
+
+Home works out whether the Core is running in more than one way. The indicator
+and the Start/Stop buttons use one method; the check that guards installing an
+update uses another, stricter one that on some systems can only answer "yes" or
+"cannot tell" — never "no". When it could not tell, the update was refused with
+the message "Stop Core before installing", which is the one thing the person
+had already done.
+
+Two changes. The refusal now says what is actually true — that Home cannot
+confirm the Core is stopped on this system — instead of asking again for
+something already done. And starting or stopping the Core now immediately
+refreshes everything that depends on it, as does the Refresh button, rather
+than leaving the update check up to half a minute out of date with no way to
+hurry it.
+
+The stricter check itself is deliberate and unchanged: installing over a
+running Core can damage it, so Home still refuses unless it is sure.
+
 ### 2026-08-28 - feat(apps): apps can read data that was encrypted to you
 
 An app can now ask Home to open data that was encrypted to your account, the

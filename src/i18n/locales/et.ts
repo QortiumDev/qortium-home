@@ -876,6 +876,7 @@ export const et: Record<TranslationKey, string> = {
   "home2.node.peers": "{count} partnerit",
   "home2.node.waitingForStatus": "Sõlme oleku ootamine",
   "home2.nodeCore.description": "Ühenda võrguga, halda selle kohalikku Core'i ja hoia Home ajakohasena.",
+  "home2.nodeCore.coreStateUnknown": "Home ei suuda selles süsteemis kinnitada, kas Core on peatatud, seega ei paigalda ta selle peale. Peata Core ja kasuta seejärel Värskenda.",
   "home2.nodeCore.stopCoreFirst": "Peata Core enne selle paigaldamist või uuendamist.",
   "home2.nodeCore.title": "Sõlm ja Core",
   "home2.permission.action": "Toiming",

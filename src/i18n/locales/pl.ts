@@ -876,6 +876,7 @@ export const pl: Record<TranslationKey, string> = {
   "home2.node.peers": "Elementy równorzędne {count}",
   "home2.node.waitingForStatus": "Oczekiwanie na stan węzła",
   "home2.nodeCore.description": "Połącz się z siecią, zarządzaj jej lokalnym Core i utrzymuj Home w aktualnej wersji.",
+  "home2.nodeCore.coreStateUnknown": "Home nie może potwierdzić, czy Core jest zatrzymany w tym systemie, więc nie zainstaluje na nim aktualizacji. Zatrzymaj Core, a następnie użyj Odśwież.",
   "home2.nodeCore.stopCoreFirst": "Zatrzymaj Core przed jego instalacją lub aktualizacją.",
   "home2.nodeCore.title": "Węzeł i Core",
   "home2.permission.action": "Akcja",

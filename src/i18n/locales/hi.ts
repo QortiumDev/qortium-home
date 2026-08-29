@@ -877,6 +877,7 @@ export const hi: Record<TranslationKey, string> = {
   "home2.node.peers": "{count} पीयर",
   "home2.node.waitingForStatus": "नोड की स्थिति की प्रतीक्षा है",
   "home2.nodeCore.description": "किसी नेटवर्क से जुड़ें, उसका स्थानीय Core प्रबंधित करें और Home को अद्यतन रखें।",
+  "home2.nodeCore.coreStateUnknown": "Home इस सिस्टम पर यह पुष्टि नहीं कर सकता कि Core रुका हुआ है या नहीं, इसलिए वह उसके ऊपर इंस्टॉल नहीं करेगा। Core को रोकें, फिर रिफ़्रेश का उपयोग करें।",
   "home2.nodeCore.stopCoreFirst": "Core को स्थापित या अद्यतन करने से पहले उसे रोकें।",
   "home2.nodeCore.title": "नोड और Core",
   "home2.permission.action": "कार्रवाई",

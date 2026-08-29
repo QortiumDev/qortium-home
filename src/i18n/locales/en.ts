@@ -875,6 +875,7 @@ export const en = {
   "home2.node.peers": "{count} peers",
   "home2.node.waitingForStatus": "Waiting for node status",
   "home2.nodeCore.description": "Connect to a network, manage its local Core, and keep Home updated.",
+  "home2.nodeCore.coreStateUnknown": "Home cannot confirm whether Core is stopped on this system, so it will not install over it. Stop Core, then use Refresh.",
   "home2.nodeCore.stopCoreFirst": "Stop Core before installing or updating it.",
   "home2.nodeCore.title": "Node & Core",
   "home2.permission.action": "Action",

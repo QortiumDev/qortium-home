@@ -876,6 +876,7 @@ export const pt: Record<TranslationKey, string> = {
   "home2.node.peers": "Pares {count}",
   "home2.node.waitingForStatus": "Aguardando o status do nó",
   "home2.nodeCore.description": "Conecte-se a uma rede, gerencie o Core local dela e mantenha o Home atualizado.",
+  "home2.nodeCore.coreStateUnknown": "O Home não consegue confirmar se o Core está parado neste sistema, por isso não instalará por cima. Pare o Core e depois use Atualizar.",
   "home2.nodeCore.stopCoreFirst": "Pare o Core antes de instalá-lo ou atualizá-lo.",
   "home2.nodeCore.title": "Nó e Core",
   "home2.permission.action": "Ação",

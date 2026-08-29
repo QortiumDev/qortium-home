@@ -1357,9 +1357,15 @@ export function HomeV2LiveApp() {
   const [nodeClient, setNodeClient] = useState<HomeV2NodeClient | null>(
     () => window.homeV2Nodes ?? null,
   )
+  // Populated once the maintenance controllers below exist. They are built
+  // AFTER the node-core controller, so a start/stop cannot call them directly;
+  // this ref is the seam that lets a lifecycle action invalidate everything
+  // that reads Core runtime state instead of only the slice it owns.
+  const lifecycleSettledRef = useRef<(() => void) | null>(null)
   const nodeCoreController = useHomeV2NodeCoreController({
     coreClient: window.homeV2CoreManagers ?? null,
     nodeClient,
+    onLifecycleSettled: () => lifecycleSettledRef.current?.(),
   })
   const onChainCoreUpdates = useHomeV2OnChainCoreUpdates(nodeClient, {
     authenticated: nodeCoreController.nodes.qortium.customAuthenticated,
@@ -1393,6 +1399,17 @@ export function HomeV2LiveApp() {
   })
   const qortalMaintenance = useHomeV2QortalMaintenance(refreshCoreStatuses)
   const transportMaintenance = useHomeV2TransportMaintenance(refreshCoreStatuses)
+  // Everything that derives from "is the Core running", refreshed together.
+  // The install gate and the transport row each observe the runtime through
+  // their own path, so a lifecycle action has to invalidate all of them or the
+  // tile contradicts itself until the next 30s poll.
+  const refreshCoreDerivedState = useCallback(() => {
+    void nodeCoreController.refreshCoreStatuses()
+    void coreMaintenance.refresh().catch(() => undefined)
+    void transportMaintenance.refresh().catch(() => undefined)
+    void qortalMaintenance.refresh().catch(() => undefined)
+  }, [coreMaintenance, nodeCoreController, qortalMaintenance, transportMaintenance])
+  lifecycleSettledRef.current = refreshCoreDerivedState
   const [vaultClient, setVaultClient] = useState<HomeV2VaultClient | null>(
     () => window.homeV2Vault ?? null,
   )
@@ -9286,7 +9303,9 @@ export function HomeV2LiveApp() {
         onAction: (network, action) => {
           void nodeCoreController.runCoreAction(network, action)
         },
-        onRefresh: refreshCoreStatuses,
+        // Refresh must reach the install gate too: it was the only way out of a
+        // stale "stop the Core first" and it did not work.
+        onRefresh: refreshCoreDerivedState,
         coreMaintenance: coreMaintenance.available
           ? toHomeV2CoreMaintenanceManagement(coreMaintenance)
           : undefined,
