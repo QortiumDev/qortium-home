@@ -1,13 +1,17 @@
 import { ipcMain } from 'electron'
 import {
   downloadVerifiedAppUpdate,
+  setHomeV2AppDownloadProgressListener,
   getUpdateEnvironment,
   openDownloadedFile,
   openExternalUrl,
   showDownloadedFile,
 } from './app-updates.js'
 import { fetchTrustedHomeRelease } from './app-update-discovery.js'
-import { assertAuthorizedHomeV2Sender } from './home-v2-authorized-senders.js'
+import {
+  assertAuthorizedHomeV2Sender,
+  broadcastToHomeV2Windows,
+} from './home-v2-authorized-senders.js'
 import {
   createAuthorizedHomeV2AppUpdateHandlers,
   createHomeV2AppUpdateService,
@@ -21,7 +25,42 @@ import {
   writeHomeV2AppUpdateSettings,
 } from './home-v2-app-update-settings-storage.js'
 
+/**
+ * One Home-download progress event, to authorized Home windows only.
+ *
+ * Carries bytes as well as percent: a large download with an unknown total
+ * still tells the user something is moving, which "Working…" never did.
+ */
+function broadcastHomeV2AppDownloadProgress(progress: {
+  readonly action: string
+  readonly fileName: string
+  readonly message: string
+  readonly percent: number | null
+  readonly receivedBytes: number
+  readonly releaseTag: string
+  readonly totalBytes: number | null
+}) {
+  broadcastToHomeV2Windows('home-v2-app-update:progress', {
+    action: progress.action,
+    fileName: progress.fileName,
+    message: progress.message,
+    percent: typeof progress.percent === 'number' && Number.isFinite(progress.percent)
+      ? Math.max(0, Math.min(100, Math.round(progress.percent)))
+      : null,
+    receivedBytes: Number.isFinite(progress.receivedBytes)
+      ? Math.max(0, Math.round(progress.receivedBytes))
+      : 0,
+    releaseTag: progress.releaseTag,
+    revision: 1,
+    schema: 'home-v2-app-update-progress',
+    totalBytes: typeof progress.totalBytes === 'number' && Number.isFinite(progress.totalBytes)
+      ? Math.max(0, Math.round(progress.totalBytes))
+      : null,
+  })
+}
+
 export function registerHomeV2AppUpdateBridgeIpcHandlers() {
+  setHomeV2AppDownloadProgressListener(broadcastHomeV2AppDownloadProgress)
   const service = createHomeV2AppUpdateService({
     downloadAsset: downloadVerifiedAppUpdate,
     fetchRelease: fetchTrustedHomeRelease,

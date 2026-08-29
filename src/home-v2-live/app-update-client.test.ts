@@ -3,6 +3,7 @@ import {
   parseHomeV2AppUpdateAction,
   parseHomeV2AppUpdateAutomaticClaim,
   parseHomeV2AppUpdateCheck,
+  parseHomeV2AppUpdateProgress,
   parseHomeV2AppUpdateSettings,
 } from './app-update-client'
 
@@ -65,5 +66,53 @@ assert.throws(() => parseHomeV2AppUpdateAutomaticClaim({
   claimed: true,
   homeUpdatePolicy: 'off',
 }), /malformed/)
+
+// --- Download progress survives the parser ROUND TRIP --------------------
+// Same guard as the Core progress parser, for the same reason: a parser that
+// validates a field and then forgets to copy it into its result leaves the UI
+// reading undefined, with every other test still green.
+{
+  const progress = {
+    action: 'downloading',
+    fileName: 'Qortium-Home.AppImage',
+    message: 'Downloading Qortium Home.',
+    percent: 37,
+    receivedBytes: 3_700_000,
+    releaseTag: 'v2.1.0',
+    revision: 1,
+    schema: 'home-v2-app-update-progress',
+    totalBytes: 10_000_000,
+  } as const
+  assert.deepEqual(parseHomeV2AppUpdateProgress(progress), {
+    action: 'downloading',
+    fileName: 'Qortium-Home.AppImage',
+    message: 'Downloading Qortium Home.',
+    percent: 37,
+    receivedBytes: 3_700_000,
+    releaseTag: 'v2.1.0',
+    totalBytes: 10_000_000,
+  }, 'every field the UI reads must survive the parse')
+
+  // No content-length: percent and total stay null, and the UI falls back to
+  // showing bytes received. Zero would render a bar stuck at the left.
+  const unknownTotal = parseHomeV2AppUpdateProgress({
+    ...progress, percent: null, totalBytes: null,
+  })
+  assert.equal(unknownTotal?.percent, null)
+  assert.equal(unknownTotal?.totalBytes, null)
+  assert.equal(unknownTotal?.receivedBytes, 3_700_000)
+}
+
+for (const bad of [
+  null,
+  { action: 'downloading', fileName: 'a', message: 'b', percent: 1, receivedBytes: 1, releaseTag: 'v', revision: 2, schema: 'home-v2-app-update-progress', totalBytes: 2 },
+  { action: 'downloading', fileName: 'a', message: 'b', percent: 1, receivedBytes: 1, releaseTag: 'v', revision: 1, schema: 'nope', totalBytes: 2 },
+  { action: 'sprinting', fileName: 'a', message: 'b', percent: 1, receivedBytes: 1, releaseTag: 'v', revision: 1, schema: 'home-v2-app-update-progress', totalBytes: 2 },
+  { action: 'downloading', fileName: 'a', message: 'b', percent: 101, receivedBytes: 1, releaseTag: 'v', revision: 1, schema: 'home-v2-app-update-progress', totalBytes: 2 },
+  { action: 'downloading', fileName: 'a', message: 'b', percent: 1, receivedBytes: -1, releaseTag: 'v', revision: 1, schema: 'home-v2-app-update-progress', totalBytes: 2 },
+  { action: 'downloading', extra: true, fileName: 'a', message: 'b', percent: 1, receivedBytes: 1, releaseTag: 'v', revision: 1, schema: 'home-v2-app-update-progress', totalBytes: 2 },
+]) {
+  assert.equal(parseHomeV2AppUpdateProgress(bad), null, `refuses ${JSON.stringify(bad)}`)
+}
 
 console.log('Home 2 app update client tests passed.')

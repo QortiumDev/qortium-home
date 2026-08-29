@@ -354,7 +354,29 @@ function getResponseContentLength(response: Response) {
   return Number.isFinite(contentLength) && contentLength > 0 ? contentLength : null;
 }
 
+/**
+ * Home 2's download-progress subscriber. Same shape and same reasoning as the
+ * Core one: a callback rather than a second broadcast, so this module does not
+ * import the authorized-sender machinery, and the bridge owns its envelope.
+ */
+let homeV2AppDownloadProgressListener:
+  | ((progress: AppUpdateDownloadProgress) => void)
+  | null = null;
+
+export function setHomeV2AppDownloadProgressListener(
+  listener: ((progress: AppUpdateDownloadProgress) => void) | null,
+) {
+  homeV2AppDownloadProgressListener = listener;
+}
+
 function publishDownloadProgress(progress: AppUpdateDownloadProgress) {
+  if (homeV2AppDownloadProgressListener) {
+    try {
+      homeV2AppDownloadProgressListener(progress);
+    } catch {
+      // A broken subscriber must never break a download.
+    }
+  }
   for (const window of BrowserWindow.getAllWindows()) {
     if (!window.isDestroyed()) {
       window.webContents.send('updates:downloadProgress', progress);

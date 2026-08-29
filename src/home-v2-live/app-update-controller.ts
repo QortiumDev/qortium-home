@@ -13,11 +13,13 @@ import {
   parseHomeV2AppUpdateAction,
   parseHomeV2AppUpdateAutomaticClaim,
   parseHomeV2AppUpdateCheck,
+  parseHomeV2AppUpdateProgress,
   parseHomeV2AppUpdateSettings,
   type HomeV2AppUpdateChannel,
   type HomeV2AppUpdateCheck,
   type HomeV2AppUpdateDownload,
   type HomeV2AppUpdateIssue,
+  type HomeV2AppUpdateProgress,
 } from './app-update-client'
 
 type NativeDownload = QortiumAppUpdateDownloadResult & { digest: string }
@@ -52,7 +54,7 @@ function issueMessage(issue: HomeV2AppUpdateIssue | null) {
   }
 }
 
-function formatUpdateBytes(bytes: number) {
+export function formatUpdateBytes(bytes: number) {
   if (!Number.isFinite(bytes) || bytes <= 0) return '-'
   const units = ['B', 'KB', 'MB', 'GB'] as const
   let value = bytes
@@ -126,6 +128,8 @@ export function useHomeV2AppUpdates(nativeHostOverride: AndroidHomeV2UpdateHost 
   const [result, setResult] = useState<HomeV2AppUpdateCheck | null>(null)
   const [download, setDownload] = useState<HomeV2AppUpdateDownload | null>(null)
   const [busy, setBusy] = useState<'check' | 'download' | 'open' | 'reveal' | null>(null)
+  // Live download progress. Null when nothing is downloading.
+  const [progress, setProgress] = useState<HomeV2AppUpdateProgress | null>(null)
   const [message, setMessage] = useState<{ tone: 'error' | 'success'; text: string } | null>(null)
   const requestSequence = useRef(0)
   const automaticCheckKey = useRef('')
@@ -135,6 +139,22 @@ export function useHomeV2AppUpdates(nativeHostOverride: AndroidHomeV2UpdateHost 
   const [confirmedGeneration, setConfirmedGeneration] = useState(0)
   const nativeResult = useRef<QortiumAppUpdateCheckResult | null>(null)
   const nativeDownload = useRef<NativeDownload | null>(null)
+
+  // Desktop download progress. Android reports its own way (nativeDownload),
+  // so this subscribes only when the Electron client is present.
+  useEffect(() => {
+    if (!desktopClient?.onDownloadProgress) return undefined
+    return desktopClient.onDownloadProgress((event) => {
+      const parsed = parseHomeV2AppUpdateProgress(event)
+      // Dropped, not rendered: a wrong percentage is worse than none.
+      if (parsed) setProgress(parsed)
+    })
+  }, [desktopClient])
+
+  // A finished or failed run must not leave a bar behind.
+  useEffect(() => {
+    if (busy !== 'download') setProgress(null)
+  }, [busy])
 
   useEffect(() => {
     if (nativeHostOverride) {
@@ -535,6 +555,7 @@ export function useHomeV2AppUpdates(nativeHostOverride: AndroidHomeV2UpdateHost 
   return {
     available,
     busy,
+    progress,
     channel,
     check,
     download,

@@ -280,6 +280,13 @@ contextBridge.exposeInMainWorld('homeV2CoreManagers', {
 })
 
 contextBridge.exposeInMainWorld('homeV2AppUpdates', {
+  // Push, like the Core progress channel and for the same reason: a download
+  // percentage that arrives after the download is not progress. Report-only.
+  onDownloadProgress: (listener: (event: unknown) => void) => {
+    const handler = (_event: unknown, payload: unknown) => listener(payload)
+    ipcRenderer.on('home-v2-app-update:progress', handler)
+    return () => ipcRenderer.removeListener('home-v2-app-update:progress', handler)
+  },
   claimAutomatic: () =>
     ipcRenderer.invoke('home-v2-app-update:claim-automatic', {
       revision: 1,
