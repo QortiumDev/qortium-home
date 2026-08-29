@@ -882,7 +882,48 @@ export function parseHomeV2CoreUpdatePolicySetResult(
   })
 }
 
+export type HomeV2CoreMaintenanceProgress = Readonly<{
+  action: 'checking' | 'downloading' | 'extracting' | 'idle' | 'starting' | 'stopping'
+  kind: 'error' | 'info' | 'success'
+  message: string
+  /** null when the phase has no honest denominator (checking, extracting). */
+  percent: number | null
+}>
+
+const progressActions = new Set([
+  'checking', 'downloading', 'extracting', 'idle', 'starting', 'stopping',
+])
+const progressKinds = new Set(['error', 'info', 'success'])
+
+/**
+ * Parsed, never trusted. A malformed event yields null and the UI keeps
+ * whatever it had, rather than rendering a wrong percentage or a blank bar.
+ */
+export function parseHomeV2CoreMaintenanceProgress(
+  value: unknown,
+): HomeV2CoreMaintenanceProgress | null {
+  if (!isRecord(value) ||
+    !hasExactKeys(value, ['action', 'kind', 'message', 'percent', 'revision', 'schema']) ||
+    value.schema !== 'home-v2-core-manager-progress' || value.revision !== 1 ||
+    typeof value.action !== 'string' || !progressActions.has(value.action) ||
+    typeof value.kind !== 'string' || !progressKinds.has(value.kind) ||
+    typeof value.message !== 'string' || value.message.length > 500 ||
+    !(value.percent === null ||
+      (typeof value.percent === 'number' && Number.isFinite(value.percent) &&
+        value.percent >= 0 && value.percent <= 100))) {
+    return null
+  }
+  return Object.freeze({
+    action: value.action as HomeV2CoreMaintenanceProgress['action'],
+    kind: value.kind as HomeV2CoreMaintenanceProgress['kind'],
+    message: value.message,
+    percent: value.percent as number | null,
+  })
+}
+
 export interface HomeV2CoreManagerClient {
+  /** Optional: absent on hosts without the Electron preload (Android). */
+  onMaintenanceProgress?(listener: (event: unknown) => void): () => void
   getMaintenanceStatus(): Promise<HomeV2CoreMaintenanceStatus>
   checkMaintenanceRelease(): Promise<HomeV2CoreMaintenanceRelease>
   runMaintenanceAction(

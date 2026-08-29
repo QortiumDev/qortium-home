@@ -3298,3 +3298,51 @@ body,
     min-width: 0;
   }
 }
+
+/* Core install/update progress. Determinate when the phase has an honest
+   denominator (downloading); indeterminate for checking/extracting, which is
+   why the fill animates instead of claiming a width. */
+.home-v2-core-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.home-v2-core-progress__track {
+  background: var(--v2-surface-sunken, rgba(0, 0, 0, 0.08));
+  border-radius: 999px;
+  height: 6px;
+  overflow: hidden;
+  position: relative;
+  width: 100%;
+}
+
+.home-v2-core-progress__fill {
+  background: var(--v2-accent, #2f7953);
+  height: 100%;
+  transition: width 200ms ease;
+}
+
+.home-v2-core-progress__track[data-indeterminate='true'] .home-v2-core-progress__fill {
+  animation: home-v2-core-progress-slide 1.2s ease-in-out infinite;
+  width: 40%;
+}
+
+@keyframes home-v2-core-progress-slide {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(250%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .home-v2-core-progress__track[data-indeterminate='true'] .home-v2-core-progress__fill {
+    animation: none;
+    width: 100%;
+    opacity: 0.5;
+  }
+}
+
+.home-v2-core-progress__message {
+  color: var(--v2-text-muted, #666);
+  font-size: 0.85em;
+}

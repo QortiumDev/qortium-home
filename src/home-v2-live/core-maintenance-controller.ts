@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type {
+  HomeV2CoreMaintenanceProgress,
   HomeV2CoreMaintenanceRelease,
   HomeV2CoreMaintenanceStatus,
   HomeV2CoreUpdatePolicy,
@@ -8,6 +9,7 @@ import type {
 import {
   parseHomeV2CoreMaintenanceActionResult,
   parseHomeV2CoreMaintenanceRelease,
+  parseHomeV2CoreMaintenanceProgress,
   parseHomeV2CoreMaintenanceStatus,
   parseHomeV2CoreUpdatePolicySetResult,
   parseHomeV2CoreUpdatePolicyState,
@@ -42,6 +44,9 @@ export function useHomeV2CoreMaintenance(options: {
   const [busy, setBusy] = useState<HomeV2CoreMaintenanceBusy | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [initialLoadFailed, setInitialLoadFailed] = useState(false)
+  // Live install/update progress. Null whenever nothing is running, so the UI
+  // shows a bar only while there is something to report.
+  const [progress, setProgress] = useState<HomeV2CoreMaintenanceProgress | null>(null)
   const disposed = useRef(false)
   const statusRef = useRef<HomeV2CoreMaintenanceStatus | null>(null)
   const policyRef = useRef<HomeV2CoreUpdatePolicyState | null>(null)
@@ -77,6 +82,19 @@ export function useHomeV2CoreMaintenance(options: {
       throw error
     }
   }
+
+  // The one push channel on this surface. Everything else here polls; a
+  // percentage that arrives on the next 30s tick is not progress.
+  useEffect(() => {
+    if (!client?.onMaintenanceProgress) return undefined
+    return client.onMaintenanceProgress((event) => {
+      const parsed = parseHomeV2CoreMaintenanceProgress(event)
+      // A malformed event is DROPPED, not rendered: keeping the previous value
+      // is better than showing a wrong percentage, and better than a blank bar.
+      if (!parsed) return
+      setProgress(parsed.action === 'idle' ? null : parsed)
+    })
+  }, [client])
 
   useEffect(() => {
     disposed.current = false
@@ -233,6 +251,7 @@ export function useHomeV2CoreMaintenance(options: {
     installJava,
     notice,
     policy,
+    progress,
     refresh,
     release,
     runCore,
@@ -250,6 +269,8 @@ export type HomeV2CoreMaintenance = ReturnType<typeof useHomeV2CoreMaintenance>
  * can leave them out.
  */
 export interface HomeV2CoreMaintenanceManagement {
+  /** Live install/update progress, or null when nothing is running. */
+  readonly progress?: HomeV2CoreMaintenanceProgress | null
   readonly busy: HomeV2CoreMaintenanceBusy | null
   /** Last action outcome, so a tile can report a failure it caused. */
   readonly notice: string | null
@@ -271,6 +292,7 @@ export function toHomeV2CoreMaintenanceManagement(
   return {
     busy: maintenance.busy,
     notice: maintenance.notice,
+    progress: maintenance.progress,
     onCheckRelease: () => void maintenance.check(),
     onInstallJava: () => void maintenance.installJava(),
     onRunRelease: () => void maintenance.runCore(),

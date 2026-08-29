@@ -1,5 +1,6 @@
 import type { HomeV2CoreUpdatePolicy } from '../../home-v2-live/core-manager-client'
 import type { HomeV2CoreMaintenance } from '../../home-v2-live/core-maintenance-controller'
+import { CoreProgressBar } from './HomeV2NodeCoreSection'
 import { t } from '../../i18n'
 import type { NetworkId } from '../contracts'
 
@@ -211,6 +212,7 @@ export function CoreMaintenancePanel({
             )
           })() : null}
         </div>
+        <CoreProgressBar progress={maintenance.progress} />
       </div> : null}
       <div className="home-v2-setting-row">
         <div className="home-v2-setting-row__copy">

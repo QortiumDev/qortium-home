@@ -1,6 +1,9 @@
 import { app, ipcMain } from 'electron'
-import { requireCoreManagerEntry } from './core-manager.js'
-import { assertAuthorizedHomeV2Sender } from './home-v2-authorized-senders.js'
+import { requireCoreManagerEntry, setHomeV2CoreProgressListener } from './core-manager.js'
+import {
+  assertAuthorizedHomeV2Sender,
+  broadcastToHomeV2Windows,
+} from './home-v2-authorized-senders.js'
 import { homeV2CoreOperationCoordinator } from './home-v2-core-operation-coordinator.js'
 import {
   createAuthorizedHomeV2CoreManagerHandlers,
@@ -39,7 +42,39 @@ import {
   stopIfManaged as stopI2pdIfManaged,
 } from './i2pd-manager.js'
 
+/**
+ * One Core install/update progress event, addressed only to authorized Home
+ * windows.
+ *
+ * Schema'd and revisioned like every other Home 2 event: the renderer parses
+ * it rather than trusting it, so a malformed or unexpected payload renders
+ * nothing instead of a wrong percentage.
+ *
+ * `percent` is optional because the underlying phases are honest about it —
+ * "checking" and "extracting" have no meaningful denominator, only
+ * "downloading" does. The UI shows an indeterminate state rather than
+ * inventing a number.
+ */
+function broadcastHomeV2CoreProgress(progress: {
+  readonly action: string
+  readonly kind: string
+  readonly message: string
+  readonly percent?: number
+}) {
+  broadcastToHomeV2Windows('home-v2-core-manager:progress', {
+    action: progress.action,
+    kind: progress.kind,
+    message: progress.message,
+    percent: typeof progress.percent === 'number' && Number.isFinite(progress.percent)
+      ? Math.max(0, Math.min(100, Math.round(progress.percent)))
+      : null,
+    revision: 1,
+    schema: 'home-v2-core-manager-progress',
+  })
+}
+
 export function registerHomeV2CoreManagerBridgeIpcHandlers() {
+  setHomeV2CoreProgressListener(broadcastHomeV2CoreProgress)
   const handlers = createAuthorizedHomeV2CoreManagerHandlers(
     assertAuthorizedHomeV2Sender,
     createHomeV2CoreManagerService(requireCoreManagerEntry),

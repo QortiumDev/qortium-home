@@ -34,6 +34,15 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-29 - feat(core): a progress bar while the Core installs
+
+Installing or updating the Core used to show only the word "Working…" for as
+long as it took, with no way to tell whether anything was happening. There is
+now a progress bar with the current step and, while downloading, a percentage.
+
+Steps that cannot honestly report a percentage — checking for a release,
+unpacking the download — show a moving bar rather than a made-up number.
+
 ### 2026-08-29 - feat(core): Home updates a running Core for you
 
 Updating the Qortium Core used to require stopping it yourself first. Home now
