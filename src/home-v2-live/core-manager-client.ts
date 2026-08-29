@@ -197,6 +197,7 @@ export function parseHomeV2CoreMaintenanceStatus(value: unknown): HomeV2CoreMain
     capabilities: Object.freeze({
       canInitialInstall: value.capabilities.canInitialInstall,
       canInstallJava: value.capabilities.canInstallJava,
+      canUpdateRunningInPlace: value.capabilities.canUpdateRunningInPlace,
     }),
     core: Object.freeze({
       channel: value.core.channel,
