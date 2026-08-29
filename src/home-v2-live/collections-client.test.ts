@@ -289,4 +289,53 @@ assert.equal(toolbarShown.snapshot.toolbar[0]?.type, 'bookmark')
 assert.equal(toolbarShown.snapshot.toolbarVisibility, 'dashboard')
 assert.equal((await toolbarClient.getSnapshot(accounts)).revision, toolbarShown.snapshot.revision)
 
+// --- Toolbar defaults are seeded in the SAME pass as the dashboard pins ---
+// They cannot be a second pass: finalizeDashboardPinDefaults clears the
+// fresh-profile flags when it finishes, so anything running after it would see
+// a profile that is no longer fresh and would never seed.
+{
+  clearFakeCollectionPreferences()
+  const client = new HomeV2CollectionsClient()
+  await client.markFreshShellForDashboardDefaults()
+  await client.getSnapshot(accounts)
+  const seeded = await client.finalizeDashboardPinDefaults(
+    true,
+    [{ displayUrl: 'qdn://APP/Chat/Chat', title: 'Chat' }],
+    accounts,
+    {
+      links: [
+        { displayUrl: 'qdn://APP/Chat/Chat', title: 'Chat' },
+        { displayUrl: 'qdn://APP/Node/Node', title: 'Node' },
+      ],
+      shouldSeed: true,
+    },
+  )
+  assert.deepEqual(
+    seeded.toolbar.map((item) => item.title),
+    ['Chat', 'Node'],
+    'a fresh profile finds the default links on its bookmarks toolbar',
+  )
+  assert.equal(seeded.dashboardPins.length, 1, 'and its dashboard pins, from the same pass')
+
+  // Durable, not just in memory.
+  const reloadedToolbar = await new HomeV2CollectionsClient().getSnapshot(accounts)
+  assert.deepEqual(reloadedToolbar.toolbar.map((item) => item.title), ['Chat', 'Node'])
+}
+
+// A profile that is NOT fresh keeps its empty toolbar: clearing it is a
+// choice, and refilling it on the next launch would undo that choice.
+{
+  clearFakeCollectionPreferences()
+  const client = new HomeV2CollectionsClient()
+  await client.markFreshShellForDashboardDefaults()
+  await client.getSnapshot(accounts)
+  const untouched = await client.finalizeDashboardPinDefaults(
+    false,
+    [],
+    accounts,
+    { links: [{ displayUrl: 'qdn://APP/Node/Node', title: 'Node' }], shouldSeed: false },
+  )
+  assert.deepEqual(untouched.toolbar, [], 'no seeding when the caller says not to')
+}
+
 console.log('Home 2 collections client tests passed.')

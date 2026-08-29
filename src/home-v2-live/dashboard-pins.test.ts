@@ -4,7 +4,9 @@ import {
   buildAdjacentDashboardPinMoveMutation,
   buildDashboardPinMoveMutation,
   HOME_V2_DEFAULT_DASHBOARD_PIN_DRAFTS,
+  HOME_V2_DEFAULT_TOOLBAR_LINK_DRAFTS,
   shouldSeedHomeV2DefaultDashboardPins,
+  shouldSeedHomeV2DefaultToolbarLinks,
 } from './dashboard-pins'
 
 function pin(id: string): BookmarkManagerDashboardPin {
@@ -25,6 +27,24 @@ assert.equal(
   shouldSeedHomeV2DefaultDashboardPins(true, []),
   true,
   'a genuinely fresh profile with no canonical pins receives the defaults',
+)
+
+// The bookmarks toolbar gets the same treatment, on the same rule. A new
+// profile arriving at a completely empty toolbar had nothing to work from.
+assert.deepEqual(HOME_V2_DEFAULT_TOOLBAR_LINK_DRAFTS, [
+  { displayUrl: 'qdn://APP/Chat/Chat', title: 'Chat' },
+  { displayUrl: 'qdn://APP/Node/Node', title: 'Node' },
+])
+assert.equal(shouldSeedHomeV2DefaultToolbarLinks(true, []), true)
+assert.equal(
+  shouldSeedHomeV2DefaultToolbarLinks(false, []),
+  false,
+  'a profile that is not fresh keeps its empty toolbar — clearing it is a choice',
+)
+assert.equal(
+  shouldSeedHomeV2DefaultToolbarLinks(true, [{ id: 'x' }]),
+  false,
+  'an existing toolbar is never supplemented',
 )
 assert.equal(
   shouldSeedHomeV2DefaultDashboardPins(false, []),
