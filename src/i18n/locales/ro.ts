@@ -881,6 +881,8 @@ export const ro: Record<TranslationKey, string> = {
   "home2.node.notConfigured": "neconfigurat",
   "home2.node.peers": "{count} parteneri",
   "home2.node.dataPeers": "{count} parteneri de date",
+  "home2.node.peersWithI2p": "{count} parteneri ({i2p} prin I2P)",
+  "home2.node.dataPeersWithI2p": "{count} parteneri de date ({i2p} prin I2P)",
   "home2.node.waitingForStatus": "Se așteaptă starea nodului",
   "home2.nodeCore.description": "Conectați-vă la o rețea, gestionați Core-ul local și mențineți Home actualizat.",
   "home2.nodeCore.coreStateUnknown": "Home nu poate confirma dacă nucleul Core este oprit pe acest sistem, așa că nu va instala peste el. Oprește Core, apoi folosește Reîmprospătare.",

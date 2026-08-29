@@ -881,6 +881,8 @@ export const sv: Record<TranslationKey, string> = {
   "home2.node.notConfigured": "inte konfigurerad",
   "home2.node.peers": "{count} peers",
   "home2.node.dataPeers": "{count} datapeers",
+  "home2.node.peersWithI2p": "{count} peers ({i2p} via I2P)",
+  "home2.node.dataPeersWithI2p": "{count} datapeers ({i2p} via I2P)",
   "home2.node.waitingForStatus": "Väntar på nodstatus",
   "home2.nodeCore.description": "Anslut till ett nätverk, hantera dess lokala Core och håll Home uppdaterat.",
   "home2.nodeCore.coreStateUnknown": "Home kan inte bekräfta om Core är stoppad på det här systemet och installerar därför inte över den. Stoppa Core och använd sedan Uppdatera.",

@@ -881,6 +881,8 @@ export const ja: Record<TranslationKey, string> = {
   "home2.node.notConfigured": "設定されていません",
   "home2.node.peers": "{count} ピア",
   "home2.node.dataPeers": "{count} データピア",
+  "home2.node.peersWithI2p": "{count} ピア (うち {i2p} は I2P 経由)",
+  "home2.node.dataPeersWithI2p": "{count} データピア (うち {i2p} は I2P 経由)",
   "home2.node.waitingForStatus": "ノードステータス待ち中",
   "home2.nodeCore.description": "ネットワークに接続し、そのローカル Core を管理して、Home を最新の状態に保ちます。",
   "home2.nodeCore.coreStateUnknown": "このシステムでは Core が停止しているかどうかを Home が確認できないため、上書きインストールは行いません。Core を停止してから「更新」を使用してください。",

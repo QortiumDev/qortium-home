@@ -115,12 +115,25 @@ function NodeConnection({
                 : t('home2.node.height', {
                     height: node.height.toLocaleString(),
                   }),
+              // The transport split only appears when the node reports it. A Core
+              // older than #282 omits the field, and showing "(0 via I2P)" there
+              // would assert every peer is direct IP when we simply do not know.
               node.peerCount === null
                 ? null
-                : t('home2.node.peers', { count: node.peerCount }),
+                : node.i2pPeerCount === null
+                  ? t('home2.node.peers', { count: node.peerCount })
+                  : t('home2.node.peersWithI2p', {
+                      count: node.peerCount,
+                      i2p: node.i2pPeerCount,
+                    }),
               node.dataPeerCount === null
                 ? null
-                : t('home2.node.dataPeers', { count: node.dataPeerCount }),
+                : node.i2pDataPeerCount === null
+                  ? t('home2.node.dataPeers', { count: node.dataPeerCount })
+                  : t('home2.node.dataPeersWithI2p', {
+                      count: node.dataPeerCount,
+                      i2p: node.i2pDataPeerCount,
+                    }),
             ]
               .filter(Boolean)
               .join(' · ') || t('home2.node.waitingForStatus'))}

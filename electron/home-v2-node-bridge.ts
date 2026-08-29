@@ -417,6 +417,10 @@ function normalizeNodeSummary(
     // same payload. Home 1.x showed each; Home 2 showed only the chain count,
     // so a node with 15 chain and 16 data peers read as "15 peers".
     dataPeerCount: numberField(status, 'numberOfDataConnections'),
+    // Absent on a Core older than #282; null then, so the readout simply
+    // omits the split rather than claiming every peer is direct IP.
+    i2pPeerCount: numberField(status, 'numberOfI2PConnections'),
+    i2pDataPeerCount: numberField(status, 'numberOfI2PDataConnections'),
     syncPercent,
     syncPhase: stringField(status, 'syncPhase'),
     lastCheckedAt: Date.now(),

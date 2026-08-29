@@ -881,6 +881,8 @@ export const zhTW: Record<TranslationKey, string> = {
   "home2.node.notConfigured": "未配置",
   "home2.node.peers": "{count} 個對等節點",
   "home2.node.dataPeers": "{count} 個資料對等節點",
+  "home2.node.peersWithI2p": "{count} 個對等節點 (其中 {i2p} 經由 I2P)",
+  "home2.node.dataPeersWithI2p": "{count} 個資料對等節點 (其中 {i2p} 經由 I2P)",
   "home2.node.waitingForStatus": "等待節點狀態",
   "home2.nodeCore.description": "連線到網路、管理其本機 Core，並保持 Home 為最新版本。",
   "home2.nodeCore.coreStateUnknown": "Home 無法確認此系統上的 Core 是否已停止，因此不會覆蓋安裝。請停止 Core，然後使用「重新整理」。",

@@ -881,6 +881,8 @@ export const he: Record<TranslationKey, string> = {
   "home2.node.notConfigured": "לא מוגדר",
   "home2.node.peers": "{count} עמיתים",
   "home2.node.dataPeers": "{count} עמיתי נתונים",
+  "home2.node.peersWithI2p": "{count} עמיתים ({i2p} דרך I2P)",
+  "home2.node.dataPeersWithI2p": "{count} עמיתי נתונים ({i2p} דרך I2P)",
   "home2.node.waitingForStatus": "בהמתנה למצב הצומת",
   "home2.nodeCore.description": "התחברו לרשת, נהלו את ה-Core המקומי שלה ושמרו על Home מעודכן.",
   "home2.nodeCore.coreStateUnknown": "‏Home אינו יכול לוודא אם ה-Core עצור במערכת הזו, ולכן לא יתקין מעליו. עצור את ה-Core ולאחר מכן השתמש ברענון.",
