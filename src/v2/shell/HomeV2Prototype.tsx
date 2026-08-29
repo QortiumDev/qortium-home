@@ -529,7 +529,13 @@ function AccountCard({
                   </option>
                 ))
               ) : (
-                <option value="current">{snapshot.identity.displayLabel}</option>
+                <option value="current">
+                  {snapshot.identity.displayLabelIsRegisteredName
+                    ? snapshot.identity.displayLabel
+                    : t('home2.account.labelNotRegisteredName', {
+                      label: snapshot.identity.displayLabel,
+                    })}
+                </option>
               )}
             </optgroup>
             <optgroup label={t('home2.account.actions')}>

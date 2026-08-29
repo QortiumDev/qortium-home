@@ -3382,4 +3382,47 @@ testGrantIdentityAndSendRateLimitHardening()
 testBookmarksToolbarButtonAndTabDrop()
 testIdentityAndImageCachingKeepsChromeStable()
 
+// --- An account LABEL is not a registered name ---------------------------
+// A tester read their own account label as a registered name. It is neither:
+// it is local, off chain, and invisible to anyone else. The selector says so
+// when no name resolves, and says nothing extra when one does.
+{
+  const unnamed = {
+    ...homeV2Fixture,
+    identity: {
+      ...homeV2Fixture.identity,
+      displayLabel: 'PhoneTest',
+      displayLabelIsRegisteredName: false,
+    },
+  }
+  const html = renderToStaticMarkup(
+    <HomeV2Prototype
+      snapshot={unnamed}
+      productState={createProductState()}
+      permissionState={createPermissionState()}
+      layout="desktop"
+    />,
+  )
+  assert.match(html, /PhoneTest \(not a registered name\)/)
+
+  // With a real registered name the qualifier must NOT appear — otherwise it
+  // would be noise on every account that has one.
+  const named = renderToStaticMarkup(
+    <HomeV2Prototype
+      snapshot={{
+        ...homeV2Fixture,
+        identity: {
+          ...homeV2Fixture.identity,
+          displayLabel: 'alice',
+          displayLabelIsRegisteredName: true,
+        },
+      }}
+      productState={createProductState()}
+      permissionState={createPermissionState()}
+      layout="desktop"
+    />,
+  )
+  assert.doesNotMatch(named, /not a registered name/)
+}
+
 console.log('home v2 foundation contract tests passed')

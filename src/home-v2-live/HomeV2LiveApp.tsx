@@ -996,6 +996,7 @@ function initialSnapshot(): Omit<HomeV2Snapshot, 'nodes'> {
     identity: {
       id: brand<IdentityId>('home-v2:identity:none'),
       displayLabel: 'No account',
+      displayLabelIsRegisteredName: false,
       selectedWallet: null,
       presences: {
         qortal: {
@@ -1086,10 +1087,11 @@ function accountIdentity(
   account: HomeV2AccountCatalogueEntry,
   result?: DualIdentityLookupResult,
 ): HomeV2Snapshot['identity'] {
-  const displayLabel =
+  const registeredName =
     result?.networks.qortium.primaryName ??
     result?.networks.qortal.primaryName ??
-    account.label
+    null
+  const displayLabel = registeredName ?? account.label
   const presences = Object.fromEntries(
     (['qortal', 'qortium'] as const).map((network) => {
       const resolved = result?.networks[network]
@@ -1117,6 +1119,7 @@ function accountIdentity(
   return {
     id: brand<IdentityId>(`home-v2:identity:${account.id}`),
     displayLabel,
+    displayLabelIsRegisteredName: registeredName !== null,
     selectedWallet: brand<WalletRef>(account.walletId),
     presences,
   }
