@@ -218,6 +218,15 @@ export interface NetworkPresence<Network extends NetworkId = NetworkId> {
 export interface IdentityRecord {
   readonly id: IdentityId
   readonly displayLabel: string
+  /**
+   * False when displayLabel is the user's own account label rather than a
+   * registered name.
+   *
+   * The two look identical once rendered, and a tester read their account
+   * label as a registered name. The label is not a name: it is local, it is
+   * not on chain, and nobody else can see it.
+   */
+  readonly displayLabelIsRegisteredName: boolean
   readonly selectedWallet: WalletRef | null
   readonly presences: Readonly<Record<NetworkId, NetworkPresence>>
 }

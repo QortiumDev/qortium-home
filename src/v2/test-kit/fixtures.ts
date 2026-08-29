@@ -158,6 +158,8 @@ export const homeV2Fixture: HomeV2Snapshot = deepFreeze({
   identity: {
     id: fixtureIds.identity,
     displayLabel: 'Alice',
+    // The fixture's label IS a registered name (both presences resolve one).
+    displayLabelIsRegisteredName: true,
     selectedWallet: fixtureIds.wallet,
     presences: {
       qortal: {

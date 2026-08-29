@@ -34,6 +34,20 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-29 - fix(account): an account label is not a registered name
+
+The name you give an account when you create it is a private label for your own
+use. It is stored only on this device, it is not on the chain, and nobody else
+can see it. It looked exactly like a registered name, and at least one person
+read it as one.
+
+Where Home shows that label and the account has no registered name, it now says
+so. Once a name is registered the note disappears.
+
+The menu item that changes it also said "Rename account", which read as though
+it changed a name on the chain. It now says "Change account label", as does the
+window it opens.
+
 ### 2026-08-29 - feat(core): the dashboard shows which Core version you are running
 
 The Core tile on the dashboard said whether the Core was running but not which
