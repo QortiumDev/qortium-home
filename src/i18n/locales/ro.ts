@@ -877,6 +877,7 @@ export const ro: Record<TranslationKey, string> = {
   "home2.node.waitingForStatus": "Se așteaptă starea nodului",
   "home2.nodeCore.description": "Conectați-vă la o rețea, gestionați Core-ul local și mențineți Home actualizat.",
   "home2.nodeCore.coreStateUnknown": "Home nu poate confirma dacă nucleul Core este oprit pe acest sistem, așa că nu va instala peste el. Oprește Core, apoi folosește Reîmprospătare.",
+  "home2.nodeCore.updateAndRestartCore": "Actualizează și repornește Core",
   "home2.nodeCore.stopCoreFirst": "Opriți Core înainte de a-l instala sau actualiza.",
   "home2.nodeCore.title": "Nod și Core",
   "home2.permission.action": "Acțiune",

@@ -34,6 +34,21 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-29 - feat(core): Home updates a running Core for you
+
+Updating the Qortium Core used to require stopping it yourself first. Home now
+does the whole thing: it stops the Core, replaces it, and starts it again,
+putting the previous version back if anything goes wrong. The button says
+"Update and restart Core" so the restart is not a surprise.
+
+This only happens when Home started the Core itself. A Core you started
+somewhere else is not Home's to stop, and Home says so instead of interfering
+with it.
+
+Installing a Core for the first time still requires it to be stopped. That case
+has no previous version to fall back to if the install fails, which is exactly
+when being able to fall back matters most.
+
 ### 2026-08-29 - fix(core): the dashboard no longer tells you to stop a Core you already stopped
 
 A tester reported that Home showed the Core as running on the dashboard while

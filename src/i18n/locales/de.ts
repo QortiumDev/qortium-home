@@ -877,6 +877,7 @@ export const de: Record<TranslationKey, string> = {
   "home2.node.waitingForStatus": "Warten auf Knotenstatus",
   "home2.nodeCore.description": "Mit einem Netzwerk verbinden, dessen lokalen Core verwalten und Home aktuell halten.",
   "home2.nodeCore.coreStateUnknown": "Home kann auf diesem System nicht feststellen, ob der Core gestoppt ist, und installiert deshalb nicht darüber. Stoppen Sie den Core und verwenden Sie dann Aktualisieren.",
+  "home2.nodeCore.updateAndRestartCore": "Core aktualisieren und neu starten",
   "home2.nodeCore.stopCoreFirst": "Stoppe Core, bevor du es installierst oder aktualisierst.",
   "home2.nodeCore.title": "Node & Core",
   "home2.permission.action": "Aktion",

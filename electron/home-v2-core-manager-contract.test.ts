@@ -533,4 +533,124 @@ for (const nested of [
   assert.equal((await javaInstall).outcome, 'completed')
 }
 
+// --- Updating a RUNNING, Home-started Core is allowed -------------------
+// The tester's report: "installing core update should stop and start core for
+// you — someone had to manually stop the core first." Home 2 refused every
+// install while the Core ran, even though core-manager's stop -> replace ->
+// restart dance existed and was reachable from the Home 1.x path.
+{
+  const release = {
+    asset: { digest: '/secret/digest', downloadUrl: '/secret/url', name: 'secret.zip', size: 123 },
+    available: true,
+    channel: 'prerelease',
+    commit: 'a'.repeat(40),
+    commitTimestamp: '/secret/time',
+    htmlUrl: '/secret/html',
+    name: '/secret/name',
+    publishedAt: '/secret/published',
+    tagName: 'v2.0.0',
+  }
+  let installRequest: unknown = null
+  const manager = maintenanceManager({
+    installed: { channel: 'prerelease', jarSemver: '1.0.0', tagName: 'v1.0.0' },
+    onInstall: async (request) => { installRequest = request; return {} },
+    release,
+    // Running, and Home started it — so Home may stop it.
+    runtime: { owner: 'home', running: true },
+    observedRuntime: 'running',
+  })
+  const service = createHomeV2CoreManagerService(() => manager)
+  await service.checkMaintenanceRelease({
+    revision: 1,
+    schema: 'home-v2-core-maintenance-release-request',
+  })
+  const result = await service.runMaintenanceAction({
+    action: 'strict-update',
+    channel: 'prerelease',
+    expectedTag: 'v2.0.0',
+    revision: 1,
+    schema: 'home-v2-core-maintenance-mutation-request',
+  })
+  assert.equal(result.outcome, 'completed', 'a Home-owned running Core may be updated in place')
+  assert.deepEqual(installRequest, {
+    channel: 'prerelease',
+    expectedTag: 'v2.0.0',
+    mode: 'strict-update',
+  })
+  assert.equal(result.status.capabilities.canUpdateRunningInPlace, true)
+}
+
+// ...but NOT when Home did not start it: stopping someone else's process is
+// not Home's to do.
+{
+  const manager = maintenanceManager({
+    installed: { channel: 'prerelease', jarSemver: '1.0.0', tagName: 'v1.0.0' },
+    onInstall: async () => { throw new Error('must not install') },
+    release: {
+    asset: { digest: '/secret/digest', downloadUrl: '/secret/url', name: 'secret.zip', size: 123 },
+    available: true,
+    channel: 'prerelease',
+    commit: 'a'.repeat(40),
+    commitTimestamp: '/secret/time',
+    htmlUrl: '/secret/html',
+    name: '/secret/name',
+    publishedAt: '/secret/published',
+    tagName: 'v2.0.0',
+  },
+    runtime: { owner: 'external', running: true },
+    observedRuntime: 'running',
+  })
+  const service = createHomeV2CoreManagerService(() => manager)
+  await service.checkMaintenanceRelease({
+    revision: 1,
+    schema: 'home-v2-core-maintenance-release-request',
+  })
+  const result = await service.runMaintenanceAction({
+    action: 'strict-update',
+    channel: 'prerelease',
+    expectedTag: 'v2.0.0',
+    revision: 1,
+    schema: 'home-v2-core-maintenance-mutation-request',
+  })
+  assert.equal(result.outcome, 'blocked')
+  assert.equal(result.code, 'action-not-allowed')
+  assert.equal(result.status.capabilities.canUpdateRunningInPlace, false)
+}
+
+// ...and an INITIAL INSTALL over a running Core is still refused: there is no
+// previous version to restore if it fails.
+{
+  const manager = maintenanceManager({
+    installed: null,
+    onInstall: async () => { throw new Error('must not install') },
+    release: {
+    asset: { digest: '/secret/digest', downloadUrl: '/secret/url', name: 'secret.zip', size: 123 },
+    available: true,
+    channel: 'prerelease',
+    commit: 'a'.repeat(40),
+    commitTimestamp: '/secret/time',
+    htmlUrl: '/secret/html',
+    name: '/secret/name',
+    publishedAt: '/secret/published',
+    tagName: 'v2.0.0',
+  },
+    runtime: { owner: 'home', running: true },
+    observedRuntime: 'running',
+  })
+  const service = createHomeV2CoreManagerService(() => manager)
+  await service.checkMaintenanceRelease({
+    revision: 1,
+    schema: 'home-v2-core-maintenance-release-request',
+  })
+  const result = await service.runMaintenanceAction({
+    action: 'initial-install',
+    channel: 'prerelease',
+    expectedTag: 'v2.0.0',
+    revision: 1,
+    schema: 'home-v2-core-maintenance-mutation-request',
+  })
+  assert.equal(result.outcome, 'blocked')
+  assert.equal(result.status.capabilities.canUpdateRunningInPlace, false, 'no install to roll back to')
+}
+
 console.log('Home v2 Core-manager contract tests passed.')

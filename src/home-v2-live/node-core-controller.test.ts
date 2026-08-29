@@ -36,7 +36,7 @@ assert.throws(() =>
 )
 
 const maintenanceStatus = {
-  capabilities: { canInitialInstall: true, canInstallJava: true },
+  capabilities: { canInitialInstall: true, canInstallJava: true, canUpdateRunningInPlace: false },
   core: { channel: null, installedVersion: null, runtime: 'stopped' },
   java: { source: 'missing', updateAvailable: false, version: null },
   revision: 1,

@@ -877,6 +877,7 @@ export const zhCN: Record<TranslationKey, string> = {
   "home2.node.waitingForStatus": "等待节点状态",
   "home2.nodeCore.description": "连接到网络，管理其本地 Core，并保持 Home 为最新版本。",
   "home2.nodeCore.coreStateUnknown": "Home 无法确认此系统上的 Core 是否已停止，因此不会覆盖安装。请停止 Core，然后使用“刷新”。",
+  "home2.nodeCore.updateAndRestartCore": "更新并重启 Core",
   "home2.nodeCore.stopCoreFirst": "安装或更新 Core 之前请先停止它。",
   "home2.nodeCore.title": "节点与 Core",
   "home2.permission.action": "操作",

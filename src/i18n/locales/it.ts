@@ -877,6 +877,7 @@ export const it: Record<TranslationKey, string> = {
   "home2.node.waitingForStatus": "In attesa dello stato del nodo",
   "home2.nodeCore.description": "Connettiti a una rete, gestisci il suo Core locale e mantieni Home aggiornato.",
   "home2.nodeCore.coreStateUnknown": "Home non può confermare se il Core è arrestato su questo sistema, quindi non installerà sopra di esso. Arresta il Core, poi usa Aggiorna.",
+  "home2.nodeCore.updateAndRestartCore": "Aggiorna e riavvia il Core",
   "home2.nodeCore.stopCoreFirst": "Arresta il Core prima di installarlo o aggiornarlo.",
   "home2.nodeCore.title": "Nodo e Core",
   "home2.permission.action": "Azione",

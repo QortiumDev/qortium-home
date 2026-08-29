@@ -15,7 +15,7 @@ import { CoreMaintenancePanel } from './CoreMaintenancePanel'
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 const status = {
-  capabilities: { canInitialInstall: true, canInstallJava: true },
+  capabilities: { canInitialInstall: true, canInstallJava: true, canUpdateRunningInPlace: false },
   core: { channel: null, installedVersion: null, runtime: 'stopped' },
   java: { source: 'missing', updateAvailable: false, version: null },
   revision: 1,
@@ -174,7 +174,7 @@ try {
   act(() => root.unmount())
   currentStatus = {
     ...status,
-    capabilities: { canInitialInstall: false, canInstallJava: true },
+    capabilities: { canInitialInstall: false, canInstallJava: true, canUpdateRunningInPlace: false },
     core: { channel: 'prerelease', installedVersion: '1.2.3', runtime: 'stopped' },
     java: { source: 'managed', updateAvailable: true, version: '25.0.1' },
   }

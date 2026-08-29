@@ -3565,11 +3565,35 @@ async function installCoreUnlocked(request: InternalCoreInstallRequest) {
   // version to fall back to and restart if the update fails. A running core with
   // no/incomplete install metadata is left running and updated without the dance.
   const runtimeBefore = await resolveRuntimeStatusOwner(await fetchLocalCoreStatus(), existingCore);
+  // Home 2 may now update a RUNNING core in place — but only under exactly the
+  // conditions the stop -> replace -> restart dance below already requires:
+  //
+  //   owner === 'home'      Home started this process, so Home may stop it. A
+  //                         core someone else started is not ours to kill.
+  //   existingCore !== null There is a known-good install to restore if the
+  //                         update fails; without one a failure leaves nothing
+  //                         to fall back to.
+  //
+  // initial-install is deliberately NOT included: by definition it has no
+  // existing install to roll back to, and installing fresh over a running core
+  // is the case that corrupts it. Home 2 used to refuse BOTH modes outright,
+  // which is why a user with a Home-managed core was told to stop it by hand
+  // for an ordinary update.
+  const canUpdateRunningInPlace = request.mode === 'strict-update' &&
+    runtimeBefore.owner === 'home' &&
+    existingCore !== null;
   if (
     (request.mode === 'initial-install' || request.mode === 'strict-update') &&
-    runtimeBefore.running
+    runtimeBefore.running &&
+    !canUpdateRunningInPlace
   ) {
-    throw new Error('Stop Qortium Core before installing or updating it from Home 2.');
+    throw new Error(
+      request.mode === 'initial-install'
+        ? 'Stop Qortium Core before installing it from Home 2.'
+        : runtimeBefore.owner === 'home'
+          ? 'Stop Qortium Core before updating it from Home 2.'
+          : 'Qortium Core is running but was not started by Home, so Home cannot stop it to update. Stop it where it was started, then try again.',
+    );
   }
   if (runtimeBefore.running && runtimeBefore.owner === 'home' && existingCore !== null) {
     await ensureOnChainInstallIdle(runtimeBefore, existingCore);
