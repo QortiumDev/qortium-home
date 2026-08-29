@@ -118,6 +118,9 @@ function NodeConnection({
               node.peerCount === null
                 ? null
                 : t('home2.node.peers', { count: node.peerCount }),
+              node.dataPeerCount === null
+                ? null
+                : t('home2.node.dataPeers', { count: node.dataPeerCount }),
             ]
               .filter(Boolean)
               .join(' · ') || t('home2.node.waitingForStatus'))}

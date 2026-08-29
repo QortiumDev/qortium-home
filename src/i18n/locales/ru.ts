@@ -879,6 +879,7 @@ export const ru: Record<TranslationKey, string> = {
   "home2.node.noConnection": "Нет связи",
   "home2.node.notConfigured": "не настроено",
   "home2.node.peers": "Аналоги {count}",
+  "home2.node.dataPeers": "Аналоги данных {count}",
   "home2.node.waitingForStatus": "Ожидание статуса узла",
   "home2.nodeCore.description": "Подключитесь к сети, управляйте её локальным Core и поддерживайте Home в актуальном состоянии.",
   "home2.nodeCore.coreStateUnknown": "Home не может определить, остановлен ли Core в этой системе, поэтому не станет устанавливать поверх него. Остановите Core, затем нажмите «Обновить».",

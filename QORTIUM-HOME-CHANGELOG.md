@@ -34,6 +34,18 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-29 - fix(node): count data peers as well as chain peers
+
+Qortium nodes keep two separate pools of connections: one for the chain and one
+for the data network. Home 1.x showed both. Home 2 showed only the chain number
+while calling it the peer count, so a node with fifteen chain peers and sixteen
+data peers reported "15 peers" and the data network looked like it was doing
+nothing.
+
+Both numbers now appear, in the node menu and on the dashboard node panel. The
+node was already reporting both in the same status reply, so this asks nothing
+extra of it.
+
 ### 2026-08-29 - feat(core): show the Core install folder from Settings
 
 Home 1.x let you open the folder the Core is installed in. Home 2 dropped that

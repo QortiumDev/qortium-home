@@ -879,6 +879,7 @@ export const nl: Record<TranslationKey, string> = {
   "home2.node.noConnection": "Geen verbinding",
   "home2.node.notConfigured": "niet geconfigureerd",
   "home2.node.peers": "{count}-peers",
+  "home2.node.dataPeers": "{count} data-peers",
   "home2.node.waitingForStatus": "Wachten op knooppuntstatus",
   "home2.nodeCore.description": "Maak verbinding met een netwerk, beheer de lokale Core en houd Home up-to-date.",
   "home2.nodeCore.coreStateUnknown": "Home kan niet vaststellen of de Core op dit systeem gestopt is en installeert er daarom niet overheen. Stop de Core en gebruik daarna Vernieuwen.",
