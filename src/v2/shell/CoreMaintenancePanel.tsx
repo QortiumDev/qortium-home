@@ -189,12 +189,27 @@ export function CoreMaintenancePanel({
           <button className="home-v2-secondary-button" type="button" disabled={busy !== null} onClick={() => void check()}>
             {busy === 'check' ? 'Checking…' : 'Check release'}
           </button>
-          {release?.tag && release.action !== 'none' ? (
-            <button className="home-v2-primary-button" type="button"
-              disabled={busy !== null || status.core.runtime !== 'stopped'} onClick={() => void runCore()}>
-              {busy === 'core' ? 'Working…' : release.action === 'initial-install' ? 'Install Core' : 'Update Core'}
-            </button>
-          ) : null}
+          {release?.tag && release.action !== 'none' ? (() => {
+            // Same rule as the dashboard tile, deliberately read from the same
+            // capability rather than re-derived: an update to a Home-started
+            // Core no longer needs it stopped first. Leaving this panel on the
+            // old gate would have shipped the feature half-wired — enabled on
+            // the dashboard, disabled in Settings.
+            const canUpdateInPlace = release.action !== 'initial-install' &&
+              status.capabilities.canUpdateRunningInPlace
+            const blocked = status.core.runtime !== 'stopped' && !canUpdateInPlace
+            const restarts = canUpdateInPlace && status.core.runtime === 'running'
+            return (
+              <button className="home-v2-primary-button" type="button"
+                disabled={busy !== null || blocked} onClick={() => void runCore()}>
+                {busy === 'core'
+                  ? 'Working…'
+                  : release.action === 'initial-install'
+                    ? 'Install Core'
+                    : restarts ? 'Update and restart Core' : 'Update Core'}
+              </button>
+            )
+          })() : null}
         </div>
       </div> : null}
       <div className="home-v2-setting-row">
