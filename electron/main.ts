@@ -1159,6 +1159,48 @@ function registerHomeV2WindowIpcHandlers() {
     });
   });
 
+  /**
+   * Hands a dragged tab to ANOTHER Home window, the inverse of detaching one.
+   *
+   * The renderer cannot do this itself: it knows where the pointer was
+   * released in screen coordinates, but nothing about the other windows, which
+   * only main can see. So the renderer asks "is one of my siblings under this
+   * point?" and main either delivers the address there and answers true, or
+   * answers false so the caller falls back to opening a new window — which is
+   * exactly the previous behaviour, so a miss is never a lost tab.
+   *
+   * Returns false rather than throwing on every miss: not finding a window is
+   * the ordinary case (a drop onto the desktop), not an error.
+   */
+  ipcMain.handle('home-v2-windows:adoptTabAt', (event, value: unknown) => {
+    assertAuthorizedHomeV2Sender(event);
+
+    const request = isRecord(value) ? value : {};
+    const address = sanitizeHomeV2WindowAddress(request.address);
+    const x = request.x;
+    const y = request.y;
+    if (typeof x !== 'number' || !Number.isFinite(x) ||
+      typeof y !== 'number' || !Number.isFinite(y)) {
+      return false;
+    }
+
+    const point = { x: Math.round(x), y: Math.round(y) };
+    for (const candidate of BrowserWindow.getAllWindows()) {
+      // Never the window that is dragging: dropping a tab onto its own strip
+      // is a reorder, which the strip already handles, and adopting it here
+      // would duplicate the tab.
+      if (candidate.isDestroyed() || candidate.webContents.id === event.sender.id) continue;
+      if (candidate.isMinimized() || !candidate.isVisible()) continue;
+      const bounds = candidate.getBounds();
+      if (point.x < bounds.x || point.x >= bounds.x + bounds.width) continue;
+      if (point.y < bounds.y || point.y >= bounds.y + bounds.height) continue;
+      candidate.webContents.send('home-v2-windows:adopt-tab', { address, revision: 1 });
+      candidate.focus();
+      return true;
+    }
+    return false;
+  });
+
   // The two app-level window settings. They are main's to own — the renderer
   // is not on screen at the moment a close has to be decided — so Settings
   // reads and writes them here rather than keeping its own copy.

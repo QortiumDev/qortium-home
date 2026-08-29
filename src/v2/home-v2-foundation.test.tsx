@@ -2595,6 +2595,11 @@ function testProductionHomeV2EntryIsCapabilityScoped(): void {
   assert.match(preload, /home-v2-zoom:set/)
   assert.match(preload, /ipcRenderer\.on\('zoom:changed'/)
   assert.match(preload, /exposeInMainWorld\('homeV2Windows'/)
+  // Reattach: the drop target is decided by MAIN, because only it can see the
+  // other windows' bounds. Both halves must exist — the ask and the delivery —
+  // or a dropped tab silently opens a third window instead of moving.
+  assert.match(preload, /home-v2-windows:adoptTabAt/)
+  assert.match(preload, /ipcRenderer\.on\('home-v2-windows:adopt-tab'/)
   assert.match(preload, /home-v2-windows:getBehavior/)
   assert.match(preload, /home-v2-windows:setBehavior/)
   assert.match(preload, /qdn-views:capture/)
@@ -3423,6 +3428,33 @@ testIdentityAndImageCachingKeepsChromeStable()
     />,
   )
   assert.doesNotMatch(named, /not a registered name/)
+}
+
+// --- Reattach never loses a tab -----------------------------------------
+// The main-process handler answers FALSE when no sibling window is under the
+// pointer, and the renderer falls back to opening a new window — the original
+// detach behaviour. If that fallback were ever dropped, a tab released over
+// the desktop would vanish: closed here, adopted nowhere.
+{
+  // Repo-relative, like every other source read in this file: import.meta.url
+  // points into dist-electron once compiled.
+  const main = readFileSync('electron/main.ts', 'utf8')
+  const handler = main.slice(
+    main.indexOf("ipcMain.handle('home-v2-windows:adoptTabAt'"),
+    main.indexOf("ipcMain.handle('home-v2-windows:getBehavior'"),
+  )
+  assert.ok(handler.length > 0, 'the adoptTabAt handler must exist')
+  // It must skip the sender: dropping a tab on its own window is a reorder,
+  // and adopting it there would duplicate it.
+  assert.match(handler, /webContents\.id === event\.sender\.id/)
+  // Minimised and hidden windows are not drop targets.
+  assert.match(handler, /isMinimized\(\)/)
+  assert.match(handler, /return false/)
+
+  const live = readFileSync('src/home-v2-live/HomeV2LiveApp.tsx', 'utf8')
+  const detach = live.slice(live.indexOf('const detachTab = useCallback'))
+  // The fallback is the load-bearing part.
+  assert.match(detach.slice(0, 1400), /if \(!adopted\) await windows\.openTab/)
 }
 
 console.log('home v2 foundation contract tests passed')

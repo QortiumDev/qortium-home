@@ -23,7 +23,15 @@ export interface TabStripProps {
   /** Saves the tab as a toolbar bookmark when it is released over the strip. */
   readonly onDropOnBookmarkToolbar?: (tabId: TabId) => void | Promise<void>
   /** Moves the tab into its own window when it is dragged clear of the strip. */
-  readonly onDetachTab?: (tabId: TabId) => void | Promise<void>
+  /**
+   * Released clear of the strip. The SCREEN position travels with it: only the
+   * main process can tell whether another Home window sits under that point,
+   * and that decides whether the tab moves into that window or opens a new one.
+   */
+  readonly onDetachTab?: (
+    tabId: TabId,
+    position: { screenX: number; screenY: number },
+  ) => void | Promise<void>
   /**
    * Right-click on a tab. The MENU is owned by the chrome, not by this strip,
    * because it has to register as an overlay: app pages are native views
@@ -225,7 +233,12 @@ export function TabStrip({
       suppressClickKey.current = drag.key
       dragState.current = null
       detachDragListeners.current?.()
-      void Promise.resolve(onDetachTab(drag.key as TabId)).catch(() => undefined)
+      void Promise.resolve(
+        onDetachTab(drag.key as TabId, {
+          screenX: event.screenX,
+          screenY: event.screenY,
+        }),
+      ).catch(() => undefined)
       return
     }
     // A completed reorder must not also activate the tab the pointer landed

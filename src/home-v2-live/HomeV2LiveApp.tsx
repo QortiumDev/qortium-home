@@ -3180,18 +3180,45 @@ export function HomeV2LiveApp() {
     [productState.entries],
   )
 
+  // The receiving half of a reattach: another window handed us a tab.
+  useEffect(() => {
+    const windows = window.homeV2Windows
+    if (!windows?.onAdoptTab) return undefined
+    return windows.onAdoptTab((event) => {
+      const address = isRecord(event) && typeof event.address === 'string'
+        ? event.address
+        : null
+      // Validated here, not trusted: this arrives over IPC like any other
+      // input, and an unusable address must do nothing rather than open a
+      // broken tab.
+      if (!address) return
+      // No replaceTarget: an adopted tab is a NEW tab in this window, never a
+      // replacement for whatever the user was already looking at.
+      void openAddress(address).catch(() => undefined)
+    })
+  }, [openAddress])
+
   /**
    * Moves a tab into its own window, as Home 1.x did. Only the address travels
    * to the new window, which then opens it through the ordinary address route,
    * so no tab internals have to survive a trip through the main process.
    */
   const detachTab = useCallback(
-    async (tabId: TabId) => {
+    async (tabId: TabId, position?: { screenX: number; screenY: number }) => {
       const windows = window.homeV2Windows
       const target = tabAddress(tabId)
       if (!windows || !target) return
       try {
-        await windows.openTab(target.address)
+        // Dropped ONTO another Home window? Then this is a reattach, not a
+        // detach: the tab moves there instead of opening a third window. Main
+        // owns the answer because only it can see the other windows' bounds.
+        // A miss falls through to the original behaviour, so a drop onto the
+        // desktop still gets its own window and no tab is ever lost.
+        const adopted = position && windows.adoptTabAt
+          ? await windows.adoptTabAt(target.address, position.screenX, position.screenY)
+              .catch(() => false)
+          : false
+        if (!adopted) await windows.openTab(target.address)
         // Closed only after the new window is asked for, so a rejected request
         // leaves the tab where it was rather than losing it.
         dispatchProduct({ type: 'close-tab', tabId })

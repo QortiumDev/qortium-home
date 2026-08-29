@@ -34,6 +34,15 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-29 - feat(tabs): drag a tab back into another window
+
+Dragging a tab out of a window to make a new one already worked. Dragging it
+onto another Home window now moves it there, instead of always creating a
+third window.
+
+Dropping a tab anywhere else still opens a new window, exactly as before, so a
+tab can never be dropped into nowhere.
+
 ### 2026-08-29 - feat(tabs): right-click a tab
 
 Right-clicking a tab now opens a menu, and the menu appears in front of the
