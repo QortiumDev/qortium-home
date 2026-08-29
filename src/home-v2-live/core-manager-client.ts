@@ -614,7 +614,19 @@ export function parseHomeV2QortalMaintenanceRelease(
       value.code !== 'up-to-date' && value.code !== 'version-unavailable')) {
     throw new Error('Invalid Home 2 Qortal maintenance release.')
   }
-  return Object.freeze({ ...value }) as HomeV2QortalMaintenanceRelease
+  // Copied out by name, like the other parsers here. The spread this replaces
+  // had the failure #454 hit: hasExactKeys REJECTS unknown keys, so the moment
+  // the contract gained a field this parser would throw and break Qortal
+  // release checking outright -- and the cast hid the mismatch from tsc.
+  return Object.freeze({
+    action: value.action as HomeV2QortalMaintenanceRelease['action'],
+    available: value.available,
+    code: value.code as HomeV2QortalMaintenanceRelease['code'],
+    network: 'qortal',
+    revision: 1,
+    schema: 'home-v2-qortal-maintenance-release',
+    tag: value.tag as string | null,
+  }) as HomeV2QortalMaintenanceRelease
 }
 
 export function parseHomeV2QortalMaintenanceActionResult(
