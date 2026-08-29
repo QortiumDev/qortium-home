@@ -43,6 +43,8 @@ export function useHomeV2CoreMaintenance(options: {
   const [release, setRelease] = useState<HomeV2CoreMaintenanceRelease | null>(null)
   const [busy, setBusy] = useState<HomeV2CoreMaintenanceBusy | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  // Which offered release the user picked; null means take the default.
+  const [selectedReleaseTag, setSelectedReleaseTag] = useState<string | null>(null)
   const [initialLoadFailed, setInitialLoadFailed] = useState(false)
   // Live install/update progress. Null whenever nothing is running, so the UI
   // shows a bar only while there is something to report.
@@ -136,12 +138,25 @@ export function useHomeV2CoreMaintenance(options: {
   const runCore = async () => {
     if (!client) return
     if (!release?.tag || release.action === 'none') return
+    // Install whichever release the user picked. The default is the newest
+    // stable, which is offers[0]; a newer prerelease sits after it. Falling back
+    // to release.tag keeps the old single-target behaviour when the node offers
+    // nothing to choose between.
+    const offer = release.offers.find((entry) => entry.tag === selectedReleaseTag)
+      ?? release.offers[0]
+      ?? null
+    const action = offer
+      ? (offer.relation === 'initial-install' ? 'initial-install' as const : 'strict-update' as const)
+      : release.action
     setBusy('core')
     setNotice(null)
     try {
       const result = parseHomeV2CoreMaintenanceActionResult(await client.runMaintenanceAction(
-        release.action,
-        { channel: release.channel, expectedTag: release.tag },
+        action,
+        {
+          channel: offer?.channel ?? release.channel,
+          expectedTag: offer?.tag ?? release.tag,
+        },
       ))
       statusRef.current = result.status
       setStatus(result.status)
@@ -264,6 +279,8 @@ export function useHomeV2CoreMaintenance(options: {
     busy,
     canRevealInstall: typeof client?.revealInstall === 'function',
     check,
+    selectedReleaseTag,
+    setSelectedReleaseTag,
     initialLoadFailed,
     installJava,
     notice,

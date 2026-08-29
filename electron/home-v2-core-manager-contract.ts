@@ -109,10 +109,32 @@ export type HomeV2CoreMaintenanceStatus = {
   readonly schema: 'home-v2-core-maintenance'
 }
 
+/**
+ * One installable release, and how it relates to what is installed.
+ *
+ * Home 2 previously computed a single action against a single channel, so the
+ * user could only ever move to a strictly newer build on whichever channel was
+ * already installed. core-manager has always supported more than that; this is
+ * the contract catching up.
+ */
+export type HomeV2CoreReleaseOffer = {
+  readonly channel: 'prerelease' | 'stable'
+  readonly relation: 'initial-install' | 'update'
+  readonly tag: string
+}
+
 export type HomeV2CoreMaintenanceRelease = {
   readonly action: 'initial-install' | 'none' | 'strict-update'
   readonly available: boolean
   readonly channel: 'prerelease' | 'stable'
+  /**
+   * Every release the user may choose, newest-first.
+   *
+   * The stable release is always offered when one is verified. The prerelease
+   * is offered only when it is strictly newer than that stable release, so the
+   * list never suggests a prerelease that is already behind.
+   */
+  readonly offers: readonly HomeV2CoreReleaseOffer[]
   readonly revision: 1
   readonly schema: 'home-v2-core-maintenance-release'
   readonly tag: string | null
@@ -559,6 +581,7 @@ async function checkMaintenanceRelease(
       action,
       available: verifiedRelease,
       channel,
+      offers: buildReleaseOffers(releases, installedVersion),
       revision: 1,
       schema: 'home-v2-core-maintenance-release',
       tag: verifiedRelease && release.available ? release.tagName : null,
@@ -568,11 +591,70 @@ async function checkMaintenanceRelease(
       action: 'none',
       available: false,
       channel,
+      offers: [],
       revision: 1,
       schema: 'home-v2-core-maintenance-release',
       tag: null,
     }
   }
+}
+
+/**
+ * Which releases the user may choose between.
+ *
+ * Always the newest verified stable. The prerelease joins it only when it is
+ * strictly newer, so the list never offers a prerelease that trails the stable
+ * one. Each entry says how it relates to the installed build, including
+ * `reinstall` for the same version again -- the repair case.
+ */
+type ReleaseCandidate = { readonly available: boolean; readonly commit?: unknown; readonly tagName?: unknown }
+
+function buildReleaseOffers(
+  releases: Record<'prerelease' | 'stable', ReleaseCandidate>,
+  installedVersion: string | null,
+): readonly HomeV2CoreReleaseOffer[] {
+  // The unavailable arm of CoreReleaseSummary carries no tag or commit at all,
+  // so every field is checked rather than assumed present.
+  const tagOf = (entry: ReleaseCandidate) =>
+    entry.available && typeof entry.tagName === 'string' && entry.tagName
+      ? entry.tagName
+      : null
+  const verified = (entry: ReleaseCandidate) =>
+    tagOf(entry) !== null && typeof entry.commit === 'string' &&
+    /^[0-9a-f]{40}$/i.test(entry.commit)
+
+  const relationFor = (tag: string): HomeV2CoreReleaseOffer['relation'] | null => {
+    if (!installedVersion) return 'initial-install'
+    const comparison = compareCoreVersions(tag, installedVersion)
+    if (comparison === null) return null
+    if (comparison > 0) return 'update'
+    // Same version (repair) and older (downgrade) are deliberately NOT offered
+    // yet. core-manager has exactly two install modes, 'initial-install' and
+    // 'strict-update', and every guard tests for one of those by name --
+    // including the release commit verification and
+    // assertHomeV2CoreMaintenanceActivationSafe. `mode` is typed `unknown`, so
+    // inventing a third value would not repair anything; it would fall straight
+    // through those checks. 'strict-update' itself throws on a same-version
+    // install. Both cases need a real mode in core-manager first.
+    return null
+  }
+
+  const offers: HomeV2CoreReleaseOffer[] = []
+  const stableTag = verified(releases.stable) ? tagOf(releases.stable) : null
+  if (stableTag) {
+    const relation = relationFor(stableTag)
+    if (relation) offers.push({ channel: 'stable', relation, tag: stableTag })
+  }
+  const prereleaseTag = verified(releases.prerelease) ? tagOf(releases.prerelease) : null
+  if (prereleaseTag) {
+    const newerThanStable = stableTag === null ||
+      (compareCoreVersions(prereleaseTag, stableTag) ?? 0) > 0
+    const relation = relationFor(prereleaseTag)
+    if (newerThanStable && relation) {
+      offers.push({ channel: 'prerelease', relation, tag: prereleaseTag })
+    }
+  }
+  return Object.freeze(offers)
 }
 
 async function runMaintenanceAction(

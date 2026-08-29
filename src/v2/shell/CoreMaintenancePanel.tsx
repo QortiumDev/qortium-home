@@ -57,6 +57,8 @@ export function CoreMaintenancePanel({
     release,
     revealInstall,
     runCore,
+    selectedReleaseTag,
+    setSelectedReleaseTag,
     setUpdatePolicy,
     status,
   } = maintenance
@@ -228,6 +230,29 @@ export function CoreMaintenancePanel({
               onClick={() => void revealInstall()}>
               Show install folder
             </button>
+          ) : null}
+          {release && release.offers.length > 1 ? (
+            // Home 2 previously installed whatever channel was already
+            // installed. Both are offered now: the newest stable always, and a
+            // prerelease only when it is strictly newer than that stable.
+            <label className="home-v2-account-select">
+              <span>{t('home2.core.releaseChoice')}</span>
+              <select
+                aria-label={t('home2.core.releaseChoice')}
+                data-home-v2-core-release-choice
+                disabled={busy !== null}
+                value={selectedReleaseTag ?? release.offers[0].tag}
+                onChange={(event) => setSelectedReleaseTag(event.target.value)}
+              >
+                {release.offers.map((offer) => (
+                  <option key={`${offer.channel}:${offer.tag}`} value={offer.tag}>
+                    {offer.channel === 'prerelease'
+                      ? t('home2.core.releasePrerelease', { tag: offer.tag })
+                      : t('home2.core.releaseStable', { tag: offer.tag })}
+                  </option>
+                ))}
+              </select>
+            </label>
           ) : null}
           {release?.tag && release.action !== 'none' ? (() => {
             // Same rule as the dashboard tile, deliberately read from the same

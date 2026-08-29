@@ -9,6 +9,7 @@ import type {
   HomeV2CoreRuntimeState,
   HomeV2CoreMaintenanceActionResult,
   HomeV2CoreMaintenanceRelease,
+  HomeV2CoreReleaseOffer,
   HomeV2CoreMaintenanceStatus,
 } from '../../electron/home-v2-core-manager-contract'
 import type {
@@ -231,14 +232,35 @@ export function parseHomeV2CoreMaintenanceStatus(value: unknown): HomeV2CoreMain
 }
 
 export function parseHomeV2CoreMaintenanceRelease(value: unknown): HomeV2CoreMaintenanceRelease {
-  if (!isRecord(value) || !hasExactKeys(value, ['action', 'available', 'channel', 'revision', 'schema', 'tag']) ||
+  if (!isRecord(value) ||
+    !hasExactKeys(value, ['action', 'available', 'channel', 'offers', 'revision', 'schema', 'tag']) ||
     value.schema !== 'home-v2-core-maintenance-release' || value.revision !== 1 ||
     (value.channel !== 'stable' && value.channel !== 'prerelease') || typeof value.available !== 'boolean' ||
     !['initial-install', 'none', 'strict-update'].includes(String(value.action)) ||
-    !(value.tag === null || typeof value.tag === 'string')) {
+    !(value.tag === null || typeof value.tag === 'string') ||
+    !Array.isArray(value.offers) ||
+    !value.offers.every((offer) => isRecord(offer) &&
+      hasExactKeys(offer, ['channel', 'relation', 'tag']) &&
+      (offer.channel === 'stable' || offer.channel === 'prerelease') &&
+      ['initial-install', 'update'].includes(String(offer.relation)) &&
+      typeof offer.tag === 'string' && offer.tag.length > 0 && offer.tag.length <= 80)) {
     throw new Error('Invalid Home 2 Core maintenance release.')
   }
-  return Object.freeze({ ...value }) as HomeV2CoreMaintenanceRelease
+  // Every field is copied out by name rather than spread-and-cast. The previous
+  // spread meant a field the contract added but this parser did not list was
+  // REJECTED outright by hasExactKeys -- not silently dropped, as in #436, but
+  // enough to break release checking entirely -- and the trailing cast hid it
+  // from the type checker.
+  return Object.freeze({
+    action: value.action as HomeV2CoreMaintenanceRelease['action'],
+    available: value.available,
+    channel: value.channel,
+    offers: Object.freeze((value.offers as HomeV2CoreReleaseOffer[]).map((offer) =>
+      Object.freeze({ channel: offer.channel, relation: offer.relation, tag: offer.tag }))),
+    revision: 1,
+    schema: 'home-v2-core-maintenance-release',
+    tag: value.tag,
+  }) as HomeV2CoreMaintenanceRelease
 }
 
 export function parseHomeV2CoreMaintenanceActionResult(value: unknown): HomeV2CoreMaintenanceActionResult {

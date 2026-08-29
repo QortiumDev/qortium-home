@@ -1736,6 +1736,7 @@ function testCoreManagementRenderingAndAndroidDegrade(): void {
         available: true,
         channel: 'stable',
         revision: 1,
+        offers: [{ channel: 'stable' as const, relation: 'update' as const, tag: '1.7.3' }],
         schema: 'home-v2-core-maintenance-release',
         tag: 'v1.7.3',
       },

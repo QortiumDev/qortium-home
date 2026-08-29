@@ -46,11 +46,27 @@ const maintenanceStatus = {
 assert.deepEqual(parseHomeV2CoreMaintenanceStatus(maintenanceStatus), maintenanceStatus)
 assert.throws(() => parseHomeV2CoreMaintenanceStatus({ ...maintenanceStatus, java: { path: '/secret' } }))
 const maintenanceRelease = {
-  action: 'initial-install', available: true, channel: 'prerelease', revision: 1,
+  action: 'initial-install', available: true, channel: 'prerelease',
+  offers: [{ channel: 'prerelease', relation: 'initial-install', tag: 'v1.2.3' }],
+  revision: 1,
   schema: 'home-v2-core-maintenance-release', tag: 'v1.2.3',
 } as const
 assert.deepEqual(parseHomeV2CoreMaintenanceRelease(maintenanceRelease), maintenanceRelease)
 assert.throws(() => parseHomeV2CoreMaintenanceRelease({ ...maintenanceRelease, action: 'downgrade' }))
+// The offers list is validated, not waved through: a bad relation, a missing
+// field, or an extra one must all be rejected rather than reaching the UI.
+assert.throws(() => parseHomeV2CoreMaintenanceRelease({
+  ...maintenanceRelease,
+  offers: [{ channel: 'prerelease', relation: 'reinstall', tag: 'v1.2.3' }],
+}))
+assert.throws(() => parseHomeV2CoreMaintenanceRelease({
+  ...maintenanceRelease,
+  offers: [{ channel: 'prerelease', tag: 'v1.2.3' }],
+}))
+assert.throws(() => parseHomeV2CoreMaintenanceRelease({
+  ...maintenanceRelease,
+  offers: [{ channel: 'prerelease', relation: 'update', tag: 'v1.2.3', extra: 1 }],
+}))
 const maintenanceAction = {
   code: null, outcome: 'completed', revision: 1,
   schema: 'home-v2-core-maintenance-action', status: maintenanceStatus,
