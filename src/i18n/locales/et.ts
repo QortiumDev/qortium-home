@@ -782,6 +782,7 @@ export const et: Record<TranslationKey, string> = {
   "home2.account.notSelected": "Pole valitud",
   "home2.account.publicControlsAvailable": "Avalikud rakendused ja ühenduse juhtimine jäävad kättesaadavaks.",
   "home2.account.recoveryRequired": "Konto muudatused pole saadaval enne profiili taastamise lõppemist.",
+  "home2.account.registerNamePrompt": "Sellel kontol pole registreeritud nime.",
   "home2.account.remove": "Eemalda konto…",
   "home2.account.removeAddress": "Eemalda valitud aadress…",
   "home2.account.rename": "Muuda konto silti…",

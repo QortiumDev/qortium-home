@@ -782,6 +782,7 @@ export const he: Record<TranslationKey, string> = {
   "home2.account.notSelected": "לא נבחר",
   "home2.account.publicControlsAvailable": "יישומים ציבוריים ובקרי חיבור נשארים זמינים.",
   "home2.account.recoveryRequired": "שינויים בחשבון אינם זמינים עד להשלמת שחזור הפרופיל.",
+  "home2.account.registerNamePrompt": "לחשבון זה אין שם רשום.",
   "home2.account.remove": "הסרת החשבון…",
   "home2.account.removeAddress": "הסרת הכתובת שנבחרה…",
   "home2.account.rename": "שינוי תווית החשבון…",

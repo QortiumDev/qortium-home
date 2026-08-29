@@ -782,6 +782,7 @@ export const ru: Record<TranslationKey, string> = {
   "home2.account.notSelected": "Не выбрано",
   "home2.account.publicControlsAvailable": "Общедоступные приложения и элементы управления подключениями остаются доступными.",
   "home2.account.recoveryRequired": "Изменения учетной записи недоступны до завершения восстановления профиля.",
+  "home2.account.registerNamePrompt": "У этой учётной записи нет зарегистрированного имени.",
   "home2.account.remove": "Удалить аккаунт…",
   "home2.account.removeAddress": "Удалить выбранный адрес…",
   "home2.account.rename": "Изменить метку аккаунта…",

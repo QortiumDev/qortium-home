@@ -782,6 +782,7 @@ export const ja: Record<TranslationKey, string> = {
   "home2.account.notSelected": "未選択",
   "home2.account.publicControlsAvailable": "パブリック アプリと接続コントロールは引き続き利用できます。",
   "home2.account.recoveryRequired": "プロファイルの回復が完了するまで、アカウントの変更はできません。",
+  "home2.account.registerNamePrompt": "このアカウントには登録名がありません。",
   "home2.account.remove": "アカウントを削除…",
   "home2.account.removeAddress": "選択したアドレスを削除します…",
   "home2.account.rename": "アカウントのラベルを変更…",

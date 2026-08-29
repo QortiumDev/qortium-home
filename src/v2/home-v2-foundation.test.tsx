@@ -3430,6 +3430,36 @@ testIdentityAndImageCachingKeepsChromeStable()
     />,
   )
   assert.doesNotMatch(named, /not a registered name/)
+
+  // The first-run welcome offers name registration; an account added later from
+  // the Dashboard never passes through it, so the same offer lives here too --
+  // and only while there is no name, or it would nag people who have one.
+  const withOpener = (identity: typeof homeV2Fixture.identity) => renderToStaticMarkup(
+    <HomeV2Prototype
+      snapshot={{ ...homeV2Fixture, identity }}
+      productState={createProductState()}
+      permissionState={createPermissionState()}
+      layout="desktop"
+      onOpenAddress={async () => ({ kind: 'opened' } as never)}
+    />,
+  )
+  const unnamedHtml = withOpener({
+    ...homeV2Fixture.identity,
+    displayLabel: 'PhoneTest',
+    displayLabelIsRegisteredName: false,
+  })
+  assert.match(unnamedHtml, /data-home-v2-register-name/)
+  assert.match(unnamedHtml, /This account has no registered name\./)
+
+  const namedHtml = withOpener({
+    ...homeV2Fixture.identity,
+    displayLabel: 'alice',
+    displayLabelIsRegisteredName: true,
+  })
+  assert.doesNotMatch(namedHtml, /data-home-v2-register-name/)
+
+  // Without a way to open an address there is nothing the prompt could do.
+  assert.doesNotMatch(html, /data-home-v2-register-name/)
 }
 
 // --- Reattach never loses a tab -----------------------------------------

@@ -783,6 +783,7 @@ export const hi: Record<TranslationKey, string> = {
   "home2.account.notSelected": "चयनित नहीं",
   "home2.account.publicControlsAvailable": "सार्वजनिक ऐप्स और कनेक्शन नियंत्रण उपलब्ध रहते हैं।",
   "home2.account.recoveryRequired": "प्रोफ़ाइल पुनर्प्राप्ति पूरी होने तक खाते में बदलाव उपलब्ध नहीं हैं।",
+  "home2.account.registerNamePrompt": "इस खाते का कोई पंजीकृत नाम नहीं है।",
   "home2.account.remove": "खाता हटाएँ…",
   "home2.account.removeAddress": "चयनित पता हटाएँ…",
   "home2.account.rename": "खाता लेबल बदलें…",

@@ -782,6 +782,7 @@ export const ar: Record<TranslationKey, string> = {
   "home2.account.notSelected": "غير محدد",
   "home2.account.publicControlsAvailable": "تظل التطبيقات العامة وعناصر التحكم في الاتصال متاحة.",
   "home2.account.recoveryRequired": "لا تتوفر تغييرات الحساب حتى يكتمل استرداد الملف الشخصي.",
+  "home2.account.registerNamePrompt": "لا يوجد اسم مسجل لهذا الحساب.",
   "home2.account.remove": "إزالة الحساب…",
   "home2.account.removeAddress": "إزالة العنوان المحدد…",
   "home2.account.rename": "تغيير تسمية الحساب…",

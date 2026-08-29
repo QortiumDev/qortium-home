@@ -781,6 +781,7 @@ export const en = {
   "home2.account.notSelected": "Not selected",
   "home2.account.publicControlsAvailable": "Public apps and connection controls remain available.",
   "home2.account.recoveryRequired": "Account changes are unavailable until profile recovery is complete.",
+  "home2.account.registerNamePrompt": "This account has no registered name.",
   "home2.account.remove": "Remove account…",
   "home2.account.removeAddress": "Remove selected address…",
   "home2.account.rename": "Change account label…",

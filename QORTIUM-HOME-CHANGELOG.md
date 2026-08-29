@@ -34,6 +34,20 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-29 - fix(account): offer name registration outside the first-run screen
+
+The welcome screen shown when Home is first set up explains that a name can be
+registered later and offers a way to do it. Anyone who adds an account after
+that never sees the welcome screen, so the offer was never made again.
+
+The account panel now says when the selected account has no registered name and
+links to the Names app, using the same wording as the welcome screen. It appears
+only while there is no name, so it does not nag people who already have one.
+
+Two Chinese phrases about names were also corrected. They used the word for a
+person's own name rather than the word for a registered one, which both
+translations already used correctly elsewhere.
+
 ### 2026-08-29 - feat(transport): change the connection mode without stopping Core first
 
 Changing how the node connects meant stopping Qortium Core, changing the
