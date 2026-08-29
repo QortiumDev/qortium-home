@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 
 import {
+  normalizeHomeV2DecryptDataRequest,
   assertApprovedEncryptRecipients,
   normalizeHomeV2EncryptDataRequest,
 } from './home-v2-encryption-actions.js'
@@ -129,6 +130,54 @@ assert.throws(
   () => assertApprovedEncryptRecipients([ALICE], []),
   /recipients changed after approval/,
   'encrypting to someone when none were approved is refused',
+)
+
+// --- DECRYPT_DATA -------------------------------------------------------
+// The sender key is required by exactly one of the two envelope forms, and the
+// form is decided from the DATA, not from what the caller says it is.
+assert.equal(
+  normalizeHomeV2DecryptDataRequest({ encryptedData: 'aGk=' }, 'group').senderPublicKey,
+  null,
+  'the modern envelope carries its own sender key',
+)
+assert.equal(
+  normalizeHomeV2DecryptDataRequest({ encryptedData: 'aGk=', publicKey: ALICE }, 'deprecated').senderPublicKey,
+  ALICE,
+)
+// Qortal's older spelling of the payload field is accepted too.
+assert.equal(normalizeHomeV2DecryptDataRequest({ data64: 'aGk=' }, 'group').encryptedData, 'aGk=')
+
+// A deprecated envelope with no sender key cannot be decrypted at all, so it
+// refuses rather than prompting for something that must then fail.
+assert.throws(
+  () => normalizeHomeV2DecryptDataRequest({ encryptedData: 'aGk=' }, 'deprecated'),
+  /needs the sender public key/,
+)
+// ...and a modern envelope with one refuses rather than silently ignoring it:
+// a caller that supplied it believed it mattered.
+assert.throws(
+  () => normalizeHomeV2DecryptDataRequest({ encryptedData: 'aGk=', publicKey: ALICE }, 'group'),
+  /must not be supplied/,
+)
+// Unrecognized bytes refuse by name rather than being attempted as either form.
+assert.throws(
+  () => normalizeHomeV2DecryptDataRequest({ encryptedData: 'aGk=' }, 'unknown'),
+  /did not recognize/,
+)
+for (const bad of [{}, { encryptedData: '' }, { encryptedData: 42 }]) {
+  assert.throws(
+    () => normalizeHomeV2DecryptDataRequest(bad as Record<string, unknown>, 'group'),
+    /requires the encrypted data/,
+  )
+}
+// The sender key is held to the same canonical Base58 rule as a recipient.
+assert.throws(
+  () => normalizeHomeV2DecryptDataRequest({ encryptedData: 'aGk=', publicKey: 'nope!' }, 'deprecated'),
+  /Recipient public key 1/,
+)
+assert.equal(
+  Object.isFrozen(normalizeHomeV2DecryptDataRequest({ encryptedData: 'aGk=' }, 'group')),
+  true,
 )
 
 console.log('Home 2 encryption action tests passed.')

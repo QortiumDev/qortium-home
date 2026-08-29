@@ -1300,9 +1300,9 @@ export function createPortableNodeClient(
       // read-only refusal and misdescribe an action this platform implements.
       // It uses the account key, so reaching here means the shell's approval
       // was bypassed.
-      if (action === 'ENCRYPT_DATA') {
+      if (action === 'ENCRYPT_DATA' || action === 'DECRYPT_DATA') {
         throw createHomeV2BridgeError(
-          'ENCRYPT_DATA must be approved through Home before it can use the account key.',
+          `${action} must be approved through Home before it can use the account key.`,
           { action, code: 'NODE_CAPABILITY_MISSING', network: 'qortium', retryable: false },
         )
       }

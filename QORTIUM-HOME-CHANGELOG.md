@@ -34,6 +34,31 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-28 - feat(apps): apps can read data that was encrypted to you
+
+An app can now ask Home to open data that was encrypted to your account, the
+counterpart of the encryption support added earlier. This is something apps on
+Qortal can do, and Home could not until now.
+
+Home asks before it does this, and the request says how much data is involved
+and, where the format requires it, who sent it. As with encryption you can
+allow it once, for as long as the tab is open, or permanently, and every app
+you have allowed appears in Settings under QDN Apps with its own Revoke button.
+
+Reading and encrypting are kept apart. Allowing an app to encrypt does not
+allow it to read, allowing it to read your account does not allow either, and
+revoking any one of the three leaves the others exactly as they were. They are
+three separate entries in Settings for that reason.
+
+Both of the formats Qortal uses are supported, including the older one, which
+needs the sender's key supplied because it does not carry it. Home works out
+which format it is from the data itself rather than trusting what the app says
+it is — the two use different keys internally, and guessing wrong would fail
+with nothing useful to say.
+
+What an app receives is what you would see yourself. It still cannot send or
+publish any of it without asking you separately.
+
 ### 2026-08-28 - feat(apps): let an app keep permission to encrypt, and take it back
 
 When an app asks to encrypt something with your account key, you could already

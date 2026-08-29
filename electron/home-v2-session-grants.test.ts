@@ -488,4 +488,13 @@ assert.notEqual(homeV2PermissionGrantFamily('ENCRYPT_DATA'), 'account.read')
   )
 }
 
+// DECRYPT_DATA is its own family too. If it ever joined account.read, an
+// "always allow" for READING would start covering an oracle over the key; if
+// it joined ENCRYPT_DATA's family, allowing an app to encrypt would silently
+// allow it to read.
+assert.equal(isHomeV2AccountReadAction('DECRYPT_DATA'), false)
+assert.equal(homeV2DurableAccountReadCapability('DECRYPT_DATA'), null)
+assert.equal(homeV2PermissionGrantFamily('DECRYPT_DATA'), 'DECRYPT_DATA')
+assert.notEqual(homeV2PermissionGrantFamily('DECRYPT_DATA'), homeV2PermissionGrantFamily('ENCRYPT_DATA'))
+
 console.log('Home v2 session grant tests passed')

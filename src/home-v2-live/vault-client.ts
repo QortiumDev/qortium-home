@@ -305,6 +305,20 @@ export interface HomeV2VaultClient {
     readonly requestValue: Record<string, unknown>
   }): Promise<string>
   /**
+   * Decrypts data addressed to this account (DECRYPT_DATA).
+   *
+   * The vault re-reads the envelope form from the DATA and re-normalizes the
+   * request itself, for the same reason encryptData does: the shell describes,
+   * the vault re-derives, and nothing here is taken on the shell's word.
+   * `approvedSenderPublicKey` is what the prompt disclosed — a mismatch means
+   * a different envelope would be opened than the one approved.
+   */
+  decryptData?(request: {
+    readonly accountId: string
+    readonly approvedSenderPublicKey: string | null
+    readonly requestValue: Record<string, unknown>
+  }): Promise<string>
+  /**
    * Derives a Qortium address from a Base58 public key, using the same
    * primitives the vault signs with.
    *

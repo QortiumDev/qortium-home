@@ -141,7 +141,9 @@ import {
 } from '../../electron/qdn-resource-viewer-contract'
 import type { QdnAppRequest } from '../../electron/qdn-request-values'
 import {
+  HOME_V2_DECRYPT_DATA_OPERATION_LABEL,
   HOME_V2_ENCRYPT_DATA_OPERATION_LABEL,
+  normalizeHomeV2DecryptDataRequest,
   normalizeHomeV2EncryptDataRequest,
 } from '../../electron/home-v2-encryption-actions'
 import {
@@ -327,6 +329,7 @@ import {
   setQdnAppAssignmentValue,
 } from '../qdnManagerPermissions'
 import { isQdnAccountScopedCapability } from '../../electron/qdn-manager-permissions'
+import { qortalEnvelopeKind } from '../../electron/home-v2-app-encryption'
 import {
   createPortableHomeV2QdnSettingsAdapter,
   resolveHomeV2QdnSettingsManagement,
@@ -811,6 +814,27 @@ function isPollDetailRows(
  * `Recipient <n>` numbered from 1 with no gaps, in order. A forged payload
  * cannot reorder, renumber, skip, or pad the recipient list.
  */
+/**
+ * The DECRYPT_DATA disclosure contract: a fixed opening row, an OPTIONAL
+ * sender row present only for the deprecated envelope (which alone needs one),
+ * then the size. Written as a rule for the same reason the encrypt one is —
+ * the optional middle row is exactly what a fixed sequence expresses badly.
+ */
+function isDecryptDetailRows(value: unknown): value is readonly { label: string; value: string }[] {
+  if (!Array.isArray(value) || value.length < 2 || value.length > 3) return false
+  const wellFormed = (candidate: unknown, label: string) =>
+    isRecord(candidate) &&
+    Object.keys(candidate).length === 2 &&
+    candidate.label === label &&
+    typeof candidate.value === 'string' &&
+    candidate.value.length >= 1 &&
+    candidate.value.length <= 4_000 &&
+    !/[\u0000-\u001f\u007f]/.test(candidate.value)
+  if (!wellFormed(value[0], 'Encrypted for')) return false
+  if (value.length === 3 && !wellFormed(value[1], 'Sent by')) return false
+  return wellFormed(value[value.length - 1], 'Size')
+}
+
 function isEncryptDetailRows(value: unknown): value is readonly { label: string; value: string }[] {
   if (!Array.isArray(value) || value.length < 1 || value.length > 257) return false
   const wellFormed = (candidate: unknown, label: string) =>
@@ -833,6 +857,19 @@ function isEncryptDetailRows(value: unknown): value is readonly { label: string;
  * desktop prompt is checked against. Kept beside isEncryptDetailRows so the
  * producer and the validator cannot drift.
  */
+/** The DECRYPT_DATA rows, escaped then re-checked against the same rule. */
+function androidDecryptDetails(senderPublicKey: string | null, encryptedData: string) {
+  const rows = [
+    { label: 'Encrypted for', value: 'You, with the account below' },
+    ...(senderPublicKey ? [{ label: 'Sent by', value: senderPublicKey }] : []),
+    { label: 'Size', value: `${Math.ceil(encryptedData.length / 4) * 3} bytes of encrypted data` },
+  ].map((row) => ({ label: row.label, value: androidPromptText(row.value) }))
+  if (!isDecryptDetailRows(rows)) {
+    throw new Error('DECRYPT_DATA prompt rows do not match its disclosure contract.')
+  }
+  return rows
+}
+
 function androidEncryptDetails(publicKeys: readonly string[]) {
   const rows = [
     {
@@ -1146,9 +1183,9 @@ function persistDurableChatSendGrant(appPrincipal: string): Promise<boolean> {
 function persistDurableAccountReadGrant(
   appPrincipal: string,
   accountId: string,
-  // Both account-scoped durable capabilities go through here. They are stored
+  // Every account-scoped durable capability goes through here. They are stored
   // and revoked separately; only the write path is shared.
-  capability: 'account.read' | 'account.encrypt',
+  capability: 'account.read' | 'account.encrypt' | 'account.decrypt',
 ): Promise<boolean> {
   return persistDurableGrantAsync({
     capability,
@@ -3304,7 +3341,8 @@ export function HomeV2LiveApp() {
         typeof value.requestId !== 'string' ||
         (value.protocol !== 'qdnRequest' && value.protocol !== 'qortalRequest') ||
         (typeof value.action !== 'string' ||
-          (value.action !== 'ENCRYPT_DATA' &&
+          (value.action !== 'DECRYPT_DATA' &&
+            value.action !== 'ENCRYPT_DATA' &&
             value.action !== 'GET_SELECTED_ACCOUNT' &&
             value.action !== 'GET_USER_ACCOUNT' &&
             value.action !== 'GET_PENDING_TRANSACTIONS' &&
@@ -3527,6 +3565,11 @@ export function HomeV2LiveApp() {
         // ciphertext, signs nothing, and is offered a session grant. It is
         // deliberately not protocol- or chain-pinned, because it runs on both
         // protocols and touches no chain.
+        || (value.action === 'DECRYPT_DATA' &&
+          (value.writeKind !== 'decrypt' ||
+            !isDecryptDetailRows(value.decryptDetails) ||
+            value.writeOperationLabel !== HOME_V2_DECRYPT_DATA_OPERATION_LABEL ||
+            value.writeSingleRequestOnly !== false))
         || (value.action === 'ENCRYPT_DATA' &&
           (value.writeKind !== 'encrypt' ||
             !isEncryptDetailRows(value.encryptDetails) ||
@@ -3701,16 +3744,19 @@ export function HomeV2LiveApp() {
       // stops calling a private-group key resolution "read-only account
       // access". Splitting the GRANT is a separate decision, not made here.
       const isEncrypt = value.action === 'ENCRYPT_DATA'
+      const isDecrypt = value.action === 'DECRYPT_DATA'
       const accountReadPromptKind = homeV2AccountReadPromptKind(value.action)
       const isGenericAccountRead = accountReadPromptKind === 'account'
-      const operationLabel = isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment || isNotification || isBookmarkManager || isNotificationManager || isHomeSettingsUpdate || isJournalForget || isMintingWrite || isListWrite || isPollWrite || isNameWrite || isGroupMutation || isPublishMultiple || isQdnDelete || isRatingWrite || isAccountAvatar || isPaymentSend || isAtMessage || isEncrypt
+      const operationLabel = isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment || isNotification || isBookmarkManager || isNotificationManager || isHomeSettingsUpdate || isJournalForget || isMintingWrite || isListWrite || isPollWrite || isNameWrite || isGroupMutation || isPublishMultiple || isQdnDelete || isRatingWrite || isAccountAvatar || isPaymentSend || isAtMessage || isEncrypt || isDecrypt
         ? String(value.writeOperationLabel)
         : ''
       const prompt = createPermissionPrompt({
         id: brand<PermissionRequestId>(value.requestId),
         protocol: value.protocol,
         action: value.action,
-        capability: isEncrypt
+        capability: isDecrypt
+          ? 'account.decrypt'
+          : isEncrypt
           ? 'account.encrypt'
           : isWidgetPrompt
           ? 'window.widget.open'
@@ -3997,6 +4043,17 @@ export function HomeV2LiveApp() {
               { label: 'Chain', value: String(value.writeTargetChainLabel) },
               { label: 'Scope', value: 'This one transaction only' },
             ]
+          : isDecrypt
+          ? [
+              { label: 'Account', value: account?.label ?? accountId },
+              { label: 'Operation', value: operationLabel },
+              ...(value.decryptDetails as readonly { label: string; value: string }[])
+                .map((detail) => ({ label: detail.label, value: detail.value })),
+              {
+                label: 'Result',
+                value: 'The app can read this data. It cannot send or publish it without asking you again.',
+              },
+            ]
           : isEncrypt
           ? [
               { label: 'Account', value: account?.label ?? accountId },
@@ -4236,7 +4293,7 @@ export function HomeV2LiveApp() {
           // deliberately withheld until then, because a stored grant nothing
           // reads back would have re-prompted the user after telling them it
           // would not.
-          : isEncrypt
+          : isEncrypt || isDecrypt
           ? ['single-request', 'session', 'always']
           : isWidgetPrompt
           ? ['single-request', 'session']
@@ -4890,6 +4947,92 @@ export function HomeV2LiveApp() {
             },
           )
         }
+      }
+      // DECRYPT_DATA on Android. Same placement and reasoning as ENCRYPT_DATA
+      // below: signs nothing, reaches no node, no chain to conflict with.
+      if (isAndroidHost && action === 'DECRYPT_DATA') {
+        if (!context.selectedAccountId) throw new Error('No account is selected for this tab.')
+        const accountId = context.selectedAccountId
+        const account = accountCatalogueRef.current.accounts.find((candidate) => candidate.id === accountId)
+        if (!account) throw new Error('The selected account is no longer available.')
+        if (!account.isUnlocked) throw new Error('The selected account is locked.')
+        if (!vaultClient?.decryptData) throw new Error('Decryption is unavailable on this platform.')
+        if (!isRecord(requestValue)) throw new Error('DECRYPT_DATA requires a request object.')
+        const decryptValue = requestValue
+        // The envelope form comes from the DATA, never from the request.
+        const rawEncrypted = decryptValue.encryptedData ?? decryptValue.data64
+        const envelopeKind = typeof rawEncrypted === 'string'
+          ? qortalEnvelopeKind(rawEncrypted)
+          : 'unknown'
+        const decryptRequest = normalizeHomeV2DecryptDataRequest(decryptValue, envelopeKind)
+        const grantKey = homeV2PermissionGrantKey({
+          accountId,
+          accountUnlocked: account.isUnlocked,
+          action,
+          appIdentity: context.resourceLocation,
+          nodeRoute: 'none',
+          principalId: 'android',
+          protocol,
+          tabId: context.tabId,
+        })
+        const decryptAppCapabilityKey = context.resourceLocation || ''
+        const heldDecryptGrant = decryptAppCapabilityKey
+          ? await hasQdnAccountCapability(decryptAppCapabilityKey, accountId, 'account.decrypt')
+          : false
+        if (!heldDecryptGrant && !androidSessionAccountGrants.current.has(grantKey)) {
+          const parsedApp = resolveAppIdentity()
+          const appId = brand<AppId>(`home-v2:permission-app:${parsedApp.identityKey}`)
+          const decision = await queueAndroidPermissionPrompt(createPermissionPrompt({
+            id: brand<PermissionRequestId>(globalThis.crypto.randomUUID()),
+            protocol,
+            action,
+            capability: 'account.decrypt',
+            appId,
+            appIdentityKey: parsedApp.identityKey,
+            appTitle: parsedApp.title,
+            context: {
+              appId,
+              identityId: brand<IdentityId>(`home-v2:identity:${accountId}`),
+              nodeProfileRef: snapshot.nodes.qortium.ref,
+              tabId: brand<TabId>(context.tabId),
+              targetNetwork: 'qortium',
+              walletRef: brand<WalletRef>(`home-v2:wallet:${account.walletId}`),
+            },
+            title: `Allow ${HOME_V2_DECRYPT_DATA_OPERATION_LABEL.toLowerCase()}?`,
+            summary: `${parsedApp.title} wants to read data that was encrypted to the selected account. The app will see this data in readable form — it still cannot send or publish it without asking you again.`,
+            details: [
+              { label: 'Account', value: account.label },
+              { label: 'Operation', value: HOME_V2_DECRYPT_DATA_OPERATION_LABEL },
+              ...androidDecryptDetails(decryptRequest.senderPublicKey, decryptRequest.encryptedData),
+              {
+                label: 'Result',
+                value: 'The app can read this data. It cannot send or publish it without asking you again.',
+              },
+            ],
+            allowedScopes: ['single-request', 'session', 'always'],
+          }), context.tabId)
+          if (!decision.approved) throw new Error('The decryption request was denied.')
+          if (decision.scope === 'always' && decryptAppCapabilityKey) {
+            await persistDurableAccountReadGrant(decryptAppCapabilityKey, accountId, 'account.decrypt')
+          }
+          if (decision.scope === 'session' || decision.scope === 'always') {
+            androidSessionAccountGrants.current.add(grantKey, {
+              family: homeV2PermissionGrantFamily(action),
+              hostWebContentsId: 'android',
+              network: 'qortium',
+              tabId: context.tabId,
+            })
+          }
+        }
+        const stillUnlocked = accountCatalogueRef.current.accounts.find((candidate) => candidate.id === accountId)
+        if (!stillUnlocked?.isUnlocked) {
+          throw new Error('The selected account was locked before the data could be decrypted.')
+        }
+        return await vaultClient.decryptData({
+          accountId,
+          approvedSenderPublicKey: decryptRequest.senderPublicKey,
+          requestValue: decryptValue,
+        })
       }
       // ENCRYPT_DATA on Android. Deliberately BEFORE the pending-transaction
       // conflict gate and outside every node check: it signs nothing, reaches

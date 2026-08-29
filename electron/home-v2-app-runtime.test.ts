@@ -137,6 +137,7 @@ assert.deepEqual(getHomeV2AvailableAppActions('qortalRequest', {
 }), [
   // Route-independent: answerable even with the route unavailable, which is
   // exactly the state this case sets up.
+  'DECRYPT_DATA',
   'ENCRYPT_DATA',
   'FORGET_PENDING_TRANSACTION',
   'GET_PENDING_TRANSACTIONS',
@@ -777,6 +778,17 @@ assert.equal(
 // must stay answerable when the route is unavailable, and must NOT be refused
 // on Android — it is fully portable, and the vault holds the key there.
 assert.equal(HOME_V2_ROUTE_INDEPENDENT_ACTIONS.includes('ENCRYPT_DATA'), true)
+assert.equal(HOME_V2_ROUTE_INDEPENDENT_ACTIONS.includes('DECRYPT_DATA'), true)
+assert.equal(isHomeV2AndroidUnsupportedAction('DECRYPT_DATA'), false)
+// A widget must never reach decryption either — it is a public-read surface.
+assert.equal(
+  getHomeV2ContextualAppActions(['DECRYPT_DATA', 'GET_HOST_INFO'], 'widget', new Set<string>()).includes('DECRYPT_DATA'),
+  false,
+)
+assert.equal(
+  getHomeV2ContextualAppActions(['DECRYPT_DATA', 'GET_HOST_INFO'], 'tab', new Set<string>()).includes('DECRYPT_DATA'),
+  true,
+)
 // A WIDGET must never reach it. Widgets are public-read surfaces; using the
 // account's key is not a public read, and the widget allowlist admits only
 // FETCH/GET/LIST/SEARCH/RESOLVE reads plus a fixed local set. Pinned because a

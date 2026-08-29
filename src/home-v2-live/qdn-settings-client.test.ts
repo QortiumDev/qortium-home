@@ -87,6 +87,15 @@ const state = {
     revision: 3,
     version: 1,
   },
+  accountDecrypt: {
+    apps: [{
+      accountId: 'wallet:QBBB',
+      appKey: 'qdn://APP/Chat/Chat',
+      grantedAt: '2026-08-28T15:00:00.000Z',
+    }],
+    revision: 3,
+    version: 1,
+  },
   notifications: {
     apps: [{
       appKey: 'qdn://APP/Notify/Notify',
@@ -154,6 +163,26 @@ assert.throws(
   assert.equal(parsed.accountEncrypt.apps.length, 1)
   assert.equal(parsed.accountRead.apps.length, 2)
   assert.equal(parsed.accountEncrypt.apps[0].grantedAt, '2026-08-28T14:00:00.000Z')
+}
+// And for the durable DECRYPT grants, which are the most sensitive of the
+// three: hiding a live grant over READING the account's encrypted data from
+// the only surface that can revoke it is the worst of the three failures.
+assert.throws(
+  () => {
+    const { accountDecrypt: _omitted, ...withoutDecryptGrants } = state
+    return parseHomeV2QdnSettingsState(withoutDecryptGrants)
+  },
+  /malformed/,
+)
+// The three lists are parsed independently: one grant must never be reported
+// as another, or the wrong card appears in settings.
+{
+  const parsed = parseHomeV2QdnSettingsState(state)
+  assert.equal(parsed.accountRead.apps.length, 2)
+  assert.equal(parsed.accountEncrypt.apps.length, 1)
+  assert.equal(parsed.accountDecrypt.apps.length, 1)
+  assert.equal(parsed.accountDecrypt.apps[0].accountId, 'wallet:QBBB')
+  assert.notEqual(parsed.accountDecrypt.apps[0].grantedAt, parsed.accountEncrypt.apps[0].grantedAt)
 }
 // Same reasoning for the durable notification-manager grants: an omitted list
 // would hide a live administrative grant from the only place it can be revoked.

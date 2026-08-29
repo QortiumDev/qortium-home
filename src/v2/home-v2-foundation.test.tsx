@@ -2757,11 +2757,13 @@ function testGrantIdentityAndSendRateLimitHardening(): void {
     const sessionGrant = appBridge.indexOf('sessionAccountReadGrants.has(grantKey)')
     const durableRead = appBridge.indexOf('durableAccountReadCapability &&')
     const durableEncrypt = appBridge.indexOf("hasQdnAccountCapability(appGrantKey, context.accountId, 'account.encrypt')")
+    const durableDecrypt = appBridge.indexOf("hasQdnAccountCapability(appGrantKey, context.accountId, 'account.decrypt')")
     const durableChatSend = appBridge.indexOf("hasQdnAppCapability(appGrantKey, 'chat.send')")
     for (const [label, index] of [
       ['the session grant', sessionGrant],
       ['the durable account.read grant', durableRead],
       ['the durable account.encrypt grant', durableEncrypt],
+      ['the durable account.decrypt grant', durableDecrypt],
       ['the durable chat.send grant', durableChatSend],
     ] as const) {
       assert.ok(index > 0, `${label} check must exist`)

@@ -1457,4 +1457,19 @@ assert.equal(getHomeV2AppNetwork('qortalRequest', 'ENCRYPT_DATA'), 'qortal')
 assert.equal(getHomeV2AppActions('qdnRequest').includes('ENCRYPT_QORTAL_GROUP_DATA'), false)
 assert.equal(getHomeV2AppActions('qortalRequest').includes('ENCRYPT_QORTAL_GROUP_DATA'), false)
 
+// DECRYPT_DATA is on both protocols for the same reason ENCRYPT_DATA is.
+assert.equal(getHomeV2AppActions('qdnRequest').includes('DECRYPT_DATA'), true)
+assert.equal(getHomeV2AppActions('qortalRequest').includes('DECRYPT_DATA'), true)
+assert.equal(getHomeV2AppNetwork('qdnRequest', 'DECRYPT_DATA'), 'qortium')
+assert.equal(getHomeV2AppNetwork('qortalRequest', 'DECRYPT_DATA'), 'qortal')
+// The other decrypt actions remain unimplemented and must not be advertised.
+for (const action of [
+  'DECRYPT_QORTAL_GROUP_DATA',
+  'DECRYPT_DATA_WITH_SHARING_KEY',
+  'DECRYPT_AESGCM',
+]) {
+  assert.equal(getHomeV2AppActions('qdnRequest').includes(action), false, `${action} is not implemented`)
+  assert.equal(getHomeV2AppActions('qortalRequest').includes(action), false, `${action} is not implemented`)
+}
+
 console.log('Home v2 app action contract tests passed.')

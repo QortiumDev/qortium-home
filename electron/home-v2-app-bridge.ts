@@ -355,9 +355,16 @@ import {
   type HomeV2RatingAction,
   type HomeV2RatingWirePayload,
 } from './home-v2-rating-actions.js'
-import { encryptQortalPublicKeyEnvelope } from './home-v2-app-encryption.js'
 import {
+  decryptQortalDeprecatedEnvelope,
+  decryptQortalPublicKeyEnvelope,
+  encryptQortalPublicKeyEnvelope,
+  qortalEnvelopeKind,
+} from './home-v2-app-encryption.js'
+import {
+  HOME_V2_DECRYPT_DATA_OPERATION_LABEL,
   HOME_V2_ENCRYPT_DATA_OPERATION_LABEL,
+  normalizeHomeV2DecryptDataRequest,
   normalizeHomeV2EncryptDataRequest,
 } from './home-v2-encryption-actions.js'
 import type { HomeV2PublishSourceBinding } from './home-v2-publish-source-tokens.js'
@@ -587,6 +594,7 @@ type AccountReadAction =
   // returns ciphertext. Named here only because every promptable action passes
   // through requireAccountReadPermission; it is NOT in the 'account.read'
   // grant family, and homeV2PermissionGrantFamily keeps it under its own name.
+  | 'DECRYPT_DATA'
   | 'ENCRYPT_DATA'
   | 'GET_SELECTED_ACCOUNT'
   | 'GET_USER_ACCOUNT'
@@ -1474,6 +1482,10 @@ async function requireAccountReadPermission(
     readonly target: string
     readonly targetChainLabel: string
   } | {
+    readonly kind: 'decrypt'
+    readonly decryptDetails: readonly { readonly label: string; readonly value: string }[]
+    readonly operationLabel: string
+  } | {
     readonly kind: 'encrypt'
     // The rows the user sees, already ordered to the disclosure contract.
     readonly encryptDetails: readonly { readonly label: string; readonly value: string }[]
@@ -1614,6 +1626,16 @@ async function requireAccountReadPermission(
     !singleRequestOnly &&
     appGrantKey &&
     hasQdnAccountCapability(appGrantKey, context.accountId, 'account.encrypt')
+  ) {
+    return
+  }
+  // The durable DECRYPT grant. Its own capability, checked separately: an
+  // app allowed to encrypt has not thereby been allowed to read.
+  if (
+    action === 'DECRYPT_DATA' &&
+    !singleRequestOnly &&
+    appGrantKey &&
+    hasQdnAccountCapability(appGrantKey, context.accountId, 'account.decrypt')
   ) {
     return
   }
@@ -1825,6 +1847,13 @@ async function requireAccountReadPermission(
                 writeSingleRequestOnly: true,
                 writeTargetChainLabel: writeDetails.targetChainLabel,
               }
+          : writeDetails?.kind === 'decrypt'
+            ? {
+                decryptDetails: writeDetails.decryptDetails.map((detail) => ({ ...detail })),
+                writeKind: 'decrypt',
+                writeOperationLabel: writeDetails.operationLabel,
+                writeSingleRequestOnly: false,
+              }
           : writeDetails?.kind === 'encrypt'
             ? {
                 encryptDetails: writeDetails.encryptDetails.map((detail) => ({ ...detail })),
@@ -1946,6 +1975,23 @@ async function requireAccountReadPermission(
   // durableAccountReadCapability, because that helper answers only for the
   // read family and must keep doing so — collapsing them is exactly how an
   // 'always allow' for reading would start covering use of the key.
+  if (
+    decision.scope === 'always' &&
+    action === 'DECRYPT_DATA' &&
+    !singleRequestOnly &&
+    appGrantKey &&
+    grantAccountId
+  ) {
+    if (persistDurableGrant({
+      capability: 'account.decrypt',
+      isHeld: () => hasQdnAccountCapability(appGrantKey, grantAccountId, 'account.decrypt'),
+      write: () => grantQdnAccountCapabilityPermission(
+        appGrantKey,
+        grantAccountId,
+        'account.decrypt',
+      ),
+    })) return
+  }
   if (
     decision.scope === 'always' &&
     action === 'ENCRYPT_DATA' &&
@@ -9274,6 +9320,69 @@ async function handleRequestWithRuntime(
   }
   if (action === 'WHICH_UI') return 'QORTIUM_HOME_ELECTRON'
   if (action === 'GET_HOST_INFO') return hostInfo
+
+  if (action === 'DECRYPT_DATA') {
+    if (!context.accountId) throw new Error('No account is selected for this tab.')
+    const accountId = context.accountId
+    if (!isAccountUnlocked(accountId)) {
+      throw createHomeV2BridgeError('The selected account is locked.', {
+        action,
+        code: 'ACCOUNT_LOCKED',
+        network: hostInfo.network,
+        retryable: false,
+        routeRevision: hostInfo.route.revision,
+      })
+    }
+    // The FORM is read from the data, never from what the request claims it
+    // is: the two envelopes derive their key differently, so trusting a
+    // caller-supplied kind would fail as an unexplained "cannot decrypt".
+    const encryptedValue = requestValue as Record<string, unknown>
+    const nestedPayload = typeof encryptedValue.payload === 'object' && encryptedValue.payload !== null
+      ? encryptedValue.payload as Record<string, unknown>
+      : null
+    const rawEncrypted = encryptedValue.encryptedData ?? encryptedValue.data64 ??
+      nestedPayload?.encryptedData ?? nestedPayload?.data64
+    const kind = typeof rawEncrypted === 'string' ? qortalEnvelopeKind(rawEncrypted) : 'unknown'
+    const request = normalizeHomeV2DecryptDataRequest(encryptedValue, kind)
+    await requireAccountReadPermission(sender, context, protocol, action, {
+      kind: 'decrypt',
+      decryptDetails: [
+        {
+          label: 'Encrypted for',
+          // Says plainly whose data this is. The modern envelope is addressed
+          // to a set of readers; either way the account below is the key that
+          // will open it.
+          value: 'You, with the account below',
+        },
+        ...(request.senderPublicKey
+          ? [{ label: 'Sent by', value: request.senderPublicKey }]
+          : []),
+        {
+          label: 'Size',
+          value: `${Math.ceil(request.encryptedData.length / 4) * 3} bytes of encrypted data`,
+        },
+      ],
+      operationLabel: HOME_V2_DECRYPT_DATA_OPERATION_LABEL,
+    })
+    const signingKey = getAccountSecretKey(accountId)
+    try {
+      const decrypted = request.senderPublicKey
+        ? await decryptQortalDeprecatedEnvelope({
+          encryptedBase64: request.encryptedData,
+          readerPrivateKey: signingKey.secretKey,
+          senderPublicKey58: request.senderPublicKey,
+        })
+        : decryptQortalPublicKeyEnvelope({
+          encryptedBase64: request.encryptedData,
+          readerPrivateKey: signingKey.secretKey,
+        })
+      // Qortal returns the decrypted base64 STRING, not an object. Returning
+      // our richer shape would break every app written against Qortal.
+      return decrypted.data64
+    } finally {
+      signingKey.secretKey.fill(0)
+    }
+  }
 
   if (action === 'ENCRYPT_DATA') {
     if (!context.accountId) throw new Error('No account is selected for this tab.')

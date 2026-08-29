@@ -687,4 +687,46 @@ import {
   )
 }
 
+// --- THREE independent account-scoped grants ------------------------------
+// Same property as the read/encrypt pair, extended: no grant may imply another
+// and no revoke may touch another. With three capabilities sharing one store
+// keyed by (principal, account, capability), a mistake here is silent.
+{
+  const app = 'qdn://APP/Demo/Demo'
+  const account = 'account-1'
+  const all = ['account.read', 'account.encrypt', 'account.decrypt'] as const
+  let store = createDefaultQdnAppRolesStore()
+  for (const capability of all) store = grantQdnAccountCapability(store, app, account, capability)
+  for (const capability of all) {
+    assert.equal(storeHoldsQdnAccountCapability(store, app, account, capability), true)
+  }
+  for (const revoked of all) {
+    const after = revokeQdnAccountCapability(store, app, account, revoked)
+    assert.equal(storeHoldsQdnAccountCapability(after, app, account, revoked), false)
+    for (const other of all) {
+      if (other === revoked) continue
+      assert.equal(
+        storeHoldsQdnAccountCapability(after, app, account, other),
+        true,
+        `revoking ${revoked} must not drop ${other}`,
+      )
+    }
+  }
+  // Holding only decrypt implies neither of the others.
+  const decryptOnly = grantQdnAccountCapability(createDefaultQdnAppRolesStore(), app, account, 'account.decrypt')
+  assert.equal(storeHoldsQdnAccountCapability(decryptOnly, app, account, 'account.read'), false)
+  assert.equal(storeHoldsQdnAccountCapability(decryptOnly, app, account, 'account.encrypt'), false)
+  // ...and it survives sanitize, which strips any capability missing from the
+  // account-scoped list on every read.
+  assert.equal(
+    storeHoldsQdnAccountCapability(
+      sanitizeQdnAppRolesStore(JSON.parse(JSON.stringify(decryptOnly))),
+      app,
+      account,
+      'account.decrypt',
+    ),
+    true,
+  )
+}
+
 console.log('QDN capability principal tests passed')
