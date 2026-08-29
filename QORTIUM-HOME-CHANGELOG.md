@@ -34,6 +34,15 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-29 - feat(bookmarks): a new profile starts with something on its toolbar
+
+A brand-new Home used to open with a completely empty bookmarks toolbar. It now
+starts with Chat and Node on it, in the same way the dashboard already starts
+with Chat and Help.
+
+This happens only for a genuinely new profile. If you clear your toolbar, it
+stays cleared.
+
 ### 2026-08-29 - feat(tabs): drag a tab back into another window
 
 Dragging a tab out of a window to make a new one already worked. Dragging it

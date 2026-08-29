@@ -194,10 +194,22 @@ export class HomeV2CollectionsClient {
     return marker === '1'
   }
 
+  /**
+   * Decides BOTH sets of first-run defaults in one pass.
+   *
+   * The toolbar links are seeded here rather than by a second method on
+   * purpose: this one clears the fresh-profile flags when it finishes, so
+   * anything running afterwards would always see a profile that is no longer
+   * fresh and would never seed. One flag lifecycle, one decision point.
+   */
   finalizeDashboardPinDefaults(
     shouldSeed: boolean,
     pins: readonly BookmarkManagerLinkDraft[],
     accounts: HomeV2CollectionsAccounts,
+    toolbar?: {
+      readonly links: readonly BookmarkManagerLinkDraft[]
+      readonly shouldSeed: boolean
+    },
   ) {
     const operation = this.mutationChain.then(async () => {
       let current = await this.getSnapshot(accounts)
@@ -210,6 +222,22 @@ export class HomeV2CollectionsClient {
           current = applyBookmarkManagerMutation(
             snapshotCollections(current, accounts),
             { type: 'addDashboardPin', pin },
+          ).snapshot
+        }
+        const stored = withoutAccounts(current)
+        await persistSnapshot(stored)
+        this.current = stored
+        current = withAccounts(stored, accounts)
+      }
+      if (
+        toolbar?.shouldSeed &&
+        this.initializedFromEmptyStorage &&
+        current.toolbar.length === 0
+      ) {
+        for (const link of toolbar.links) {
+          current = applyBookmarkManagerMutation(
+            snapshotCollections(current, accounts),
+            { link, rootId: 'toolbar', type: 'addTreeLink' },
           ).snapshot
         }
         const stored = withoutAccounts(current)

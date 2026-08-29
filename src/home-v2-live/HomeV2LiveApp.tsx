@@ -131,7 +131,9 @@ import {
   buildAdjacentDashboardPinMoveMutation,
   buildDashboardPinMoveMutation,
   HOME_V2_DEFAULT_DASHBOARD_PIN_DRAFTS,
+  HOME_V2_DEFAULT_TOOLBAR_LINK_DRAFTS,
   shouldSeedHomeV2DefaultDashboardPins,
+  shouldSeedHomeV2DefaultToolbarLinks,
   type DashboardPinMoveDirection,
 } from './dashboard-pins'
 import {
@@ -2886,6 +2888,16 @@ export function HomeV2LiveApp() {
         shouldSeed,
         HOME_V2_DEFAULT_DASHBOARD_PIN_DRAFTS,
         accounts,
+        {
+          links: HOME_V2_DEFAULT_TOOLBAR_LINK_DRAFTS,
+          // Judged independently of the dashboard pins: someone may have
+          // cleared one and not the other, and neither should be refilled
+          // behind their back.
+          shouldSeed: shouldSeedHomeV2DefaultToolbarLinks(
+            isGenuinelyFresh,
+            next.toolbar,
+          ),
+        },
       )
       dashboardPinSeedDecisionMade.current = true
     }
