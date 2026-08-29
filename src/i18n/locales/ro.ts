@@ -832,6 +832,7 @@ export const ro: Record<TranslationKey, string> = {
   "home2.core.adoptedStopped": "Core {network} preluat · oprit",
   "home2.core.apiControl": "Core {network} rulează · control API autentificat",
   "home2.core.nodeAutoUpdateMode": "Actualizare automată a nodului: {mode}",
+  "home2.core.installModified": "Modificat de la instalare",
   "home2.core.releaseChoice": "Versiunea de instalat",
   "home2.core.releasePrerelease": "Prelansare {tag}",
   "home2.core.releaseStable": "Versiune {tag}",

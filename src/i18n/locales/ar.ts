@@ -832,6 +832,7 @@ export const ar: Record<TranslationKey, string> = {
   "home2.core.adoptedStopped": "Core {network} المتبنّى · متوقف",
   "home2.core.apiControl": "Core {network} قيد التشغيل · تحكم موثّق عبر API",
   "home2.core.nodeAutoUpdateMode": "التحديث التلقائي للعقدة: {mode}",
+  "home2.core.installModified": "مُعدَّل منذ التثبيت",
   "home2.core.releaseChoice": "الإصدار المراد تثبيته",
   "home2.core.releasePrerelease": "إصدار أولي {tag}",
   "home2.core.releaseStable": "إصدار {tag}",

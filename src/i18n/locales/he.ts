@@ -832,6 +832,7 @@ export const he: Record<TranslationKey, string> = {
   "home2.core.adoptedStopped": "Core ‏{network} שאומץ · נעצר",
   "home2.core.apiControl": "Core ‏{network} פועל · שליטה מאומתת דרך ה-API",
   "home2.core.nodeAutoUpdateMode": "עדכון אוטומטי של הצומת: {mode}",
+  "home2.core.installModified": "שונה מאז ההתקנה",
   "home2.core.releaseChoice": "גרסה להתקנה",
   "home2.core.releasePrerelease": "גרסת טרום-הפצה {tag}",
   "home2.core.releaseStable": "גרסה {tag}",

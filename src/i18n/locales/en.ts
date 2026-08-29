@@ -831,6 +831,7 @@ export const en = {
   "home2.core.adoptedStopped": "Adopted {network} Core · stopped",
   "home2.core.apiControl": "{network} Core running · authenticated API control",
   "home2.core.nodeAutoUpdateMode": "Node auto-update: {mode}",
+  "home2.core.installModified": "Modified since install",
   "home2.core.releaseChoice": "Release to install",
   "home2.core.releasePrerelease": "Prerelease {tag}",
   "home2.core.releaseStable": "Release {tag}",

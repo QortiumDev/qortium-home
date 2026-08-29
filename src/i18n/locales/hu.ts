@@ -832,6 +832,7 @@ export const hu: Record<TranslationKey, string> = {
   "home2.core.adoptedStopped": "Átvett {network} Core · leállítva",
   "home2.core.apiControl": "A(z) {network} Core fut · hitelesített API-vezérlés",
   "home2.core.nodeAutoUpdateMode": "Csomópont automatikus frissítése: {mode}",
+  "home2.core.installModified": "A telepítés óta módosítva",
   "home2.core.releaseChoice": "Telepítendő kiadás",
   "home2.core.releasePrerelease": "Előzetes kiadás {tag}",
   "home2.core.releaseStable": "Kiadás {tag}",

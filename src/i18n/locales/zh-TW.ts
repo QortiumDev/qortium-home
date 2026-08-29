@@ -832,6 +832,7 @@ export const zhTW: Record<TranslationKey, string> = {
   "home2.core.adoptedStopped": "已接管的 {network} Core · 已停止",
   "home2.core.apiControl": "{network} Core 正在執行 · 已驗證的 API 控制",
   "home2.core.nodeAutoUpdateMode": "節點自動更新：{mode}",
+  "home2.core.installModified": "安裝後已被修改",
   "home2.core.releaseChoice": "要安裝的版本",
   "home2.core.releasePrerelease": "預發布 {tag}",
   "home2.core.releaseStable": "版本 {tag}",

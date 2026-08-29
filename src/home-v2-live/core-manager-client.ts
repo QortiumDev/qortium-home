@@ -185,9 +185,10 @@ export function parseHomeV2CoreMaintenanceStatus(value: unknown): HomeV2CoreMain
     typeof value.capabilities.canInstallJava !== 'boolean' ||
     typeof value.capabilities.canUpdateRunningInPlace !== 'boolean' || !isRecord(value.core) ||
     !hasExactKeys(value.core, [
-      'channel', 'installedCommit', 'installedTag', 'installedVersion',
+      'channel', 'installedCommit', 'installModified', 'installedTag', 'installedVersion',
       'nodeAutoUpdateMode', 'runtime', 'runtimeBlockedReason',
     ]) ||
+    typeof value.core.installModified !== 'boolean' ||
     !(value.core.nodeAutoUpdateMode === null || typeof value.core.nodeAutoUpdateMode === 'string') ||
     !(value.core.runtimeBlockedReason === null ||
       typeof value.core.runtimeBlockedReason === 'string') ||
@@ -215,6 +216,7 @@ export function parseHomeV2CoreMaintenanceStatus(value: unknown): HomeV2CoreMain
       // canUpdateRunningInPlace was dead in the app while every main-process
       // test passed (#436). The round trip is asserted in the client test.
       installedCommit: value.core.installedCommit,
+      installModified: value.core.installModified,
       installedTag: value.core.installedTag,
       nodeAutoUpdateMode: value.core.nodeAutoUpdateMode,
       runtimeBlockedReason: value.core.runtimeBlockedReason,

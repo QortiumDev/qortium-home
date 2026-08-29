@@ -710,4 +710,27 @@ for (const nested of [
   assert.deepEqual(await offersFor(rel('stable', '1.5.0'), undefined, '1.7.0'), [])
 }
 
+// A modified install must reach the contract as installModified. Nothing else
+// asserted this: hardcoding the field to false still passed the whole suite,
+// which would have shipped a status that always claimed the install was clean.
+{
+  const modified = createHomeV2CoreManagerService(() => maintenanceManager({
+    installed: { jarSemver: '1.7.2', modifiedSinceInstall: true, tagName: 'v1.7.2' },
+  }))
+  const status = await modified.getMaintenanceStatus({
+    revision: 1, schema: 'home-v2-core-maintenance-request',
+  })
+  assert.equal(status.core.installModified, true,
+    'the contract must read modifiedSinceInstall, not assume a clean install')
+  assertRedacted(status)
+
+  const clean = createHomeV2CoreManagerService(() => maintenanceManager({
+    installed: { jarSemver: '1.7.2', tagName: 'v1.7.2' },
+  }))
+  const cleanStatus = await clean.getMaintenanceStatus({
+    revision: 1, schema: 'home-v2-core-maintenance-request',
+  })
+  assert.equal(cleanStatus.core.installModified, false)
+}
+
 console.log('Home v2 Core-manager contract tests passed.')

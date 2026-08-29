@@ -832,6 +832,7 @@ export const nl: Record<TranslationKey, string> = {
   "home2.core.adoptedStopped": "Overgenomen {network} Core · gestopt",
   "home2.core.apiControl": "{network} Core actief · geverifieerde API-besturing",
   "home2.core.nodeAutoUpdateMode": "Automatische node-updates: {mode}",
+  "home2.core.installModified": "Gewijzigd sinds de installatie",
   "home2.core.releaseChoice": "Te installeren release",
   "home2.core.releasePrerelease": "Prerelease {tag}",
   "home2.core.releaseStable": "Release {tag}",

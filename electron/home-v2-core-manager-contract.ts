@@ -97,6 +97,15 @@ export type HomeV2CoreMaintenanceStatus = {
     readonly nodeAutoUpdateMode: string | null
     /** The release tag it was installed from, or null. */
     readonly installedTag: string | null
+    /**
+     * Whether the installed jar no longer matches what Home installed.
+     *
+     * Home 1.x said so plainly ("modified since install") and used it to offer
+     * a way back. Home 2 never surfaced it at all, so a tampered or damaged
+     * install was invisible -- which matters more than any repair button,
+     * because nothing can be acted on that is never shown.
+     */
+    readonly installModified: boolean
     readonly installedVersion: string | null
     readonly runtime: HomeV2CoreRuntimeState
   }
@@ -232,6 +241,7 @@ function qortiumMaintenanceStatus(
       channel: installed?.channel === 'stable' || installed?.channel === 'prerelease'
         ? installed.channel
         : null,
+      installModified: installed?.modifiedSinceInstall === true,
       installedVersion:
         typeof installed?.jarSemver === 'string' && installed.jarSemver.trim()
           ? installed.jarSemver.trim()

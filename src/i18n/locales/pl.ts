@@ -832,6 +832,7 @@ export const pl: Record<TranslationKey, string> = {
   "home2.core.adoptedStopped": "Przejęty Core {network} · zatrzymany",
   "home2.core.apiControl": "Core {network} uruchomiony · uwierzytelnione sterowanie przez API",
   "home2.core.nodeAutoUpdateMode": "Automatyczna aktualizacja węzła: {mode}",
+  "home2.core.installModified": "Zmodyfikowano od instalacji",
   "home2.core.releaseChoice": "Wydanie do zainstalowania",
   "home2.core.releasePrerelease": "Wydanie wstępne {tag}",
   "home2.core.releaseStable": "Wydanie {tag}",

@@ -832,6 +832,7 @@ export const sv: Record<TranslationKey, string> = {
   "home2.core.adoptedStopped": "Övertagen {network} Core · stoppad",
   "home2.core.apiControl": "{network} Core körs · autentiserad API-styrning",
   "home2.core.nodeAutoUpdateMode": "Automatisk noduppdatering: {mode}",
+  "home2.core.installModified": "Ändrad sedan installationen",
   "home2.core.releaseChoice": "Version att installera",
   "home2.core.releasePrerelease": "Förhandsversion {tag}",
   "home2.core.releaseStable": "Version {tag}",
