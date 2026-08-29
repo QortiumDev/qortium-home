@@ -828,6 +828,7 @@ export const el: Record<TranslationKey, string> = {
   "home2.core.action.unconfirmed": "Το Home ζήτησε την ενέργεια, αλλά δεν μπόρεσε να επιβεβαιώσει την ολοκλήρωσή της.",
   "home2.core.adoptedStopped": "Υιοθετημένο Core {network} · σταματημένο",
   "home2.core.apiControl": "Το Core {network} εκτελείται · έλεγχος μέσω πιστοποιημένου API",
+  "home2.core.installedVersion": "Έκδοση {version}",
   "home2.core.confirmExternalBody": "Το Home θα υποβάλει ένα πιστοποιημένο αίτημα API. Δεν θα τερματίσει απευθείας τη διεργασία.",
   "home2.core.confirmExternalTitle": "Διακοπή του εξωτερικά ελεγχόμενου Core {network};",
   "home2.core.controlsUnavailable": "Το Core {network} εκτελείται · τα στοιχεία ελέγχου δεν είναι διαθέσιμα",

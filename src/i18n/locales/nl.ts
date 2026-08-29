@@ -827,6 +827,7 @@ export const nl: Record<TranslationKey, string> = {
   "home2.core.action.unconfirmed": "Home heeft de actie aangevraagd, maar kon de voltooiing niet bevestigen.",
   "home2.core.adoptedStopped": "Overgenomen {network} Core · gestopt",
   "home2.core.apiControl": "{network} Core actief · geverifieerde API-besturing",
+  "home2.core.installedVersion": "Versie {version}",
   "home2.core.confirmExternalBody": "Home zal een geverifieerd API-verzoek uitvoeren. Het proces wordt niet rechtstreeks beëindigd.",
   "home2.core.confirmExternalTitle": "De extern beheerde {network} Core stoppen?",
   "home2.core.controlsUnavailable": "{network} Core actief · bediening niet beschikbaar",
