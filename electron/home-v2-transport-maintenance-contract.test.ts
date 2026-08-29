@@ -42,6 +42,8 @@ function status(options: StatusOptions = {}): HomeV2TransportMaintenanceStatus {
       canSetDirectOnly: canChange,
       canSetI2pOnly: canChange && routerReady,
       canStopRouter: routerState === 'managed-running' && !fatalIssue,
+      canSetModeWhileRunning: coreInstall === 'installed' && coreRuntime === 'running' &&
+        mode !== 'unknown' && !fatalIssue,
     },
     core: { install: coreInstall, runtime: coreRuntime },
     issue,
@@ -72,7 +74,7 @@ function statusRequest(extra: Record<string, unknown> = {}) {
 }
 
 function mutationRequest(
-  action: 'ensure-router' | 'set-mode' | 'stop-router',
+  action: 'ensure-router' | 'set-mode' | 'set-mode-live' | 'stop-router',
   transportMode: Exclude<HomeV2TransportMode, 'unknown'> | null,
   extra: Record<string, unknown> = {},
 ) {
@@ -96,6 +98,8 @@ function dependencies(overrides: Partial<HomeV2TransportMaintenanceDependencies>
       kind: 'completed',
       warning: null,
     } as const),
+    setRunningCoreTransportMode: async () =>
+      ({ code: null, kind: 'completed', warning: 'restart-required' } as const),
     stopRouter: async () => ({ code: null, kind: 'completed', warning: null } as const),
     ...overrides,
   } satisfies HomeV2TransportMaintenanceDependencies
@@ -400,8 +404,6 @@ for (const [dependencyResult, outcome, code] of [
   assertRedacted(result)
 }
 
-console.log('Home v2 transport maintenance contract tests passed.')
-
 
 // Stopping the managed router must NOT require a stopped Core. Home 1.x let you stop
 // i2pd at any time; the blanket core-runtime gate the other actions carry is
@@ -429,3 +431,67 @@ console.log('Home v2 transport maintenance contract tests passed.')
   assert.notEqual(result.code, 'core-runtime-not-stopped')
   assertRedacted(result)
 }
+
+
+// A running Core takes the API path. The settings-FILE path still refuses to run
+// while Core is up -- that gate protects a three-times-rechecked file replacement
+// and is deliberately untouched. These two must not be confused for each other.
+{
+  const running = status({
+    coreRuntime: 'running',
+    maintenance: 'none',
+    mode: 'direct-and-i2p',
+    routerState: 'managed-running',
+    version: '2.50.2',
+  })
+  assert.equal(running.capabilities.canSetModeWhileRunning, true)
+  assert.equal(running.capabilities.canSetDirectOnly, false,
+    'the settings-file write must stay unavailable while Core runs')
+
+  let liveCalls = 0
+  let fileCalls = 0
+  const service = createHomeV2TransportMaintenanceService(dependencies({
+    readStatus: async () => running,
+    setRunningCoreTransportMode: async () => {
+      liveCalls += 1
+      return { code: null, kind: 'completed', warning: 'restart-required' } as const
+    },
+    setStoppedCoreTransportMode: async () => {
+      fileCalls += 1
+      return { code: null, kind: 'completed', warning: null } as const
+    },
+  }))
+
+  const live = await service.runAction(mutationRequest('set-mode-live', 'direct-only'))
+  assert.equal(liveCalls, 1)
+  assert.equal(fileCalls, 0, 'the live path must never touch the settings file')
+  assert.equal(live.outcome, 'completed')
+  assert.equal(live.warning, 'restart-required',
+    'the caller needs to know the mode is stored but not yet in effect')
+  assertRedacted(live)
+
+  // and the file path is still refused on the same running Core
+  const viaFile = await service.runAction(mutationRequest('set-mode', 'direct-only'))
+  assert.equal(viaFile.outcome, 'blocked')
+  assert.equal(viaFile.code, 'core-runtime-not-stopped')
+  assert.equal(fileCalls, 0)
+}
+
+// A stopped Core cannot take the live path.
+{
+  let liveCalls = 0
+  const service = createHomeV2TransportMaintenanceService(dependencies({
+    readStatus: async () => status({ maintenance: 'none', routerState: 'managed-running', version: '2.50.2' }),
+    setRunningCoreTransportMode: async () => {
+      liveCalls += 1
+      return { code: null, kind: 'completed', warning: 'restart-required' } as const
+    },
+  }))
+  const result = await service.runAction(mutationRequest('set-mode-live', 'direct-only'))
+  assert.equal(result.outcome, 'blocked')
+  assert.equal(result.code, 'core-runtime-not-running')
+  assert.equal(liveCalls, 0)
+}
+
+
+console.log('Home v2 transport maintenance contract tests passed.')

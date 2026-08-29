@@ -689,6 +689,7 @@ export function parseHomeV2TransportMaintenanceStatus(
       'canSetDirectAndI2p',
       'canSetDirectOnly',
       'canSetI2pOnly',
+      'canSetModeWhileRunning',
       'canStopRouter',
     ]) || Object.values(value.capabilities).some((entry) => typeof entry !== 'boolean')) {
     throw new Error('Invalid Home 2 transport maintenance status.')
@@ -734,7 +735,9 @@ export function parseHomeV2TransportMaintenanceStatus(
     capabilities.canSetDirectOnly !== canChangeStoppedCore ||
     capabilities.canSetDirectAndI2p !== (canChangeStoppedCore && routerReady) ||
     capabilities.canSetI2pOnly !== (canChangeStoppedCore && routerReady) ||
-    capabilities.canStopRouter !== (routerState === 'managed-running' && !fatalIssue)) {
+    capabilities.canStopRouter !== (routerState === 'managed-running' && !fatalIssue) ||
+    capabilities.canSetModeWhileRunning !== (install === 'installed' && runtime === 'running' &&
+      mode !== 'unknown' && !fatalIssue)) {
     throw new Error('Invalid Home 2 transport maintenance status.')
   }
 
@@ -744,6 +747,7 @@ export function parseHomeV2TransportMaintenanceStatus(
       canSetDirectAndI2p: capabilities.canSetDirectAndI2p,
       canSetDirectOnly: capabilities.canSetDirectOnly,
       canSetI2pOnly: capabilities.canSetI2pOnly,
+      canSetModeWhileRunning: capabilities.canSetModeWhileRunning,
       canStopRouter: capabilities.canStopRouter,
     }),
     core: Object.freeze({ install, runtime }),
@@ -771,7 +775,8 @@ export function parseHomeV2TransportMaintenanceActionResult(
     value.network !== 'qortium' ||
     !['blocked', 'completed', 'failed', 'unconfirmed'].includes(String(value.outcome)) ||
     !(value.code === null || transportActionCodes.has(value.code as NonNullable<HomeV2TransportMaintenanceActionResult['code']>)) ||
-    !(value.warning === null || value.warning === 'cleanup-incomplete') ||
+    !(value.warning === null || value.warning === 'cleanup-incomplete' ||
+      value.warning === 'restart-required') ||
     (value.outcome === 'completed' && value.code !== null) ||
     (value.outcome === 'failed' && (value.code !== 'operation-failed' || value.warning !== null)) ||
     (value.outcome === 'unconfirmed' && (value.code !== 'action-unconfirmed' || value.warning !== null)) ||

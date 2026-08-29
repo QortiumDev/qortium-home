@@ -47,6 +47,7 @@ import {
 import {
   parseQortiumTransportSettingsJson,
   QORTIUM_TRANSPORT_SETTINGS_MAX_BYTES,
+  QORTIUM_TRANSPORTS_BY_MODE,
   updateQortiumTransportSettings,
   type QortiumSettingsObject,
   type QortiumTransportMode,
@@ -4028,6 +4029,7 @@ export type QortiumTransportModeMutationResult =
   | {
       code:
         | 'core-install-missing'
+        | 'core-runtime-not-running'
         | 'core-runtime-not-stopped'
         | 'core-runtime-unknown'
         | 'status-unavailable'
@@ -4165,6 +4167,59 @@ export async function readQortiumTransportModeForHomeV2(): Promise<QortiumTransp
   if (!installed || !isApprovedQortiumTransportCoreTarget(installed)) return 'unknown';
   const snapshot = await readQortiumTransportSettingsSnapshot(installed.runtimePath);
   return snapshot.kind === 'known' ? snapshot.mode : 'unknown';
+}
+
+/**
+ * Change the transport mode on a RUNNING Core, through its API.
+ *
+ * The sibling path below, setQortiumTransportModeForHomeV2, requires a stopped
+ * Core because it REPLACES settings.json on disk and re-checks the runtime state
+ * three times to avoid writing underneath a process that owns that file. That
+ * gate is load-bearing and is deliberately left alone.
+ *
+ * This path never touches the file. It PATCHes /admin/settings on the running
+ * node, which is what Home 1.x did (src/platform.ts, "allowedTransports is
+ * restart-required: persisted now, effective after restart"). The node stores
+ * the value immediately; it only takes effect when Core restarts, and restarting
+ * is a separate step the user has to confirm.
+ */
+export async function setRunningCoreTransportModeForHomeV2(
+  mode: QortiumTransportMode,
+): Promise<QortiumTransportModeMutationResult> {
+  const transports = QORTIUM_TRANSPORTS_BY_MODE[mode];
+  if (!transports) return { code: 'status-unavailable', kind: 'blocked' };
+
+  const runtime = await observeQortiumMaintenanceRuntimeState();
+  if (runtime === 'stopped') return { code: 'core-runtime-not-running', kind: 'blocked' };
+  if (runtime !== 'running') return { code: 'core-runtime-unknown', kind: 'blocked' };
+
+  const installedCore = await readInstalledCoreMetadataForHomeV2UpdateDiscovery();
+  if (!installedCore) return { code: 'core-install-missing', kind: 'blocked' };
+  if (!isApprovedQortiumTransportCoreTarget(installedCore)) {
+    return { code: 'status-unavailable', kind: 'blocked' };
+  }
+
+  const apiKey =
+    readRunningLocalCoreApiKey()?.apiKey ??
+    readPreviewApiKey(getCoreRuntimePath())?.apiKey ??
+    readPreviewApiKey(installedCore.runtimePath)?.apiKey ??
+    null;
+  if (!apiKey) return { code: 'status-unavailable', kind: 'blocked' };
+
+  let response: Response;
+  try {
+    response = await fetch(`${CORE_DESCRIPTOR.localApi.url}/admin/settings`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', 'X-API-KEY': apiKey },
+      body: JSON.stringify({ allowedTransports: [...transports] }),
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch {
+    return { code: 'status-unavailable', kind: 'blocked' };
+  }
+  if (!response.ok) return { code: 'status-unavailable', kind: 'blocked' };
+
+  return { kind: 'completed', mode };
 }
 
 export async function setQortiumTransportModeForHomeV2(
@@ -4496,6 +4551,7 @@ export type QortiumCoreManagerEntry = {
   refreshHelpers: typeof refreshCoreHelpers;
   scheduleUpdateCheck: typeof scheduleQortiumManagedCoreUpdateCheck;
   setUpdateSettings(request: unknown): Promise<CoreStatus>;
+  setRunningCoreTransportModeForHomeV2: typeof setRunningCoreTransportModeForHomeV2;
   setTransportModeForHomeV2: typeof setQortiumTransportModeForHomeV2;
   start: typeof startCore;
   startForHomeV2(): ReturnType<typeof startCore>;
@@ -4530,6 +4586,7 @@ const qortiumCoreManagerEntry: QortiumCoreManagerEntry = Object.freeze({
     await runCoreUpdateEngineAfterPolicyChange();
     return await getStatus();
   },
+  setRunningCoreTransportModeForHomeV2,
   setTransportModeForHomeV2: setQortiumTransportModeForHomeV2,
   start: startCore,
   startForHomeV2: () => startCore({

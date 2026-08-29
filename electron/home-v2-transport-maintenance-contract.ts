@@ -42,6 +42,15 @@ export type HomeV2TransportMaintenanceStatus = {
      * other half of the control.
      */
     readonly canStopRouter: boolean
+    /**
+     * Whether the mode can be changed on a RUNNING Core, through its API.
+     *
+     * The file-writing path needs Core stopped, because it replaces
+     * settings.json on disk. This one PATCHes the node instead, which is safe
+     * while it runs, and reports `restart-required` because allowedTransports
+     * only takes effect on restart.
+     */
+    readonly canSetModeWhileRunning: boolean
   }
   readonly core: {
     readonly install: 'installed' | 'missing' | 'unknown'
@@ -59,12 +68,17 @@ export type HomeV2TransportMaintenanceStatus = {
   readonly transportMode: HomeV2TransportMode
 }
 
-export type HomeV2TransportMaintenanceAction = 'ensure-router' | 'set-mode' | 'stop-router'
+export type HomeV2TransportMaintenanceAction =
+  | 'ensure-router'
+  | 'set-mode'
+  | 'set-mode-live'
+  | 'stop-router'
 
 export type HomeV2TransportMaintenanceActionCode =
   | 'action-not-allowed'
   | 'action-unconfirmed'
   | 'core-install-missing'
+  | 'core-runtime-not-running'
   | 'core-runtime-not-stopped'
   | 'core-runtime-unknown'
   | 'external-router-active'
@@ -75,7 +89,7 @@ export type HomeV2TransportMaintenanceActionCode =
   | 'status-unavailable'
   | 'target-changed'
 
-export type HomeV2TransportMaintenanceWarning = 'cleanup-incomplete'
+export type HomeV2TransportMaintenanceWarning = 'cleanup-incomplete' | 'restart-required'
 
 export type HomeV2TransportMaintenanceBlockedCode = Exclude<
   HomeV2TransportMaintenanceActionCode,
@@ -120,6 +134,9 @@ export type HomeV2TransportMaintenanceDependencies = {
   readonly setStoppedCoreTransportMode: (
     mode: Exclude<HomeV2TransportMode, 'unknown'>,
   ) => Promise<HomeV2TransportMaintenanceDependencyResult>
+  readonly setRunningCoreTransportMode: (
+    mode: Exclude<HomeV2TransportMode, 'unknown'>,
+  ) => Promise<HomeV2TransportMaintenanceDependencyResult>
   readonly stopRouter: () => Promise<HomeV2TransportMaintenanceDependencyResult>
 }
 
@@ -132,6 +149,7 @@ const ACTION_CODES = new Set<HomeV2TransportMaintenanceActionCode>([
   'action-not-allowed',
   'action-unconfirmed',
   'core-install-missing',
+  'core-runtime-not-running',
   'core-runtime-not-stopped',
   'core-runtime-unknown',
   'external-router-active',
@@ -145,6 +163,7 @@ const ACTION_CODES = new Set<HomeV2TransportMaintenanceActionCode>([
 const BLOCKED_DEPENDENCY_CODES = new Set<HomeV2TransportMaintenanceActionCode>([
   'action-not-allowed',
   'core-install-missing',
+  'core-runtime-not-running',
   'core-runtime-not-stopped',
   'core-runtime-unknown',
   'external-router-active',
@@ -226,6 +245,7 @@ function normalizeStatus(value: unknown): HomeV2TransportMaintenanceStatus | nul
       'canSetDirectAndI2p',
       'canSetDirectOnly',
       'canSetI2pOnly',
+      'canSetModeWhileRunning',
       'canStopRouter',
     ]) || Object.values(value.capabilities).some((entry) => typeof entry !== 'boolean')) {
     return null
@@ -244,6 +264,8 @@ function normalizeStatus(value: unknown): HomeV2TransportMaintenanceStatus | nul
   const canChangeStoppedCore = install === 'installed' && runtime === 'stopped' &&
     transportMode !== 'unknown' && !fatalIssue
   const expectedCanStop = routerState === 'managed-running' && !fatalIssue
+  const expectedCanSetLive = install === 'installed' && runtime === 'running' &&
+    transportMode !== 'unknown' && !fatalIssue
   const expectedCanEnsure = install === 'installed' && runtime === 'stopped' && issue === null &&
     (maintenance === 'install' || maintenance === 'start' || maintenance === 'update')
 
@@ -274,7 +296,8 @@ function normalizeStatus(value: unknown): HomeV2TransportMaintenanceStatus | nul
     (capabilities.canSetDirectOnly !== canChangeStoppedCore) ||
     (capabilities.canSetDirectAndI2p !== (canChangeStoppedCore && routerReady)) ||
     (capabilities.canSetI2pOnly !== (canChangeStoppedCore && routerReady)) ||
-    (capabilities.canStopRouter !== expectedCanStop)) {
+    (capabilities.canStopRouter !== expectedCanStop) ||
+    (capabilities.canSetModeWhileRunning !== expectedCanSetLive)) {
     return null
   }
 
@@ -284,6 +307,7 @@ function normalizeStatus(value: unknown): HomeV2TransportMaintenanceStatus | nul
       canSetDirectAndI2p: capabilities.canSetDirectAndI2p,
       canSetDirectOnly: capabilities.canSetDirectOnly,
       canSetI2pOnly: capabilities.canSetI2pOnly,
+      canSetModeWhileRunning: capabilities.canSetModeWhileRunning,
       canStopRouter: capabilities.canStopRouter,
     }),
     core: Object.freeze({ install, runtime }),
@@ -303,6 +327,7 @@ function unavailableStatus(): HomeV2TransportMaintenanceStatus {
       canSetDirectAndI2p: false,
       canSetDirectOnly: false,
       canSetI2pOnly: false,
+      canSetModeWhileRunning: false,
       canStopRouter: false,
     }),
     core: Object.freeze({ install: 'unknown', runtime: 'unknown' }),
@@ -329,13 +354,14 @@ function normalizeMutationRequest(value: unknown): MutationRequest {
   ]) || value.schema !== 'home-v2-transport-maintenance-mutation-request' ||
     value.revision !== 1 || value.network !== 'qortium' ||
     (value.action !== 'ensure-router' && value.action !== 'set-mode' &&
-      value.action !== 'stop-router') ||
+      value.action !== 'set-mode-live' && value.action !== 'stop-router') ||
     !(value.transportMode === null || (
       MODES.has(value.transportMode as HomeV2TransportMode) && value.transportMode !== 'unknown'
     )) ||
     ((value.action === 'ensure-router' || value.action === 'stop-router') &&
       value.transportMode !== null) ||
-    (value.action === 'set-mode' && value.transportMode === null)) {
+    ((value.action === 'set-mode' || value.action === 'set-mode-live') &&
+      value.transportMode === null)) {
     throw new Error('An exact Qortium transport maintenance mutation request is required.')
   }
   return {
@@ -361,6 +387,21 @@ function preflightCode(
     return status.capabilities.canStopRouter ? null : 'action-not-allowed'
   }
 
+  if (request.action === 'set-mode-live') {
+    // Deliberately the mirror image of the file path's gate: this one requires a
+    // RUNNING Core, because it writes through the node's API rather than its
+    // settings file. The i2p modes still need a router, or the node would come
+    // back after the restart unable to reach anything.
+    if (!status.capabilities.canSetModeWhileRunning) {
+      return status.core.runtime === 'stopped' ? 'core-runtime-not-running' : 'action-not-allowed'
+    }
+    if (request.transportMode !== 'direct-only' &&
+      status.router.state !== 'managed-running' && status.router.state !== 'external-running') {
+      return 'i2p-router-required'
+    }
+    return null
+  }
+
   if (request.action === 'ensure-router') {
     if (status.core.runtime !== 'stopped') return 'core-runtime-not-stopped'
     if (status.router.state === 'external-running') return 'external-router-active'
@@ -384,7 +425,8 @@ function preflightCode(
 
 function normalizeDependencyResult(value: unknown): HomeV2TransportMaintenanceDependencyResult | null {
   if (!isRecord(value) || !hasExactKeys(value, ['code', 'kind', 'warning']) ||
-    !(value.warning === null || value.warning === 'cleanup-incomplete') ||
+    !(value.warning === null || value.warning === 'cleanup-incomplete' ||
+      value.warning === 'restart-required') ||
     !(value.code === null || ACTION_CODES.has(value.code as HomeV2TransportMaintenanceActionCode))) {
     return null
   }
@@ -433,6 +475,10 @@ function mappedDependencyResult(
     const confirmed = request.action === 'ensure-router'
       ? status.issue === null && status.router.state === 'managed-running' &&
         status.router.maintenance === 'none'
+      : request.action === 'set-mode-live'
+      // The node stored the value; it does not take effect until Core restarts,
+      // so there is nothing in the status yet that could confirm the mode.
+      ? status.issue !== 'manager-unavailable' && status.issue !== 'status-unavailable'
       : request.action === 'stop-router'
       ? status.issue !== 'manager-unavailable' && status.issue !== 'status-unavailable' &&
         status.router.state !== 'managed-running'
@@ -488,6 +534,10 @@ export function createHomeV2TransportMaintenanceService(
             ? await dependencies.ensureRouter()
             : request.action === 'stop-router'
             ? await dependencies.stopRouter()
+            : request.action === 'set-mode-live'
+            ? await dependencies.setRunningCoreTransportMode(
+                request.transportMode as Exclude<HomeV2TransportMode, 'unknown'>,
+              )
             : await dependencies.setStoppedCoreTransportMode(
                 request.transportMode as Exclude<HomeV2TransportMode, 'unknown'>,
               )

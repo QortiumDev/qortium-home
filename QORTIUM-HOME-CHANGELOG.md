@@ -34,6 +34,21 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-29 - feat(transport): change the connection mode without stopping Core first
+
+Changing how the node connects meant stopping Qortium Core, changing the
+setting, and starting it again. The setting can now be changed while Core is
+running. It is saved straight away, and because the node only reads this
+particular setting when it starts, Home then offers a button to restart Core so
+the change takes effect. Nothing restarts on its own.
+
+The two ways of saving are kept apart on purpose. When Core is stopped, Home
+edits its settings file directly, as before. When Core is running, Home asks the
+node itself to store the setting and does not touch the file, because a file
+being rewritten underneath a running program is exactly the kind of thing that
+corrupts it. This is how Home 1.x worked, and the older, stricter path is
+unchanged for the case it was written for.
+
 ### 2026-08-29 - fix(i18n): correct peer and minting wording in nine languages
 
 The translated interface used the wrong sense of two words. "Peers", meaning

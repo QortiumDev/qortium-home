@@ -166,6 +166,7 @@ function unavailableStatus(
       canSetDirectAndI2p: false,
       canSetDirectOnly: false,
       canSetI2pOnly: false,
+      canSetModeWhileRunning: false,
       canStopRouter: false,
     },
     core: { install: 'unknown', runtime: 'unknown' },
@@ -217,6 +218,8 @@ async function readStatus(
         canSetDirectAndI2p: canChangeStoppedCore && routerReady,
         canSetDirectOnly: canChangeStoppedCore,
         canSetI2pOnly: canChangeStoppedCore && routerReady,
+        canSetModeWhileRunning: install === 'installed' && runtime === 'running' &&
+          transportMode !== 'unknown' && !fatalIssue,
         canStopRouter: projected.router.state === 'managed-running' && !fatalIssue,
       },
       core: { install, runtime },
@@ -318,6 +321,21 @@ async function setStoppedCoreTransportMode(
   return confirmed && !confirmed.managedProcessActive ? completed() : unconfirmed()
 }
 
+/**
+ * Change the mode on a running Core through its API, then report that a restart
+ * is needed. Nothing here touches settings.json -- that is the stopped-Core path.
+ */
+async function setRunningCoreTransportMode(
+  operations: HomeV2TransportMaintenanceAdapterOperations,
+  mode: Exclude<HomeV2TransportMode, 'unknown'>,
+): Promise<HomeV2TransportMaintenanceDependencyResult> {
+  const manager = resolveQortiumManager(operations.resolveManager)
+  const result = await manager.setRunningCoreTransportModeForHomeV2(mode)
+  if (result.kind === 'blocked') return blocked(result.code)
+  if (result.mode !== mode) return unconfirmed()
+  return { code: null, kind: 'completed', warning: 'restart-required' }
+}
+
 async function stopRouter(
   operations: HomeV2TransportMaintenanceAdapterOperations,
 ): Promise<HomeV2TransportMaintenanceDependencyResult> {
@@ -343,6 +361,8 @@ export function createHomeV2TransportMaintenanceDependencies(
     readStatus: async () => await readStatus(operations),
     setStoppedCoreTransportMode: async (mode) =>
       await setStoppedCoreTransportMode(operations, mode),
+    setRunningCoreTransportMode: async (mode) =>
+      await setRunningCoreTransportMode(operations, mode),
     stopRouter: async () => await stopRouter(operations),
   }
 }

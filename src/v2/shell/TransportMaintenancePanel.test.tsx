@@ -47,6 +47,8 @@ function transportStatus(options: StatusOptions = {}): HomeV2TransportMaintenanc
       canSetDirectOnly: canChange,
       canSetI2pOnly: canChange && routerReady,
       canStopRouter: routerState === 'managed-running' && !fatalIssue,
+      canSetModeWhileRunning: coreInstall === 'installed' && coreRuntime === 'running' &&
+        mode !== 'unknown' && !fatalIssue,
     },
     core: { install: coreInstall, runtime: coreRuntime },
     issue,
@@ -230,10 +232,15 @@ try {
   assert.ok(button('Update and restart I2P router'))
   assert.match(container.textContent ?? '', /strictly newer verified build/)
 
+  // A running Core can now change the mode through the node's API, so the
+  // selector stays usable and the note says a restart applies it. Router
+  // maintenance still needs Core stopped, and still says so.
   const runningStatus = transportStatus({ coreRuntime: 'running' })
   await render(client({ getTransportMaintenanceStatus: async () => runningStatus }))
-  assert.match(container.textContent ?? '', /Stop Qortium Core/)
-  assert.equal(container.querySelector('select')?.hasAttribute('disabled'), true)
+  assert.equal(container.querySelector('select')?.hasAttribute('disabled'), false)
+  assert.match(container.textContent ?? '', /Qortium Core must restart before it uses the new mode/)
+  assert.doesNotMatch(container.textContent ?? '', /Stop Qortium Core before applying/)
+  assert.match(container.textContent ?? '', /Stop Qortium Core to install or update its I2P router/)
   assert.equal(hasButton('Install and start I2P router'), false)
 
   let refreshShouldFail = false
