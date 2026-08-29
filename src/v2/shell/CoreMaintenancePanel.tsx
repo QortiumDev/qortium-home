@@ -203,6 +203,13 @@ export function CoreMaintenancePanel({
               {t('home2.core.nodeAutoUpdateMode', { mode: status.core.nodeAutoUpdateMode })}
             </small>
           ) : null}
+          {status.core.installModified ? (
+            // 1.x said so plainly and used it to offer a way back. Home 2 never
+            // showed it at all, so a tampered or damaged install was invisible.
+            <small data-home-v2-core-install-modified role="status">
+              {t('home2.core.installModified')}
+            </small>
+          ) : null}
           {status.core.installedTag || status.core.installedCommit ? (
             // Which BUILD, not just which version: 1.x showed these, and two
             // builds of one version are otherwise indistinguishable. The

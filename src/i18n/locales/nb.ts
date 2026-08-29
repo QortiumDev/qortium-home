@@ -833,6 +833,7 @@ export const nb: Record<TranslationKey, string> = {
   "home2.core.adoptedStopped": "Overtatt {network} Core · stoppet",
   "home2.core.apiControl": "{network} Core kjører · autentisert API-kontroll",
   "home2.core.nodeAutoUpdateMode": "Automatisk nodeoppdatering: {mode}",
+  "home2.core.installModified": "Endret siden installasjonen",
   "home2.core.releaseChoice": "Utgivelse som skal installeres",
   "home2.core.releasePrerelease": "Forhåndsutgivelse {tag}",
   "home2.core.releaseStable": "Utgivelse {tag}",

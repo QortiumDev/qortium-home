@@ -34,6 +34,16 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-29 - fix(core): say when the installed Core has been modified
+
+Home checks whether the Core it installed still matches what it installed, and
+Home 1.x showed the answer next to the version. Home 2 collected the same fact
+and never displayed it, so a Core that had been altered or damaged since
+installation looked exactly like a healthy one.
+
+Settings now says "Modified since install" when that is the case, and says
+nothing when it is not.
+
 ### 2026-08-29 - feat(core): choose which Core release to install
 
 Home 2 installed whichever release channel was already installed, so someone on

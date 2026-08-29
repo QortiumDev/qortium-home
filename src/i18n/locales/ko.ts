@@ -832,6 +832,7 @@ export const ko: Record<TranslationKey, string> = {
   "home2.core.adoptedStopped": "채택된 {network} Core · 중지됨",
   "home2.core.apiControl": "{network} Core 실행 중 · 인증된 API 제어",
   "home2.core.nodeAutoUpdateMode": "노드 자동 업데이트: {mode}",
+  "home2.core.installModified": "설치 후 변경됨",
   "home2.core.releaseChoice": "설치할 릴리스",
   "home2.core.releasePrerelease": "프리릴리스 {tag}",
   "home2.core.releaseStable": "릴리스 {tag}",

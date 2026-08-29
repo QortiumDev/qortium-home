@@ -16,7 +16,7 @@ import { CoreMaintenancePanel } from './CoreMaintenancePanel'
 
 const status = {
   capabilities: { canInitialInstall: true, canInstallJava: true, canUpdateRunningInPlace: false },
-  core: { channel: null, installedCommit: null, installedTag: null, nodeAutoUpdateMode: null, runtimeBlockedReason: null, installedVersion: null, runtime: 'stopped' },
+  core: { installModified: false, channel: null, installedCommit: null, installedTag: null, nodeAutoUpdateMode: null, runtimeBlockedReason: null, installedVersion: null, runtime: 'stopped' },
   java: { source: 'missing', updateAvailable: false, version: null },
   revision: 1,
   schema: 'home-v2-core-maintenance',
@@ -181,7 +181,7 @@ try {
   currentStatus = {
     ...status,
     capabilities: { canInitialInstall: false, canInstallJava: true, canUpdateRunningInPlace: false },
-    core: { channel: 'prerelease', installedCommit: null, installedTag: null, nodeAutoUpdateMode: null, runtimeBlockedReason: null, installedVersion: '1.2.3', runtime: 'stopped' },
+    core: { installModified: false, channel: 'prerelease', installedCommit: null, installedTag: null, nodeAutoUpdateMode: null, runtimeBlockedReason: null, installedVersion: '1.2.3', runtime: 'stopped' },
     java: { source: 'managed', updateAvailable: true, version: '25.0.1' },
   }
   root = createRoot(container)
@@ -359,6 +359,42 @@ try {
       'the chosen prerelease must be the tag that gets installed')
 
     client.checkMaintenanceRelease = originalCheck
+  }
+
+
+  // A modified install is SHOWN. 1.x said "modified since install"; Home 2 never
+  // surfaced the flag at all, so a tampered or damaged Core looked healthy.
+  {
+    const originalStatus = client.getMaintenanceStatus
+    client.getMaintenanceStatus = async () => ({
+      ...currentStatus,
+      core: { ...currentStatus.core, installModified: true, installedVersion: '1.7.2' },
+    })
+    act(() => root.unmount())
+    root = createRoot(container)
+    await act(async () => {
+      root.render(<CoreMaintenanceHarness />)
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    assert(container.querySelector('[data-home-v2-core-install-modified]'),
+      'a modified install must be visible')
+    assert.match(container.textContent ?? '', /Modified since install/)
+
+    // An unmodified install must NOT carry the notice, or it is just noise.
+    client.getMaintenanceStatus = async () => ({
+      ...currentStatus,
+      core: { ...currentStatus.core, installModified: false, installedVersion: '1.7.2' },
+    })
+    act(() => root.unmount())
+    root = createRoot(container)
+    await act(async () => {
+      root.render(<CoreMaintenanceHarness />)
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    assert.equal(container.querySelector('[data-home-v2-core-install-modified]'), null)
+    client.getMaintenanceStatus = originalStatus
   }
 
 } finally {

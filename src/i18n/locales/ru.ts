@@ -832,6 +832,7 @@ export const ru: Record<TranslationKey, string> = {
   "home2.core.adoptedStopped": "Принятый под управление Core {network} · остановлен",
   "home2.core.apiControl": "Core {network} запущен · аутентифицированное управление через API",
   "home2.core.nodeAutoUpdateMode": "Автообновление узла: {mode}",
+  "home2.core.installModified": "Изменён после установки",
   "home2.core.releaseChoice": "Версия для установки",
   "home2.core.releasePrerelease": "Предварительная версия {tag}",
   "home2.core.releaseStable": "Версия {tag}",

@@ -832,6 +832,7 @@ export const et: Record<TranslationKey, string> = {
   "home2.core.adoptedStopped": "Ülevõetud {network} Core · peatatud",
   "home2.core.apiControl": "{network} Core töötab · autenditud API-juhtimine",
   "home2.core.nodeAutoUpdateMode": "Sõlme automaatne uuendus: {mode}",
+  "home2.core.installModified": "Muudetud pärast paigaldamist",
   "home2.core.releaseChoice": "Paigaldatav väljalase",
   "home2.core.releasePrerelease": "Eelväljalase {tag}",
   "home2.core.releaseStable": "Väljalase {tag}",

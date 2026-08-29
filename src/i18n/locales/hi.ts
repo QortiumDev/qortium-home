@@ -833,6 +833,7 @@ export const hi: Record<TranslationKey, string> = {
   "home2.core.adoptedStopped": "अपनाया गया {network} Core · बंद",
   "home2.core.apiControl": "{network} Core चल रहा है · प्रमाणित API नियंत्रण",
   "home2.core.nodeAutoUpdateMode": "नोड स्वतः अपडेट: {mode}",
+  "home2.core.installModified": "इंस्टॉल के बाद बदला गया",
   "home2.core.releaseChoice": "इंस्टॉल करने के लिए रिलीज़",
   "home2.core.releasePrerelease": "प्रीरिलीज़ {tag}",
   "home2.core.releaseStable": "रिलीज़ {tag}",

@@ -832,6 +832,7 @@ export const es: Record<TranslationKey, string> = {
   "home2.core.adoptedStopped": "Core {network} adoptado · detenido",
   "home2.core.apiControl": "Core {network} en ejecución · control autenticado mediante API",
   "home2.core.nodeAutoUpdateMode": "Actualización automática del nodo: {mode}",
+  "home2.core.installModified": "Modificado desde la instalación",
   "home2.core.releaseChoice": "Versión a instalar",
   "home2.core.releasePrerelease": "Versión preliminar {tag}",
   "home2.core.releaseStable": "Versión {tag}",
