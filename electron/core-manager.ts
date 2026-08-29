@@ -1073,7 +1073,34 @@ export function disableLegacyCoreManagerRendererEvents() {
   legacyCoreManagerRendererEventsEnabled = false;
 }
 
+/**
+ * Home 2's progress subscriber.
+ *
+ * Deliberately a callback rather than a second broadcast from here. The 1.x
+ * path below sprays `core:progress` at EVERY BrowserWindow; Home 2 sends only
+ * to authorized Home windows through home-v2-authorized-senders, and that
+ * module must not be imported into core-manager (it would close an import
+ * cycle). So the bridge registers itself and owns its own envelope.
+ */
+let homeV2CoreProgressListener: ((progress: CoreProgress) => void) | null = null;
+
+export function setHomeV2CoreProgressListener(
+  listener: ((progress: CoreProgress) => void) | null,
+) {
+  homeV2CoreProgressListener = listener;
+}
+
 function publishProgress(progress: CoreProgress) {
+  // Home 2 first, and NOT behind the legacy flag: disabling the 1.x renderer
+  // events is exactly what Home 2 does at startup, and it must not take its
+  // own progress with it.
+  if (homeV2CoreProgressListener) {
+    try {
+      homeV2CoreProgressListener(progress);
+    } catch {
+      // A broken subscriber must never break an install.
+    }
+  }
   if (!legacyCoreManagerRendererEventsEnabled) return;
   for (const window of BrowserWindow.getAllWindows()) {
     if (!window.isDestroyed()) {

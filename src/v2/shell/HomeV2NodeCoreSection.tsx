@@ -194,6 +194,53 @@ function coreLifecyclePlan(
   } as const
 }
 
+/**
+ * Install/update progress.
+ *
+ * Rendered from a parsed event, and only while something is running. Phases
+ * without an honest denominator ("checking", "extracting") report percent as
+ * null and get an indeterminate bar rather than an invented number — the point
+ * is to show the user what is happening, not to fake precision.
+ */
+export function CoreProgressBar({
+  progress,
+}: {
+  readonly progress?: {
+    readonly action: string
+    readonly kind: string
+    readonly message: string
+    readonly percent: number | null
+  } | null
+}) {
+  if (!progress) return null
+  const determinate = typeof progress.percent === 'number'
+  return (
+    <div
+      className="home-v2-core-progress"
+      data-home-v2-core-progress={progress.action}
+      data-home-v2-core-progress-kind={progress.kind}
+    >
+      <div
+        aria-label={progress.message}
+        aria-valuemax={determinate ? 100 : undefined}
+        aria-valuemin={determinate ? 0 : undefined}
+        aria-valuenow={determinate ? progress.percent ?? undefined : undefined}
+        className="home-v2-core-progress__track"
+        data-indeterminate={determinate ? undefined : 'true'}
+        role="progressbar"
+      >
+        <div
+          className="home-v2-core-progress__fill"
+          style={determinate ? { width: `${progress.percent}%` } : undefined}
+        />
+      </div>
+      <span className="home-v2-core-progress__message">
+        {determinate ? `${progress.message} ${progress.percent}%` : progress.message}
+      </span>
+    </div>
+  )
+}
+
 function CoreLifecycleActions({
   coreMaintenance,
   network,
@@ -307,6 +354,7 @@ function CoreLifecycleActions({
                 : t('updates.installUpdate')}
         </button>
       ) : null}
+      <CoreProgressBar progress={coreMaintenance.progress} />
     </>
   )
 }

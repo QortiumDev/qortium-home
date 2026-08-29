@@ -170,6 +170,15 @@ contextBridge.exposeInMainWorld('homeV2CoreDocs', {
 })
 
 contextBridge.exposeInMainWorld('homeV2CoreManagers', {
+  // Home 2's ONLY push channel for Core work. Everything else on this surface
+  // is invoke-only by design; install progress is the exception because a
+  // percentage that arrives 30 seconds late is not progress. It carries no
+  // authority — it cannot start, stop or install anything, only report.
+  onMaintenanceProgress: (listener: (event: unknown) => void) => {
+    const handler = (_event: unknown, payload: unknown) => listener(payload)
+    ipcRenderer.on('home-v2-core-manager:progress', handler)
+    return () => ipcRenderer.removeListener('home-v2-core-manager:progress', handler)
+  },
   listQortalAdoptionCandidates: () =>
     ipcRenderer.invoke('home-v2-qortal-adoption:list', {
       network: 'qortal',
