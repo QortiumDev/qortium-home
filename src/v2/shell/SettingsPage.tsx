@@ -84,7 +84,12 @@ export interface SettingsPageProps extends AppearanceSettingsPageProps {
   readonly requestedSection?: HomeV2SettingsSectionTarget
   readonly onSetAppNotifications?: (enabled: boolean) => Promise<void>
   readonly onSetWindowBehavior?: (change: HomeV2WindowBehaviorChange) => Promise<void>
-  readonly onOpenReleaseNotes?: (tagName: string) => void
+  // Carries the PRODUCT, not just a tag. It used to be a bare tagName, which
+  // is why every release-notes link in Home 2 could only ever mean the Home
+  // app: the product was hard-coded at the one call site that built the
+  // target. Core releases have notes too, and the page already knows how to
+  // fetch them.
+  readonly onOpenReleaseNotes?: (target: { product: 'core' | 'home'; tagName: string }) => void
   readonly onRestartWelcome?: () => void
   readonly onSetNewTabPreference?: (preference: NewTabPreference) => void
   readonly onSetNodeMode?: (
@@ -562,6 +567,7 @@ export function SettingsPage(props: SettingsPageProps) {
                     networks={enabledNetworks}
                   />
                   <CoreMaintenancePanel
+                    onOpenReleaseNotes={props.onOpenReleaseNotes}
                     maintenance={props.maintenance?.core}
                     networks={enabledNetworks}
                   />

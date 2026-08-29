@@ -30,7 +30,7 @@ export function HomeUpdateSettings({
   onOpenReleaseNotes,
   updates,
 }: {
-  readonly onOpenReleaseNotes?: (tagName: string) => void
+  readonly onOpenReleaseNotes?: (target: { product: 'core' | 'home'; tagName: string }) => void
   readonly updates: HomeV2AppUpdates
 }) {
   const result = updates.result
@@ -198,7 +198,7 @@ export function HomeUpdateSettings({
             disabled={busy}
             type="button"
             onClick={() => onOpenReleaseNotes
-              ? onOpenReleaseNotes(result.release!.tagName)
+              ? onOpenReleaseNotes({ product: 'home', tagName: result.release!.tagName })
               : void updates.openReleasePage()}
           >
             {t('releaseNotes.open')}

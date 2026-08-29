@@ -719,6 +719,7 @@ function Dashboard(props: DashboardProps) {
         onRefreshNode={onRefreshNode}
         onConfigureCustomNode={onConfigureCustomNode}
         onOpenCoreDocs={props.onOpenCoreDocs}
+        onOpenReleaseNotes={props.onOpenReleaseNotes}
         onOpenSettings={
           props.onOpenSettingsSection
             ? () => props.onOpenSettingsSection?.('core')
@@ -1190,10 +1191,7 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
                 onSetAppNotifications={props.onSetAppNotifications}
                 windowBehavior={props.windowBehavior}
                 onSetWindowBehavior={props.onSetWindowBehavior}
-                onOpenReleaseNotes={(tagName) => props.onOpenReleaseNotes?.({
-                  product: 'home',
-                  tagName,
-                })}
+                onOpenReleaseNotes={props.onOpenReleaseNotes}
                 onRestartWelcome={props.onRestartWelcome}
                 requestedSection={requestedSettingsSection}
               />
