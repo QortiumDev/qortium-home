@@ -827,6 +827,7 @@ export const ru: Record<TranslationKey, string> = {
   "home2.core.action.unconfirmed": "Home запросил выполнение действия, но не смог подтвердить его завершение.",
   "home2.core.adoptedStopped": "Принятый под управление Core {network} · остановлен",
   "home2.core.apiControl": "Core {network} запущен · аутентифицированное управление через API",
+  "home2.core.installedVersion": "Версия {version}",
   "home2.core.confirmExternalBody": "Home отправит аутентифицированный запрос API. Процесс не будет завершён напрямую.",
   "home2.core.confirmExternalTitle": "Остановить Core {network}, управляемый извне?",
   "home2.core.controlsUnavailable": "Core {network} запущен · управление недоступно",

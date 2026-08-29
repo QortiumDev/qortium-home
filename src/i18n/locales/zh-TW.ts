@@ -827,6 +827,7 @@ export const zhTW: Record<TranslationKey, string> = {
   "home2.core.action.unconfirmed": "Home 已要求執行該操作，但無法確認操作是否完成。",
   "home2.core.adoptedStopped": "已接管的 {network} Core · 已停止",
   "home2.core.apiControl": "{network} Core 正在執行 · 已驗證的 API 控制",
+  "home2.core.installedVersion": "版本 {version}",
   "home2.core.confirmExternalBody": "Home 將傳送經過驗證的 API 要求，不會直接終止處理程序。",
   "home2.core.confirmExternalTitle": "停止由外部控制的 {network} Core？",
   "home2.core.controlsUnavailable": "{network} Core 正在執行 · 控制無法使用",

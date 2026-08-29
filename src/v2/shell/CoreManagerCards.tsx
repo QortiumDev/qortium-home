@@ -161,11 +161,21 @@ export function useCoreLifecycleControl(
  * confirmation and the busy gating instead of reimplementing them.
  */
 export function CoreManagerCard({
+  installedVersion,
   maintenanceActions,
   maintenanceNotice,
   management,
   network,
 }: {
+  /**
+   * The installed Core version, shown on the tile.
+   *
+   * Home 1.x put this on the dashboard; Home 2 dropped it, leaving the tile
+   * with a status word and nothing identifying WHICH build is running — the
+   * tester's "show version numbers of Home and Cores". Optional because the
+   * maintenance slice is not always available (Qortal adoption, Android).
+   */
+  readonly installedVersion?: string | null
   readonly maintenanceActions?: ReactNode
   readonly maintenanceNotice?: ReactNode
   readonly management: HomeV2CoreManagement
@@ -209,6 +219,11 @@ export function CoreManagerCard({
       </header>
       <div className="home-v2-core-card__body">
         <strong>{statusText}</strong>
+        {installedVersion ? (
+          <small data-home-v2-core-version={installedVersion}>
+            {t('home2.core.installedVersion', { version: installedVersion })}
+          </small>
+        ) : null}
         {issueText && issueText !== statusText ? <small>{issueText}</small> : null}
         {notice ? (
           <span className="home-v2-core-notice" role="status">

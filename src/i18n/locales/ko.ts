@@ -827,6 +827,7 @@ export const ko: Record<TranslationKey, string> = {
   "home2.core.action.unconfirmed": "Home이 작업을 요청했지만 완료 여부를 확인하지 못했습니다.",
   "home2.core.adoptedStopped": "채택된 {network} Core · 중지됨",
   "home2.core.apiControl": "{network} Core 실행 중 · 인증된 API 제어",
+  "home2.core.installedVersion": "버전 {version}",
   "home2.core.confirmExternalBody": "Home이 인증된 API 요청을 보냅니다. 프로세스를 직접 종료하지는 않습니다.",
   "home2.core.confirmExternalTitle": "외부에서 제어되는 {network} Core를 중지할까요?",
   "home2.core.controlsUnavailable": "{network} Core 실행 중 · 제어 기능을 사용할 수 없음",

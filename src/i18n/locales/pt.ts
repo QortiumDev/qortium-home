@@ -827,6 +827,7 @@ export const pt: Record<TranslationKey, string> = {
   "home2.core.action.unconfirmed": "O Home solicitou a ação, mas não conseguiu confirmar a conclusão.",
   "home2.core.adoptedStopped": "Core {network} adotado · parado",
   "home2.core.apiControl": "Core {network} em execução · controle autenticado pela API",
+  "home2.core.installedVersion": "Versão {version}",
   "home2.core.confirmExternalBody": "O Home fará uma solicitação autenticada à API. Ele não encerrará o processo diretamente.",
   "home2.core.confirmExternalTitle": "Parar o Core {network} controlado externamente?",
   "home2.core.controlsUnavailable": "Core {network} em execução · controles indisponíveis",

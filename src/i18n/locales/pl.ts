@@ -827,6 +827,7 @@ export const pl: Record<TranslationKey, string> = {
   "home2.core.action.unconfirmed": "Home zlecił działanie, ale nie mógł potwierdzić jego zakończenia.",
   "home2.core.adoptedStopped": "Przejęty Core {network} · zatrzymany",
   "home2.core.apiControl": "Core {network} uruchomiony · uwierzytelnione sterowanie przez API",
+  "home2.core.installedVersion": "Wersja {version}",
   "home2.core.confirmExternalBody": "Home wyśle uwierzytelnione żądanie API. Nie zakończy procesu bezpośrednio.",
   "home2.core.confirmExternalTitle": "Zatrzymać zewnętrznie sterowany Core {network}?",
   "home2.core.controlsUnavailable": "Core {network} uruchomiony · sterowanie niedostępne",

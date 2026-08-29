@@ -826,6 +826,7 @@ export const en = {
   "home2.core.action.unconfirmed": "Home requested the action but could not confirm completion.",
   "home2.core.adoptedStopped": "Adopted {network} Core · stopped",
   "home2.core.apiControl": "{network} Core running · authenticated API control",
+  "home2.core.installedVersion": "Version {version}",
   "home2.core.confirmExternalBody": "Home will make an authenticated API request. It will not kill the process directly.",
   "home2.core.confirmExternalTitle": "Stop the externally controlled {network} Core?",
   "home2.core.controlsUnavailable": "{network} Core running · controls unavailable",

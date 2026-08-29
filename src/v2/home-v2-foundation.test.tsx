@@ -1800,6 +1800,12 @@ function testCoreManagementRenderingAndAndroidDegrade(): void {
       onOpenReleaseNotes={() => undefined}
     />,
   )
+  // The installed Core version is ON THE TILE. Home 1.x showed it on the
+  // dashboard; Home 2 dropped it, leaving a status word and nothing saying
+  // WHICH build is running — one of the tester's reports. The fixture's
+  // Qortium maintenance status carries 1.7.2.
+  assert.match(dashboard, /data-home-v2-core-version="1\.7\.2"/)
+  assert.match(dashboard, /Version 1\.7\.2/)
   // No release checked yet (result: null), so there is nothing to link to and
   // no link is offered. The positive case is asserted below with a fixture
   // that actually has a release.

@@ -34,6 +34,12 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-29 - feat(core): the dashboard shows which Core version you are running
+
+The Core tile on the dashboard said whether the Core was running but not which
+version it was. It now shows the installed version, for both the Qortium and
+the Qortal Core.
+
 ### 2026-08-29 - feat(updates): read the release notes before you install
 
 When an update is offered, there is now a link to read what changed — on the

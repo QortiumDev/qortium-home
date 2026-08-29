@@ -827,6 +827,7 @@ export const ja: Record<TranslationKey, string> = {
   "home2.core.action.unconfirmed": "Home は操作を要求しましたが、完了を確認できませんでした。",
   "home2.core.adoptedStopped": "引き継いだ {network} Core · 停止中",
   "home2.core.apiControl": "{network} Core は実行中 · 認証済み API 制御",
+  "home2.core.installedVersion": "バージョン {version}",
   "home2.core.confirmExternalBody": "Home は認証済みの API リクエストを行います。プロセスを直接終了することはありません。",
   "home2.core.confirmExternalTitle": "外部で制御されている {network} Core を停止しますか？",
   "home2.core.controlsUnavailable": "{network} Core は実行中 · 制御を利用できません",

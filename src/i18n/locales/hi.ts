@@ -828,6 +828,7 @@ export const hi: Record<TranslationKey, string> = {
   "home2.core.action.unconfirmed": "Home ने कार्रवाई का अनुरोध किया, लेकिन उसके पूरा होने की पुष्टि नहीं कर सका।",
   "home2.core.adoptedStopped": "अपनाया गया {network} Core · बंद",
   "home2.core.apiControl": "{network} Core चल रहा है · प्रमाणित API नियंत्रण",
+  "home2.core.installedVersion": "संस्करण {version}",
   "home2.core.confirmExternalBody": "Home एक प्रमाणित API अनुरोध करेगा। यह प्रक्रिया को सीधे समाप्त नहीं करेगा।",
   "home2.core.confirmExternalTitle": "बाहरी रूप से नियंत्रित {network} Core को रोकें?",
   "home2.core.controlsUnavailable": "{network} Core चल रहा है · नियंत्रण उपलब्ध नहीं हैं",

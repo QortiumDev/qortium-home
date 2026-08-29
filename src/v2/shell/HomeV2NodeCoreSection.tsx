@@ -621,6 +621,9 @@ export function HomeV2NodeCoreSection({
               />
               {coreAvailable && coreManagement ? (
                 <CoreManagerCard
+                  installedVersion={network === 'qortium'
+                    ? coreManagement.coreMaintenance?.status?.core.installedVersion ?? null
+                    : coreManagement.qortalMaintenance?.status?.installedVersion ?? null}
                   management={coreManagement}
                   network={network}
                   maintenanceActions={lifecycle}
