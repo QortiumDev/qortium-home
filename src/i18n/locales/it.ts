@@ -830,6 +830,7 @@ export const it: Record<TranslationKey, string> = {
   "home2.core.action.unconfirmed": "Home ha richiesto l'azione, ma non ha potuto confermarne il completamento.",
   "home2.core.adoptedStopped": "Core {network} adottato · arrestato",
   "home2.core.apiControl": "Core {network} in esecuzione · controllo API autenticato",
+  "home2.core.nodeAutoUpdateMode": "Aggiornamento automatico del nodo: {mode}",
   "home2.core.installedVersion": "Versione {version}",
   "home2.core.confirmExternalBody": "Home effettuerà una richiesta API autenticata. Non terminerà direttamente il processo.",
   "home2.core.confirmExternalTitle": "Arrestare il Core {network} controllato esternamente?",

@@ -830,6 +830,7 @@ export const zhCN: Record<TranslationKey, string> = {
   "home2.core.action.unconfirmed": "Home 已请求执行该操作，但无法确认操作是否完成。",
   "home2.core.adoptedStopped": "已接管的 {network} Core · 已停止",
   "home2.core.apiControl": "{network} Core 正在运行 · 已通过身份验证的 API 控制",
+  "home2.core.nodeAutoUpdateMode": "节点自动更新：{mode}",
   "home2.core.installedVersion": "版本 {version}",
   "home2.core.confirmExternalBody": "Home 将发出经过身份验证的 API 请求，不会直接终止进程。",
   "home2.core.confirmExternalTitle": "停止由外部控制的 {network} Core？",

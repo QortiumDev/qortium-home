@@ -38,7 +38,7 @@ assert.throws(() =>
 
 const maintenanceStatus = {
   capabilities: { canInitialInstall: true, canInstallJava: true, canUpdateRunningInPlace: false },
-  core: { channel: null, installedCommit: null, installedTag: null, installedVersion: null, runtime: 'stopped' },
+  core: { channel: null, installedCommit: null, installedTag: null, nodeAutoUpdateMode: null, runtimeBlockedReason: null, installedVersion: null, runtime: 'stopped' },
   java: { source: 'missing', updateAvailable: false, version: null },
   revision: 1,
   schema: 'home-v2-core-maintenance',
@@ -196,6 +196,8 @@ for (const bad of [
       channel: 'stable',
       installedCommit: 'abcdef0123456789abcdef0123456789abcdef01',
       installedTag: 'v1.7.2',
+      nodeAutoUpdateMode: 'INSTALL',
+      runtimeBlockedReason: 'Qortium Core runtime data was created for a different network.',
       installedVersion: '1.7.2',
       runtime: 'running',
     },
@@ -205,16 +207,26 @@ for (const bad of [
   } as const
   const parsed = parseHomeV2CoreMaintenanceStatus(status)
   assert.equal(parsed.core.installedCommit, status.core.installedCommit)
+  assert.equal(parsed.core.runtimeBlockedReason, status.core.runtimeBlockedReason)
+  assert.equal(parsed.core.nodeAutoUpdateMode, status.core.nodeAutoUpdateMode)
   assert.equal(parsed.core.installedTag, 'v1.7.2')
   assert.deepEqual(parsed, status, 'every field the UI reads must survive the parse')
 
   // Absent build identity is null, not undefined — the UI tests for null.
   const bare = parseHomeV2CoreMaintenanceStatus({
     ...status,
-    core: { ...status.core, installedCommit: null, installedTag: null },
+    core: {
+      ...status.core,
+      installedCommit: null,
+      installedTag: null,
+      nodeAutoUpdateMode: null,
+      runtimeBlockedReason: null,
+    },
   })
   assert.equal(bare.core.installedCommit, null)
   assert.equal(bare.core.installedTag, null)
+  assert.equal(bare.core.runtimeBlockedReason, null)
+  assert.equal(bare.core.nodeAutoUpdateMode, null)
 }
 
 console.log('home v2 node/core controller tests passed')

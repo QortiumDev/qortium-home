@@ -830,6 +830,7 @@ export const he: Record<TranslationKey, string> = {
   "home2.core.action.unconfirmed": "Home ביקש לבצע את הפעולה, אך לא הצליח לאשר שהיא הושלמה.",
   "home2.core.adoptedStopped": "Core ‏{network} שאומץ · נעצר",
   "home2.core.apiControl": "Core ‏{network} פועל · שליטה מאומתת דרך ה-API",
+  "home2.core.nodeAutoUpdateMode": "עדכון אוטומטי של הצומת: {mode}",
   "home2.core.installedVersion": "גרסה {version}",
   "home2.core.confirmExternalBody": "Home ישלח בקשת API מאומתת. הוא לא יסיים את התהליך ישירות.",
   "home2.core.confirmExternalTitle": "לעצור את Core ‏{network} שנשלט חיצונית?",

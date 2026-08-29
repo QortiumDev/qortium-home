@@ -187,6 +187,18 @@ export function CoreMaintenancePanel({
         <div className="home-v2-setting-row__copy">
           <strong>Qortium Core</strong>
           <span>{coreVersion}{status.core.channel ? ` · ${status.core.channel}` : ''}</span>
+          {status.core.runtimeBlockedReason ? (
+            // The status already said "runtime-blocked"; this says WHY, which
+            // is the difference between a dead end and something actionable.
+            <small data-home-v2-core-runtime-blocked role="status">
+              {status.core.runtimeBlockedReason}
+            </small>
+          ) : null}
+          {status.core.nodeAutoUpdateMode ? (
+            <small data-home-v2-core-auto-update-mode={status.core.nodeAutoUpdateMode}>
+              {t('home2.core.nodeAutoUpdateMode', { mode: status.core.nodeAutoUpdateMode })}
+            </small>
+          ) : null}
           {status.core.installedTag || status.core.installedCommit ? (
             // Which BUILD, not just which version: 1.x showed these, and two
             // builds of one version are otherwise indistinguishable. The

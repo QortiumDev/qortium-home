@@ -830,6 +830,7 @@ export const ar: Record<TranslationKey, string> = {
   "home2.core.action.unconfirmed": "طلب Home تنفيذ الإجراء، لكنه لم يتمكن من تأكيد اكتماله.",
   "home2.core.adoptedStopped": "Core {network} المتبنّى · متوقف",
   "home2.core.apiControl": "Core {network} قيد التشغيل · تحكم موثّق عبر API",
+  "home2.core.nodeAutoUpdateMode": "التحديث التلقائي للعقدة: {mode}",
   "home2.core.installedVersion": "الإصدار {version}",
   "home2.core.confirmExternalBody": "سيُرسل Home طلبًا موثّقًا إلى API. ولن ينهي العملية مباشرةً.",
   "home2.core.confirmExternalTitle": "إيقاف Core {network} الذي يتم التحكم فيه خارجيًا؟",
