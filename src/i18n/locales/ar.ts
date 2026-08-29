@@ -1066,6 +1066,7 @@ export const ar: Record<TranslationKey, string> = {
   "home2.transportMaintenance.router.installAndStart": "تثبيت موجّه I2P وبدء تشغيله",
   "home2.transportMaintenance.router.label": "إصدار i2pd المُدار",
   "home2.transportMaintenance.router.start": "بدء موجّه I2P",
+  "home2.transportMaintenance.router.stop": "إيقاف موجّه I2P",
   "home2.transportMaintenance.router.updateAndRestart": "تحديث موجّه I2P وإعادة تشغيله",
   "home2.transportMaintenance.status.coreMissing": "ثبّت Qortium Core قبل تغيير وضع النقل الخاص به أو صيانة موجّه I2P الخاص به.",
   "home2.transportMaintenance.status.coreRunning": "أوقف Qortium Core قبل تغيير وضع النقل الخاص به أو صيانة موجّه I2P الخاص بـ Home.",

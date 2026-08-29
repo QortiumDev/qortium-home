@@ -107,6 +107,7 @@ function transportStatus(
       canSetDirectAndI2p: true,
       canSetDirectOnly: true,
       canSetI2pOnly: false,
+      canStopRouter: false,
     },
     core: { install: 'installed', runtime: 'stopped' },
     issue: null,

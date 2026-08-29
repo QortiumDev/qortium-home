@@ -182,6 +182,16 @@ export function TransportMaintenancePanel({
               {busy === 'ensure-router' ? t('home2.common.working') : ensureLabel(status)}
             </button>
           ) : null}
+          {status.capabilities.canStopRouter ? (
+            <button className="home-v2-secondary-button" type="button"
+              aria-describedby="transport-maintenance-router-state"
+              disabled={busy !== null || stale}
+              onClick={() => void run('stop-router', null)}>
+              {busy === 'stop-router'
+                ? t('home2.common.working')
+                : t('home2.transportMaintenance.router.stop')}
+            </button>
+          ) : null}
         </div>
       </div>
 

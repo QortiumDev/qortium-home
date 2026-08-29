@@ -41,6 +41,7 @@ function status(options: StatusOptions = {}): HomeV2TransportMaintenanceStatus {
       canSetDirectAndI2p: canChange && routerReady,
       canSetDirectOnly: canChange,
       canSetI2pOnly: canChange && routerReady,
+      canStopRouter: routerState === 'managed-running' && !fatalIssue,
     },
     core: { install: coreInstall, runtime: coreRuntime },
     issue,
@@ -71,7 +72,7 @@ function statusRequest(extra: Record<string, unknown> = {}) {
 }
 
 function mutationRequest(
-  action: 'ensure-router' | 'set-mode',
+  action: 'ensure-router' | 'set-mode' | 'stop-router',
   transportMode: Exclude<HomeV2TransportMode, 'unknown'> | null,
   extra: Record<string, unknown> = {},
 ) {
@@ -95,6 +96,7 @@ function dependencies(overrides: Partial<HomeV2TransportMaintenanceDependencies>
       kind: 'completed',
       warning: null,
     } as const),
+    stopRouter: async () => ({ code: null, kind: 'completed', warning: null } as const),
     ...overrides,
   } satisfies HomeV2TransportMaintenanceDependencies
 }
@@ -321,6 +323,11 @@ for (const [preflight, action, mode, expectedCode] of [
     maintenance: 'unavailable',
     routerState: 'unsupported',
   }), 'ensure-router', null, 'router-unsupported'],
+  [status(), 'stop-router', null, 'action-not-allowed'],
+  [status({
+    maintenance: 'none',
+    routerState: 'external-running',
+  }), 'stop-router', null, 'external-router-active'],
 ] as const) {
   let mutationCalls = 0
   const result = await createHomeV2TransportMaintenanceService(dependencies({
@@ -394,3 +401,31 @@ for (const [dependencyResult, outcome, code] of [
 }
 
 console.log('Home v2 transport maintenance contract tests passed.')
+
+
+// Stopping the managed router must NOT require a stopped Core. Home 1.x let you stop
+// i2pd at any time; the blanket core-runtime gate the other actions carry is
+// undocumented, and applying it here would leave the router unstoppable while Core runs
+// — which is exactly when a user reaches for the button.
+{
+  let stopCalls = 0
+  const running = status({
+    coreRuntime: 'running',
+    maintenance: 'none',
+    mode: 'direct-and-i2p',
+    routerState: 'managed-running',
+    version: '2.50.2',
+  })
+  assert.equal(running.capabilities.canStopRouter, true)
+  const service = createHomeV2TransportMaintenanceService(dependencies({
+    readStatus: async () => running,
+    stopRouter: async () => {
+      stopCalls += 1
+      return { code: null, kind: 'completed', warning: null } as const
+    },
+  }))
+  const result = await service.runAction(mutationRequest('stop-router', null))
+  assert.equal(stopCalls, 1, 'stop-router must reach the dependency while Core is running')
+  assert.notEqual(result.code, 'core-runtime-not-stopped')
+  assertRedacted(result)
+}

@@ -141,6 +141,7 @@ export function useHomeV2TransportMaintenance(onCoreRefresh?: () => void) {
     if (!runAction || !status) return
     if (busyRef.current || stale) return
     if (action === 'ensure-router' && !status.capabilities.canEnsureRouter) return
+    if (action === 'stop-router' && !status.capabilities.canStopRouter) return
     if (action === 'set-mode' && (!mode || !canSetTransportMode(status, mode))) return
     const sequence = ++requestSequence.current
     busyRef.current = true
@@ -207,6 +208,7 @@ export interface HomeV2TransportManagement {
   readonly status: HomeV2TransportMaintenanceStatus | null
   readonly onEnsureRouter?: () => void
   readonly onSetTransportMode?: (mode: HomeV2SettableTransportMode) => void
+  readonly onStopRouter?: () => void
 }
 
 export function toHomeV2TransportManagement(
@@ -219,6 +221,7 @@ export function toHomeV2TransportManagement(
     onEnsureRouter: () => void transport.run('ensure-router', null),
     onSetTransportMode: (mode: HomeV2SettableTransportMode) =>
       void transport.run('set-mode', mode),
+    onStopRouter: () => void transport.run('stop-router', null),
     stale: transport.stale,
     status: transport.status,
   }

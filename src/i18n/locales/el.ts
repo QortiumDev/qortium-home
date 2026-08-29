@@ -1067,6 +1067,7 @@ export const el: Record<TranslationKey, string> = {
   "home2.transportMaintenance.router.installAndStart": "Εγκατάσταση και εκκίνηση δρομολογητή I2P",
   "home2.transportMaintenance.router.label": "Έκδοση διαχειριζόμενου i2pd",
   "home2.transportMaintenance.router.start": "Εκκίνηση δρομολογητή I2P",
+  "home2.transportMaintenance.router.stop": "Διακοπή δρομολογητή I2P",
   "home2.transportMaintenance.router.updateAndRestart": "Ενημέρωση και επανεκκίνηση δρομολογητή I2P",
   "home2.transportMaintenance.status.coreMissing": "Εγκαταστήστε το Qortium Core πριν αλλάξετε τη λειτουργία μεταφοράς του ή συντηρήσετε τον δρομολογητή I2P του.",
   "home2.transportMaintenance.status.coreRunning": "Σταματήστε το Qortium Core πριν αλλάξετε τη λειτουργία μεταφοράς του ή συντηρήσετε τον δρομολογητή I2P του Home.",

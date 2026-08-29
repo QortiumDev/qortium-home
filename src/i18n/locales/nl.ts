@@ -1066,6 +1066,7 @@ export const nl: Record<TranslationKey, string> = {
   "home2.transportMaintenance.router.installAndStart": "I2P-router installeren en starten",
   "home2.transportMaintenance.router.label": "Beheerde i2pd-versie",
   "home2.transportMaintenance.router.start": "I2P-router starten",
+  "home2.transportMaintenance.router.stop": "I2P-router stoppen",
   "home2.transportMaintenance.router.updateAndRestart": "I2P-router bijwerken en opnieuw starten",
   "home2.transportMaintenance.status.coreMissing": "Installeer Qortium Core voordat je de transportmodus wijzigt of de I2P-router ervan onderhoudt.",
   "home2.transportMaintenance.status.coreRunning": "Stop Qortium Core voordat je de transportmodus wijzigt of de I2P-router van Home onderhoudt.",

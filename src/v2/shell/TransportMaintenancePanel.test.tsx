@@ -46,6 +46,7 @@ function transportStatus(options: StatusOptions = {}): HomeV2TransportMaintenanc
       canSetDirectAndI2p: canChange && routerReady,
       canSetDirectOnly: canChange,
       canSetI2pOnly: canChange && routerReady,
+      canStopRouter: routerState === 'managed-running' && !fatalIssue,
     },
     core: { install: coreInstall, runtime: coreRuntime },
     issue,
@@ -276,6 +277,26 @@ try {
   await render(client({ getTransportMaintenanceStatus: async () => { throw new Error('unavailable') } }))
   assert.match(container.querySelector('[role="alert"]')?.textContent ?? '', /status is unavailable/)
   assert.ok(button('Retry I2P transport status'))
+
+  act(() => root.unmount())
+  root = createRoot(container)
+  // A managed, running router must offer the stop half of the control. Home 2 shipped
+  // only the start half; stopping was reachable solely as a side effect of direct-only.
+  const stopActions: Array<{ action: string; mode: string | null }> = []
+  await render(client({
+    getTransportMaintenanceStatus: async () => readyStatus,
+    runTransportMaintenanceAction: async (action, mode) => {
+      stopActions.push({ action, mode })
+      return actionResult(readyStatus)
+    },
+  }))
+  const stopButton = button('Stop I2P router')
+  await act(async () => {
+    stopButton.click()
+    await Promise.resolve()
+    await Promise.resolve()
+  })
+  assert.deepEqual([...stopActions], [{ action: 'stop-router', mode: null }])
 
   act(() => root.unmount())
   root = createRoot(container)

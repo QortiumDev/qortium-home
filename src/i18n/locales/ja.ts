@@ -1066,6 +1066,7 @@ export const ja: Record<TranslationKey, string> = {
   "home2.transportMaintenance.router.installAndStart": "I2Pルーターをインストールして起動",
   "home2.transportMaintenance.router.label": "管理対象のi2pdバージョン",
   "home2.transportMaintenance.router.start": "I2Pルーターを起動",
+  "home2.transportMaintenance.router.stop": "I2Pルーターを停止",
   "home2.transportMaintenance.router.updateAndRestart": "I2Pルーターをアップデートして再起動",
   "home2.transportMaintenance.status.coreMissing": "トランスポートモードの変更やI2Pルーターのメンテナンスを行う前に、Qortium Coreをインストールしてください。",
   "home2.transportMaintenance.status.coreRunning": "トランスポートモードの変更やHomeのI2Pルーターのメンテナンスを行う前に、Qortium Coreを停止してください。",

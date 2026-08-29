@@ -166,6 +166,7 @@ function unavailableStatus(
       canSetDirectAndI2p: false,
       canSetDirectOnly: false,
       canSetI2pOnly: false,
+      canStopRouter: false,
     },
     core: { install: 'unknown', runtime: 'unknown' },
     issue,
@@ -216,6 +217,7 @@ async function readStatus(
         canSetDirectAndI2p: canChangeStoppedCore && routerReady,
         canSetDirectOnly: canChangeStoppedCore,
         canSetI2pOnly: canChangeStoppedCore && routerReady,
+        canStopRouter: projected.router.state === 'managed-running' && !fatalIssue,
       },
       core: { install, runtime },
       issue: projected.issue,
@@ -316,6 +318,22 @@ async function setStoppedCoreTransportMode(
   return confirmed && !confirmed.managedProcessActive ? completed() : unconfirmed()
 }
 
+async function stopRouter(
+  operations: HomeV2TransportMaintenanceAdapterOperations,
+): Promise<HomeV2TransportMaintenanceDependencyResult> {
+  const inspection = await operations.inspectRouter().catch(() => null)
+  if (!inspection) return unconfirmed()
+  if (inspection.router === 'external-running') return blocked('external-router-active')
+  if (!inspection.supported || inspection.router === 'unsupported') {
+    return blocked('router-unsupported')
+  }
+  if (!inspection.managedProcessActive) return completed()
+
+  await operations.stopManagedRouter()
+  const confirmed = await operations.inspectRouter().catch(() => null)
+  return confirmed && !confirmed.managedProcessActive ? completed() : unconfirmed()
+}
+
 export function createHomeV2TransportMaintenanceDependencies(
   operations: HomeV2TransportMaintenanceAdapterOperations,
 ): HomeV2TransportMaintenanceDependencies {
@@ -325,5 +343,6 @@ export function createHomeV2TransportMaintenanceDependencies(
     readStatus: async () => await readStatus(operations),
     setStoppedCoreTransportMode: async (mode) =>
       await setStoppedCoreTransportMode(operations, mode),
+    stopRouter: async () => await stopRouter(operations),
   }
 }
