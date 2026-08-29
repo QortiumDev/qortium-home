@@ -286,6 +286,7 @@ contextBridge.exposeInMainWorld('homeV2CoreManagers', {
   }),
   getStatus: (network: 'qortal' | 'qortium') =>
     ipcRenderer.invoke('home-v2-core-manager:getStatus', { network }),
+  revealInstall: () => ipcRenderer.invoke('home-v2-core-manager:revealInstall'),
   start: (network: 'qortal' | 'qortium') =>
     ipcRenderer.invoke('home-v2-core-manager:start', { network }),
   stop: (network: 'qortal' | 'qortium') =>

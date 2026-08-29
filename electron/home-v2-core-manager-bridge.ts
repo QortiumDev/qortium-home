@@ -1,5 +1,9 @@
 import { app, ipcMain } from 'electron'
-import { requireCoreManagerEntry, setHomeV2CoreProgressListener } from './core-manager.js'
+import {
+  requireCoreManagerEntry,
+  revealHomeV2CoreInstall,
+  setHomeV2CoreProgressListener,
+} from './core-manager.js'
 import {
   assertAuthorizedHomeV2Sender,
   broadcastToHomeV2Windows,
@@ -100,6 +104,12 @@ export function registerHomeV2CoreManagerBridgeIpcHandlers() {
     const result = await handlers.runMaintenanceAction(event, value)
     if (result.outcome === 'completed') void scheduler.trigger()
     return result
+  })
+  // Opens the install folder in the desktop file manager. The path is resolved and
+  // used inside the main process; the renderer receives only whether it opened.
+  ipcMain.handle('home-v2-core-manager:revealInstall', async (event) => {
+    assertAuthorizedHomeV2Sender(event)
+    return await revealHomeV2CoreInstall()
   })
   ipcMain.handle('home-v2-core-manager:start', handlers.start)
   ipcMain.handle('home-v2-core-manager:stop', async (event, value) => {
