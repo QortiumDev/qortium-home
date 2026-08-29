@@ -1066,6 +1066,7 @@ export const ru: Record<TranslationKey, string> = {
   "home2.transportMaintenance.router.installAndStart": "Установить и запустить маршрутизатор I2P",
   "home2.transportMaintenance.router.label": "Версия управляемого i2pd",
   "home2.transportMaintenance.router.start": "Запустить маршрутизатор I2P",
+  "home2.transportMaintenance.router.stop": "Остановить маршрутизатор I2P",
   "home2.transportMaintenance.router.updateAndRestart": "Обновить и перезапустить маршрутизатор I2P",
   "home2.transportMaintenance.status.coreMissing": "Установите Qortium Core, прежде чем менять его режим транспорта или обслуживать его маршрутизатор I2P.",
   "home2.transportMaintenance.status.coreRunning": "Остановите Qortium Core, прежде чем менять его режим транспорта или обслуживать маршрутизатор I2P в Home.",

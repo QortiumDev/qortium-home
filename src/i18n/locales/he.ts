@@ -1066,6 +1066,7 @@ export const he: Record<TranslationKey, string> = {
   "home2.transportMaintenance.router.installAndStart": "התקנה והפעלה של נתב I2P",
   "home2.transportMaintenance.router.label": "גרסת i2pd מנוהלת",
   "home2.transportMaintenance.router.start": "הפעלת נתב I2P",
+  "home2.transportMaintenance.router.stop": "עצירת נתב I2P",
   "home2.transportMaintenance.router.updateAndRestart": "עדכון והפעלה מחדש של נתב I2P",
   "home2.transportMaintenance.status.coreMissing": "יש להתקין את Qortium Core לפני שינוי מצב התעבורה שלו או תחזוקת נתב ה-I2P שלו.",
   "home2.transportMaintenance.status.coreRunning": "יש לעצור את Qortium Core לפני שינוי מצב התעבורה שלו או תחזוקת נתב ה-I2P של Home.",

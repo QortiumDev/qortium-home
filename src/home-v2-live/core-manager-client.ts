@@ -689,6 +689,7 @@ export function parseHomeV2TransportMaintenanceStatus(
       'canSetDirectAndI2p',
       'canSetDirectOnly',
       'canSetI2pOnly',
+      'canStopRouter',
     ]) || Object.values(value.capabilities).some((entry) => typeof entry !== 'boolean')) {
     throw new Error('Invalid Home 2 transport maintenance status.')
   }
@@ -732,7 +733,8 @@ export function parseHomeV2TransportMaintenanceStatus(
     capabilities.canEnsureRouter !== canEnsureRouter ||
     capabilities.canSetDirectOnly !== canChangeStoppedCore ||
     capabilities.canSetDirectAndI2p !== (canChangeStoppedCore && routerReady) ||
-    capabilities.canSetI2pOnly !== (canChangeStoppedCore && routerReady)) {
+    capabilities.canSetI2pOnly !== (canChangeStoppedCore && routerReady) ||
+    capabilities.canStopRouter !== (routerState === 'managed-running' && !fatalIssue)) {
     throw new Error('Invalid Home 2 transport maintenance status.')
   }
 
@@ -742,6 +744,7 @@ export function parseHomeV2TransportMaintenanceStatus(
       canSetDirectAndI2p: capabilities.canSetDirectAndI2p,
       canSetDirectOnly: capabilities.canSetDirectOnly,
       canSetI2pOnly: capabilities.canSetI2pOnly,
+      canStopRouter: capabilities.canStopRouter,
     }),
     core: Object.freeze({ install, runtime }),
     issue,

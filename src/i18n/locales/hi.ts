@@ -1067,6 +1067,7 @@ export const hi: Record<TranslationKey, string> = {
   "home2.transportMaintenance.router.installAndStart": "I2P राउटर इंस्टॉल करके शुरू करें",
   "home2.transportMaintenance.router.label": "प्रबंधित i2pd संस्करण",
   "home2.transportMaintenance.router.start": "I2P राउटर शुरू करें",
+  "home2.transportMaintenance.router.stop": "I2P राउटर रोकें",
   "home2.transportMaintenance.router.updateAndRestart": "I2P राउटर अपडेट करके फिर से शुरू करें",
   "home2.transportMaintenance.status.coreMissing": "Qortium Core का ट्रांसपोर्ट मोड बदलने या उसके I2P राउटर का रखरखाव करने से पहले Qortium Core इंस्टॉल करें।",
   "home2.transportMaintenance.status.coreRunning": "Qortium Core का ट्रांसपोर्ट मोड बदलने या Home के I2P राउटर का रखरखाव करने से पहले Qortium Core रोकें।",

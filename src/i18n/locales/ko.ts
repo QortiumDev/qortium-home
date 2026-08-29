@@ -1066,6 +1066,7 @@ export const ko: Record<TranslationKey, string> = {
   "home2.transportMaintenance.router.installAndStart": "I2P 라우터 설치 및 시작",
   "home2.transportMaintenance.router.label": "관리형 i2pd 버전",
   "home2.transportMaintenance.router.start": "I2P 라우터 시작",
+  "home2.transportMaintenance.router.stop": "I2P 라우터 중지",
   "home2.transportMaintenance.router.updateAndRestart": "I2P 라우터 업데이트 및 다시 시작",
   "home2.transportMaintenance.status.coreMissing": "전송 모드를 변경하거나 I2P 라우터를 유지 관리하려면 먼저 Qortium Core를 설치하세요.",
   "home2.transportMaintenance.status.coreRunning": "전송 모드를 변경하거나 Home의 I2P 라우터를 유지 관리하려면 먼저 Qortium Core를 중지하세요.",

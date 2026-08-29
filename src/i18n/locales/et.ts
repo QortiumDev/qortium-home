@@ -1066,6 +1066,7 @@ export const et: Record<TranslationKey, string> = {
   "home2.transportMaintenance.router.installAndStart": "Paigalda ja käivita I2P ruuter",
   "home2.transportMaintenance.router.label": "Hallatava i2pd versioon",
   "home2.transportMaintenance.router.start": "Käivita I2P ruuter",
+  "home2.transportMaintenance.router.stop": "Peata I2P ruuter",
   "home2.transportMaintenance.router.updateAndRestart": "Uuenda ja taaskäivita I2P ruuter",
   "home2.transportMaintenance.status.coreMissing": "Enne transpordirežiimi muutmist või I2P ruuteri hooldamist paigalda Qortium Core.",
   "home2.transportMaintenance.status.coreRunning": "Enne transpordirežiimi muutmist või Home'i I2P ruuteri hooldamist peata Qortium Core.",

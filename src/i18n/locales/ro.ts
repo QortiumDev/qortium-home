@@ -1066,6 +1066,7 @@ export const ro: Record<TranslationKey, string> = {
   "home2.transportMaintenance.router.installAndStart": "Instalați și porniți routerul I2P",
   "home2.transportMaintenance.router.label": "Versiunea i2pd gestionată",
   "home2.transportMaintenance.router.start": "Porniți routerul I2P",
+  "home2.transportMaintenance.router.stop": "Opriți routerul I2P",
   "home2.transportMaintenance.router.updateAndRestart": "Actualizați și reporniți routerul I2P",
   "home2.transportMaintenance.status.coreMissing": "Instalați Qortium Core înainte de a-i schimba modul de transport sau de a-i întreține routerul I2P.",
   "home2.transportMaintenance.status.coreRunning": "Opriți Qortium Core înainte de a-i schimba modul de transport sau de a întreține routerul I2P al Home.",

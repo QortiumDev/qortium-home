@@ -463,6 +463,20 @@ function TransportRow({
               : ensureLabel(status)}
           </button>
         ) : null}
+        {status.capabilities.canStopRouter && transport.onStopRouter ? (
+          <button
+            type="button"
+            className="home-v2-secondary-button"
+            aria-describedby="node-core-transport-state"
+            data-home-v2-node-core-action="stop-router"
+            disabled={blocked}
+            onClick={transport.onStopRouter}
+          >
+            {transport.busy === 'stop-router'
+              ? t('home2.common.working')
+              : t('home2.transportMaintenance.router.stop')}
+          </button>
+        ) : null}
       </div>
       {transport.notice ? (
         <p

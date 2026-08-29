@@ -1066,6 +1066,7 @@ export const zhTW: Record<TranslationKey, string> = {
   "home2.transportMaintenance.router.installAndStart": "安裝並啟動 I2P 路由器",
   "home2.transportMaintenance.router.label": "受管 i2pd 版本",
   "home2.transportMaintenance.router.start": "啟動 I2P 路由器",
+  "home2.transportMaintenance.router.stop": "停止 I2P 路由器",
   "home2.transportMaintenance.router.updateAndRestart": "更新並重新啟動 I2P 路由器",
   "home2.transportMaintenance.status.coreMissing": "請先安裝 Qortium Core，才能變更它的傳輸模式或維護它的 I2P 路由器。",
   "home2.transportMaintenance.status.coreRunning": "請先停止 Qortium Core，才能變更它的傳輸模式或維護 Home 的 I2P 路由器。",

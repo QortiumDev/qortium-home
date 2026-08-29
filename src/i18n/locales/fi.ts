@@ -1066,6 +1066,7 @@ export const fi: Record<TranslationKey, string> = {
   "home2.transportMaintenance.router.installAndStart": "Asenna ja käynnistä I2P-reititin",
   "home2.transportMaintenance.router.label": "Hallitun i2pd:n versio",
   "home2.transportMaintenance.router.start": "Käynnistä I2P-reititin",
+  "home2.transportMaintenance.router.stop": "Pysäytä I2P-reititin",
   "home2.transportMaintenance.router.updateAndRestart": "Päivitä ja käynnistä I2P-reititin uudelleen",
   "home2.transportMaintenance.status.coreMissing": "Asenna Qortium Core ennen kuin muutat sen siirtotilaa tai ylläpidät sen I2P-reititintä.",
   "home2.transportMaintenance.status.coreRunning": "Pysäytä Qortium Core ennen kuin muutat sen siirtotilaa tai ylläpidät Homen I2P-reititintä.",

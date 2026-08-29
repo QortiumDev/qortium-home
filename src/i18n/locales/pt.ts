@@ -1066,6 +1066,7 @@ export const pt: Record<TranslationKey, string> = {
   "home2.transportMaintenance.router.installAndStart": "Instalar e iniciar o roteador I2P",
   "home2.transportMaintenance.router.label": "Versão do i2pd gerenciado",
   "home2.transportMaintenance.router.start": "Iniciar o roteador I2P",
+  "home2.transportMaintenance.router.stop": "Parar o roteador I2P",
   "home2.transportMaintenance.router.updateAndRestart": "Atualizar e reiniciar o roteador I2P",
   "home2.transportMaintenance.status.coreMissing": "Instale o Qortium Core antes de alterar o modo de transporte ou fazer manutenção no seu roteador I2P.",
   "home2.transportMaintenance.status.coreRunning": "Pare o Qortium Core antes de alterar o modo de transporte ou fazer manutenção no roteador I2P do Home.",

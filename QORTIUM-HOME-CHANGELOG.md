@@ -34,6 +34,19 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-29 - feat(transport): restore the stop control for the managed I2P router
+
+Home 1.x had a button to start and stop the bundled I2P router. Home 2 shipped
+only the start half: stopping the router was reachable solely as an invisible
+side effect of switching the connection mode to direct-only, and even that
+required shutting the Core down first. There was no way to simply stop it.
+
+Settings and the node panel now offer a Stop I2P router button whenever Home is
+running its own router, alongside the existing start button. Stopping does not
+require the Core to be stopped, which matches how Home 1.x behaved and means the
+control is available at the moment someone actually wants it. A router supplied
+by the system rather than by Home is left alone, as before.
+
 ### 2026-08-29 - feat(core): Settings explains a blocked Core, instead of just flagging it
 
 When Home refuses to start the Core because its stored data belongs to a

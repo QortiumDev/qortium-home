@@ -1066,6 +1066,7 @@ export const hu: Record<TranslationKey, string> = {
   "home2.transportMaintenance.router.installAndStart": "I2P-útválasztó telepítése és indítása",
   "home2.transportMaintenance.router.label": "Kezelt i2pd verzió",
   "home2.transportMaintenance.router.start": "I2P-útválasztó indítása",
+  "home2.transportMaintenance.router.stop": "I2P-útválasztó leállítása",
   "home2.transportMaintenance.router.updateAndRestart": "I2P-útválasztó frissítése és újraindítása",
   "home2.transportMaintenance.status.coreMissing": "Telepítsd a Qortium Core-t, mielőtt módosítod az átviteli módját, vagy karbantartod az I2P-útválasztóját.",
   "home2.transportMaintenance.status.coreRunning": "Állítsd le a Qortium Core-t, mielőtt módosítod az átviteli módját, vagy karbantartod a Home I2P-útválasztóját.",
