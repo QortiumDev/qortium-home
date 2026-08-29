@@ -782,6 +782,7 @@ export const ro: Record<TranslationKey, string> = {
   "home2.account.notSelected": "Neselectat",
   "home2.account.publicControlsAvailable": "Aplicațiile publice și comenzile de conectare rămân disponibile.",
   "home2.account.recoveryRequired": "Modificările contului nu sunt disponibile până la finalizarea recuperării profilului.",
+  "home2.account.registerNamePrompt": "Acest cont nu are un nume înregistrat.",
   "home2.account.remove": "Eliminați contul…",
   "home2.account.removeAddress": "Eliminați adresa selectată…",
   "home2.account.rename": "Schimbă eticheta contului…",

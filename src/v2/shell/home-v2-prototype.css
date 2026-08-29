@@ -1835,6 +1835,13 @@ body,
   font-size: var(--v2-type-small);
 }
 
+/* Not a warning: an optional next step, so it reads as support text rather
+   than borrowing the recovery notice's danger colour. */
+.home-v2-account-register-name {
+  color: var(--v2-text-muted, #5c5c5c);
+  font-size: var(--v2-type-small);
+}
+
 .home-v2-danger-button {
   border: 1px solid var(--v2-danger-solid);
   border-radius: 9px;

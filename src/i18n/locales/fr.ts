@@ -782,6 +782,7 @@ export const fr: Record<TranslationKey, string> = {
   "home2.account.notSelected": "Non sélectionné",
   "home2.account.publicControlsAvailable": "Les applications publiques et les commandes de connexion restent disponibles.",
   "home2.account.recoveryRequired": "Les modifications du compte sont indisponibles tant que la récupération du profil n'est pas terminée.",
+  "home2.account.registerNamePrompt": "Ce compte n'a aucun nom enregistré.",
   "home2.account.remove": "Supprimer le compte…",
   "home2.account.removeAddress": "Supprimer l'adresse sélectionnée…",
   "home2.account.rename": "Modifier le libellé du compte…",

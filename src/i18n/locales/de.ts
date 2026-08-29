@@ -782,6 +782,7 @@ export const de: Record<TranslationKey, string> = {
   "home2.account.notSelected": "Nicht ausgewählt",
   "home2.account.publicControlsAvailable": "Öffentliche Apps und Verbindungssteuerungen bleiben verfügbar.",
   "home2.account.recoveryRequired": "Kontoänderungen sind nicht verfügbar, bis die Profilwiederherstellung abgeschlossen ist.",
+  "home2.account.registerNamePrompt": "Dieses Konto hat keinen registrierten Namen.",
   "home2.account.remove": "Konto entfernen…",
   "home2.account.removeAddress": "Ausgewählte Adresse entfernen…",
   "home2.account.rename": "Kontobezeichnung ändern…",

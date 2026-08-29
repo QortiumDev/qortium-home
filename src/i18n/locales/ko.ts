@@ -782,6 +782,7 @@ export const ko: Record<TranslationKey, string> = {
   "home2.account.notSelected": "선택되지 않음",
   "home2.account.publicControlsAvailable": "공용 앱과 연결 제어는 계속 사용할 수 있습니다.",
   "home2.account.recoveryRequired": "프로필 복구가 완료될 때까지 계정 변경을 사용할 수 없습니다.",
+  "home2.account.registerNamePrompt": "이 계정에는 등록된 이름이 없습니다.",
   "home2.account.remove": "계정 삭제…",
   "home2.account.removeAddress": "선택한 주소 삭제…",
   "home2.account.rename": "계정 라벨 변경…",

@@ -782,6 +782,7 @@ export const sv: Record<TranslationKey, string> = {
   "home2.account.notSelected": "Ej vald",
   "home2.account.publicControlsAvailable": "Offentliga appar och anslutningskontroller förblir tillgängliga.",
   "home2.account.recoveryRequired": "Kontoändringar är inte tillgängliga förrän profilåterställningen är klar.",
+  "home2.account.registerNamePrompt": "Det här kontot har inget registrerat namn.",
   "home2.account.remove": "Ta bort konto…",
   "home2.account.removeAddress": "Ta bort vald adress…",
   "home2.account.rename": "Ändra kontoetikett…",

@@ -783,6 +783,7 @@ export const nb: Record<TranslationKey, string> = {
   "home2.account.notSelected": "Ikke valgt",
   "home2.account.publicControlsAvailable": "Offentlige apper og tilkoblingskontroller forblir tilgjengelige.",
   "home2.account.recoveryRequired": "Kontoendringer er utilgjengelige før profilgjenopprettingen er fullført.",
+  "home2.account.registerNamePrompt": "Denne kontoen har ikke et registrert navn.",
   "home2.account.remove": "Fjern konto…",
   "home2.account.removeAddress": "Fjern valgt adresse…",
   "home2.account.rename": "Endre kontoetikett…",

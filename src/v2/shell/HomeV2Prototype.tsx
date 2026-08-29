@@ -441,6 +441,7 @@ function AccountCard({
   loadVisibleAvatar,
   onSelectAddress,
   onAccountManage,
+  onOpenAddress,
 }: Pick<
   HomeV2PrototypeProps,
   | 'snapshot'
@@ -453,6 +454,7 @@ function AccountCard({
   | 'vaultState'
   | 'selectedAccountId'
   | 'selectedAccountLookup'
+  | 'onOpenAddress'
   | 'loadVisibleAvatar'
   | 'onSelectAddress'
   | 'onAccountManage'
@@ -633,6 +635,19 @@ function AccountCard({
       {vaultState?.readiness === 'recovery' ? (
         <p className="home-v2-account-recovery" role="alert">
           {vaultState.recoveryMessage ?? t('home2.account.recoveryRequired')}
+        </p>
+      ) : null}
+      {hasAccount && !snapshot.identity.displayLabelIsRegisteredName && onOpenAddress ? (
+        // The first-run welcome offers name registration, but an account added
+        // later from here never passes through it. Same offer, same wording,
+        // shown where the account actually is.
+        <p className="home-v2-account-register-name" data-home-v2-register-name>
+          <span>{t('home2.account.registerNamePrompt')}</span>
+          {' '}
+          <button className="home-v2-link-button" type="button"
+            onClick={() => void onOpenAddress('qdn://APP/Names/Names')}>
+            {t('welcome.account.openNames')}
+          </button>
         </p>
       ) : null}
       <div className="home-v2-account-content">

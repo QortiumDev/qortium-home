@@ -782,6 +782,7 @@ export const hu: Record<TranslationKey, string> = {
   "home2.account.notSelected": "Nincs kiválasztva",
   "home2.account.publicControlsAvailable": "A nyilvános alkalmazások és a kapcsolati vezérlők továbbra is elérhetők.",
   "home2.account.recoveryRequired": "A fiók módosításai nem érhetők el, amíg a profil helyreállítása be nem fejeződik.",
+  "home2.account.registerNamePrompt": "Ehhez a fiókhoz nincs regisztrált név.",
   "home2.account.remove": "Fiók eltávolítása…",
   "home2.account.removeAddress": "Kiválasztott cím eltávolítása…",
   "home2.account.rename": "Fiókcímke módosítása…",

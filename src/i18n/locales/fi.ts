@@ -782,6 +782,7 @@ export const fi: Record<TranslationKey, string> = {
   "home2.account.notSelected": "Ei valittu",
   "home2.account.publicControlsAvailable": "Julkiset sovellukset ja yhteyden hallinta ovat edelleen käytettävissä.",
   "home2.account.recoveryRequired": "Tiliä ei voi muuttaa, ennen kuin profiilin palautus on valmis.",
+  "home2.account.registerNamePrompt": "Tällä tilillä ei ole rekisteröityä nimeä.",
   "home2.account.remove": "Poista tili…",
   "home2.account.removeAddress": "Poista valittu osoite…",
   "home2.account.rename": "Muuta tilin nimikettä…",

@@ -783,6 +783,7 @@ export const el: Record<TranslationKey, string> = {
   "home2.account.notSelected": "Δεν έχει επιλεγεί",
   "home2.account.publicControlsAvailable": "Οι δημόσιες εφαρμογές και τα στοιχεία ελέγχου σύνδεσης παραμένουν διαθέσιμα.",
   "home2.account.recoveryRequired": "Οι αλλαγές λογαριασμού δεν είναι διαθέσιμες μέχρι να ολοκληρωθεί η ανάκτηση του προφίλ.",
+  "home2.account.registerNamePrompt": "Αυτός ο λογαριασμός δεν έχει καταχωρισμένο όνομα.",
   "home2.account.remove": "Κατάργηση λογαριασμού…",
   "home2.account.removeAddress": "Κατάργηση επιλεγμένης διεύθυνσης…",
   "home2.account.rename": "Αλλαγή ετικέτας λογαριασμού…",

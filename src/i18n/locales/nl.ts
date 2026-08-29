@@ -782,6 +782,7 @@ export const nl: Record<TranslationKey, string> = {
   "home2.account.notSelected": "Niet geselecteerd",
   "home2.account.publicControlsAvailable": "Openbare apps en verbindingsopties blijven beschikbaar.",
   "home2.account.recoveryRequired": "Accountwijzigingen zijn niet beschikbaar totdat het profielherstel is voltooid.",
+  "home2.account.registerNamePrompt": "Dit account heeft geen geregistreerde naam.",
   "home2.account.remove": "Account verwijderen…",
   "home2.account.removeAddress": "Geselecteerd adres verwijderen…",
   "home2.account.rename": "Accountlabel wijzigen…",

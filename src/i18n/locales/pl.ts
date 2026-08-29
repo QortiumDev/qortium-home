@@ -782,6 +782,7 @@ export const pl: Record<TranslationKey, string> = {
   "home2.account.notSelected": "Nie wybrano",
   "home2.account.publicControlsAvailable": "Aplikacje publiczne i elementy sterujące połączeniami pozostają dostępne.",
   "home2.account.recoveryRequired": "Zmiany konta są niedostępne do momentu zakończenia odzyskiwania profilu.",
+  "home2.account.registerNamePrompt": "To konto nie ma zarejestrowanej nazwy.",
   "home2.account.remove": "Usuń konto…",
   "home2.account.removeAddress": "Usuń wybrany adres…",
   "home2.account.rename": "Zmień etykietę konta…",
