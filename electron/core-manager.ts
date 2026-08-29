@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain, shell } from 'electron';
 import { createHash, randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { chmod, copyFile, lstat, mkdir, open, readFile, readdir, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
@@ -1480,6 +1480,27 @@ async function readInstalledCoreMetadataForHomeV2UpdateDiscovery(): Promise<Inst
   } catch {
     return null;
   }
+}
+
+/**
+ * Open the installed Core in the desktop file manager.
+ *
+ * Home 1.x showed the install and jar paths as text with a reveal button.
+ * Home 2's status contracts deliberately keep filesystem paths out of the
+ * renderer, and that stays true here: the path is resolved and used entirely
+ * inside the main process, and the caller learns only whether a folder was
+ * opened. Revealing a folder needs no path in the renderer, so the redaction
+ * rule and the control are not in conflict.
+ */
+export async function revealHomeV2CoreInstall(): Promise<boolean> {
+  const installedCore = await readInstalledCore();
+  if (!installedCore) return false;
+  const target = existsSync(installedCore.jarPath)
+    ? installedCore.jarPath
+    : installedCore.installPath;
+  if (!existsSync(target)) return false;
+  shell.showItemInFolder(target);
+  return true;
 }
 
 async function readInstalledCore(): Promise<InstalledCore | null> {

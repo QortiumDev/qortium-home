@@ -956,6 +956,14 @@ export interface HomeV2CoreManagerClient {
     value: HomeV2CoreUpdatePolicy,
   ): Promise<HomeV2CoreUpdatePolicySetResult>
   getStatus(network: HomeV2CoreNetwork): Promise<HomeV2CoreManagerStatus>
+  /**
+   * Open the Core install folder in the desktop file manager.
+   *
+   * Optional: absent on hosts without the Electron preload. Resolves to whether
+   * a folder opened; the path stays in the main process, so this control does
+   * not weaken the redaction rule the status contracts enforce.
+   */
+  revealInstall?(): Promise<boolean>
   start(network: HomeV2CoreNetwork): Promise<HomeV2CoreManagerActionResult>
   stop(network: HomeV2CoreNetwork): Promise<HomeV2CoreManagerActionResult>
   listQortalAdoptionCandidates?(): Promise<HomeV2QortalAdoptionList>

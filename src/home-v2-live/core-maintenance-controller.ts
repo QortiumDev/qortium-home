@@ -243,9 +243,26 @@ export function useHomeV2CoreMaintenance(options: {
     void policyWrites.current.catch(() => undefined)
   }
 
+  /**
+   * Ask the main process to open the Core install folder.
+   *
+   * No path crosses the bridge in either direction: main resolves it and the
+   * renderer learns only whether a window opened. Absent on hosts without the
+   * Electron preload, which is why the panel checks `canRevealInstall`.
+   */
+  const revealInstall = async () => {
+    if (!client?.revealInstall) return false
+    try {
+      return await client.revealInstall() === true
+    } catch {
+      return false
+    }
+  }
+
   return {
     available: !!client,
     busy,
+    canRevealInstall: typeof client?.revealInstall === 'function',
     check,
     initialLoadFailed,
     installJava,
@@ -254,6 +271,7 @@ export function useHomeV2CoreMaintenance(options: {
     progress,
     refresh,
     release,
+    revealInstall,
     runCore,
     setUpdatePolicy,
     status,

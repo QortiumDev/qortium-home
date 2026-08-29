@@ -34,6 +34,20 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-29 - feat(core): show the Core install folder from Settings
+
+Home 1.x let you open the folder the Core is installed in. Home 2 dropped that
+along with the path text it used to display, and the two were treated as one
+decision — they never were. Home 2 keeps filesystem paths out of the part of the
+app that runs web content, which is worth keeping, but opening a folder does not
+require sending a path there.
+
+Settings now has a Show install folder button next to the installed build. The
+folder opens in the normal desktop file manager. The path is worked out and used
+entirely inside the application's trusted process, so nothing about where the
+Core lives is handed to the interface layer, and the existing rule stands
+unchanged.
+
 ### 2026-08-29 - feat(transport): restore the stop control for the managed I2P router
 
 Home 1.x had a button to start and stop the bundled I2P router. Home 2 shipped

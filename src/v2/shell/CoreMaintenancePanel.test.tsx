@@ -23,6 +23,7 @@ const status = {
 } as const
 let currentStatus: HomeV2CoreMaintenanceStatus = status
 const actions: string[] = []
+let revealCalls = 0
 function policyState(
   generation: number,
   values: Partial<Pick<HomeV2CoreUpdatePolicyState,
@@ -90,6 +91,10 @@ const client: HomeV2CoreManagerClient = {
     }
   },
   getStatus: async () => ({} as never),
+  revealInstall: async () => {
+    revealCalls += 1
+    return true
+  },
   start: async () => ({} as never),
   stop: async () => ({} as never),
 }
@@ -281,6 +286,25 @@ try {
   assert.match(container.querySelector('[role="alert"]')?.textContent ?? '', /status is unavailable/)
   client.getMaintenanceStatus = getMaintenanceStatus
   client.getUpdatePolicy = getUpdatePolicy
+
+  // Show install folder reaches the main process, and no path is rendered.
+  // 1.x had a reveal button; Home 2 dropped it along with the path text, but
+  // only the path text was ever the thing this contract redacts.
+  act(() => root.unmount())
+  root = createRoot(container)
+  await act(async () => {
+    root.render(<CoreMaintenanceHarness />)
+    await Promise.resolve()
+    await Promise.resolve()
+  })
+  const revealButton = button('Show install folder')
+  await act(async () => {
+    revealButton.click()
+    await Promise.resolve()
+    await Promise.resolve()
+  })
+  assert.equal(revealCalls, 1)
+  assert.doesNotMatch(container.textContent ?? '', /\/(?:home|opt|usr|Users)\//)
 } finally {
   act(() => root.unmount())
   delete window.homeV2CoreManagers

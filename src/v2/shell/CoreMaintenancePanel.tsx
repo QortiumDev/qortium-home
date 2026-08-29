@@ -48,12 +48,14 @@ export function CoreMaintenancePanel({
   if (!maintenance?.available || networks.length === 0) return null
   const {
     busy,
+    canRevealInstall,
     check,
     initialLoadFailed,
     installJava,
     notice,
     policy,
     release,
+    revealInstall,
     runCore,
     setUpdatePolicy,
     status,
@@ -202,8 +204,10 @@ export function CoreMaintenancePanel({
           {status.core.installedTag || status.core.installedCommit ? (
             // Which BUILD, not just which version: 1.x showed these, and two
             // builds of one version are otherwise indistinguishable. The
-            // install path and jar path stay out — this contract redacts them
-            // on purpose.
+            // install path and jar path stay out of the RENDERER, which this
+            // contract redacts on purpose — but that never required the folder
+            // itself to be unreachable: Show install folder below opens it from
+            // the main process without sending a path here.
             <small data-home-v2-core-build>
               {[
                 status.core.installedTag,
@@ -218,6 +222,13 @@ export function CoreMaintenancePanel({
           <button className="home-v2-secondary-button" type="button" disabled={busy !== null} onClick={() => void check()}>
             {busy === 'check' ? 'Checking…' : 'Check release'}
           </button>
+          {canRevealInstall && status.core.installedVersion ? (
+            <button className="home-v2-secondary-button" type="button"
+              data-home-v2-core-reveal-install
+              onClick={() => void revealInstall()}>
+              Show install folder
+            </button>
+          ) : null}
           {release?.tag && release.action !== 'none' ? (() => {
             // Same rule as the dashboard tile, deliberately read from the same
             // capability rather than re-derived: an update to a Home-started
