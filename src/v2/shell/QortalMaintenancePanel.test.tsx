@@ -177,6 +177,18 @@ assert.throws(() => parseHomeV2QortalMaintenanceStatus({
   updateAuthority: 'node-native',
 }), /Invalid Home 2 Qortal maintenance status/)
 assert.deepEqual(parseHomeV2QortalMaintenanceRelease(installRelease), installRelease)
+// Every field must survive by name. The parser used to spread-and-cast, which
+// meant a field the contract added but the key list did not name was rejected
+// outright rather than dropped (#454), with the cast hiding it from tsc.
+{
+  const parsed = parseHomeV2QortalMaintenanceRelease(installRelease)
+  assert.equal(parsed.action, installRelease.action)
+  assert.equal(parsed.available, installRelease.available)
+  assert.equal(parsed.code, installRelease.code)
+  assert.equal(parsed.tag, installRelease.tag)
+  assert.equal(parsed.network, 'qortal')
+  assert.equal(parsed.revision, 1)
+}
 assert.throws(() => parseHomeV2QortalMaintenanceRelease({
   ...installRelease,
   available: false,
