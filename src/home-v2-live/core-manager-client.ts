@@ -183,7 +183,11 @@ export function parseHomeV2CoreMaintenanceStatus(value: unknown): HomeV2CoreMain
     !hasExactKeys(value.capabilities, ['canInitialInstall', 'canInstallJava', 'canUpdateRunningInPlace']) ||
     typeof value.capabilities.canInstallJava !== 'boolean' ||
     typeof value.capabilities.canUpdateRunningInPlace !== 'boolean' || !isRecord(value.core) ||
-    !hasExactKeys(value.core, ['channel', 'installedVersion', 'runtime']) ||
+    !hasExactKeys(value.core, [
+      'channel', 'installedCommit', 'installedTag', 'installedVersion', 'runtime',
+    ]) ||
+    !(value.core.installedCommit === null || typeof value.core.installedCommit === 'string') ||
+    !(value.core.installedTag === null || typeof value.core.installedTag === 'string') ||
     !(value.core.channel === null || value.core.channel === 'stable' || value.core.channel === 'prerelease') ||
     !(value.core.installedVersion === null || typeof value.core.installedVersion === 'string') ||
     !runtimeStates.has(value.core.runtime as HomeV2CoreRuntimeState) || !isRecord(value.java) ||
@@ -201,6 +205,12 @@ export function parseHomeV2CoreMaintenanceStatus(value: unknown): HomeV2CoreMain
     }),
     core: Object.freeze({
       channel: value.core.channel,
+      // Copied through, not merely validated: a field the parser checks and
+      // then forgets to return reads as undefined in the UI, which is how
+      // canUpdateRunningInPlace was dead in the app while every main-process
+      // test passed (#436). The round trip is asserted in the client test.
+      installedCommit: value.core.installedCommit,
+      installedTag: value.core.installedTag,
       installedVersion: value.core.installedVersion,
       runtime: value.core.runtime,
     }),

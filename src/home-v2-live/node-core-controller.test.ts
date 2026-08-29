@@ -38,7 +38,7 @@ assert.throws(() =>
 
 const maintenanceStatus = {
   capabilities: { canInitialInstall: true, canInstallJava: true, canUpdateRunningInPlace: false },
-  core: { channel: null, installedVersion: null, runtime: 'stopped' },
+  core: { channel: null, installedCommit: null, installedTag: null, installedVersion: null, runtime: 'stopped' },
   java: { source: 'missing', updateAvailable: false, version: null },
   revision: 1,
   schema: 'home-v2-core-maintenance',
@@ -183,6 +183,38 @@ for (const bad of [
   { action: 'downloading', extra: 1, kind: 'info', message: 'x', percent: 1, revision: 1, schema: 'home-v2-core-manager-progress' },
 ]) {
   assert.equal(parseHomeV2CoreMaintenanceProgress(bad), null, `refuses ${JSON.stringify(bad)}`)
+}
+
+// --- The build identity survives the parser ROUND TRIP -------------------
+// Third time this guard has earned its place: a field the parser validates and
+// then omits from its result reads as undefined in the UI, with every
+// main-process test still green (#436).
+{
+  const status = {
+    capabilities: { canInitialInstall: false, canInstallJava: false, canUpdateRunningInPlace: false },
+    core: {
+      channel: 'stable',
+      installedCommit: 'abcdef0123456789abcdef0123456789abcdef01',
+      installedTag: 'v1.7.2',
+      installedVersion: '1.7.2',
+      runtime: 'running',
+    },
+    java: { source: 'managed', updateAvailable: false, version: '25' },
+    revision: 1,
+    schema: 'home-v2-core-maintenance',
+  } as const
+  const parsed = parseHomeV2CoreMaintenanceStatus(status)
+  assert.equal(parsed.core.installedCommit, status.core.installedCommit)
+  assert.equal(parsed.core.installedTag, 'v1.7.2')
+  assert.deepEqual(parsed, status, 'every field the UI reads must survive the parse')
+
+  // Absent build identity is null, not undefined — the UI tests for null.
+  const bare = parseHomeV2CoreMaintenanceStatus({
+    ...status,
+    core: { ...status.core, installedCommit: null, installedTag: null },
+  })
+  assert.equal(bare.core.installedCommit, null)
+  assert.equal(bare.core.installedTag, null)
 }
 
 console.log('home v2 node/core controller tests passed')

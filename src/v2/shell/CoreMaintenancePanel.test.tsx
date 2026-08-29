@@ -16,7 +16,7 @@ import { CoreMaintenancePanel } from './CoreMaintenancePanel'
 
 const status = {
   capabilities: { canInitialInstall: true, canInstallJava: true, canUpdateRunningInPlace: false },
-  core: { channel: null, installedVersion: null, runtime: 'stopped' },
+  core: { channel: null, installedCommit: null, installedTag: null, installedVersion: null, runtime: 'stopped' },
   java: { source: 'missing', updateAvailable: false, version: null },
   revision: 1,
   schema: 'home-v2-core-maintenance',
@@ -175,7 +175,7 @@ try {
   currentStatus = {
     ...status,
     capabilities: { canInitialInstall: false, canInstallJava: true, canUpdateRunningInPlace: false },
-    core: { channel: 'prerelease', installedVersion: '1.2.3', runtime: 'stopped' },
+    core: { channel: 'prerelease', installedCommit: null, installedTag: null, installedVersion: '1.2.3', runtime: 'stopped' },
     java: { source: 'managed', updateAvailable: true, version: '25.0.1' },
   }
   root = createRoot(container)

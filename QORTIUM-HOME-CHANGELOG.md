@@ -34,6 +34,15 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-29 - feat(core): Settings shows which Core build is installed
+
+Settings showed the Core's version number, which does not distinguish two
+builds of the same version. It now also shows the release it was installed
+from and the commit it was built from.
+
+Home deliberately does not show the folders it installed into, or the address
+of the local Core API. Those stay inside Home.
+
 ### 2026-08-29 - feat(bookmarks): a new profile starts with something on its toolbar
 
 A brand-new Home used to open with a completely empty bookmarks toolbar. It now
