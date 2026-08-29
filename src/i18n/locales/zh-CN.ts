@@ -598,6 +598,8 @@ export const zhCN: Record<TranslationKey, string> = {
   "qdnWrite.voteApprove": "赞成",
   "qdnWrite.voteDirection": "投票",
   "qdnWrite.voteOppose": "反对",
+  "home2.tabs.pinToDashboard": "固定到仪表板",
+  "home2.tabs.addToBookmarks": "添加到书签",
   "tabs.closeNamed": "关闭 {label}",
   "tabs.muteNamed": "将 {label} 静音",
   "tabs.unmuteNamed": "取消 {label} 静音",

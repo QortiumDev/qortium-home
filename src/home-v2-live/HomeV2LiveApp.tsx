@@ -3207,6 +3207,26 @@ export function HomeV2LiveApp() {
   )
 
   /** Dropping a tab on the bookmarks toolbar saves it there, as in Home 1.x. */
+  // Pin a tab's address to the dashboard, from the tab's context menu. Derives
+  // the address the same way the bookmark path does, so the two agree on what
+  // a tab "is" — an internal page pins as home://<page>, an app as its
+  // resource location.
+  const pinTabToDashboard = useCallback(
+    async (tabId: TabId) => {
+      const entry = productState.entries.find((candidate) => candidate.id === tabId)
+      if (!entry) return
+      const displayUrl = entry.kind === 'app'
+        ? entry.context.resourceLocation
+        : `home://${entry.page}`
+      // Same title derivation as the bookmark path directly below, so a tab
+      // pinned and a tab bookmarked are labelled identically.
+      const title = entry.kind === 'app'
+        ? entry.title
+        : t(internalTabLabelKeys[entry.page])
+      await addDashboardPin(displayUrl, title)
+    },
+    [addDashboardPin, productState.entries],
+  )
   const dropTabOnBookmarkToolbar = useCallback(
     async (tabId: TabId) => {
       const entry = productState.entries.find((candidate) => candidate.id === tabId)
@@ -9329,6 +9349,7 @@ export function HomeV2LiveApp() {
       onToggleCurrentBookmark={toggleCurrentBookmark}
       onManageBookmarks={openBookmarksManager}
       onDropTabOnBookmarkToolbar={dropTabOnBookmarkToolbar}
+      onPinTabToDashboard={pinTabToDashboard}
       onDetachTab={window.homeV2Windows ? detachTab : undefined}
       releaseNotesTarget={releaseNotesTarget}
       coreDocsNetwork={coreDocsNetwork}

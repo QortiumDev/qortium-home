@@ -578,6 +578,8 @@ export const el: Record<TranslationKey, string> = {
   "qdnWrite.voteApprove": "Έγκριση",
   "qdnWrite.voteDirection": "Ψήφος",
   "qdnWrite.voteOppose": "Εναντίωση",
+  "home2.tabs.pinToDashboard": "Καρφίτσωμα στον πίνακα",
+  "home2.tabs.addToBookmarks": "Προσθήκη στους σελιδοδείκτες",
   "tabs.closeNamed": "Κλείσιμο {label}",
   "tabs.muteNamed": "Σίγαση {label}",
   "tabs.unmuteNamed": "Κατάργηση σίγασης {label}",

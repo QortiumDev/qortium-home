@@ -598,6 +598,8 @@ export const ar: Record<TranslationKey, string> = {
   "startPages.removeFromStart": "إزالة من صفحات البدء",
   "startPages.sectionTitle": "صفحات البدء",
   "startPages.summary": "سيتم فتح {count} صفحة عند بدء Home",
+  "home2.tabs.pinToDashboard": "تثبيت في لوحة المعلومات",
+  "home2.tabs.addToBookmarks": "إضافة إلى الإشارات المرجعية",
   "tabs.closeNamed": "إغلاق {label}",
   "tabs.muteNamed": "كتم {label}",
   "tabs.unmuteNamed": "إلغاء كتم {label}",

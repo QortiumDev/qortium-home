@@ -245,6 +245,7 @@ export interface HomeV2PrototypeProps {
   readonly onSetAppNotifications?: (enabled: boolean) => Promise<void>
   readonly onSetWindowBehavior?: (change: HomeV2WindowBehaviorChange) => Promise<void>
   readonly onOpenReleaseNotes?: (target: HomeV2ReleaseNotesTarget) => void
+  readonly onPinTabToDashboard?: (tabId: ProductState['tabs'][number]['id']) => void | Promise<void>
   readonly onWelcomeAccountAction?: (action: 'create' | 'import' | 'private') => void
   readonly onWelcomeComplete?: (
     destination: 'appearance' | 'dashboard',
@@ -1088,6 +1089,7 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
         onManageBookmarks={props.onManageBookmarks}
         onSetBookmarkToolbarVisibility={props.onSetBookmarkToolbarVisibility}
         onDropTabOnBookmarkToolbar={props.onDropTabOnBookmarkToolbar}
+        onPinTabToDashboard={props.onPinTabToDashboard}
         onDetachTab={props.onDetachTab}
         onLockAccount={props.onLockAccount}
         onUnlockAccount={props.onUnlockAccount}

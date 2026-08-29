@@ -598,6 +598,8 @@ export const ru: Record<TranslationKey, string> = {
   "qdnWrite.voteApprove": "За",
   "qdnWrite.voteDirection": "Голос",
   "qdnWrite.voteOppose": "Против",
+  "home2.tabs.pinToDashboard": "Закрепить на панели",
+  "home2.tabs.addToBookmarks": "Добавить в закладки",
   "tabs.closeNamed": "Закрыть {label}",
   "tabs.muteNamed": "Отключить звук {label}",
   "tabs.unmuteNamed": "Включить звук {label}",

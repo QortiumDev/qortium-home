@@ -3346,3 +3346,47 @@ body,
   color: var(--v2-text-muted, #666);
   font-size: 0.85em;
 }
+
+/* The tab right-click menu. Positioned at the pointer, unlike the centred
+   action sheet in home-v2-context-menu.css — different affordance, so
+   deliberately its own class rather than borrowing that one's layout.
+   The app page is a native view composited over the renderer, so this only
+   appears above it because the chrome suspends that view while the menu is
+   open (BrowserChrome's overlay registration). The z-index alone would not
+   be enough. */
+.home-v2-tab-menu__backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 130;
+}
+
+.home-v2-tab-menu {
+  position: fixed;
+  z-index: 131;
+  min-width: 12rem;
+  padding: 0.25rem;
+  display: flex;
+  flex-direction: column;
+  color: var(--v2-ink);
+  background: var(--v2-surface-raised);
+  border: 1px solid var(--v2-line-strong);
+  border-radius: 0.5rem;
+  box-shadow: 0 0.75rem 2rem rgb(0 0 0 / 28%);
+}
+
+.home-v2-tab-menu > button {
+  appearance: none;
+  background: none;
+  border: 0;
+  border-radius: 0.35rem;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  padding: 0.5rem 0.75rem;
+  text-align: start;
+}
+
+.home-v2-tab-menu > button:hover,
+.home-v2-tab-menu > button:focus-visible {
+  background: var(--v2-surface-sunken, rgb(0 0 0 / 8%));
+}

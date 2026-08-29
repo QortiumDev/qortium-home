@@ -598,6 +598,8 @@ export const hu: Record<TranslationKey, string> = {
   "startPages.removeFromStart": "Eltávolítás a kezdőoldalak közül",
   "startPages.sectionTitle": "Kezdőoldalak",
   "startPages.summary": "A Home indulásakor {count} oldal nyílik meg",
+  "home2.tabs.pinToDashboard": "Rögzítés az irányítópulthoz",
+  "home2.tabs.addToBookmarks": "Hozzáadás a könyvjelzőkhöz",
   "tabs.closeNamed": "{label} bezárása",
   "tabs.muteNamed": "{label} némítása",
   "tabs.unmuteNamed": "{label} némításának feloldása",

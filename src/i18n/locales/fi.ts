@@ -598,6 +598,8 @@ export const fi: Record<TranslationKey, string> = {
   "startPages.removeFromStart": "Poista aloitussivuista",
   "startPages.sectionTitle": "Aloitussivut",
   "startPages.summary": "{count} sivu(a) avautuu, kun Home käynnistyy",
+  "home2.tabs.pinToDashboard": "Kiinnitä koontinäyttöön",
+  "home2.tabs.addToBookmarks": "Lisää kirjanmerkkeihin",
   "tabs.closeNamed": "Sulje {label}",
   "tabs.muteNamed": "Mykistä {label}",
   "tabs.unmuteNamed": "Poista mykistys: {label}",

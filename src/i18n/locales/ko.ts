@@ -598,6 +598,8 @@ export const ko: Record<TranslationKey, string> = {
   "startPages.removeFromStart": "시작 페이지에서 제거",
   "startPages.sectionTitle": "시작 페이지",
   "startPages.summary": "Home 시작 시 {count}개 페이지가 열립니다",
+  "home2.tabs.pinToDashboard": "대시보드에 고정",
+  "home2.tabs.addToBookmarks": "북마크에 추가",
   "tabs.closeNamed": "{label} 닫기",
   "tabs.muteNamed": "{label} 음소거",
   "tabs.unmuteNamed": "{label} 음소거 해제",

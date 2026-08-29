@@ -34,6 +34,17 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-29 - feat(tabs): right-click a tab
+
+Right-clicking a tab now opens a menu, and the menu appears in front of the
+page instead of behind it. It offers pinning the tab to the dashboard, adding
+it to the bookmarks toolbar, and closing it.
+
+App pages are drawn by the system rather than by Home, so anything Home draws
+would normally sit underneath them. Home already handles this for its other
+menus by pausing the page while a menu is open, and the tab menu now does the
+same.
+
 ### 2026-08-29 - fix(account): an account label is not a registered name
 
 The name you give an account when you create it is a private label for your own

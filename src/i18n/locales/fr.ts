@@ -577,6 +577,8 @@ export const fr: Record<TranslationKey, string> = {
   "qdnWrite.voteApprove": "Approuver",
   "qdnWrite.voteDirection": "Vote",
   "qdnWrite.voteOppose": "Opposer",
+  "home2.tabs.pinToDashboard": "Épingler au tableau de bord",
+  "home2.tabs.addToBookmarks": "Ajouter aux favoris",
   "tabs.closeNamed": "Fermer {label}",
   "tabs.muteNamed": "Couper le son de {label}",
   "tabs.unmuteNamed": "Réactiver le son de {label}",

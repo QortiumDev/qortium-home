@@ -598,6 +598,8 @@ export const de: Record<TranslationKey, string> = {
   "startPages.removeFromStart": "Von Startseiten entfernen",
   "startPages.sectionTitle": "Startseiten",
   "startPages.summary": "{count} Seite(n) werden beim Start von Home geöffnet",
+  "home2.tabs.pinToDashboard": "An Dashboard anheften",
+  "home2.tabs.addToBookmarks": "Zu Lesezeichen hinzufügen",
   "tabs.closeNamed": "{label} schließen",
   "tabs.muteNamed": "{label} stummschalten",
   "tabs.unmuteNamed": "Stummschaltung von {label} aufheben",
