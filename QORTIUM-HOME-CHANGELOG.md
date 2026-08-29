@@ -34,6 +34,21 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-29 - feat(core): choose which Core release to install
+
+Home 2 installed whichever release channel was already installed, so someone on
+a prerelease build was only ever offered prereleases, and someone on a stable
+build never saw a newer prerelease at all.
+
+Both are offered now. The newest stable release is always listed and is what
+Home suggests by default. A prerelease appears alongside it only when it is
+newer than that stable release, so the list never suggests a prerelease that has
+already been overtaken. Choosing one installs that one.
+
+Installing an older version, and reinstalling the version already present to
+repair a damaged install, are not part of this change. Both need work in the
+Core management code first, which is described in the notes for that work.
+
 ### 2026-08-29 - feat(node): show how many peers are reached over I2P
 
 Home 1.x showed how a node's connections were split between direct internet

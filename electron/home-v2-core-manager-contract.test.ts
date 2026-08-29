@@ -137,6 +137,8 @@ function maintenanceManager(options: {
   onInstallJava?: () => Promise<unknown>
   observedRuntime?: 'running' | 'stopped' | 'unknown'
   release?: Record<string, unknown>
+  prerelease?: Record<string, unknown>
+  stable?: Record<string, unknown>
   runtime?: Record<string, unknown>
 } = {}) {
   const status = () => qortiumStatus({
@@ -161,8 +163,8 @@ function maintenanceManager(options: {
   }
   return {
     checkReleases: async () => ({
-      prerelease: options.release ?? unavailable,
-      stable: options.release ?? unavailable,
+      prerelease: options.prerelease ?? options.release ?? unavailable,
+      stable: options.stable ?? options.release ?? unavailable,
     }),
     getStatus: async () => status(),
     getMaintenanceRuntimeStateForHomeV2: async () => options.observedRuntime ?? 'stopped',
@@ -227,6 +229,9 @@ function maintenanceManager(options: {
     action: 'initial-install',
     available: true,
     channel: 'prerelease',
+    // Both channels carry the same tag here, so the prerelease is NOT offered:
+    // it must be strictly newer than the stable release to join the list.
+    offers: [{ channel: 'stable', relation: 'initial-install', tag: 'v1.2.3' }],
     revision: 1,
     schema: 'home-v2-core-maintenance-release',
     tag: 'v1.2.3',
@@ -651,6 +656,58 @@ for (const nested of [
   })
   assert.equal(result.outcome, 'blocked')
   assert.equal(result.status.capabilities.canUpdateRunningInPlace, false, 'no install to roll back to')
+}
+
+// Which releases are OFFERED. The owner's rule: always offer the newest stable,
+// offer the newest prerelease only when it is strictly newer than that stable,
+// and let the same version through as a reinstall (the repair case).
+{
+  const rel = (channel: string, tagName: string) => ({
+    asset: { digest: 'd', downloadUrl: 'u', name: 'n.zip', size: 1 },
+    available: true, channel, commit: 'b'.repeat(40), commitTimestamp: 't',
+    htmlUrl: 'h', name: 'n', publishedAt: 'p', tagName,
+  })
+  const offersFor = async (
+    stable: Record<string, unknown> | undefined,
+    prerelease: Record<string, unknown> | undefined,
+    installedVersion: string | null,
+  ) => {
+    const manager = maintenanceManager({
+      prerelease, stable,
+      installed: installedVersion ? { jarSemver: installedVersion, tagName: installedVersion } : null,
+    })
+    const checked = await createHomeV2CoreManagerService(() => manager).checkMaintenanceRelease({
+      revision: 1, schema: 'home-v2-core-maintenance-release-request',
+    })
+    assertRedacted(checked)
+    return checked.offers
+  }
+
+  // A newer prerelease joins the stable one.
+  assert.deepEqual(await offersFor(rel('stable', '1.7.0'), rel('prerelease', '1.8.0'), '1.6.0'), [
+    { channel: 'stable', relation: 'update', tag: '1.7.0' },
+    { channel: 'prerelease', relation: 'update', tag: '1.8.0' },
+  ])
+
+  // A prerelease that TRAILS the stable release is not offered at all.
+  assert.deepEqual(await offersFor(rel('stable', '1.8.0'), rel('prerelease', '1.7.0'), '1.6.0'), [
+    { channel: 'stable', relation: 'update', tag: '1.8.0' },
+  ])
+
+  // Same version is NOT offered. core-manager has only 'initial-install' and
+  // 'strict-update' modes; every guard tests for one of those by name, so an
+  // invented 'reinstall' mode would skip the commit verification and the
+  // activation-safety check rather than repair anything.
+  assert.deepEqual(await offersFor(rel('stable', '1.7.0'), undefined, '1.7.0'), [])
+
+  // Nothing installed yet.
+  assert.deepEqual(await offersFor(rel('stable', '1.7.0'), undefined, null), [
+    { channel: 'stable', relation: 'initial-install', tag: '1.7.0' },
+  ])
+
+  // Older than installed is withheld until the downgrade confirmation round
+  // trip is wired through the contract.
+  assert.deepEqual(await offersFor(rel('stable', '1.5.0'), undefined, '1.7.0'), [])
 }
 
 console.log('Home v2 Core-manager contract tests passed.')

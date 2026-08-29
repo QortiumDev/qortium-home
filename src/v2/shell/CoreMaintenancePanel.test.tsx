@@ -56,6 +56,7 @@ const client: HomeV2CoreManagerClient = {
   getMaintenanceStatus: async () => currentStatus,
   checkMaintenanceRelease: async () => ({
     action: 'initial-install', available: true, channel: 'prerelease', revision: 1,
+    offers: [{ channel: 'prerelease' as const, relation: 'initial-install' as const, tag: 'v1.2.3' }],
     schema: 'home-v2-core-maintenance-release', tag: 'v1.2.3',
   }),
   runMaintenanceAction: async (action, release) => {
@@ -305,6 +306,61 @@ try {
   })
   assert.equal(revealCalls, 1)
   assert.doesNotMatch(container.textContent ?? '', /\/(?:home|opt|usr|Users)\//)
+  // Both channels are offered, and the newest STABLE is the default selection --
+  // a prerelease is opt-in, never something the user lands on by accident.
+  {
+    const originalCheck = client.checkMaintenanceRelease
+    client.checkMaintenanceRelease = async () => ({
+      action: 'strict-update' as const, available: true, channel: 'stable' as const, revision: 1 as const,
+      offers: [
+        { channel: 'stable' as const, relation: 'update' as const, tag: 'v1.2.3' },
+        { channel: 'prerelease' as const, relation: 'update' as const, tag: 'v1.3.0' },
+      ],
+      schema: 'home-v2-core-maintenance-release' as const, tag: 'v1.2.3',
+    })
+    act(() => root.unmount())
+    root = createRoot(container)
+    await act(async () => {
+      root.render(<CoreMaintenanceHarness />)
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    await act(async () => {
+      button('Check release').click()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    const chooser = container.querySelector<HTMLSelectElement>('[data-home-v2-core-release-choice]')
+    assert(chooser, 'expected a release chooser when more than one release is offered')
+    assert.deepEqual(
+      [...chooser.options].map((option) => option.value),
+      ['v1.2.3', 'v1.3.0'],
+    )
+    assert.equal(chooser.value, 'v1.2.3', 'the newest stable release must be preselected')
+    assert.match(container.textContent ?? '', /Prerelease v1\.3\.0/)
+
+    // ...and picking one must actually install THAT one. Asserting only that
+    // the select renders would pass even if the selection were ignored.
+    actions.length = 0
+    await act(async () => {
+      chooser.value = 'v1.3.0'
+      chooser.dispatchEvent(new Event('change', { bubbles: true }))
+      await Promise.resolve()
+    })
+    const installButton = [...container.querySelectorAll('button')]
+      .find((item) => /Update/.test(item.textContent ?? ''))
+    assert(installButton, 'expected an update button')
+    await act(async () => {
+      installButton.click()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    assert.deepEqual([...actions], ['strict-update:v1.3.0'],
+      'the chosen prerelease must be the tag that gets installed')
+
+    client.checkMaintenanceRelease = originalCheck
+  }
+
 } finally {
   act(() => root.unmount())
   delete window.homeV2CoreManagers
