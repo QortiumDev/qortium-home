@@ -34,6 +34,21 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-29 - fix(i18n): correct peer and minting wording in nine languages
+
+The translated interface used the wrong sense of two words. "Peers", meaning
+other computers on the network, had been rendered as colleagues, comrades,
+people of the same age, and analogues, depending on the language. "Minting" had
+been rendered in some languages as the striking of metal coins, which is not
+what minting does here.
+
+Every affected language already had the right word elsewhere in its own
+translation, so each correction adopts the term that language was already using
+rather than introducing a new one. For minting, the wording now matches what
+Qortal's own interface has shown for years, so anyone moving between the two
+sees the same word. Where a language's existing wording already agreed with
+Qortal, it was left alone.
+
 ### 2026-08-29 - fix(node): count data peers as well as chain peers
 
 Qortium nodes keep two separate pools of connections: one for the chain and one
