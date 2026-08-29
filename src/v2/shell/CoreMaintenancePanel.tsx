@@ -187,6 +187,20 @@ export function CoreMaintenancePanel({
         <div className="home-v2-setting-row__copy">
           <strong>Qortium Core</strong>
           <span>{coreVersion}{status.core.channel ? ` · ${status.core.channel}` : ''}</span>
+          {status.core.installedTag || status.core.installedCommit ? (
+            // Which BUILD, not just which version: 1.x showed these, and two
+            // builds of one version are otherwise indistinguishable. The
+            // install path and jar path stay out — this contract redacts them
+            // on purpose.
+            <small data-home-v2-core-build>
+              {[
+                status.core.installedTag,
+                status.core.installedCommit
+                  ? status.core.installedCommit.slice(0, 12)
+                  : null,
+              ].filter(Boolean).join(' · ')}
+            </small>
+          ) : null}
         </div>
         <div className="home-v2-setting-row__control home-v2-core-maintenance__actions">
           <button className="home-v2-secondary-button" type="button" disabled={busy !== null} onClick={() => void check()}>

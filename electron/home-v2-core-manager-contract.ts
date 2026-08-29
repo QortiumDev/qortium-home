@@ -82,6 +82,10 @@ export type HomeV2CoreMaintenanceStatus = {
   }
   readonly core: {
     readonly channel: 'prerelease' | 'stable' | null
+    /** The commit the installed jar was built from, or null. */
+    readonly installedCommit: string | null
+    /** The release tag it was installed from, or null. */
+    readonly installedTag: string | null
     readonly installedVersion: string | null
     readonly runtime: HomeV2CoreRuntimeState
   }
@@ -201,6 +205,20 @@ function qortiumMaintenanceStatus(
           : typeof installed?.tagName === 'string' && installed.tagName.trim()
             ? installed.tagName.trim()
             : null,
+      /**
+       * The build actually installed, beyond its semver.
+       *
+       * Home 1.x showed these; Home 2 showed only the version, so two builds
+       * of the same version were indistinguishable. Both are ordinary build
+       * identity — deliberately NOT the install path or the jar path, which
+       * this contract redacts (see assertRedacted in the contract test).
+       */
+      installedCommit: typeof installed?.jarCommit === 'string' && installed.jarCommit.trim()
+        ? installed.jarCommit.trim().slice(0, 40)
+        : null,
+      installedTag: typeof installed?.tagName === 'string' && installed.tagName.trim()
+        ? installed.tagName.trim().slice(0, 100)
+        : null,
       runtime: runtimeState,
     },
     java: {
