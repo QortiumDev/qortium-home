@@ -666,6 +666,41 @@ try {
     'closing the menu must release the app view again',
   )
 
+  // The TAB context menu must register the same way. This is the whole fix for
+  // "right click on tabs shows behind app": a menu the shell draws sits behind
+  // the page unless the app view is suspended while it is open, exactly as the
+  // node and account dropdowns already do.
+  {
+    const tab = overlayContainer.querySelector<HTMLElement>('.home-v2-tab')
+    assert.ok(tab, 'expected a tab in the strip')
+    const before = overlayCalls.length
+    act(() => {
+      tab.dispatchEvent(new window.MouseEvent('contextmenu', {
+        bubbles: true,
+        cancelable: true,
+      }))
+    })
+    assert.equal(
+      overlayCalls.at(-1),
+      true,
+      'right-clicking a tab must suspend the app view under the menu',
+    )
+    assert.ok(
+      overlayContainer.querySelector('[data-home-v2-tab-context-menu]'),
+      'the menu must render',
+    )
+    // Dismissing releases it again — otherwise the page stays frozen.
+    const backdrop = overlayContainer.querySelector<HTMLElement>('.home-v2-tab-menu__backdrop')
+    assert.ok(backdrop)
+    act(() => backdrop.click())
+    assert.equal(overlayCalls.at(-1), false, 'dismissing must release the app view')
+    assert.equal(
+      overlayContainer.querySelector('[data-home-v2-tab-context-menu]'),
+      null,
+    )
+    assert.ok(overlayCalls.length > before)
+  }
+
   // Escape is a dismissal like any other and has to report as one, or the app
   // page would stay frozen behind a menu that is no longer there.
   act(() => overlayTrigger('.home-v2-bookmarks-button').click())

@@ -598,6 +598,8 @@ export const ja: Record<TranslationKey, string> = {
   "startPages.removeFromStart": "スタートページから削除",
   "startPages.sectionTitle": "スタートページ",
   "startPages.summary": "Home の起動時に {count} ページが開きます",
+  "home2.tabs.pinToDashboard": "ダッシュボードにピン留め",
+  "home2.tabs.addToBookmarks": "ブックマークに追加",
   "tabs.closeNamed": "{label}を閉じる",
   "tabs.muteNamed": "{label}をミュート",
   "tabs.unmuteNamed": "{label}のミュートを解除",

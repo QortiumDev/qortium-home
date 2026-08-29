@@ -598,6 +598,8 @@ export const he: Record<TranslationKey, string> = {
   "startPages.removeFromStart": "הסר מדפי התחלה",
   "startPages.sectionTitle": "דפי התחלה",
   "startPages.summary": "{count} דפים ייפתחו כאשר Home יופעל",
+  "home2.tabs.pinToDashboard": "הצמדה ללוח הבקרה",
+  "home2.tabs.addToBookmarks": "הוספה לסימניות",
   "tabs.closeNamed": "סגירת {label}",
   "tabs.muteNamed": "השתקת {label}",
   "tabs.unmuteNamed": "ביטול השתקת {label}",

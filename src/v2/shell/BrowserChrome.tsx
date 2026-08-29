@@ -96,6 +96,10 @@ export interface BrowserChromeProps {
   readonly onDetachTab?: (
     tabId: ProductState['tabs'][number]['id'],
   ) => void | Promise<void>
+  /** Pins a tab's address to the dashboard, from the tab's context menu. */
+  readonly onPinTabToDashboard?: (
+    tabId: ProductState['tabs'][number]['id'],
+  ) => void | Promise<void>
   readonly onLockAccount?: () => void
   readonly onUnlockAccount?: () => void
   /**
@@ -207,6 +211,7 @@ export function BrowserChrome({
   onManageBookmarks,
   onSetBookmarkToolbarVisibility,
   onDropTabOnBookmarkToolbar,
+  onPinTabToDashboard,
   onDetachTab,
   onLockAccount,
   onUnlockAccount,
@@ -246,6 +251,16 @@ export function BrowserChrome({
         : current.filter((id) => id !== overlayId)
     })
   }, [])
+  // The tab context menu. Its open state registers as an overlay for the same
+  // reason every other popover here does: without suspending the app view, a
+  // menu drawn by the shell renders BEHIND the page — which is exactly what
+  // the tester saw ("right click on tabs shows behind app").
+  const [tabMenu, setTabMenu] = useState<
+    { tabId: ProductState['tabs'][number]['id']; x: number; y: number } | null
+  >(null)
+  useEffect(() => {
+    setOverlayOpen('tab-context-menu', tabMenu !== null)
+  }, [tabMenu, setOverlayOpen])
   const overlayOpen = openOverlayIds.length > 0
   const onOverlayOpenChangeRef = useRef(onOverlayOpenChange)
   useEffect(() => {
@@ -424,6 +439,8 @@ export function BrowserChrome({
           onNewTab={openNewTab}
           onDropOnBookmarkToolbar={onDropTabOnBookmarkToolbar}
           onDetachTab={onDetachTab}
+          onTabContextMenu={(tabId, position) =>
+            setTabMenu({ tabId, x: position.x, y: position.y })}
           newTabDisabled={navigationDisabled}
           loadVisibleAppIcon={loadVisibleAppIcon}
         />
@@ -608,6 +625,67 @@ export function BrowserChrome({
             productState.destination === 'newtab'
           }
         />
+      ) : null}
+      {tabMenu ? (
+        <>
+          {/* A full-bleed backdrop so any click closes the menu, including a
+              click on the page — the same shape the other popovers use. */}
+          <div
+            className="home-v2-tab-menu__backdrop"
+            onClick={() => setTabMenu(null)}
+            onContextMenu={(event) => {
+              event.preventDefault()
+              setTabMenu(null)
+            }}
+          />
+          <div
+            className="home-v2-tab-menu"
+            data-home-v2-tab-context-menu={String(tabMenu.tabId)}
+            role="menu"
+            style={{ left: tabMenu.x, top: tabMenu.y }}
+          >
+            {onPinTabToDashboard ? (
+              <button
+                autoFocus
+                type="button"
+                role="menuitem"
+                data-home-v2-tab-menu-action="pin"
+                onClick={() => {
+                  void onPinTabToDashboard(tabMenu.tabId)
+                  setTabMenu(null)
+                }}
+              >
+                {t('home2.tabs.pinToDashboard')}
+              </button>
+            ) : null}
+            {onDropTabOnBookmarkToolbar ? (
+              <button
+                type="button"
+                role="menuitem"
+                data-home-v2-tab-menu-action="bookmark"
+                onClick={() => {
+                  void onDropTabOnBookmarkToolbar(tabMenu.tabId)
+                  setTabMenu(null)
+                }}
+              >
+                {t('home2.tabs.addToBookmarks')}
+              </button>
+            ) : null}
+            {onCloseTab ? (
+              <button
+                type="button"
+                role="menuitem"
+                data-home-v2-tab-menu-action="close"
+                onClick={() => {
+                  onCloseTab(tabMenu.tabId)
+                  setTabMenu(null)
+                }}
+              >
+                {t('tabs.closeTab')}
+              </button>
+            ) : null}
+          </div>
+        </>
       ) : null}
     </header>
   )

@@ -598,6 +598,8 @@ export const sv: Record<TranslationKey, string> = {
   "startPages.removeFromStart": "Ta bort från startsidor",
   "startPages.sectionTitle": "Startsidor",
   "startPages.summary": "{count} sida/sidor öppnas när Home startar",
+  "home2.tabs.pinToDashboard": "Fäst på instrumentpanelen",
+  "home2.tabs.addToBookmarks": "Lägg till i bokmärken",
   "tabs.closeNamed": "Stäng {label}",
   "tabs.muteNamed": "Stäng av ljudet för {label}",
   "tabs.unmuteNamed": "Slå på ljudet för {label}",

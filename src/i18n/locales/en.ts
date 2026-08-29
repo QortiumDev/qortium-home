@@ -576,6 +576,8 @@ export const en = {
   "qdnWrite.voteApprove": "Approve",
   "qdnWrite.voteDirection": "Vote",
   "qdnWrite.voteOppose": "Oppose",
+  "home2.tabs.pinToDashboard": "Pin to dashboard",
+  "home2.tabs.addToBookmarks": "Add to bookmarks",
   "tabs.closeNamed": "Close {label}",
   "tabs.muteNamed": "Mute {label}",
   "tabs.unmuteNamed": "Unmute {label}",

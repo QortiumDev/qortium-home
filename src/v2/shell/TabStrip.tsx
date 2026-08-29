@@ -24,6 +24,14 @@ export interface TabStripProps {
   readonly onDropOnBookmarkToolbar?: (tabId: TabId) => void | Promise<void>
   /** Moves the tab into its own window when it is dragged clear of the strip. */
   readonly onDetachTab?: (tabId: TabId) => void | Promise<void>
+  /**
+   * Right-click on a tab. The MENU is owned by the chrome, not by this strip,
+   * because it has to register as an overlay: app pages are native views
+   * composited over the renderer, so anything the shell draws sits BEHIND them
+   * unless the view is suspended while it is open. That is the same defect the
+   * node and account dropdowns had, and the same fix.
+   */
+  readonly onTabContextMenu?: (tabId: TabId, position: { x: number; y: number }) => void
   readonly newTabDisabled?: boolean
   readonly loadVisibleAppIcon?: VisibleAppIconLoader
 }
@@ -140,6 +148,7 @@ export function TabStrip({
   onNewTab,
   onDropOnBookmarkToolbar,
   onDetachTab,
+  onTabContextMenu,
   newTabDisabled,
   loadVisibleAppIcon,
 }: TabStripProps) {
@@ -326,6 +335,11 @@ export function TabStrip({
             onAuxClick={(event) =>
               handleAuxClick(event, () => onCloseTab?.(entry.id))
             }
+            onContextMenu={(event) => {
+              if (!onTabContextMenu) return
+              event.preventDefault()
+              onTabContextMenu(entry.id, { x: event.clientX, y: event.clientY })
+            }}
           >
             <button
               type="button"

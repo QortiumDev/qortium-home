@@ -599,6 +599,8 @@ export const nb: Record<TranslationKey, string> = {
   "startPages.removeFromStart": "Fjern fra startsider",
   "startPages.sectionTitle": "Startsider",
   "startPages.summary": "{count} side(r) åpnes når Home starter",
+  "home2.tabs.pinToDashboard": "Fest til dashbordet",
+  "home2.tabs.addToBookmarks": "Legg til i bokmerker",
   "tabs.closeNamed": "Lukk {label}",
   "tabs.muteNamed": "Demp {label}",
   "tabs.unmuteNamed": "Slå på lyd for {label}",

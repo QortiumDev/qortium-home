@@ -598,6 +598,8 @@ export const zhTW: Record<TranslationKey, string> = {
   "startPages.removeFromStart": "從啟動頁面移除",
   "startPages.sectionTitle": "啟動頁面",
   "startPages.summary": "Home 啟動時會開啟 {count} 個頁面",
+  "home2.tabs.pinToDashboard": "釘選到儀表板",
+  "home2.tabs.addToBookmarks": "加入書籤",
   "tabs.closeNamed": "關閉 {label}",
   "tabs.muteNamed": "將 {label} 靜音",
   "tabs.unmuteNamed": "取消 {label} 靜音",

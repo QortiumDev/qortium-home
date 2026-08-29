@@ -599,6 +599,8 @@ export const hi: Record<TranslationKey, string> = {
   "startPages.removeFromStart": "स्टार्ट पेज से हटाएँ",
   "startPages.sectionTitle": "स्टार्ट पेज",
   "startPages.summary": "Home शुरू होने पर {count} पेज खुलेंगे",
+  "home2.tabs.pinToDashboard": "डैशबोर्ड पर पिन करें",
+  "home2.tabs.addToBookmarks": "बुकमार्क में जोड़ें",
   "tabs.closeNamed": "{label} बंद करें",
   "tabs.muteNamed": "{label} को म्यूट करें",
   "tabs.unmuteNamed": "{label} को अनम्यूट करें",

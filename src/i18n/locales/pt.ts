@@ -598,6 +598,8 @@ export const pt: Record<TranslationKey, string> = {
   "startPages.removeFromStart": "Remover das páginas iniciais",
   "startPages.sectionTitle": "Páginas iniciais",
   "startPages.summary": "{count} página(s) serão abertas quando o Home iniciar",
+  "home2.tabs.pinToDashboard": "Fixar no painel",
+  "home2.tabs.addToBookmarks": "Adicionar aos marcadores",
   "tabs.closeNamed": "Fechar {label}",
   "tabs.muteNamed": "Silenciar {label}",
   "tabs.unmuteNamed": "Reativar som de {label}",

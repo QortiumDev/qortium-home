@@ -598,6 +598,8 @@ export const ro: Record<TranslationKey, string> = {
   "startPages.removeFromStart": "Elimină din paginile de pornire",
   "startPages.sectionTitle": "Pagini de pornire",
   "startPages.summary": "{count} pagină/pagini se vor deschide la pornirea Home",
+  "home2.tabs.pinToDashboard": "Fixează pe panou",
+  "home2.tabs.addToBookmarks": "Adaugă la marcaje",
   "tabs.closeNamed": "Închide {label}",
   "tabs.muteNamed": "Dezactivează sunetul pentru {label}",
   "tabs.unmuteNamed": "Activează sunetul pentru {label}",

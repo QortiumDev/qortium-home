@@ -598,6 +598,8 @@ export const et: Record<TranslationKey, string> = {
   "startPages.removeFromStart": "Eemalda avalehtede hulgast",
   "startPages.sectionTitle": "Avalehed",
   "startPages.summary": "Home käivitumisel avatakse {count} leht(e)",
+  "home2.tabs.pinToDashboard": "Kinnita töölauale",
+  "home2.tabs.addToBookmarks": "Lisa järjehoidjatesse",
   "tabs.closeNamed": "Sulge {label}",
   "tabs.muteNamed": "Vaigista {label}",
   "tabs.unmuteNamed": "Taasta {label} heli",

@@ -598,6 +598,8 @@ export const nl: Record<TranslationKey, string> = {
   "startPages.removeFromStart": "Verwijderen uit startpagina’s",
   "startPages.sectionTitle": "Startpagina’s",
   "startPages.summary": "{count} pagina(’s) worden geopend wanneer Home start",
+  "home2.tabs.pinToDashboard": "Vastmaken aan dashboard",
+  "home2.tabs.addToBookmarks": "Toevoegen aan bladwijzers",
   "tabs.closeNamed": "{label} sluiten",
   "tabs.muteNamed": "{label} dempen",
   "tabs.unmuteNamed": "Dempen van {label} opheffen",
