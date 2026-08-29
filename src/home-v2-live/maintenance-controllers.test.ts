@@ -28,6 +28,7 @@ import {
   canSetTransportMode,
   toHomeV2TransportManagement,
   transportActionMessage,
+  transportModeActionFor,
   transportStatusFingerprint,
   type HomeV2TransportMaintenance,
 } from './transport-maintenance-controller'
@@ -108,6 +109,7 @@ function transportStatus(
       canSetDirectOnly: true,
       canSetI2pOnly: false,
       canStopRouter: false,
+      canSetModeWhileRunning: false,
     },
     core: { install: 'installed', runtime: 'stopped' },
     issue: null,
@@ -338,6 +340,60 @@ function transportActionResult(
   slice.onEnsureRouter?.()
   slice.onSetTransportMode?.('direct-and-i2p')
   assert.deepEqual(calls, ['ensure-router:null', 'set-mode:direct-and-i2p'])
+}
+
+// Which write a mode change uses. A stopped Core edits the settings file; a
+// running one goes through the node's API. Getting this backwards would either
+// rewrite settings.json under a live Core or refuse a change that is now legal.
+{
+  const stopped = transportStatus()
+  assert.equal(transportModeActionFor(stopped, 'direct-only'), 'set-mode')
+
+  const running = transportStatus({
+    capabilities: {
+      canEnsureRouter: false,
+      canSetDirectAndI2p: false,
+      canSetDirectOnly: false,
+      canSetI2pOnly: false,
+      canStopRouter: true,
+      canSetModeWhileRunning: true,
+    },
+    core: { install: 'installed', runtime: 'running' },
+    router: { maintenance: 'none', state: 'managed-running', version: '2.50.2' },
+  })
+  assert.equal(transportModeActionFor(running, 'direct-only'), 'set-mode-live')
+  assert.equal(transportModeActionFor(running, 'i2p-only'), 'set-mode-live')
+
+  // No router: an i2p mode would leave the node unable to connect after the
+  // restart, so it is refused even though the live write itself is available.
+  const runningNoRouter = transportStatus({
+    capabilities: {
+      canEnsureRouter: false,
+      canSetDirectAndI2p: false,
+      canSetDirectOnly: false,
+      canSetI2pOnly: false,
+      canStopRouter: false,
+      canSetModeWhileRunning: true,
+    },
+    core: { install: 'installed', runtime: 'running' },
+    router: { maintenance: 'install', state: 'missing', version: null },
+  })
+  assert.equal(transportModeActionFor(runningNoRouter, 'direct-only'), 'set-mode-live')
+  assert.equal(transportModeActionFor(runningNoRouter, 'i2p-only'), null)
+
+  // Neither write available.
+  const unknown = transportStatus({
+    capabilities: {
+      canEnsureRouter: false,
+      canSetDirectAndI2p: false,
+      canSetDirectOnly: false,
+      canSetI2pOnly: false,
+      canStopRouter: false,
+      canSetModeWhileRunning: false,
+    },
+    core: { install: 'installed', runtime: 'unknown' },
+  })
+  assert.equal(transportModeActionFor(unknown, 'direct-only'), null)
 }
 
 console.log('Home v2 maintenance controller tests passed.')

@@ -22,13 +22,17 @@ export function transportActionMessage(
   result: HomeV2TransportMaintenanceActionResult,
 ) {
   if (result.outcome === 'completed') {
+    if (result.warning === 'restart-required') {
+      return t('home2.transportMaintenance.action.modeSavedRestartRequired')
+    }
     if (result.warning) return t('home2.transportMaintenance.action.completedCleanupWarning')
-    return action === 'set-mode'
+    return action === 'set-mode' || action === 'set-mode-live'
       ? t('home2.transportMaintenance.action.modeSaved')
       : t('home2.transportMaintenance.action.routerCompleted')
   }
   if (result.code === 'action-unconfirmed') return t('home2.transportMaintenance.action.unconfirmed')
   if (result.code === 'core-install-missing') return t('home2.transportMaintenance.action.coreMissing')
+  if (result.code === 'core-runtime-not-running') return t('home2.transportMaintenance.action.coreNotRunning')
   if (result.code === 'core-runtime-not-stopped') return t('home2.transportMaintenance.action.coreRunning')
   if (result.code === 'core-runtime-unknown') return t('home2.transportMaintenance.action.coreUnknown')
   if (result.code === 'external-router-active') return t('home2.transportMaintenance.action.externalRouter')
@@ -68,6 +72,26 @@ export function canSetTransportMode(
 }
 
 /**
+ * Which write to use for a mode change.
+ *
+ * A stopped Core takes the settings-file path. A running one takes the API
+ * path, which stores the value immediately and needs a restart to apply it --
+ * the caller then asks the user to confirm that restart.
+ */
+export function transportModeActionFor(
+  status: HomeV2TransportMaintenanceStatus,
+  mode: HomeV2SettableTransportMode,
+): HomeV2TransportMaintenanceAction | null {
+  if (canSetTransportMode(status, mode)) return 'set-mode'
+  if (!status.capabilities.canSetModeWhileRunning) return null
+  if (mode !== 'direct-only' &&
+    status.router.state !== 'managed-running' && status.router.state !== 'external-running') {
+    return null
+  }
+  return 'set-mode-live'
+}
+
+/**
  * Owns the i2p router / transport-mode maintenance surface: status polling,
  * ensure-router and set-mode, and the busy, stale and notice state around them.
  *
@@ -85,6 +109,9 @@ export function useHomeV2TransportMaintenance(onCoreRefresh?: () => void) {
   const [notice, setNotice] = useState<HomeV2TransportMaintenanceNotice | null>(null)
   const [initialLoadFailed, setInitialLoadFailed] = useState(false)
   const [stale, setStale] = useState(false)
+  // Set when a live mode write succeeded: the node stored the value but will
+  // not use it until it restarts, and restarting is the user's decision.
+  const [restartRequired, setRestartRequired] = useState(false)
   const disposed = useRef(false)
   const busyRef = useRef(false)
   const statusRef = useRef<HomeV2TransportMaintenanceStatus | null>(null)
@@ -143,6 +170,8 @@ export function useHomeV2TransportMaintenance(onCoreRefresh?: () => void) {
     if (action === 'ensure-router' && !status.capabilities.canEnsureRouter) return
     if (action === 'stop-router' && !status.capabilities.canStopRouter) return
     if (action === 'set-mode' && (!mode || !canSetTransportMode(status, mode))) return
+    if (action === 'set-mode-live' &&
+      (!mode || transportModeActionFor(status, mode) !== 'set-mode-live')) return
     const sequence = ++requestSequence.current
     busyRef.current = true
     setBusy(action)
@@ -158,6 +187,9 @@ export function useHomeV2TransportMaintenance(onCoreRefresh?: () => void) {
         error: result.outcome !== 'completed',
         message: transportActionMessage(action, result),
       })
+      if (result.outcome === 'completed' && result.warning === 'restart-required') {
+        setRestartRequired(true)
+      }
       if (result.outcome === 'completed') coreRefresh.current?.()
     } catch {
       if (!disposed.current && sequence === requestSequence.current) {
@@ -174,17 +206,53 @@ export function useHomeV2TransportMaintenance(onCoreRefresh?: () => void) {
 
   const currentMode = status && status.transportMode !== 'unknown' ? status.transportMode : null
   const modeChanged = selectedMode !== null && selectedMode !== currentMode
-  const modeAllowed = !!status && selectedMode !== null && canSetTransportMode(status, selectedMode)
+  // Allowed if EITHER write is available: the settings file while Core is
+  // stopped, or the node's API while it runs.
+  const modeAllowed = !!status && selectedMode !== null &&
+    transportModeActionFor(status, selectedMode) !== null
+
+  /**
+   * Restart Core so a stored transport mode takes effect.
+   *
+   * Only ever called from an explicit confirmation: the mode write already
+   * succeeded, and this is the separate step the user opts into.
+   */
+  const confirmRestart = async () => {
+    if (!client?.stop || !client?.start || busyRef.current) return
+    busyRef.current = true
+    setBusy('set-mode-live')
+    setNotice(null)
+    try {
+      await client.stop('qortium')
+      await client.start('qortium')
+      if (disposed.current) return
+      setRestartRequired(false)
+      setNotice({ error: false, message: t('home2.transportMaintenance.action.restarted') })
+      coreRefresh.current?.()
+    } catch {
+      if (!disposed.current) {
+        setNotice({ error: true, message: t('home2.transportMaintenance.action.restartFailed') })
+      }
+    } finally {
+      if (!disposed.current) {
+        busyRef.current = false
+        setBusy(null)
+      }
+      void refresh()
+    }
+  }
 
   return {
     available: !!getStatus && !!runAction,
     busy,
+    confirmRestart,
     currentMode,
     initialLoadFailed,
     modeAllowed,
     modeChanged,
     notice,
     refresh,
+    restartRequired,
     run,
     selectedMode,
     setSelectedMode,
@@ -219,8 +287,12 @@ export function toHomeV2TransportManagement(
     mode: transport.currentMode,
     notice: transport.notice,
     onEnsureRouter: () => void transport.run('ensure-router', null),
-    onSetTransportMode: (mode: HomeV2SettableTransportMode) =>
-      void transport.run('set-mode', mode),
+    onSetTransportMode: (mode: HomeV2SettableTransportMode) => {
+      const status = transport.status
+      const action = status ? transportModeActionFor(status, mode) : null
+      if (!action) return
+      void transport.run(action, mode)
+    },
     onStopRouter: () => void transport.run('stop-router', null),
     stale: transport.stale,
     status: transport.status,

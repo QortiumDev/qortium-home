@@ -2,7 +2,10 @@ import type {
   HomeV2TransportMaintenanceStatus,
   HomeV2TransportMode,
 } from '../../home-v2-live/core-manager-client'
-import type { HomeV2TransportMaintenance } from '../../home-v2-live/transport-maintenance-controller'
+import {
+  transportModeActionFor,
+  type HomeV2TransportMaintenance,
+} from '../../home-v2-live/transport-maintenance-controller'
 import { t } from '../../i18n'
 
 type SettableTransportMode = Exclude<HomeV2TransportMode, 'unknown'>
@@ -77,12 +80,14 @@ export function TransportMaintenancePanel({
   if (!transport?.available) return null
   const {
     busy,
+    confirmRestart,
     currentMode,
     initialLoadFailed,
     modeAllowed,
     modeChanged,
     notice,
     refresh,
+    restartRequired,
     run,
     selectedMode,
     setSelectedMode,
@@ -135,23 +140,32 @@ export function TransportMaintenancePanel({
             {status.core.runtime === 'stopped'
               ? t('home2.transportMaintenance.mode.stoppedNote')
               : status.core.runtime === 'running'
-                ? t('home2.transportMaintenance.mode.stopCoreNote')
+                // A running Core no longer has to be stopped for this: the note
+                // says what actually happens now, rather than the old
+                // instruction to shut it down first.
+                ? t(status.capabilities.canSetModeWhileRunning
+                    ? 'home2.transportMaintenance.mode.runningNote'
+                    : 'home2.transportMaintenance.mode.stopCoreNote')
                 : t('home2.transportMaintenance.mode.verifyStoppedNote')}
           </span>
         </div>
         <div className="home-v2-setting-row__control home-v2-core-maintenance__actions">
           {currentMode ? (
             <select id="transport-maintenance-mode" aria-describedby="transport-maintenance-mode-note"
-              disabled={busy !== null || stale || status.core.runtime !== 'stopped'}
+              disabled={busy !== null || stale ||
+                (status.core.runtime !== 'stopped' && !status.capabilities.canSetModeWhileRunning)}
               value={selectedMode ?? currentMode}
               onChange={(event) => setSelectedMode(event.target.value as SettableTransportMode)}>
-              <option value="direct-and-i2p" disabled={!status.capabilities.canSetDirectAndI2p}>
+              <option value="direct-and-i2p"
+                disabled={!transportModeActionFor(status, 'direct-and-i2p')}>
                 {t('home2.transportMaintenance.mode.directAndI2p')}
               </option>
-              <option value="direct-only" disabled={!status.capabilities.canSetDirectOnly}>
+              <option value="direct-only"
+                disabled={!transportModeActionFor(status, 'direct-only')}>
                 {t('home2.transportMaintenance.mode.directOnly')}
               </option>
-              <option value="i2p-only" disabled={!status.capabilities.canSetI2pOnly}>
+              <option value="i2p-only"
+                disabled={!transportModeActionFor(status, 'i2p-only')}>
                 {t('home2.transportMaintenance.mode.i2pOnly')}
               </option>
             </select>
@@ -159,10 +173,24 @@ export function TransportMaintenancePanel({
           {currentMode ? (
             <button className="home-v2-primary-button" type="button" aria-describedby="transport-maintenance-mode-note"
               disabled={busy !== null || stale || !modeChanged || !modeAllowed}
-              onClick={() => void run('set-mode', selectedMode)}>
-              {busy === 'set-mode'
+              onClick={() => {
+                if (!selectedMode) return
+                const action = transportModeActionFor(status, selectedMode)
+                if (action) void run(action, selectedMode)
+              }}>
+              {busy === 'set-mode' || busy === 'set-mode-live'
                 ? t('home2.common.working')
                 : t('home2.transportMaintenance.mode.apply')}
+            </button>
+          ) : null}
+          {restartRequired ? (
+            // The mode is stored but idle until Core restarts. Restarting is the
+            // user's call, so it is a separate button rather than a side effect.
+            <button className="home-v2-primary-button" type="button"
+              data-home-v2-transport-restart
+              disabled={busy !== null || stale}
+              onClick={() => void confirmRestart()}>
+              {t('home2.transportMaintenance.action.restartNow')}
             </button>
           ) : null}
         </div>
