@@ -879,6 +879,7 @@ export const fi: Record<TranslationKey, string> = {
   "home2.node.noConnection": "Ei yhteyttä",
   "home2.node.notConfigured": "ei määritetty",
   "home2.node.peers": "{count} vertaiskonetta",
+  "home2.node.dataPeers": "{count} datavertaiskonetta",
   "home2.node.waitingForStatus": "Odotetaan solmun tilaa",
   "home2.nodeCore.description": "Yhdistä verkkoon, hallitse sen paikallista Corea ja pidä Home ajan tasalla.",
   "home2.nodeCore.coreStateUnknown": "Home ei voi varmistaa, onko Core pysäytetty tässä järjestelmässä, joten se ei asenna sen päälle. Pysäytä Core ja käytä sitten Päivitä.",

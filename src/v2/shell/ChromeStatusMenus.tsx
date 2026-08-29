@@ -36,6 +36,9 @@ function nodeMetrics(node: HomeV2Snapshot['nodes'][NetworkId]): string {
     node.peerCount === null
       ? null
       : t('home2.node.peers', { count: node.peerCount }),
+    node.dataPeerCount === null
+      ? null
+      : t('home2.node.dataPeers', { count: node.dataPeerCount }),
   ].filter(Boolean)
   return parts.join(' · ') || t('home2.node.waitingForStatus')
 }

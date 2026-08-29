@@ -878,6 +878,7 @@ export const en = {
   "home2.node.noConnection": "No connection",
   "home2.node.notConfigured": "not configured",
   "home2.node.peers": "{count} peers",
+  "home2.node.dataPeers": "{count} data peers",
   "home2.node.waitingForStatus": "Waiting for node status",
   "home2.nodeCore.description": "Connect to a network, manage its local Core, and keep Home updated.",
   "home2.nodeCore.coreStateUnknown": "Home cannot confirm whether Core is stopped on this system, so it will not install over it. Stop Core, then use Refresh.",

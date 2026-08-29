@@ -879,6 +879,7 @@ export const fr: Record<TranslationKey, string> = {
   "home2.node.noConnection": "Aucune connexion",
   "home2.node.notConfigured": "non configuré",
   "home2.node.peers": "{count} pairs",
+  "home2.node.dataPeers": "{count} pairs de données",
   "home2.node.waitingForStatus": "En attente de l'état du nœud",
   "home2.nodeCore.description": "Connectez-vous à un réseau, gérez son Core local et gardez Home à jour.",
   "home2.nodeCore.coreStateUnknown": "Home ne peut pas confirmer si le Core est arrêté sur ce système et n'installera donc pas par-dessus. Arrêtez le Core, puis utilisez Actualiser.",

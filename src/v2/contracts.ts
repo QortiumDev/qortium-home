@@ -248,6 +248,8 @@ export interface NodeSummary {
   readonly nodeApiUrl: string | null
   readonly height: number | null
   readonly peerCount: number | null
+  /** Data-network peers, reported alongside chain peers by the same status call. */
+  readonly dataPeerCount: number | null
   readonly syncPercent: number | null
   readonly syncPhase: string | null
   readonly lastCheckedAt: number | null

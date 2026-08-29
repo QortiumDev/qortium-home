@@ -792,6 +792,7 @@ function emptySummary(
     nodeApiUrl: null,
     height: null,
     peerCount: null,
+    dataPeerCount: null,
     syncPercent: null,
     syncPhase: null,
     lastCheckedAt: now,
@@ -951,6 +952,9 @@ export function createPortableNodeClient(
       peerCount:
         numberField(status, 'numberOfConnections') ??
         numberField(status, 'peerCount'),
+      // Mirrors electron/home-v2-node-bridge.ts. This assembly exists twice,
+      // once per host; keep them together or the Android build silently drifts.
+      dataPeerCount: numberField(status, 'numberOfDataConnections'),
       syncPercent: numberField(status, 'syncPercent'),
       syncPhase: stringField(status, 'syncPhase'),
       capabilities: {

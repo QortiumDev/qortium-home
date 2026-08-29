@@ -879,6 +879,7 @@ export const hu: Record<TranslationKey, string> = {
   "home2.node.noConnection": "Nincs kapcsolat",
   "home2.node.notConfigured": "nincs beállítva",
   "home2.node.peers": "{count} partner",
+  "home2.node.dataPeers": "{count} adatpartner",
   "home2.node.waitingForStatus": "Várakozás a csomópont állapotára",
   "home2.nodeCore.description": "Csatlakozz egy hálózathoz, kezeld a helyi Core-t, és tartsd naprakészen a Home-ot.",
   "home2.nodeCore.coreStateUnknown": "A Home ezen a rendszeren nem tudja megállapítani, hogy a Core le van-e állítva, ezért nem telepít rá. Állítsd le a Core-t, majd használd a Frissítést.",

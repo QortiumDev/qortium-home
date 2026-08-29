@@ -880,6 +880,7 @@ export const hi: Record<TranslationKey, string> = {
   "home2.node.noConnection": "कोई कनेक्शन नहीं",
   "home2.node.notConfigured": "कॉन्फ़िगर नहीं किया गया",
   "home2.node.peers": "{count} पीयर",
+  "home2.node.dataPeers": "{count} डेटा पीयर",
   "home2.node.waitingForStatus": "नोड की स्थिति की प्रतीक्षा है",
   "home2.nodeCore.description": "किसी नेटवर्क से जुड़ें, उसका स्थानीय Core प्रबंधित करें और Home को अद्यतन रखें।",
   "home2.nodeCore.coreStateUnknown": "Home इस सिस्टम पर यह पुष्टि नहीं कर सकता कि Core रुका हुआ है या नहीं, इसलिए वह उसके ऊपर इंस्टॉल नहीं करेगा। Core को रोकें, फिर रिफ़्रेश का उपयोग करें।",

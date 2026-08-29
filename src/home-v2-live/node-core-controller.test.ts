@@ -229,4 +229,24 @@ for (const bad of [
   assert.equal(bare.core.nodeAutoUpdateMode, null)
 }
 
+// dataPeerCount must survive the parser round trip. A field the parser validates
+// but never returns reads as undefined downstream with no type error, which is
+// how #436 shipped a dead feature with every main-process test green.
+{
+  const base = createInitialHomeV2Nodes()
+  const parsed = parseHomeV2NodesSnapshot({
+    version: 1,
+    nodes: {
+      ...base,
+      qortium: { ...base.qortium, peerCount: 15, dataPeerCount: 16 },
+    },
+  })
+  assert.equal(parsed.qortium.peerCount, 15)
+  assert.equal(
+    parsed.qortium.dataPeerCount,
+    16,
+    'dataPeerCount must be RETURNED by the parser, not merely accepted',
+  )
+}
+
 console.log('home v2 node/core controller tests passed')
