@@ -34,6 +34,30 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-30 - test: run the checks that test the real application, and notice when they are added
+
+There is a set of checks that drive the actual installable application the way a
+person would - opening it, clicking through it, reading what it shows. They are
+the only ones that test what is really shipped.
+
+Nothing ran them. They were not part of the normal test command and, with one
+exception, not part of the automated checks either, so they had quietly fallen
+out of date: eight of sixteen were failing, one of them untouched for over a
+week. Because they fail in a chain, each broken one hid the next, and two were
+still describing an application that had moved on.
+
+Three things change. They can now be run in one go, with a summary of what
+passed. Adding a new one without registering it now fails the build, the same
+way an unused test file already does. And the ones that need nothing but the
+application itself now run automatically whenever work lands.
+
+Which ones those are was established by running each with networking taken away
+and seeing which still passed, rather than by reading the code and assuming -
+that assumption is exactly what went wrong elsewhere in this session. The rest
+need a running node and stay a step to run by hand before a release, and the two
+known to fail on and off are deliberately left out of the automatic run, because
+a check that cries wolf stops being read.
+
 ### 2026-08-30 - fix(settings): a new tab opens what you chose, including Search page
 
 Settings lets you say what a new tab should open: the search page, the

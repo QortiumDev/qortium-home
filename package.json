@@ -75,7 +75,7 @@
     "smoke:desktop:widgets": "node scripts/smoke-desktop-widgets.mjs",
     "smoke:desktop:qdn-permissions": "node scripts/smoke-desktop-qdn-write.mjs --scenario=all",
     "smoke:qdn-services": "node scripts/ensure-electron-build.mjs && node scripts/smoke-qdn-services.mjs",
-    "test": "node scripts/check-test-wiring.mjs && node scripts/test-all.mjs",
+    "test": "node scripts/check-test-wiring.mjs && node scripts/check-smoke-wiring.mjs && node scripts/test-all.mjs",
     "test:release-metadata": "node scripts/test-release-metadata.mjs",
     "test:windows-core-observer-build-script": "node scripts/test-windows-core-observer-build-script.mjs",
     "test:safe-zip-extraction": "npm run build:electron && node dist-electron/safe-zip-extraction.test.js",
@@ -293,7 +293,11 @@
     "test:home-v2-account-avatar": "npm run build:electron && node dist-electron/home-v2-account-avatar-actions.test.js",
     "test:home-v2-payments": "npm run build:electron && node dist-electron/home-v2-payment-actions.test.js",
     "test:home-v2-reward-share-key": "npm run build:electron && node dist-electron/home-v2-reward-share-key.test.js",
-    "test:home-v2-admin-trust": "npm run build:electron && node dist-electron/home-v2-admin-trust.test.js"
+    "test:home-v2-admin-trust": "npm run build:electron && node dist-electron/home-v2-admin-trust.test.js",
+    "smoke:packaged": "node scripts/smoke-desktop-suite.mjs",
+    "smoke:packaged:no-node": "node scripts/smoke-desktop-suite.mjs --no-node",
+    "test:smoke-wiring": "node scripts/check-smoke-wiring.mjs",
+    "smoke:packaged:ci": "node scripts/smoke-desktop-suite.mjs --ci"
   },
   "dependencies": {
     "@capacitor-community/safe-area": "^8.0.1",
