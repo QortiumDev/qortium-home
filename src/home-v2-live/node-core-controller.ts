@@ -256,6 +256,10 @@ export function useHomeV2NodeCoreController(options: {
   nodesRef.current = nodes
   const [coreStatuses, setCoreStatuses] =
     useState<HomeV2CoreManagerStatuses>(initialCoreStatuses)
+  // Read by the lifecycle follow-ups, which run from timers and would otherwise
+  // close over the statuses as they were when the action was fired.
+  const coreStatusesRef = useRef(coreStatuses)
+  coreStatusesRef.current = coreStatuses
   const [nodeBusyNetwork, setNodeBusyNetwork] = useState<NetworkId | null>(null)
   const [coreBusyActions, setCoreBusyActions] =
     useState<HomeV2CoreManagerBusyActions>({ qortal: null, qortium: null })
@@ -271,6 +275,26 @@ export function useHomeV2NodeCoreController(options: {
   })
   const nodeMutationInFlight = useRef(false)
   const nodeRefreshSequence = useRef(0)
+  // Follow-up polls after a start/stop, because the settle is not instant.
+  //
+  // A lifecycle action already refreshes everything the moment it returns, but a
+  // Core that has just been asked to start has only SPAWNED by then -- its API
+  // needs several seconds more before it answers. So that immediate refresh
+  // captures the in-between state (process up, API silent) and the next
+  // scheduled poll is up to 15s away, leaving the tile showing a half-started
+  // Core long after it finished starting. That is the "dashboard tile does not
+  // refresh when it should" report.
+  //
+  // Home 1.x solved the same class of problem by refreshing on the EVENT rather
+  // than waiting for the interval (#74, "event-driven refresh"): it bumped a
+  // node epoch when reachability changed and re-read everything derived from the
+  // node. Home 2 has no epoch, so the equivalent is to keep asking for a short
+  // while after the event, then stop.
+  const lifecycleFollowUps = useRef<number[]>([])
+  const clearLifecycleFollowUps = useCallback(() => {
+    for (const handle of lifecycleFollowUps.current) window.clearTimeout(handle)
+    lifecycleFollowUps.current = []
+  }, [])
   // A single failed poll must not declare both nodes unreadable. Everything
   // downstream keys off `capabilities.read` — an app tab whose node reads as
   // unreadable stops resolving, which on Android swaps the iframe key and
@@ -358,6 +382,54 @@ export function useHomeV2NodeCoreController(options: {
   const refreshAll = useCallback(async () => {
     await Promise.all([refreshNodes(), refreshCoreStatuses()])
   }, [refreshCoreStatuses, refreshNodes])
+
+  // Re-read until the Core reaches the state the action asked for, or until the
+  // window closes -- whichever comes first.
+  //
+  // The schedule is sized from a MEASUREMENT, not a guess. Watching a real
+  // managed Core restart on 2026-08-30: the process started at 15:36:57 and its
+  // API first answered at 15:37:12 -- FIFTEEN seconds later. An earlier draft of
+  // this fix stopped at 9s, so every follow-up would have fired while the API
+  // was still silent and the tile would have waited for the regular poll anyway.
+  //
+  // So the window reaches past that, and stops early when there is nothing left
+  // to wait for: once the network's runtime matches the intent ('running' after
+  // a start, 'stopped' after a stop) the remaining reads are cancelled. A Core
+  // that comes up in two seconds costs two reads, not six.
+  const scheduleLifecycleFollowUps = useCallback((
+    network: NetworkId,
+    action: 'start' | 'stop',
+    settled: () => void,
+  ) => {
+    // A newer action supersedes an older one's follow-ups; a stop issued right
+    // after a start must not be second-guessed by the start's pending reads.
+    clearLifecycleFollowUps()
+    // What counts as "settled" differs by direction, and picking the wrong
+    // signal makes this fix do nothing:
+    //
+    //   start -> the node ANSWERING (capabilities.read). Core runtime is not
+    //            usable here: it comes from process ownership and flips to
+    //            'running' the instant the process spawns, which is precisely
+    //            the moment the API is still silent. Keying off it would cancel
+    //            every follow-up immediately.
+    //   stop  -> the runtime reporting 'stopped'. The process going away IS the
+    //            event; there is no API to wait for.
+    const hasSettled = () => action === 'start'
+      ? nodesRef.current[network]?.capabilities.read === true
+      : coreStatusesRef.current[network]?.runtime === 'stopped'
+    for (const delay of [1_500, 4_000, 8_000, 13_000, 20_000, 30_000]) {
+      lifecycleFollowUps.current.push(window.setTimeout(() => {
+        if (hasSettled()) {
+          clearLifecycleFollowUps()
+          return
+        }
+        void refreshAll()
+        settled()
+      }, delay))
+    }
+  }, [clearLifecycleFollowUps, refreshAll])
+
+  useEffect(() => clearLifecycleFollowUps, [clearLifecycleFollowUps])
 
   useEffect(() => {
     void refreshAll()
@@ -460,6 +532,7 @@ export function useHomeV2NodeCoreController(options: {
       }
       await refreshNodes()
       options.onLifecycleSettled?.()
+      scheduleLifecycleFollowUps(network, action, () => options.onLifecycleSettled?.())
       return result
     } catch {
       coreRefreshSequence.current[network] += 1
@@ -474,12 +547,13 @@ export function useHomeV2NodeCoreController(options: {
       // it, and leaving the gate stale is how the tile ends up contradicting
       // itself.
       options.onLifecycleSettled?.()
+      scheduleLifecycleFollowUps(network, action, () => options.onLifecycleSettled?.())
       return null
     } finally {
       if (actions[network] === action) actions[network] = null
       setCoreBusyActions({ ...actions })
     }
-  }, [coreClient, options, refreshCoreStatuses, refreshNodes, setNodeMode])
+  }, [coreClient, options, refreshCoreStatuses, refreshNodes, scheduleLifecycleFollowUps, setNodeMode])
 
   return {
     coreAvailable: coreClient !== null,
