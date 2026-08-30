@@ -79,6 +79,53 @@ jobs:
       - name: Verify widget transparency
         run: npm run smoke:desktop:widgets
 
+  # The packaged smokes drive the REAL AppImage over CDP, so they are the only
+  # checks that exercise what ships. Nothing ran them until 2026-08-30, and by
+  # then eight of sixteen had rotted -- each stale one hiding the next, and two
+  # still describing an app that had moved on weeks earlier.
+  #
+  # Only the subset that needs NO network runs here, and flaky ones are left
+  # out: see the manifest in scripts/smoke-desktop-suite.mjs, where every entry
+  # was established by running it with networking removed rather than by
+  # guessing. The rest need a local Qortium Core and stay a pre-release step.
+  #
+  # Push-to-main only. It builds a full AppImage, which is far too slow to put
+  # in front of every pull request.
+  packaged-smokes:
+    name: Packaged desktop smokes
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Build the AppImage
+        run: npm run dist:linux:x64
+
+      # A runner cannot FUSE-mount an AppImage ("fusermount: mount failed:
+      # Operation not permitted"), so extract it and point the smokes at the
+      # extracted AppRun through the override they already support.
+      - name: Extract the AppImage
+        run: |
+          cd dist-release
+          version=$(node -p "require('../package.json').version")
+          "./Qortium-Home-${version}-x86_64.AppImage" --appimage-extract >/dev/null
+          echo "QORTIUM_HOME_APPIMAGE=$PWD/squashfs-root/AppRun" >> "$GITHUB_ENV"
+
+      - name: Run the node-free packaged smokes
+        run: xvfb-run -a npm run smoke:packaged:ci
+
   android-unit-test:
     name: Android unit test
     runs-on: ubuntu-latest
