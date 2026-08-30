@@ -9,6 +9,13 @@ import { fileURLToPath } from 'node:url'
 import { createManagedProcess } from './lib/managed-process.mjs'
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url))
+// Core cards are counted on the page being SHOWN, not everywhere in the
+// document. Every internal page stays mounted and hidden (.home-v2-page-slot is
+// display:contents, [hidden] takes it out of flow) so that page state survives
+// navigation, so Settings and the dashboard behind it each contribute a card
+// and every "there is exactly one" check counts two.
+const ACTIVE_CORE_CARDS = "'.home-v2-page-slot:not([hidden]) .home-v2-core-card'"
+
 const repoRoot = path.resolve(scriptDirectory, '..')
 const packageJson = JSON.parse(readFileSync(path.join(repoRoot, 'package.json'), 'utf8'))
 const appImage = path.resolve(
@@ -306,7 +313,7 @@ try {
       evaluate(
         client,
         `(() => {
-          const cards = [...document.querySelectorAll('.home-v2-core-card')];
+          const cards = [...document.querySelectorAll(${ACTIVE_CORE_CARDS})];
           return cards.length === 1
             ? cards.map((card) => card.getAttribute('data-network'))
             : null;
@@ -391,7 +398,19 @@ try {
     )
     await evaluate(
       client,
-      `document.querySelector('button[aria-label="Settings: Core management"]').click()`,
+      // "Core management" and "Connections" became one "Node & Core" section in
+      // #385; this selector was missed then, and the destination bug above kept
+      // the run from ever reaching it. Fail loudly rather than on `null.click`.
+      `(() => {
+        const label = 'Settings: Node & Core';
+        const button = document.querySelector(\`button[aria-label="\${label}"]\`);
+        if (!button) {
+          throw new Error('No button labelled "' + label + '". Labels present: ' +
+            JSON.stringify([...document.querySelectorAll('button[aria-label]')]
+              .map((b) => b.getAttribute('aria-label'))));
+        }
+        button.click();
+      })()`,
     )
     await waitUntil('targeted Runtime settings', () =>
       evaluate(
@@ -407,6 +426,20 @@ try {
     await evaluate(
       client,
       `document.querySelector('button[aria-label="Settings"]').click()`,
+    )
+    // Settings is already open on Runtime here, because the step above opened it
+    // there deliberately. The toolbar Settings button focuses that tab and
+    // leaves you on the section you were reading rather than throwing you back
+    // to General, so ask for General explicitly. This smoke predates targeted
+    // settings sections (#387) and had assumed the jump.
+    await evaluate(
+      client,
+      `(() => {
+        const general = [...document.querySelectorAll('.home-v2-settings-nav button')]
+          .find((button) => button.textContent.trim() === 'General');
+        if (!general) throw new Error('No General item in the settings nav.');
+        general.click();
+      })()`,
     )
     const general = await waitUntil('General settings', () =>
       evaluate(
@@ -425,7 +458,12 @@ try {
     assert.deepEqual(general, {
       heading: 'General',
       options: ['Search page', 'Dashboard', 'Custom address'],
-      value: 'search',
+      // 'dashboard' since #362 made the shell dashboard-first. Note the select
+      // still OFFERS "Search page" even though parseNewTabPreference turns a
+      // stored {kind:'search'} back into this default on the next launch, so
+      // choosing it does not survive a restart -- see the report; not this
+      // smoke's to assert until that is decided one way or the other.
+      value: 'dashboard',
     })
     const initialNetworkSettings = await evaluate(
       client,
@@ -456,7 +494,7 @@ try {
       evaluate(
         client,
         `(() => {
-          const cards = [...document.querySelectorAll('.home-v2-core-card')];
+          const cards = [...document.querySelectorAll(${ACTIVE_CORE_CARDS})];
           return cards.length === 2 &&
             cards.some((card) => card.getAttribute('data-network') === 'qortal');
         })()`,
@@ -614,7 +652,7 @@ try {
           const grant = panel?.querySelector('[data-qdn-notification-grant=${JSON.stringify(notificationAppKey)}]');
           const mute = grant?.querySelector('input[type="checkbox"]');
           const warning = grant?.querySelector('[data-qdn-foreign-payment-warning="true"]');
-          return panel && roles.length === 5 && grant && mute && warning
+          return panel && roles.length === 6 && grant && mute && warning
             ? { html: panel.outerHTML, muted: mute.checked, roles }
             : null;
         })()`,
@@ -624,6 +662,8 @@ try {
       'bookmarks',
       'notifications',
       'explore',
+      // Added after this smoke was last updated.
+      'apps',
       'media.audio-player',
       'media.video-player',
     ])
@@ -755,7 +795,15 @@ try {
     assert.equal(disabledQortiumSettings.customUrl, '')
     assert.equal(disabledQortiumSettings.lastEnabledMode, 'local')
     assert.equal(disabledQortiumSettings.mode, 'disabled')
-    assert.match(disabledQortiumSettings.apiKey, /^[A-Za-z0-9_-]+$/)
+    // Turning the Qortium connection off drops the stored admin key rather than
+    // keeping it against the next time; re-enabling below gets a fresh one. This
+    // used to assert a key was still here, and that is simply no longer what
+    // happens. Stated as an observation on purpose: the dedicated admin-key
+    // store (electron/home-v2-node-admin-key.ts) exists to keep keys OUT of this
+    // plaintext file, but node-settings.ts only routes 'custom' mode through it,
+    // so a local node's key is still written here in the clear. Whether that is
+    // intended is a question for the report, not something to encode either way.
+    assert.equal(disabledQortiumSettings.apiKey, '')
     await evaluate(
       client,
       `([...document.querySelectorAll('.home-v2-settings-nav button')]
@@ -765,7 +813,7 @@ try {
       evaluate(
         client,
         `(() => {
-          const cards = [...document.querySelectorAll('.home-v2-core-card')]
+          const cards = [...document.querySelectorAll(${ACTIVE_CORE_CARDS})]
             .map((card) => card.getAttribute('data-network'));
           return cards.length === 1 && cards[0] === 'qortal' &&
             !document.querySelector('.home-v2-transport-maintenance') &&
@@ -789,10 +837,17 @@ try {
         `document.querySelector('input[aria-label="Qortium connection mode"]')?.checked === true`,
       ),
     )
+    const restoredQortiumSettings = JSON.parse(
+      readFileSync(path.join(profileDirectory, 'node-settings.json'), 'utf8'),
+    )
+    // Everything except the key returns exactly as it was...
     assert.deepEqual(
-      JSON.parse(readFileSync(path.join(profileDirectory, 'node-settings.json'), 'utf8')),
+      { ...restoredQortiumSettings, apiKey: '' },
       { ...disabledQortiumSettings, mode: 'local' },
     )
+    // ...and a key is issued again, rather than the empty one from while it was
+    // off being left in place, which would leave the node unusable.
+    assert.match(restoredQortiumSettings.apiKey, /^[A-Za-z0-9_-]+$/)
     await evaluate(
       client,
       `([...document.querySelectorAll('.home-v2-settings-nav button')]
@@ -802,7 +857,7 @@ try {
       evaluate(
         client,
         `(() => {
-          const cards = [...document.querySelectorAll('.home-v2-core-card')];
+          const cards = [...document.querySelectorAll(${ACTIVE_CORE_CARDS})];
           return cards.length === 2 ? cards.map((card) => ({
             control: card.getAttribute('data-control'),
             network: card.getAttribute('data-network'),
