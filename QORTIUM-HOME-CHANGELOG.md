@@ -34,6 +34,18 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-30 - fix(build): building the Linux app must never try to publish a release
+
+Building the Linux application on any automated machine ended by trying to
+publish a public release of it, and failing because it had no credentials to do
+so. The macOS and Windows builds have always been told explicitly not to
+publish; the Linux ones never were, and nothing had built Linux automatically
+before, so it had never come up.
+
+It failed safely - there was no token, so nothing was published. Had there been
+one, an ordinary build could have put out a release nobody asked for. Now all
+three Linux builds say not to publish, like the others.
+
 ### 2026-08-30 - test: run the checks that test the real application, and notice when they are added
 
 There is a set of checks that drive the actual installable application the way a
