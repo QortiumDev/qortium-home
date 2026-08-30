@@ -12,6 +12,7 @@ import { userMessage } from './user-message.js';
 import {
   ensurePreviewApiKey,
   readPreviewApiKey,
+  invalidateRunningCoreApiKeyCache,
   readRunningLocalCoreApiKey,
 } from './local-api-key.js';
 import { isNodeApiKeyTransportSafe, normalizeNodeApiUrl } from './node-api-url.js';
@@ -465,6 +466,20 @@ async function resolveLocalApiKey(
   }
 
   const runtimePath = await getManagedCoreRuntimePath();
+  // With no key yet -- which is the state right after the connection is turned
+  // back on, because turning it off cleared it -- this one read decides whether
+  // a key is stored at all, and the empty branch below never retries. So it must
+  // not be answered from cache.
+  //
+  // readRunningLocalCoreApiKey caches its result for 5s and, once stale, returns
+  // the STALE value while refreshing in the background. It caches nulls the same
+  // as hits. Nothing invalidates it when the connection mode changes either --
+  // only Home's own startCore/stopCore do -- so a single null, cached from a
+  // moment when the Core was not observable, was enough to leave the key
+  // permanently empty: connected to the local node but unable to administer it.
+  if (!settings.apiKey) {
+    invalidateRunningCoreApiKeyCache();
+  }
   const runningCoreApiKey = readRunningLocalCoreApiKey();
   const managedRuntimeRunning = await isManagedCoreRuntimeRunning();
   const existingManagedCoreApiKey = runtimePath ? readPreviewApiKey(runtimePath) : null;

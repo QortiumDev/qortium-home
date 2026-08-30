@@ -305,6 +305,31 @@ try {
     'an invalidated in-flight refresh must not repopulate stale state',
   );
 
+  // A NULL is cached exactly like a hit, and once stale it is served while the
+  // refresh happens in the background. That is the hazard behind the empty
+  // admin key after switching the Qortium connection off and back on: the one
+  // read that decides whether a key gets stored can be answered by a null
+  // cached from a moment when the Core was not observable. Callers that cannot
+  // retry must invalidate first (see resolveLocalApiKey in node-settings.ts).
+  cache.invalidate(qortiumCacheQuery);
+  syncValues.delete('qortium');
+  const syncCallsBeforeNull = syncCalls.get('qortium') ?? 0;
+  assert.equal(cache.read(qortiumCacheQuery), null)
+  assert.equal(syncCalls.get('qortium'), syncCallsBeforeNull + 1);
+  syncValues.set('qortium', runningResult('qortium-back'));
+  assert.equal(
+    cache.read(qortiumCacheQuery),
+    null,
+    'a cached null is served again without recomputing -- this is the hazard',
+  );
+  assert.equal(syncCalls.get('qortium'), syncCallsBeforeNull + 1);
+  cache.invalidate(qortiumCacheQuery);
+  assert.equal(
+    cache.read(qortiumCacheQuery)?.apiKey,
+    'qortium-back-key',
+    'invalidating must clear a cached null, or the caller can never recover',
+  );
+
   console.log('local API-key descriptor, target, file, and cache tests passed');
 } finally {
   rmSync(tempRoot, { recursive: true, force: true });

@@ -34,6 +34,40 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-30 - fix(settings): a new tab opens what you chose, including Search page
+
+Settings lets you say what a new tab should open: the search page, the
+dashboard, or an address of your own. Choosing "Search page" worked until you
+closed Home, and then quietly went back to Dashboard.
+
+Your choice was being saved correctly. It was thrown away when it was read back
+at the next launch, which treated "Search page" as if it were missing or damaged
+and substituted the default. All three choices now come back as themselves.
+
+The setting that decides this also had two different ideas of what the default
+should be, in two places, which is now one.
+
+### 2026-08-30 - fix(node): don't leave the node without its access key after reconnecting
+
+Turning the Qortium connection off and back on again occasionally left Home
+connected to your node but unable to manage it: starting or stopping the Core,
+changing the connection, and anything else that needs authority would be
+unavailable, with nothing on screen to say why.
+
+Turning the connection off clears the key, and turning it back on asks the
+running node for it again. That question is asked once, and the answer was
+allowed to come from a short-lived record of what was seen a moment earlier -
+including a moment when the node happened not to be visible. One such answer was
+enough to leave the key empty for good, because nothing asks a second time.
+
+It now asks the node directly whenever there is no key yet, which is the only
+time this can arise.
+
+Worth being straight about the limits: this was seen twice in six attempts, and
+the change removes one way it can happen. There is another way the same question
+can be answered "no key" that has not been ruled out, so the note in the project
+folder stays open until this has run for a while without recurring.
+
 ### 2026-08-30 - test: wait for the node key to come back instead of reading too early
 
 A check that turns the Qortium connection off and on again was reading the saved

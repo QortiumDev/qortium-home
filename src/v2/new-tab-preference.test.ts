@@ -98,7 +98,10 @@ function testCustomAddressValidation(): void {
 
 function testPreferenceParsingFailsClosed(): void {
   assert.equal(parseNewTabPreference(null), DEFAULT_NEW_TAB_PREFERENCE)
-  assert.equal(parseNewTabPreference({ kind: 'search' }), DEFAULT_NEW_TAB_PREFERENCE)
+  // All THREE choices Settings offers have to come back as themselves. 'search'
+  // used to be listed here with null and the malformed values, so choosing
+  // "Search page" did not survive a restart.
+  assert.deepEqual(parseNewTabPreference({ kind: 'search' }), { kind: 'search' })
   assert.deepEqual(parseNewTabPreference({ kind: 'dashboard' }), {
     kind: 'dashboard',
   })
@@ -188,6 +191,10 @@ function testShellStateMigrationAndRoundTrips(): void {
   const preferences = [
     DEFAULT_NEW_TAB_PREFERENCE,
     { kind: 'dashboard' } as const,
+    // 'search' was missing from this list, which is why a preference that did
+    // not survive the round trip went unnoticed. Every choice Settings offers
+    // belongs here.
+    { kind: 'search' } as const,
     { kind: 'custom', address: 'qdn://APP/NameOnly' } as const,
   ]
   for (const newTabPreference of preferences) {
