@@ -100,11 +100,28 @@ export const QDN_APP_DECRYPT_CAPABILITIES = ['account.decrypt'] as const;
  * a local Core never silently applies to a public one.
  */
 export const QDN_APP_DIRECT_CHAT_CAPABILITIES = ['account.directChat'] as const;
+/**
+ * Reading private-GROUP chat history, on the same terms as account.directChat.
+ *
+ * Separate from account.directChat on purpose. They are different bodies of
+ * material: an app that a user is happy to let read their group chats has not
+ * thereby been trusted with their one-to-one messages, and the reverse holds
+ * too. Folding them into one capability would mean a grant for either silently
+ * covering both, and neither prompt says that.
+ *
+ * The node-trust limit is identical and applies for the identical reason: the
+ * node serving an app sees the plaintext that app reads, whoever runs it. So
+ * this is usable only on Home's own local Core, SUSPENDED (prompt again) rather
+ * than revoked while another node is selected, and checked at USE time so a
+ * grant made on a local Core never silently applies to a public one.
+ */
+export const QDN_APP_GROUP_CHAT_CAPABILITIES = ['account.groupChat'] as const;
 export const QDN_ACCOUNT_SCOPED_CAPABILITIES = [
   'account.read',
   'account.encrypt',
   'account.decrypt',
   'account.directChat',
+  'account.groupChat',
 ] as const;
 export type QdnAccountScopedCapability = (typeof QDN_ACCOUNT_SCOPED_CAPABILITIES)[number];
 
@@ -122,6 +139,7 @@ export const QDN_APP_CAPABILITIES = [
   ...QDN_APP_ENCRYPT_CAPABILITIES,
   ...QDN_APP_DECRYPT_CAPABILITIES,
   ...QDN_APP_DIRECT_CHAT_CAPABILITIES,
+  ...QDN_APP_GROUP_CHAT_CAPABILITIES,
 ] as const;
 
 export type QdnManagerCapability = (typeof QDN_MANAGER_CAPABILITIES)[number];

@@ -79,6 +79,17 @@ export type HomeV2QdnSettingsState = {
     revision: number
     version: 1
   }>
+  /**
+   * Durable private-GROUP chat read grants, on the same terms as
+   * accountDirectChat and listed for the same reason: suspended on a node that
+   * is not Home's own local Core, and shown anyway, because a grant the user
+   * cannot see is a grant they cannot revoke.
+   */
+  readonly accountGroupChat: Readonly<{
+    apps: readonly Readonly<{ accountId: string; appKey: string; grantedAt: string }>[]
+    revision: number
+    version: 1
+  }>
   readonly assignments: HomeV2QdnAssignmentState
   readonly chatSend: Readonly<{
     apps: readonly Readonly<{ appKey: string; grantedAt: string }>[]
@@ -300,6 +311,7 @@ export function redactHomeV2QdnSettingsState(
   const accountEncryptApps = listQdnAccountCapabilityGrants(assignmentsStore, 'account.encrypt')
   const accountDecryptApps = listQdnAccountCapabilityGrants(assignmentsStore, 'account.decrypt')
   const accountDirectChatApps = listQdnAccountCapabilityGrants(assignmentsStore, 'account.directChat')
+  const accountGroupChatApps = listQdnAccountCapabilityGrants(assignmentsStore, 'account.groupChat')
   const bookmarkApps = grantsFor('bookmarks.manage')
   const chatSendApps = grantsFor('chat.send')
   const notificationManagerApps = grantsFor('notifications.manage')
@@ -323,6 +335,11 @@ export function redactHomeV2QdnSettingsState(
     },
     accountDirectChat: {
       apps: accountDirectChatApps,
+      revision: assignmentsStore.revision,
+      version: 1,
+    },
+    accountGroupChat: {
+      apps: accountGroupChatApps,
       revision: assignmentsStore.revision,
       version: 1,
     },

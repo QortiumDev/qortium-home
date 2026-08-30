@@ -615,3 +615,53 @@ duplicate the first. See [QDN bridge action notes](BRIDGE_ACTIONS.md).
   new plumbing it does not have today (it forwards the self-reported navigation
   snapshot to a callback without retaining a live current-document URL to
   compare), so the 1.x path is left to the channel-wide follow-up.
+
+## Private-chat reads and the durable `account.read` grant (2026-08-30)
+
+Reading private chat history — direct **and** group — is no longer covered by a
+durable `account.read` grant. It needs its own capability, and that capability
+works only on Home's own local Core.
+
+  action                                durable capability
+  GET_PRIVATE_DIRECT_ACTIVE_CHATS       account.directChat   (local Core only)
+  SEARCH_PRIVATE_DIRECT_CHAT_MESSAGES   account.directChat   (local Core only)
+  GET_PRIVATE_GROUP_ACTIVE_CHATS        account.groupChat    (local Core only)
+  SEARCH_PRIVATE_GROUP_CHAT_MESSAGES    account.groupChat    (local Core only)
+  GET_PRIVATE_GROUP_CHAT_STATE          account.read
+  GET_CHAT_ATTACHMENT_STREAM_URL        account.read
+  OPEN_CHAT_ATTACHMENT_VIEWER           account.read
+
+All of them remain in `HOME_V2_ACCOUNT_READ_ACTIONS`: one SESSION grant still
+covers the read-only family together, and the prompt copy is unchanged. Only the
+durable "always allow" is split.
+
+### Why
+
+Two faults, found on 2026-08-30 and both fixed by the same exclusion:
+
+- **The grant did not match the prompt.** The generic durable block ran before
+  the `account.directChat` one and returned, so answering "always" to "read your
+  direct messages" recorded `account.read` — account identity, pending
+  transactions and attachment reads included. The `account.directChat` block
+  added in #465 was unreachable.
+- **It defeated the node-trust rule.** `account.directChat` is usable only on a
+  local Core, because whichever node serves an app sees the plaintext that app
+  reads. `account.read` carried no such condition, so the capability actually
+  granted bypassed the gate built for exactly this.
+
+### What changed for existing grants
+
+An app already holding `account.read` stops being covered for chat history and
+is asked again; answering "always" then records the specific capability, and
+only on a local Core. That re-prompt is the point: the earlier grant was never
+shown to the user as covering chat history on somebody else's node.
+
+### Deliberately unchanged
+
+`GET_PRIVATE_GROUP_CHAT_STATE` reports whether a group key is held and needs
+rotating. It returns no message plaintext and is the call an app makes before
+asking for anything, so it stays on the ordinary read grant.
+
+Chat ATTACHMENT reads carry a comparable exposure and stay on `account.read`
+for now (owner decision, 2026-08-30). If that is revisited, the same predicate —
+`isHomeV2PrivateChatReadAction` — is where it would be extended.
