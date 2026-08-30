@@ -87,6 +87,11 @@ const state = {
     revision: 3,
     version: 1,
   },
+  accountDirectChat: {
+    apps: [],
+    revision: 3,
+    version: 1,
+  },
   accountDecrypt: {
     apps: [{
       accountId: 'wallet:QBBB',

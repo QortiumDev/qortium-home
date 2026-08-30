@@ -2802,10 +2802,13 @@ function testGrantIdentityAndSendRateLimitHardening(): void {
     // two points, again as the Home 2.1 restoration wave's write kinds
     // (node-list, poll, name, group-mutation, publish-multiple, qdn-delete)
     // added their grant-target and single-request arms, and again when the
-    // durable account.encrypt check landed between them. The ordering property
-    // is what matters and is unchanged: the stale-resource check still runs
-    // BEFORE any grant (session or durable) is honored.
-    /liveResourceMatchesGrant\(context\)[\s\S]{0,8000}sessionAccountReadGrants\.has\(grantKey\)/,
+    // durable account.encrypt check landed between them, and again when the
+    // durable account.directChat (direct-message) check did. The ordering
+    // property is what matters and is unchanged: the stale-resource check still
+    // runs BEFORE any grant (session or durable) is honored -- and it is
+    // asserted DIRECTLY below, so this budget is a secondary net against
+    // reordering rather than the guarantee itself.
+    /liveResourceMatchesGrant\(context\)[\s\S]{0,10000}sessionAccountReadGrants\.has\(grantKey\)/,
   )
   // The ordering asserted DIRECTLY, so it no longer depends on a character
   // budget that every new grant arm pushes against. The proximity match above
@@ -2819,12 +2822,16 @@ function testGrantIdentityAndSendRateLimitHardening(): void {
     const durableEncrypt = appBridge.indexOf("hasQdnAccountCapability(appGrantKey, context.accountId, 'account.encrypt')")
     const durableDecrypt = appBridge.indexOf("hasQdnAccountCapability(appGrantKey, context.accountId, 'account.decrypt')")
     const durableChatSend = appBridge.indexOf("hasQdnAppCapability(appGrantKey, 'chat.send')")
+    const durableDirectChat = appBridge.indexOf(
+      "hasQdnAccountCapability(appGrantKey, context.accountId, 'account.directChat')",
+    )
     for (const [label, index] of [
       ['the session grant', sessionGrant],
       ['the durable account.read grant', durableRead],
       ['the durable account.encrypt grant', durableEncrypt],
       ['the durable account.decrypt grant', durableDecrypt],
       ['the durable chat.send grant', durableChatSend],
+      ['the durable account.directChat grant', durableDirectChat],
     ] as const) {
       assert.ok(index > 0, `${label} check must exist`)
       assert.ok(
@@ -2834,6 +2841,30 @@ function testGrantIdentityAndSendRateLimitHardening(): void {
     }
     assert.ok(staleCheck > 0)
   }
+  // The durable DIRECT MESSAGE grant is usable ONLY on a trusted local node.
+  // Asserted against the source because it is the whole point of the grant: a
+  // serving node sees the plaintext an app reads, so a grant made on the user's
+  // own Core must never apply on a public one. The trust flag is read from the
+  // request details, so it is evaluated per request rather than once at grant
+  // time, and holding the grant on an untrusted node falls through to the
+  // prompt -- suspension, not revocation.
+  assert.match(
+    appBridge,
+    /writeDetails\.trustedNode === true[\s\S]{0,400}hasQdnAccountCapability\(appGrantKey, context\.accountId, 'account\.directChat'\)/,
+    'the direct-message grant must be gated on a trusted node at USE time',
+  )
+  // And a grant must not be RECORDED on an untrusted node either: minting one
+  // where it can never apply would promise the user something untrue.
+  assert.match(
+    appBridge,
+    /capability: 'account\.directChat'/,
+  )
+  assert.ok(
+    appBridge.indexOf("writeDetails.trustedNode === true") <
+      appBridge.indexOf("capability: 'account.directChat'"),
+    'the durable direct-message grant must only be persisted on a trusted node',
+  )
+
   // The durable chat.send grant must also sit after the stale-resource check.
   assert.match(
     appBridge,
@@ -2846,7 +2877,7 @@ function testGrantIdentityAndSendRateLimitHardening(): void {
   // unlock, a group-admin action or a minting write.
   assert.match(
     appBridge,
-    /liveResourceMatchesGrant\(context\)[\s\S]{0,8000}hasQdnAccountCapability\(appGrantKey, context\.accountId, durableAccountReadCapability\)/,
+    /liveResourceMatchesGrant\(context\)[\s\S]{0,10000}hasQdnAccountCapability\(appGrantKey, context\.accountId, durableAccountReadCapability\)/,
   )
   // The durable read grant is bound to the selected account, not just the app,
   // so it cannot survive an account switch the way the session grant cannot.

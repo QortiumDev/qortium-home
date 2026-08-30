@@ -82,7 +82,30 @@ export const QDN_APP_DECRYPT_CAPABILITIES = ['account.decrypt'] as const;
  * chat.send and the manager capabilities stay app-scoped on purpose: they
  * shipped that way, and rekeying them would silently drop live user grants.
  */
-export const QDN_ACCOUNT_SCOPED_CAPABILITIES = ['account.read', 'account.encrypt', 'account.decrypt'] as const;
+/**
+ * Reading this account's DIRECT MESSAGES, durably.
+ *
+ * Separate from account.decrypt: direct chat uses a per-conversation key
+ * derived from an X25519 shared secret, not the envelope family, and an app
+ * allowed to decrypt data it already holds has not thereby been allowed to read
+ * a mailbox.
+ *
+ * Durable, but only USABLE on a trusted local node. The limit noted above for
+ * account.decrypt bites hardest here: a serving node sees the plaintext an app
+ * touches regardless of the sandbox, so on a public node the operator would see
+ * DMs the app reads. The grant is therefore SUSPENDED rather than revoked when
+ * the selected node is not local -- the user falls back to per-request prompts
+ * and the grant resumes when they return to their own node. Revoking would
+ * punish a temporary node switch; the check is at USE time, so a grant made on
+ * a local Core never silently applies to a public one.
+ */
+export const QDN_APP_DIRECT_CHAT_CAPABILITIES = ['account.directChat'] as const;
+export const QDN_ACCOUNT_SCOPED_CAPABILITIES = [
+  'account.read',
+  'account.encrypt',
+  'account.decrypt',
+  'account.directChat',
+] as const;
 export type QdnAccountScopedCapability = (typeof QDN_ACCOUNT_SCOPED_CAPABILITIES)[number];
 
 export function isQdnAccountScopedCapability(
@@ -98,6 +121,7 @@ export const QDN_APP_CAPABILITIES = [
   ...QDN_APP_READ_CAPABILITIES,
   ...QDN_APP_ENCRYPT_CAPABILITIES,
   ...QDN_APP_DECRYPT_CAPABILITIES,
+  ...QDN_APP_DIRECT_CHAT_CAPABILITIES,
 ] as const;
 
 export type QdnManagerCapability = (typeof QDN_MANAGER_CAPABILITIES)[number];

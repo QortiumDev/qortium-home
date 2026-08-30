@@ -1365,6 +1365,15 @@ async function requireAccountReadPermission(
     readonly operationLabel: string
     readonly otherAddress: string
     readonly routeLabel: string
+    /**
+     * Whether the node serving this read is Home's own local Core.
+     *
+     * The durable DM grant is usable ONLY when this is true. A serving node
+     * sees the plaintext an app touches regardless of the sandbox, so on a
+     * public node the operator would see DMs the app reads. Evaluated per
+     * request, not once at grant time.
+     */
+    readonly trustedNode?: boolean
     readonly singleRequestOnly?: boolean
     readonly chatReference?: string | null
   } | {
@@ -1637,6 +1646,27 @@ async function requireAccountReadPermission(
     !singleRequestOnly &&
     appGrantKey &&
     hasQdnAccountCapability(appGrantKey, context.accountId, 'account.decrypt')
+  ) {
+    return
+  }
+  // The durable DIRECT MESSAGE grant. Its own capability -- an app allowed to
+  // decrypt data it already holds has not thereby been allowed to read a
+  // mailbox -- and usable ONLY on a trusted local node.
+  //
+  // Not holding the grant and being on an untrusted node are deliberately the
+  // same outcome here: the prompt. That is SUSPENSION, not revocation. The
+  // grant survives a switch to a public node and resumes on return, because
+  // revoking would punish a temporary switch; and because this is checked at
+  // USE time, a grant made on a local Core never silently applies to a public
+  // one.
+  if (
+    (action === 'GET_PRIVATE_DIRECT_ACTIVE_CHATS' ||
+      action === 'SEARCH_PRIVATE_DIRECT_CHAT_MESSAGES') &&
+    !singleRequestOnly &&
+    appGrantKey &&
+    writeDetails?.kind === 'direct' &&
+    writeDetails.trustedNode === true &&
+    hasQdnAccountCapability(appGrantKey, context.accountId, 'account.directChat')
   ) {
     return
   }
@@ -1990,6 +2020,28 @@ async function requireAccountReadPermission(
         appGrantKey,
         grantAccountId,
         'account.decrypt',
+      ),
+    })) return
+  }
+  // Recorded only on a trusted node: minting a grant the user cannot use, on
+  // the node where it must not apply, would be a confusing promise.
+  if (
+    decision.scope === 'always' &&
+    (action === 'GET_PRIVATE_DIRECT_ACTIVE_CHATS' ||
+      action === 'SEARCH_PRIVATE_DIRECT_CHAT_MESSAGES') &&
+    !singleRequestOnly &&
+    appGrantKey &&
+    grantAccountId &&
+    writeDetails?.kind === 'direct' &&
+    writeDetails.trustedNode === true
+  ) {
+    if (persistDurableGrant({
+      capability: 'account.directChat',
+      isHeld: () => hasQdnAccountCapability(appGrantKey, grantAccountId, 'account.directChat'),
+      write: () => grantQdnAccountCapabilityPermission(
+        appGrantKey,
+        grantAccountId,
+        'account.directChat',
       ),
     })) return
   }
@@ -5252,6 +5304,10 @@ async function readHomeV2DirectChatAction(
     otherAddress: request.otherAddress ?? 'all-direct-conversations',
     routeLabel: `${node.mode} · ${node.nodeApiUrl}`,
     targetChainLabel: network === 'qortal' ? 'Qortal' : 'Qortium',
+    // Evaluated per request. A durable DM grant is usable only on Home's own
+    // local Core: any other node sees the plaintext the app reads, so the grant
+    // is suspended (prompt again) rather than revoked while one is selected.
+    trustedNode: node.mode === 'local',
   })
   const signingKey = getAccountSecretKey(accountId)
   if (signingKey.address !== profile.address) {
