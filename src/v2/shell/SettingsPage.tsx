@@ -553,30 +553,59 @@ export function SettingsPage(props: SettingsPageProps) {
               props.appUpdates?.available ||
               props.onChainCoreUpdates?.available) ? (
             <div className="home-v2-runtime-settings">
-              {networkCoreAvailable && props.coreManagement ? (
+              {/* One section PER NETWORK, each complete.
+                *
+                * These used to share a single "Core management" section: both
+                * networks' cards, then both networks' maintenance, then the
+                * Qortium-ONLY transport panel, and then Qortal's panel after
+                * it. Read down the page, Qortal's controls appeared underneath
+                * Qortium-only controls, inside what looked like one Qortium
+                * block -- which is exactly what the tester reported.
+                *
+                * Splitting by network means each heading owns everything for
+                * that network and nothing for the other, so there is no order
+                * in which one appears to be nested in the other. */}
+              {networkCoreAvailable && props.coreManagement && qortiumEnabled ? (
                 <section
                   className="home-v2-settings-panel home-v2-core-settings"
                   aria-labelledby="core-settings-title"
                 >
                   <div className="home-v2-settings-panel__heading">
-                    <h2 id="core-settings-title">{t('home2.core.title')}</h2>
+                    <h2 id="core-settings-title">{t('home2.core.qortiumTitle')}</h2>
                     <p>{t('home2.core.settingsDescription')}</p>
                   </div>
                   <CoreManagerCards
                     management={props.coreManagement}
-                    networks={enabledNetworks}
+                    networks={['qortium']}
                   />
                   <CoreMaintenancePanel
                     onOpenReleaseNotes={props.onOpenReleaseNotes}
                     maintenance={props.maintenance?.core}
-                    networks={enabledNetworks}
+                    networks={['qortium']}
                   />
-                  {qortiumEnabled ? (
-                    <TransportMaintenancePanel maintenance={props.maintenance?.transport} />
-                  ) : null}
-                  {enabledNetworks.includes('qortal') ? (
-                    <QortalMaintenancePanel maintenance={props.maintenance?.qortal} />
-                  ) : null}
+                  <TransportMaintenancePanel maintenance={props.maintenance?.transport} />
+                </section>
+              ) : null}
+              {networkCoreAvailable && props.coreManagement &&
+                enabledNetworks.includes('qortal') ? (
+                <section
+                  className="home-v2-settings-panel home-v2-core-settings"
+                  aria-labelledby="qortal-core-settings-title"
+                >
+                  <div className="home-v2-settings-panel__heading">
+                    <h2 id="qortal-core-settings-title">{t('home2.core.qortalTitle')}</h2>
+                    <p>{t('home2.core.settingsDescription')}</p>
+                  </div>
+                  <CoreManagerCards
+                    management={props.coreManagement}
+                    networks={['qortal']}
+                  />
+                  <CoreMaintenancePanel
+                    onOpenReleaseNotes={props.onOpenReleaseNotes}
+                    maintenance={props.maintenance?.core}
+                    networks={['qortal']}
+                  />
+                  <QortalMaintenancePanel maintenance={props.maintenance?.qortal} />
                 </section>
               ) : null}
               {qortiumEnabled && props.onChainCoreUpdates?.available ? (

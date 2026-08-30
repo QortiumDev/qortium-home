@@ -420,7 +420,25 @@ function TransportRow({
   readonly transport: HomeV2TransportManagement
 }) {
   const status = transport.status
-  if (!status) return null
+  if (!status) {
+    // A placeholder rather than nothing. Returning null here meant that while
+    // the first status poll was in flight the I2P controls did not exist on the
+    // page at all -- and on a slow poll that is indistinguishable from Home not
+    // having them, which is what a tester reported. Say the row is loading
+    // instead of implying it is absent.
+    return (
+      <div
+        className="home-v2-node-core-row"
+        data-home-v2-node-core-transport="loading"
+        data-network="qortium"
+      >
+        <div className="home-v2-node-core-row__copy">
+          <strong>{t('home2.transportMaintenance.title')}</strong>
+          <small>{t('home2.common.loading')}</small>
+        </div>
+      </div>
+    )
+  }
   const blocked = transport.busy !== null || transport.stale
   return (
     <div

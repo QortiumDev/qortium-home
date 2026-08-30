@@ -1846,6 +1846,37 @@ function testCoreManagementRenderingAndAndroidDegrade(): void {
     ...dashboard.matchAll(/data-home-v2-node-core-transport="dashboard" data-network="(\w+)"/g),
   ].map((match) => match[1])
   assert.deepEqual(transportMatches, ['qortium'])
+  {
+    // While the first status poll is in flight the row must still BE there. It
+    // used to render nothing, and on a slow poll that is indistinguishable from
+    // Home not having I2P controls at all -- which a tester reported.
+    const loadingTransport = renderToStaticMarkup(
+      <HomeV2Prototype
+        snapshot={homeV2Fixture}
+        productState={createProductState()}
+        permissionState={createPermissionState()}
+        layout="desktop"
+        appUpdates={appUpdates}
+        coreManagement={{
+          ...coreManagement,
+          transport: {
+            busy: null,
+            mode: null,
+            notice: null,
+            stale: false,
+            status: null,
+          },
+        }}
+        onOpenReleaseNotes={() => undefined}
+      />,
+    )
+    assert.match(loadingTransport, /data-home-v2-node-core-transport="loading"/)
+    assert.doesNotMatch(
+      loadingTransport,
+      /data-home-v2-node-core-transport="dashboard"/,
+      'the live row must not render before its status arrives',
+    )
+  }
   // One Home-update row for the whole section, not one per network.
   assert.equal(
     [...dashboard.matchAll(/data-home-v2-node-core-home-update="dashboard"/g)].length,
@@ -2042,6 +2073,45 @@ function testCoreManagementRenderingAndAndroidDegrade(): void {
   )
   assert.match(targetedSettings, /aria-current="page">Appearance<\/button>/)
   assert.match(targetedSettings, /aria-label="Theme"/)
+  {
+    // Each network gets its OWN Runtime section. They used to share one, with
+    // the Qortium-only transport panel sitting above the Qortal panel, so
+    // Qortal's controls read as though they were inside a Qortium block --
+    // which is what the tester reported.
+    const runtime = renderToStaticMarkup(
+      <SettingsPage
+        account={homeV2Fixture.account}
+        appearance={homeV2Fixture.appearance}
+        nodes={homeV2Fixture.nodes}
+        newTabPreference={DEFAULT_NEW_TAB_PREFERENCE}
+        requestedSection="core"
+        coreManagement={coreManagement}
+      />,
+    )
+    const headings = [...runtime.matchAll(/id="(qortal-)?core-settings-title"/g)]
+      .map((match) => match[1] ?? '')
+    assert.deepEqual(
+      headings,
+      ['', 'qortal-'],
+      'one Runtime section per network, Qortium first',
+    )
+    // Each section carries its OWN network's card and not the other's. The
+    // transport panel's placement is not asserted here because it needs the
+    // maintenance controllers, which this fixture does not build; the card
+    // order is what proves the split.
+    const qortalHeadingAt = runtime.indexOf('id="qortal-core-settings-title"')
+    const qortiumCardAt = runtime.indexOf('data-network="qortium"')
+    const qortalCardAt = runtime.indexOf('data-network="qortal"')
+    assert.ok(qortiumCardAt !== -1 && qortalCardAt !== -1, 'both cards must render')
+    assert.ok(
+      qortiumCardAt < qortalHeadingAt,
+      "the Qortium card belongs to the Qortium section, above Qortal's heading",
+    )
+    assert.ok(
+      qortalCardAt > qortalHeadingAt,
+      "the Qortal card belongs under Qortal's own heading",
+    )
+  }
   assert.equal(resolveHomeV2SettingsSectionTarget('core'), 'core')
   assert.equal(
     resolveHomeV2SettingsSectionTarget('notifications'),

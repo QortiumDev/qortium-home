@@ -34,6 +34,21 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-30 - fix(settings): give each network its own section, and stop the I2P row disappearing
+
+Settings had one block covering both networks: both networks' connection cards,
+then both networks' maintenance, then the controls that exist only for Qortium,
+and then Qortal's own controls after those. Read down the page, Qortal's
+settings appeared to sit inside a Qortium block, which is how it was reported.
+
+There are now two sections, one per network, each holding everything for that
+network and nothing for the other.
+
+Separately, the I2P controls on the Dashboard showed nothing at all while Home
+was still fetching their status. On a slow connection that is indistinguishable
+from Home not having those controls, and at least one person read it that way.
+The row now says it is loading instead of appearing not to exist.
+
 ### 2026-08-30 - feat(core): open the I2P router's folder, and show what each update source offers
 
 Two smaller additions to Settings.
