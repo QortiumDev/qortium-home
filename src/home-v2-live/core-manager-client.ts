@@ -181,14 +181,19 @@ export function parseHomeV2CoreMaintenanceStatus(value: unknown): HomeV2CoreMain
   if (!isRecord(value) || !hasExactKeys(value, ['capabilities', 'core', 'java', 'revision', 'schema']) ||
     value.schema !== 'home-v2-core-maintenance' || value.revision !== 1 ||
     !isRecord(value.capabilities) || typeof value.capabilities.canInitialInstall !== 'boolean' ||
-    !hasExactKeys(value.capabilities, ['canInitialInstall', 'canInstallJava', 'canUpdateRunningInPlace']) ||
+    !hasExactKeys(value.capabilities, [
+      'canInitialInstall', 'canInstallJava', 'canRefreshHelpers', 'canUpdateRunningInPlace',
+    ]) || typeof value.capabilities.canRefreshHelpers !== 'boolean' ||
     typeof value.capabilities.canInstallJava !== 'boolean' ||
     typeof value.capabilities.canUpdateRunningInPlace !== 'boolean' || !isRecord(value.core) ||
     !hasExactKeys(value.core, [
-      'channel', 'installedCommit', 'installModified', 'installedTag', 'installedVersion',
-      'nodeAutoUpdateMode', 'runtime', 'runtimeBlockedReason',
+      'channel', 'helpersOutOfSyncVersion', 'installedCommit', 'installModified',
+      'installedTag', 'installedVersion', 'nodeAutoUpdateMode', 'runtime',
+      'runtimeBlockedReason',
     ]) ||
     typeof value.core.installModified !== 'boolean' ||
+    !(value.core.helpersOutOfSyncVersion === null ||
+      typeof value.core.helpersOutOfSyncVersion === 'string') ||
     !(value.core.nodeAutoUpdateMode === null || typeof value.core.nodeAutoUpdateMode === 'string') ||
     !(value.core.runtimeBlockedReason === null ||
       typeof value.core.runtimeBlockedReason === 'string') ||
@@ -207,6 +212,7 @@ export function parseHomeV2CoreMaintenanceStatus(value: unknown): HomeV2CoreMain
     capabilities: Object.freeze({
       canInitialInstall: value.capabilities.canInitialInstall,
       canInstallJava: value.capabilities.canInstallJava,
+      canRefreshHelpers: value.capabilities.canRefreshHelpers,
       canUpdateRunningInPlace: value.capabilities.canUpdateRunningInPlace,
     }),
     core: Object.freeze({
@@ -215,6 +221,7 @@ export function parseHomeV2CoreMaintenanceStatus(value: unknown): HomeV2CoreMain
       // then forgets to return reads as undefined in the UI, which is how
       // canUpdateRunningInPlace was dead in the app while every main-process
       // test passed (#436). The round trip is asserted in the client test.
+      helpersOutOfSyncVersion: value.core.helpersOutOfSyncVersion,
       installedCommit: value.core.installedCommit,
       installModified: value.core.installModified,
       installedTag: value.core.installedTag,
@@ -999,7 +1006,7 @@ export interface HomeV2CoreManagerClient {
   getMaintenanceStatus(): Promise<HomeV2CoreMaintenanceStatus>
   checkMaintenanceRelease(): Promise<HomeV2CoreMaintenanceRelease>
   runMaintenanceAction(
-    action: 'downgrade' | 'initial-install' | 'install-java' | 'strict-update',
+    action: 'downgrade' | 'initial-install' | 'install-java' | 'refresh-helpers' | 'strict-update',
     release?: { channel: 'prerelease' | 'stable'; confirmDowngrade?: boolean; expectedTag: string },
   ): Promise<HomeV2CoreMaintenanceActionResult>
   getUpdatePolicy(): Promise<HomeV2CoreUpdatePolicyState>

@@ -15,8 +15,8 @@ import { CoreMaintenancePanel } from './CoreMaintenancePanel'
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 const status = {
-  capabilities: { canInitialInstall: true, canInstallJava: true, canUpdateRunningInPlace: false },
-  core: { installModified: false, channel: null, installedCommit: null, installedTag: null, nodeAutoUpdateMode: null, runtimeBlockedReason: null, installedVersion: null, runtime: 'stopped' },
+  capabilities: { canInitialInstall: true, canInstallJava: true, canRefreshHelpers: false, canUpdateRunningInPlace: false },
+  core: { helpersOutOfSyncVersion: null, installModified: false, channel: null, installedCommit: null, installedTag: null, nodeAutoUpdateMode: null, runtimeBlockedReason: null, installedVersion: null, runtime: 'stopped' },
   java: { source: 'missing', updateAvailable: false, version: null },
   revision: 1,
   schema: 'home-v2-core-maintenance',
@@ -181,8 +181,8 @@ try {
   act(() => root.unmount())
   currentStatus = {
     ...status,
-    capabilities: { canInitialInstall: false, canInstallJava: true, canUpdateRunningInPlace: false },
-    core: { installModified: false, channel: 'prerelease', installedCommit: null, installedTag: null, nodeAutoUpdateMode: null, runtimeBlockedReason: null, installedVersion: '1.2.3', runtime: 'stopped' },
+    capabilities: { canInitialInstall: false, canInstallJava: true, canRefreshHelpers: false, canUpdateRunningInPlace: false },
+    core: { helpersOutOfSyncVersion: null, installModified: false, channel: 'prerelease', installedCommit: null, installedTag: null, nodeAutoUpdateMode: null, runtimeBlockedReason: null, installedVersion: '1.2.3', runtime: 'stopped' },
     java: { source: 'managed', updateAvailable: true, version: '25.0.1' },
   }
   root = createRoot(container)
@@ -385,7 +385,8 @@ try {
     // An unmodified install must NOT carry the notice, or it is just noise.
     client.getMaintenanceStatus = async () => ({
       ...currentStatus,
-      core: { ...currentStatus.core, installModified: false, installedVersion: '1.7.2' },
+      core: { ...currentStatus.core, helpersOutOfSyncVersion: null,
+      installModified: false, installedVersion: '1.7.2' },
     })
     act(() => root.unmount())
     root = createRoot(container)

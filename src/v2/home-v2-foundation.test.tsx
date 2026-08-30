@@ -1741,8 +1741,8 @@ function testCoreManagementRenderingAndAndroidDegrade(): void {
         tag: 'v1.7.3',
       },
       status: {
-        capabilities: { canInitialInstall: false, canInstallJava: true, canUpdateRunningInPlace: false },
-        core: { installModified: false, channel: 'stable', installedCommit: null, installedTag: null, nodeAutoUpdateMode: null, runtimeBlockedReason: null, installedVersion: '1.7.2', runtime: 'running' },
+        capabilities: { canInitialInstall: false, canInstallJava: true, canRefreshHelpers: false, canUpdateRunningInPlace: false },
+        core: { helpersOutOfSyncVersion: null, installModified: false, channel: 'stable', installedCommit: null, installedTag: null, nodeAutoUpdateMode: null, runtimeBlockedReason: null, installedVersion: '1.7.2', runtime: 'running' },
         java: { source: 'missing', updateAvailable: false, version: null },
         revision: 1,
         schema: 'home-v2-core-maintenance',

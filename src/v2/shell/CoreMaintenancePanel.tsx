@@ -56,6 +56,7 @@ export function CoreMaintenancePanel({
     policy,
     confirmDowngrade,
     pendingDowngrade,
+    refreshHelpers,
     release,
     revealInstall,
     runCore,
@@ -221,6 +222,22 @@ export function CoreMaintenancePanel({
             {t('home2.core.downgradeConfirmAction')}
           </button>
         </div>
+      ) : null}
+      {status.capabilities.canRefreshHelpers && status.core.helpersOutOfSyncVersion ? (
+        // The remedy that belongs with the "Modified since install" notice
+        // below: 1.x offered this, Home 2 collected the fact and offered
+        // nothing to do about it.
+        <p className="home-v2-core-notice" data-home-v2-core-helpers-out-of-sync role="status">
+          <span>
+            {t('home2.core.helpersOutOfSync', { version: status.core.helpersOutOfSyncVersion })}
+          </span>
+          {' '}
+          <button className="home-v2-link-button" type="button"
+            disabled={busy !== null}
+            onClick={() => void refreshHelpers()}>
+            {t('home2.core.helpersRefresh')}
+          </button>
+        </p>
       ) : null}
       {status.core.installModified ? (
             // 1.x said so plainly and used it to offer a way back. Home 2 never

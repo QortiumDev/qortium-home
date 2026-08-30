@@ -34,6 +34,22 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-29 - fix(core): offer to re-sync helper scripts when they drift
+
+Home checks whether the small scripts that accompany the Core still match the
+Core that is installed, and Home 1.x offered a way to put them right. Home 2
+worked out the answer and then did nothing with it, so the problem was invisible
+and the fix unreachable.
+
+Settings now says when the scripts no longer match, naming the version, and
+offers to re-sync them. The offer appears only when the Core actually reports a
+mismatch, and the action is refused otherwise rather than run against a Core that
+never asked for it.
+
+This pairs with the "Modified since install" notice added the same day: the
+mismatch is only ever reported for an install that has been modified, so this is
+the remedy for the problem that notice reports.
+
 ### 2026-08-29 - fix(node): start the Core and Home connects to it
 
 Starting the Qortium Core from Home left Home connected to whatever node it was

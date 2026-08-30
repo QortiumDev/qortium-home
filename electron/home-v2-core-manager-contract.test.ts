@@ -138,11 +138,14 @@ function maintenanceManager(options: {
   observedRuntime?: 'running' | 'stopped' | 'unknown'
   release?: Record<string, unknown>
   onInstallForHomeV2?: (request: unknown) => Promise<unknown>
+  onRefreshHelpers?: () => Promise<unknown>
+  coreUpdate?: Record<string, unknown>
   prerelease?: Record<string, unknown>
   stable?: Record<string, unknown>
   runtime?: Record<string, unknown>
 } = {}) {
   const status = () => qortiumStatus({
+    ...(options.coreUpdate ? { coreUpdate: options.coreUpdate } : {}),
     installed: options.installed === undefined
       ? null
       : options.installed,
@@ -175,6 +178,7 @@ function maintenanceManager(options: {
       return { kind: 'completed' as const, status: result }
     }),
     installJava: options.onInstallJava ?? (async () => status()),
+    refreshHelpers: options.onRefreshHelpers ?? (async () => status()),
     networkId: 'qortium',
     startForHomeV2: async () => status(),
     stopForHomeV2: async () => status(),
@@ -796,6 +800,59 @@ for (const nested of [
   const bogus = await service.runMaintenanceAction({ ...ask, expectedTag: '9.9.9' })
   assert.equal(bogus.outcome, 'blocked')
   assert.equal(bogus.code, 'release-changed')
+}
+
+// Helper-script drift: reported when the Core says so, and the remedy runs.
+// core-manager only computes helpersOutOfSync for a MODIFIED install, so this is
+// the action that belongs with the "Modified since install" notice from #455.
+{
+  let refreshCalls = 0
+  const drifting = maintenanceManager({
+    installed: { jarSemver: '1.7.2', modifiedSinceInstall: true, tagName: 'v1.7.2' },
+    coreUpdate: { helpersOutOfSync: { targetTag: 'v1.7.2', version: '1.7.2' } },
+    onRefreshHelpers: async () => { refreshCalls += 1; return {} },
+  })
+  const service = createHomeV2CoreManagerService(() => drifting)
+  const status = await service.getMaintenanceStatus({
+    revision: 1, schema: 'home-v2-core-maintenance-request',
+  })
+  assert.equal(status.core.helpersOutOfSyncVersion, '1.7.2')
+  assert.equal(status.capabilities.canRefreshHelpers, true)
+  assertRedacted(status)
+
+  const result = await service.runMaintenanceAction({
+    action: 'refresh-helpers',
+    revision: 1,
+    schema: 'home-v2-core-maintenance-mutation-request',
+  })
+  assert.equal(result.outcome, 'completed')
+  assert.equal(refreshCalls, 1)
+  assertRedacted(result)
+}
+
+// No drift reported: nothing offered, and the action is refused rather than
+// silently running against a Core that never asked for it.
+{
+  let refreshCalls = 0
+  const clean = maintenanceManager({
+    installed: { jarSemver: '1.7.2', tagName: 'v1.7.2' },
+    onRefreshHelpers: async () => { refreshCalls += 1; return {} },
+  })
+  const service = createHomeV2CoreManagerService(() => clean)
+  const status = await service.getMaintenanceStatus({
+    revision: 1, schema: 'home-v2-core-maintenance-request',
+  })
+  assert.equal(status.core.helpersOutOfSyncVersion, null)
+  assert.equal(status.capabilities.canRefreshHelpers, false)
+
+  const result = await service.runMaintenanceAction({
+    action: 'refresh-helpers',
+    revision: 1,
+    schema: 'home-v2-core-maintenance-mutation-request',
+  })
+  assert.equal(result.outcome, 'blocked')
+  assert.equal(result.code, 'action-not-allowed')
+  assert.equal(refreshCalls, 0)
 }
 
 console.log('Home v2 Core-manager contract tests passed.')

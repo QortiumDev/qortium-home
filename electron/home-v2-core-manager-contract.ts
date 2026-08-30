@@ -69,6 +69,8 @@ export type HomeV2CoreMaintenanceStatus = {
   readonly capabilities: {
     readonly canInitialInstall: boolean
     readonly canInstallJava: boolean
+    /** Whether the Core's helper scripts can be re-synced right now. */
+    readonly canRefreshHelpers: boolean
     /**
      * A running, Home-started Core may be updated in place: Home stops it,
      * replaces the files, and starts it again, restoring the previous install
@@ -106,6 +108,15 @@ export type HomeV2CoreMaintenanceStatus = {
      * because nothing can be acted on that is never shown.
      */
     readonly installModified: boolean
+    /**
+     * The version whose helper scripts no longer match the installed Core, or
+     * null when they are in sync.
+     *
+     * Home 1.x offered a "refresh helpers" action off this. Home 2 collected
+     * the fact and never surfaced it, so the remedy for a modified install (see
+     * installModified) was unreachable. Version strings only -- no paths.
+     */
+    readonly helpersOutOfSyncVersion: string | null
     readonly installedVersion: string | null
     readonly runtime: HomeV2CoreRuntimeState
   }
@@ -173,7 +184,12 @@ export type HomeV2CoreMaintenanceActionResult = {
 
 type CoreManagerResolver = (network: HomeV2CoreNetwork) => CoreManagerEntry
 type CoreAction = 'start' | 'stop'
-type MaintenanceAction = 'downgrade' | 'initial-install' | 'install-java' | 'strict-update'
+type MaintenanceAction =
+  | 'downgrade'
+  | 'initial-install'
+  | 'install-java'
+  | 'refresh-helpers'
+  | 'strict-update'
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
@@ -207,8 +223,9 @@ function normalizeMaintenanceMutationRequest(value: unknown) {
   if (!isRecord(value) || value.schema !== 'home-v2-core-maintenance-mutation-request' ||
     value.revision !== 1 ||
     (value.action !== 'initial-install' && value.action !== 'strict-update' &&
-      value.action !== 'downgrade' && value.action !== 'install-java') ||
-    (value.action === 'install-java'
+      value.action !== 'downgrade' && value.action !== 'install-java' &&
+      value.action !== 'refresh-helpers') ||
+    ((value.action === 'install-java' || value.action === 'refresh-helpers')
       ? Object.keys(value).length !== 3 || 'channel' in value || 'expectedTag' in value
       // A downgrade carries one extra key, the user's answer. It is a plain
       // boolean: the token that actually authorises the downgrade never leaves
@@ -256,11 +273,26 @@ function qortiumMaintenanceStatus(
           typeof java?.managedJavaTarget === 'number' && java.majorVersion < java.managedJavaTarget) ||
         (javaSource === 'managed' && java?.managedUpgradeAvailable === true)
       ),
+      // Only offered when the Core actually reports drift, which core-manager
+      // computes solely for a modified install -- the same fact #455 surfaced.
+      canRefreshHelpers: supported && !!installed && (() => {
+        const coreUpdate = isRecord(status.coreUpdate) ? status.coreUpdate : null
+        return !!coreUpdate && isRecord(coreUpdate.helpersOutOfSync)
+      })(),
     },
     core: {
       channel: installed?.channel === 'stable' || installed?.channel === 'prerelease'
         ? installed.channel
         : null,
+      helpersOutOfSyncVersion: (() => {
+        const coreUpdate = isRecord(status.coreUpdate) ? status.coreUpdate : null
+        const outOfSync = coreUpdate && isRecord(coreUpdate.helpersOutOfSync)
+          ? coreUpdate.helpersOutOfSync
+          : null
+        return typeof outOfSync?.version === 'string' && outOfSync.version.trim()
+          ? outOfSync.version.trim().slice(0, 60)
+          : null
+      })(),
       installModified: installed?.modifiedSinceInstall === true,
       installedVersion:
         typeof installed?.jarSemver === 'string' && installed.jarSemver.trim()
@@ -705,6 +737,15 @@ async function runMaintenanceAction(
     const manager = resolveManager('qortium')
     if (manager.networkId !== 'qortium') {
       return maintenanceActionResult(await readMaintenanceStatus(resolveManager), 'blocked', 'action-not-allowed')
+    }
+
+    if (request.action === 'refresh-helpers') {
+      const status = await readMaintenanceStatus(() => manager)
+      if (!status.capabilities.canRefreshHelpers) {
+        return maintenanceActionResult(status, 'blocked', 'action-not-allowed')
+      }
+      await manager.refreshHelpers()
+      return maintenanceActionResult(await readMaintenanceStatus(() => manager), 'completed', null)
     }
 
     if (request.action === 'install-java') {

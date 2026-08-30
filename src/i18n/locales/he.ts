@@ -833,6 +833,8 @@ export const he: Record<TranslationKey, string> = {
   "home2.core.apiControl": "Core ‏{network} פועל · שליטה מאומתת דרך ה-API",
   "home2.core.nodeAutoUpdateMode": "עדכון אוטומטי של הצומת: {mode}",
   "home2.core.installModified": "שונה מאז ההתקנה",
+  "home2.core.helpersOutOfSync": "סקריפטי העזר אינם תואמים ל-Core {version}.",
+  "home2.core.helpersRefresh": "סנכרן מחדש את סקריפטי העזר",
   "home2.core.releaseChoice": "גרסה להתקנה",
   "home2.core.releaseOlder": "גרסה ישנה יותר {tag}",
   "home2.core.downgradeConfirm": "התקנת {target} תחליף את {installed} החדשה יותר. להמשיך?",
