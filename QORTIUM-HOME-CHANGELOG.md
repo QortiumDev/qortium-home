@@ -34,6 +34,64 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-30 - test: wait for the node key to come back instead of reading too early
+
+A check that turns the Qortium connection off and on again was reading the saved
+settings the instant it flipped back, before the connection had finished being
+re-established. It now waits.
+
+Doing that turned up something real, which is written up in the report rather
+than fixed here: once in roughly every five attempts, turning the connection off
+and back on does not restore the node's access key at all, not within a full
+minute. When that happens Home is connected but cannot manage the node.
+
+### 2026-08-30 - test: fix a packaged check that had been sitting on the setup screen all along
+
+One of the checks that drives the real application was quietly testing nothing.
+It asks which screen it has landed on, and it decided that by looking for the
+dashboard anywhere on the page. The dashboard is always there: screens you are
+not looking at stay loaded but hidden, so that they remember where you were
+when you come back to them.
+
+So the check always concluded it was already past setup, never pressed "Skip
+setup", spent the whole run sitting on the setup screen, and then failed much
+later while counting things on a page it was never actually on.
+
+It now asks which screen is being SHOWN. The application itself was fine
+throughout - pressing "Skip setup" works, including immediately after launch,
+which was confirmed against a build made specifically to check it.
+
+### 2026-08-30 - test: bring the packaged Core-manager smoke back in step with the app
+
+One of the checks that drives the real packaged application and reads what it
+reports had been left behind. It was still expecting the smaller set of things
+Home could report on 22 August, so it failed the moment it was run against a
+current build - not because anything was broken, but because the application had
+grown since and the check had not.
+
+It now expects what the application actually reports, including the newer
+Qortal maintenance information that arrived in between and the router stop
+control and apply-now transport setting added yesterday.
+
+One change here is worth naming. The check also refused to let the reported
+information contain the words "url" or "commit" anywhere, as a blunt way of
+making sure passwords, file paths and process details never leak into it. Home
+now deliberately reports two things that trip that rule: which version of the
+Core was built, and the address of the node running on your own machine, which
+you need in order to point other tools at it. Neither is a secret. The rule has
+been narrowed to the things that genuinely must never appear, and the address is
+now checked directly for being your own machine rather than by banning the word.
+
+### 2026-08-30 - fix(build): stop packaging Capacitor Gradle output into the AppImage
+
+The Linux application file was larger than it should have been on any machine
+that had also built the Android version, because leftover Android build output
+was being swept into it. Two builds of the same code from two different machines
+disagreed on their contents, which is what brought this to light.
+
+The rule meant to keep that output out only covered part of it. It now covers
+all of it, and the two machines produce matching contents again.
+
 ### 2026-08-30 - feat(chat): let an app keep reading your direct messages on your own node
 
 An app that reads your direct messages had to ask every single time. That is
