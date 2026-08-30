@@ -807,6 +807,7 @@ export const nb: Record<TranslationKey, string> = {
   "home2.app.checkingNetwork": "Sjekker {network}…",
   "home2.app.frameTitle": "QDN-applikasjon",
   "home2.app.networkUnavailable": "{network} er utilgjengelig.",
+  "home2.app.previewUnavailable": "Denne forhåndsvisningen er ikke lenger tilgjengelig. Velg filen på nytt.",
   "home2.app.unableToLoad": "Kan ikke laste denne appen.",
   "home2.app.unableToOpen": "Kan ikke åpne denne appen.",
   "home2.app.unableToPrepareView": "Kan ikke klargjøre appvisningen.",

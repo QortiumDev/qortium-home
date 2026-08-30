@@ -342,6 +342,107 @@ async function testAndroidIframeSrcIncludesInitialHashWhileAuthorizationDropsIt(
   container.remove()
 }
 
+// A preview borrows its app's id, identity, wallet, network AND address, so
+// without previewUrl in contextsIdentifySameTab it counts as the SAME tab and
+// REPLACES the app that asked for it. Two previews of different files must also
+// be different tabs.
+async function testPublishPreviewIsASeparateTabFromTheAppThatAskedForIt(): Promise<void> {
+  const chat = fixtureApp(fixtureIds.chatApp)
+  const base = fixtureTabContext(chat, fixtureIds.chatTab)
+  let state = createProductState()
+  state = reduceProductState(state, {
+    type: 'open-app', app: chat, context: base, tabId: fixtureIds.chatTab,
+  })
+  assert.equal(state.tabs.length, 1)
+
+  const previewTab = 'home-v2:tab:preview-1' as typeof fixtureIds.chatTab
+  state = reduceProductState(state, {
+    type: 'open-app',
+    app: chat,
+    context: { ...base, previewUrl: 'http://127.0.0.1:24891/render/hash/aaa', tabId: previewTab },
+    tabId: previewTab,
+  })
+  assert.equal(state.tabs.length, 2,
+    'a preview must not replace the app tab that requested it')
+
+  const secondPreview = 'home-v2:tab:preview-2' as typeof fixtureIds.chatTab
+  state = reduceProductState(state, {
+    type: 'open-app',
+    app: chat,
+    context: { ...base, previewUrl: 'http://127.0.0.1:24891/render/hash/bbb', tabId: secondPreview },
+    tabId: secondPreview,
+  })
+  assert.equal(state.tabs.length, 3,
+    'previews of different files must be different tabs')
+}
+
+// A publish preview carries a URL the NODE built (/render/hash/...), which
+// matches no resource address and cannot be derived from one. It must render
+// from that URL -- and must be REFUSED if it points anywhere but this tab's own
+// node, because the rehydrate parser can only check the URL's shape and a
+// preview restored from an earlier session could name a stale port.
+async function testPublishPreviewRendersItsOwnUrlAndRefusesAnotherOrigin(): Promise<void> {
+  const chat = fixtureApp(fixtureIds.chatApp)
+  const nodeOrigin = homeV2Fixture.nodes[chat.sourceNetwork].nodeApiUrl
+  assert.ok(nodeOrigin, 'the fixture node must have an API URL')
+
+  const openPreview = (previewUrl: string) => {
+    let state = createProductState()
+    state = reduceProductState(state, {
+      type: 'open-app',
+      app: chat,
+      context: { ...fixtureTabContext(chat, fixtureIds.chatTab), previewUrl },
+      tabId: fixtureIds.chatTab,
+    })
+    return reduceProductState(state, { type: 'activate-tab', tabId: fixtureIds.chatTab })
+  }
+
+  // Same node: renders the preview URL rather than the app's own address.
+  {
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+    act(() => {
+      root.render(
+        React.createElement(AppTabStage, {
+          productState: openPreview(`${nodeOrigin}/render/hash/abc123`),
+          snapshot: homeV2Fixture,
+          requestApp: async () => null,
+          onOpenAddress: async () => undefined,
+        }),
+      )
+    })
+    await act(async () => { await flushAsync() })
+    const src = String(container.querySelector('iframe.home-v2-app-frame')?.getAttribute('src'))
+    assert.match(new URL(src).pathname, /^\/render\/hash\/abc123/,
+      'a preview tab must render the node-built preview URL')
+    await act(async () => { root.unmount() })
+    container.remove()
+  }
+
+  // A DIFFERENT origin must not render at all, even though its shape is valid.
+  {
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+    act(() => {
+      root.render(
+        React.createElement(AppTabStage, {
+          productState: openPreview('http://127.0.0.1:59999/render/hash/abc123'),
+          snapshot: homeV2Fixture,
+          requestApp: async () => null,
+          onOpenAddress: async () => undefined,
+        }),
+      )
+    })
+    await act(async () => { await flushAsync() })
+    const frame = container.querySelector('iframe.home-v2-app-frame')
+    assert.equal(frame, null, 'a preview URL from another origin must be refused')
+    await act(async () => { root.unmount() })
+    container.remove()
+  }
+}
+
 // R4-4: WEBSITE and GAME resources open as app tabs, so the render URL must
 // be built from the PARSED service. resolveRender used to hardcode
 // `/render/APP/`, which asked Core for an APP resource that does not exist
@@ -589,6 +690,8 @@ async function main(): Promise<void> {
   await testTabSwitchNeverRendersAStaleIframeUnderTheNewTabsContext()
   await testAndroidIframeSrcIncludesInitialHashWhileAuthorizationDropsIt()
   await testRenderUrlUsesTheParsedServiceNotAHardcodedApp()
+  await testPublishPreviewRendersItsOwnUrlAndRefusesAnotherOrigin()
+  await testPublishPreviewIsASeparateTabFromTheAppThatAskedForIt()
   await testDesktopTelemetryRefreshDoesNotHideOrReshowTheApp()
   console.log('AppTabStage.test.tsx passed')
 }

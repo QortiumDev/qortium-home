@@ -806,6 +806,7 @@ export const fr: Record<TranslationKey, string> = {
   "home2.app.checkingNetwork": "Vérification de {network}…",
   "home2.app.frameTitle": "Application QDN",
   "home2.app.networkUnavailable": "{network} est indisponible.",
+  "home2.app.previewUnavailable": "Cet aperçu n'est plus disponible. Sélectionnez à nouveau le fichier.",
   "home2.app.unableToLoad": "Impossible de charger cette application.",
   "home2.app.unableToOpen": "Impossible d'ouvrir cette application.",
   "home2.app.unableToPrepareView": "Impossible de préparer la vue de l'application.",

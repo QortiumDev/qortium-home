@@ -101,6 +101,9 @@ const HOME_V2_REACHABLE_ROUTE_ACTIONS = new Set<string>([
   'SAVE_CHAT_ATTACHMENT',
   'PUBLISH_QDN_RESOURCE',
   'SELECT_QDN_PUBLISH_SOURCE',
+  // Previewing sends the file to the node to be rendered, so an unreachable
+  // route cannot serve it -- same gate as its publish-source siblings.
+  'PREVIEW_QDN_PUBLISH_SOURCE',
 ])
 
 function configuredRouteKind(node: HomeV2AppNodeState): HomeV2ConfiguredRouteKind {

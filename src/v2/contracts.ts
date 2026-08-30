@@ -329,6 +329,19 @@ export interface AppTabContext {
   readonly tabId: TabId
   readonly sourceNetwork: NetworkId
   readonly resourceLocation: AppResourceLocation
+  /**
+   * A node-rendered preview of local content the user has not published yet.
+   *
+   * Normally a tab's URL is DERIVED from `resourceLocation`, so it is
+   * structurally constrained to `/render/SERVICE/name/identifier`. A preview is
+   * different: the node returns `/render/hash/<hash>`, which matches no
+   * resource address and cannot be expressed as one. This field carries that
+   * URL instead, and everything downstream must treat it as the narrower case:
+   * loopback origin matching the node, `/render/` path, nothing else.
+   *
+   * Null for every ordinary app tab.
+   */
+  readonly previewUrl: string | null
 }
 
 export interface NetworkRequest {

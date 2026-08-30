@@ -806,6 +806,7 @@ export const ko: Record<TranslationKey, string> = {
   "home2.app.checkingNetwork": "{network} 확인 중…",
   "home2.app.frameTitle": "QDN 앱",
   "home2.app.networkUnavailable": "{network}를 사용할 수 없습니다.",
+  "home2.app.previewUnavailable": "이 미리보기는 더 이상 사용할 수 없습니다. 파일을 다시 선택하세요.",
   "home2.app.unableToLoad": "이 앱을 로드할 수 없습니다.",
   "home2.app.unableToOpen": "이 앱을 열 수 없습니다.",
   "home2.app.unableToPrepareView": "앱 보기를 준비할 수 없습니다.",

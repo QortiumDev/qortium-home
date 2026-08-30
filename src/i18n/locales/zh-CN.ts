@@ -806,6 +806,7 @@ export const zhCN: Record<TranslationKey, string> = {
   "home2.app.checkingNetwork": "正在检查 {network}…",
   "home2.app.frameTitle": "QDN应用程序",
   "home2.app.networkUnavailable": "{network} 不可用。",
+  "home2.app.previewUnavailable": "此预览已不可用。请重新选择文件。",
   "home2.app.unableToLoad": "无法加载此应用程序。",
   "home2.app.unableToOpen": "无法打开此应用程序。",
   "home2.app.unableToPrepareView": "无法准备应用程序视图。",

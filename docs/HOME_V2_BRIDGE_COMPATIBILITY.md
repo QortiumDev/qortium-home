@@ -264,7 +264,7 @@ desktop, and Android fixtures pass:**
 
 | Family | Deferred actions | Notes |
 | --- | --- | --- |
-| Publishing preview | `PREVIEW_QDN_PUBLISH_SOURCE` | `DELETE_QDN_RESOURCE` and `PUBLISH_MULTIPLE_QDN_RESOURCES` are no longer deferred (see below); preview has its own subsection below |
+| ~~Publishing preview~~ | ~~`PREVIEW_QDN_PUBLISH_SOURCE`~~ | **No longer deferred (2026-08-30)** — implemented as an app-tab preview, local nodes only; see its subsection below |
 | Foreign wallets | `GET_USER_WALLET_INFO`, `GET_USER_WALLET_TRANSACTIONS`, `GET_WALLET_BALANCE`, `SET_CURRENT_FOREIGN_SERVER` | Awaits the W3 design — see the wallet-family subsection below; the four zero-key `/crosschain` READS and native-only `GET_USER_WALLET` are implemented |
 | Node settings and admin | `GET_NODE_SETTINGS_METADATA`, `UPDATE_NODE_SETTINGS`, `RESTART_NODE` | Node settings stay deferred; Home's own DISPLAY settings are implemented (see below) |
 | Background notification subscriptions | `NOTIFICATION_ADD`, `NOTIFICATION_GET`, `NOTIFICATION_REMOVE` | Distinct from the implemented `NOTIFICATION_HAS_PERMISSION`/`SHOW_NOTIFICATION` contract and the `NOTIFICATION_MANAGER_*` family |
@@ -299,26 +299,49 @@ that justifies it today would no longer hold.
 
 ### `PREVIEW_QDN_PUBLISH_SOURCE`
 
-Still deferred, and deliberately so rather than by oversight.
+**Implemented (2026-08-30).** This section previously explained why it was
+deferred; that reasoning is kept below because it is still the reason it is NOT
+wired to the resource viewer.
 
-In Home 1.x this action staged the already-selected source (a directory, a
-`.zip`, or a bare `.html`), POSTed it to a local Core's
-`/arbitrary/preview/WEBSITE`, and displayed the returned `/render/hash/...` URL
-in a v1-only preview surface. Home 2 has no equivalent surface: the resource
-viewer cannot show a website (it hard-refuses `APP`/`WEBSITE`/`GAME` and
-contains no frame), and the desktop shell's CSP is `frame-src 'none'`. The only
-component that can render a site is the app-tab `WebContentsView`, whose URL is
-derived from the tab's `AppResourceLocation` and cannot be set to a preview
-URL without threading a new field through `AppTabContext`, `parseAppEntry`, and
-the shell-state rehydrate path — plus a render-path identity rule, since
-in-view navigation is validated against `/render/SERVICE/name/identifier` and a
-`/render/hash/...` URL matches no such shape.
+The deferral's stated precondition was "a faithful port needs a v2 preview
+surface that does not exist yet, and a handler that returns true while showing
+the user nothing would be worse than an honest refusal". That is exactly right,
+and it is why previews open as an **app tab** -- the only surface that can render
+a website. The resource viewer renders images, audio and video and otherwise
+shows a download panel, so sending a `WEBSITE` preview there would have produced
+precisely the silent nothing this section warned about. (It was tried; the
+tier-2 test caught it.)
 
-A main-process-only port would return `true` and show the user nothing, which
-is worse than an honest "not implemented". The v2 publish-source picker is also
-file-only today (`properties: ['openFile']`), so even a complete port would
-cover `.zip` and `.html` but not 1.x's directory sources. This belongs in its
-own change with the renderer work included.
+Two obstacles this section named turned out to be already solved by the time the
+work was done:
+
+- **Render scope.** `isAllowedRenderUrlForOrigin` already permits
+  `/render/hash/...`, with a comment naming local publish previews: the node only
+  serves those hashes with a matching secret.
+- **Navigation identity.** `parseRenderPathIdentity` already parses
+  `/render/hash/<hash>` as `{ service: 'HASH', name: <hash> }`, so same-resource
+  navigation binding works without a new rule.
+
+So the work was renderer-side: `AppTabContext.previewUrl`, structural validation
+in `parseAppEntry` (loopback, `/render/` path, no credentials), and an origin
+binding in `AppTabStage` against the tab's own node -- the parser cannot do that
+one, because nothing at that layer knows which node the tab belongs to, and a
+preview restored from an earlier session could otherwise point at a stale port.
+
+`previewUrl` also participates in `contextsIdentifySameTab`. Without that a
+preview would count as the same tab as the app that requested it -- it borrows
+the app's id, identity, wallet, network and address -- and would replace it.
+
+**Still narrower than 1.x:** the v2 publish-source picker is `openFile`-only, so
+directory sources are not selectable. `.zip` and `.html` websites and single
+media files are covered. Extending the picker would change the publish flow too,
+so it stays a separate change.
+
+**Local nodes only.** Previewing sends the chosen file to a node to render, so on
+a public node its operator would see the file before the user chose to publish.
+`resolveHomeV2AdminNode` only yields a key for a trusted local Core; anything
+else refuses with a message saying why. No approval prompt is needed on a local
+Core because there is no third party.
 
 ### No longer deferred: display settings, minting, lists, polls, names, group mutations, publishing extras, rating writes, the account avatar, and payments
 

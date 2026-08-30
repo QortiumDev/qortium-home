@@ -4552,7 +4552,14 @@ async function assertQdnPreviewIndexFile(directoryPath: string) {
   }
 }
 
-async function stageQdnPreviewSource(sourcePath: string) {
+/**
+ * Stage a local file or folder so a node can render it as a QDN resource.
+ *
+ * Exported for the Home 2 app bridge, which has its own node access and cannot
+ * use this module's legacy connection layer. Pure filesystem work: it does not
+ * touch a node, an account, or a connection, so sharing it couples nothing.
+ */
+export async function stageQdnPreviewSource(sourcePath: string) {
   let sourceStats;
 
   try {

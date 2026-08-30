@@ -2168,6 +2168,10 @@ export function HomeV2LiveApp() {
   // client's generation compare-and-set.
   // ---------------------------------------------------------------------
   const appearanceRef = useRef(snapshotState.appearance)
+  // Read at call time by the publish-preview subscription, which needs the
+  // requesting app's descriptor and must not re-subscribe on every change.
+  const appsRef = useRef(snapshotState.apps)
+  appsRef.current = snapshotState.apps
   appearanceRef.current = snapshotState.appearance
   const homeSettingsResponder = useMemo(
     () => createHomeV2HomeSettingsResponder({
@@ -2351,6 +2355,9 @@ export function HomeV2LiveApp() {
             : bindNoAccount
               ? brand<IdentityId>('home-v2:identity:none')
               : snapshot.identity.id,
+          // Ordinary app tabs derive their URL from resourceLocation; only a
+          // publish preview carries one of its own.
+          previewUrl: null,
           resourceLocation:
             requestedLocation ??
             buildAppResourceLocation(app.sourceNetwork, app.resourceIdentity),
@@ -2399,6 +2406,9 @@ export function HomeV2LiveApp() {
         context: {
           appId: app.id,
           identityId: current.context.identityId,
+          // Ordinary app tabs derive their URL from resourceLocation; only a
+          // publish preview carries one of its own.
+          previewUrl: null,
           resourceLocation:
             requestedLocation ??
             buildAppResourceLocation(app.sourceNetwork, app.resourceIdentity),
@@ -3388,6 +3398,39 @@ export function HomeV2LiveApp() {
       void openAddress(value.address, accountId)
     })
   }, [openAddress])
+
+  // A publish preview opens as an app TAB, borrowing the requesting app's
+  // identity and address but carrying the node-built preview URL. It is a
+  // separate tab from the app itself: previewUrl participates in tab identity,
+  // so this never replaces the app that asked for it.
+  useEffect(() => {
+    const bridge = window.homeV2Apps
+    if (!bridge?.onOpenPublishPreview) return
+    return bridge.onOpenPublishPreview((value) => {
+      if (!isRecord(value)) return
+      const previewUrl = typeof value.previewUrl === 'string' ? value.previewUrl : ''
+      const sourceTabId = typeof value.sourceTabId === 'string' ? value.sourceTabId : ''
+      if (!previewUrl || !sourceTabId) return
+      const source = productStateRef.current.tabs.find((tab) => tab.id === sourceTabId)
+      if (!source) return
+      const app = appsRef.current.find((entry) => entry.id === source.context.appId)
+      if (!app) return
+      tabSequence.current += 1
+      const tabId = brand<TabId>(
+        `home-v2:tab:${Date.now().toString(36)}:${tabSequence.current}`,
+      )
+      dispatchProduct({
+        type: 'open-app',
+        app,
+        tabId,
+        context: {
+          ...source.context,
+          previewUrl,
+          tabId,
+        },
+      })
+    })
+  }, [])
 
   useEffect(() => {
     const bridge = window.homeV2Apps

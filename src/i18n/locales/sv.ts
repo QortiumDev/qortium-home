@@ -806,6 +806,7 @@ export const sv: Record<TranslationKey, string> = {
   "home2.app.checkingNetwork": "Kontrollerar {network}…",
   "home2.app.frameTitle": "QDN-applikation",
   "home2.app.networkUnavailable": "{network} är inte tillgänglig.",
+  "home2.app.previewUnavailable": "Den här förhandsgranskningen är inte längre tillgänglig. Välj filen igen.",
   "home2.app.unableToLoad": "Det gick inte att ladda den här appen.",
   "home2.app.unableToOpen": "Det går inte att öppna den här appen.",
   "home2.app.unableToPrepareView": "Det gick inte att förbereda appvyn.",

@@ -806,6 +806,7 @@ export const et: Record<TranslationKey, string> = {
   "home2.app.checkingNetwork": "Kontrollitakse võrku {network}…",
   "home2.app.frameTitle": "QDN-i rakendus",
   "home2.app.networkUnavailable": "{network} pole saadaval.",
+  "home2.app.previewUnavailable": "See eelvaade pole enam saadaval. Vali fail uuesti.",
   "home2.app.unableToLoad": "Seda rakendust ei saa laadida.",
   "home2.app.unableToOpen": "Seda rakendust ei saa avada.",
   "home2.app.unableToPrepareView": "Rakenduse vaadet ei saa ette valmistada.",

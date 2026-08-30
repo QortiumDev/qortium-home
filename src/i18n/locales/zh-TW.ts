@@ -806,6 +806,7 @@ export const zhTW: Record<TranslationKey, string> = {
   "home2.app.checkingNetwork": "正在檢查 {network}…",
   "home2.app.frameTitle": "QDN應用程式",
   "home2.app.networkUnavailable": "{network} 不可用。",
+  "home2.app.previewUnavailable": "此預覽已無法使用。請重新選擇檔案。",
   "home2.app.unableToLoad": "無法載入此應用程式。",
   "home2.app.unableToOpen": "無法開啟此應用程式。",
   "home2.app.unableToPrepareView": "無法準備應用程式視圖。",

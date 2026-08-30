@@ -103,7 +103,14 @@ assert.equal(getHomeV2AvailableAppActions('qdnRequest', {
   qortal: unreachableInfo.route,
   qortium: unreachableInfo.route,
 }).includes('SEND_CHAT_MESSAGE'), true)
-for (const action of ['SELECT_QDN_PUBLISH_SOURCE', 'PUBLISH_QDN_RESOURCE']) {
+// Preview joins the publish-source family: an app that can pick a file can now
+// also ask Home to render it before publishing. It must be ADVERTISED, or the
+// handler is unreachable no matter that it exists.
+for (const action of [
+  'SELECT_QDN_PUBLISH_SOURCE',
+  'PREVIEW_QDN_PUBLISH_SOURCE',
+  'PUBLISH_QDN_RESOURCE',
+]) {
   assert.equal(getHomeV2AvailableAppActions('qdnRequest', {
     qortal: unreachableInfo.route,
     qortium: unreachableInfo.route,

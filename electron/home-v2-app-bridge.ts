@@ -86,6 +86,7 @@ import {
 import {
   areQdnAppNotificationsEnabled,
   consumeQdnAppNotificationRateLimit,
+  stageQdnPreviewSource,
 } from './qdn.js'
 import { encodeQdnBridgeError, encodeQdnBridgeResult } from './qdn-bridge-error.js'
 import {
@@ -2100,6 +2101,76 @@ function issueHomeV2ResourceStream(input: {
     targetSession: input.targetSession,
     upstreamUrl: input.upstreamUrl,
   })
+}
+
+/**
+ * Render a chosen publish source so the user can look at it before publishing.
+ *
+ * Gated to a LOCAL node, deliberately. Previewing sends the selected bytes to
+ * the node, which renders them -- so on someone else's node the operator would
+ * see the file before the user had decided to publish it. qdn.ts flags the same
+ * hazard on the 1.x path. On a local managed Core there is no third party, so
+ * no approval prompt is needed either; on anything else this refuses.
+ *
+ * The render URL is never returned to the app: Home opens the preview itself,
+ * through the resource viewer, so the app cannot read the staged bytes back out
+ * of a URL it was handed.
+ */
+async function previewHomeV2PublishSource(
+  context: QdnViewContext,
+  protocol: HomeV2AppBridgeProtocol,
+  network: HomeV2AppNetwork,
+  routeRevision: string,
+  requestValue: Record<string, unknown>,
+) {
+  const sourceToken = stringField(requestValue, 'sourceToken')
+  if (!sourceToken) {
+    throw new Error('Select a QDN publish source before previewing it.')
+  }
+  const { apiKey, node } = await resolveHomeV2AdminNode(network)
+  if (node.mode !== 'local' || !apiKey) {
+    throw new Error(
+      'Previewing sends the selected file to the node, so it is only available on your own local Core.',
+    )
+  }
+  const hostWindow = getContextWindow(context)
+  if (!hostWindow || hostWindow.isDestroyed()) {
+    throw new Error('The preview request does not belong to an active Home window.')
+  }
+  const source = homeV2DesktopPublishSources.resolve(sourceToken, homeV2PublishSourceBinding({
+    context,
+    network,
+    nodeApiUrl: node.nodeApiUrl,
+    protocol,
+    routeRevision,
+  }))
+  const { previewPath, service } = await stageQdnPreviewSource(source.path)
+  const rendered = await postHomeV2ChatText(
+    node.nodeApiUrl,
+    `/arbitrary/preview/${encodeURIComponent(service)}`,
+    previewPath,
+    'text/plain',
+    'QDN preview request failed.',
+    apiKey,
+  )
+  const renderPath = typeof rendered === 'string' ? rendered.trim() : ''
+  if (!renderPath.startsWith('/render/')) {
+    throw new Error('The node returned an unexpected preview URL.')
+  }
+  // Opened as an app TAB, not the resource viewer: the viewer renders images,
+  // audio and video and otherwise offers a download, so a WEBSITE preview --
+  // which is what a folder, a .zip or an .html stages as -- would have shown
+  // the user a download panel instead of their site. The app-tab view is the
+  // only surface that can render a site, which is exactly what
+  // docs/HOME_V2_BRIDGE_COMPATIBILITY.md said this action was waiting for.
+  hostWindow.webContents.send('home-v2-app:open-publish-preview', {
+    network,
+    previewUrl: `${node.nodeApiUrl.replace(/\/+$/, '')}${renderPath}`,
+    service,
+    sourceTabId: context.tabId,
+    title: source.fileName,
+  })
+  return true
 }
 
 async function selectHomeV2PublicPublishSource(
@@ -9547,6 +9618,15 @@ async function handleRequestWithRuntime(
       protocol,
       network,
       hostInfo.route.revision,
+    )
+  }
+  if (action === 'PREVIEW_QDN_PUBLISH_SOURCE') {
+    return previewHomeV2PublishSource(
+      context,
+      protocol,
+      network,
+      hostInfo.route.revision,
+      requestValue,
     )
   }
   if (action === 'PUBLISH_QDN_RESOURCE') {

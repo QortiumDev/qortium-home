@@ -70,6 +70,37 @@ function resolveRender(productState: ProductState, snapshot: HomeV2Snapshot) {
       network: tab.context.sourceNetwork === 'qortal' ? 'Qortal' : 'Qortium',
     }))
   }
+  // A publish preview carries a URL the NODE built (/render/hash/...), which
+  // matches no resource address and cannot be derived from one. Bind it to this
+  // tab's node here: the rehydrate parser can only check the URL's shape,
+  // because nothing at that layer knows which node the tab belongs to, so a
+  // preview restored from an earlier session could otherwise point at a stale
+  // port. Same origin, same /render/ prefix, or it is refused outright.
+  if (tab.context.previewUrl) {
+    let preview: URL
+    try {
+      preview = new URL(tab.context.previewUrl)
+    } catch {
+      throw new Error(t('home2.app.previewUnavailable'))
+    }
+    if (preview.origin !== new URL(node.nodeApiUrl).origin ||
+      !preview.pathname.startsWith('/render/')) {
+      throw new Error(t('home2.app.previewUnavailable'))
+    }
+    const previewQuery = new URLSearchParams(preview.search)
+    previewQuery.set('accent', snapshot.appearance.accent)
+    previewQuery.set('lang', snapshot.appearance.resolvedLanguage)
+    previewQuery.set('textSize', snapshot.appearance.textSize)
+    previewQuery.set('theme', snapshot.appearance.resolvedTheme)
+    previewQuery.set('uiStyle', snapshot.appearance.ui)
+    preview.search = previewQuery.toString()
+    return {
+      identity: parseAppResourceLocation(tab.context.resourceLocation).identity,
+      nodeApiUrl: node.nodeApiUrl,
+      tab,
+      url: preview.toString(),
+    }
+  }
   const resource = parseAppResourceLocation(tab.context.resourceLocation)
   const name = resource.identity.name
   const identifier = resource.identity.identifier
@@ -912,6 +943,7 @@ declare global {
       onOpenAddress(listener: (event: unknown) => void): () => void
       onOpenAddressInTab(listener: (event: unknown) => void): () => void
       onOpenResourceViewer(listener: (event: unknown) => void): () => void
+      onOpenPublishPreview(listener: (event: unknown) => void): () => void
       onNotificationClicked(listener: (event: unknown) => void): () => void
       onPermissionRequest(listener: (event: unknown) => void): () => void
       onPermissionTimeout(listener: (event: unknown) => void): () => void

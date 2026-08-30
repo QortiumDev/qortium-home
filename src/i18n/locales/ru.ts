@@ -806,6 +806,7 @@ export const ru: Record<TranslationKey, string> = {
   "home2.app.checkingNetwork": "Проверяем {network}…",
   "home2.app.frameTitle": "Приложение QDN",
   "home2.app.networkUnavailable": "{network} недоступен.",
+  "home2.app.previewUnavailable": "Этот предпросмотр больше недоступен. Выберите файл заново.",
   "home2.app.unableToLoad": "Невозможно загрузить это приложение.",
   "home2.app.unableToOpen": "Невозможно открыть это приложение.",
   "home2.app.unableToPrepareView": "Не удалось подготовить представление приложения.",

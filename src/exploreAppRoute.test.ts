@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { replaceLegacyQdnExplorerRoutes, resolveExploreAppRoute } from './exploreAppRoute';
-import { DASHBOARD_ROUTE, parseAppAddress, QDN_PREVIEW_ROUTE } from './routes';
+import { DASHBOARD_ROUTE, parseAppAddress } from './routes';
 
 const cases = [
   [{ kind: 'services', displayUrl: 'qdn://' }, 'qdn://APP/Explore/Explore#/services'],
@@ -20,10 +20,9 @@ assert.equal(
   'qdn://APP/Explore/Explore#/service/APP',
 );
 
-assert.equal(resolveExploreAppRoute(QDN_PREVIEW_ROUTE), null, 'the temporary Home preview launcher must remain native');
-const previewAddress = parseAppAddress('home://preview');
-assert.equal(previewAddress.success, true);
-assert.equal(previewAddress.success && previewAddress.route.kind, 'preview-launcher');
+// home://preview is gone: the native launcher it opened was unreachable, and
+// pre-publish preview now runs through PREVIEW_QDN_PUBLISH_SOURCE instead.
+assert.equal(parseAppAddress('home://preview').success, false);
 assert.equal(
   resolveExploreAppRoute({
     kind: 'resource',
@@ -38,7 +37,7 @@ const migrated = replaceLegacyQdnExplorerRoutes([DASHBOARD_ROUTE, cases[0][0]]);
 assert.equal(migrated[0], DASHBOARD_ROUTE);
 assert.equal(migrated[1].displayUrl, cases[0][1]);
 
-const unchanged = [DASHBOARD_ROUTE, QDN_PREVIEW_ROUTE];
+const unchanged = [DASHBOARD_ROUTE];
 assert.equal(replaceLegacyQdnExplorerRoutes(unchanged), unchanged);
 
 console.log('Explore app route cutover tests passed.');

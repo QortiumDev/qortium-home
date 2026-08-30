@@ -805,6 +805,7 @@ export const en = {
   "home2.app.checkingNetwork": "Checking {network}…",
   "home2.app.frameTitle": "QDN app",
   "home2.app.networkUnavailable": "{network} is unavailable.",
+  "home2.app.previewUnavailable": "This preview is no longer available. Select the file again.",
   "home2.app.unableToLoad": "Unable to load this app.",
   "home2.app.unableToOpen": "Unable to open this app.",
   "home2.app.unableToPrepareView": "Unable to prepare the app view.",
