@@ -46,7 +46,9 @@ function fixture(os: 'android' | 'linux', withDownload = false): HomeV2AppUpdate
       state: 'available',
     },
     setChannel: () => undefined,
-    setHomeUpdatePolicy: () => undefined,
+    canRevealInstallFolder: false,
+  revealInstallFolder: async () => undefined,
+  setHomeUpdatePolicy: () => undefined,
   } as HomeV2AppUpdates
 }
 
@@ -78,6 +80,40 @@ assert.equal(
 assert.equal(rootElement.querySelector('[data-home-v2-update-action="open"]')?.textContent?.trim(), 'Install APK')
 assert.equal(rootElement.textContent?.includes('Start Core'), false)
 
+// Home's own install folder can be opened, and the path never reaches here.
+// 1.x showed it as a path row; #448 established that opening a folder needs no
+// path in the renderer.
+{
+  let opened = 0
+  await act(async () => {
+    root.render(<HomeUpdateSettings updates={{
+      ...fixture('linux'),
+      canRevealInstallFolder: true,
+      revealInstallFolder: async () => { opened += 1 },
+    }} />)
+  })
+  const revealButton = rootElement.querySelector<HTMLButtonElement>(
+    '[data-home-v2-update-action="reveal-install-folder"]',
+  )
+  assert(revealButton, 'expected an install-folder button when the host can open one')
+  await act(async () => {
+    revealButton.click()
+    await Promise.resolve()
+  })
+  assert.equal(opened, 1)
+  assert.doesNotMatch(rootElement.textContent ?? '', /\/(?:home|opt|usr|Users)\//)
+
+  // A host that cannot open folders (Android) must not offer it.
+  await act(async () => {
+    root.render(<HomeUpdateSettings updates={{
+      ...fixture('linux'), canRevealInstallFolder: false,
+    }} />)
+  })
+  assert.equal(
+    rootElement.querySelector('[data-home-v2-update-action="reveal-install-folder"]'),
+    null,
+  )
+}
+
 await act(async () => { root.unmount() })
-rootElement.remove()
 console.log('Home 2 update settings tests passed.')

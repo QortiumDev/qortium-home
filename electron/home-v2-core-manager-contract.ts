@@ -72,6 +72,14 @@ export type HomeV2CoreMaintenanceStatus = {
     /** Whether the Core's helper scripts can be re-synced right now. */
     readonly canRefreshHelpers: boolean
     /**
+     * Whether the node can be ASKED to install a waiting on-chain update.
+     *
+     * Only when one is actually waiting and is not already being installed,
+     * and only for a Core Home started -- one someone else started is not
+     * Home's to update.
+     */
+    readonly canInstallOnChainUpdate: boolean
+    /**
      * A running, Home-started Core may be updated in place: Home stops it,
      * replaces the files, and starts it again, restoring the previous install
      * if anything fails.
@@ -228,6 +236,7 @@ type MaintenanceAction =
   | 'downgrade'
   | 'initial-install'
   | 'install-java'
+  | 'install-on-chain-update'
   | 'refresh-helpers'
   | 'strict-update'
 
@@ -264,8 +273,9 @@ function normalizeMaintenanceMutationRequest(value: unknown) {
     value.revision !== 1 ||
     (value.action !== 'initial-install' && value.action !== 'strict-update' &&
       value.action !== 'downgrade' && value.action !== 'install-java' &&
-      value.action !== 'refresh-helpers') ||
-    ((value.action === 'install-java' || value.action === 'refresh-helpers')
+      value.action !== 'refresh-helpers' && value.action !== 'install-on-chain-update') ||
+    ((value.action === 'install-java' || value.action === 'refresh-helpers' ||
+      value.action === 'install-on-chain-update')
       ? Object.keys(value).length !== 3 || 'channel' in value || 'expectedTag' in value
       // A downgrade carries one extra key, the user's answer. It is a plain
       // boolean: the token that actually authorises the downgrade never leaves
@@ -317,6 +327,14 @@ function qortiumMaintenanceStatus(
       // this itself -- reading the installed jar's semver and comparing it
       // against the matching release -- and only for a modified install, the
       // same fact #455 surfaced. The node is not asked and does not report it.
+      canInstallOnChainUpdate: supported && !!installed && runtimeState === 'running' &&
+        runtime?.owner === 'home' && (() => {
+        const coreUpdate = isRecord(status.coreUpdate) ? status.coreUpdate : null
+        const available = coreUpdate && isRecord(coreUpdate.available) ? coreUpdate.available : null
+        // 'handled-by-core' means the node's own auto-update is already set to
+        // INSTALL, so asking again would be noise.
+        return available?.channel === 'on-chain' && available.action === 'available'
+      })(),
       canRefreshHelpers: supported && !!installed && (() => {
         const coreUpdate = isRecord(status.coreUpdate) ? status.coreUpdate : null
         return !!coreUpdate && isRecord(coreUpdate.helpersOutOfSync)
@@ -816,6 +834,24 @@ async function runMaintenanceAction(
     const manager = resolveManager('qortium')
     if (manager.networkId !== 'qortium') {
       return maintenanceActionResult(await readMaintenanceStatus(resolveManager), 'blocked', 'action-not-allowed')
+    }
+
+    if (request.action === 'install-on-chain-update') {
+      const status = await readMaintenanceStatus(() => manager)
+      if (!status.capabilities.canInstallOnChainUpdate) {
+        return maintenanceActionResult(status, 'blocked', 'action-not-allowed')
+      }
+      // The NODE installs it. Home only asks, so nothing here downloads or
+      // replaces a jar and none of Home's release verification is bypassed.
+      const outcome = await manager.requestOnChainUpdateForHomeV2()
+      if (outcome.kind === 'blocked') {
+        return maintenanceActionResult(
+          await readMaintenanceStatus(() => manager),
+          'blocked',
+          'action-not-allowed',
+        )
+      }
+      return maintenanceActionResult(await readMaintenanceStatus(() => manager), 'completed', null)
     }
 
     if (request.action === 'refresh-helpers') {

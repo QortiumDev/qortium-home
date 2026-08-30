@@ -15,7 +15,7 @@ import { CoreMaintenancePanel } from './CoreMaintenancePanel'
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 const status = {
-  capabilities: { canInitialInstall: true, canInstallJava: true, canRefreshHelpers: false, canUpdateRunningInPlace: false },
+  capabilities: { canInitialInstall: true, canInstallJava: true, canInstallOnChainUpdate: false, canRefreshHelpers: false, canUpdateRunningInPlace: false },
   core: { helpersOutOfSyncVersion: null, installModified: false, localApiUrl: null, update: null, channel: null, installedCommit: null, installedTag: null, nodeAutoUpdateMode: null, runtimeBlockedReason: null, installedVersion: null, runtime: 'stopped' },
   java: { source: 'missing', targetMajorVersion: null, updateAvailable: false, version: null },
   revision: 1,
@@ -181,7 +181,7 @@ try {
   act(() => root.unmount())
   currentStatus = {
     ...status,
-    capabilities: { canInitialInstall: false, canInstallJava: true, canRefreshHelpers: false, canUpdateRunningInPlace: false },
+    capabilities: { canInitialInstall: false, canInstallJava: true, canInstallOnChainUpdate: false, canRefreshHelpers: false, canUpdateRunningInPlace: false },
     core: { helpersOutOfSyncVersion: null, installModified: false, localApiUrl: null, update: null, channel: 'prerelease', installedCommit: null, installedTag: null, nodeAutoUpdateMode: null, runtimeBlockedReason: null, installedVersion: '1.2.3', runtime: 'stopped' },
     java: { source: 'managed', targetMajorVersion: null, updateAvailable: true, version: '25.0.1' },
   }

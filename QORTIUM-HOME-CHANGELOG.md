@@ -34,6 +34,21 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-29 - feat(core): install a waiting network update, and find Home's own folder
+
+Two things Home 1.x could do.
+
+When an update has been approved by the development group and published to the
+network, the node can fetch and install it itself. Home could already be told to
+wait for that to happen automatically, but there was no way to say "do it now".
+There is now, and it appears only when such an update is actually waiting. Home
+does not download anything: it asks the node, and the node checks the approval,
+verifies the published file and installs it.
+
+Home also shows where it is installed on this machine, by opening the folder
+rather than printing the location, so the address of the folder never leaves the
+part of Home that knows it.
+
 ### 2026-08-29 - feat(core): say where a waiting Core update comes from
 
 A Core update can come from two places: a published release, or the network

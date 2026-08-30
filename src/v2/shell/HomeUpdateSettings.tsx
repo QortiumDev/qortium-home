@@ -191,6 +191,20 @@ export function HomeUpdateSettings({
             {t('updates.showFile')}
           </button>
         ) : null}
+        {!isAndroid && updates.canRevealInstallFolder ? (
+          // Home 1.x showed its own install folder as a path row. This opens it
+          // instead: the path is resolved in the main process and never crosses
+          // to the renderer -- the pattern #448 set for the Core's folder.
+          <button
+            className="home-v2-secondary-button"
+            data-home-v2-update-action="reveal-install-folder"
+            disabled={busy}
+            type="button"
+            onClick={() => void updates.revealInstallFolder()}
+          >
+            {t('updates.showInstallFolder')}
+          </button>
+        ) : null}
         {result?.release ? (
           <button
             className="home-v2-link-button"

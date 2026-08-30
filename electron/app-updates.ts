@@ -344,6 +344,21 @@ function normalizeExternalUrl(value: unknown) {
   return url.toString();
 }
 
+/**
+ * Open Home's own install folder in the desktop file manager.
+ *
+ * Home 1.x showed the folder as a path row with a reveal. Home 2 keeps
+ * filesystem paths out of the renderer, and this respects that the same way
+ * #448 did for the Core: the path is resolved and used here, and the caller
+ * learns only whether a window opened.
+ */
+export function revealHomeV2InstallFolder(): boolean {
+  const target = getInstallFile();
+  if (!target || !existsSync(target)) return false;
+  shell.showItemInFolder(target);
+  return true;
+}
+
 export async function openExternalUrl(value: unknown) {
   await shell.openExternal(normalizeExternalUrl(value));
 }
