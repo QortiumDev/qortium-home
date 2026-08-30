@@ -34,6 +34,17 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-29 - feat(core): show the address of your own node
+
+Settings now shows the address the Qortium Core on this machine is listening on,
+so it can be given to other tools that need to talk to it. Home 1.x showed this
+and Home 2 dropped it along with the details that genuinely are private.
+
+The address is not one of those: it is the loopback address on a published port.
+The key that grants access to the node is a separate thing and is still never
+shown. An address that is not on this machine is not displayed at all, because
+this line is about your own node and would be making a different claim.
+
 ### 2026-08-29 - fix(transport): show progress while the I2P router installs
 
 Installing the I2P router downloads and unpacks a program, which takes a while.

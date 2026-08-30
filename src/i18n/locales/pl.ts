@@ -833,6 +833,7 @@ export const pl: Record<TranslationKey, string> = {
   "home2.core.apiControl": "Core {network} uruchomiony · uwierzytelnione sterowanie przez API",
   "home2.core.nodeAutoUpdateMode": "Automatyczna aktualizacja węzła: {mode}",
   "home2.core.installModified": "Zmodyfikowano od instalacji",
+  "home2.core.localApiUrl": "Lokalne API: {url}",
   "home2.core.javaInstallVersion": "Zainstaluj Javę {version}",
   "home2.core.javaUpdateToVersion": "Zaktualizuj Javę do {version}",
   "home2.core.helpersOutOfSync": "Skrypty pomocnicze nie pasują do Core {version}.",

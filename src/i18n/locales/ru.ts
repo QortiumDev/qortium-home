@@ -833,6 +833,7 @@ export const ru: Record<TranslationKey, string> = {
   "home2.core.apiControl": "Core {network} запущен · аутентифицированное управление через API",
   "home2.core.nodeAutoUpdateMode": "Автообновление узла: {mode}",
   "home2.core.installModified": "Изменён после установки",
+  "home2.core.localApiUrl": "Локальный API: {url}",
   "home2.core.javaInstallVersion": "Установить Java {version}",
   "home2.core.javaUpdateToVersion": "Обновить Java до {version}",
   "home2.core.helpersOutOfSync": "Вспомогательные скрипты не соответствуют Core {version}.",

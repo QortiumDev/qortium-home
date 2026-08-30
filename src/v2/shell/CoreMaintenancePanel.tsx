@@ -253,6 +253,14 @@ export function CoreMaintenancePanel({
               {t('home2.core.installModified')}
             </small>
           ) : null}
+          {status.core.localApiUrl ? (
+            // The node's own address, so other tools can be pointed at it. Not
+            // a secret and deliberately not the API KEY, which this contract
+            // does redact: this is a loopback URL on a published port.
+            <small data-home-v2-core-local-api-url>
+              {t('home2.core.localApiUrl', { url: status.core.localApiUrl })}
+            </small>
+          ) : null}
           {status.core.installedTag || status.core.installedCommit ? (
             // Which BUILD, not just which version: 1.x showed these, and two
             // builds of one version are otherwise indistinguishable. The

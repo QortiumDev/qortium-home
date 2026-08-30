@@ -834,6 +834,7 @@ export const el: Record<TranslationKey, string> = {
   "home2.core.apiControl": "Το Core {network} εκτελείται · έλεγχος μέσω πιστοποιημένου API",
   "home2.core.nodeAutoUpdateMode": "Αυτόματη ενημέρωση κόμβου: {mode}",
   "home2.core.installModified": "Τροποποιήθηκε μετά την εγκατάσταση",
+  "home2.core.localApiUrl": "Τοπικό API: {url}",
   "home2.core.javaInstallVersion": "Εγκατάσταση Java {version}",
   "home2.core.javaUpdateToVersion": "Ενημέρωση της Java σε {version}",
   "home2.core.helpersOutOfSync": "Τα βοηθητικά σενάρια δεν ταιριάζουν με το Core {version}.",

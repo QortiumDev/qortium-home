@@ -833,6 +833,7 @@ export const et: Record<TranslationKey, string> = {
   "home2.core.apiControl": "{network} Core töötab · autenditud API-juhtimine",
   "home2.core.nodeAutoUpdateMode": "Sõlme automaatne uuendus: {mode}",
   "home2.core.installModified": "Muudetud pärast paigaldamist",
+  "home2.core.localApiUrl": "Kohalik API: {url}",
   "home2.core.javaInstallVersion": "Paigalda Java {version}",
   "home2.core.javaUpdateToVersion": "Uuenda Java versioonile {version}",
   "home2.core.helpersOutOfSync": "Abiskriptid ei vasta Core'i versioonile {version}.",

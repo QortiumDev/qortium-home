@@ -188,9 +188,10 @@ export function parseHomeV2CoreMaintenanceStatus(value: unknown): HomeV2CoreMain
     typeof value.capabilities.canUpdateRunningInPlace !== 'boolean' || !isRecord(value.core) ||
     !hasExactKeys(value.core, [
       'channel', 'helpersOutOfSyncVersion', 'installedCommit', 'installModified',
-      'installedTag', 'installedVersion', 'nodeAutoUpdateMode', 'runtime',
+      'installedTag', 'installedVersion', 'localApiUrl', 'nodeAutoUpdateMode', 'runtime',
       'runtimeBlockedReason',
     ]) ||
+    !(value.core.localApiUrl === null || typeof value.core.localApiUrl === 'string') ||
     typeof value.core.installModified !== 'boolean' ||
     !(value.core.helpersOutOfSyncVersion === null ||
       typeof value.core.helpersOutOfSyncVersion === 'string') ||
@@ -226,6 +227,7 @@ export function parseHomeV2CoreMaintenanceStatus(value: unknown): HomeV2CoreMain
       // test passed (#436). The round trip is asserted in the client test.
       helpersOutOfSyncVersion: value.core.helpersOutOfSyncVersion,
       installedCommit: value.core.installedCommit,
+      localApiUrl: value.core.localApiUrl,
       installModified: value.core.installModified,
       installedTag: value.core.installedTag,
       nodeAutoUpdateMode: value.core.nodeAutoUpdateMode,

@@ -833,6 +833,7 @@ export const zhCN: Record<TranslationKey, string> = {
   "home2.core.apiControl": "{network} Core 正在运行 · 已通过身份验证的 API 控制",
   "home2.core.nodeAutoUpdateMode": "节点自动更新：{mode}",
   "home2.core.installModified": "安装后已被修改",
+  "home2.core.localApiUrl": "本地 API：{url}",
   "home2.core.javaInstallVersion": "安装 Java {version}",
   "home2.core.javaUpdateToVersion": "将 Java 更新到 {version}",
   "home2.core.helpersOutOfSync": "辅助脚本与 Core {version} 不匹配。",

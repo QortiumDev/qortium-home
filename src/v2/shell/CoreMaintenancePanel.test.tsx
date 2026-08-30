@@ -16,7 +16,7 @@ import { CoreMaintenancePanel } from './CoreMaintenancePanel'
 
 const status = {
   capabilities: { canInitialInstall: true, canInstallJava: true, canRefreshHelpers: false, canUpdateRunningInPlace: false },
-  core: { helpersOutOfSyncVersion: null, installModified: false, channel: null, installedCommit: null, installedTag: null, nodeAutoUpdateMode: null, runtimeBlockedReason: null, installedVersion: null, runtime: 'stopped' },
+  core: { helpersOutOfSyncVersion: null, installModified: false, localApiUrl: null, channel: null, installedCommit: null, installedTag: null, nodeAutoUpdateMode: null, runtimeBlockedReason: null, installedVersion: null, runtime: 'stopped' },
   java: { source: 'missing', targetMajorVersion: null, updateAvailable: false, version: null },
   revision: 1,
   schema: 'home-v2-core-maintenance',
@@ -182,7 +182,7 @@ try {
   currentStatus = {
     ...status,
     capabilities: { canInitialInstall: false, canInstallJava: true, canRefreshHelpers: false, canUpdateRunningInPlace: false },
-    core: { helpersOutOfSyncVersion: null, installModified: false, channel: 'prerelease', installedCommit: null, installedTag: null, nodeAutoUpdateMode: null, runtimeBlockedReason: null, installedVersion: '1.2.3', runtime: 'stopped' },
+    core: { helpersOutOfSyncVersion: null, installModified: false, localApiUrl: null, channel: 'prerelease', installedCommit: null, installedTag: null, nodeAutoUpdateMode: null, runtimeBlockedReason: null, installedVersion: '1.2.3', runtime: 'stopped' },
     java: { source: 'managed', targetMajorVersion: null, updateAvailable: true, version: '25.0.1' },
   }
   root = createRoot(container)
@@ -369,7 +369,7 @@ try {
     const originalStatus = client.getMaintenanceStatus
     client.getMaintenanceStatus = async () => ({
       ...currentStatus,
-      core: { ...currentStatus.core, installModified: true, installedVersion: '1.7.2' },
+      core: { ...currentStatus.core, installModified: true, localApiUrl: null, installedVersion: '1.7.2' },
     })
     act(() => root.unmount())
     root = createRoot(container)
@@ -386,7 +386,7 @@ try {
     client.getMaintenanceStatus = async () => ({
       ...currentStatus,
       core: { ...currentStatus.core, helpersOutOfSyncVersion: null,
-      installModified: false, installedVersion: '1.7.2' },
+      installModified: false, localApiUrl: null, installedVersion: '1.7.2' },
     })
     act(() => root.unmount())
     root = createRoot(container)

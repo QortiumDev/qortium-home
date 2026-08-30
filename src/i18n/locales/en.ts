@@ -832,6 +832,7 @@ export const en = {
   "home2.core.apiControl": "{network} Core running · authenticated API control",
   "home2.core.nodeAutoUpdateMode": "Node auto-update: {mode}",
   "home2.core.installModified": "Modified since install",
+  "home2.core.localApiUrl": "Local API: {url}",
   "home2.core.javaInstallVersion": "Install Java {version}",
   "home2.core.javaUpdateToVersion": "Update Java to {version}",
   "home2.core.helpersOutOfSync": "Helper scripts do not match Core {version}.",
