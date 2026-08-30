@@ -111,12 +111,20 @@ async function evaluate(page, expression) {
   return response.result?.result?.value
 }
 
-async function waitForSnapshot(page, timeoutMs = 30000) {
+async function waitForSnapshot(port, timeoutMs = 30000) {
   const deadline = Date.now() + timeoutMs
   let lastError = null
   while (Date.now() < deadline) {
+    // RE-RESOLVE the target on every attempt. Holding one page handle and
+    // retrying against it achieves nothing if the window behind it has been
+    // replaced: the bridge then rejects it as an unauthorized document forever,
+    // because the authorized sender is the NEW webContents while this handle
+    // points at a destroyed one. A stale handle looks exactly like a permission
+    // bug from out here.
     try {
-      return await evaluate(page, 'window.homeV2Nodes.getSnapshot()')
+      const page = await waitForPage(port)
+      const snapshot = await evaluate(page, 'window.homeV2Nodes.getSnapshot()')
+      return { page, snapshot }
     } catch (error) {
       lastError = error
       await delay(250)
@@ -156,10 +164,7 @@ try {
       QORTIUM_HOME_USER_DATA_DIR: profileDirectory,
     },
   })
-  const page = await waitForPage(port)
-  // Retry rather than failing on the first rejection, so the error we report is
-  // the STEADY-STATE one. (It is: this does not recover. See the report.)
-  const initial = await waitForSnapshot(page)
+  const { page, snapshot: initial } = await waitForSnapshot(port)
   const localQortium = assertReadableNode(initial, 'qortium', 'local')
   assert.equal(localQortium.nodeApiUrl, 'https://127.0.0.1:24891')
   assert.equal(

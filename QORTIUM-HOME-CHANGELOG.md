@@ -34,6 +34,17 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-30 - test: wait for the node key to come back instead of reading too early
+
+A check that turns the Qortium connection off and on again was reading the saved
+settings the instant it flipped back, before the connection had finished being
+re-established. It now waits.
+
+Doing that turned up something real, which is written up in the report rather
+than fixed here: once in roughly every five attempts, turning the connection off
+and back on does not restore the node's access key at all, not within a full
+minute. When that happens Home is connected but cannot manage the node.
+
 ### 2026-08-30 - test: fix a packaged check that had been sitting on the setup screen all along
 
 One of the checks that drives the real application was quietly testing nothing.

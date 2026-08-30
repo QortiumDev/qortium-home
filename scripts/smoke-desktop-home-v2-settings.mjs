@@ -837,17 +837,23 @@ try {
         `document.querySelector('input[aria-label="Qortium connection mode"]')?.checked === true`,
       ),
     )
-    const restoredQortiumSettings = JSON.parse(
-      readFileSync(path.join(profileDirectory, 'node-settings.json'), 'utf8'),
+    // The key is re-issued ASYNCHRONOUSLY after the connection comes back, so
+    // this has to wait for it rather than read the file the instant the toggle
+    // flips -- reading immediately catches it empty about half the time.
+    const restoredQortiumSettings = await waitUntil(
+      'the Qortium admin key to be re-issued',
+      async () => {
+        const value = JSON.parse(
+          readFileSync(path.join(profileDirectory, 'node-settings.json'), 'utf8'),
+        )
+        return /^[A-Za-z0-9_-]+$/.test(value.apiKey) ? value : null
+      },
     )
-    // Everything except the key returns exactly as it was...
+    // Everything except the key returns exactly as it was.
     assert.deepEqual(
       { ...restoredQortiumSettings, apiKey: '' },
       { ...disabledQortiumSettings, mode: 'local' },
     )
-    // ...and a key is issued again, rather than the empty one from while it was
-    // off being left in place, which would leave the node unusable.
-    assert.match(restoredQortiumSettings.apiKey, /^[A-Za-z0-9_-]+$/)
     await evaluate(
       client,
       `([...document.querySelectorAll('.home-v2-settings-nav button')]
