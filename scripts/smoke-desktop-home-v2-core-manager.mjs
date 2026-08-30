@@ -137,10 +137,41 @@ function assertMaintenanceStatus(value) {
   assert.deepEqual(Object.keys(value).sort(), ['capabilities', 'core', 'java', 'revision', 'schema'])
   assert.equal(value.schema, 'home-v2-core-maintenance')
   assert.equal(value.revision, 1)
-  assert.deepEqual(Object.keys(value.capabilities).sort(), ['canInitialInstall', 'canInstallJava'])
-  assert.deepEqual(Object.keys(value.core).sort(), ['channel', 'installedVersion', 'runtime'])
-  assert.deepEqual(Object.keys(value.java).sort(), ['source', 'updateAvailable', 'version'])
-  assert.doesNotMatch(JSON.stringify(value), /apiKey|cause|commit|digest|download|jarPath|pid|record|runtimePath|token|url/i)
+  assert.deepEqual(Object.keys(value.capabilities).sort(), [
+    'canInitialInstall', 'canInstallJava', 'canInstallOnChainUpdate', 'canRefreshHelpers',
+    'canUpdateRunningInPlace',
+  ].sort())
+  assert.deepEqual(Object.keys(value.core).sort(), [
+    'channel', 'helpersOutOfSyncVersion', 'installedCommit', 'installModified', 'installedTag',
+    'installedVersion', 'localApiUrl', 'nodeAutoUpdateMode', 'runtime', 'runtimeBlockedReason',
+    'update',
+  ].sort())
+  assert.deepEqual(Object.keys(value.java).sort(), [
+    'source', 'targetMajorVersion', 'updateAvailable', 'version',
+  ].sort())
+  // Aligned with the contract's own assertRedacted (see
+  // home-v2-core-manager-contract.test.ts), which is the maintained list.
+  //
+  // `commit` and `url` were dropped from this regex DELIBERATELY, not to make a
+  // stale test pass: installedCommit is ordinary build identity (#445) and
+  // localApiUrl is a loopback address on a published port that users need in
+  // order to point other tools at their own node (#461). Both were weighed
+  // against the redaction rule when they landed. What must still never appear
+  // is unchanged: credentials, paths, process identity.
+  assert.doesNotMatch(
+    JSON.stringify(value),
+    /apiKey|authority|cause|digest|download|jarPath|pid|record|runtimePath|token/i,
+  )
+  // The loopback property asserted POSITIVELY, since the substring ban that
+  // used to cover it is gone: this row claims to be the user's OWN node, and a
+  // remote address here would be a different claim entirely.
+  if (value.core.localApiUrl !== null) {
+    const host = new URL(value.core.localApiUrl).hostname
+    assert.ok(
+      host === '127.0.0.1' || host === 'localhost' || host === '::1' || host === '[::1]',
+      `the local API address must be loopback, got ${host}`,
+    )
+  }
 }
 
 function assertQortalMaintenanceStatus(value) {
@@ -150,6 +181,10 @@ function assertQortalMaintenanceStatus(value) {
     'install',
     'installedVersion',
     'issue',
+    // Added after this smoke was last touched (2026-08-22), by the Qortal
+    // maintenance work rather than anything in the 2026-08-30 wave.
+    'lastRelease',
+    'lastReleaseCheckedAt',
     'network',
     'revision',
     'runtime',
@@ -217,6 +252,10 @@ function assertTransportMaintenanceStatus(value) {
   assert.equal(value.revision, 1)
   assert.deepEqual(Object.keys(value.capabilities).sort(), [
     'canEnsureRouter', 'canSetDirectAndI2p', 'canSetDirectOnly', 'canSetI2pOnly',
+    // The router stop control and the apply-now transport mode change, both
+    // added 2026-08-30. Their presence here is real end-to-end evidence: this
+    // list comes from the running AppImage over CDP, not from a fixture.
+    'canSetModeWhileRunning', 'canStopRouter',
   ])
   assert.deepEqual(Object.keys(value.core).sort(), ['install', 'runtime'])
   assert.deepEqual(Object.keys(value.router).sort(), ['maintenance', 'state', 'version'])
@@ -232,6 +271,8 @@ function assertUpdatePolicy(value) {
     'coreUpdatePolicy',
     'generation',
     'javaUpdatePolicy',
+    // Qortal maintenance again, post-2026-08-22.
+    'qortalUpdatePolicy',
     'revision',
     'schema',
     'settingsIssue',
@@ -240,7 +281,7 @@ function assertUpdatePolicy(value) {
   assert.equal(value.revision, 1)
   assert.equal(['install', 'notify', 'off'].includes(value.coreUpdatePolicy), true)
   assert.equal(['install', 'notify', 'off'].includes(value.javaUpdatePolicy), true)
-  assert.deepEqual(Object.keys(value.activity).sort(), ['checkedAt', 'core', 'generation', 'issue', 'java'])
+  assert.deepEqual(Object.keys(value.activity).sort(), ['checkedAt', 'core', 'generation', 'issue', 'java', 'qortal'])
   assert.equal(value.activity.generation, value.generation)
   assert.doesNotMatch(JSON.stringify(value), /apiKey|cause|commit|digest|download|jarPath|pid|record|runtimePath|token|url/i)
 }
@@ -341,6 +382,7 @@ try {
     'coreUpdatePolicy',
     'generation',
     'javaUpdatePolicy',
+    'qortalUpdatePolicy',
     'schema',
     'version',
   ])
