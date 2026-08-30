@@ -293,6 +293,7 @@ const GRANT_CARD_ACCESS_LABEL_KEYS = {
   // the wording is what tells a user which card they are about to revoke.
   'account.decrypt': 'managerPermissions.access.accountDecrypt',
   'account.directChat': 'managerPermissions.access.accountDirectChat',
+  'account.groupChat': 'managerPermissions.access.accountGroupChat',
   'account.encrypt': 'managerPermissions.access.accountEncrypt',
   'account.read': 'managerPermissions.access.accountRead',
   'bookmarks.manage': 'managerPermissions.access.bookmarks',
@@ -556,6 +557,21 @@ export function QdnAppsSettings({
       }))
   }
 
+  // Revoking this stops the app reading this account's PRIVATE GROUP history.
+  // Its own card and its own capability: letting an app read group chats is not
+  // the same decision as handing it one-to-one messages, and a user revoking
+  // one must not be shown wording that describes the other.
+  const revokeAccountGroupChat = async (grant: HomeV2QdnAccountGrant) => {
+    if (!snapshot) return
+    await applyMutation(`accountGroupChat:${grant.appKey}:${grant.accountId}`, () =>
+      client.revokeBookmarks({
+        accountId: grant.accountId,
+        appKey: grant.appKey,
+        capability: 'account.groupChat',
+        expectedAssignmentRevision: snapshot.accountGroupChat.revision,
+      }))
+  }
+
   const revokeAccountEncrypt = async (grant: HomeV2QdnAccountGrant) => {
     if (!snapshot) return
     await applyMutation(`accountEncrypt:${grant.appKey}:${grant.accountId}`, () =>
@@ -702,6 +718,29 @@ export function QdnAppsSettings({
               key={`${grant.appKey}:${grant.accountId}`}
               loadVisibleAppIcon={loadVisibleAppIcon}
               onRevoke={revokeAccountDirectChat}
+            />
+          ))}
+        </section>
+      ) : null}
+
+      {snapshot?.accountGroupChat.apps.length ? (
+        <section aria-labelledby="home-v2-qdn-account-group-chat-controls-title">
+          <div className="home-v2-settings-panel__heading">
+            <h3 id="home-v2-qdn-account-group-chat-controls-title">
+              {t('qdnApps.accountGroupChatControlsTitle')}
+            </h3>
+            <p>{t('managerPermissions.access.accountGroupChat')}</p>
+          </div>
+          {snapshot.accountGroupChat.apps.map((grant) => (
+            <BookmarkGrantCard
+              accountLabel={resolveAccountLabel?.(grant.accountId) ?? shortenAccountId(grant.accountId)}
+              busy={busy === `accountGroupChat:${grant.appKey}:${grant.accountId}`}
+              capability="account.groupChat"
+              disabled={actionsDisabled || busy !== null}
+              grant={grant}
+              key={`${grant.appKey}:${grant.accountId}`}
+              loadVisibleAppIcon={loadVisibleAppIcon}
+              onRevoke={revokeAccountGroupChat}
             />
           ))}
         </section>

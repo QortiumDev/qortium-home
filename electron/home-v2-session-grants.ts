@@ -168,7 +168,41 @@ export function homeV2AccountReadPermissionDetails(accountLabel: string) {
  * protocol-independent 'account.read' grant family below, so approving it
  * once covers every HOME_V2_ACCOUNT_READ_ACTIONS member on both chains.
  */
+/**
+ * The private-chat reads, which are NOT covered by a durable 'account.read'.
+ *
+ * They remain members of HOME_V2_ACCOUNT_READ_ACTIONS: one SESSION grant still
+ * covers the read-only family together, and the prompt copy is unchanged. What
+ * they are excluded from is the durable "always allow", for two reasons found
+ * on 2026-08-30:
+ *
+ * - The grant did not match the prompt. Answering "always" to "read your direct
+ *   messages" recorded 'account.read', because the generic durable block runs
+ *   before the account.directChat one and returns. The user was shown one thing
+ *   and given a wider one, covering account identity, pending transactions and
+ *   attachment reads.
+ * - It defeated the node-trust rule. account.directChat is deliberately usable
+ *   only on Home's own local Core, because the node serving an app sees the
+ *   plaintext that app reads. 'account.read' carried no such condition, so the
+ *   capability actually granted bypassed the gate added for exactly this.
+ *
+ * Excluding them here fixes both: an "always" on a chat read now falls through
+ * to the specific, node-gated capability, and an account.read held from some
+ * other action stops covering chat history.
+ */
+const PRIVATE_CHAT_READ_ACTIONS = new Set<string>([
+  'GET_PRIVATE_DIRECT_ACTIVE_CHATS',
+  'SEARCH_PRIVATE_DIRECT_CHAT_MESSAGES',
+  'GET_PRIVATE_GROUP_ACTIVE_CHATS',
+  'SEARCH_PRIVATE_GROUP_CHAT_MESSAGES',
+])
+
+export function isHomeV2PrivateChatReadAction(action: string): boolean {
+  return PRIVATE_CHAT_READ_ACTIONS.has(action)
+}
+
 export function homeV2DurableAccountReadCapability(action: string): 'account.read' | null {
+  if (isHomeV2PrivateChatReadAction(action)) return null
   return isHomeV2AccountReadAction(action) ? 'account.read' : null
 }
 

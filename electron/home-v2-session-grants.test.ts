@@ -8,6 +8,7 @@ import {
   homeV2PermissionGrantKey,
   homeV2PermissionGrantFamily,
   isHomeV2AccountReadAction,
+  isHomeV2PrivateChatReadAction,
   HOME_V2_ACCOUNT_READ_ACTIONS,
   homeV2AccountReadAlwaysAllowDetail,
   HOME_V2_PERMISSIONLESS_ACTIONS,
@@ -233,17 +234,62 @@ assert.equal(store.size(), 1)
 {
   // Every family member maps to the ONE durable capability, so a single
   // "always allow" covers all of them on both chains.
+  //
+  // The private-chat reads are the EXCEPTION, since 2026-08-30. They are still
+  // in the family for session grants and prompt copy, but they no longer map to
+  // the durable account.read, because that had two consequences neither the
+  // prompt nor the permission model intended:
+  //
+  //   - answering "always" to "read your direct messages" recorded
+  //     'account.read' -- the generic durable block runs first and returns, so
+  //     the account.directChat block below it never ran. The user was shown one
+  //     thing and granted a wider one.
+  //   - 'account.read' carries no node-trust condition, so it satisfied chat
+  //     reads on ANY node, bypassing the local-Core-only rule that
+  //     account.directChat exists to enforce.
+  //
+  // They now fall through to their own node-gated capabilities.
   for (const action of HOME_V2_ACCOUNT_READ_ACTIONS) {
+    if (isHomeV2PrivateChatReadAction(action)) {
+      assert.equal(
+        homeV2DurableAccountReadCapability(action),
+        null,
+        `${action} must NOT be durably grantable as account.read`,
+      )
+      continue
+    }
     assert.equal(
       homeV2DurableAccountReadCapability(action),
       'account.read',
       `${action} must map to the durable account.read capability`,
     )
   }
+  assert.deepEqual(
+    HOME_V2_ACCOUNT_READ_ACTIONS.filter(isHomeV2PrivateChatReadAction).slice().sort(),
+    [
+      'GET_PRIVATE_DIRECT_ACTIVE_CHATS',
+      'GET_PRIVATE_GROUP_ACTIVE_CHATS',
+      'SEARCH_PRIVATE_DIRECT_CHAT_MESSAGES',
+      'SEARCH_PRIVATE_GROUP_CHAT_MESSAGES',
+    ],
+    'the chat reads excluded from the durable account.read grant, exactly',
+  )
+  // GET_PRIVATE_GROUP_CHAT_STATE is deliberately NOT excluded: it reports
+  // whether a group key is held and needs rotating, returns no message
+  // plaintext, and is the call an app makes before asking for anything.
   assert.equal(
-    new Set(HOME_V2_ACCOUNT_READ_ACTIONS.map(homeV2DurableAccountReadCapability)).size,
+    homeV2DurableAccountReadCapability('GET_PRIVATE_GROUP_CHAT_STATE'),
+    'account.read',
+    'group chat STATE stays on the ordinary read grant',
+  )
+  assert.equal(
+    new Set(
+      HOME_V2_ACCOUNT_READ_ACTIONS
+        .filter((action) => !isHomeV2PrivateChatReadAction(action))
+        .map(homeV2DurableAccountReadCapability),
+    ).size,
     1,
-    'the account-read family must map to exactly one durable capability',
+    'the rest of the account-read family must map to exactly one durable capability',
   )
 
   // Nothing outside the family may be reachable through the durable grant.

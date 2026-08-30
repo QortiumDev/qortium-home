@@ -1394,6 +1394,13 @@ async function requireAccountReadPermission(
     readonly messagePreview?: string
     readonly operationLabel: string
     readonly routeLabel: string
+    /**
+     * Whether the node serving this read is Home's own local Core. Same meaning
+     * and same reason as on 'direct': the durable group-chat grant is usable
+     * ONLY when true, because a serving node sees the plaintext an app touches
+     * whatever the sandbox does. Evaluated per request, not once at grant time.
+     */
+    readonly trustedNode?: boolean
     readonly singleRequestOnly?: boolean
     readonly chatReference?: string | null
   } | {
@@ -1667,6 +1674,27 @@ async function requireAccountReadPermission(
     writeDetails?.kind === 'direct' &&
     writeDetails.trustedNode === true &&
     hasQdnAccountCapability(appGrantKey, context.accountId, 'account.directChat')
+  ) {
+    return
+  }
+  // Private-group history, on exactly the same terms. Deliberately a SEPARATE
+  // capability from account.directChat rather than one "read my chats" grant:
+  // allowing an app to read group history is not the same decision as handing
+  // it one-to-one messages, and neither prompt claims to cover the other.
+  //
+  // GET_PRIVATE_GROUP_CHAT_STATE is excluded on purpose. It reports whether a
+  // group key is held and needs rotating -- it is the call an app makes before
+  // asking for anything, and it does not return message plaintext, so it stays
+  // on the ordinary read permission rather than being swept into a grant that
+  // is described to the user as reading their chat history.
+  if (
+    (action === 'GET_PRIVATE_GROUP_ACTIVE_CHATS' ||
+      action === 'SEARCH_PRIVATE_GROUP_CHAT_MESSAGES') &&
+    !singleRequestOnly &&
+    appGrantKey &&
+    writeDetails?.kind === 'private-group' &&
+    writeDetails.trustedNode === true &&
+    hasQdnAccountCapability(appGrantKey, context.accountId, 'account.groupChat')
   ) {
     return
   }
@@ -2042,6 +2070,29 @@ async function requireAccountReadPermission(
         appGrantKey,
         grantAccountId,
         'account.directChat',
+      ),
+    })) return
+  }
+  // Private-group history, on the same terms and for the same reason: recorded
+  // only on a trusted node, because a grant the user cannot use — minted on the
+  // node where it must not apply — is a promise that does not hold.
+  if (
+    decision.scope === 'always' &&
+    (action === 'GET_PRIVATE_GROUP_ACTIVE_CHATS' ||
+      action === 'SEARCH_PRIVATE_GROUP_CHAT_MESSAGES') &&
+    !singleRequestOnly &&
+    appGrantKey &&
+    grantAccountId &&
+    writeDetails?.kind === 'private-group' &&
+    writeDetails.trustedNode === true
+  ) {
+    if (persistDurableGrant({
+      capability: 'account.groupChat',
+      isHeld: () => hasQdnAccountCapability(appGrantKey, grantAccountId, 'account.groupChat'),
+      write: () => grantQdnAccountCapabilityPermission(
+        appGrantKey,
+        grantAccountId,
+        'account.groupChat',
       ),
     })) return
   }
@@ -6204,6 +6255,10 @@ async function readHomeV2QortalPrivateGroupChatAction(
     operationLabel: qpgcOperationLabel(action, 'qortal'),
     routeLabel: `${node.mode} · ${node.nodeApiUrl}`,
     targetChainLabel: 'Qortal',
+    // Same rule as direct messages, for the same reason: whichever node serves
+    // an app sees the plaintext that app reads. Evaluated per request, so a
+    // durable grant is suspended while any other node is selected.
+    trustedNode: node.mode === 'local',
   })
   const signingKey = getAccountSecretKey(accountId)
   if (signingKey.address !== profile.address) {
@@ -6471,6 +6526,7 @@ async function readHomeV2PrivateGroupChatAction(
     operationLabel: qpgcOperationLabel(action),
     routeLabel: `${node.mode} · ${node.nodeApiUrl}`,
     targetChainLabel: 'Qortium',
+    trustedNode: node.mode === 'local',
   })
   const signingKey = getAccountSecretKey(accountId)
   if (signingKey.address !== profile.address) {

@@ -34,6 +34,38 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-30 - feat(chat): let an app keep reading your private group chats, and fix what "always" was really granting
+
+An app that reads your private group conversations had to ask every single time.
+It can now be allowed to keep reading them on one account, on your own node
+only - the same arrangement direct messages already have, and for the same
+reason: whichever node serves an app can see what that app reads, so on somebody
+else's node you are asked each time instead.
+
+Group chats and direct messages are deliberately kept apart. Letting an app read
+your group conversations is not the same decision as handing it your one-to-one
+messages, so they are separate permissions with separate entries you can remove
+independently.
+
+Building this turned up something already wrong, which is fixed here too.
+
+Choosing "always" when an app asked to read your direct messages did not record
+permission to read your direct messages. It recorded the broader "read this
+account", which also covers who you are, your pending transactions and your chat
+attachments - and, unlike the direct-message permission, it carried no
+requirement to be on your own node. So the protection that permission was
+created for could be sidestepped by the one that was actually being stored.
+
+Reading private conversations, in groups or one to one, now always requires its
+own permission, and that permission only works on your own node. Anything else
+about the account is unchanged.
+
+If an app already had the broad "read this account" permission, it will ask
+again the first time it wants your chat history. That is intended: it was never
+shown to you as permission to read your conversations through somebody else's
+node. The wording of the broad permission has been corrected to match what it
+actually covers.
+
 ### 2026-08-30 - fix(build): building the Linux app must never try to publish a release
 
 Building the Linux application on any automated machine ended by trying to
