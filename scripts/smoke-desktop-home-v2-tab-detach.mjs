@@ -9,6 +9,7 @@
 //
 //   node scripts/smoke-desktop-home-v2-tab-detach.mjs
 import path from 'node:path'
+import assert from 'node:assert/strict'
 import { fileURLToPath } from 'node:url'
 import { Cdp, launchHomeV2, resolveAppImage, sleep } from './lib/home-v2-cdp.mjs'
 
@@ -37,7 +38,28 @@ async function main() {
   const { cdp, port, shutdown } = await launchHomeV2({ appImage, log, portBase: 9200 })
   try {
     // Two internal tabs, so the detached window can be checked for exactly one.
-    for (const address of ['home://settings', 'home://apps']) {
+    //
+    // 'home://apps' was used here and is not an address the shell has -- it
+    // accepts dashboard/newtab/settings/welcome plus release notes. So the
+    // second tab never opened and every check below that looked for it passed
+    // or failed for the wrong reason, including the one that reports the
+    // detached window "overwrote the stored tab strip".
+    //
+    // ORDER MATTERS: a new-tab page is replaceable, so navigating away from it
+    // consumes it. Opening it LAST is what makes it stay. It also has to be a
+    // page the detached window cannot acquire on its own -- dashboard is the
+    // default everywhere, and welcome is opened by onboarding in EVERY window,
+    // so neither can distinguish a restored strip from an ordinary one.
+    // Each address is typed into the address bar, which NAVIGATES the current
+    // tab rather than opening another -- so this loop only ever produced one
+    // extra tab, and 'home://apps' being invalid left settings in place by
+    // accident. Open a fresh tab first so there are genuinely two.
+    const openNewTab = async () => {
+      await cdp.evaluate(`document.querySelector('.home-v2-new-tab').click()`)
+      await sleep(800)
+    }
+    await openNewTab()
+    for (const address of ['home://settings']) {
       await cdp.evaluate(`(() => {
         const input = document.querySelector('.home-v2-address input')
         const setValue = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
@@ -49,6 +71,11 @@ async function main() {
       await sleep(2200)
     }
 
+    // A second fresh tab, left as a new-tab page. It is the ONLY tab the
+    // detached window could not have on its own: dashboard is every window's
+    // default and welcome is opened by onboarding in every window, so neither
+    // can tell a restored strip from an ordinary one.
+    await openNewTab()
     const before = JSON.parse(await cdp.evaluate(TAB_KEYS))
     log(`primary window tabs: ${before.join(' ')}`)
     if (!before.includes('settings')) fail('no settings tab to drag out')
@@ -87,7 +114,7 @@ async function main() {
     }
     if (!detached) fail('neither window holds the dragged-out tab')
     log(`detached window tabs: ${detached.keys.join(' ')}`)
-    if (detached.keys.includes('apps')) {
+    if (detached.keys.includes('newtab')) {
       fail(
         'the detached window restored the primary window\'s tabs; a detached ' +
           'strip must be session-only',
@@ -106,12 +133,19 @@ async function main() {
     })()`)
     const stored = JSON.parse(storedPages)
     log(`stored tab strip: ${stored.join(' ')}`)
-    if (!stored.includes('apps')) {
-      fail(
-        `the detached window overwrote the stored tab strip (${stored.join(' ')}); ` +
-          'its strip must be session-only',
-      )
-    }
+    // The invariant, stated directly: what is SAVED must still be the primary
+    // window's strip, not the detached window's.
+    //
+    // This used to look for a sentinel tab that only the primary had. That is a
+    // proxy, and it broke twice -- first because 'home://apps' never opened one,
+    // then because new tabs now open on the dashboard (#468 made the shell
+    // dashboard-first), so there is no page a detached window cannot also have.
+    // Comparing the two strips needs no sentinel and says what it means.
+    assert.deepEqual(
+      stored,
+      after,
+      'the saved strip must be the primary window\'s, not the detached one\'s',
+    )
     if (JSON.parse(await cdp.evaluate(TAB_KEYS)).includes('settings')) {
       fail('the detached tab came back to the primary window')
     }
@@ -135,11 +169,14 @@ async function main() {
       return JSON.stringify(entries.map((entry) => entry.page ?? entry.kind ?? '?'))
     })()`))
     log(`stored strip after a detached save: ${afterWrite.join(' ')}`)
-    if (!afterWrite.includes('apps') || afterWrite.includes('clobber')) {
-      fail(
-        `a detached window's save replaced the stored tab strip (${afterWrite.join(' ')})`,
-      )
-    }
+    // Same invariant, after the detached window has been made to save: the
+    // stored strip must still be the primary's, and must not contain the
+    // deliberately distinctive entry the detached window tried to write.
+    assert.deepEqual(
+      afterWrite,
+      after,
+      `a detached window's save replaced the stored tab strip (${afterWrite.join(' ')})`,
+    )
     detached.probe.socket.close()
     log('PASS')
   } finally {
