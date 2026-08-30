@@ -128,6 +128,14 @@ export type HomeV2CoreMaintenanceStatus = {
   }
   readonly java: {
     readonly source: 'managed' | 'missing' | 'system' | 'unsupported'
+    /**
+     * The managed Java major version Home installs, or null when unknown.
+     *
+     * Home 1.x named the target on the button; Home 2 folded it into a generic
+     * install/update flag, so the user could not tell WHAT they were about to
+     * install. core-manager has always reported it as `managedJavaTarget`.
+     */
+    readonly targetMajorVersion: number | null
     readonly updateAvailable: boolean
     readonly version: string | null
   }
@@ -334,6 +342,10 @@ function qortiumMaintenanceStatus(
     },
     java: {
       source: javaSource,
+      targetMajorVersion: typeof java?.managedJavaTarget === 'number' &&
+        Number.isSafeInteger(java.managedJavaTarget) && java.managedJavaTarget > 0
+        ? java.managedJavaTarget
+        : null,
       updateAvailable: java?.managedUpgradeAvailable === true,
       version: typeof java?.version === 'string' && java.version.trim() ? java.version.trim() : null,
     },

@@ -97,7 +97,34 @@ export function disableLegacyI2pdRendererEvents() {
   legacyI2pdRendererEventsEnabled = false;
 }
 
+/**
+ * Home 2's own progress subscriber.
+ *
+ * Registered by the transport bridge rather than imported here, so this module
+ * does not depend on Home 2. Same arrangement core-manager uses, and for the
+ * same reason: Home 2 calls disableLegacyI2pdRendererEvents() at startup, so
+ * anything behind that flag is invisible to it.
+ */
+let homeV2I2pdProgressListener: ((progress: I2pdProgress) => void) | null = null;
+
+export function setHomeV2I2pdProgressListener(
+  listener: ((progress: I2pdProgress) => void) | null,
+) {
+  homeV2I2pdProgressListener = listener;
+}
+
 function publishProgress(progress: I2pdProgress) {
+  // Home 2 first, and deliberately NOT behind the legacy flag. Home 2 disables
+  // the 1.x renderer events at startup; before this, that also silenced its own
+  // router progress, so installing i2pd showed nothing at all.
+  if (homeV2I2pdProgressListener) {
+    try {
+      homeV2I2pdProgressListener(progress);
+    } catch {
+      // A broken subscriber must never break an install.
+    }
+  }
+
   if (!legacyI2pdRendererEventsEnabled) return;
   for (const window of BrowserWindow.getAllWindows()) {
     if (!window.isDestroyed()) {

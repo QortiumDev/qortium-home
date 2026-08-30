@@ -834,6 +834,8 @@ export const nb: Record<TranslationKey, string> = {
   "home2.core.apiControl": "{network} Core kjører · autentisert API-kontroll",
   "home2.core.nodeAutoUpdateMode": "Automatisk nodeoppdatering: {mode}",
   "home2.core.installModified": "Endret siden installasjonen",
+  "home2.core.javaInstallVersion": "Installer Java {version}",
+  "home2.core.javaUpdateToVersion": "Oppdater Java til {version}",
   "home2.core.helpersOutOfSync": "Hjelpeskriptene samsvarer ikke med Core {version}.",
   "home2.core.helpersRefresh": "Synkroniser hjelpeskriptene på nytt",
   "home2.core.releaseChoice": "Utgivelse som skal installeres",

@@ -833,6 +833,8 @@ export const nl: Record<TranslationKey, string> = {
   "home2.core.apiControl": "{network} Core actief · geverifieerde API-besturing",
   "home2.core.nodeAutoUpdateMode": "Automatische node-updates: {mode}",
   "home2.core.installModified": "Gewijzigd sinds de installatie",
+  "home2.core.javaInstallVersion": "Java {version} installeren",
+  "home2.core.javaUpdateToVersion": "Java bijwerken naar {version}",
   "home2.core.helpersOutOfSync": "De hulpscripts komen niet overeen met Core {version}.",
   "home2.core.helpersRefresh": "Hulpscripts opnieuw synchroniseren",
   "home2.core.releaseChoice": "Te installeren release",

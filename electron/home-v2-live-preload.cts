@@ -192,6 +192,13 @@ contextBridge.exposeInMainWorld('homeV2CoreManagers', {
     ipcRenderer.on('home-v2-core-manager:progress', handler)
     return () => ipcRenderer.removeListener('home-v2-core-manager:progress', handler)
   },
+  // The I2P router's install progress, same shape and same reasoning as the
+  // Core's. Report-only: it cannot start, stop or install anything.
+  onTransportProgress: (listener: (event: unknown) => void) => {
+    const handler = (_event: unknown, payload: unknown) => listener(payload)
+    ipcRenderer.on('home-v2-transport:progress', handler)
+    return () => ipcRenderer.removeListener('home-v2-transport:progress', handler)
+  },
   listQortalAdoptionCandidates: () =>
     ipcRenderer.invoke('home-v2-qortal-adoption:list', {
       network: 'qortal',
