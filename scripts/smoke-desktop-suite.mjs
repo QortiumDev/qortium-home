@@ -51,14 +51,18 @@ const SMOKES = [
   { script: 'smoke:desktop:home-v2-onboarding', needs: 'none', ci: true },
   { script: 'smoke:desktop:home-v2-tabs', needs: 'none', ci: true },
   { script: 'smoke:desktop:home-v2-bookmarks', needs: 'none', ci: true },
-  { script: 'smoke:desktop:home-v2-app-zoom', needs: 'none',
-    note: 'not in CI: needs a setuid-root chrome-sandbox; launches unpackaged Electron' },
+  // Promoted after run 33342738430 showed both passing on a GitHub runner --
+  // dispatched on a branch so the observation cost nothing if it had failed.
+  // They needed the setuid chrome-sandbox step; local runs could never have
+  // shown this, because this machine allows unprivileged user namespaces and
+  // Chromium uses the namespace sandbox instead of the SUID helper there.
+  { script: 'smoke:desktop:home-v2-app-zoom', needs: 'none', ci: true },
   { script: 'smoke:desktop:home-v2-window-geometry', needs: 'none',
     note: 'not in CI: starts a window manager, ENOENT on a runner' },
   { script: 'smoke:desktop:home-v2-collections-migration', needs: 'none',
     note: 'not in CI: the app exits non-zero on a runner, cause not yet established' },
-  { script: 'smoke:desktop:widgets', needs: 'none',
-    note: 'runs in the build-and-test job, which prepares the setuid chrome-sandbox it needs' },
+  { script: 'smoke:desktop:widgets', needs: 'none', ci: true,
+    note: 'also runs in build-and-test' },
 
   { script: 'smoke:desktop:home-v2-chrome-menus', needs: 'none', flaky: true,
     note: 'navigates immediately after launch; a late profile restore can undo it (~1 in 6)' },
