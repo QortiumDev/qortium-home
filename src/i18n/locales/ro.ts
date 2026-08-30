@@ -833,6 +833,7 @@ export const ro: Record<TranslationKey, string> = {
   "home2.core.apiControl": "Core {network} rulează · control API autentificat",
   "home2.core.nodeAutoUpdateMode": "Actualizare automată a nodului: {mode}",
   "home2.core.installModified": "Modificat de la instalare",
+  "home2.core.localApiUrl": "API local: {url}",
   "home2.core.javaInstallVersion": "Instalează Java {version}",
   "home2.core.javaUpdateToVersion": "Actualizează Java la {version}",
   "home2.core.helpersOutOfSync": "Scripturile auxiliare nu corespund cu Core {version}.",

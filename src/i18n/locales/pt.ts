@@ -833,6 +833,7 @@ export const pt: Record<TranslationKey, string> = {
   "home2.core.apiControl": "Core {network} em execução · controle autenticado pela API",
   "home2.core.nodeAutoUpdateMode": "Atualização automática do nó: {mode}",
   "home2.core.installModified": "Modificado desde a instalação",
+  "home2.core.localApiUrl": "API local: {url}",
   "home2.core.javaInstallVersion": "Instalar o Java {version}",
   "home2.core.javaUpdateToVersion": "Atualizar o Java para {version}",
   "home2.core.helpersOutOfSync": "Os scripts auxiliares não correspondem ao Core {version}.",

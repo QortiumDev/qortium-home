@@ -109,6 +109,15 @@ export type HomeV2CoreMaintenanceStatus = {
      */
     readonly installModified: boolean
     /**
+     * The local API address of the managed Core, or null.
+     *
+     * NOT a secret and deliberately distinct from the API KEY, which this
+     * contract does redact: the address is a loopback URL on a published port,
+     * and users need it to point other tools at their own node. Home 1.x showed
+     * it; Home 2 dropped it along with the things that genuinely are secret.
+     */
+    readonly localApiUrl: string | null
+    /**
      * The version whose support files no longer match the installed Core, or
      * null when they match OR when it could not be determined.
      *
@@ -310,6 +319,23 @@ function qortiumMaintenanceStatus(
           : null
       })(),
       installModified: installed?.modifiedSinceInstall === true,
+      localApiUrl: (() => {
+        const raw = typeof runtime?.localApiUrl === 'string' ? runtime.localApiUrl.trim() : ''
+        if (!raw || raw.length > 200) return null
+        // Loopback only. A non-local address here would mean Home was pointing
+        // at somebody else's node, which is not what this row claims to show.
+        try {
+          const parsed = new URL(raw)
+          const host = parsed.hostname
+          const loopback = host === 'localhost' || host === '127.0.0.1' || host === '::1' ||
+            host === '[::1]'
+          return loopback && (parsed.protocol === 'http:' || parsed.protocol === 'https:')
+            ? raw
+            : null
+        } catch {
+          return null
+        }
+      })(),
       installedVersion:
         typeof installed?.jarSemver === 'string' && installed.jarSemver.trim()
           ? installed.jarSemver.trim()

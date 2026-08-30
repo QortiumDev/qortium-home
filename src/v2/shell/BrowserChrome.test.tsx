@@ -60,7 +60,7 @@ const coreManagementFixture: HomeV2CoreManagement = {
     release: null,
     status: {
       capabilities: { canInitialInstall: false, canInstallJava: false, canRefreshHelpers: false, canUpdateRunningInPlace: false },
-      core: { helpersOutOfSyncVersion: null, installModified: false, channel: 'stable', installedCommit: null, installedTag: null, nodeAutoUpdateMode: null, runtimeBlockedReason: null, installedVersion: '1.7.2', runtime: 'stopped' },
+      core: { helpersOutOfSyncVersion: null, installModified: false, localApiUrl: null, channel: 'stable', installedCommit: null, installedTag: null, nodeAutoUpdateMode: null, runtimeBlockedReason: null, installedVersion: '1.7.2', runtime: 'stopped' },
       java: { source: 'managed', targetMajorVersion: 25, updateAvailable: false, version: '21' },
       revision: 1,
       schema: 'home-v2-core-maintenance',

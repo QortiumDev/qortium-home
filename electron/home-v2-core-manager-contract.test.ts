@@ -856,4 +856,44 @@ for (const nested of [
   assert.equal(refreshCalls, 0)
 }
 
+// The local API address is shown; the API KEY still is not. A loopback URL on a
+// published port is not a secret and users need it to point tools at their node,
+// but the redaction rule must still hold for everything around it.
+{
+  const withUrl = createHomeV2CoreManagerService(() => maintenanceManager({
+    installed: { jarSemver: '1.7.2', tagName: 'v1.7.2' },
+    runtime: { localApiUrl: 'http://127.0.0.1:24891', owner: 'home', running: true },
+  }))
+  const status = await withUrl.getMaintenanceStatus({
+    revision: 1, schema: 'home-v2-core-maintenance-request',
+  })
+  assert.equal(status.core.localApiUrl, 'http://127.0.0.1:24891')
+  assertRedacted(status)
+
+  // A NON-loopback address is refused rather than shown: this row claims to be
+  // the local node, and pointing at someone else's would be a different claim.
+  const remote = createHomeV2CoreManagerService(() => maintenanceManager({
+    installed: { jarSemver: '1.7.2', tagName: 'v1.7.2' },
+    runtime: { localApiUrl: 'http://203.0.113.10:24891', owner: 'home', running: true },
+  }))
+  assert.equal(
+    (await remote.getMaintenanceStatus({
+      revision: 1, schema: 'home-v2-core-maintenance-request',
+    })).core.localApiUrl,
+    null,
+  )
+
+  // Junk is refused rather than rendered.
+  const junk = createHomeV2CoreManagerService(() => maintenanceManager({
+    installed: { jarSemver: '1.7.2', tagName: 'v1.7.2' },
+    runtime: { localApiUrl: 'not a url', owner: 'home', running: true },
+  }))
+  assert.equal(
+    (await junk.getMaintenanceStatus({
+      revision: 1, schema: 'home-v2-core-maintenance-request',
+    })).core.localApiUrl,
+    null,
+  )
+}
+
 console.log('Home v2 Core-manager contract tests passed.')

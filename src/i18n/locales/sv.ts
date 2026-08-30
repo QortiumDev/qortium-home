@@ -833,6 +833,7 @@ export const sv: Record<TranslationKey, string> = {
   "home2.core.apiControl": "{network} Core körs · autentiserad API-styrning",
   "home2.core.nodeAutoUpdateMode": "Automatisk noduppdatering: {mode}",
   "home2.core.installModified": "Ändrad sedan installationen",
+  "home2.core.localApiUrl": "Lokalt API: {url}",
   "home2.core.javaInstallVersion": "Installera Java {version}",
   "home2.core.javaUpdateToVersion": "Uppdatera Java till {version}",
   "home2.core.helpersOutOfSync": "Hjälpskripten matchar inte Core {version}.",

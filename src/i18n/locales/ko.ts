@@ -833,6 +833,7 @@ export const ko: Record<TranslationKey, string> = {
   "home2.core.apiControl": "{network} Core 실행 중 · 인증된 API 제어",
   "home2.core.nodeAutoUpdateMode": "노드 자동 업데이트: {mode}",
   "home2.core.installModified": "설치 후 변경됨",
+  "home2.core.localApiUrl": "로컬 API: {url}",
   "home2.core.javaInstallVersion": "Java {version} 설치",
   "home2.core.javaUpdateToVersion": "Java를 {version}(으)로 업데이트",
   "home2.core.helpersOutOfSync": "헬퍼 스크립트가 Core {version}과(와) 일치하지 않습니다.",
