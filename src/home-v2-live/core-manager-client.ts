@@ -189,8 +189,13 @@ export function parseHomeV2CoreMaintenanceStatus(value: unknown): HomeV2CoreMain
     !hasExactKeys(value.core, [
       'channel', 'helpersOutOfSyncVersion', 'installedCommit', 'installModified',
       'installedTag', 'installedVersion', 'localApiUrl', 'nodeAutoUpdateMode', 'runtime',
-      'runtimeBlockedReason',
+      'runtimeBlockedReason', 'update',
     ]) ||
+    !(value.core.update === null || (isRecord(value.core.update) &&
+      hasExactKeys(value.core.update, ['action', 'source', 'version']) &&
+      ['available', 'handled-by-core', 'installing'].includes(String(value.core.update.action)) &&
+      (value.core.update.source === 'github' || value.core.update.source === 'on-chain') &&
+      typeof value.core.update.version === 'string' && value.core.update.version.length > 0)) ||
     !(value.core.localApiUrl === null || typeof value.core.localApiUrl === 'string') ||
     typeof value.core.installModified !== 'boolean' ||
     !(value.core.helpersOutOfSyncVersion === null ||
@@ -228,6 +233,12 @@ export function parseHomeV2CoreMaintenanceStatus(value: unknown): HomeV2CoreMain
       helpersOutOfSyncVersion: value.core.helpersOutOfSyncVersion,
       installedCommit: value.core.installedCommit,
       localApiUrl: value.core.localApiUrl,
+      update: value.core.update === null ? null : Object.freeze({
+        action: (value.core.update as Record<string, string>).action as
+          'available' | 'handled-by-core' | 'installing',
+        source: (value.core.update as Record<string, string>).source as 'github' | 'on-chain',
+        version: (value.core.update as Record<string, string>).version,
+      }),
       installModified: value.core.installModified,
       installedTag: value.core.installedTag,
       nodeAutoUpdateMode: value.core.nodeAutoUpdateMode,

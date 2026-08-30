@@ -896,4 +896,61 @@ for (const nested of [
   )
 }
 
+// The selected Core update is REPORTED, not re-derived. core-manager picks
+// between a GitHub release and an on-chain (QDN) one; Home 2's own policy engine
+// only ever looks at GitHub, so re-deriving here would let the two disagree
+// about which update exists.
+{
+  const onChain = createHomeV2CoreManagerService(() => maintenanceManager({
+    installed: { jarSemver: '1.7.2', tagName: 'v1.7.2' },
+    coreUpdate: {
+      available: { action: 'available', channel: 'on-chain', version: '1.7.3' },
+    },
+  }))
+  const status = await onChain.getMaintenanceStatus({
+    revision: 1, schema: 'home-v2-core-maintenance-request',
+  })
+  assert.deepEqual(status.core.update,
+    { action: 'available', source: 'on-chain', version: '1.7.3' })
+  assertRedacted(status)
+
+  // A GitHub-sourced update reports as such, so the UI can say who installs it.
+  const github = createHomeV2CoreManagerService(() => maintenanceManager({
+    installed: { jarSemver: '1.7.2', tagName: 'v1.7.2' },
+    coreUpdate: {
+      available: { action: 'installing', channel: 'github', version: '1.7.4' },
+    },
+  }))
+  assert.deepEqual(
+    (await github.getMaintenanceStatus({
+      revision: 1, schema: 'home-v2-core-maintenance-request',
+    })).core.update,
+    { action: 'installing', source: 'github', version: '1.7.4' },
+  )
+
+  // An unknown channel is refused rather than guessed at: claiming the wrong
+  // source would tell the user the wrong thing about who does the installing.
+  const bogus = createHomeV2CoreManagerService(() => maintenanceManager({
+    installed: { jarSemver: '1.7.2', tagName: 'v1.7.2' },
+    coreUpdate: { available: { action: 'available', channel: 'elsewhere', version: '9' } },
+  }))
+  assert.equal(
+    (await bogus.getMaintenanceStatus({
+      revision: 1, schema: 'home-v2-core-maintenance-request',
+    })).core.update,
+    null,
+  )
+
+  // Nothing waiting.
+  const idle = createHomeV2CoreManagerService(() => maintenanceManager({
+    installed: { jarSemver: '1.7.2', tagName: 'v1.7.2' },
+  }))
+  assert.equal(
+    (await idle.getMaintenanceStatus({
+      revision: 1, schema: 'home-v2-core-maintenance-request',
+    })).core.update,
+    null,
+  )
+}
+
 console.log('Home v2 Core-manager contract tests passed.')

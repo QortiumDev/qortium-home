@@ -118,6 +118,23 @@ export type HomeV2CoreMaintenanceStatus = {
      */
     readonly localApiUrl: string | null
     /**
+     * The Core update the manager has actually selected, or null.
+     *
+     * REPORTED, never re-derived. core-manager picks between a GitHub release
+     * and an on-chain (QDN) one by comparing each candidate's own commit time
+     * (`selectCoreUpdateCandidate`), and Home 2's own policy engine only ever
+     * looks at GitHub -- so re-deriving the answer here would let the two
+     * disagree about which update exists.
+     *
+     * `source: 'on-chain'` means the node installs it itself from a dev-group
+     * approved, QDN-pinned manifest. Home never downloads that binary.
+     */
+    readonly update: {
+      readonly action: 'available' | 'handled-by-core' | 'installing'
+      readonly source: 'github' | 'on-chain'
+      readonly version: string
+    } | null
+    /**
      * The version whose support files no longer match the installed Core, or
      * null when they match OR when it could not be determined.
      *
@@ -319,6 +336,22 @@ function qortiumMaintenanceStatus(
           : null
       })(),
       installModified: installed?.modifiedSinceInstall === true,
+      update: (() => {
+        const coreUpdate = isRecord(status.coreUpdate) ? status.coreUpdate : null
+        const available = coreUpdate && isRecord(coreUpdate.available) ? coreUpdate.available : null
+        if (!available) return null
+        const source = available.channel === 'github' || available.channel === 'on-chain'
+          ? available.channel
+          : null
+        const action = available.action === 'available' || available.action === 'installing' ||
+          available.action === 'handled-by-core'
+          ? available.action
+          : null
+        const version = typeof available.version === 'string' && available.version.trim()
+          ? available.version.trim().slice(0, 60)
+          : null
+        return source && action && version ? { action, source, version } : null
+      })(),
       localApiUrl: (() => {
         const raw = typeof runtime?.localApiUrl === 'string' ? runtime.localApiUrl.trim() : ''
         if (!raw || raw.length > 200) return null
