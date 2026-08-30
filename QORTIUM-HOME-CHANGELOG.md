@@ -34,6 +34,27 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-30 - fix(dashboard): keep looking while the Core finishes starting
+
+Starting or stopping the Core from the Dashboard updated the tile straight away
+and then left it alone. That sounds right, but a Core that has been asked to
+start has only just been launched at that moment - it takes a few seconds more
+before it is actually answering. So the tile recorded a Core caught halfway, and
+then waited up to fifteen seconds before looking again, showing a half-started
+node long after it had finished starting.
+
+Home now keeps looking for about half a minute afterwards, stopping as soon as
+the node actually answers - so a Core that comes up quickly costs two checks,
+and one that takes its time is still noticed.
+
+Half a minute rather than a few seconds because it was measured rather than
+guessed: a real Core restart on this machine took fifteen seconds from the
+program starting to it answering. An earlier version of this fix gave up after
+nine, which would have looked correct and changed nothing.
+
+This is the same problem Home 1.x solved by looking again when something
+happened rather than waiting for the clock.
+
 ### 2026-08-30 - fix(settings): give each network its own section, and stop the I2P row disappearing
 
 Settings had one block covering both networks: both networks' connection cards,

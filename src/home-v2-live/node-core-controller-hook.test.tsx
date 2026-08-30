@@ -14,6 +14,39 @@ import {
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
+// A minimal fake clock for window.setTimeout, so the lifecycle follow-up reads
+// can be driven without the test actually waiting seconds for them.
+const scheduled = new Map<number, { at: number; run: () => void }>()
+let fakeNow = 0
+let nextTimerId = 1
+const realSetTimeout = window.setTimeout
+const realClearTimeout = window.clearTimeout
+;(window as unknown as { setTimeout: unknown }).setTimeout =
+  ((run: () => void, delay = 0) => {
+    const id = nextTimerId++
+    scheduled.set(id, { at: fakeNow + delay, run })
+    return id
+  }) as unknown as typeof window.setTimeout
+;(window as unknown as { clearTimeout: unknown }).clearTimeout =
+  ((id: number) => { scheduled.delete(id) }) as unknown as typeof window.clearTimeout
+const clock = {
+  async advance(ms: number) {
+    fakeNow += ms
+    for (const [id, timer] of [...scheduled.entries()]) {
+      if (timer.at <= fakeNow) {
+        scheduled.delete(id)
+        timer.run()
+      }
+    }
+    await Promise.resolve()
+    await Promise.resolve()
+  },
+  restore() {
+    ;(window as unknown as { setTimeout: unknown }).setTimeout = realSetTimeout
+    ;(window as unknown as { clearTimeout: unknown }).clearTimeout = realClearTimeout
+  },
+}
+
 function deferred<T>() {
   let resolve!: (value: T) => void
   const promise = new Promise<T>((complete) => {
@@ -297,6 +330,50 @@ try {
     // stopped it, and a stale gate is exactly how the tile contradicts itself.
     await act(async () => { await controller.runCoreAction('qortal', 'stop') })
     assert.equal(settled, 2, 'a failed action must invalidate the derived state as well')
+
+    // The settle is not instant. A Core told to start has only SPAWNED by the
+    // time the action returns -- its API answers seconds later -- so the refresh
+    // that fires immediately sees a half-started Core, and the regular poll is
+    // up to 15s away. Follow-up reads close that window.
+    //
+    // This start is the subject: with no node client the node never becomes
+    // readable, which is the state a Core that has not finished starting is in.
+    await act(async () => { await controller.runCoreAction('qortium', 'start') })
+    const afterAction = settled
+    await act(async () => { await clock.advance(1_500) })
+    assert.ok(
+      settled > afterAction,
+      'a lifecycle action must keep re-reading while the Core settles',
+    )
+    // The window must reach past FIFTEEN seconds. Measured on a real managed
+    // Core restart (2026-08-30): process up at 15:36:57, API first answering at
+    // 15:37:12. An earlier draft stopped at 9s, so every read would have landed
+    // while the API was still silent and the tile would have waited for the
+    // regular poll regardless.
+    // The window must reach past FIFTEEN seconds. Measured on a real managed
+    // Core restart (2026-08-30): process up at 15:36:57, API first answering at
+    // 15:37:12. An earlier draft of this fix stopped at 9s, so every read would
+    // have landed while the API was still silent.
+    //
+    // Advanced in STEPS on purpose. One long jump from 1.5s to 20s is satisfied
+    // by the early reads and lets a too-short schedule pass -- which it did.
+    await act(async () => { await clock.advance(8_000) })   // t = 9.5s
+    const afterEarlyReads = settled
+    await act(async () => { await clock.advance(12_000) })  // t = 21.5s
+    assert.ok(
+      settled > afterEarlyReads,
+      'a read must land AFTER ~15s, which is how long a real Core took to answer',
+    )
+    // ...but it must STOP once the schedule has run. This fills the gap before
+    // the regular poll; it must not become a second polling loop.
+    await act(async () => { await clock.advance(10_000) })  // t = 31.5s
+    const afterAll = settled
+    await act(async () => { await clock.advance(120_000) })
+    assert.equal(
+      settled,
+      afterAll,
+      'the follow-ups must be finite, not a second poll loop',
+    )
   } finally {
     act(() => root.unmount())
     container.remove()
