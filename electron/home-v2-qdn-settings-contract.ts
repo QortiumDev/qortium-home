@@ -68,6 +68,17 @@ export type HomeV2QdnSettingsState = {
     revision: number
     version: 1
   }>
+  /**
+   * Its own card, for the same reason the others have theirs: reading a
+   * MAILBOX is a different power from decrypting data an app already holds.
+   * Listed even while suspended -- the grant is only usable on a trusted local
+   * node, and a grant the user cannot see is a grant they cannot revoke.
+   */
+  readonly accountDirectChat: Readonly<{
+    apps: readonly Readonly<{ accountId: string; appKey: string; grantedAt: string }>[]
+    revision: number
+    version: 1
+  }>
   readonly assignments: HomeV2QdnAssignmentState
   readonly chatSend: Readonly<{
     apps: readonly Readonly<{ appKey: string; grantedAt: string }>[]
@@ -288,6 +299,7 @@ export function redactHomeV2QdnSettingsState(
   const accountReadApps = listQdnAccountCapabilityGrants(assignmentsStore, 'account.read')
   const accountEncryptApps = listQdnAccountCapabilityGrants(assignmentsStore, 'account.encrypt')
   const accountDecryptApps = listQdnAccountCapabilityGrants(assignmentsStore, 'account.decrypt')
+  const accountDirectChatApps = listQdnAccountCapabilityGrants(assignmentsStore, 'account.directChat')
   const bookmarkApps = grantsFor('bookmarks.manage')
   const chatSendApps = grantsFor('chat.send')
   const notificationManagerApps = grantsFor('notifications.manage')
@@ -306,6 +318,11 @@ export function redactHomeV2QdnSettingsState(
   return {
     accountDecrypt: {
       apps: accountDecryptApps,
+      revision: assignmentsStore.revision,
+      version: 1,
+    },
+    accountDirectChat: {
+      apps: accountDirectChatApps,
       revision: assignmentsStore.revision,
       version: 1,
     },

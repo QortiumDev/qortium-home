@@ -73,6 +73,11 @@ function initialState() {
       revision: 3,
       version: 1,
     },
+    accountDirectChat: {
+      apps: [],
+      revision: 3,
+      version: 1,
+    },
     accountDecrypt: {
       apps: [{
         accountId: 'wallet:QAAA',
@@ -153,6 +158,11 @@ const adapter: HomeV2QdnSettingsAdapter = {
         ...state.accountEncrypt,
         revision: state.accountEncrypt.revision + 1,
       },
+      accountDirectChat: {
+        apps: [],
+        revision: 3,
+        version: 1,
+      },
       accountDecrypt: {
         ...state.accountDecrypt,
         revision: state.accountDecrypt.revision + 1,
@@ -230,6 +240,11 @@ const adapter: HomeV2QdnSettingsAdapter = {
             appKey !== request.appKey || accountId !== request.accountId)
           : state.accountEncrypt.apps,
         revision: state.accountEncrypt.revision + 1,
+        version: 1,
+      },
+      accountDirectChat: {
+        apps: [],
+        revision: 3,
         version: 1,
       },
       accountDecrypt: {

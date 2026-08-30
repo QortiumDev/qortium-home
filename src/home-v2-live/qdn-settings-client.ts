@@ -55,6 +55,16 @@ export type HomeV2QdnSettingsState = Readonly<{
     revision: number
     version: 1
   }>
+  /**
+   * Apps granted the durable DIRECT MESSAGE read capability, per (app,
+   * account). Usable only on a trusted local node; listed here regardless so a
+   * suspended grant is still visible and revocable.
+   */
+  accountDirectChat: Readonly<{
+    apps: readonly HomeV2QdnAccountGrant[]
+    revision: number
+    version: 1
+  }>
   assignments: Readonly<{
     assignments: Readonly<Record<string, HomeV2QdnAssignment>>
     revision: number
@@ -125,7 +135,7 @@ export type HomeV2QdnBookmarkRevokeRequest = Readonly<{
   // name one cannot identify a grant.
   accountId?: string
   appKey: string
-  capability?: 'account.decrypt' | 'account.encrypt' | 'account.read' | 'bookmarks.manage' | 'chat.send' | 'notifications.manage'
+  capability?: 'account.decrypt' | 'account.directChat' | 'account.encrypt' | 'account.read' | 'bookmarks.manage' | 'chat.send' | 'notifications.manage'
   expectedAssignmentRevision: number
 }>
 
@@ -323,7 +333,7 @@ export function parseHomeV2QdnSettingsState(
 ): HomeV2QdnSettingsState {
   if (
     !isRecord(value) ||
-    !hasExactKeys(value, ['accountDecrypt', 'accountEncrypt', 'accountRead', 'assignments', 'bookmarks', 'chatSend', 'notifications', 'notificationsManage', 'revision', 'schema']) ||
+    !hasExactKeys(value, ['accountDecrypt', 'accountDirectChat', 'accountEncrypt', 'accountRead', 'assignments', 'bookmarks', 'chatSend', 'notifications', 'notificationsManage', 'revision', 'schema']) ||
     value.schema !== 'home-v2-qdn-settings-state' ||
     value.revision !== 1 ||
     !isRecord(value.assignments) ||
@@ -364,6 +374,12 @@ export function parseHomeV2QdnSettingsState(
     !safeGeneration(value.accountDecrypt.revision) ||
     !Array.isArray(value.accountDecrypt.apps) ||
     value.accountDecrypt.apps.length > 100 ||
+    !isRecord(value.accountDirectChat) ||
+    !hasExactKeys(value.accountDirectChat, ['apps', 'revision', 'version']) ||
+    value.accountDirectChat.version !== 1 ||
+    !safeGeneration(value.accountDirectChat.revision) ||
+    !Array.isArray(value.accountDirectChat.apps) ||
+    value.accountDirectChat.apps.length > 100 ||
     value.bookmarks.apps.length > 100 ||
     !isRecord(value.notifications) ||
     !hasExactKeys(value.notifications, ['apps', 'revision', 'status', 'version']) ||
@@ -388,6 +404,7 @@ export function parseHomeV2QdnSettingsState(
   const accountReadApps = value.accountRead.apps.map(parseAccountGrant)
   const accountEncryptApps = value.accountEncrypt.apps.map(parseAccountGrant)
   const accountDecryptApps = value.accountDecrypt.apps.map(parseAccountGrant)
+  const accountDirectChatApps = value.accountDirectChat.apps.map(parseAccountGrant)
   if (new Set(chatSendApps.map(({ appKey }) => appKey)).size !== chatSendApps.length) {
     throw new Error('Home 2 QDN settings contained duplicate chat-send grants.')
   }
@@ -403,6 +420,10 @@ export function parseHomeV2QdnSettingsState(
   const accountEncryptKeys = accountEncryptApps.map(({ accountId, appKey }) => `${appKey}\n${accountId}`)
   if (new Set(accountEncryptKeys).size !== accountEncryptApps.length) {
     throw new Error('Home 2 QDN settings contained duplicate account-encrypt grants.')
+  }
+  const directChatKeys = accountDirectChatApps.map(({ accountId, appKey }) => `${appKey}\n${accountId}`)
+  if (new Set(directChatKeys).size !== accountDirectChatApps.length) {
+    throw new Error('Home 2 QDN settings contained duplicate direct-message grants.')
   }
   const accountDecryptKeys = accountDecryptApps.map(({ accountId, appKey }) => `${appKey}\n${accountId}`)
   if (new Set(accountDecryptKeys).size !== accountDecryptApps.length) {
@@ -428,6 +449,15 @@ export function parseHomeV2QdnSettingsState(
           left.accountId.localeCompare(right.accountId)),
       ),
       revision: value.accountDecrypt.revision,
+      version: 1,
+    }),
+    accountDirectChat: Object.freeze({
+      apps: Object.freeze(
+        [...accountDirectChatApps].sort((left, right) =>
+          left.appKey.localeCompare(right.appKey) ||
+          left.accountId.localeCompare(right.accountId)),
+      ),
+      revision: value.accountDirectChat.revision,
       version: 1,
     }),
     accountEncrypt: Object.freeze({
@@ -555,7 +585,7 @@ export interface PortableHomeV2QdnSettingsDependencies {
     appKey: string,
     expectedRevision: number,
     // Omitted means 'bookmarks.manage', preserving the original signature.
-    capability?: 'account.decrypt' | 'account.encrypt' | 'account.read' | 'bookmarks.manage' | 'chat.send' | 'notifications.manage',
+    capability?: 'account.decrypt' | 'account.directChat' | 'account.encrypt' | 'account.read' | 'bookmarks.manage' | 'chat.send' | 'notifications.manage',
     // Present only for account-scoped capabilities.
     accountId?: string,
   ): Promise<unknown>
@@ -607,7 +637,9 @@ function projectPortableAssignments(value: unknown) {
   // Parameterized by capability rather than duplicated per capability: the two
   // account-scoped grants are read the same way, and a copy-paste second
   // version is how one of them ends up reading the other's key.
-  const accountGrantsFor = (capability: 'account.read' | 'account.encrypt' | 'account.decrypt') =>
+  const accountGrantsFor = (
+    capability: 'account.read' | 'account.encrypt' | 'account.decrypt' | 'account.directChat',
+  ) =>
     Object.entries(rawAccountGrants).flatMap(([appKey, accounts]) => {
       if (!isRecord(accounts)) return []
       return Object.entries(accounts).flatMap(([accountId, capabilities]) => {
@@ -622,9 +654,15 @@ function projectPortableAssignments(value: unknown) {
   const accountReadApps = accountGrantsFor('account.read')
   const accountEncryptApps = accountGrantsFor('account.encrypt')
   const accountDecryptApps = accountGrantsFor('account.decrypt')
+  const accountDirectChatApps = accountGrantsFor('account.directChat')
   return {
     accountDecrypt: {
       apps: accountDecryptApps,
+      revision: value.revision,
+      version: 1 as const,
+    },
+    accountDirectChat: {
+      apps: accountDirectChatApps,
       revision: value.revision,
       version: 1 as const,
     },
@@ -732,6 +770,7 @@ export function createPortableHomeV2QdnSettingsAdapter(
     }
     return parseHomeV2QdnSettingsState({
       accountDecrypt: assignments.accountDecrypt,
+      accountDirectChat: assignments.accountDirectChat,
       accountEncrypt: assignments.accountEncrypt,
       accountRead: assignments.accountRead,
       assignments: {

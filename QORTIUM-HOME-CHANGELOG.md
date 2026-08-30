@@ -34,6 +34,31 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-30 - feat(chat): let an app keep reading your direct messages on your own node
+
+An app that reads your direct messages had to ask every single time. That is
+the thing that makes a messaging app unusable, and it was the reason for asking
+for this capability in the first place.
+
+An app can now be granted continued access to the direct messages on one
+account, on your own node only.
+
+The limit is not about the app. Whichever node serves an app also sees what that
+app reads, whatever the app itself is allowed to do. On the node running on your
+own machine there is nobody else to see it. On somebody else's node its operator
+would see the messages the app reads, so the permission does not apply there:
+you are asked each time instead, exactly as before.
+
+Switching to another node suspends the permission rather than cancelling it.
+Switch back to your own node and it works again, because temporarily using a
+different node should not cost you a setting you deliberately made.
+
+The permission appears in Settings with its own entry and can be taken back
+there at any time, including while it is suspended. Reading messages is kept
+separate from the existing permission to decrypt data an app already holds:
+being allowed to unlock something you were handed is not the same as being
+allowed to read a mailbox.
+
 ### 2026-08-30 - feat(qdn): preview what you are about to publish
 
 Apps could ask Home to pick a file to publish, but not to show it first. The

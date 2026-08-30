@@ -292,6 +292,7 @@ const GRANT_CARD_ACCESS_LABEL_KEYS = {
   // Worded as READING, never as encrypting: the two are separate grants and
   // the wording is what tells a user which card they are about to revoke.
   'account.decrypt': 'managerPermissions.access.accountDecrypt',
+  'account.directChat': 'managerPermissions.access.accountDirectChat',
   'account.encrypt': 'managerPermissions.access.accountEncrypt',
   'account.read': 'managerPermissions.access.accountRead',
   'bookmarks.manage': 'managerPermissions.access.bookmarks',
@@ -541,6 +542,20 @@ export function QdnAppsSettings({
       }))
   }
 
+  // Revoking this stops the app reading this account's DIRECT MESSAGES. Its
+  // own card: an app allowed to decrypt data it already holds has not thereby
+  // been allowed to read a mailbox.
+  const revokeAccountDirectChat = async (grant: HomeV2QdnAccountGrant) => {
+    if (!snapshot) return
+    await applyMutation(`accountDirectChat:${grant.appKey}:${grant.accountId}`, () =>
+      client.revokeBookmarks({
+        accountId: grant.accountId,
+        appKey: grant.appKey,
+        capability: 'account.directChat',
+        expectedAssignmentRevision: snapshot.accountDirectChat.revision,
+      }))
+  }
+
   const revokeAccountEncrypt = async (grant: HomeV2QdnAccountGrant) => {
     if (!snapshot) return
     await applyMutation(`accountEncrypt:${grant.appKey}:${grant.accountId}`, () =>
@@ -664,6 +679,29 @@ export function QdnAppsSettings({
               key={`${grant.appKey}:${grant.accountId}`}
               loadVisibleAppIcon={loadVisibleAppIcon}
               onRevoke={revokeAccountDecrypt}
+            />
+          ))}
+        </section>
+      ) : null}
+
+      {snapshot?.accountDirectChat.apps.length ? (
+        <section aria-labelledby="home-v2-qdn-account-direct-chat-controls-title">
+          <div className="home-v2-settings-panel__heading">
+            <h3 id="home-v2-qdn-account-direct-chat-controls-title">
+              {t('qdnApps.accountDirectChatControlsTitle')}
+            </h3>
+            <p>{t('managerPermissions.access.accountDirectChat')}</p>
+          </div>
+          {snapshot.accountDirectChat.apps.map((grant) => (
+            <BookmarkGrantCard
+              accountLabel={resolveAccountLabel?.(grant.accountId) ?? shortenAccountId(grant.accountId)}
+              busy={busy === `accountDirectChat:${grant.appKey}:${grant.accountId}`}
+              capability="account.directChat"
+              disabled={actionsDisabled || busy !== null}
+              grant={grant}
+              key={`${grant.appKey}:${grant.accountId}`}
+              loadVisibleAppIcon={loadVisibleAppIcon}
+              onRevoke={revokeAccountDirectChat}
             />
           ))}
         </section>
