@@ -253,6 +253,21 @@ export function CoreMaintenancePanel({
               {t('home2.core.installModified')}
             </small>
           ) : null}
+          {status.core.update ? (
+            // Which SOURCE the waiting update comes from. An on-chain update is
+            // installed by the node itself from a dev-group approved, QDN-pinned
+            // manifest -- Home never downloads that binary -- so saying "update
+            // available" without saying where would hide who does the work.
+            <small data-home-v2-core-update-source={status.core.update.source}>
+              {status.core.update.source === 'on-chain'
+                ? t(status.core.update.action === 'installing'
+                    ? 'home2.core.updateInstallingQdn'
+                    : 'home2.core.updateAvailableQdn', { version: status.core.update.version })
+                : t(status.core.update.action === 'installing'
+                    ? 'home2.core.updateInstallingGithub'
+                    : 'home2.core.updateAvailableGithub', { version: status.core.update.version })}
+            </small>
+          ) : null}
           {status.core.localApiUrl ? (
             // The node's own address, so other tools can be pointed at it. Not
             // a secret and deliberately not the API KEY, which this contract

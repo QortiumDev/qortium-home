@@ -34,6 +34,22 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-29 - feat(core): say where a waiting Core update comes from
+
+A Core update can come from two places: a published release, or the network
+itself, where an update approved by the development group is fetched and
+installed by the node without Home downloading anything. Home said only that an
+update was waiting, which hid the difference between Home doing the work and the
+node doing it.
+
+Settings now names the source and says whether it is waiting or already being
+installed.
+
+Home reports the choice the Core manager has already made rather than working it
+out again. Making the decision twice would let the two disagree about which
+update exists, because the two sides do not look at the same places. A source
+Home does not recognise is not shown at all, rather than guessed at.
+
 ### 2026-08-29 - feat(core): show the address of your own node
 
 Settings now shows the address the Qortium Core on this machine is listening on,
