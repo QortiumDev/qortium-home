@@ -177,6 +177,16 @@ export function parseHomeV2CoreManagerActionResult(
   }) as HomeV2CoreManagerActionResult
 }
 
+// Shape already validated by the caller; this only narrows it for the object
+// that is returned.
+function readUpdateSource(
+  value: unknown,
+): Readonly<{ commit: string | null; version: string }> | null {
+  if (value === null || typeof value !== 'object') return null
+  const source = value as { commit: string | null; version: string }
+  return Object.freeze({ commit: source.commit, version: source.version })
+}
+
 export function parseHomeV2CoreMaintenanceStatus(value: unknown): HomeV2CoreMaintenanceStatus {
   if (!isRecord(value) || !hasExactKeys(value, ['capabilities', 'core', 'java', 'revision', 'schema']) ||
     value.schema !== 'home-v2-core-maintenance' || value.revision !== 1 ||
@@ -191,13 +201,21 @@ export function parseHomeV2CoreMaintenanceStatus(value: unknown): HomeV2CoreMain
     !hasExactKeys(value.core, [
       'channel', 'helpersOutOfSyncVersion', 'installedCommit', 'installModified',
       'installedTag', 'installedVersion', 'localApiUrl', 'nodeAutoUpdateMode', 'runtime',
-      'runtimeBlockedReason', 'update',
+      'runtimeBlockedReason', 'update', 'updateSources',
     ]) ||
     !(value.core.update === null || (isRecord(value.core.update) &&
       hasExactKeys(value.core.update, ['action', 'source', 'version']) &&
       ['available', 'handled-by-core', 'installing'].includes(String(value.core.update.action)) &&
       (value.core.update.source === 'github' || value.core.update.source === 'on-chain') &&
       typeof value.core.update.version === 'string' && value.core.update.version.length > 0)) ||
+    !(value.core.updateSources === null || (isRecord(value.core.updateSources) &&
+      hasExactKeys(value.core.updateSources, ['github', 'onChain']) &&
+      [value.core.updateSources.github, value.core.updateSources.onChain].every((source) =>
+        source === null || (isRecord(source) &&
+          hasExactKeys(source, ['commit', 'version']) &&
+          (source.commit === null ||
+            (typeof source.commit === 'string' && source.commit.length > 0)) &&
+          typeof source.version === 'string' && source.version.length > 0)))) ||
     !(value.core.localApiUrl === null || typeof value.core.localApiUrl === 'string') ||
     typeof value.core.installModified !== 'boolean' ||
     !(value.core.helpersOutOfSyncVersion === null ||
@@ -241,6 +259,13 @@ export function parseHomeV2CoreMaintenanceStatus(value: unknown): HomeV2CoreMain
           'available' | 'handled-by-core' | 'installing',
         source: (value.core.update as Record<string, string>).source as 'github' | 'on-chain',
         version: (value.core.update as Record<string, string>).version,
+      }),
+      // RETURNED, not merely validated. A field that is checked and then left
+      // out of this object reads as undefined downstream with no type error --
+      // the #436 trap.
+      updateSources: value.core.updateSources === null ? null : Object.freeze({
+        github: readUpdateSource(value.core.updateSources.github),
+        onChain: readUpdateSource(value.core.updateSources.onChain),
       }),
       installModified: value.core.installModified,
       installedTag: value.core.installedTag,
@@ -765,6 +790,7 @@ export function parseHomeV2TransportMaintenanceStatus(
       'canSetDirectOnly',
       'canSetI2pOnly',
       'canSetModeWhileRunning',
+      'canRevealRouterFolder',
       'canStopRouter',
     ]) || Object.values(value.capabilities).some((entry) => typeof entry !== 'boolean')) {
     throw new Error('Invalid Home 2 transport maintenance status.')
@@ -810,6 +836,8 @@ export function parseHomeV2TransportMaintenanceStatus(
     capabilities.canSetDirectOnly !== canChangeStoppedCore ||
     capabilities.canSetDirectAndI2p !== (canChangeStoppedCore && routerReady) ||
     capabilities.canSetI2pOnly !== (canChangeStoppedCore && routerReady) ||
+    capabilities.canRevealRouterFolder !==
+      (routerState === 'managed-running' || routerState === 'managed-stopped') ||
     capabilities.canStopRouter !== (routerState === 'managed-running' && !fatalIssue) ||
     capabilities.canSetModeWhileRunning !== (install === 'installed' && runtime === 'running' &&
       mode !== 'unknown' && !fatalIssue)) {
@@ -823,6 +851,7 @@ export function parseHomeV2TransportMaintenanceStatus(
       canSetDirectOnly: capabilities.canSetDirectOnly,
       canSetI2pOnly: capabilities.canSetI2pOnly,
       canSetModeWhileRunning: capabilities.canSetModeWhileRunning,
+      canRevealRouterFolder: capabilities.canRevealRouterFolder,
       canStopRouter: capabilities.canStopRouter,
     }),
     core: Object.freeze({ install, runtime }),

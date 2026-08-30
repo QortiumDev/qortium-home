@@ -41,6 +41,12 @@ export type HomeV2TransportMaintenanceStatus = {
      * an invisible side effect of choosing `direct-only`. This restores the
      * other half of the control.
      */
+    /**
+     * Whether there is a router folder Home can open. True only for a MANAGED
+     * router: an external one is reached through a SAM port and Home never
+     * learns its executable, so there is nothing to reveal.
+     */
+    readonly canRevealRouterFolder: boolean
     readonly canStopRouter: boolean
     /**
      * Whether the mode can be changed on a RUNNING Core, through its API.
@@ -70,6 +76,7 @@ export type HomeV2TransportMaintenanceStatus = {
 
 export type HomeV2TransportMaintenanceAction =
   | 'ensure-router'
+  | 'reveal-router'
   | 'set-mode'
   | 'set-mode-live'
   | 'stop-router'
@@ -131,6 +138,7 @@ export type HomeV2TransportMaintenanceDependencies = {
   readonly acquireInteractiveLease: () => HomeV2TransportMaintenanceLease | null
   readonly ensureRouter: () => Promise<HomeV2TransportMaintenanceDependencyResult>
   readonly readStatus: () => Promise<unknown>
+  readonly revealRouterFolder: () => Promise<HomeV2TransportMaintenanceDependencyResult>
   readonly setStoppedCoreTransportMode: (
     mode: Exclude<HomeV2TransportMode, 'unknown'>,
   ) => Promise<HomeV2TransportMaintenanceDependencyResult>
@@ -242,6 +250,7 @@ function normalizeStatus(value: unknown): HomeV2TransportMaintenanceStatus | nul
     !isBoundedPrintableVersion(value.router.version) ||
     !isRecord(value.capabilities) || !hasExactKeys(value.capabilities, [
       'canEnsureRouter',
+      'canRevealRouterFolder',
       'canSetDirectAndI2p',
       'canSetDirectOnly',
       'canSetI2pOnly',
@@ -264,6 +273,9 @@ function normalizeStatus(value: unknown): HomeV2TransportMaintenanceStatus | nul
   const canChangeStoppedCore = install === 'installed' && runtime === 'stopped' &&
     transportMode !== 'unknown' && !fatalIssue
   const expectedCanStop = routerState === 'managed-running' && !fatalIssue
+  // Re-derived here, like every other capability, so a status claiming a folder
+  // can be opened for an EXTERNAL router is rejected rather than displayed.
+  const expectedCanReveal = routerState === 'managed-running' || routerState === 'managed-stopped'
   const expectedCanSetLive = install === 'installed' && runtime === 'running' &&
     transportMode !== 'unknown' && !fatalIssue
   const expectedCanEnsure = install === 'installed' && runtime === 'stopped' && issue === null &&
@@ -296,6 +308,7 @@ function normalizeStatus(value: unknown): HomeV2TransportMaintenanceStatus | nul
     (capabilities.canSetDirectOnly !== canChangeStoppedCore) ||
     (capabilities.canSetDirectAndI2p !== (canChangeStoppedCore && routerReady)) ||
     (capabilities.canSetI2pOnly !== (canChangeStoppedCore && routerReady)) ||
+    (capabilities.canRevealRouterFolder !== expectedCanReveal) ||
     (capabilities.canStopRouter !== expectedCanStop) ||
     (capabilities.canSetModeWhileRunning !== expectedCanSetLive)) {
     return null
@@ -304,6 +317,7 @@ function normalizeStatus(value: unknown): HomeV2TransportMaintenanceStatus | nul
   return Object.freeze({
     capabilities: Object.freeze({
       canEnsureRouter: capabilities.canEnsureRouter,
+      canRevealRouterFolder: capabilities.canRevealRouterFolder,
       canSetDirectAndI2p: capabilities.canSetDirectAndI2p,
       canSetDirectOnly: capabilities.canSetDirectOnly,
       canSetI2pOnly: capabilities.canSetI2pOnly,
@@ -324,6 +338,7 @@ function unavailableStatus(): HomeV2TransportMaintenanceStatus {
   return Object.freeze({
     capabilities: Object.freeze({
       canEnsureRouter: false,
+      canRevealRouterFolder: false,
       canSetDirectAndI2p: false,
       canSetDirectOnly: false,
       canSetI2pOnly: false,
@@ -353,13 +368,14 @@ function normalizeMutationRequest(value: unknown): MutationRequest {
     'action', 'network', 'revision', 'schema', 'transportMode',
   ]) || value.schema !== 'home-v2-transport-maintenance-mutation-request' ||
     value.revision !== 1 || value.network !== 'qortium' ||
-    (value.action !== 'ensure-router' && value.action !== 'set-mode' &&
-      value.action !== 'set-mode-live' && value.action !== 'stop-router') ||
+    (value.action !== 'ensure-router' && value.action !== 'reveal-router' &&
+      value.action !== 'set-mode' && value.action !== 'set-mode-live' &&
+      value.action !== 'stop-router') ||
     !(value.transportMode === null || (
       MODES.has(value.transportMode as HomeV2TransportMode) && value.transportMode !== 'unknown'
     )) ||
-    ((value.action === 'ensure-router' || value.action === 'stop-router') &&
-      value.transportMode !== null) ||
+    ((value.action === 'ensure-router' || value.action === 'reveal-router' ||
+      value.action === 'stop-router') && value.transportMode !== null) ||
     ((value.action === 'set-mode' || value.action === 'set-mode-live') &&
       value.transportMode === null)) {
     throw new Error('An exact Qortium transport maintenance mutation request is required.')
@@ -380,6 +396,13 @@ function preflightCode(
   if (status.core.install === 'missing') return 'core-install-missing'
   if (status.core.install === 'unknown') return 'status-unavailable'
   if (status.core.runtime === 'unknown') return 'core-runtime-unknown'
+
+  // Opening a folder changes nothing, so it is gated only on there BEING a
+  // managed folder -- not on the core being stopped, which the mutating actions
+  // below require.
+  if (request.action === 'reveal-router') {
+    return status.capabilities.canRevealRouterFolder ? null : 'action-not-allowed'
+  }
 
   if (request.action === 'stop-router') {
     if (status.router.state === 'external-running') return 'external-router-active'
@@ -472,7 +495,12 @@ function mappedDependencyResult(
   const normalized = normalizeDependencyResult(value)
   if (!normalized) return actionResult(status, 'failed', 'operation-failed')
   if (normalized.kind === 'completed') {
-    const confirmed = request.action === 'ensure-router'
+    const confirmed = request.action === 'reveal-router'
+      // Nothing in the status changes when a folder is opened, so there is
+      // nothing to confirm against. The main process already reported whether it
+      // opened one.
+      ? status.issue !== 'manager-unavailable' && status.issue !== 'status-unavailable'
+      : request.action === 'ensure-router'
       ? status.issue === null && status.router.state === 'managed-running' &&
         status.router.maintenance === 'none'
       : request.action === 'set-mode-live'
@@ -530,7 +558,9 @@ export function createHomeV2TransportMaintenanceService(
 
         let dependencyResult: unknown
         try {
-          dependencyResult = request.action === 'ensure-router'
+          dependencyResult = request.action === 'reveal-router'
+            ? await dependencies.revealRouterFolder()
+            : request.action === 'ensure-router'
             ? await dependencies.ensureRouter()
             : request.action === 'stop-router'
             ? await dependencies.stopRouter()

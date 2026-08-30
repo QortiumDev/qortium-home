@@ -280,6 +280,24 @@ type CoreUpdateEngineStatus = {
   } | null;
   javaUpdatePendingRestart?: boolean;
   nodeAutoUpdateMode?: string;
+  /**
+   * BOTH update candidates, not just the one that was selected.
+   *
+   * The GitHub release and the on-chain (QDN) offer are already fetched in
+   * parallel and then narrowed to one by selectCoreUpdateCandidate, so keeping
+   * both costs nothing extra -- no additional lookup. It exists so Settings can
+   * show what each source is offering side by side: with only the winner
+   * reported there is no way to tell "QDN has nothing newer" apart from "QDN was
+   * not consulted", and the two mean very different things when a release is
+   * being rolled out.
+   *
+   * Absent (undefined) when no check has run; a source is null when it was
+   * consulted and offered nothing newer than the installed Core.
+   */
+  updateSources?: {
+    github: { commit?: string; version: string } | null;
+    onChain: { commit?: string; version: string } | null;
+  };
 };
 
 type DowngradeConfirmation = {
@@ -2794,10 +2812,17 @@ async function runCoreUpdateEnginePass() {
     }),
   ]);
   const nodeAutoUpdateMode = getOnChainAutoUpdateMode(onChainStatus);
-  let candidate = selectCoreUpdateCandidate(
-    getGithubUpdateCandidate(githubRelease, installedCore),
-    getOnChainUpdateCandidate(onChainStatus, installedCore),
-  );
+  // Kept separately as well as narrowed, so Settings can report what each
+  // source offers rather than only the winner. Both are already in hand.
+  const githubCandidate = getGithubUpdateCandidate(githubRelease, installedCore);
+  const onChainCandidate = getOnChainUpdateCandidate(onChainStatus, installedCore);
+  const toSource = (value: CoreUpdateCandidate | null) =>
+    value ? { ...(value.commit ? { commit: value.commit } : {}), version: value.version } : null;
+  let updateSources = {
+    github: toSource(githubCandidate),
+    onChain: toSource(onChainCandidate),
+  };
+  let candidate = selectCoreUpdateCandidate(githubCandidate, onChainCandidate);
   let onChainInstallActive =
     candidate?.channel === 'on-chain' && isOnChainCoreInstallActive(candidate.status);
 
@@ -2823,6 +2848,7 @@ async function runCoreUpdateEnginePass() {
         : null,
     javaUpdatePendingRestart,
     nodeAutoUpdateMode: nodeAutoUpdateMode || undefined,
+    updateSources,
   };
 
   if (
@@ -2834,10 +2860,14 @@ async function runCoreUpdateEnginePass() {
       refreshCoreHelpersUnlocked(helperRelease),
     );
     installedCore = (await readInstalledCore()) ?? installedCore;
-    candidate = selectCoreUpdateCandidate(
-      getGithubUpdateCandidate(githubRelease, installedCore),
-      getOnChainUpdateCandidate(onChainStatus, installedCore),
-    );
+    const refreshedGithub = getGithubUpdateCandidate(githubRelease, installedCore);
+    const refreshedOnChain = getOnChainUpdateCandidate(onChainStatus, installedCore);
+    updateSources = { github: toSource(refreshedGithub), onChain: toSource(refreshedOnChain) };
+    candidate = selectCoreUpdateCandidate(refreshedGithub, refreshedOnChain);
+    getCoreManagerState().updateEngineStatus = {
+      ...getCoreManagerState().updateEngineStatus,
+      updateSources,
+    };
     onChainInstallActive =
       candidate?.channel === 'on-chain' && isOnChainCoreInstallActive(candidate.status);
   }
@@ -2873,6 +2903,7 @@ async function runCoreUpdateEnginePass() {
     helpersOutOfSync: null,
     javaUpdatePendingRestart,
     nodeAutoUpdateMode: nodeAutoUpdateMode || undefined,
+    updateSources,
   };
 }
 

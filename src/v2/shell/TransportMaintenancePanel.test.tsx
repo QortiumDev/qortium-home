@@ -43,6 +43,7 @@ function transportStatus(options: StatusOptions = {}): HomeV2TransportMaintenanc
     capabilities: {
       canEnsureRouter: coreInstall === 'installed' && coreRuntime === 'stopped' && issue === null &&
         ['install', 'start', 'update'].includes(maintenance),
+      canRevealRouterFolder: routerState === 'managed-running' || routerState === 'managed-stopped',
       canSetDirectAndI2p: canChange && routerReady,
       canSetDirectOnly: canChange,
       canSetI2pOnly: canChange && routerReady,

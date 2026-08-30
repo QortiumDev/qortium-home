@@ -38,6 +38,7 @@ function status(options: StatusOptions = {}): HomeV2TransportMaintenanceStatus {
   return {
     capabilities: {
       canEnsureRouter,
+      canRevealRouterFolder: routerState === 'managed-running' || routerState === 'managed-stopped',
       canSetDirectAndI2p: canChange && routerReady,
       canSetDirectOnly: canChange,
       canSetI2pOnly: canChange && routerReady,
@@ -93,6 +94,7 @@ function dependencies(overrides: Partial<HomeV2TransportMaintenanceDependencies>
     acquireInteractiveLease: () => ({ release() {} }),
     ensureRouter: async () => ({ code: null, kind: 'completed', warning: null } as const),
     readStatus: async () => status(),
+    revealRouterFolder: async () => ({ code: null, kind: 'completed' as const, warning: null }),
     setStoppedCoreTransportMode: async () => ({
       code: null,
       kind: 'completed',

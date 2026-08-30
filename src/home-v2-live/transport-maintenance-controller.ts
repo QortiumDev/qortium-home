@@ -175,6 +175,7 @@ export function useHomeV2TransportMaintenance(onCoreRefresh?: () => void) {
     if (busyRef.current || stale) return
     if (action === 'ensure-router' && !status.capabilities.canEnsureRouter) return
     if (action === 'stop-router' && !status.capabilities.canStopRouter) return
+    if (action === 'reveal-router' && !status.capabilities.canRevealRouterFolder) return
     if (action === 'set-mode' && (!mode || !canSetTransportMode(status, mode))) return
     if (action === 'set-mode-live' &&
       (!mode || transportModeActionFor(status, mode) !== 'set-mode-live')) return
@@ -293,6 +294,8 @@ export interface HomeV2TransportManagement {
   readonly stale: boolean
   readonly status: HomeV2TransportMaintenanceStatus | null
   readonly onEnsureRouter?: () => void
+  /** Opens the managed router's folder. Absent when the router is external. */
+  readonly onRevealRouterFolder?: () => void
   readonly onSetTransportMode?: (mode: HomeV2SettableTransportMode) => void
   readonly onStopRouter?: () => void
 }
@@ -311,6 +314,7 @@ export function toHomeV2TransportManagement(
       if (!action) return
       void transport.run(action, mode)
     },
+    onRevealRouterFolder: () => void transport.run('reveal-router', null),
     onStopRouter: () => void transport.run('stop-router', null),
     stale: transport.stale,
     status: transport.status,

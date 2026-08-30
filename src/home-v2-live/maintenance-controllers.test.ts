@@ -105,6 +105,7 @@ function transportStatus(
   return {
     capabilities: {
       canEnsureRouter: true,
+    canRevealRouterFolder: false,
       canSetDirectAndI2p: true,
       canSetDirectOnly: true,
       canSetI2pOnly: false,
@@ -352,6 +353,7 @@ function transportActionResult(
   const running = transportStatus({
     capabilities: {
       canEnsureRouter: false,
+    canRevealRouterFolder: false,
       canSetDirectAndI2p: false,
       canSetDirectOnly: false,
       canSetI2pOnly: false,
@@ -369,6 +371,7 @@ function transportActionResult(
   const runningNoRouter = transportStatus({
     capabilities: {
       canEnsureRouter: false,
+    canRevealRouterFolder: false,
       canSetDirectAndI2p: false,
       canSetDirectOnly: false,
       canSetI2pOnly: false,
@@ -385,6 +388,7 @@ function transportActionResult(
   const unknown = transportStatus({
     capabilities: {
       canEnsureRouter: false,
+    canRevealRouterFolder: false,
       canSetDirectAndI2p: false,
       canSetDirectOnly: false,
       canSetI2pOnly: false,

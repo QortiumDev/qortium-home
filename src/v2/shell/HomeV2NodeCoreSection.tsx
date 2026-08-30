@@ -493,6 +493,22 @@ function TransportRow({
               : t('home2.transportMaintenance.router.stop')}
           </button>
         ) : null}
+        {status.capabilities.canRevealRouterFolder && transport.onRevealRouterFolder ? (
+          // Opens the managed router's folder. Not disabled by `blocked`: that
+          // guards operations that change the router, and opening a folder
+          // changes nothing -- refusing it while the Core is busy would be
+          // withholding something harmless.
+          <button
+            type="button"
+            className="home-v2-secondary-button"
+            data-home-v2-node-core-action="reveal-router"
+            onClick={transport.onRevealRouterFolder}
+          >
+            {transport.busy === 'reveal-router'
+              ? t('home2.common.working')
+              : t('home2.transportMaintenance.router.reveal')}
+          </button>
+        ) : null}
       </div>
       {transport.notice ? (
         <p

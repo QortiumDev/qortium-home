@@ -4,7 +4,10 @@ import {
   revealHomeV2CoreInstall,
   setHomeV2CoreProgressListener,
 } from './core-manager.js'
-import { setHomeV2I2pdProgressListener } from './i2pd-manager.js'
+import {
+  revealHomeV2ManagedI2pd,
+  setHomeV2I2pdProgressListener,
+} from './i2pd-manager.js'
 import {
   assertAuthorizedHomeV2Sender,
   broadcastToHomeV2Windows,
@@ -183,6 +186,7 @@ export function registerHomeV2CoreManagerBridgeIpcHandlers() {
       inspectRouter: inspectI2pdMaintenance,
       installRouter: installI2pd,
       resolveManager: () => requireCoreManagerEntry('qortium'),
+      revealManagedRouter: revealHomeV2ManagedI2pd,
       startRouter: startI2pd,
       stopManagedRouter: stopI2pdIfManaged,
     })),

@@ -18,6 +18,7 @@ export type HomeV2TransportMaintenanceAdapterOperations = Readonly<{
   inspectRouter: () => Promise<I2pdMaintenanceInspection>
   installRouter: () => Promise<unknown>
   resolveManager: () => CoreManagerEntry
+  revealManagedRouter: () => Promise<boolean>
   startRouter: () => Promise<unknown>
   stopManagedRouter: () => Promise<void>
 }>
@@ -166,6 +167,7 @@ function unavailableStatus(
       canSetDirectAndI2p: false,
       canSetDirectOnly: false,
       canSetI2pOnly: false,
+      canRevealRouterFolder: false,
       canSetModeWhileRunning: false,
       canStopRouter: false,
     },
@@ -218,6 +220,12 @@ async function readStatus(
         canSetDirectAndI2p: canChangeStoppedCore && routerReady,
         canSetDirectOnly: canChangeStoppedCore,
         canSetI2pOnly: canChangeStoppedCore && routerReady,
+        // Only a MANAGED router has a folder Home can point at. An external
+        // one is found by connecting to a SAM port, so Home never learns which
+        // executable is behind it -- there is nothing to open, rather than
+        // something withheld.
+        canRevealRouterFolder: projected.router.state === 'managed-running' ||
+          projected.router.state === 'managed-stopped',
         canSetModeWhileRunning: install === 'installed' && runtime === 'running' &&
           transportMode !== 'unknown' && !fatalIssue,
         canStopRouter: projected.router.state === 'managed-running' && !fatalIssue,
@@ -359,6 +367,12 @@ export function createHomeV2TransportMaintenanceDependencies(
     acquireInteractiveLease: operations.acquireInteractiveLease,
     ensureRouter: async () => await ensureRouter(operations),
     readStatus: async () => await readStatus(operations),
+    revealRouterFolder: async () => {
+      // Opening a folder mutates nothing, so there is no lease, no core guard
+      // and nothing to confirm afterwards -- only whether a folder was opened.
+      const opened = await operations.revealManagedRouter().catch(() => false)
+      return opened ? completed() : blocked('action-not-allowed')
+    },
     setStoppedCoreTransportMode: async (mode) =>
       await setStoppedCoreTransportMode(operations, mode),
     setRunningCoreTransportMode: async (mode) =>
