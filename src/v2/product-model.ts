@@ -120,7 +120,19 @@ export type ProductAction =
       readonly tabId: TabId
       readonly toIndex: number
     }
-  | { readonly type: 'restore'; readonly state: ProductState }
+  | {
+      readonly type: 'restore'
+      readonly state: ProductState
+      /**
+       * Keep what the user has already done, instead of replacing it.
+       *
+       * The saved profile is read asynchronously while the shell is already on
+       * screen and usable, so anything done in that first second -- typing an
+       * address, opening a tab -- was simply overwritten when the read landed.
+       * Set this when the local state is no longer the untouched default.
+       */
+      readonly preserveLocal?: boolean
+    }
 
 export class ProductModelError extends Error {
   constructor(
@@ -387,6 +399,18 @@ export function findReplaceableAppTab(
   const tab = state.tabs.find((candidate) => candidate.id === target.tabId)
   if (!tab) return null
   return tab.context.resourceLocation === target.fromResourceLocation ? tab : null
+}
+
+// Whether two entries are the same surface, for merging a restore with what the
+// user has already opened. Ids differ across the two states -- the restored ones
+// come from disk -- so identity has to be structural.
+function sameShellEntry(left: ShellEntry, right: ShellEntry): boolean {
+  if (left.kind !== right.kind) return false
+  if (left.kind === 'internal' && right.kind === 'internal') {
+    return left.page === right.page
+  }
+  return left.kind === 'app' && right.kind === 'app' &&
+    contextsIdentifySameTab(left.context, right.context)
 }
 
 function contextsIdentifySameTab(
@@ -716,7 +740,29 @@ export function reduceProductState(
       return openInternal(state, action.page, action.tabId)
     case 'reorder-tab':
       return reorderTab(state, action.tabId, action.toIndex)
-    case 'restore':
-      return freezeProductState(action.state)
+    case 'restore': {
+      if (!action.preserveLocal) return freezeProductState(action.state)
+      // Everything the user opened that the saved profile does not already
+      // contain, appended in the order they made it. Their tabs come back AND
+      // the thing they just did survives; the alternative is telling someone
+      // their action did not happen because a disk read finished after it.
+      const restored = freezeProductState(action.state)
+      const extras = state.entries.filter(
+        (entry) => !restored.entries.some((candidate) => sameShellEntry(candidate, entry)),
+      )
+      if (extras.length === 0) return restored
+      const entries = [...restored.entries, ...extras]
+      // Stay on what the user was looking at. It is the surface they chose most
+      // recently, and it is the one thing a restore must not steal.
+      const activeTabId = entries.some((entry) => entry.id === state.activeTabId)
+        ? state.activeTabId
+        : restored.activeTabId
+      return freezeProductState({
+        entries,
+        activeTabId,
+        transient: state.transient,
+        revision: restored.revision,
+      })
+    }
   }
 }

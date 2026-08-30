@@ -304,6 +304,63 @@ function testProductModelKeepsSourceQualifiedTabs(): void {
   assert.equal(unsafeRestored.destination, 'dashboard')
   assert.equal(unsafeRestored.tabs.length, 0)
 
+  {
+    // A restore that lands AFTER the user has done something must not throw
+    // their work away. The saved profile is read asynchronously while the shell
+    // is already usable, so this window is real: opening a tab or navigating in
+    // the first second used to be silently overwritten.
+    const beforeRestore = reduceProductState(createProductState(), {
+      destination: 'settings',
+      type: 'navigate',
+    })
+    const settingsTabId = beforeRestore.activeTabId
+    const merged = reduceProductState(beforeRestore, {
+      preserveLocal: true,
+      state: withBothSources,
+      type: 'restore',
+    })
+    // The saved tabs come back...
+    assert.equal(merged.tabs.length, 2)
+    assert.deepEqual(
+      merged.tabs.map((tab) => tab.context.resourceLocation),
+      withBothSources.tabs.map((tab) => tab.context.resourceLocation),
+    )
+    // ...and so does what the user just opened, still focused.
+    assert.ok(
+      merged.entries.some((entry) => entry.kind === 'internal' && entry.page === 'settings'),
+      'the page the user opened must survive the restore',
+    )
+    assert.equal(
+      merged.activeTabId,
+      settingsTabId,
+      'the restore must not steal focus from what the user was looking at',
+    )
+    // Without the flag it is still a wholesale replace, which is what an
+    // untouched shell wants.
+    const replaced = reduceProductState(beforeRestore, {
+      state: withBothSources,
+      type: 'restore',
+    })
+    assert.equal(
+      replaced.entries.some((entry) => entry.kind === 'internal' && entry.page === 'settings'),
+      false,
+    )
+    // Nothing is duplicated when the user opened something the profile already
+    // had: entries are matched structurally, since ids differ across the two.
+    const sameAsSaved = reduceProductState(beforeRestore, {
+      preserveLocal: true,
+      state: beforeRestore,
+      type: 'restore',
+    })
+    assert.equal(
+      sameAsSaved.entries.filter(
+        (entry) => entry.kind === 'internal' && entry.page === 'settings',
+      ).length,
+      1,
+      'a surface the profile already holds must not be added twice',
+    )
+  }
+
   const dashboard = reduceProductState(withBothSources, {
     type: 'navigate',
     destination: 'dashboard',
