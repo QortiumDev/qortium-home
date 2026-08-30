@@ -227,6 +227,13 @@ export function CoreMaintenancePanel({
         // The remedy that belongs with the "Modified since install" notice
         // below: 1.x offered this, Home 2 collected the fact and offered
         // nothing to do about it.
+        //
+        // "Helpers" are everything in a Core release EXCEPT the jar -- the
+        // settings template carrying the bootstrap peer list, and the chain
+        // config. Drift is computed by Home, not reported by the node: it reads
+        // the installed jar's semver and compares against the matching GitHub
+        // release. That lookup is a network call, so drift can be genuinely
+        // UNKNOWN offline, which is why the status is null rather than false.
         <p className="home-v2-core-notice" data-home-v2-core-helpers-out-of-sync role="status">
           <span>
             {t('home2.core.helpersOutOfSync', { version: status.core.helpersOutOfSyncVersion })}

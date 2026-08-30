@@ -109,11 +109,17 @@ export type HomeV2CoreMaintenanceStatus = {
      */
     readonly installModified: boolean
     /**
-     * The version whose helper scripts no longer match the installed Core, or
-     * null when they are in sync.
+     * The version whose support files no longer match the installed Core, or
+     * null when they match OR when it could not be determined.
      *
-     * Home 1.x offered a "refresh helpers" action off this. Home 2 collected
-     * the fact and never surfaced it, so the remedy for a modified install (see
+     * "Helpers" are everything in a Core release except the jar: the settings
+     * template carrying the bootstrap peer list, and the chain config. Home
+     * computes the mismatch itself by reading the installed jar semver and
+     * comparing against the matching release -- a NETWORK lookup, so offline
+     * this is null (unknown), never a false claim of being in sync.
+     *
+     * Home 1.x offered a refresh action off this. Home 2 collected the fact and
+     * never surfaced it, so the remedy for a modified install (see
      * installModified) was unreachable. Version strings only -- no paths.
      */
     readonly helpersOutOfSyncVersion: string | null
@@ -273,8 +279,10 @@ function qortiumMaintenanceStatus(
           typeof java?.managedJavaTarget === 'number' && java.majorVersion < java.managedJavaTarget) ||
         (javaSource === 'managed' && java?.managedUpgradeAvailable === true)
       ),
-      // Only offered when the Core actually reports drift, which core-manager
-      // computes solely for a modified install -- the same fact #455 surfaced.
+      // Only offered when drift has actually been found. core-manager computes
+      // this itself -- reading the installed jar's semver and comparing it
+      // against the matching release -- and only for a modified install, the
+      // same fact #455 surfaced. The node is not asked and does not report it.
       canRefreshHelpers: supported && !!installed && (() => {
         const coreUpdate = isRecord(status.coreUpdate) ? status.coreUpdate : null
         return !!coreUpdate && isRecord(coreUpdate.helpersOutOfSync)
