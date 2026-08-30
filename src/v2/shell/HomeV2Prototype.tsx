@@ -45,7 +45,10 @@ import type {
   ShellDestination,
   TabPageId,
 } from '../product-model'
-import type { NewTabPreference } from '../new-tab-preference'
+import {
+  DEFAULT_NEW_TAB_PREFERENCE,
+  type NewTabPreference,
+} from '../new-tab-preference'
 import { useHomeV2Translation } from '../i18n'
 import {
   AppTabStage,
@@ -1187,7 +1190,9 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
                 account={snapshot.account}
                 nodes={snapshot.nodes}
                 newTabPreference={
-                  props.newTabPreference ?? { kind: 'search' }
+                  // Was `{ kind: 'search' }`, which disagreed with the app's
+                  // actual default for the very same setting.
+                  props.newTabPreference ?? DEFAULT_NEW_TAB_PREFERENCE
                 }
                 onSetTheme={props.onSetTheme}
                 onSetAccent={props.onSetAccent}

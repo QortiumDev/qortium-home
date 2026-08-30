@@ -73,7 +73,12 @@ export function validateCustomNewTabAddress(value: string): string {
 
 export function parseNewTabPreference(value: unknown): NewTabPreference {
   if (!isRecord(value)) return DEFAULT_NEW_TAB_PREFERENCE
-  if (value.kind === 'search') return DEFAULT_NEW_TAB_PREFERENCE
+  // 'search' is a CHOICE the user can make in Settings, so it has to survive a
+  // restart like the other two. This used to fall through to the default, which
+  // meant picking "Search page" worked until you quit and then silently became
+  // Dashboard again -- the setting was offered, saved to disk, and then thrown
+  // away on the next read.
+  if (value.kind === 'search') return Object.freeze({ kind: 'search' })
   if (value.kind === 'dashboard') return Object.freeze({ kind: 'dashboard' })
   if (value.kind !== 'custom' || typeof value.address !== 'string') {
     return DEFAULT_NEW_TAB_PREFERENCE
