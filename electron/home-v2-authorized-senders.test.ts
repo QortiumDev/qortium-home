@@ -205,4 +205,30 @@ const trustedUrl = 'file:///opt/qortium-home/dist/v2-live.html'
   }
 }
 
+{
+  // A broadcast that lands BEFORE the window has committed its document must not
+  // revoke it. This is the bug that made a normally-launched AppImage unusable:
+  // during startup getURL() has not committed, so any global broadcast --
+  // settings, policy -- deleted the grant for a window that went on to load
+  // correctly, and its bridge stayed dead for the life of the process. The
+  // renderer showed "Home v2 data is only available to an authorized top-level
+  // Home v2 document" with no way back.
+  //
+  // It only showed up on a FUSE-mounted AppImage because that starts slower, so
+  // the broadcast fell inside the loading window; the same build under
+  // APPIMAGE_EXTRACT_AND_RUN started fast enough to miss it.
+  const starting = senderFixture(140, '')
+  authorizeHomeV2Sender(starting.sender, trustedUrl)
+  broadcastToHomeV2Windows('home-v2:settings', { any: 'payload' })
+  assert.equal(starting.sent.length, 0, 'a window that is still loading receives nothing')
+  // ...and is STILL authorized once it finishes loading.
+  starting.navigate(trustedUrl)
+  assert.doesNotThrow(
+    () => assertAuthorizedHomeV2Sender(starting.event()),
+    'a broadcast during startup must not permanently revoke the window',
+  )
+  broadcastToHomeV2Windows('home-v2:settings', { any: 'payload' })
+  assert.equal(starting.sent.length, 1, 'and it receives broadcasts once loaded')
+}
+
 console.log('Home v2 authorized-sender tests passed.')
