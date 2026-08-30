@@ -35,15 +35,30 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
 // `flaky` marks smokes seen to fail and pass on identical input. They are kept
 // out of the CI selection deliberately: a check that cries wolf gets ignored,
 // and these are meant to be believed.
+//
+// `ci` is a SEPARATE axis from `needs`, and the distinction was learned the hard
+// way. `needs: 'none'` means "does not require the network"; it says nothing
+// about whether a GitHub runner can run it. A runner also lacks a window
+// manager, and its node_modules chrome-sandbox is not setuid-root. Selecting on
+// `needs` alone put four smokes into CI that cannot pass there and turned main
+// red.
+//
+// So `ci: true` means ONE thing: this smoke has been OBSERVED passing on a
+// GitHub runner. Not inferred, not expected to -- observed. Anything unproven is
+// simply absent, and a smoke gets promoted only after a green run shows it.
 const SMOKES = [
   // Verified node-free: passed with all networking removed.
-  { script: 'smoke:desktop:home-v2-onboarding', needs: 'none' },
-  { script: 'smoke:desktop:home-v2-tabs', needs: 'none' },
-  { script: 'smoke:desktop:home-v2-bookmarks', needs: 'none' },
-  { script: 'smoke:desktop:home-v2-app-zoom', needs: 'none' },
-  { script: 'smoke:desktop:home-v2-window-geometry', needs: 'none' },
-  { script: 'smoke:desktop:home-v2-collections-migration', needs: 'none' },
-  { script: 'smoke:desktop:widgets', needs: 'none', note: 'already in CI, unpackaged Electron' },
+  { script: 'smoke:desktop:home-v2-onboarding', needs: 'none', ci: true },
+  { script: 'smoke:desktop:home-v2-tabs', needs: 'none', ci: true },
+  { script: 'smoke:desktop:home-v2-bookmarks', needs: 'none', ci: true },
+  { script: 'smoke:desktop:home-v2-app-zoom', needs: 'none',
+    note: 'not in CI: needs a setuid-root chrome-sandbox; launches unpackaged Electron' },
+  { script: 'smoke:desktop:home-v2-window-geometry', needs: 'none',
+    note: 'not in CI: starts a window manager, ENOENT on a runner' },
+  { script: 'smoke:desktop:home-v2-collections-migration', needs: 'none',
+    note: 'not in CI: the app exits non-zero on a runner, cause not yet established' },
+  { script: 'smoke:desktop:widgets', needs: 'none',
+    note: 'runs in the build-and-test job, which prepares the setuid chrome-sandbox it needs' },
 
   { script: 'smoke:desktop:home-v2-chrome-menus', needs: 'none', flaky: true,
     note: 'navigates immediately after launch; a late profile restore can undo it (~1 in 6)' },
@@ -90,7 +105,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
 
   const selected = SMOKES.filter((smoke) => {
     if (nodeless && smoke.needs !== 'none') return false;
-    if (ciOnly && (smoke.needs !== 'none' || smoke.flaky)) return false;
+    if (ciOnly && smoke.ci !== true) return false;
     if (!only) return true;
     return only.some((value) => smoke.script.includes(value.trim()));
   });

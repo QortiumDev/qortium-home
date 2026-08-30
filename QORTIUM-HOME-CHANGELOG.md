@@ -34,6 +34,26 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-30 - fix(ci): only run the packaged checks that have actually been shown to work there
+
+The automatic run of the checks that drive the real application was failing, and
+the checks were not at fault. Four of the seven cannot run on the machines that
+build the project at all: two need a security helper that has to be set up
+first, one starts a window manager that is not installed there, and one exits
+for a reason not yet established.
+
+They were chosen for that run on the wrong basis. What had been established was
+which checks work without a network connection - carefully, but that is a
+different question from which ones work on a build machine, and answering the
+first as though it settled the second put four of them somewhere they could not
+pass.
+
+The automatic run is now limited to the three that have been seen to pass there,
+and a check can only join them after a successful run shows that it does. The
+missing security helper is now set up as well, so two of the four may qualify
+next time - they have not been added on that expectation, which is the mistake
+that caused this.
+
 ### 2026-08-30 - feat(chat): let an app keep reading your private group chats, and fix what "always" was really granting
 
 An app that reads your private group conversations had to ask every single time.
