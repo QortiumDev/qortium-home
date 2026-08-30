@@ -303,4 +303,69 @@ try {
   }
 }
 
+// Starting a Core through Home adopts the local node -- once. The owner asked
+// for the switch AND for the freedom to move away afterwards, so this must be
+// tied to the start action, never re-applied because the Core happens to be up.
+{
+  const localNodes = createInitialHomeV2Nodes()
+  const setModeCalls: Array<{ mode: string; network: string }> = []
+  // The mode PERSISTS, as it does on a real node: without that the refresh that
+  // follows a start would keep reporting the old mode and this test would prove
+  // nothing about the one-time behaviour.
+  let qortiumMode: 'local' | 'public' = 'public'
+  const snapshotNow = () => ({
+    version: 1,
+    nodes: {
+      qortal: localNodes.qortal,
+      qortium: { ...localNodes.qortium, mode: qortiumMode },
+    },
+  })
+  const nodeClient = {
+    getSnapshot: async () => snapshotNow(),
+    setMode: async (network: string, mode: string) => {
+      setModeCalls.push({ mode, network })
+      if (network === 'qortium') qortiumMode = mode as 'local' | 'public'
+      return snapshotNow()
+    },
+  } as unknown as HomeV2NodeClient
+  const coreClient = {
+    getStatus: async (network: 'qortal' | 'qortium') => coreStatus(network, 'stopped'),
+    start: async (network: 'qortal' | 'qortium') => actionResult(network, 'running'),
+    stop: async (network: 'qortal' | 'qortium') => actionResult(network, 'stopped'),
+  } as unknown as Parameters<typeof Harness>[0]['coreClient']
+
+  const container = document.createElement('div')
+  document.body.appendChild(container)
+  const root = createRoot(container)
+  try {
+  await act(async () => {
+    root.render(<Harness coreClient={coreClient} nodeClient={nodeClient} />)
+    await Promise.resolve()
+    await Promise.resolve()
+  })
+  await act(async () => {
+    await controller.runCoreAction('qortium', 'start')
+  })
+  assert.deepEqual(setModeCalls, [{ mode: 'local', network: 'qortium' }],
+    'starting a Core through Home switches that node to local')
+
+  // Already local: nothing to switch, and no redundant write.
+  setModeCalls.length = 0
+  await act(async () => {
+    await controller.runCoreAction('qortium', 'start')
+  })
+  assert.deepEqual(setModeCalls, [],
+    'a node already on local must not be re-switched')
+
+  // A STOP never touches the node mode.
+  await act(async () => {
+    await controller.runCoreAction('qortal', 'stop')
+  })
+  assert.deepEqual(setModeCalls, [], 'stopping a Core must not change the node mode')
+  } finally {
+    act(() => root.unmount())
+    container.remove()
+  }
+}
+
 console.log('home v2 node/core controller hook tests passed')

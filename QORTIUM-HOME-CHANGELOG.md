@@ -34,6 +34,17 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-29 - fix(node): start the Core and Home connects to it
+
+Starting the Qortium Core from Home left Home connected to whatever node it was
+using before, so someone could start their own node and carry on talking to a
+public one without noticing. Home 1.x switched over at that moment; Home 2 did
+not.
+
+Home now switches to the local node when you start the Core yourself. It does
+this once, as part of starting, and does not keep doing it: choosing a public or
+custom node afterwards works normally and is not undone.
+
 ### 2026-08-29 - feat(core): install an older Core version, with confirmation
 
 Home could only ever move forward. Older releases now appear in the release
