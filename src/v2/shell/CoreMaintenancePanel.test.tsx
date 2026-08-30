@@ -16,7 +16,7 @@ import { CoreMaintenancePanel } from './CoreMaintenancePanel'
 
 const status = {
   capabilities: { canInitialInstall: true, canInstallJava: true, canInstallOnChainUpdate: false, canRefreshHelpers: false, canUpdateRunningInPlace: false },
-  core: { helpersOutOfSyncVersion: null, installModified: false, localApiUrl: null, update: null, channel: null, installedCommit: null, installedTag: null, nodeAutoUpdateMode: null, runtimeBlockedReason: null, installedVersion: null, runtime: 'stopped' },
+  core: { helpersOutOfSyncVersion: null, installModified: false, localApiUrl: null, update: null, updateSources: null, channel: null, installedCommit: null, installedTag: null, nodeAutoUpdateMode: null, runtimeBlockedReason: null, installedVersion: null, runtime: 'stopped' },
   java: { source: 'missing', targetMajorVersion: null, updateAvailable: false, version: null },
   revision: 1,
   schema: 'home-v2-core-maintenance',
@@ -182,7 +182,7 @@ try {
   currentStatus = {
     ...status,
     capabilities: { canInitialInstall: false, canInstallJava: true, canInstallOnChainUpdate: false, canRefreshHelpers: false, canUpdateRunningInPlace: false },
-    core: { helpersOutOfSyncVersion: null, installModified: false, localApiUrl: null, update: null, channel: 'prerelease', installedCommit: null, installedTag: null, nodeAutoUpdateMode: null, runtimeBlockedReason: null, installedVersion: '1.2.3', runtime: 'stopped' },
+    core: { helpersOutOfSyncVersion: null, installModified: false, localApiUrl: null, update: null, updateSources: null, channel: 'prerelease', installedCommit: null, installedTag: null, nodeAutoUpdateMode: null, runtimeBlockedReason: null, installedVersion: '1.2.3', runtime: 'stopped' },
     java: { source: 'managed', targetMajorVersion: null, updateAvailable: true, version: '25.0.1' },
   }
   root = createRoot(container)
@@ -369,7 +369,7 @@ try {
     const originalStatus = client.getMaintenanceStatus
     client.getMaintenanceStatus = async () => ({
       ...currentStatus,
-      core: { ...currentStatus.core, installModified: true, localApiUrl: null, update: null, installedVersion: '1.7.2' },
+      core: { ...currentStatus.core, installModified: true, localApiUrl: null, update: null, updateSources: null, installedVersion: '1.7.2' },
     })
     act(() => root.unmount())
     root = createRoot(container)
@@ -386,7 +386,7 @@ try {
     client.getMaintenanceStatus = async () => ({
       ...currentStatus,
       core: { ...currentStatus.core, helpersOutOfSyncVersion: null,
-      installModified: false, localApiUrl: null, update: null, installedVersion: '1.7.2' },
+      installModified: false, localApiUrl: null, update: null, updateSources: null, installedVersion: '1.7.2' },
     })
     act(() => root.unmount())
     root = createRoot(container)
@@ -507,6 +507,60 @@ try {
     })
     assert.ok(button('Update Java'))
     assert.doesNotMatch(container.textContent ?? '', /Update Java to/)
+
+    client.getMaintenanceStatus = originalStatus
+  }
+
+  {
+    // Both sources are reported, not just the winner. With only the selected
+    // candidate shown there is no way to tell "the chain has nothing newer"
+    // from "the chain was not consulted", and those read very differently
+    // mid-rollout.
+    const originalStatus = client.getMaintenanceStatus
+    client.getMaintenanceStatus = async () => ({
+      ...currentStatus,
+      core: {
+        ...currentStatus.core,
+        update: { action: 'available' as const, source: 'github' as const, version: '1.7.3' },
+        updateSources: {
+          github: { commit: null, version: '1.7.3' },
+          onChain: { commit: 'abcdef1234567890', version: '1.7.2' },
+        },
+      },
+    })
+    act(() => root.unmount())
+    root = createRoot(container)
+    await act(async () => {
+      root.render(<CoreMaintenanceHarness />)
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    const sources = container.querySelector('[data-home-v2-core-update-sources]')
+    assert.ok(sources, 'both update sources must be reported')
+    assert.match(sources.textContent ?? '', /GitHub: 1\.7\.3/)
+    // The QDN offer carries its commit, shortened -- that is the "live QDN
+    // commit" half of this row.
+    assert.match(sources.textContent ?? '', /QDN: 1\.7\.2 \(abcdef123456\)/)
+
+    // A source that was consulted and had nothing newer says so, rather than
+    // vanishing and looking like it was never asked.
+    client.getMaintenanceStatus = async () => ({
+      ...currentStatus,
+      core: {
+        ...currentStatus.core,
+        updateSources: { github: { commit: null, version: '1.7.3' }, onChain: null },
+      },
+    })
+    act(() => root.unmount())
+    root = createRoot(container)
+    await act(async () => {
+      root.render(<CoreMaintenanceHarness />)
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    const partial = container.querySelector('[data-home-v2-core-update-sources]')
+    assert.ok(partial)
+    assert.match(partial.textContent ?? '', /QDN: nothing newer/)
 
     client.getMaintenanceStatus = originalStatus
   }

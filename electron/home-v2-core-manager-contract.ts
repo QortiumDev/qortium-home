@@ -143,6 +143,23 @@ export type HomeV2CoreMaintenanceStatus = {
       readonly version: string
     } | null
     /**
+     * What EACH source is offering, independent of which one won.
+     *
+     * `update` above reports the selected candidate only, and that cannot
+     * distinguish "the chain has nothing newer" from "the chain was not
+     * consulted" -- which read very differently while a release is being rolled
+     * out. Both candidates are already fetched in parallel by the update check,
+     * so this adds no lookup.
+     *
+     * null for a source means it was consulted and offered nothing newer than
+     * the installed Core. Both null means the check ran and found nothing.
+     * `sources` itself is null when no check has run at all.
+     */
+    readonly updateSources: {
+      readonly github: { readonly commit: string | null; readonly version: string } | null
+      readonly onChain: { readonly commit: string | null; readonly version: string } | null
+    } | null
+    /**
      * The version whose support files no longer match the installed Core, or
      * null when they match OR when it could not be determined.
      *
@@ -369,6 +386,27 @@ function qortiumMaintenanceStatus(
           ? available.version.trim().slice(0, 60)
           : null
         return source && action && version ? { action, source, version } : null
+      })(),
+      updateSources: (() => {
+        const coreUpdate = isRecord(status.coreUpdate) ? status.coreUpdate : null
+        const sources = coreUpdate && isRecord(coreUpdate.updateSources)
+          ? coreUpdate.updateSources
+          : null
+        if (!sources) return null
+        // Version and commit only. No paths, no URLs, no release asset detail --
+        // this row says what is on offer, not where it lives.
+        const read = (value: unknown) => {
+          if (!isRecord(value)) return null
+          const version = typeof value.version === 'string' && value.version.trim()
+            ? value.version.trim().slice(0, 60)
+            : null
+          if (!version) return null
+          const commit = typeof value.commit === 'string' && value.commit.trim()
+            ? value.commit.trim().slice(0, 60)
+            : null
+          return { commit, version }
+        }
+        return { github: read(sources.github), onChain: read(sources.onChain) }
       })(),
       localApiUrl: (() => {
         const raw = typeof runtime?.localApiUrl === 'string' ? runtime.localApiUrl.trim() : ''

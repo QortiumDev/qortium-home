@@ -1742,7 +1742,7 @@ function testCoreManagementRenderingAndAndroidDegrade(): void {
       },
       status: {
         capabilities: { canInitialInstall: false, canInstallJava: true, canInstallOnChainUpdate: false, canRefreshHelpers: false, canUpdateRunningInPlace: false },
-        core: { helpersOutOfSyncVersion: null, installModified: false, localApiUrl: null, update: null, channel: 'stable', installedCommit: null, installedTag: null, nodeAutoUpdateMode: null, runtimeBlockedReason: null, installedVersion: '1.7.2', runtime: 'running' },
+        core: { helpersOutOfSyncVersion: null, installModified: false, localApiUrl: null, update: null, updateSources: null, channel: 'stable', installedCommit: null, installedTag: null, nodeAutoUpdateMode: null, runtimeBlockedReason: null, installedVersion: '1.7.2', runtime: 'running' },
         java: { source: 'missing', targetMajorVersion: 25, updateAvailable: false, version: null },
         revision: 1,
         schema: 'home-v2-core-maintenance',
@@ -1759,6 +1759,8 @@ function testCoreManagementRenderingAndAndroidDegrade(): void {
       status: {
         capabilities: {
           canEnsureRouter: true,
+          // router.state is 'missing' here, so there is no managed folder.
+          canRevealRouterFolder: false,
           canSetDirectAndI2p: true,
           canSetDirectOnly: true,
           canSetI2pOnly: false,

@@ -34,6 +34,28 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-30 - feat(core): open the I2P router's folder, and show what each update source offers
+
+Two smaller additions to Settings.
+
+There is now a button to open the folder holding the I2P router, next to the one
+that starts and stops it - the same as the buttons that open the Core's folder
+and Home's own. It appears only when the router is one Home installed. If you
+are running your own router and Home is simply connecting to it, Home genuinely
+does not know where that program lives: it connects to it over a port and is
+never told. There is nothing to open rather than something being withheld.
+
+The other addition is about updates. Home can learn about a new Core from two
+places - the release page, and the network itself - and until now it only told
+you about whichever one it was going to use. During a rollout the two disagree
+for a while, and "nothing from the network" and "the network was not checked"
+looked identical, though they mean quite different things.
+
+Both are now listed, each with the version it is offering, and the network entry
+also shows the exact build. A source with nothing newer says so rather than
+disappearing. This needed no extra checking - both were already being looked up
+and one was being discarded.
+
 ### 2026-08-30 - fix(ci): only run the packaged checks that have actually been shown to work there
 
 The automatic run of the checks that drive the real application was failing, and

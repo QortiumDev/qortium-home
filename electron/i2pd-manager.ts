@@ -1,6 +1,7 @@
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain, shell } from 'electron';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { chmod, open, rename, rm } from 'node:fs/promises';
 import net from 'node:net';
 import path from 'node:path';
@@ -143,6 +144,29 @@ function managedInstallInput() {
     basePath: getI2pdBasePath(),
     platform: process.platform,
   } as const;
+}
+
+/**
+ * Opens the folder holding the MANAGED i2pd router, the same way #448 does for
+ * the Core install: the path is resolved and used entirely inside the main
+ * process, and the caller learns only whether a folder was opened. Revealing a
+ * folder needs no path in the renderer, so this does not reopen the redaction
+ * question.
+ *
+ * Managed only, and that is a limit on what Home KNOWS rather than caution. An
+ * external router is found by connecting to a SAM port; Home never learns which
+ * executable is behind it, and would have to inspect a process it did not start
+ * to find out. There is nothing to open, so the control is simply unavailable.
+ */
+export async function revealHomeV2ManagedI2pd(): Promise<boolean> {
+  const install = await readInstalledI2pd();
+  if (!install) return false;
+  const target = existsSync(install.binaryPath)
+    ? install.binaryPath
+    : install.paths.basePath;
+  if (!existsSync(target)) return false;
+  shell.showItemInFolder(target);
+  return true;
 }
 
 async function readInstalledI2pd(): Promise<I2pdManagedInstall | null> {

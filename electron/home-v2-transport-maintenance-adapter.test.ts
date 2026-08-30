@@ -85,6 +85,7 @@ function harness(options: {
       events.push('install')
     },
     resolveManager: () => manager as never,
+    revealManagedRouter: async () => true,
     async startRouter() {
       events.push('start')
     },
@@ -262,5 +263,39 @@ assert.deepEqual(
   await unconfirmedDirectOnlyStop.dependencies.setStoppedCoreTransportMode('direct-only'),
   { code: 'action-unconfirmed', kind: 'unconfirmed', warning: null },
 )
+
+// The reveal capability follows what Home KNOWS, not what it is willing to say.
+// A managed router has a folder Home installed and can point at; an external one
+// is reached through a SAM port and Home never learns its executable, so there
+// is nothing to open.
+{
+  const managed = harness({ inspections: [router({ router: 'managed-running' })] })
+  const managedStatus = await managed.dependencies.readStatus() as {
+    capabilities: { canRevealRouterFolder: boolean }
+  }
+  assert.equal(managedStatus.capabilities.canRevealRouterFolder, true)
+
+  const stopped = harness({ inspections: [router({ router: 'managed-stopped' })] })
+  const stoppedStatus = await stopped.dependencies.readStatus() as {
+    capabilities: { canRevealRouterFolder: boolean }
+  }
+  assert.equal(
+    stoppedStatus.capabilities.canRevealRouterFolder,
+    true,
+    'an installed router that is not running still has a folder',
+  )
+
+  const external = harness({
+    inspections: [router({ installedVersion: null, router: 'external-running' })],
+  })
+  const externalStatus = await external.dependencies.readStatus() as {
+    capabilities: { canRevealRouterFolder: boolean }
+  }
+  assert.equal(
+    externalStatus.capabilities.canRevealRouterFolder,
+    false,
+    'Home never learns an external router\'s executable, so there is nothing to reveal',
+  )
+}
 
 console.log('Home v2 transport maintenance adapter tests passed.')

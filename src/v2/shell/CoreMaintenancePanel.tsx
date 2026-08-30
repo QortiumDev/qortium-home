@@ -269,6 +269,29 @@ export function CoreMaintenancePanel({
                     : 'home2.core.updateAvailableGithub', { version: status.core.update.version })}
             </small>
           ) : null}
+          {status.core.updateSources &&
+            (status.core.updateSources.github || status.core.updateSources.onChain) ? (
+            // What EACH source offers, so "nothing newer on the chain" is
+            // distinguishable from "the chain was not consulted". The row above
+            // names only the winner, and during a rollout the two sources
+            // routinely disagree.
+            <small data-home-v2-core-update-sources>
+              {[
+                status.core.updateSources.onChain
+                  ? t('home2.core.updateSourceQdn', {
+                      version: status.core.updateSources.onChain.commit
+                        ? `${status.core.updateSources.onChain.version} (${status.core.updateSources.onChain.commit.slice(0, 12)})`
+                        : status.core.updateSources.onChain.version,
+                    })
+                  : t('home2.core.updateSourceQdnNone'),
+                status.core.updateSources.github
+                  ? t('home2.core.updateSourceGithub', {
+                      version: status.core.updateSources.github.version,
+                    })
+                  : t('home2.core.updateSourceGithubNone'),
+              ].join(' · ')}
+            </small>
+          ) : null}
           {status.core.localApiUrl ? (
             // The node's own address, so other tools can be pointed at it. Not
             // a secret and deliberately not the API KEY, which this contract
