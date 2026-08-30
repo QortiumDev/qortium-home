@@ -833,6 +833,8 @@ export const fi: Record<TranslationKey, string> = {
   "home2.core.apiControl": "{network} Core käynnissä · todennettu API-hallinta",
   "home2.core.nodeAutoUpdateMode": "Solmun automaattinen päivitys: {mode}",
   "home2.core.installModified": "Muokattu asennuksen jälkeen",
+  "home2.core.javaInstallVersion": "Asenna Java {version}",
+  "home2.core.javaUpdateToVersion": "Päivitä Java versioon {version}",
   "home2.core.helpersOutOfSync": "Apuskriptit eivät vastaa Core-versiota {version}.",
   "home2.core.helpersRefresh": "Synkronoi apuskriptit uudelleen",
   "home2.core.releaseChoice": "Asennettava julkaisu",

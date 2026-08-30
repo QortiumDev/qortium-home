@@ -834,6 +834,8 @@ export const hi: Record<TranslationKey, string> = {
   "home2.core.apiControl": "{network} Core चल रहा है · प्रमाणित API नियंत्रण",
   "home2.core.nodeAutoUpdateMode": "नोड स्वतः अपडेट: {mode}",
   "home2.core.installModified": "इंस्टॉल के बाद बदला गया",
+  "home2.core.javaInstallVersion": "Java {version} इंस्टॉल करें",
+  "home2.core.javaUpdateToVersion": "Java को {version} में अपडेट करें",
   "home2.core.helpersOutOfSync": "हेल्पर स्क्रिप्ट Core {version} से मेल नहीं खातीं।",
   "home2.core.helpersRefresh": "हेल्पर स्क्रिप्ट फिर से सिंक करें",
   "home2.core.releaseChoice": "इंस्टॉल करने के लिए रिलीज़",

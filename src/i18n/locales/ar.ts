@@ -833,6 +833,8 @@ export const ar: Record<TranslationKey, string> = {
   "home2.core.apiControl": "Core {network} قيد التشغيل · تحكم موثّق عبر API",
   "home2.core.nodeAutoUpdateMode": "التحديث التلقائي للعقدة: {mode}",
   "home2.core.installModified": "مُعدَّل منذ التثبيت",
+  "home2.core.javaInstallVersion": "تثبيت Java {version}",
+  "home2.core.javaUpdateToVersion": "تحديث Java إلى {version}",
   "home2.core.helpersOutOfSync": "لا تطابق البرامج المساعدة النواة {version}.",
   "home2.core.helpersRefresh": "إعادة مزامنة البرامج المساعدة",
   "home2.core.releaseChoice": "الإصدار المراد تثبيته",

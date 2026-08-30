@@ -34,6 +34,27 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-29 - fix(transport): show progress while the I2P router installs
+
+Installing the I2P router downloads and unpacks a program, which takes a while.
+Home showed nothing at all while it happened, so there was no way to tell
+whether anything was working.
+
+The reason was not a missing feature. The router has always reported its
+progress, but on a channel Home 2 switches off when it starts, so its own
+progress was being silenced along with the old interface's. It now reports to
+Home 2 directly, and the transport settings show the same progress bar the Core
+install uses.
+
+### 2026-08-29 - fix(core): the Java button says which version it installs
+
+The button offered to install or update Java without saying which version, so
+there was no way to tell what was about to be put on the machine. Home 1.x named
+it.
+
+It now reads "Install Java 25" or "Update Java to 25". If the version cannot be
+determined it falls back to the previous wording rather than showing a blank.
+
 ### 2026-08-29 - fix(core): offer to replace the Core's support files when they drift
 
 A Core release is more than the program itself: it ships with the files the node

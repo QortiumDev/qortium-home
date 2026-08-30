@@ -9,6 +9,8 @@ import type {
 import {
   parseHomeV2TransportMaintenanceActionResult,
   parseHomeV2TransportMaintenanceStatus,
+  parseHomeV2TransportProgress,
+  type HomeV2TransportProgress,
 } from './core-manager-client'
 
 export type HomeV2SettableTransportMode = Exclude<HomeV2TransportMode, 'unknown'>
@@ -112,6 +114,10 @@ export function useHomeV2TransportMaintenance(onCoreRefresh?: () => void) {
   // Set when a live mode write succeeded: the node stored the value but will
   // not use it until it restarts, and restarting is the user's decision.
   const [restartRequired, setRestartRequired] = useState(false)
+  // Install progress for the managed router. The one push channel here; the
+  // rest of this surface polls, and a percentage that arrives on the next
+  // tick is not progress.
+  const [progress, setProgress] = useState<HomeV2TransportProgress | null>(null)
   const disposed = useRef(false)
   const busyRef = useRef(false)
   const statusRef = useRef<HomeV2TransportMaintenanceStatus | null>(null)
@@ -204,6 +210,17 @@ export function useHomeV2TransportMaintenance(onCoreRefresh?: () => void) {
     }
   }
 
+  useEffect(() => {
+    if (!client?.onTransportProgress) return undefined
+    return client.onTransportProgress((event) => {
+      const parsed = parseHomeV2TransportProgress(event)
+      // Malformed events are DROPPED rather than rendered: a stale percentage
+      // beats a wrong one, and beats a blank bar.
+      if (!parsed) return
+      setProgress(parsed.action === 'idle' ? null : parsed)
+    })
+  }, [client])
+
   const currentMode = status && status.transportMode !== 'unknown' ? status.transportMode : null
   const modeChanged = selectedMode !== null && selectedMode !== currentMode
   // Allowed if EITHER write is available: the settings file while Core is
@@ -251,6 +268,7 @@ export function useHomeV2TransportMaintenance(onCoreRefresh?: () => void) {
     modeAllowed,
     modeChanged,
     notice,
+    progress,
     refresh,
     restartRequired,
     run,

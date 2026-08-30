@@ -287,6 +287,46 @@ try {
 
   act(() => root.unmount())
   root = createRoot(container)
+  // Router install progress reaches the panel. i2pd publishes these behind a
+  // legacy flag that Home 2 turns OFF at startup, so before the Home 2 listener
+  // existed the router could download and extract showing nothing at all.
+  {
+    let emit: ((event: unknown) => void) | null = null
+    await render(client({
+      getTransportMaintenanceStatus: async () => readyStatus,
+      onTransportProgress: (listener: (event: unknown) => void) => {
+        emit = listener
+        return () => { emit = null }
+      },
+    } as never))
+    assert(emit, 'the panel must subscribe to router progress')
+    await act(async () => {
+      emit?.({
+        action: 'downloading', kind: 'info', message: 'Downloading I2P router.',
+        percent: 42, revision: 1, schema: 'home-v2-transport-progress',
+      })
+      await Promise.resolve()
+    })
+    assert.match(container.textContent ?? '', /Downloading I2P router\./)
+
+    // A malformed event is dropped, not rendered: a stale percentage beats a
+    // wrong one, and beats a blank bar.
+    await act(async () => {
+      emit?.({ action: 'nonsense', kind: 'info', message: 'x', percent: 1, revision: 1,
+        schema: 'home-v2-transport-progress' })
+      await Promise.resolve()
+    })
+    assert.match(container.textContent ?? '', /Downloading I2P router\./)
+
+    // 'idle' clears it.
+    await act(async () => {
+      emit?.({ action: 'idle', kind: 'info', message: 'Idle.', percent: null, revision: 1,
+        schema: 'home-v2-transport-progress' })
+      await Promise.resolve()
+    })
+    assert.doesNotMatch(container.textContent ?? '', /Downloading I2P router\./)
+  }
+
   // A managed, running router must offer the stop half of the control. Home 2 shipped
   // only the start half; stopping was reachable solely as a side effect of direct-only.
   const stopActions: Array<{ action: string; mode: string | null }> = []

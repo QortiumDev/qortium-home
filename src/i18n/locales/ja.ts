@@ -833,6 +833,8 @@ export const ja: Record<TranslationKey, string> = {
   "home2.core.apiControl": "{network} Core は実行中 · 認証済み API 制御",
   "home2.core.nodeAutoUpdateMode": "ノードの自動更新: {mode}",
   "home2.core.installModified": "インストール後に変更されています",
+  "home2.core.javaInstallVersion": "Java {version} をインストール",
+  "home2.core.javaUpdateToVersion": "Java を {version} に更新",
   "home2.core.helpersOutOfSync": "ヘルパースクリプトが Core {version} と一致しません。",
   "home2.core.helpersRefresh": "ヘルパースクリプトを再同期",
   "home2.core.releaseChoice": "インストールするリリース",

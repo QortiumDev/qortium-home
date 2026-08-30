@@ -61,7 +61,7 @@ const coreManagementFixture: HomeV2CoreManagement = {
     status: {
       capabilities: { canInitialInstall: false, canInstallJava: false, canRefreshHelpers: false, canUpdateRunningInPlace: false },
       core: { helpersOutOfSyncVersion: null, installModified: false, channel: 'stable', installedCommit: null, installedTag: null, nodeAutoUpdateMode: null, runtimeBlockedReason: null, installedVersion: '1.7.2', runtime: 'stopped' },
-      java: { source: 'managed', updateAvailable: false, version: '21' },
+      java: { source: 'managed', targetMajorVersion: 25, updateAvailable: false, version: '21' },
       revision: 1,
       schema: 'home-v2-core-maintenance',
     },

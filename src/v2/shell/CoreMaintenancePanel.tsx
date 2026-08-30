@@ -357,7 +357,17 @@ export function CoreMaintenancePanel({
         <div className="home-v2-setting-row__control">
           <button type="button" className="home-v2-secondary-button"
             disabled={busy !== null || !status.capabilities.canInstallJava} onClick={() => void installJava()}>
-            {busy === 'java' ? 'Installing…' : status.java.source === 'managed' ? 'Update Java' : 'Install Java'}
+            {busy === 'java'
+              ? 'Installing…'
+              // Name the version being installed, as 1.x did. A bare
+              // "Update Java" does not say WHAT it is about to put on the
+              // machine; the target falls back to the generic wording only when
+              // the Core cannot report it.
+              : status.java.targetMajorVersion === null
+                ? (status.java.source === 'managed' ? 'Update Java' : 'Install Java')
+                : status.java.source === 'managed'
+                  ? t('home2.core.javaUpdateToVersion', { version: status.java.targetMajorVersion })
+                  : t('home2.core.javaInstallVersion', { version: status.java.targetMajorVersion })}
           </button>
         </div>
       </div>

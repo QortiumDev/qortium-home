@@ -833,6 +833,8 @@ export const hu: Record<TranslationKey, string> = {
   "home2.core.apiControl": "A(z) {network} Core fut · hitelesített API-vezérlés",
   "home2.core.nodeAutoUpdateMode": "Csomópont automatikus frissítése: {mode}",
   "home2.core.installModified": "A telepítés óta módosítva",
+  "home2.core.javaInstallVersion": "Java {version} telepítése",
+  "home2.core.javaUpdateToVersion": "Java frissítése erre: {version}",
   "home2.core.helpersOutOfSync": "A segédszkriptek nem egyeznek a Core {version} verzióval.",
   "home2.core.helpersRefresh": "Segédszkriptek újraszinkronizálása",
   "home2.core.releaseChoice": "Telepítendő kiadás",

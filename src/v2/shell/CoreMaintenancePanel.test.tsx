@@ -17,7 +17,7 @@ import { CoreMaintenancePanel } from './CoreMaintenancePanel'
 const status = {
   capabilities: { canInitialInstall: true, canInstallJava: true, canRefreshHelpers: false, canUpdateRunningInPlace: false },
   core: { helpersOutOfSyncVersion: null, installModified: false, channel: null, installedCommit: null, installedTag: null, nodeAutoUpdateMode: null, runtimeBlockedReason: null, installedVersion: null, runtime: 'stopped' },
-  java: { source: 'missing', updateAvailable: false, version: null },
+  java: { source: 'missing', targetMajorVersion: null, updateAvailable: false, version: null },
   revision: 1,
   schema: 'home-v2-core-maintenance',
 } as const
@@ -183,7 +183,7 @@ try {
     ...status,
     capabilities: { canInitialInstall: false, canInstallJava: true, canRefreshHelpers: false, canUpdateRunningInPlace: false },
     core: { helpersOutOfSyncVersion: null, installModified: false, channel: 'prerelease', installedCommit: null, installedTag: null, nodeAutoUpdateMode: null, runtimeBlockedReason: null, installedVersion: '1.2.3', runtime: 'stopped' },
-    java: { source: 'managed', updateAvailable: true, version: '25.0.1' },
+    java: { source: 'managed', targetMajorVersion: null, updateAvailable: true, version: '25.0.1' },
   }
   root = createRoot(container)
   await act(async () => {
@@ -458,6 +458,57 @@ try {
 
     client.checkMaintenanceRelease = originalCheck
     client.runMaintenanceAction = originalRun
+  }
+
+
+  // The Java button names the version it will install. A bare "Update Java"
+  // does not say WHAT is about to be put on the machine.
+  {
+    const originalStatus = client.getMaintenanceStatus
+    client.getMaintenanceStatus = async () => ({
+      ...currentStatus,
+      java: { ...currentStatus.java, source: 'managed' as const, targetMajorVersion: 25 },
+    })
+    act(() => root.unmount())
+    root = createRoot(container)
+    await act(async () => {
+      root.render(<CoreMaintenanceHarness />)
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    assert.ok(button('Update Java to 25'))
+
+    // Nothing installed yet -> install wording, still naming the version.
+    client.getMaintenanceStatus = async () => ({
+      ...currentStatus,
+      java: { ...currentStatus.java, source: 'missing' as const, targetMajorVersion: 25 },
+    })
+    act(() => root.unmount())
+    root = createRoot(container)
+    await act(async () => {
+      root.render(<CoreMaintenanceHarness />)
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    assert.ok(button('Install Java 25'))
+
+    // Target unknown -> fall back to the generic wording rather than printing
+    // a blank or "null" version.
+    client.getMaintenanceStatus = async () => ({
+      ...currentStatus,
+      java: { ...currentStatus.java, source: 'managed' as const, targetMajorVersion: null },
+    })
+    act(() => root.unmount())
+    root = createRoot(container)
+    await act(async () => {
+      root.render(<CoreMaintenanceHarness />)
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    assert.ok(button('Update Java'))
+    assert.doesNotMatch(container.textContent ?? '', /Update Java to/)
+
+    client.getMaintenanceStatus = originalStatus
   }
 
 } finally {

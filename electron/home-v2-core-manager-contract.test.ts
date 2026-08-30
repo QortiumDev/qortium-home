@@ -156,6 +156,7 @@ function maintenanceManager(options: {
       managedUpgradeAvailable: false,
       path: '/secret/java',
       source: 'missing',
+      targetMajorVersion: 25,
       version: null,
     },
     runtime: options.runtime ?? { owner: 'home', running: false },

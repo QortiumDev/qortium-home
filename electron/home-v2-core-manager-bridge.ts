@@ -4,6 +4,7 @@ import {
   revealHomeV2CoreInstall,
   setHomeV2CoreProgressListener,
 } from './core-manager.js'
+import { setHomeV2I2pdProgressListener } from './i2pd-manager.js'
 import {
   assertAuthorizedHomeV2Sender,
   broadcastToHomeV2Windows,
@@ -77,8 +78,34 @@ function broadcastHomeV2CoreProgress(progress: {
   })
 }
 
+/**
+ * The I2P router's install progress, in the same envelope as the Core's.
+ *
+ * i2pd-manager emits these behind a legacy flag that Home 2 turns OFF at
+ * startup, so before this the router could download and extract with the panel
+ * showing nothing at all.
+ */
+function broadcastHomeV2TransportProgress(progress: {
+  readonly action: string
+  readonly kind: string
+  readonly message: string
+  readonly percent?: number
+}) {
+  broadcastToHomeV2Windows('home-v2-transport:progress', {
+    action: progress.action,
+    kind: progress.kind,
+    message: progress.message,
+    percent: typeof progress.percent === 'number' && Number.isFinite(progress.percent)
+      ? Math.max(0, Math.min(100, Math.round(progress.percent)))
+      : null,
+    revision: 1,
+    schema: 'home-v2-transport-progress',
+  })
+}
+
 export function registerHomeV2CoreManagerBridgeIpcHandlers() {
   setHomeV2CoreProgressListener(broadcastHomeV2CoreProgress)
+  setHomeV2I2pdProgressListener(broadcastHomeV2TransportProgress)
   const handlers = createAuthorizedHomeV2CoreManagerHandlers(
     assertAuthorizedHomeV2Sender,
     createHomeV2CoreManagerService(requireCoreManagerEntry),

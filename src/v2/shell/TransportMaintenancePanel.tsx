@@ -7,6 +7,7 @@ import {
   type HomeV2TransportMaintenance,
 } from '../../home-v2-live/transport-maintenance-controller'
 import { t } from '../../i18n'
+import { CoreProgressBar } from './HomeV2NodeCoreSection'
 
 type SettableTransportMode = Exclude<HomeV2TransportMode, 'unknown'>
 
@@ -86,6 +87,7 @@ export function TransportMaintenancePanel({
     modeAllowed,
     modeChanged,
     notice,
+    progress,
     refresh,
     restartRequired,
     run,
@@ -223,6 +225,11 @@ export function TransportMaintenancePanel({
         </div>
       </div>
 
+      {/* Installing the router downloads and extracts a binary. Before this the
+          panel showed nothing at all while that happened, because Home 2 turns
+          off the legacy progress channel i2pd was publishing on. Reuses the
+          Core's bar rather than growing a second one. */}
+      <CoreProgressBar progress={progress} />
       <p className="home-v2-core-notice" id="transport-maintenance-router-state">
         {routerStatusMessage(status)}
       </p>

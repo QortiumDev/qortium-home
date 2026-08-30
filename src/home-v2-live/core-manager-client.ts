@@ -202,7 +202,10 @@ export function parseHomeV2CoreMaintenanceStatus(value: unknown): HomeV2CoreMain
     !(value.core.channel === null || value.core.channel === 'stable' || value.core.channel === 'prerelease') ||
     !(value.core.installedVersion === null || typeof value.core.installedVersion === 'string') ||
     !runtimeStates.has(value.core.runtime as HomeV2CoreRuntimeState) || !isRecord(value.java) ||
-    !hasExactKeys(value.java, ['source', 'updateAvailable', 'version']) ||
+    !hasExactKeys(value.java, ['source', 'targetMajorVersion', 'updateAvailable', 'version']) ||
+    !(value.java.targetMajorVersion === null ||
+      (typeof value.java.targetMajorVersion === 'number' &&
+        Number.isSafeInteger(value.java.targetMajorVersion))) ||
     !['managed', 'missing', 'system', 'unsupported'].includes(String(value.java.source)) ||
     typeof value.java.updateAvailable !== 'boolean' ||
     !(value.java.version === null || typeof value.java.version === 'string')) {
@@ -232,6 +235,7 @@ export function parseHomeV2CoreMaintenanceStatus(value: unknown): HomeV2CoreMain
     }),
     java: Object.freeze({
       source: value.java.source,
+      targetMajorVersion: value.java.targetMajorVersion,
       updateAvailable: value.java.updateAvailable,
       version: value.java.version,
     }),
@@ -1000,9 +1004,40 @@ export function parseHomeV2CoreMaintenanceProgress(
   })
 }
 
+/**
+ * The I2P router's install progress. Same shape as the Core's -- i2pd reports
+ * the identical action set -- but its own schema so the two channels cannot be
+ * confused for one another.
+ */
+export type HomeV2TransportProgress = HomeV2CoreMaintenanceProgress
+
+export function parseHomeV2TransportProgress(
+  value: unknown,
+): HomeV2TransportProgress | null {
+  if (!isRecord(value) ||
+    !hasExactKeys(value, ['action', 'kind', 'message', 'percent', 'revision', 'schema']) ||
+    value.schema !== 'home-v2-transport-progress' || value.revision !== 1 ||
+    typeof value.action !== 'string' || !progressActions.has(value.action) ||
+    typeof value.kind !== 'string' || !progressKinds.has(value.kind) ||
+    typeof value.message !== 'string' || value.message.length > 500 ||
+    !(value.percent === null ||
+      (typeof value.percent === 'number' && Number.isFinite(value.percent) &&
+        value.percent >= 0 && value.percent <= 100))) {
+    return null
+  }
+  return Object.freeze({
+    action: value.action as HomeV2TransportProgress['action'],
+    kind: value.kind as HomeV2TransportProgress['kind'],
+    message: value.message,
+    percent: value.percent as number | null,
+  })
+}
+
 export interface HomeV2CoreManagerClient {
   /** Optional: absent on hosts without the Electron preload (Android). */
   onMaintenanceProgress?(listener: (event: unknown) => void): () => void
+  /** The I2P router's install progress. Optional for the same reason. */
+  onTransportProgress?(listener: (event: unknown) => void): () => void
   getMaintenanceStatus(): Promise<HomeV2CoreMaintenanceStatus>
   checkMaintenanceRelease(): Promise<HomeV2CoreMaintenanceRelease>
   runMaintenanceAction(

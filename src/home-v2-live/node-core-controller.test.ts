@@ -3,6 +3,7 @@ import {
   parseHomeV2CoreMaintenanceActionResult,
   parseHomeV2CoreMaintenanceRelease,
   parseHomeV2CoreMaintenanceProgress,
+  parseHomeV2TransportProgress,
   parseHomeV2CoreMaintenanceStatus,
   parseHomeV2CoreManagerActionResult,
   parseHomeV2CoreManagerStatus,
@@ -40,7 +41,7 @@ const maintenanceStatus = {
   capabilities: { canInitialInstall: true, canInstallJava: true, canRefreshHelpers: false, canUpdateRunningInPlace: false },
   core: { channel: null, installedCommit: null, helpersOutOfSyncVersion: null,
       installModified: false, installedTag: null, nodeAutoUpdateMode: null, runtimeBlockedReason: null, installedVersion: null, runtime: 'stopped' },
-  java: { source: 'missing', updateAvailable: false, version: null },
+  java: { source: 'missing', targetMajorVersion: 25, updateAvailable: false, version: null },
   revision: 1,
   schema: 'home-v2-core-maintenance',
 } as const
@@ -221,7 +222,7 @@ for (const bad of [
       installedVersion: '1.7.2',
       runtime: 'running',
     },
-    java: { source: 'managed', updateAvailable: false, version: '25' },
+    java: { source: 'managed', targetMajorVersion: 25, updateAvailable: false, version: '25' },
     revision: 1,
     schema: 'home-v2-core-maintenance',
   } as const
@@ -299,6 +300,44 @@ for (const bad of [
   })
   assert.equal(olderCore.qortium.i2pPeerCount, null)
   assert.equal(olderCore.qortium.i2pDataPeerCount, null)
+}
+
+// The router's progress envelope. Its producer lives in the main process and
+// cannot be imported here (i2pd-manager pulls in Electron), so what is pinned is
+// that the two ends agree on the schema and that the channels cannot be confused
+// -- the drift that would silently blank the bar.
+//
+// NOT covered by any test: that i2pd-manager calls the Home 2 listener BEFORE
+// the legacy-flag early return. That ordering is the whole fix (Home 2 disables
+// the legacy events at startup) and is verified by reading, mirroring the same
+// arrangement and comment in core-manager.
+{
+  const envelope = {
+    action: 'downloading' as const,
+    kind: 'info' as const,
+    message: 'Downloading I2P router.',
+    percent: 42,
+    revision: 1 as const,
+    schema: 'home-v2-transport-progress' as const,
+  }
+  const parsed = parseHomeV2TransportProgress(envelope)
+  assert.equal(parsed?.action, 'downloading')
+  assert.equal(parsed?.percent, 42)
+  assert.equal(parsed?.message, 'Downloading I2P router.')
+
+  // The Core's envelope must NOT parse as transport progress, or one channel
+  // would render into the other's bar.
+  assert.equal(
+    parseHomeV2TransportProgress({ ...envelope, schema: 'home-v2-core-manager-progress' }),
+    null,
+  )
+  assert.equal(
+    parseHomeV2CoreMaintenanceProgress({ ...envelope, schema: 'home-v2-transport-progress' }),
+    null,
+  )
+  // And a percent outside 0-100 is refused rather than clamped in the renderer.
+  assert.equal(parseHomeV2TransportProgress({ ...envelope, percent: 101 }), null)
+  assert.equal(parseHomeV2TransportProgress({ ...envelope, action: 'nonsense' }), null)
 }
 
 console.log('home v2 node/core controller tests passed')
