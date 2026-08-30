@@ -34,6 +34,28 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-29 - fix(core): offer to replace the Core's support files when they drift
+
+A Core release is more than the program itself: it ships with the files the node
+needs to start on the right network, including the list of peers it first
+connects to. Home checks whether those files still match the version of the Core
+actually installed, and Home 1.x offered a way to put them right. Home 2 worked
+the answer out and then did nothing with it, so the problem was invisible and the
+fix unreachable.
+
+Settings now says when the files no longer match, naming the version, and offers
+to replace them from the matching release. The offer appears only when a mismatch
+has actually been found, and the action is refused otherwise.
+
+Home works this out for itself by reading the installed program's version and
+comparing it against the published release; it does not ask the node. That check
+needs the internet, so when it cannot be made the answer is treated as unknown
+rather than as everything being fine.
+
+This pairs with the "Modified since install" notice added the same day: the
+mismatch is only looked for on an install that has been modified, so this is the
+remedy for the problem that notice reports.
+
 ### 2026-08-29 - fix(node): start the Core and Home connects to it
 
 Starting the Qortium Core from Home left Home connected to whatever node it was

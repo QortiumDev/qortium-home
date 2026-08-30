@@ -833,6 +833,8 @@ export const et: Record<TranslationKey, string> = {
   "home2.core.apiControl": "{network} Core töötab · autenditud API-juhtimine",
   "home2.core.nodeAutoUpdateMode": "Sõlme automaatne uuendus: {mode}",
   "home2.core.installModified": "Muudetud pärast paigaldamist",
+  "home2.core.helpersOutOfSync": "Abiskriptid ei vasta Core'i versioonile {version}.",
+  "home2.core.helpersRefresh": "Sünkrooni abiskriptid uuesti",
   "home2.core.releaseChoice": "Paigaldatav väljalase",
   "home2.core.releaseOlder": "Vanem versioon {tag}",
   "home2.core.downgradeConfirm": "{target} paigaldamine asendab uuema {installed}. Kas jätkata?",

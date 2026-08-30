@@ -139,6 +139,31 @@ export function useHomeV2CoreMaintenance(options: {
     }
   }
 
+  /**
+   * Re-sync the Core's helper scripts. Only reachable when the Core reports
+   * drift, which it does solely for a modified install -- the remedy that goes
+   * with the "Modified since install" notice.
+   */
+  const refreshHelpers = async () => {
+    if (!client || busy !== null) return
+    setBusy('core')
+    setNotice(null)
+    try {
+      const result = parseHomeV2CoreMaintenanceActionResult(
+        await client.runMaintenanceAction('refresh-helpers'),
+      )
+      statusRef.current = result.status
+      setStatus(result.status)
+      setNotice(result.outcome === 'completed'
+        ? 'Core helper scripts re-synced.'
+        : 'Could not re-sync the Core helper scripts.')
+    } catch {
+      setNotice('Could not re-sync the Core helper scripts.')
+    } finally {
+      setBusy(null)
+    }
+  }
+
   const runCore = async (confirmDowngrade = false) => {
     if (!client) return
     //  describes only the forward move, so a release offered ONLY as a
@@ -307,6 +332,7 @@ export function useHomeV2CoreMaintenance(options: {
     canRevealInstall: typeof client?.revealInstall === 'function',
     check,
     confirmDowngrade: () => runCore(true),
+    refreshHelpers,
     pendingDowngrade,
     selectedReleaseTag,
     setSelectedReleaseTag,

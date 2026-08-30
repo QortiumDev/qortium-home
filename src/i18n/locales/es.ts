@@ -833,6 +833,8 @@ export const es: Record<TranslationKey, string> = {
   "home2.core.apiControl": "Core {network} en ejecución · control autenticado mediante API",
   "home2.core.nodeAutoUpdateMode": "Actualización automática del nodo: {mode}",
   "home2.core.installModified": "Modificado desde la instalación",
+  "home2.core.helpersOutOfSync": "Los scripts auxiliares no coinciden con Core {version}.",
+  "home2.core.helpersRefresh": "Volver a sincronizar los scripts auxiliares",
   "home2.core.releaseChoice": "Versión a instalar",
   "home2.core.releaseOlder": "Versión anterior {tag}",
   "home2.core.downgradeConfirm": "Instalar {target} reemplazará la versión más reciente {installed}. ¿Continuar?",

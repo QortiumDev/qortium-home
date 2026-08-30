@@ -37,8 +37,9 @@ assert.throws(() =>
 )
 
 const maintenanceStatus = {
-  capabilities: { canInitialInstall: true, canInstallJava: true, canUpdateRunningInPlace: false },
-  core: { channel: null, installedCommit: null, installModified: false, installedTag: null, nodeAutoUpdateMode: null, runtimeBlockedReason: null, installedVersion: null, runtime: 'stopped' },
+  capabilities: { canInitialInstall: true, canInstallJava: true, canRefreshHelpers: false, canUpdateRunningInPlace: false },
+  core: { channel: null, installedCommit: null, helpersOutOfSyncVersion: null,
+      installModified: false, installedTag: null, nodeAutoUpdateMode: null, runtimeBlockedReason: null, installedVersion: null, runtime: 'stopped' },
   java: { source: 'missing', updateAvailable: false, version: null },
   revision: 1,
   schema: 'home-v2-core-maintenance',
@@ -208,9 +209,10 @@ for (const bad of [
 // main-process test still green (#436).
 {
   const status = {
-    capabilities: { canInitialInstall: false, canInstallJava: false, canUpdateRunningInPlace: false },
+    capabilities: { canInitialInstall: false, canInstallJava: false, canRefreshHelpers: false, canUpdateRunningInPlace: false },
     core: {
       channel: 'stable',
+      helpersOutOfSyncVersion: null,
       installModified: false,
       installedCommit: 'abcdef0123456789abcdef0123456789abcdef01',
       installedTag: 'v1.7.2',
@@ -235,6 +237,7 @@ for (const bad of [
     ...status,
     core: {
       ...status.core,
+      helpersOutOfSyncVersion: null,
       installModified: false,
       installedCommit: null,
       installedTag: null,

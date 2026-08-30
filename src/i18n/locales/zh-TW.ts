@@ -833,6 +833,8 @@ export const zhTW: Record<TranslationKey, string> = {
   "home2.core.apiControl": "{network} Core 正在執行 · 已驗證的 API 控制",
   "home2.core.nodeAutoUpdateMode": "節點自動更新：{mode}",
   "home2.core.installModified": "安裝後已被修改",
+  "home2.core.helpersOutOfSync": "輔助指令碼與 Core {version} 不相符。",
+  "home2.core.helpersRefresh": "重新同步輔助指令碼",
   "home2.core.releaseChoice": "要安裝的版本",
   "home2.core.releaseOlder": "較舊版本 {tag}",
   "home2.core.downgradeConfirm": "安裝 {target} 將取代較新的 {installed}。是否繼續？",
