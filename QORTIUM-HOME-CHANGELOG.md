@@ -34,6 +34,16 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-30 - fix(shell): don't discard what you did while Home was still starting
+
+Home shows its window before it has finished reading your saved tabs, so it is
+usable for about a second before that read lands. Anything you did in that
+second - typing an address, opening a page - was thrown away when it did,
+because the saved tabs replaced everything rather than joining it.
+
+Your saved tabs now come back alongside whatever you just opened, and Home stays
+on the thing you were looking at rather than moving you somewhere else.
+
 ### 2026-08-30 - fix(dashboard): keep looking while the Core finishes starting
 
 Starting or stopping the Core from the Dashboard updated the tile straight away

@@ -1992,7 +1992,20 @@ export function HomeV2LiveApp() {
         // A detached window starts with only the tab it was dragged out with;
         // restoring here would duplicate the primary window's whole strip.
         if (!isDetachedWindow.current) {
-          dispatchProduct({ type: 'restore', state: restored.product })
+          // The shell has been on screen and usable while this read was in
+          // flight, so anything opened in the meantime has to survive it.
+          // "Untouched" is the default one-dashboard state that createProductState
+          // builds; anything else means the user has already done something.
+          const local = productStateRef.current
+          const untouched = local.entries.length === 1 &&
+            local.entries[0].kind === 'internal' &&
+            local.entries[0].page === 'dashboard' &&
+            local.transient === null
+          dispatchProduct({
+            type: 'restore',
+            state: restored.product,
+            preserveLocal: !untouched,
+          })
         }
         setNewTabPreference(restored.newTabPreference)
         setOnboarding(restored.onboarding)
