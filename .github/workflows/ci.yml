@@ -84,10 +84,12 @@ jobs:
   # then eight of sixteen had rotted -- each stale one hiding the next, and two
   # still describing an app that had moved on weeks earlier.
   #
-  # Only the subset that needs NO network runs here, and flaky ones are left
-  # out: see the manifest in scripts/smoke-desktop-suite.mjs, where every entry
-  # was established by running it with networking removed rather than by
-  # guessing. The rest need a local Qortium Core and stay a pre-release step.
+  # Only smokes OBSERVED passing on a runner are selected (`ci: true` in the
+  # manifest). "Needs no network" is not the same question: a runner also has no
+  # window manager and no setuid chrome-sandbox, and selecting on network alone
+  # first time round put four smokes in here that cannot pass and turned main
+  # red. Promotion is one at a time, on evidence. The rest need a local Qortium
+  # Core and stay a pre-release step.
   #
   # Push-to-main only. It builds a full AppImage, which is far too slow to put
   # in front of every pull request.
@@ -110,6 +112,14 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
+      # Same fix as build-and-test: npm installs chrome-sandbox without the
+      # setuid bit and Electron refuses to start rather than silently dropping
+      # its sandbox. Needed by any smoke that launches unpackaged Electron.
+      - name: Prepare Electron sandbox helper
+        run: |
+          sudo chown root:root node_modules/electron/dist/chrome-sandbox
+          sudo chmod 4755 node_modules/electron/dist/chrome-sandbox
+
       - name: Build the AppImage
         run: npm run dist:linux:x64
 
@@ -123,7 +133,7 @@ jobs:
           "./Qortium-Home-${version}-x86_64.AppImage" --appimage-extract >/dev/null
           echo "QORTIUM_HOME_APPIMAGE=$PWD/squashfs-root/AppRun" >> "$GITHUB_ENV"
 
-      - name: Run the node-free packaged smokes
+      - name: Run the runner-verified packaged smokes
         run: xvfb-run -a npm run smoke:packaged:ci
 
   android-unit-test:
