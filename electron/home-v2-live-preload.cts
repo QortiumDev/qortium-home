@@ -294,6 +294,7 @@ contextBridge.exposeInMainWorld('homeV2CoreManagers', {
   getStatus: (network: 'qortal' | 'qortium') =>
     ipcRenderer.invoke('home-v2-core-manager:getStatus', { network }),
   revealInstall: () => ipcRenderer.invoke('home-v2-core-manager:revealInstall'),
+
   start: (network: 'qortal' | 'qortium') =>
     ipcRenderer.invoke('home-v2-core-manager:start', { network }),
   stop: (network: 'qortal' | 'qortium') =>
@@ -352,6 +353,10 @@ contextBridge.exposeInMainWorld('homeV2AppUpdates', {
       revision: 1,
       schema: 'home-v2-app-update-reveal-request',
     }),
+  // Home's OWN install folder. Takes no argument and returns only whether a
+  // window opened: the path never crosses this boundary.
+  revealInstallFolder: (): Promise<boolean> =>
+    ipcRenderer.invoke('home-v2-app-update:reveal-install-folder'),
   openReleasePage: (channel: 'prerelease' | 'stable', releaseTag: string) =>
     ipcRenderer.invoke('home-v2-app-update:open-release-page', {
       channel,

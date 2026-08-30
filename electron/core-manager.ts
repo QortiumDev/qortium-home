@@ -405,6 +405,40 @@ let pendingHomeV2Downgrade: DowngradeConfirmation | null = null;
  * user was shown, so an install that changed underneath is refused rather than
  * silently confirmed.
  */
+/**
+ * Ask the RUNNING Core to install the on-chain update itself.
+ *
+ * Home downloads nothing here. POST /admin/update makes the node check the
+ * dev-group approved manifest, verify the pinned QDN binary transaction, and
+ * schedule its own install -- so none of Home's release-commit verification is
+ * bypassed, because Home is not the one installing.
+ *
+ * Takes the same install lock the automatic pass uses, so a manual trigger
+ * cannot race an automatic one.
+ */
+export async function requestOnChainCoreUpdateForHomeV2(): Promise<
+  { kind: 'completed' } | { code: 'core-runtime-not-running' | 'status-unavailable'; kind: 'blocked' }
+> {
+  const installedCore = await readInstalledCoreMetadataForHomeV2UpdateDiscovery();
+  if (!installedCore) return { code: 'status-unavailable', kind: 'blocked' };
+
+  const runtime = await resolveRuntimeStatusOwner(await fetchLocalCoreStatus(), installedCore);
+  // The node has to be up to be asked, and it has to be OURS to ask: a core
+  // someone else started is not Home's to update.
+  if (!runtime?.running || runtime.owner !== 'home') {
+    return { code: 'core-runtime-not-running', kind: 'blocked' };
+  }
+
+  try {
+    await withCoreInstallLockForNetwork(CORE_DESCRIPTOR.id, 'on-chain', () =>
+      requestManagedCoreUpdate(installedCore, 'POST'),
+    );
+    return { kind: 'completed' };
+  } catch {
+    return { code: 'status-unavailable', kind: 'blocked' };
+  }
+}
+
 export async function installCoreForHomeV2(request: {
   channel?: unknown;
   confirmDowngrade?: boolean;
@@ -4607,6 +4641,7 @@ export type QortiumCoreManagerEntry = {
   isManagedCoreUsingI2p: typeof isQortiumManagedCoreUsingI2p;
   isManagedRuntimeRunning: typeof isQortiumManagedCoreRuntimeRunning;
   refreshHelpers: typeof refreshCoreHelpers;
+  requestOnChainUpdateForHomeV2: typeof requestOnChainCoreUpdateForHomeV2;
   scheduleUpdateCheck: typeof scheduleQortiumManagedCoreUpdateCheck;
   setUpdateSettings(request: unknown): Promise<CoreStatus>;
   setRunningCoreTransportModeForHomeV2: typeof setRunningCoreTransportModeForHomeV2;
@@ -4639,6 +4674,7 @@ const qortiumCoreManagerEntry: QortiumCoreManagerEntry = Object.freeze({
   isManagedCoreUsingI2p: isQortiumManagedCoreUsingI2p,
   isManagedRuntimeRunning: isQortiumManagedCoreRuntimeRunning,
   refreshHelpers: refreshCoreHelpers,
+  requestOnChainUpdateForHomeV2: requestOnChainCoreUpdateForHomeV2,
   scheduleUpdateCheck: scheduleQortiumManagedCoreUpdateCheck,
   async setUpdateSettings(request: unknown) {
     await setCoreUpdateSettings(isObject(request) ? request : {});

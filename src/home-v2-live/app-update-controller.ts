@@ -531,6 +531,21 @@ export function useHomeV2AppUpdates(nativeHostOverride: AndroidHomeV2UpdateHost 
     }
   }, [desktopClient, download])
 
+  /**
+   * Open Home's own install folder. Home 1.x showed it as a path row; this
+   * opens it instead, so no path crosses to the renderer -- the same shape #448
+   * used for the Core's folder.
+   */
+  const revealInstallFolder = useCallback(async () => {
+    if (!desktopClient?.revealInstallFolder) return
+    try {
+      const opened = await desktopClient.revealInstallFolder()
+      if (opened !== true) throw new Error('reveal-failed')
+    } catch {
+      setMessage({ tone: 'error', text: t('updates.checkFailed') })
+    }
+  }, [desktopClient])
+
   const openReleasePage = useCallback(async () => {
     if (!result?.release) return
     try {
@@ -566,7 +581,9 @@ export function useHomeV2AppUpdates(nativeHostOverride: AndroidHomeV2UpdateHost 
     message,
     openDownloaded,
     openReleasePage,
+    canRevealInstallFolder: typeof desktopClient?.revealInstallFolder === 'function',
     revealDownloaded,
+    revealInstallFolder,
     preferencesLoaded,
     result,
     setChannel: (nextChannel: HomeV2AppUpdateChannel) => {

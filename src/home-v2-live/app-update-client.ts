@@ -130,6 +130,12 @@ export interface HomeV2AppUpdateClient {
   open(downloadId: string): Promise<unknown>
   openReleasePage(channel: HomeV2AppUpdateChannel, releaseTag: string): Promise<unknown>
   reveal(downloadId: string): Promise<unknown>
+  /**
+   * Open Home's own install folder. Optional: absent on hosts without the
+   * Electron preload. Resolves to whether a window opened; the path stays in
+   * the main process.
+   */
+  revealInstallFolder?(): Promise<boolean>
   setSettings(
     expectedGeneration: number,
     settings: Pick<HomeV2AppUpdateSettings, 'homeUpdatePolicy' | 'releaseChannel'>,

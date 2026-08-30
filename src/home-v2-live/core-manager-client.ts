@@ -182,8 +182,10 @@ export function parseHomeV2CoreMaintenanceStatus(value: unknown): HomeV2CoreMain
     value.schema !== 'home-v2-core-maintenance' || value.revision !== 1 ||
     !isRecord(value.capabilities) || typeof value.capabilities.canInitialInstall !== 'boolean' ||
     !hasExactKeys(value.capabilities, [
-      'canInitialInstall', 'canInstallJava', 'canRefreshHelpers', 'canUpdateRunningInPlace',
+      'canInitialInstall', 'canInstallJava', 'canInstallOnChainUpdate', 'canRefreshHelpers',
+      'canUpdateRunningInPlace',
     ]) || typeof value.capabilities.canRefreshHelpers !== 'boolean' ||
+    typeof value.capabilities.canInstallOnChainUpdate !== 'boolean' ||
     typeof value.capabilities.canInstallJava !== 'boolean' ||
     typeof value.capabilities.canUpdateRunningInPlace !== 'boolean' || !isRecord(value.core) ||
     !hasExactKeys(value.core, [
@@ -221,6 +223,7 @@ export function parseHomeV2CoreMaintenanceStatus(value: unknown): HomeV2CoreMain
     capabilities: Object.freeze({
       canInitialInstall: value.capabilities.canInitialInstall,
       canInstallJava: value.capabilities.canInstallJava,
+      canInstallOnChainUpdate: value.capabilities.canInstallOnChainUpdate,
       canRefreshHelpers: value.capabilities.canRefreshHelpers,
       canUpdateRunningInPlace: value.capabilities.canUpdateRunningInPlace,
     }),
@@ -1054,7 +1057,13 @@ export interface HomeV2CoreManagerClient {
   getMaintenanceStatus(): Promise<HomeV2CoreMaintenanceStatus>
   checkMaintenanceRelease(): Promise<HomeV2CoreMaintenanceRelease>
   runMaintenanceAction(
-    action: 'downgrade' | 'initial-install' | 'install-java' | 'refresh-helpers' | 'strict-update',
+    action:
+      | 'downgrade'
+      | 'initial-install'
+      | 'install-java'
+      | 'install-on-chain-update'
+      | 'refresh-helpers'
+      | 'strict-update',
     release?: { channel: 'prerelease' | 'stable'; confirmDowngrade?: boolean; expectedTag: string },
   ): Promise<HomeV2CoreMaintenanceActionResult>
   getUpdatePolicy(): Promise<HomeV2CoreUpdatePolicyState>

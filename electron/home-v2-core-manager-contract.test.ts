@@ -139,6 +139,7 @@ function maintenanceManager(options: {
   release?: Record<string, unknown>
   onInstallForHomeV2?: (request: unknown) => Promise<unknown>
   onRefreshHelpers?: () => Promise<unknown>
+  onRequestOnChainUpdate?: () => Promise<unknown>
   coreUpdate?: Record<string, unknown>
   prerelease?: Record<string, unknown>
   stable?: Record<string, unknown>
@@ -180,6 +181,8 @@ function maintenanceManager(options: {
     }),
     installJava: options.onInstallJava ?? (async () => status()),
     refreshHelpers: options.onRefreshHelpers ?? (async () => status()),
+    requestOnChainUpdateForHomeV2: options.onRequestOnChainUpdate ??
+      (async () => ({ kind: 'completed' as const })),
     networkId: 'qortium',
     startForHomeV2: async () => status(),
     stopForHomeV2: async () => status(),
@@ -951,6 +954,85 @@ for (const nested of [
     })).core.update,
     null,
   )
+}
+
+// Asking the NODE to install a waiting on-chain update. Home downloads nothing
+// here -- POST /admin/update makes the node verify the dev-group approved,
+// QDN-pinned manifest and schedule its own install -- so none of Home's release
+// verification is bypassed, because Home is not the installer.
+{
+  let asked = 0
+  const waiting = maintenanceManager({
+    installed: { jarSemver: '1.7.2', tagName: 'v1.7.2' },
+    coreUpdate: { available: { action: 'available', channel: 'on-chain', version: '1.7.3' } },
+    observedRuntime: 'running',
+    runtime: { localApiUrl: 'http://127.0.0.1:24891', owner: 'home', running: true },
+    onRequestOnChainUpdate: async () => { asked += 1; return { kind: 'completed' as const } },
+  })
+  const service = createHomeV2CoreManagerService(() => waiting)
+  const status = await service.getMaintenanceStatus({
+    revision: 1, schema: 'home-v2-core-maintenance-request',
+  })
+  assert.equal(status.capabilities.canInstallOnChainUpdate, true)
+
+  const result = await service.runMaintenanceAction({
+    action: 'install-on-chain-update',
+    revision: 1,
+    schema: 'home-v2-core-maintenance-mutation-request',
+  })
+  assert.equal(result.outcome, 'completed')
+  assert.equal(asked, 1)
+  assertRedacted(result)
+}
+
+// A GitHub update is NOT installable this way: asking the node to fetch from the
+// chain when the waiting update is a release would be the wrong request.
+{
+  let asked = 0
+  const github = maintenanceManager({
+    installed: { jarSemver: '1.7.2', tagName: 'v1.7.2' },
+    coreUpdate: { available: { action: 'available', channel: 'github', version: '1.7.3' } },
+    observedRuntime: 'running',
+    runtime: { localApiUrl: 'http://127.0.0.1:24891', owner: 'home', running: true },
+    onRequestOnChainUpdate: async () => { asked += 1; return { kind: 'completed' as const } },
+  })
+  const service = createHomeV2CoreManagerService(() => github)
+  assert.equal(
+    (await service.getMaintenanceStatus({
+      revision: 1, schema: 'home-v2-core-maintenance-request',
+    })).capabilities.canInstallOnChainUpdate,
+    false,
+  )
+  const result = await service.runMaintenanceAction({
+    action: 'install-on-chain-update',
+    revision: 1,
+    schema: 'home-v2-core-maintenance-mutation-request',
+  })
+  assert.equal(result.outcome, 'blocked')
+  assert.equal(result.code, 'action-not-allowed')
+  assert.equal(asked, 0, 'the node must not be asked when no on-chain update is waiting')
+}
+
+// Already handled by the node's own auto-update: asking again would be noise.
+{
+  let asked = 0
+  const handled = maintenanceManager({
+    installed: { jarSemver: '1.7.2', tagName: 'v1.7.2' },
+    coreUpdate: {
+      available: { action: 'handled-by-core', channel: 'on-chain', version: '1.7.3' },
+    },
+    observedRuntime: 'running',
+    runtime: { localApiUrl: 'http://127.0.0.1:24891', owner: 'home', running: true },
+    onRequestOnChainUpdate: async () => { asked += 1; return { kind: 'completed' as const } },
+  })
+  const service = createHomeV2CoreManagerService(() => handled)
+  assert.equal(
+    (await service.getMaintenanceStatus({
+      revision: 1, schema: 'home-v2-core-maintenance-request',
+    })).capabilities.canInstallOnChainUpdate,
+    false,
+  )
+  assert.equal(asked, 0)
 }
 
 console.log('Home v2 Core-manager contract tests passed.')

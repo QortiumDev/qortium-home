@@ -38,7 +38,7 @@ assert.throws(() =>
 )
 
 const maintenanceStatus = {
-  capabilities: { canInitialInstall: true, canInstallJava: true, canRefreshHelpers: false, canUpdateRunningInPlace: false },
+  capabilities: { canInitialInstall: true, canInstallJava: true, canInstallOnChainUpdate: false, canRefreshHelpers: false, canUpdateRunningInPlace: false },
   core: { channel: null, installedCommit: null, helpersOutOfSyncVersion: null,
       installModified: false, localApiUrl: null, update: null, installedTag: null, nodeAutoUpdateMode: null, runtimeBlockedReason: null, installedVersion: null, runtime: 'stopped' },
   java: { source: 'missing', targetMajorVersion: 25, updateAvailable: false, version: null },
@@ -210,7 +210,7 @@ for (const bad of [
 // main-process test still green (#436).
 {
   const status = {
-    capabilities: { canInitialInstall: false, canInstallJava: false, canRefreshHelpers: false, canUpdateRunningInPlace: false },
+    capabilities: { canInitialInstall: false, canInstallJava: false, canInstallOnChainUpdate: false, canRefreshHelpers: false, canUpdateRunningInPlace: false },
     core: {
       channel: 'stable',
       helpersOutOfSyncVersion: null,

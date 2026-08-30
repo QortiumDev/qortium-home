@@ -164,6 +164,32 @@ export function useHomeV2CoreMaintenance(options: {
     }
   }
 
+  /**
+   * Ask the node to install the on-chain update it already knows about.
+   *
+   * Home downloads nothing: the node checks the dev-group approved manifest,
+   * verifies the pinned QDN binary and schedules its own install.
+   */
+  const installOnChainUpdate = async () => {
+    if (!client || busy !== null) return
+    setBusy('core')
+    setNotice(null)
+    try {
+      const result = parseHomeV2CoreMaintenanceActionResult(
+        await client.runMaintenanceAction('install-on-chain-update'),
+      )
+      statusRef.current = result.status
+      setStatus(result.status)
+      setNotice(result.outcome === 'completed'
+        ? 'The node was asked to install the update from QDN.'
+        : 'The node could not be asked to install the update.')
+    } catch {
+      setNotice('The node could not be asked to install the update.')
+    } finally {
+      setBusy(null)
+    }
+  }
+
   const runCore = async (confirmDowngrade = false) => {
     if (!client) return
     //  describes only the forward move, so a release offered ONLY as a
@@ -332,6 +358,7 @@ export function useHomeV2CoreMaintenance(options: {
     canRevealInstall: typeof client?.revealInstall === 'function',
     check,
     confirmDowngrade: () => runCore(true),
+    installOnChainUpdate,
     refreshHelpers,
     pendingDowngrade,
     selectedReleaseTag,

@@ -5,6 +5,7 @@ import {
   getUpdateEnvironment,
   openDownloadedFile,
   openExternalUrl,
+  revealHomeV2InstallFolder,
   showDownloadedFile,
 } from './app-updates.js'
 import { fetchTrustedHomeRelease } from './app-update-discovery.js'
@@ -85,6 +86,12 @@ export function registerHomeV2AppUpdateBridgeIpcHandlers() {
   ipcMain.handle('home-v2-app-update:download', handlers.download)
   ipcMain.handle('home-v2-app-update:open', handlers.open)
   ipcMain.handle('home-v2-app-update:reveal', handlers.reveal)
+  // Home's OWN install folder. The path is resolved and used in the main
+  // process; the renderer receives only whether a window opened.
+  ipcMain.handle('home-v2-app-update:reveal-install-folder', (event) => {
+    assertAuthorizedHomeV2Sender(event)
+    return revealHomeV2InstallFolder()
+  })
   ipcMain.handle('home-v2-app-update:open-release-page', handlers.openReleasePage)
   ipcMain.handle('home-v2-app-update:get-settings', settingsHandlers.get)
   ipcMain.handle('home-v2-app-update:set-settings', settingsHandlers.set)

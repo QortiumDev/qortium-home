@@ -56,6 +56,7 @@ export function CoreMaintenancePanel({
     policy,
     confirmDowngrade,
     pendingDowngrade,
+    installOnChainUpdate,
     refreshHelpers,
     release,
     revealInstall,
@@ -297,6 +298,16 @@ export function CoreMaintenancePanel({
           <button className="home-v2-secondary-button" type="button" disabled={busy !== null} onClick={() => void check()}>
             {busy === 'check' ? 'Checking…' : 'Check release'}
           </button>
+          {status.capabilities.canInstallOnChainUpdate ? (
+            // Asks the NODE to install it. Home downloads nothing, so this is
+            // not the same action as the release install beside it.
+            <button className="home-v2-secondary-button" type="button"
+              data-home-v2-core-install-on-chain
+              disabled={busy !== null}
+              onClick={() => void installOnChainUpdate()}>
+              {t('home2.core.installFromQdn')}
+            </button>
+          ) : null}
           {canRevealInstall && status.core.installedVersion ? (
             <button className="home-v2-secondary-button" type="button"
               data-home-v2-core-reveal-install
