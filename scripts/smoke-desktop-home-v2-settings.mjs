@@ -257,12 +257,19 @@ try {
     const initialDestination = await waitUntil('Welcome or Dashboard', () =>
       evaluate(
         client,
-        `document.querySelector('.home-v2-dashboard')
-          ? 'dashboard'
-          : [...document.querySelectorAll('.home-v2-welcome button')]
-              .some((button) => button.textContent.trim() === 'Skip setup')
-            ? 'welcome'
-            : null`,
+        // Which page is SHOWING, not which page exists. Inactive pages stay
+        // mounted and hidden (.home-v2-page-slot is display:contents, with
+        // [hidden] taking it out of flow) so that page state survives
+        // navigation -- so '.home-v2-dashboard' is in the document from the
+        // start, including while onboarding is still on screen. Asking for it
+        // directly always answered "dashboard", so this smoke never clicked
+        // "Skip setup", sat on Welcome for the whole run, and then failed much
+        // later on a Core-card count that was really counting two pages.
+        `(() => {
+          const active = document.querySelector('.home-v2-page-slot:not([hidden])');
+          const page = active?.getAttribute('data-internal-page');
+          return page === 'dashboard' || page === 'welcome' ? page : null;
+        })()`,
       ),
     )
     if (initialDestination === 'welcome') {

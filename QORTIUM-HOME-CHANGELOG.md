@@ -34,6 +34,22 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-30 - test: fix a packaged check that had been sitting on the setup screen all along
+
+One of the checks that drives the real application was quietly testing nothing.
+It asks which screen it has landed on, and it decided that by looking for the
+dashboard anywhere on the page. The dashboard is always there: screens you are
+not looking at stay loaded but hidden, so that they remember where you were
+when you come back to them.
+
+So the check always concluded it was already past setup, never pressed "Skip
+setup", spent the whole run sitting on the setup screen, and then failed much
+later while counting things on a page it was never actually on.
+
+It now asks which screen is being SHOWN. The application itself was fine
+throughout - pressing "Skip setup" works, including immediately after launch,
+which was confirmed against a build made specifically to check it.
+
 ### 2026-08-30 - test: bring the packaged Core-manager smoke back in step with the app
 
 One of the checks that drives the real packaged application and reads what it

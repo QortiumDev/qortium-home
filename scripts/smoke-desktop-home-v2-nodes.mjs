@@ -111,6 +111,20 @@ async function evaluate(page, expression) {
   return response.result?.result?.value
 }
 
+async function waitForSnapshot(page, timeoutMs = 30000) {
+  const deadline = Date.now() + timeoutMs
+  let lastError = null
+  while (Date.now() < deadline) {
+    try {
+      return await evaluate(page, 'window.homeV2Nodes.getSnapshot()')
+    } catch (error) {
+      lastError = error
+      await delay(250)
+    }
+  }
+  throw new Error(`Home 2 node snapshot never became available: ${lastError}`)
+}
+
 function assertReadableNode(snapshot, network, mode) {
   const node = snapshot?.nodes?.[network]
   assert.equal(node?.mode, mode, `${network} should remain in ${mode} mode`)
@@ -143,7 +157,9 @@ try {
     },
   })
   const page = await waitForPage(port)
-  const initial = await evaluate(page, 'window.homeV2Nodes.getSnapshot()')
+  // Retry rather than failing on the first rejection, so the error we report is
+  // the STEADY-STATE one. (It is: this does not recover. See the report.)
+  const initial = await waitForSnapshot(page)
   const localQortium = assertReadableNode(initial, 'qortium', 'local')
   assert.equal(localQortium.nodeApiUrl, 'https://127.0.0.1:24891')
   assert.equal(
