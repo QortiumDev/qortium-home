@@ -34,6 +34,29 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-30 - fix(home-v2): Home could start up unable to talk to itself
+
+Opening Home the ordinary way could leave it unable to reach its own node and
+Core information. The connection card read "Unavailable", the Core card read
+"Unavailable", and in place of the details was an error about data only being
+available to an authorised document. Nothing in Home could recover from it -
+only closing and reopening, which might land the same way again.
+
+Home tells its windows about changes as they happen. If one of those messages
+arrived in the instant before a window had finished opening its page, Home
+concluded that window was no longer the one it trusted and stopped trusting it,
+permanently - even though the window went on to open perfectly.
+
+Home now waits rather than giving up: a window that has not finished opening is
+simply skipped for that message. A window that genuinely closes, or genuinely
+goes somewhere else, is still dropped as before.
+
+This depended on timing, which is why it was not seen everywhere: the packaged
+Linux app starts slightly slower when run the normal way, which is exactly the
+gap the message could land in. Every automated check happened to start it a
+faster way and so never saw it. One of those checks now deliberately starts it
+the way people do.
+
 ### 2026-08-30 - fix(shell): don't discard what you did while Home was still starting
 
 Home shows its window before it has finished reading your saved tabs, so it is

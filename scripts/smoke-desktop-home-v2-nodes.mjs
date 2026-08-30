@@ -161,18 +161,20 @@ try {
     cwd: repoRoot,
     env: {
       ...process.env,
-      // Run the AppImage EXTRACTED, the way scripts/lib/home-v2-cdp.mjs does for
-      // every other packaged smoke. This one hand-rolls its launch and so ran
-      // from a FUSE mount instead, where the Home 2 bridge rejects this window
-      // as "not an authorized top-level Home v2 document" -- persistently, with
-      // a single top-level target, the correct file:// URL, readyState complete
-      // and the bridges present. Flipping this one variable makes it pass.
+      // APPIMAGE_EXTRACT_AND_RUN is deliberately NOT set here.
       //
-      // WHY the mount mode changes authorization is NOT established, and it is
-      // worth someone establishing, because users launch AppImages from a FUSE
-      // mount by default. Setting this here stops the smoke lying about the
-      // bridge; it does not answer that question. See the report.
-      APPIMAGE_EXTRACT_AND_RUN: '1',
+      // Every other packaged smoke goes through scripts/lib/home-v2-cdp.mjs,
+      // which does set it, so they all run the AppImage EXTRACTED -- and none
+      // of them exercise the way users actually launch one, from a FUSE mount.
+      // That gap hid a real bug: a broadcast landing before the window had
+      // committed its document permanently revoked its bridge, so a normally
+      // launched Home 2.1 showed "Home v2 data is only available to an
+      // authorized top-level Home v2 document" and had no node status or Core
+      // controls at all. Under extract-and-run the app started fast enough to
+      // miss it, so every smoke passed.
+      //
+      // This smoke stays on the FUSE path on purpose. It is the only coverage
+      // of the launch mode that ships.
       QORTIUM_HOME_USER_DATA_DIR: profileDirectory,
     },
   })
