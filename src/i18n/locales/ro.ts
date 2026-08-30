@@ -806,6 +806,7 @@ export const ro: Record<TranslationKey, string> = {
   "home2.app.checkingNetwork": "Se verifică {network}…",
   "home2.app.frameTitle": "Aplicația QDN",
   "home2.app.networkUnavailable": "{network} nu este disponibil.",
+  "home2.app.previewUnavailable": "Această previzualizare nu mai este disponibilă. Selectați din nou fișierul.",
   "home2.app.unableToLoad": "Imposibil de încărcat această aplicație.",
   "home2.app.unableToOpen": "Nu se poate deschide această aplicație.",
   "home2.app.unableToPrepareView": "Nu se poate pregăti vizualizarea aplicației.",

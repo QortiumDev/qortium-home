@@ -806,6 +806,7 @@ export const ja: Record<TranslationKey, string> = {
   "home2.app.checkingNetwork": "{network} をチェック中…",
   "home2.app.frameTitle": "QDNアプリ",
   "home2.app.networkUnavailable": "{network} は使用できません。",
+  "home2.app.previewUnavailable": "このプレビューは利用できなくなりました。ファイルを選び直してください。",
   "home2.app.unableToLoad": "このアプリを読み込めません。",
   "home2.app.unableToOpen": "このアプリを開けません。",
   "home2.app.unableToPrepareView": "アプリビューを準備できません。",

@@ -296,6 +296,7 @@ export function fixtureTabContext(
     appId: app.id,
     tabId,
     sourceNetwork: app.sourceNetwork,
+    previewUrl: null,
     resourceLocation: buildAppResourceLocation(
       app.sourceNetwork,
       app.resourceIdentity,

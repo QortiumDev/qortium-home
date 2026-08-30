@@ -222,6 +222,33 @@ const restorableTabPages: ReadonlySet<string> = new Set<TabPageId>([
 ])
 
 function parseAppEntry(candidate: unknown): ShellEntry | null {
+/**
+ * A rehydrated preview URL, or null.
+ *
+ * STRUCTURAL checks only: loopback host, `/render/` path, no credentials, no
+ * port trickery. It cannot check the URL belongs to the CURRENT node, because
+ * nothing here knows which node that is -- that binding is enforced where the
+ * URL is used and the node origin is known. A preview that survives a restart
+ * pointing at a stale port must still be refused there, not merely here.
+ */
+function parseAppTabPreviewUrl(value: unknown): string | null {
+  if (typeof value !== 'string' || !value.trim() || value.length > 2_000) return null
+  let parsed: URL
+  try {
+    parsed = new URL(value.trim())
+  } catch {
+    return null
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null
+  if (parsed.username || parsed.password) return null
+  const host = parsed.hostname
+  if (host !== '127.0.0.1' && host !== 'localhost' && host !== '::1' && host !== '[::1]') {
+    return null
+  }
+  if (!parsed.pathname.startsWith('/render/')) return null
+  return parsed.toString()
+}
+
   if (!isRecord(candidate) || !isRecord(candidate.context)) return null
   const id = typeof candidate.id === 'string' ? candidate.id.trim() : ''
   const appId = typeof candidate.appId === 'string' ? candidate.appId.trim() : ''
@@ -260,6 +287,7 @@ function parseAppEntry(candidate: unknown): ShellEntry | null {
         typeof context.identityId === 'string'
           ? (context.identityId as AppTabContext['identityId'])
           : ('home-v2:identity:none' as AppTabContext['identityId']),
+      previewUrl: parseAppTabPreviewUrl(context.previewUrl),
       resourceLocation: resourceLocation as AppTabContext['resourceLocation'],
       sourceNetwork: context.sourceNetwork,
       tabId: id as TabId,
@@ -370,7 +398,11 @@ function contextsIdentifySameTab(
     left.identityId === right.identityId &&
     left.walletRef === right.walletRef &&
     left.sourceNetwork === right.sourceNetwork &&
-    left.resourceLocation === right.resourceLocation
+    left.resourceLocation === right.resourceLocation &&
+    // A publish preview borrows its app's address, so without this a preview
+    // would count as the SAME tab as the app that asked for it and replace it.
+    // Two previews of different files are also different tabs.
+    left.previewUrl === right.previewUrl
   )
 }
 

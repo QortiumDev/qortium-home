@@ -807,6 +807,7 @@ export const el: Record<TranslationKey, string> = {
   "home2.app.checkingNetwork": "Έλεγχος του {network}…",
   "home2.app.frameTitle": "Εφαρμογή QDN",
   "home2.app.networkUnavailable": "Το {network} δεν είναι διαθέσιμο.",
+  "home2.app.previewUnavailable": "Αυτή η προεπισκόπηση δεν είναι πλέον διαθέσιμη. Επιλέξτε ξανά το αρχείο.",
   "home2.app.unableToLoad": "Δεν είναι δυνατή η φόρτωση αυτής της εφαρμογής.",
   "home2.app.unableToOpen": "Δεν είναι δυνατό το άνοιγμα αυτής της εφαρμογής.",
   "home2.app.unableToPrepareView": "Δεν είναι δυνατή η προετοιμασία της προβολής εφαρμογής.",

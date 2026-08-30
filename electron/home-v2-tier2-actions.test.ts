@@ -137,12 +137,14 @@ assert.ok(
   'SEND_MESSAGE must NOT be advertised on qortalRequest: the MESSAGE serializer is Qortium-specific',
 )
 
-// PREVIEW_QDN_PUBLISH_SOURCE is deliberately still absent (see
-// docs/HOME_V2_BRIDGE_COMPATIBILITY.md): a faithful port needs a v2 preview
-// surface that does not exist yet, and a handler that returns true while
-// showing the user nothing would be worse than an honest refusal.
-assert.ok(!qdnActions.includes('PREVIEW_QDN_PUBLISH_SOURCE'))
-assert.ok(!qortalActions.includes('PREVIEW_QDN_PUBLISH_SOURCE'))
+// PREVIEW_QDN_PUBLISH_SOURCE is now advertised. The deferral's OWN stated
+// precondition -- "a faithful port needs a v2 preview surface that does not
+// exist yet, and a handler that returns true while showing the user nothing
+// would be worse than an honest refusal" -- is what changed: previews now open
+// as an app TAB, the one surface that can render a website. The resource
+// viewer still cannot, which is exactly why this is not wired to it.
+assert.ok(qdnActions.includes('PREVIEW_QDN_PUBLISH_SOURCE'))
+assert.ok(qortalActions.includes('PREVIEW_QDN_PUBLISH_SOURCE'))
 
 // The foreign-wallet family stays deferred pending the W3 design. Restoring
 // GET_USER_WALLET must not have dragged its siblings in with it. SEND_COIN

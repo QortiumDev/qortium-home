@@ -34,6 +34,26 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-30 - feat(qdn): preview what you are about to publish
+
+Apps could ask Home to pick a file to publish, but not to show it first. The
+older interface could do this; the newer one could not, and an app asking for it
+got nothing back at all.
+
+An app can now ask Home to render a chosen file or folder so it can be looked at
+before publishing. Home opens the preview itself and never gives the app the
+address it was rendered at, so the app cannot read the file back out of it.
+
+This works only against your own node on this machine. Previewing means sending
+the chosen file to a node so it can render it, and on someone else's node that
+would show the file to its operator before you had decided to publish anything.
+On your own node there is nobody else to see it, so nothing extra is asked of
+you.
+
+The old, unreachable preview page and the `home://preview` address that opened
+it have been removed. Nothing rendered that page any more, so the address led
+nowhere.
+
 ### 2026-08-29 - feat(core): install a waiting network update, and find Home's own folder
 
 Two things Home 1.x could do.

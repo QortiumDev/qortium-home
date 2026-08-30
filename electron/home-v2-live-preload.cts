@@ -594,6 +594,13 @@ contextBridge.exposeInMainWorld('homeV2Apps', {
     ipcRenderer.on('home-v2-app:open-resource-viewer', handler)
     return () => ipcRenderer.removeListener('home-v2-app:open-resource-viewer', handler)
   },
+  // A publish preview opens as an app TAB, not the resource viewer: the thing
+  // being previewed is usually a website, which the viewer cannot render.
+  onOpenPublishPreview: (listener: (event: unknown) => void) => {
+    const handler = (_event: unknown, payload: unknown) => listener(payload)
+    ipcRenderer.on('home-v2-app:open-publish-preview', handler)
+    return () => ipcRenderer.removeListener('home-v2-app:open-publish-preview', handler)
+  },
   onNotificationClicked: (listener: (event: unknown) => void) => {
     const handler = (_event: unknown, payload: unknown) => listener(payload)
     ipcRenderer.on('home-v2-app:notification-clicked', handler)

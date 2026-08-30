@@ -807,6 +807,7 @@ export const hi: Record<TranslationKey, string> = {
   "home2.app.checkingNetwork": "{network} की जाँच हो रही है…",
   "home2.app.frameTitle": "QDN ऐप",
   "home2.app.networkUnavailable": "{network} उपलब्ध नहीं है।",
+  "home2.app.previewUnavailable": "यह प्रीव्यू अब उपलब्ध नहीं है। फ़ाइल दोबारा चुनें।",
   "home2.app.unableToLoad": "यह ऐप लोड नहीं किया जा सका।",
   "home2.app.unableToOpen": "यह ऐप खोला नहीं जा सका।",
   "home2.app.unableToPrepareView": "ऐप दृश्य तैयार नहीं किया जा सका।",

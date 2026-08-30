@@ -806,6 +806,7 @@ export const fi: Record<TranslationKey, string> = {
   "home2.app.checkingNetwork": "Tarkistetaan verkkoa {network}…",
   "home2.app.frameTitle": "QDN-sovellus",
   "home2.app.networkUnavailable": "{network} ei ole käytettävissä.",
+  "home2.app.previewUnavailable": "Tämä esikatselu ei ole enää käytettävissä. Valitse tiedosto uudelleen.",
   "home2.app.unableToLoad": "Tätä sovellusta ei voi ladata.",
   "home2.app.unableToOpen": "Tätä sovellusta ei voi avata.",
   "home2.app.unableToPrepareView": "Sovellusnäkymää ei voi valmistella.",
