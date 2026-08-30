@@ -382,6 +382,9 @@
       },
       "package.json",
       "!**/node_modules/**/android/build/**",
+      "!**/node_modules/@capacitor/**/build/**",
+      "!**/node_modules/**/.gradle/**",
+      "!**/node_modules/**/.cxx/**",
       "!**/node_modules/@napi-rs/**"
     ],
     "extraResources": [
