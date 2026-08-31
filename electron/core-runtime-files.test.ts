@@ -15,6 +15,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   mirrorRuntimeRewardNodeIdentityToPreview,
+  preserveLegacyCoreRuntimeFiles,
   preserveLegacyRewardNodeIdentity,
 } from './core-runtime-files.js';
 
@@ -322,5 +323,55 @@ await withPaths('reward-identity-mirror-conflict', async (paths) => {
   assert.deepEqual(readFileSync(paths.runtimeIdentity), runtimeIdentity);
   assert.deepEqual(readFileSync(paths.legacyIdentity), legacyIdentity);
 });
+
+{
+  // A wallets directory in the install tree must survive an install, which
+  // replaces that tree wholesale. Core's walletsPath default is relative and
+  // resolves inside the install tree until qortium-core#295's migration rewrites
+  // it -- and what lands there is a crosschain wallet, not a cache.
+  const paths = createPaths('wallets');
+  const legacyWallets = path.join(paths.preview, 'wallets', 'PirateChain');
+  mkdirSync(legacyWallets, { recursive: true });
+  writeFileSync(path.join(legacyWallets, 'wallet.dat'), 'legacy-wallet');
+
+  // Through the real entry point, so this also covers the wiring: a
+  // preservation step that exists but is never called preserves nothing.
+  await preserveLegacyCoreRuntimeFiles(paths.preview, paths.runtime);
+
+  const copied = path.join(paths.runtime, 'wallets', 'PirateChain', 'wallet.dat');
+  assert.equal(existsSync(copied), true, 'the wallet must be preserved into the runtime directory');
+  assert.equal(readFileSync(copied, 'utf8'), 'legacy-wallet');
+  // Copied, not moved: a half-completed move is the one outcome worth ruling
+  // out for wallet data. The original goes when the install replaces the tree.
+  assert.equal(
+    existsSync(path.join(legacyWallets, 'wallet.dat')),
+    true,
+    'the legacy copy must be left in place rather than moved',
+  );
+
+  // A conflict must FAIL THE INSTALL, not be skipped.
+  //
+  // The first version of this skipped an existing destination, copying the
+  // sibling steps -- correct for lists, which regenerate. It is wrong here: the
+  // caller deletes the legacy tree moments later, so a skip destroys whatever
+  // existed only in the skipped directory. The Core session caught this in
+  // review. Refusing leaves both copies for qortium-core's PreviewRuntimeWallets
+  // to reconcile with byte comparison.
+  writeFileSync(path.join(legacyWallets, 'second.dat'), 'legacy-second');
+  await assert.rejects(
+    () => preserveLegacyCoreRuntimeFiles(paths.preview, paths.runtime),
+    /Two wallet directories exist for PirateChain/,
+    'a conflicting wallet directory must stop the install rather than be skipped',
+  );
+  // Both copies survive the refusal, which is the point of refusing.
+  assert.equal(readFileSync(copied, 'utf8'), 'legacy-wallet');
+  assert.equal(
+    existsSync(path.join(legacyWallets, 'second.dat')),
+    true,
+    'the legacy tree must be intact after a refusal',
+  );
+
+  rmSync(paths.root, { force: true, recursive: true });
+}
 
 console.log('Core runtime file tests passed.');

@@ -34,6 +34,29 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-30 - fix(core): don't let an update delete wallets stored inside the install
+
+Installing or updating the managed Core replaces its install folder wholesale.
+If crosschain wallet data was sitting inside that folder, the update took it
+with it.
+
+Wallet data can end up there for a historical reason. The setting that says
+where wallets live used to default to a location relative to the install, so a
+Core started from the launcher script before qortium-core#295 wrote its wallets
+into the install folder. Home has never chosen that location itself - it uses
+whatever the Core's settings already say - so it could delete data it had no
+part in creating. A Pirate Chain wallet of half a gigabyte was found in exactly
+that position on a real machine.
+
+Home now copies any wallet folder out of the install and into the runtime folder
+before replacing the install, alongside the other things it already preserves.
+It copies rather than moves, so an interrupted update cannot leave the data
+half-transferred. If a wallet folder of the same name already exists in both
+places, Home refuses the install and names both paths rather than guessing which
+one to keep - the alternative would have been to leave one of them behind and
+then delete it. Reconciling the two is qortium-core#295's job; it compares them
+byte for byte, which this step deliberately does not attempt.
+
 ### 2026-08-30 - fix(chrome): unreadable bookmarks menu, and controls appearing late on the Dashboard
 
 The bookmarks menu was unreadable: every entry's text was drawn on top of the
