@@ -8,10 +8,19 @@ import { findForbiddenProductionEntry } from './packaged-entry-policy.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const expectedVersion = '2.1.0';
-// 40 is permanently occupied by the published Home 1.7.1 emergency APK, which
-// shipped from maint/home-1.x while 2.1 was in development. Codes are global to
-// the package, so 2.1 skips it rather than colliding with a release users have.
-const expectedAndroidVersionCode = 41;
+// versionCode is ONE monotonic space shared by both release lines, so 2.1 does
+// not get to pick freely:
+//   37  Home 1.7.0
+//   38, 39  spent by the 2.x line during development
+//   40  Home 1.7.1, the published emergency APK from maint/home-1.x
+//   41  Home 1.8.0, the final 1.x release, which exists so 1.x users can
+//       decline 2.1.0 instead of being pulled onto it
+// 2.1.0 must therefore sit ABOVE 41, or Android refuses to install it over
+// 1.8.0 as a downgrade -- breaking the 1.x -> 2.x path both releases exist to
+// enable. The in-app updater compares semver and would still offer it; the OS
+// installer is what rejects it, so the failure surfaces late and reads like a
+// packaging bug.
+const expectedAndroidVersionCode = 42;
 const expectedPlatformVersion = '2.1';
 
 function read(relativePath) {
