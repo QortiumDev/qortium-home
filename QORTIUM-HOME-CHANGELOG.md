@@ -33,6 +33,37 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-08-31 - chore(release): prepare Home 1.8.0
+
+Marks the final planned Home 1 release. Its purpose is to hand every Home 1
+user a deliberate choice about whether to move to the Home 2 line, so it is
+published as the first Qortium Home release *not* flagged as a prerelease on
+GitHub. Bumped package metadata to 1.8.0 and Android metadata to versionCode 41
+/ versionName 1.8.0. No other feature work is included.
+
+Choosing "Stable" now means staying on Home 1.8.0 for as long as you like.
+Choosing "Prerelease" means following the Home 2 line as it is published. When
+Home 2 is ready it will be released as stable in turn, and everyone still on
+"Stable" will be offered it then.
+
+### 2026-08-31 - feat(updates): always offer the release channel choice
+
+Settings has always been able to switch the application between the stable and
+prerelease update channels, but the control only appeared when both channels
+had a release to show. Every Qortium Home release so far has been flagged as a
+prerelease, so there was never a stable release for the control to point at and
+it stayed hidden — the choice existed but nobody could reach it. Both channels
+are now always listed.
+
+A channel you pick yourself is also now honoured for good. Previously, if the
+chosen channel could not be reached during an update check — no release there
+yet, a rate limit, an offline moment — Home quietly moved you to the other one.
+That is the wrong behaviour for a choice about which line of the application to
+follow: someone who chose to stay on Home 1 could be moved onto the prerelease
+channel and then offered Home 2. Home now keeps the channel you selected and
+simply reports that it found nothing there. The automatic fallback still
+applies to anyone who has never made a choice.
+
 ### 2026-08-27 - chore(release): prepare Home 1.7.1
 
 Marks a small Home 1 maintenance release that removes the false managed-Core
