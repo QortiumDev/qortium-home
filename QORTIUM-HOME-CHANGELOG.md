@@ -34,6 +34,27 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-30 - fix(chrome): unreadable bookmarks menu, and controls appearing late on the Dashboard
+
+The bookmarks menu was unreadable: every entry's text was drawn on top of the
+one below it. The buttons in that menu were being given the size of the small
+round icon buttons next to the address bar - a fixed square - so their labels
+wrapped and the lines collided. They are now sized by their own text.
+
+The rule that caused it applied to every button inside that row of controls,
+which happens to include the ones inside the menu. It has been narrowed to the
+row's own buttons, along with three related rules that would have caused the
+same thing when hovering and on a phone-sized window. No other menu was
+affected: the rest are drawn outside that row.
+
+Separately, the Core controls on the Dashboard appeared out of nowhere a few
+seconds after opening Home - about three and a half seconds, measured. Whether a
+network's row belongs on screen is known immediately; whether its controls are
+ready is not, and Home was showing nothing at all until the second question was
+answered. The row now keeps its place and says it is loading. This applies to
+both networks, since both behaved the same way and only the slower one was
+noticeable.
+
 ### 2026-08-30 - fix(home-v2): Home could start up unable to talk to itself
 
 Opening Home the ordinary way could leave it unable to reach its own node and

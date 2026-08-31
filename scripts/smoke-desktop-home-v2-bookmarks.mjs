@@ -200,6 +200,25 @@ async function main() {
       })
     })()`)
     if (!addBox) fail('the bookmarks menu did not open on a real click')
+    // Menu items must FIT their boxes. The icon-button rule for this toolbar row
+    // was a descendant selector, so it also caught the buttons inside this
+    // popup and forced them into a 34x34 icon box with an 18px font -- labels
+    // wrapped, the lines overlapped, and the menu was unreadable. Nothing
+    // guarded that, because it is geometry rather than behaviour.
+    const overflowing = JSON.parse(await cdp.evaluate(`(() => {
+      const items = [...document.querySelectorAll('.home-v2-bookmarks-menu__panel button, .home-v2-bookmarks-menu__panel strong')]
+      return JSON.stringify(items
+        .filter((item) => item.scrollHeight > item.clientHeight + 1)
+        .map((item) => ({
+          text: (item.textContent || '').trim().slice(0, 30),
+          clientHeight: item.clientHeight,
+          scrollHeight: item.scrollHeight,
+        })))
+    })()`))
+    if (overflowing.length > 0) {
+      fail(`bookmarks menu text overflows its rows: ${JSON.stringify(overflowing)}`)
+    }
+    log(`menu rows fit their text (${'checked'})`)
     const addPoint = JSON.parse(addBox)
     await cdp.click(addPoint.x, addPoint.y)
     await sleep(1500)

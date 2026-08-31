@@ -272,9 +272,23 @@ function CoreLifecycleActions({
   readonly onOpenReleaseNotes?: (target: { product: 'core' | 'home'; tagName: string }) => void
   readonly qortalMaintenance?: HomeV2QortalMaintenanceManagement
 }) {
+  // Whether a network's row EXISTS is decided by whether that network is
+  // enabled, which is known from the shell snapshot straight away. Whether its
+  // controls are ready is a slower, separate question. Returning null while the
+  // maintenance status loads answered the fast question with the slow one, so
+  // the Qortal controls appeared out of nowhere a moment after the dashboard
+  // had already settled.
+  //
+  // The row now says it is loading and keeps its place, the same as the I2P row.
   if (network === 'qortal') {
     const status = qortalMaintenance?.status
-    if (!qortalMaintenance || !status) return null
+    if (!qortalMaintenance || !status) {
+      return (
+        <span className="home-v2-core-lifecycle-loading" data-home-v2-lifecycle="loading-qortal">
+          {t('home2.common.loading')}
+        </span>
+      )
+    }
     const { busy, release } = qortalMaintenance
     const showRun = !!release?.tag && release.action !== 'none'
     return (
@@ -310,7 +324,15 @@ function CoreLifecycleActions({
   }
 
   const status = coreMaintenance?.status
-  if (!coreMaintenance || !status) return null
+  if (!coreMaintenance || !status) {
+    // Same for Qortium: its controls used to pop in too, just less noticeably
+    // because its status usually arrives first.
+    return (
+      <span className="home-v2-core-lifecycle-loading" data-home-v2-lifecycle="loading-core">
+        {t('home2.common.loading')}
+      </span>
+    )
+  }
   const { busy, release } = coreMaintenance
   const plan = coreLifecyclePlan(coreMaintenance, onChainCoreUpdates)
   const { showJava, showOnChain, showRelease } = plan

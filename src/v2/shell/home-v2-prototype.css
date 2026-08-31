@@ -524,7 +524,7 @@ body,
 
 .home-v2-tab__close:hover,
 .home-v2-new-tab:hover,
-.home-v2-browser-controls button:not(:disabled):hover,
+.home-v2-browser-controls > button:not(:disabled):hover,
 .home-v2-toolbar-button:hover {
   background: var(--v2-surface-soft);
 }
@@ -733,6 +733,13 @@ body,
   display: flex;
   flex-direction: column;
   gap: 2px;
+}
+
+/* Holds a lifecycle row's place while its maintenance status loads, so the
+   controls do not appear out of nowhere after the dashboard has settled. */
+.home-v2-core-lifecycle-loading {
+  color: var(--v2-muted);
+  font-size: calc(12px * var(--v2-type-scale));
 }
 
 .home-v2-bookmarks-menu {
@@ -959,7 +966,13 @@ body,
   gap: 4px;
 }
 
-.home-v2-browser-controls button,
+/* DIRECT children only. As a descendant selector this also styled every button
+   inside the bookmarks popup, which lives in this row -- forcing menu items into
+   a 34x34 icon box with an 18px font, so their labels wrapped and the lines
+   overlapped each other. The bookmarks TRIGGER keeps its own rule
+   (.home-v2-bookmarks-button), and back/forward/reload/home are direct children,
+   so nothing that should look like an icon button loses its styling. */
+.home-v2-browser-controls > button,
 .home-v2-toolbar-button {
   display: grid;
   width: 34px;
@@ -972,7 +985,7 @@ body,
   font-size: calc(18px * var(--v2-type-scale));
 }
 
-.home-v2-browser-controls button:disabled {
+.home-v2-browser-controls > button:disabled {
   cursor: default;
   opacity: 0.35;
 }
@@ -3042,7 +3055,7 @@ body,
   padding-inline: 7px;
 }
 
-.home-v2-shell[data-layout='phone'] .home-v2-browser-controls button {
+.home-v2-shell[data-layout='phone'] .home-v2-browser-controls > button {
   width: 28px;
 }
 
