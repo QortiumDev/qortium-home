@@ -102,6 +102,9 @@ contextBridge.exposeInMainWorld('homeV2Windows', {
 
 contextBridge.exposeInMainWorld('homeV2Nodes', {
   getSnapshot: () => ipcRenderer.invoke('home-v2-nodes:getSnapshot'),
+  // Settings-only, so the Dashboard can paint the right networks immediately
+  // instead of waiting out the snapshot's node probes.
+  getModes: () => ipcRenderer.invoke('home-v2-nodes:getModes'),
   getShellState: () => ipcRenderer.invoke('home-v2-shell:getState'),
   saveShellState: (value: unknown) =>
     ipcRenderer.invoke('home-v2-shell:saveState', value),

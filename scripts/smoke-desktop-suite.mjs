@@ -63,6 +63,9 @@ const SMOKES = [
     note: 'not in CI: the app exits non-zero on a runner, cause not yet established' },
   { script: 'smoke:desktop:widgets', needs: 'none', ci: true,
     note: 'also runs in build-and-test' },
+  // Seeds both networks to public, so it asserts the Dashboard's LAYOUT without
+  // needing either node to answer. Not yet observed on a runner.
+  { script: 'smoke:desktop:home-v2-dashboard-networks', needs: 'none' },
 
   { script: 'smoke:desktop:home-v2-chrome-menus', needs: 'none', flaky: true,
     note: 'navigates immediately after launch; a late profile restore can undo it (~1 in 6)' },

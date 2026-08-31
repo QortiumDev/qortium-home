@@ -172,6 +172,52 @@ export function parseHomeV2NodesSnapshot(value: unknown): HomeV2Nodes {
   })
 }
 
+export type HomeV2NodeModes = Readonly<Record<NetworkId, NodeConnectionMode>>
+
+function parseNodeMode(value: unknown, network: NetworkId): NodeConnectionMode {
+  if (
+    value !== 'disabled' &&
+    value !== 'local' &&
+    value !== 'public' &&
+    value !== 'custom'
+  ) {
+    throw new Error(`Invalid ${network} node mode.`)
+  }
+  return value
+}
+
+export function parseHomeV2NodeModes(value: unknown): HomeV2NodeModes {
+  if (
+    !isRecord(value) ||
+    value.version !== 1 ||
+    !isRecord(value.modes) ||
+    Object.keys(value.modes).sort().join('|') !== 'qortal|qortium'
+  ) {
+    throw new Error('Invalid Home v2 node modes.')
+  }
+  return Object.freeze({
+    qortal: parseNodeMode(value.modes.qortal, 'qortal'),
+    qortium: parseNodeMode(value.modes.qortium, 'qortium'),
+  })
+}
+
+/**
+ * Applies the settings-only modes to the placeholder summaries.
+ *
+ * Only `mode` is taken: everything else in the summary is status, which this
+ * read deliberately does not have. The rest keeps saying "Checking" until the
+ * snapshot lands, which is true.
+ */
+export function applyHomeV2NodeModes(
+  nodes: HomeV2Nodes,
+  modes: HomeV2NodeModes,
+): HomeV2Nodes {
+  return Object.freeze({
+    qortal: { ...nodes.qortal, mode: modes.qortal },
+    qortium: { ...nodes.qortium, mode: modes.qortium },
+  })
+}
+
 /**
  * Consecutive failed status polls before the nodes are reported unavailable.
  * Three at the 15s poll interval is ~45s of grace, which rides out ordinary
@@ -275,6 +321,13 @@ export function useHomeV2NodeCoreController(options: {
   })
   const nodeMutationInFlight = useRef(false)
   const nodeRefreshSequence = useRef(0)
+  // False only for the moment between mount and the first answer about which
+  // networks are enabled. Surfaces exist that must not be drawn from a guess:
+  // see `nodesReady` on the Dashboard.
+  const [nodesReady, setNodesReady] = useState(false)
+  // Set when a FULL snapshot has been applied. The sequence counter cannot
+  // answer this -- it increments when a refresh starts, not when one lands.
+  const snapshotLanded = useRef(false)
   // Follow-up polls after a start/stop, because the settle is not instant.
   //
   // A lifecycle action already refreshes everything the moment it returns, but a
@@ -319,6 +372,8 @@ export function useHomeV2NodeCoreController(options: {
       if (sequence !== nodeRefreshSequence.current) return
       consecutiveNodeFailures.current = 0
       setNodes(next)
+      snapshotLanded.current = true
+      setNodesReady(true)
     } catch (error) {
       if (sequence !== nodeRefreshSequence.current) return
       consecutiveNodeFailures.current += 1
@@ -327,6 +382,39 @@ export function useHomeV2NodeCoreController(options: {
       }
     }
   }, [markNodesUnavailable, nodeClient])
+
+  // The fast read: which networks are enabled, before any node is contacted.
+  //
+  // Without it the first paint uses the placeholder modes -- Qortium local,
+  // Qortal disabled -- so a user with Qortal enabled saw the Qortium panels
+  // alone, then the Qortal ones appeared about four seconds later when the
+  // snapshot's probes finally returned. Anyone with Qortium DISABLED saw the
+  // opposite: panels that then vanished.
+  //
+  // Failure is not fatal. `nodesReady` is set either way, so a bridge that
+  // cannot answer this falls back to the previous behaviour (paint the
+  // placeholder, correct it when the snapshot lands) rather than hanging.
+  useEffect(() => {
+    if (!nodeClient) return
+    let cancelled = false
+    void nodeClient
+      .getModes()
+      .then((value) => {
+        if (cancelled) return
+        const modes = parseHomeV2NodeModes(value)
+        // A full snapshot that landed first is authoritative -- it has the same
+        // modes and the status besides, so this must not overwrite it.
+        if (snapshotLanded.current) return
+        setNodes((current) => applyHomeV2NodeModes(current, modes))
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (!cancelled) setNodesReady(true)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [nodeClient])
 
   const refreshCoreStatuses = useCallback(async () => {
     if (!coreClient) {
@@ -563,6 +651,7 @@ export function useHomeV2NodeCoreController(options: {
     markNodesUnavailable,
     nodeBusyNetwork,
     nodes,
+    nodesReady,
     refreshAll,
     refreshCoreStatuses,
     refreshNodes,

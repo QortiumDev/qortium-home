@@ -72,6 +72,7 @@
     "smoke:desktop:home-v2-bookmark-toolbar": "node scripts/smoke-home-v2-bookmark-toolbar.mjs",
     "smoke:desktop:qdn-media-seek": "node scripts/smoke-desktop-qdn-media-seek.mjs",
     "smoke:desktop:qdn-write": "node scripts/smoke-desktop-qdn-write.mjs",
+    "smoke:desktop:home-v2-dashboard-networks": "node scripts/smoke-desktop-home-v2-dashboard-networks.mjs",
     "smoke:desktop:widgets": "node scripts/smoke-desktop-widgets.mjs",
     "smoke:desktop:qdn-permissions": "node scripts/smoke-desktop-qdn-write.mjs --scenario=all",
     "smoke:qdn-services": "node scripts/ensure-electron-build.mjs && node scripts/smoke-qdn-services.mjs",

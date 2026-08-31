@@ -55,6 +55,13 @@ function deferred<T>() {
   return { promise, resolve }
 }
 
+function modesPayload(
+  qortal: 'disabled' | 'local' | 'public' | 'custom' = 'disabled',
+  qortium: 'disabled' | 'local' | 'public' | 'custom' = 'local',
+) {
+  return { version: 1, modes: { qortal, qortium } }
+}
+
 function nodeSnapshot(label: string) {
   const nodes = createInitialHomeV2Nodes()
   return {
@@ -127,6 +134,7 @@ try {
   let snapshotCalls = 0
   let mutationCalls = 0
   const nodeClient = {
+    getModes: async () => modesPayload(),
     getSnapshot: () => {
       snapshotCalls += 1
       return snapshotCalls === 1 ? oldRefresh.promise : newRefresh.promise
@@ -236,6 +244,7 @@ try {
     let snapshotCalls = 0
     let failing = true
     const nodeClient = {
+      getModes: async () => modesPayload(),
       getSnapshot: () => {
         snapshotCalls += 1
         return failing
@@ -398,6 +407,7 @@ try {
     },
   })
   const nodeClient = {
+    getModes: async () => modesPayload(),
     getSnapshot: async () => snapshotNow(),
     setMode: async (network: string, mode: string) => {
       setModeCalls.push({ mode, network })
@@ -439,6 +449,97 @@ try {
     await controller.runCoreAction('qortal', 'stop')
   })
   assert.deepEqual(setModeCalls, [], 'stopping a Core must not change the node mode')
+  } finally {
+    act(() => root.unmount())
+    container.remove()
+  }
+}
+
+// --- Which networks are on is known before any node is contacted ---------
+// The Dashboard decides its layout from the node modes. Reading them from the
+// snapshot meant waiting for its probes -- about four seconds with both
+// networks configured -- so the Qortal panels appeared long after the window
+// did. The settings-only read answers that question immediately.
+{
+  const container = document.createElement('div')
+  document.body.appendChild(container)
+  const root = createRoot(container)
+  try {
+    // The snapshot NEVER resolves here. Anything the controller can report
+    // before it does is exactly what the first paint has to work with.
+    const stuckSnapshot = deferred<ReturnType<typeof nodeSnapshot>>()
+    let modeCalls = 0
+    const nodeClient = {
+      getModes: async () => {
+        modeCalls += 1
+        return modesPayload('public', 'disabled')
+      },
+      getSnapshot: () => stuckSnapshot.promise,
+      setMode: () => stuckSnapshot.promise,
+    } as unknown as HomeV2NodeClient
+
+    await act(async () => {
+      root.render(<Harness coreClient={null} nodeClient={nodeClient} />)
+      await Promise.resolve()
+    })
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    assert.equal(modeCalls, 1, 'the modes are read once on mount')
+    assert.equal(
+      controller.nodes.qortal.mode,
+      'public',
+      'an enabled Qortal must be known before the snapshot lands',
+    )
+    assert.equal(
+      controller.nodes.qortium.mode,
+      'disabled',
+      'a DISABLED Qortium must be known too -- the placeholder says local, so ' +
+        'without this the panels appear and then vanish',
+    )
+    assert.equal(
+      controller.nodesReady,
+      true,
+      'the Dashboard is cleared to draw once the modes are known',
+    )
+    // Status is not guessed: only the mode comes from this read.
+    assert.equal(controller.nodes.qortal.statusText, 'Checking')
+    assert.equal(controller.nodes.qortal.capabilities.read, false)
+  } finally {
+    act(() => root.unmount())
+    container.remove()
+  }
+}
+
+// A failed mode read must not leave the Dashboard waiting forever. It falls
+// back to what it did before: paint, then correct when the snapshot lands.
+{
+  const container = document.createElement('div')
+  document.body.appendChild(container)
+  const root = createRoot(container)
+  try {
+    const nodeClient = {
+      getModes: async () => {
+        throw new Error('bridge not authorized')
+      },
+      getSnapshot: async () => nodeSnapshot('after-failure'),
+      setMode: async () => nodeSnapshot('after-failure'),
+    } as unknown as HomeV2NodeClient
+
+    await act(async () => {
+      root.render(<Harness coreClient={null} nodeClient={nodeClient} />)
+      await Promise.resolve()
+    })
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    assert.equal(
+      controller.nodesReady,
+      true,
+      'a failed mode read must still release the Dashboard',
+    )
   } finally {
     act(() => root.unmount())
     container.remove()

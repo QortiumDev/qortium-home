@@ -257,6 +257,16 @@ export interface HomeV2PrototypeProps {
   readonly onWelcomeStepChange?: (step: HomeV2OnboardingStep) => void
   readonly onRestartWelcome?: () => void
   readonly onOpenCoreDocs?: (network: NetworkId) => void
+  /**
+   * Whether the enabled networks are known yet. False only between mount and
+   * the first (settings-only, sub-millisecond) answer; surfaces whose LAYOUT
+   * depends on which networks are on wait for it rather than drawing from the
+   * placeholder modes and rearranging themselves a few seconds later.
+   *
+   * Defaults to true, so fixtures and tests -- which are handed a real snapshot
+   * -- render exactly as they did before.
+   */
+  readonly nodesReady?: boolean
 }
 
 function NewTabPage(props: HomeV2PrototypeProps) {
@@ -702,6 +712,7 @@ function Dashboard(props: DashboardProps) {
     onRemove: () => undefined,
     onRename: () => undefined,
   }
+  const nodesReady = props.nodesReady ?? true
   const enabledNetworks = (['qortium', 'qortal'] as const).filter(
     (network) => snapshot.nodes[network].mode !== 'disabled',
   )
@@ -725,32 +736,43 @@ function Dashboard(props: DashboardProps) {
         ) : null}
       </header>
 
-      {qortiumEnabled || visiblePins.length > 0 ? (
-        <HomeV2PinnedApps
-          {...pinnedApps}
-          allowAdd={qortiumEnabled}
-          loadVisibleAppIcon={props.loadVisibleAppIcon}
-          pins={visiblePins}
-        />
-      ) : null}
+      {!nodesReady ? (
+        <p
+          className="home-v2-dashboard-loading"
+          data-home-v2-dashboard="loading-networks"
+        >
+          {t('home2.common.loading')}
+        </p>
+      ) : (
+        <>
+        {qortiumEnabled || visiblePins.length > 0 ? (
+          <HomeV2PinnedApps
+            {...pinnedApps}
+            allowAdd={qortiumEnabled}
+            loadVisibleAppIcon={props.loadVisibleAppIcon}
+            pins={visiblePins}
+          />
+        ) : null}
 
-      <HomeV2NodeCoreSection
-        snapshot={snapshot}
-        networks={enabledNetworks}
-        appUpdates={props.appUpdates}
-        coreManagement={props.coreManagement}
-        onChainCoreUpdates={props.onChainCoreUpdates}
-        onSetNodeMode={onSetNodeMode}
-        onRefreshNode={onRefreshNode}
-        onConfigureCustomNode={onConfigureCustomNode}
-        onOpenCoreDocs={props.onOpenCoreDocs}
-        onOpenReleaseNotes={props.onOpenReleaseNotes}
-        onOpenSettings={
-          props.onOpenSettingsSection
-            ? () => props.onOpenSettingsSection?.('core')
-            : undefined
-        }
-      />
+        <HomeV2NodeCoreSection
+          snapshot={snapshot}
+          networks={enabledNetworks}
+          appUpdates={props.appUpdates}
+          coreManagement={props.coreManagement}
+          onChainCoreUpdates={props.onChainCoreUpdates}
+          onSetNodeMode={onSetNodeMode}
+          onRefreshNode={onRefreshNode}
+          onConfigureCustomNode={onConfigureCustomNode}
+          onOpenCoreDocs={props.onOpenCoreDocs}
+          onOpenReleaseNotes={props.onOpenReleaseNotes}
+          onOpenSettings={
+            props.onOpenSettingsSection
+              ? () => props.onOpenSettingsSection?.('core')
+              : undefined
+          }
+        />
+        </>
+      )}
 
       <AccountCard {...props} />
 

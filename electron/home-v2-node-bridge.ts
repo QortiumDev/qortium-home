@@ -433,6 +433,50 @@ function normalizeNodeSummary(
   }
 }
 
+const NODE_CONNECTION_MODES = ['disabled', 'local', 'public', 'custom'] as const
+
+function settingsMode(
+  settings: unknown,
+  fallback: (typeof NODE_CONNECTION_MODES)[number],
+) {
+  const mode = stringField(settings, 'mode')
+  return NODE_CONNECTION_MODES.includes(
+    mode as (typeof NODE_CONNECTION_MODES)[number],
+  )
+    ? (mode as (typeof NODE_CONNECTION_MODES)[number])
+    : fallback
+}
+
+/**
+ * Which networks are switched on, from settings alone -- NO status probes.
+ *
+ * buildSnapshot answers the same question, but it reaches every configured node
+ * first and takes about four seconds to return (measured 4.2-4.5s on this
+ * machine with both networks enabled). Whether a network is enabled is on disk
+ * and takes microseconds, so the Dashboard had no reason to wait: it painted
+ * itself with the renderer's placeholder modes, in which Qortal is always
+ * disabled, and the Qortal panels then appeared out of nowhere seconds later.
+ *
+ * The renderer asks this first and paints from it, then the full snapshot fills
+ * in status. Deliberately a separate call rather than a partial snapshot: this
+ * one cannot fail slowly, and nothing downstream can mistake it for status.
+ */
+export async function getHomeV2NodeModes() {
+  const [qortalSettings, qortiumSettings] = await Promise.all([
+    getQortalNodeSettingsForHomeV2().catch(() => null),
+    getNodeSettingsForHomeV2().catch(() => null),
+  ])
+  return {
+    version: 1,
+    modes: {
+      // The fallbacks match buildSnapshot's own catch branches, so a settings
+      // read that fails lands on the same answer through either path.
+      qortal: settingsMode(qortalSettings, 'disabled'),
+      qortium: settingsMode(qortiumSettings, 'local'),
+    },
+  }
+}
+
 async function buildSnapshot() {
   const [qortalSettings, qortiumSettings] = await Promise.all([
       getQortalNodeSettingsForHomeV2().catch((error: unknown) => ({
@@ -905,6 +949,10 @@ export function registerHomeV2NodeBridgeIpcHandlers() {
   ipcMain.handle('home-v2-nodes:getSnapshot', (event) => {
     assertAuthorizedHomeV2Sender(event)
     return getSnapshot()
+  })
+  ipcMain.handle('home-v2-nodes:getModes', (event) => {
+    assertAuthorizedHomeV2Sender(event)
+    return getHomeV2NodeModes()
   })
   ipcMain.handle('home-v2-accounts:list', (event) => {
     assertAuthorizedHomeV2Sender(event)

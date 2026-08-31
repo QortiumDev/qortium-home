@@ -3650,4 +3650,86 @@ testIdentityAndImageCachingKeepsChromeStable()
   assert.match(detach.slice(0, 1400), /if \(!adopted\) await windows\.openTab/)
 }
 
+// --- The Dashboard never guesses which networks are on -------------------
+// Deciding that from the placeholder node summaries is what made the Qortal
+// panels appear out of nowhere seconds after Home opened: the placeholders say
+// Qortal is disabled, and only the node snapshot -- which takes about four
+// seconds, because it contacts every configured node -- corrects them. So the
+// layout waits for the settings-only answer instead.
+{
+  const props = {
+    productState: homeV2ProductFixture,
+    permissionState: createPermissionState(),
+    layout: 'desktop' as const,
+    snapshot: homeV2Fixture,
+  }
+  const waiting = renderToStaticMarkup(
+    <HomeV2Prototype {...props} nodesReady={false} />,
+  )
+  const known = renderToStaticMarkup(
+    <HomeV2Prototype {...props} nodesReady={true} />,
+  )
+
+  assert.match(waiting, /data-home-v2-dashboard="loading-networks"/)
+  assert.ok(
+    !/home-v2-node-core/.test(waiting),
+    'the Node & Core section must not be drawn before the enabled networks are known',
+  )
+  assert.ok(
+    !/data-home-v2-dashboard="loading-networks"/.test(known),
+    'the placeholder must go once the networks are known',
+  )
+  assert.match(known, /home-v2-node-core/)
+
+  // Omitting the prop keeps the old behaviour, which is what every fixture and
+  // every other test in this file relies on.
+  const unspecified = renderToStaticMarkup(<HomeV2Prototype {...props} />)
+  assert.equal(unspecified, known)
+}
+
+// --- Every node channel the preload offers is answered --------------------
+// window.homeV2Nodes is an untyped object literal handed to contextBridge, and
+// the renderer's HomeV2NodeClient is only a DECLARATION of what that object is
+// expected to have. Nothing in the type system connects the two, so a method
+// added to the interface and forgotten in the preload -- or exposed in the
+// preload with no handler behind it -- compiles perfectly and fails at runtime.
+{
+  const preload = readFileSync('electron/home-v2-live-preload.cts', 'utf8')
+  const bridge = readFileSync('electron/home-v2-node-bridge.ts', 'utf8')
+  const channels = [
+    ...new Set(
+      [...preload.matchAll(/ipcRenderer\.invoke\('(home-v2-nodes:[^']+)'/g)].map(
+        (match) => match[1],
+      ),
+    ),
+  ]
+  assert.ok(channels.length > 0, 'the preload must expose node channels')
+  assert.ok(
+    channels.includes('home-v2-nodes:getModes'),
+    'the settings-only mode read must reach the main process',
+  )
+  for (const channel of channels) {
+    // Registrations wrap onto several lines, so this cannot be line-anchored.
+    assert.ok(
+      new RegExp(`ipcMain\\.handle\\(\\s*'${channel}'`).test(bridge),
+      `${channel} is exposed to the renderer with no handler behind it`,
+    )
+  }
+
+  // The whole point of the mode read is that it does NOT contact a node. A
+  // status call added here would restore the four-second wait while every test
+  // above kept passing, so the body is checked for one.
+  const modeReader = bridge.slice(
+    bridge.indexOf('export async function getHomeV2NodeModes()'),
+    bridge.indexOf('async function buildSnapshot()'),
+  )
+  assert.ok(modeReader.length > 0, 'getHomeV2NodeModes must exist')
+  assert.ok(
+    !/Status(?:ForHomeV2)?\(/.test(modeReader),
+    'the mode read must not probe node status; that is what makes it instant',
+  )
+  assert.match(modeReader, /getQortalNodeSettingsForHomeV2\(\)/)
+  assert.match(modeReader, /getNodeSettingsForHomeV2\(\)/)
+}
+
 console.log('home v2 foundation contract tests passed')

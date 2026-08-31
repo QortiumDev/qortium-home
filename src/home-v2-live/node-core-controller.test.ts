@@ -10,7 +10,9 @@ import {
   parseHomeV2CoreUpdatePolicyState,
 } from './core-manager-client'
 import {
+  applyHomeV2NodeModes,
   createInitialHomeV2Nodes,
+  parseHomeV2NodeModes,
   parseHomeV2NodesSnapshot,
   unavailableHomeV2Node,
 } from './node-core-controller'
@@ -338,6 +340,43 @@ for (const bad of [
   // And a percent outside 0-100 is refused rather than clamped in the renderer.
   assert.equal(parseHomeV2TransportProgress({ ...envelope, percent: 101 }), null)
   assert.equal(parseHomeV2TransportProgress({ ...envelope, action: 'nonsense' }), null)
+}
+
+// --- The settings-only mode read ------------------------------------------
+{
+  const modes = parseHomeV2NodeModes({
+    version: 1,
+    modes: { qortal: 'custom', qortium: 'disabled' },
+  })
+  assert.deepEqual({ ...modes }, { qortal: 'custom', qortium: 'disabled' })
+
+  // Refused rather than defaulted: a malformed answer must not be mistaken for
+  // "Qortal is off", which is exactly the wrong layout this fixes.
+  for (const bad of [
+    null,
+    {},
+    { version: 2, modes: { qortal: 'local', qortium: 'local' } },
+    { version: 1, modes: { qortal: 'local' } },
+    { version: 1, modes: { qortal: 'local', qortium: 'local', extra: 'local' } },
+    { version: 1, modes: { qortal: 'off', qortium: 'local' } },
+  ]) {
+    assert.throws(
+      () => parseHomeV2NodeModes(bad),
+      /Invalid/,
+      `${JSON.stringify(bad)} must not parse as node modes`,
+    )
+  }
+
+  // Applying them takes the mode and NOTHING else. Everything else in a
+  // summary is status, which this read does not have.
+  const initial = createInitialHomeV2Nodes()
+  const applied = applyHomeV2NodeModes(initial, modes)
+  assert.equal(applied.qortal.mode, 'custom')
+  assert.equal(applied.qortium.mode, 'disabled')
+  assert.equal(applied.qortal.statusText, initial.qortal.statusText)
+  assert.equal(applied.qortal.state, initial.qortal.state)
+  assert.equal(applied.qortium.capabilities.read, false)
+  assert.equal(applied.qortal.nodeApiUrl, null)
 }
 
 console.log('home v2 node/core controller tests passed')
