@@ -5,6 +5,7 @@ import {
   formatBytes,
   getOpenDownloadedFileLabel,
   type HomeUpdatePolicy,
+  UPDATE_CHANNELS,
 } from './appUpdateState';
 import { AppUpdateProgress } from './AppUpdateProgress';
 import { t } from './i18n';
@@ -33,19 +34,11 @@ type AppUpdatePanelProps = {
   updates: AppUpdatesState;
 };
 
-function hasDistinctAvailableChannels(updates: AppUpdatesState) {
-  const stableTag = updates.results.stable?.release?.tagName;
-  const prereleaseTag = updates.results.prerelease?.release?.tagName;
-
-  return !!stableTag && !!prereleaseTag && !areReleaseTagsEqual(stableTag, prereleaseTag);
-}
-
 function getHomeUpdateRows(
   updates: AppUpdatesState,
   onOpenReleaseNotes: (product: 'core' | 'home', tagName: string) => void,
 ) {
   const currentReleaseTag = formatReleaseTag(updates.environment?.currentVersion);
-  const showChannel = hasDistinctAvailableChannels(updates);
   const rows: DetailRow[] = [
     {
       label: t('common.status'),
@@ -68,12 +61,10 @@ function getHomeUpdateRows(
     },
   );
 
-  if (showChannel) {
-    rows.push({
-      label: t('updates.channelLabel'),
-      value: t(UPDATE_CHANNEL_LABEL_KEYS[updates.channel]),
-    });
-  }
+  rows.push({
+    label: t('updates.channelLabel'),
+    value: t(UPDATE_CHANNEL_LABEL_KEYS[updates.channel]),
+  });
 
   if (updates.result?.release && !areReleaseTagsEqual(updates.result.release.tagName, currentReleaseTag)) {
     rows.push({
@@ -120,7 +111,6 @@ export function AppUpdatePanel({
   const connections = useI2pConnections(nodeApiUrl, connectionRefreshEpoch);
   const i2pdManager = useI2pdManager(isManagedNode);
   const rows = getHomeUpdateRows(updates, onOpenReleaseNotes);
-  const showChannelSelect = hasDistinctAvailableChannels(updates);
   const showDownloadedAction = !!updates.downloadedUpdate?.canOpen;
   const showDownloadAction =
     !showDownloadedAction && updates.updateAvailable && !!updates.result?.asset && !!updates.result.release;
@@ -152,23 +142,26 @@ export function AppUpdatePanel({
           </select>
         </label>
 
-        {showChannelSelect ? (
-          <label className="field">
-            <span className="field__label">{t('updates.releaseChannelLabel')}</span>
-            <select
-              className="field__input"
-              disabled={updates.isChecking}
-              value={updates.channel}
-              onChange={(event) => updates.setChannel(event.target.value as QortiumAppUpdateChannel)}
-            >
-              {updates.availableChannels.map((channel) => (
-                <option key={channel} value={channel}>
-                  {t(UPDATE_CHANNEL_LABEL_KEYS[channel])}
-                </option>
-              ))}
-            </select>
-          </label>
-        ) : null}
+        {/* Always offered, never gated on what the two channels currently
+            resolve to. Hiding the control whenever one channel has no release
+            to show meant it never appeared at all while every Qortium Home
+            release was flagged as a prerelease, which left the choice
+            unreachable exactly when it mattered most. */}
+        <label className="field">
+          <span className="field__label">{t('updates.releaseChannelLabel')}</span>
+          <select
+            className="field__input"
+            disabled={updates.isChecking}
+            value={updates.channel}
+            onChange={(event) => updates.setChannel(event.target.value as QortiumAppUpdateChannel)}
+          >
+            {UPDATE_CHANNELS.map((channel) => (
+              <option key={channel} value={channel}>
+                {t(UPDATE_CHANNEL_LABEL_KEYS[channel])}
+              </option>
+            ))}
+          </select>
+        </label>
 
         <DetailList className="app-updates__details" rows={rows} />
 

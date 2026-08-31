@@ -1,5 +1,9 @@
 import assert from 'node:assert/strict';
-import { getMatchingDownloadedUpdate, isDownloadedUpdatePending } from './appUpdateState';
+import {
+  getMatchingDownloadedUpdate,
+  getPreferredResultChannel,
+  isDownloadedUpdatePending,
+} from './appUpdateState';
 
 const DIGEST = 'sha256:11ff';
 
@@ -74,6 +78,73 @@ assert.equal(
 assert.equal(
   isDownloadedUpdatePending(downloaded(), { stable: result('up-to-date'), prerelease: result('up-to-date') }),
   false,
+);
+
+// --- Release channel selection ---------------------------------------------
+
+const stableEnvironment: QortiumAppUpdateEnvironment = { currentVersion: '1.8.0', platform };
+const prereleaseEnvironment: QortiumAppUpdateEnvironment = { currentVersion: '2.1.0-rc.1', platform };
+
+// A channel the user picked survives a check that cannot resolve it. This is
+// the whole point of the picker on the 1.x line: every Qortium Home release was
+// flagged as a prerelease, so /releases/latest 404s and the stable channel
+// reports 'not-found' with no release attached. Falling back would move someone
+// who chose to stay on 1.x onto prerelease, and the next check would offer them
+// the 2.x line they had just declined.
+assert.equal(
+  getPreferredResultChannel({
+    currentChannel: 'stable',
+    environment: stableEnvironment,
+    hasExplicitChannel: true,
+    results: { prerelease: result('available', 'v2.1.0-rc.1') },
+  }),
+  'stable',
+);
+
+// The same holds in the other direction: someone who opted into prereleases is
+// not pulled back to stable just because stable is the only channel resolving.
+assert.equal(
+  getPreferredResultChannel({
+    currentChannel: 'prerelease',
+    environment: stableEnvironment,
+    hasExplicitChannel: true,
+    results: { stable: result('available', 'v1.8.0') },
+  }),
+  'prerelease',
+);
+
+// Without an explicit choice the existing fallbacks still apply: prefer a
+// channel that resolved, then the one implied by the running version, then
+// whichever channel has anything at all.
+assert.equal(
+  getPreferredResultChannel({
+    currentChannel: 'stable',
+    environment: prereleaseEnvironment,
+    hasExplicitChannel: false,
+    results: { prerelease: result('available', 'v2.1.0-rc.1') },
+  }),
+  'prerelease',
+);
+
+assert.equal(
+  getPreferredResultChannel({
+    currentChannel: 'prerelease',
+    environment: stableEnvironment,
+    hasExplicitChannel: false,
+    results: { stable: result('available', 'v1.8.0') },
+  }),
+  'stable',
+);
+
+// Nothing resolved and nothing chosen: stay put rather than invent a channel.
+assert.equal(
+  getPreferredResultChannel({
+    currentChannel: 'stable',
+    environment: stableEnvironment,
+    hasExplicitChannel: false,
+    results: {},
+  }),
+  'stable',
 );
 
 console.log('appUpdateState tests passed.');
