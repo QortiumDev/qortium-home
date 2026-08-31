@@ -34,6 +34,17 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-31 - fix(android): leave room for the final Home 1.x release
+
+Android identifies a version by a single whole number, and both the 1.x and 2.x
+lines draw from the same one. Home 2.1.0 was holding 41, and Home 1.8.0 - the
+last 1.x release, which exists so people on 1.x can decline 2.1.0 rather than
+being pulled onto it - has now taken 41 for itself. 2.1.0 moves to 42.
+
+Left as it was, Android would have refused to install 2.1.0 over 1.8.0, treating
+it as going backwards, which would have broken the very upgrade path both
+releases exist to open. Nothing about the app changes; only the number does.
+
 ### 2026-08-30 - fix(dashboard): stop the Qortal panels appearing seconds after Home opens
 
 Opening Home with both networks enabled showed only the Qortium panels, then a
