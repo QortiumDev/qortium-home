@@ -284,7 +284,81 @@ export async function mirrorRuntimeRewardNodeIdentityToPreview(runtimePath: stri
   });
 }
 
+/**
+ * Copies a wallets directory out of the install tree, which an install replaces
+ * wholesale.
+ *
+ * Home never writes walletsPath -- qortium-core#295's PreviewRuntimeWallets
+ * does, from preview/start.sh, and a Home-managed run inherits whatever is
+ * already in the managed settings file. With no key present Core falls back to
+ * a RELATIVE `wallets` default that resolves inside the install tree, which is
+ * how wallet data ends up in a directory an install replaces wholesale. That
+ * data is irreplaceable -- a crosschain wallet, not a cache -- and a managed
+ * update must not destroy it merely because Home was not what created it.
+ *
+ * COPIES rather than moves: leaving the original in place costs disk until the
+ * install replaces it, and that is the right trade for wallet data, because a
+ * half-completed move is the one outcome worth ruling out. Unlike the sibling
+ * preservation steps it does NOT skip an occupied destination -- see the
+ * fail-closed comment below. qortium-core#295 performs the authoritative
+ * migration, with byte verification and a settings rewrite; this is only a
+ * guard for data that has not been through it.
+ *
+ * Only safe against a STOPPED Core, which the caller guarantees: it stops a
+ * Home-owned Core and waits for the pid to exit, and an install is refused
+ * outright while a Core that Home does not own is running.
+ */
+export async function copyLegacyInstallWalletsToRuntime(
+  previewPath: string,
+  runtimePath: string,
+) {
+  const legacyWalletsPath = path.join(previewPath, 'wallets');
+  const targetWalletsPath = path.join(runtimePath, 'wallets');
+
+  if (
+    !existsSync(legacyWalletsPath) ||
+    normalizeFilesystemPath(legacyWalletsPath) === normalizeFilesystemPath(targetWalletsPath)
+  ) {
+    return;
+  }
+
+  const entries = await readdir(legacyWalletsPath, { withFileTypes: true });
+
+  if (entries.length === 0) {
+    return;
+  }
+
+  await mkdir(targetWalletsPath, { recursive: true });
+
+  for (const entry of entries) {
+    const targetEntryPath = path.join(targetWalletsPath, entry.name);
+
+    // FAIL CLOSED on a conflict. Skipping is what the sibling steps do, and it
+    // is right for lists, which regenerate -- but here the caller DELETES the
+    // legacy tree moments later, so a skip quietly destroys anything that
+    // existed only in the skipped directory. Refusing the install leaves both
+    // copies intact for qortium-core's PreviewRuntimeWallets, which reconciles
+    // with byte comparison; this step has no business choosing a winner.
+    //
+    // Raised by the Core session in review, and they were right: the first
+    // version of this skipped, and its test codified the skip.
+    if (existsSync(targetEntryPath)) {
+      throw new Error(
+        `Two wallet directories exist for ${entry.name}: ${targetEntryPath} and ` +
+          `${path.join(legacyWalletsPath, entry.name)}. Refusing to install, because ` +
+          'continuing would delete the second. Reconcile them first -- starting Core ' +
+          'through preview/start.sh migrates and verifies it.',
+      );
+    }
+
+    await cp(path.join(legacyWalletsPath, entry.name), targetEntryPath, {
+      recursive: entry.isDirectory(),
+    });
+  }
+}
+
 export async function preserveLegacyCoreRuntimeFiles(previewPath: string, runtimePath: string) {
   await preserveLegacyRewardNodeIdentity(previewPath, runtimePath);
   await copyLegacyInstallListsToRuntime(previewPath, runtimePath);
+  await copyLegacyInstallWalletsToRuntime(previewPath, runtimePath);
 }
