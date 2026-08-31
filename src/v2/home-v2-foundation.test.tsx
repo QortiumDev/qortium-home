@@ -35,6 +35,11 @@ import {
 import { QDN_BROWSER_ARCHIVE_SERVICES } from '../../electron/qdn-browser-archive-services'
 import { DEFAULT_NEW_TAB_PREFERENCE } from './new-tab-preference'
 import {
+  DEFAULT_STARTUP_PREFERENCE,
+  parseHomeV2StartupPreference,
+  resolveHomeV2StartupPlan,
+} from './startup-preference'
+import {
   createProductState,
   findReplaceableAppTab,
   ProductModelError,
@@ -2202,22 +2207,25 @@ function testCoreManagementRenderingAndAndroidDegrade(): void {
     { accountId: null, displayUrl: '  ' },
     { accountId: null, displayUrl: 'home://apps' },
   ]
+  const expectedPages = [
+    { accountId: 'wallet:Qa', displayUrl: 'qdn://APP/Chat/Chat' },
+    { accountId: null, displayUrl: 'qdn://APP/Trust/Trust' },
+    { accountId: null, displayUrl: 'home://apps' },
+  ]
   assert.deepEqual(
     planStartPageLaunch({
       appTabCount: 0,
+      mode: 'when-empty',
       onboardingInProgress: false,
       startPages,
       knownAccountIds: ['wallet:Qa'],
     }),
-    [
-      { accountId: 'wallet:Qa', displayUrl: 'qdn://APP/Chat/Chat' },
-      { accountId: null, displayUrl: 'qdn://APP/Trust/Trust' },
-      { accountId: null, displayUrl: 'home://apps' },
-    ],
+    expectedPages,
   )
   assert.deepEqual(
     planStartPageLaunch({
       appTabCount: 2,
+      mode: 'when-empty',
       onboardingInProgress: false,
       startPages,
       knownAccountIds: ['wallet:Qa'],
@@ -2227,7 +2235,44 @@ function testCoreManagementRenderingAndAndroidDegrade(): void {
   assert.deepEqual(
     planStartPageLaunch({
       appTabCount: 0,
+      mode: 'when-empty',
       onboardingInProgress: true,
+      startPages,
+      knownAccountIds: ['wallet:Qa'],
+    }),
+    [],
+  )
+
+  // Choosing start pages explicitly means an open tab is no longer a reason to
+  // skip them -- that rule exists to stop them overwriting a restored session,
+  // and on this path the session is deliberately not restored.
+  assert.deepEqual(
+    planStartPageLaunch({
+      appTabCount: 2,
+      mode: 'always',
+      onboardingInProgress: false,
+      startPages,
+      knownAccountIds: ['wallet:Qa'],
+    }),
+    expectedPages,
+  )
+  // Onboarding still suppresses them, whatever the setting says.
+  assert.deepEqual(
+    planStartPageLaunch({
+      appTabCount: 0,
+      mode: 'always',
+      onboardingInProgress: true,
+      startPages,
+      knownAccountIds: ['wallet:Qa'],
+    }),
+    [],
+  )
+  // "A new tab" means no start pages at all, even with none open.
+  assert.deepEqual(
+    planStartPageLaunch({
+      appTabCount: 0,
+      mode: 'never',
+      onboardingInProgress: false,
       startPages,
       knownAccountIds: ['wallet:Qa'],
     }),
@@ -3313,12 +3358,12 @@ function testShellStateMigratesAddressSelection(): void {
     'light',
     'en',
   )
-  assert.equal(legacy.version, 3)
+  assert.equal(legacy.version, 4)
   assert.equal(legacy.onboarding.status, 'skipped')
   assert.equal(legacy.selectedAccountId, 'wallet:Qprimary')
   assert.equal(legacy.selectedAddressId, 'wallet:Qprimary:2')
   assert.deepEqual(serializeHomeV2ShellState(legacy), {
-    version: 3,
+    version: 4,
     appearance: {
       accent: legacy.appearance.accent,
       appZoom: legacy.appearance.appZoom,
@@ -3328,6 +3373,9 @@ function testShellStateMigratesAddressSelection(): void {
       ui: legacy.appearance.ui,
     },
     newTabPreference: DEFAULT_NEW_TAB_PREFERENCE,
+    // Absent in the stored record, so the migration must supply the pair that
+    // reproduces the old behaviour exactly.
+    startupPreference: DEFAULT_STARTUP_PREFERENCE,
     onboarding: legacy.onboarding,
     selectedAccountId: 'wallet:Qprimary',
     selectedAddressId: 'wallet:Qprimary:2',
@@ -3345,7 +3393,7 @@ function testShellStateMigratesAddressSelection(): void {
     ...legacy,
     product: newTabProduct,
   })
-  assert.equal(serializedNewTab.version, 3)
+  assert.equal(serializedNewTab.version, 4)
   assert.equal(
     serializedNewTab.product.entries.filter((entry) => entry.kind === 'app').length,
     2,
@@ -3360,7 +3408,7 @@ function testShellStateMigratesAddressSelection(): void {
     'light',
     'en',
   )
-  assert.equal(restoredNewTab.version, 3)
+  assert.equal(restoredNewTab.version, 4)
   assert.equal(restoredNewTab.product.destination, 'newtab')
   assert.equal(
     restoredNewTab.product.entries.find(
@@ -3730,6 +3778,120 @@ testIdentityAndImageCachingKeepsChromeStable()
   )
   assert.match(modeReader, /getQortalNodeSettingsForHomeV2\(\)/)
   assert.match(modeReader, /getNodeSettingsForHomeV2\(\)/)
+}
+
+// --- What Home opens with ------------------------------------------------
+// Home 2 always reopened the last session's tabs, with no way to say otherwise.
+// The choice is now a setting. The start PAGES are not stored here: they live
+// in the bookmark manager's `startPages` root and are edited in the Bookmarks
+// app, so this only decides whether they are used.
+{
+  const restore = { kind: 'restore' } as const
+  const startPagesChoice = { kind: 'startPages' } as const
+  const newTab = { kind: 'newTab' } as const
+  const dashboard = { kind: 'dashboard' } as const
+  const search = { kind: 'search' } as const
+  const custom = { address: 'qdn://APP/Help', kind: 'custom' } as const
+
+  // The default is what Home did before the setting existed, so upgrading
+  // changes nothing until the reader chooses otherwise -- including the
+  // long-standing rule that start pages fill an otherwise-empty session.
+  assert.deepEqual({ ...DEFAULT_STARTUP_PREFERENCE }, { kind: 'restore' })
+  assert.deepEqual(resolveHomeV2StartupPlan(restore, custom), {
+    restoreTabs: true,
+    startPages: 'when-empty',
+    initialPage: 'dashboard',
+    newTabAddress: null,
+    closeInitialTab: false,
+  })
+
+  // Start pages are the only choice that discards the stored strip, and the
+  // initial Dashboard tab goes with it -- otherwise they arrive behind a tab
+  // nobody asked for.
+  assert.deepEqual(resolveHomeV2StartupPlan(startPagesChoice, dashboard), {
+    restoreTabs: false,
+    startPages: 'always',
+    initialPage: 'dashboard',
+    newTabAddress: null,
+    closeInitialTab: true,
+  })
+
+  // "A new tab" defers to the New tab setting rather than repeating it, and
+  // never opens start pages.
+  assert.equal(resolveHomeV2StartupPlan(newTab, search).initialPage, 'newtab')
+  assert.equal(
+    resolveHomeV2StartupPlan(newTab, dashboard).initialPage,
+    'dashboard',
+  )
+  assert.equal(
+    resolveHomeV2StartupPlan(newTab, custom).newTabAddress,
+    'qdn://APP/Help',
+  )
+  for (const preference of [search, dashboard, custom] as const) {
+    assert.equal(
+      resolveHomeV2StartupPlan(newTab, preference).startPages,
+      'never',
+    )
+  }
+  // Only the custom address replaces the initial tab; the other two ARE it.
+  for (const preference of [search, dashboard] as const) {
+    assert.equal(
+      resolveHomeV2StartupPlan(newTab, preference).closeInitialTab,
+      false,
+    )
+  }
+  assert.equal(resolveHomeV2StartupPlan(newTab, custom).closeInitialTab, true)
+
+  // Parsing fails closed: an unknown choice restores, which loses nothing.
+  for (const bad of [null, {}, { kind: 'whatever' }, 'startPages']) {
+    assert.deepEqual(
+      { ...parseHomeV2StartupPreference(bad) },
+      { kind: 'restore' },
+    )
+  }
+
+  // The Settings row offers the choice and points at the Bookmarks app for the
+  // list rather than growing an editor of its own.
+  const settingsProps = {
+    account: homeV2Fixture.account,
+    appearance: homeV2Fixture.appearance,
+    nodes: homeV2Fixture.nodes,
+    newTabPreference: DEFAULT_NEW_TAB_PREFERENCE,
+    requestedSection: 'general' as const,
+  }
+  const restoreMarkup = renderToStaticMarkup(
+    <SettingsPage {...settingsProps} startupPreference={restore} />,
+  )
+  assert.match(restoreMarkup, /data-home-v2-setting="startup"/)
+  assert.match(restoreMarkup, />Tabs from last time</)
+  assert.ok(
+    !/Bookmarks app/.test(restoreMarkup),
+    'the start-page hint belongs only to the start-pages choice',
+  )
+
+  const withPages = renderToStaticMarkup(
+    <SettingsPage
+      {...settingsProps}
+      startupPreference={startPagesChoice}
+      startPageCount={3}
+    />,
+  )
+  assert.match(withPages, /3 saved in the Bookmarks app/)
+  assert.ok(
+    !/home-v2-start-pages__list|Add page|Use the tabs open now/.test(withPages),
+    'Home must not carry a second start-page editor; the Bookmarks app owns it',
+  )
+
+  const withNone = renderToStaticMarkup(
+    <SettingsPage {...settingsProps} startupPreference={startPagesChoice} />,
+  )
+  assert.match(withNone, /No start pages saved\. Add them in the Bookmarks app/)
+
+  // Omitting the props leaves the row on its default rather than blank.
+  assert.match(
+    renderToStaticMarkup(<SettingsPage {...settingsProps} />),
+    /<option value="restore" selected=""/,
+  )
 }
 
 console.log('home v2 foundation contract tests passed')

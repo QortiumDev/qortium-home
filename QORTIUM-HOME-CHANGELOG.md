@@ -34,6 +34,32 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-31 - feat(settings): choose what Home opens with
+
+Home always reopened the tabs from the last session, and there was no setting to
+say otherwise. There is one now, in Settings under General: "When Home opens".
+
+The three choices are the tabs from last time, which is what Home has always
+done and stays the default so that upgrading changes nothing; the saved start
+pages; or a new tab. "A new tab" deliberately follows the existing "New tab
+opens" setting rather than repeating its options, so it can mean the Dashboard,
+the search page, or an address of your own.
+
+Home already knew how to open start pages, and the Bookmarks app already knows
+how to edit the list - so this setting adds neither. It only decides whether
+they are used. Until now they opened only when the session would otherwise have
+been empty, which meant that anyone with tabs from last time never saw them at
+all. Choosing "Start pages" says to open them instead of those tabs. The
+Settings row says how many are saved and points at the Bookmarks app; it does
+not offer a second place to edit them.
+
+Some care around what these choices do to your tabs. The Dashboard tab Home
+creates before it has read anything is closed once your start pages are open, so
+they are not left sitting behind a tab nobody asked for - but only if at least
+one of them opened, so a window is never left empty. If Home has already been
+used before the stored state finished loading, the choice steps aside and the
+old tabs are restored instead, because replacing them would throw away whatever
+had just been opened. The welcome flow still suppresses start pages, as before.
 ### 2026-08-31 - fix(android): leave room for the final Home 1.x release
 
 Android identifies a version by a single whole number, and both the 1.x and 2.x
@@ -44,7 +70,6 @@ being pulled onto it - has now taken 41 for itself. 2.1.0 moves to 42.
 Left as it was, Android would have refused to install 2.1.0 over 1.8.0, treating
 it as going backwards, which would have broken the very upgrade path both
 releases exist to open. Nothing about the app changes; only the number does.
-
 ### 2026-08-30 - fix(dashboard): stop the Qortal panels appearing seconds after Home opens
 
 Opening Home with both networks enabled showed only the Qortium panels, then a

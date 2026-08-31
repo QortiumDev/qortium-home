@@ -66,6 +66,8 @@ const SMOKES = [
   // Seeds both networks to public, so it asserts the Dashboard's LAYOUT without
   // needing either node to answer. Not yet observed on a runner.
   { script: 'smoke:desktop:home-v2-dashboard-networks', needs: 'none' },
+  // Seeds three profiles and launches three times, one per startup choice.
+  { script: 'smoke:desktop:home-v2-startup-pages', needs: 'none' },
 
   { script: 'smoke:desktop:home-v2-chrome-menus', needs: 'none', flaky: true,
     note: 'navigates immediately after launch; a late profile restore can undo it (~1 in 6)' },

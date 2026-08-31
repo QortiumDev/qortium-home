@@ -49,6 +49,7 @@ import {
   DEFAULT_NEW_TAB_PREFERENCE,
   type NewTabPreference,
 } from '../new-tab-preference'
+import type { HomeV2StartupPreference } from '../startup-preference'
 import { useHomeV2Translation } from '../i18n'
 import {
   AppTabStage,
@@ -245,6 +246,12 @@ export interface HomeV2PrototypeProps {
     visibility: BookmarkToolbarVisibility,
   ) => void | Promise<void>
   readonly onSetNewTabPreference?: (preference: NewTabPreference) => void
+  readonly startupPreference?: HomeV2StartupPreference
+  /** How many start pages the Bookmarks app holds, for the Settings hint. */
+  readonly startPageCount?: number
+  readonly onSetStartupPreference?: (
+    preference: HomeV2StartupPreference,
+  ) => void
   readonly onSetAppNotifications?: (enabled: boolean) => Promise<void>
   readonly onSetWindowBehavior?: (change: HomeV2WindowBehaviorChange) => Promise<void>
   readonly onOpenReleaseNotes?: (target: HomeV2ReleaseNotesTarget) => void
@@ -1216,6 +1223,9 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
                   // actual default for the very same setting.
                   props.newTabPreference ?? DEFAULT_NEW_TAB_PREFERENCE
                 }
+                startupPreference={props.startupPreference}
+                startPageCount={props.startPageCount}
+                onSetStartupPreference={props.onSetStartupPreference}
                 onSetTheme={props.onSetTheme}
                 onSetAccent={props.onSetAccent}
                 onSetTextSize={props.onSetTextSize}

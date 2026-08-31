@@ -2530,6 +2530,21 @@ body,
   min-width: 0;
 }
 
+/* The "When Home opens" row. Matches the new-tab row's shape; the hint under
+   the select points at the Bookmarks app, which owns the start-page list. */
+.home-v2-startup-setting {
+  min-width: min(420px, 100%);
+  align-items: stretch;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.home-v2-start-pages-hint {
+  color: var(--v2-muted);
+  font-size: var(--v2-type-small);
+  margin: 0;
+}
+
 .home-v2-new-tab-setting [role='alert'] {
   color: var(--v2-danger);
   font-size: var(--v2-type-small);
@@ -3173,7 +3188,8 @@ body,
   text-align: center;
 }
 
-.home-v2-shell[data-layout='phone'] .home-v2-new-tab-setting {
+.home-v2-shell[data-layout='phone'] .home-v2-new-tab-setting,
+.home-v2-shell[data-layout='phone'] .home-v2-startup-setting {
   width: 100%;
   min-width: 0;
 }

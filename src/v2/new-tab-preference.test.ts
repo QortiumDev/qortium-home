@@ -12,6 +12,45 @@ import {
   serializeHomeV2ShellState,
 } from '../home-v2-live/shell-state'
 
+function testStartupPreferenceRoundTrips(): void {
+  const fallback = createHomeV2ShellState('light', 'en')
+  // A version 3 record predates the setting, so a restart after upgrading must
+  // behave exactly as it did before.
+  const upgraded = parseHomeV2ShellState(
+    { version: 3, appearance: {}, product: fallback.product },
+    'light',
+    'en',
+  )
+  assert.deepEqual({ ...upgraded.startupPreference }, { kind: 'restore' })
+
+  for (const startupPreference of [
+    { kind: 'restore' } as const,
+    { kind: 'startPages' } as const,
+    { kind: 'newTab' } as const,
+  ]) {
+    const serialized = serializeHomeV2ShellState({
+      ...fallback,
+      startupPreference,
+    })
+    assert.deepEqual(serialized.startupPreference, startupPreference)
+
+    const restored = parseHomeV2ShellState(
+      JSON.parse(JSON.stringify(serialized)),
+      'dark',
+      'en',
+    )
+    assert.deepEqual({ ...restored.startupPreference }, startupPreference)
+  }
+
+  // The start PAGES are not in this record at all -- they belong to the
+  // bookmark manager, which the Bookmarks app edits. Home storing a second copy
+  // is exactly what this setting must not do.
+  assert.ok(
+    !('startPages' in serializeHomeV2ShellState(fallback)),
+    'the shell state must not carry its own copy of the start pages',
+  )
+}
+
 function testCustomAddressValidation(): void {
   const accepted = [
     ['home://dashboard', 'home://dashboard'],
@@ -132,7 +171,7 @@ function testPreferenceParsingFailsClosed(): void {
 
 function testShellStateMigrationAndRoundTrips(): void {
   const fallback = createHomeV2ShellState('light', 'en')
-  assert.equal(fallback.version, 3)
+  assert.equal(fallback.version, 4)
   assert.equal(fallback.appearance.theme, 'dark')
   assert.equal(fallback.appearance.resolvedTheme, 'dark')
   assert.equal(fallback.onboarding.status, 'in-progress')
@@ -157,7 +196,7 @@ function testShellStateMigrationAndRoundTrips(): void {
     },
   ]) {
     const parsed = parseHomeV2ShellState(stored, 'light', 'en')
-    assert.equal(parsed.version, 3)
+    assert.equal(parsed.version, 4)
     assert.equal(parsed.appearance.theme, 'dark')
     assert.equal(parsed.appearance.resolvedTheme, 'dark')
     assert.equal(parsed.onboarding.status, 'skipped')
@@ -202,7 +241,7 @@ function testShellStateMigrationAndRoundTrips(): void {
       ...fallback,
       newTabPreference,
     })
-    assert.equal(serialized.version, 3)
+    assert.equal(serialized.version, 4)
     assert.deepEqual(serialized.newTabPreference, newTabPreference)
 
     const restored = parseHomeV2ShellState(
@@ -210,7 +249,7 @@ function testShellStateMigrationAndRoundTrips(): void {
       'dark',
       'en',
     )
-    assert.equal(restored.version, 3)
+    assert.equal(restored.version, 4)
     assert.deepEqual(restored.newTabPreference, newTabPreference)
   }
 }
@@ -218,5 +257,6 @@ function testShellStateMigrationAndRoundTrips(): void {
 testCustomAddressValidation()
 testPreferenceParsingFailsClosed()
 testShellStateMigrationAndRoundTrips()
+testStartupPreferenceRoundTrips()
 
 console.log('Home v2 new-tab preference tests passed.')

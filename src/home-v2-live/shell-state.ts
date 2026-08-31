@@ -15,15 +15,21 @@ import {
   type NewTabPreference,
 } from '../v2/new-tab-preference'
 import {
+  DEFAULT_STARTUP_PREFERENCE,
+  parseHomeV2StartupPreference,
+  type HomeV2StartupPreference,
+} from '../v2/startup-preference'
+import {
   createHomeV2OnboardingState,
   parseHomeV2OnboardingState,
   type HomeV2OnboardingState,
 } from './onboarding-state'
 
 export interface HomeV2ShellState {
-  readonly version: 3
+  readonly version: 4
   readonly appearance: HomeV2AppearanceSettings
   readonly newTabPreference: NewTabPreference
+  readonly startupPreference: HomeV2StartupPreference
   readonly onboarding: HomeV2OnboardingState
   readonly selectedAccountId: string | null
   readonly selectedAddressId: string | null
@@ -39,11 +45,12 @@ export function createHomeV2ShellState(
   systemLanguage: HomeV2ResolvedLanguage,
 ): HomeV2ShellState {
   return Object.freeze({
-    version: 3 as const,
+    version: 4 as const,
     appearance: Object.freeze(
       migrateLegacyAppearance(null, systemTheme, systemLanguage),
     ),
     newTabPreference: DEFAULT_NEW_TAB_PREFERENCE,
+    startupPreference: DEFAULT_STARTUP_PREFERENCE,
     onboarding: createHomeV2OnboardingState(),
     selectedAccountId: null,
     selectedAddressId: null,
@@ -59,7 +66,10 @@ export function parseHomeV2ShellState(
   const fallback = createHomeV2ShellState(systemTheme, systemLanguage)
   if (
     !isRecord(value) ||
-    (value.version !== 1 && value.version !== 2 && value.version !== 3)
+    (value.version !== 1 &&
+      value.version !== 2 &&
+      value.version !== 3 &&
+      value.version !== 4)
   ) return fallback
   const legacySelection =
     typeof value.selectedAccountId === 'string' &&
@@ -68,18 +78,18 @@ export function parseHomeV2ShellState(
       ? value.selectedAccountId.trim()
       : null
   const selectedAddressId =
-    (value.version === 2 || value.version === 3) &&
+    (value.version === 2 || value.version === 3 || value.version === 4) &&
     typeof value.selectedAddressId === 'string' &&
     value.selectedAddressId.trim() &&
     value.selectedAddressId.length <= 240
       ? value.selectedAddressId.trim()
       : legacySelection
   const selectedAccountId =
-    value.version === 2 || value.version === 3
+    value.version === 2 || value.version === 3 || value.version === 4
       ? legacySelection
       : legacySelection?.split(':').slice(0, 2).join(':') ?? null
   return Object.freeze({
-    version: 3 as const,
+    version: 4 as const,
     appearance: Object.freeze(
       migrateLegacyAppearance(
         isRecord(value.appearance) ? value.appearance : null,
@@ -88,8 +98,12 @@ export function parseHomeV2ShellState(
       ),
     ),
     newTabPreference: parseNewTabPreference(value.newTabPreference),
+    // Absent before version 4, and the fallback is 'restore' -- exactly what
+    // Home did before the setting existed, so an upgrade changes nothing until
+    // the user chooses otherwise.
+    startupPreference: parseHomeV2StartupPreference(value.startupPreference),
     onboarding:
-      value.version === 3
+      value.version === 3 || value.version === 4
         ? parseHomeV2OnboardingState(value.onboarding) ??
           createHomeV2OnboardingState()
         : createHomeV2OnboardingState('skipped', 'finish'),
@@ -101,7 +115,7 @@ export function parseHomeV2ShellState(
 
 export function serializeHomeV2ShellState(state: HomeV2ShellState) {
   return {
-    version: 3 as const,
+    version: 4 as const,
     appearance: {
       accent: state.appearance.accent,
       appZoom: state.appearance.appZoom,
@@ -111,6 +125,7 @@ export function serializeHomeV2ShellState(state: HomeV2ShellState) {
       ui: state.appearance.ui,
     },
     newTabPreference: state.newTabPreference,
+    startupPreference: state.startupPreference,
     onboarding: state.onboarding,
     selectedAccountId: state.selectedAccountId,
     selectedAddressId: state.selectedAddressId,
