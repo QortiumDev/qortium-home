@@ -34,6 +34,16 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-31 - fix(settings): reopen Settings where you left it
+
+Settings always opened on General, however deep in Runtime or QDN Apps you had
+been when you last closed it. It now reopens on the section you were last
+looking at, and remembers that across a restart.
+
+A section that no longer exists - because the network it belonged to is
+switched off, or because a future version removed it - falls back to General
+rather than showing an empty pane.
+
 ### 2026-08-31 - feat(settings): choose what Home opens with
 
 Home always reopened the tabs from the last session, and there was no setting to

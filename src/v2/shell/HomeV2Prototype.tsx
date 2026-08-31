@@ -62,6 +62,7 @@ import { PermissionDialog } from './PermissionDialog'
 import { VisibleIdentityAvatar } from './VisibleIdentityAvatar'
 import {
   SettingsPage,
+  type HomeV2SettingsSectionId,
   type HomeV2SettingsSectionTarget,
 } from './SettingsPage'
 import type { HomeV2CoreManagement } from './CoreManagerCards'
@@ -249,6 +250,9 @@ export interface HomeV2PrototypeProps {
   readonly startupPreference?: HomeV2StartupPreference
   /** How many start pages the Bookmarks app holds, for the Settings hint. */
   readonly startPageCount?: number
+  /** The Settings section to open on, remembered from last time. */
+  readonly settingsSection?: HomeV2SettingsSectionId
+  readonly onSettingsSectionChange?: (section: HomeV2SettingsSectionId) => void
   readonly onSetStartupPreference?: (
     preference: HomeV2StartupPreference,
   ) => void
@@ -788,8 +792,10 @@ function Dashboard(props: DashboardProps) {
 }
 
 export function HomeV2Prototype(props: HomeV2PrototypeProps) {
+  // Starts where Settings was last left, so reopening it does not throw the
+  // reader back to General every time.
   const [requestedSettingsSection, setRequestedSettingsSection] =
-    useState<HomeV2SettingsSectionTarget>('general')
+    useState<HomeV2SettingsSectionTarget>(props.settingsSection ?? 'general')
   // Renderer-local shortcut targets; assigned after the guarded tab handlers
   // exist so the once-mounted key listener always sees current-render state.
   const localShortcuts = useRef<{
@@ -1254,6 +1260,10 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
                 onOpenReleaseNotes={props.onOpenReleaseNotes}
                 onRestartWelcome={props.onRestartWelcome}
                 requestedSection={requestedSettingsSection}
+                onSectionChange={(section) => {
+                  setRequestedSettingsSection(section)
+                  props.onSettingsSectionChange?.(section)
+                }}
               />
               ) : entry.page === 'newtab' ? (
                 <NewTabPage {...props} />
