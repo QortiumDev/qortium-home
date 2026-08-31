@@ -51,6 +51,11 @@ import {
   parseHomeV2ReleaseNotesAddress,
   type NewTabPreference,
 } from '../v2/new-tab-preference'
+import {
+  DEFAULT_STARTUP_PREFERENCE,
+  resolveHomeV2StartupPlan,
+  type HomeV2StartupPreference,
+} from '../v2/startup-preference'
 import { HomeV2Prototype } from '../v2/shell/HomeV2Prototype'
 import { HomeV2ContextMenu } from '../v2/shell/HomeV2ContextMenu'
 import {
@@ -119,7 +124,10 @@ import {
   HomeV2CollectionsClient,
   type HomeV2CollectionsAccounts,
 } from './collections-client'
-import { planStartPageLaunch } from './start-page-launch'
+import {
+  homeV2StartPageTabPage,
+  planStartPageLaunch,
+} from './start-page-launch'
 import {
   resolveHomeV2AppsAppUrl,
   resolveHomeV2BookmarksAppUrl,
@@ -1286,6 +1294,15 @@ export function HomeV2LiveApp() {
   )
   const [newTabPreference, setNewTabPreference] =
     useState<NewTabPreference>(DEFAULT_NEW_TAB_PREFERENCE)
+  const [startupPreference, setStartupPreference] =
+    useState<HomeV2StartupPreference>(DEFAULT_STARTUP_PREFERENCE)
+  // What THIS launch owes, captured when the stored state was read.
+  const pendingStartup = useRef<{
+    readonly closeInitialTab: boolean
+    readonly initialTabId: string | null
+    readonly newTabAddress: string | null
+    readonly startPages: 'when-empty' | 'always' | 'never'
+  } | null>(null)
   const [releaseNotesTarget, setReleaseNotesTarget] =
     useState<HomeV2ReleaseNotesTarget | null>(null)
   const [coreDocsNetwork, setCoreDocsNetwork] = useState<NetworkId | null>(null)
@@ -2001,12 +2018,33 @@ export function HomeV2LiveApp() {
             local.entries[0].kind === 'internal' &&
             local.entries[0].page === 'dashboard' &&
             local.transient === null
-          dispatchProduct({
-            type: 'restore',
-            state: restored.product,
-            preserveLocal: !untouched,
-          })
+          const plan = resolveHomeV2StartupPlan(
+            restored.startupPreference,
+            restored.newTabPreference,
+          )
+          // A start-page launch discards the stored strip, so it must not run
+          // when the user has already opened something: their tab would vanish
+          // under it. `untouched` is the same guard the restore path uses, and
+          // falling back to a plain restore is the conservative half.
+          if (plan.restoreTabs || !untouched) {
+            dispatchProduct({
+              type: 'restore',
+              state: restored.product,
+              preserveLocal: !untouched,
+            })
+          } else {
+            if (plan.initialPage === 'newtab') {
+              dispatchProduct({ type: 'navigate', destination: 'newtab' })
+            }
+            pendingStartup.current = {
+              closeInitialTab: plan.closeInitialTab,
+              initialTabId: local.activeTabId,
+              newTabAddress: plan.newTabAddress,
+              startPages: plan.startPages,
+            }
+          }
         }
+        setStartupPreference(restored.startupPreference)
         setNewTabPreference(restored.newTabPreference)
         setOnboarding(restored.onboarding)
         setRestoredAccountId(restored.selectedAccountId)
@@ -2087,9 +2125,10 @@ export function HomeV2LiveApp() {
         : nodeClient.saveShellState.bind(nodeClient)
       void save(
         serializeHomeV2ShellState({
-          version: 3,
+          version: 4,
           appearance: snapshot.appearance,
           newTabPreference,
+          startupPreference,
           onboarding,
           selectedAccountId:
             accountCatalogue.accounts.find((account) => account.id === selectedAccountId)?.walletId ?? null,
@@ -2108,6 +2147,7 @@ export function HomeV2LiveApp() {
     selectedAccountId,
     shellStateReady,
     snapshot.appearance,
+    startupPreference,
   ])
 
   useEffect(() => {
@@ -2928,29 +2968,74 @@ export function HomeV2LiveApp() {
   }, [collectionsClient, freshShellProfile, getCollectionsAccounts])
 
   // F3: open saved start pages on a fresh launch. One-shot per process, at
-  // the first moment shell state and the collections snapshot are both
-  // ready. The plan mirrors v1 (restored tabs win; onboarding suppresses).
+  // the first moment shell state and the collections snapshot are both ready.
+  //
+  // The pages come from the bookmark manager's `startPages` root, which the
+  // Bookmarks app owns and edits. "When Home opens" only decides WHETHER they
+  // are used: unset, the v1 rule stands (restored tabs win, onboarding
+  // suppresses); chosen, they are opened instead of the stored strip, which the
+  // restore step above has already declined to reopen.
   const startPagesLaunched = useRef(false)
   useEffect(() => {
     if (startPagesLaunched.current) return
     if (!shellStateReady || !collectionsSnapshot) return
     startPagesLaunched.current = true
+    const pending = pendingStartup.current
     const plan = planStartPageLaunch({
       appTabCount: productStateRef.current.tabs.length,
+      mode: pending?.startPages ?? 'when-empty',
       onboardingInProgress: onboarding.status === 'in-progress',
       startPages: collectionsSnapshot.startPages ?? [],
       knownAccountIds: accountCatalogueRef.current.accounts.map(
         (account) => account.id,
       ),
     })
-    if (plan.length === 0) return
+    // A custom new-tab address is opened by the same pass, so the one place
+    // that closes the initial tab sees everything that replaced it.
+    const entries = pending?.newTabAddress
+      ? [...plan, { accountId: null, displayUrl: pending.newTabAddress }]
+      : plan
+    if (entries.length === 0) return
     void (async () => {
-      for (const entry of plan) {
+      let opened = 0
+      for (const entry of entries) {
+        // Home's own pages get their own tab on the EXPLICIT path only.
+        // openAddress navigates the current tab for a home:// address, so five
+        // Home start pages would collapse into one. Left alone on the
+        // long-standing path, which nobody asked to change.
+        const internal =
+          pending?.startPages === 'always'
+            ? homeV2StartPageTabPage(entry.displayUrl)
+            : null
+        if (internal) {
+          tabSequence.current += 1
+          dispatchProduct({
+            type: 'open-internal',
+            page: internal,
+            tabId: brand<TabId>(
+              `home-v2:tab:${Date.now().toString(36)}:${tabSequence.current}`,
+            ),
+          })
+          opened += 1
+          continue
+        }
         try {
-          await openAddress(entry.displayUrl, entry.accountId ?? undefined)
+          const result = await openAddress(
+            entry.displayUrl,
+            entry.accountId ?? undefined,
+          )
+          if (result.status === 'opened') opened += 1
         } catch {
           // A start page that no longer resolves is skipped, not fatal.
         }
+      }
+      // Only once something has replaced it: closing first would leave a window
+      // with no tabs at all if every page failed to open.
+      if (pending?.closeInitialTab && opened > 0 && pending.initialTabId) {
+        dispatchProduct({
+          type: 'close-tab',
+          tabId: brand<TabId>(pending.initialTabId),
+        })
       }
       // v1 made the FIRST start page the active tab; the loop leaves the
       // last one active. The strip order is already correct.
@@ -9401,6 +9486,9 @@ export function HomeV2LiveApp() {
       overlay={customNodeDialog ?? accountDialogOverlay ?? contextMenuOverlay ?? resourceViewerOverlay}
       appOverlayTabId={appOverlayTabId ? brand<TabId>(appOverlayTabId) : null}
       nodesReady={nodeCoreController.nodesReady}
+      startupPreference={startupPreference}
+      startPageCount={collectionsSnapshot?.startPages?.length ?? 0}
+      onSetStartupPreference={setStartupPreference}
       identityLookup={identityLookup}
       identityLookupBusy={identityLookupBusy}
       identityLookupError={identityLookupError}

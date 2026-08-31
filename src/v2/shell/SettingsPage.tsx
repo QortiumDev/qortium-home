@@ -13,6 +13,10 @@ import {
   type NewTabPreference,
 } from '../new-tab-preference'
 import {
+  DEFAULT_STARTUP_PREFERENCE,
+  type HomeV2StartupPreference,
+} from '../startup-preference'
+import {
   AppearanceSettingsPage,
   type AppearanceSettingsPageProps,
 } from './AppearanceSettingsPage'
@@ -69,6 +73,9 @@ export interface SettingsPageProps extends AppearanceSettingsPageProps {
   readonly account: AccountSessionSummary
   readonly nodes?: SettingsNetworkNodes
   readonly newTabPreference: NewTabPreference
+  readonly startupPreference?: HomeV2StartupPreference
+  /** How many start pages the Bookmarks app currently holds, for the hint. */
+  readonly startPageCount?: number
   readonly coreManagement?: HomeV2CoreManagement
   // The app's single set of maintenance controllers. Settings renders the full
   // surface of each one, so it takes the controllers themselves rather than the
@@ -92,6 +99,9 @@ export interface SettingsPageProps extends AppearanceSettingsPageProps {
   readonly onOpenReleaseNotes?: (target: { product: 'core' | 'home'; tagName: string }) => void
   readonly onRestartWelcome?: () => void
   readonly onSetNewTabPreference?: (preference: NewTabPreference) => void
+  readonly onSetStartupPreference?: (
+    preference: HomeV2StartupPreference,
+  ) => void
   readonly onSetNodeMode?: (
     network: NetworkId,
     mode: NodeConnectionMode,
@@ -275,8 +285,11 @@ function GeneralSettings({
   notificationPolicy,
   onSetAppNotifications,
   onSetNewTabPreference,
+  onSetStartupPreference,
   onRestartWelcome,
   onSetNodeMode,
+  startupPreference,
+  startPageCount,
   windowBehavior,
   onSetWindowBehavior,
 }: Pick<
@@ -286,8 +299,11 @@ function GeneralSettings({
   | 'notificationPolicy'
   | 'onSetAppNotifications'
   | 'onSetNewTabPreference'
+  | 'onSetStartupPreference'
   | 'onRestartWelcome'
   | 'onSetNodeMode'
+  | 'startupPreference'
+  | 'startPageCount'
   | 'windowBehavior'
   | 'onSetWindowBehavior'
 >) {
@@ -327,6 +343,8 @@ function GeneralSettings({
     }
   }
 
+  const startup = startupPreference ?? DEFAULT_STARTUP_PREFERENCE
+
   return (
     <section
       className="home-v2-settings-panel"
@@ -340,6 +358,37 @@ function GeneralSettings({
         nodes={nodes}
         onSetNodeMode={onSetNodeMode}
       />
+      <div className="home-v2-setting-row" data-home-v2-setting="startup">
+        <div className="home-v2-setting-row__copy">
+          <strong>{t('home2.settings.startup')}</strong>
+          <span>{t('home2.settings.startupHelp')}</span>
+        </div>
+        <div className="home-v2-setting-row__control home-v2-startup-setting">
+          <select
+            aria-label={t('home2.settings.startup')}
+            disabled={!onSetStartupPreference}
+            value={startup.kind}
+            onChange={(event) =>
+              onSetStartupPreference?.({
+                kind: event.target.value as HomeV2StartupPreference['kind'],
+              })
+            }
+          >
+            <option value="restore">{t('home2.settings.startupRestore')}</option>
+            <option value="startPages">
+              {t('home2.settings.startupStartPages')}
+            </option>
+            <option value="newTab">{t('home2.settings.startupNewTab')}</option>
+          </select>
+          {startup.kind === 'startPages' ? (
+            <p className="home-v2-start-pages-hint">
+              {startPageCount
+                ? t('home2.settings.startPagesCount', { count: startPageCount })
+                : t('home2.settings.startPagesEmpty')}
+            </p>
+          ) : null}
+        </div>
+      </div>
       <div className="home-v2-setting-row">
         <div className="home-v2-setting-row__copy">
           <strong>{t('home2.settings.newTab')}</strong>
@@ -543,8 +592,11 @@ export function SettingsPage(props: SettingsPageProps) {
               notificationPolicy={props.notificationPolicy}
               onSetAppNotifications={props.onSetAppNotifications}
               onSetNewTabPreference={props.onSetNewTabPreference}
+              onSetStartupPreference={props.onSetStartupPreference}
               onRestartWelcome={props.onRestartWelcome}
               onSetNodeMode={props.onSetNodeMode}
+              startupPreference={props.startupPreference}
+              startPageCount={props.startPageCount}
               windowBehavior={props.windowBehavior}
               onSetWindowBehavior={props.onSetWindowBehavior}
             />
