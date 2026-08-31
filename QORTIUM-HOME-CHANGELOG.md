@@ -34,6 +34,31 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-30 - fix(dashboard): stop the Qortal panels appearing seconds after Home opens
+
+Opening Home with both networks enabled showed only the Qortium panels, then a
+brief "Loading", then the Qortal ones dropped in underneath. Measured on the
+packaged app: the Dashboard spent 244 frames - a little over four seconds -
+showing one network without the other.
+
+The Dashboard decides which panels to draw from whether each network is
+switched on. That answer was only arriving with the full node status reading,
+which contacts every configured node and takes about four and a half seconds,
+so until it came back the Dashboard drew itself from placeholder values in
+which Qortal is always off and Qortium is always on. Anyone with Qortal on saw
+its panels arrive late; anyone with Qortium off would have seen its panels
+appear and then vanish.
+
+Whether a network is switched on is written on disk and takes no time at all to
+read, so Home now asks that question by itself, first, and the Dashboard waits
+for the answer instead of guessing. The status reading still fills in
+everything else afterwards, as before. If that quick read cannot be answered,
+the Dashboard carries on as it used to rather than waiting.
+
+A new packaged check watches the real app through its first paint and fails if
+the Dashboard is ever drawn with one network's panels and not the other's. It
+reproduces the old behaviour exactly, so this cannot come back unnoticed.
+
 ### 2026-08-30 - fix(core): don't let an update delete wallets stored inside the install
 
 Installing or updating the managed Core replaces its install folder wholesale.

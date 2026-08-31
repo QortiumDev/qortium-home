@@ -117,6 +117,11 @@ const LIST_REQUEST_TIMEOUT_MS = 15_000
 
 export interface HomeV2NodeClient {
   getSnapshot(): Promise<unknown>
+  /**
+   * Which networks are enabled, from settings alone. Returns in microseconds
+   * where getSnapshot takes seconds, because it does not touch a node.
+   */
+  getModes(): Promise<unknown>
   getShellState(): Promise<unknown>
   saveShellState(value: unknown): Promise<void>
   /** Saves everything except the tab strip; used by detached windows. */
@@ -971,6 +976,17 @@ export function createPortableNodeClient(
     }
   }
 
+  async function getModes() {
+    const [qortalSettings, qortiumSettings] = await Promise.all([
+      readSettings('qortal'),
+      readSettings('qortium'),
+    ])
+    return {
+      version: 1,
+      modes: { qortal: qortalSettings.mode, qortium: qortiumSettings.mode },
+    }
+  }
+
   async function getSnapshot() {
     const [qortalSettings, qortiumSettings] = await Promise.all([
       readSettings('qortal'),
@@ -1146,6 +1162,7 @@ export function createPortableNodeClient(
       const context = await getCoreUpdateContext()
       return requestCoreUpdate(context, 'GET')
     },
+    getModes,
     getSnapshot,
     async getShellState() {
       const value = await dependencies.getPreference(SHELL_STATE_KEY)

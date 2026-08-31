@@ -742,6 +742,15 @@ body,
   font-size: calc(12px * var(--v2-type-scale));
 }
 
+/* Stands in for the pinned apps and the Node & Core section for the moment
+   before the enabled networks are known. Same muted treatment as the lifecycle
+   row's placeholder, so the two read as one state rather than two. */
+.home-v2-dashboard-loading {
+  color: var(--v2-muted);
+  font-size: calc(13px * var(--v2-type-scale));
+  margin: 0;
+}
+
 .home-v2-bookmarks-menu {
   position: relative;
   display: flex;

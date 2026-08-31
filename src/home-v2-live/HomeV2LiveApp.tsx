@@ -9400,6 +9400,7 @@ export function HomeV2LiveApp() {
       }
       overlay={customNodeDialog ?? accountDialogOverlay ?? contextMenuOverlay ?? resourceViewerOverlay}
       appOverlayTabId={appOverlayTabId ? brand<TabId>(appOverlayTabId) : null}
+      nodesReady={nodeCoreController.nodesReady}
       identityLookup={identityLookup}
       identityLookupBusy={identityLookupBusy}
       identityLookupError={identityLookupError}
