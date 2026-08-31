@@ -20,6 +20,10 @@ import {
   type HomeV2StartupPreference,
 } from '../v2/startup-preference'
 import {
+  parseHomeV2SettingsSection,
+  type HomeV2SettingsSectionId,
+} from '../v2/shell/SettingsPage'
+import {
   createHomeV2OnboardingState,
   parseHomeV2OnboardingState,
   type HomeV2OnboardingState,
@@ -30,6 +34,7 @@ export interface HomeV2ShellState {
   readonly appearance: HomeV2AppearanceSettings
   readonly newTabPreference: NewTabPreference
   readonly startupPreference: HomeV2StartupPreference
+  readonly settingsSection: HomeV2SettingsSectionId
   readonly onboarding: HomeV2OnboardingState
   readonly selectedAccountId: string | null
   readonly selectedAddressId: string | null
@@ -51,6 +56,7 @@ export function createHomeV2ShellState(
     ),
     newTabPreference: DEFAULT_NEW_TAB_PREFERENCE,
     startupPreference: DEFAULT_STARTUP_PREFERENCE,
+    settingsSection: 'general',
     onboarding: createHomeV2OnboardingState(),
     selectedAccountId: null,
     selectedAddressId: null,
@@ -102,6 +108,7 @@ export function parseHomeV2ShellState(
     // Home did before the setting existed, so an upgrade changes nothing until
     // the user chooses otherwise.
     startupPreference: parseHomeV2StartupPreference(value.startupPreference),
+    settingsSection: parseHomeV2SettingsSection(value.settingsSection),
     onboarding:
       value.version === 3 || value.version === 4
         ? parseHomeV2OnboardingState(value.onboarding) ??
@@ -126,6 +133,7 @@ export function serializeHomeV2ShellState(state: HomeV2ShellState) {
     },
     newTabPreference: state.newTabPreference,
     startupPreference: state.startupPreference,
+    settingsSection: state.settingsSection,
     onboarding: state.onboarding,
     selectedAccountId: state.selectedAccountId,
     selectedAddressId: state.selectedAddressId,

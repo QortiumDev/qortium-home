@@ -57,6 +57,7 @@ import {
   type HomeV2StartupPreference,
 } from '../v2/startup-preference'
 import { HomeV2Prototype } from '../v2/shell/HomeV2Prototype'
+import type { HomeV2SettingsSectionId } from '../v2/shell/SettingsPage'
 import { HomeV2ContextMenu } from '../v2/shell/HomeV2ContextMenu'
 import {
   parseHomeV2TextSizeCommand,
@@ -1296,6 +1297,10 @@ export function HomeV2LiveApp() {
     useState<NewTabPreference>(DEFAULT_NEW_TAB_PREFERENCE)
   const [startupPreference, setStartupPreference] =
     useState<HomeV2StartupPreference>(DEFAULT_STARTUP_PREFERENCE)
+  // Which Settings section to reopen on. Held here rather than in the
+  // prototype so it survives a restart, not just a navigation.
+  const [settingsSection, setSettingsSection] =
+    useState<HomeV2SettingsSectionId>('general')
   // What THIS launch owes, captured when the stored state was read.
   const pendingStartup = useRef<{
     readonly closeInitialTab: boolean
@@ -2045,6 +2050,7 @@ export function HomeV2LiveApp() {
           }
         }
         setStartupPreference(restored.startupPreference)
+        setSettingsSection(restored.settingsSection)
         setNewTabPreference(restored.newTabPreference)
         setOnboarding(restored.onboarding)
         setRestoredAccountId(restored.selectedAccountId)
@@ -2129,6 +2135,7 @@ export function HomeV2LiveApp() {
           appearance: snapshot.appearance,
           newTabPreference,
           startupPreference,
+          settingsSection,
           onboarding,
           selectedAccountId:
             accountCatalogue.accounts.find((account) => account.id === selectedAccountId)?.walletId ?? null,
@@ -2147,6 +2154,7 @@ export function HomeV2LiveApp() {
     selectedAccountId,
     shellStateReady,
     snapshot.appearance,
+    settingsSection,
     startupPreference,
   ])
 
@@ -9489,6 +9497,8 @@ export function HomeV2LiveApp() {
       startupPreference={startupPreference}
       startPageCount={collectionsSnapshot?.startPages?.length ?? 0}
       onSetStartupPreference={setStartupPreference}
+      settingsSection={settingsSection}
+      onSettingsSectionChange={setSettingsSection}
       identityLookup={identityLookup}
       identityLookupBusy={identityLookupBusy}
       identityLookupError={identityLookupError}

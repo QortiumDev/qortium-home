@@ -51,6 +51,27 @@ export type HomeV2SettingsSectionTarget =
   | HomeV2SettingsSectionId
   | 'notifications'
 
+const SETTINGS_SECTION_IDS: readonly HomeV2SettingsSectionId[] = [
+  'general',
+  'core',
+  'appearance',
+  'qdn-apps',
+  'account',
+]
+
+/**
+ * The remembered section, or 'general'. Stored state is parsed rather than
+ * trusted: a section that no longer exists must land on one that does, not on
+ * an empty settings pane.
+ */
+export function parseHomeV2SettingsSection(
+  value: unknown,
+): HomeV2SettingsSectionId {
+  return SETTINGS_SECTION_IDS.includes(value as HomeV2SettingsSectionId)
+    ? (value as HomeV2SettingsSectionId)
+    : 'general'
+}
+
 // Notification controls moved into QDN Apps before Home 2.1. Keep the former
 // target available to first-party callers without exposing URL routing.
 export function resolveHomeV2SettingsSectionTarget(
@@ -102,6 +123,12 @@ export interface SettingsPageProps extends AppearanceSettingsPageProps {
   readonly onSetStartupPreference?: (
     preference: HomeV2StartupPreference,
   ) => void
+  /**
+   * Fired when the reader picks a section, so the shell can reopen Settings
+   * where they left it. The page still owns which section is showing; this
+   * only reports it.
+   */
+  readonly onSectionChange?: (section: HomeV2SettingsSectionId) => void
   readonly onSetNodeMode?: (
     network: NetworkId,
     mode: NodeConnectionMode,
@@ -578,7 +605,10 @@ export function SettingsPage(props: SettingsPageProps) {
               type="button"
               aria-current={activeSection === candidate.id ? 'page' : undefined}
               key={candidate.id}
-              onClick={() => setSection(candidate.id)}
+              onClick={() => {
+                setSection(candidate.id)
+                props.onSectionChange?.(candidate.id)
+              }}
             >
               {candidate.label}
             </button>

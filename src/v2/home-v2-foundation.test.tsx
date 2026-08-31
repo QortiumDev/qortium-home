@@ -56,6 +56,7 @@ import { HomeV2FixturePreview } from './fixture/HomeV2FixturePreview'
 import { AppearanceSettingsPage } from './shell/AppearanceSettingsPage'
 import { HomeV2Prototype } from './shell/HomeV2Prototype'
 import {
+  parseHomeV2SettingsSection,
   resolveHomeV2SettingsSectionTarget,
   SettingsPage,
 } from './shell/SettingsPage'
@@ -3376,6 +3377,7 @@ function testShellStateMigratesAddressSelection(): void {
     // Absent in the stored record, so the migration must supply the pair that
     // reproduces the old behaviour exactly.
     startupPreference: DEFAULT_STARTUP_PREFERENCE,
+    settingsSection: 'general',
     onboarding: legacy.onboarding,
     selectedAccountId: 'wallet:Qprimary',
     selectedAddressId: 'wallet:Qprimary:2',
@@ -3892,6 +3894,45 @@ testIdentityAndImageCachingKeepsChromeStable()
     renderToStaticMarkup(<SettingsPage {...settingsProps} />),
     /<option value="restore" selected=""/,
   )
+}
+
+// --- Settings reopens where it was left ----------------------------------
+// It always opened on General, however deep in Runtime or QDN Apps you had
+// been. The section is remembered now, and parsed rather than trusted: a
+// section that no longer exists must land on one that does.
+{
+  assert.equal(parseHomeV2SettingsSection('core'), 'core')
+  assert.equal(parseHomeV2SettingsSection('qdn-apps'), 'qdn-apps')
+  // 'notifications' is the legacy TARGET, not a section, and must not stick.
+  for (const bad of [null, undefined, 'notifications', 'nonsense', 42, {}]) {
+    assert.equal(parseHomeV2SettingsSection(bad), 'general')
+  }
+
+  // The page opens on the remembered section without being asked twice.
+  const markup = renderToStaticMarkup(
+    <SettingsPage
+      account={homeV2Fixture.account}
+      appearance={homeV2Fixture.appearance}
+      nodes={homeV2Fixture.nodes}
+      newTabPreference={DEFAULT_NEW_TAB_PREFERENCE}
+      requestedSection="appearance"
+    />,
+  )
+  assert.match(markup, /aria-current="page">Appearance<\/button>/)
+
+  // And it survives a save/read round trip.
+  const fallback = createHomeV2ShellState('light', 'en')
+  assert.equal(fallback.settingsSection, 'general')
+  const restored = parseHomeV2ShellState(
+    JSON.parse(
+      JSON.stringify(
+        serializeHomeV2ShellState({ ...fallback, settingsSection: 'core' }),
+      ),
+    ),
+    'light',
+    'en',
+  )
+  assert.equal(restored.settingsSection, 'core')
 }
 
 console.log('home v2 foundation contract tests passed')
