@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { checkAppUpdates } from './appUpdates';
 import { getTranslationLanguage, t, type TranslationKey } from './i18n';
 
-const UPDATE_CHANNELS: QortiumAppUpdateChannel[] = ['stable', 'prerelease'];
+export const UPDATE_CHANNELS: QortiumAppUpdateChannel[] = ['stable', 'prerelease'];
 const APP_UPDATE_PREFERENCES_STORAGE_KEY = 'qortium-home-app-update-preferences';
 const BYTE_UNIT_KEYS: TranslationKey[] = [
   'common.unit.bytes',
@@ -254,19 +254,27 @@ function getUpdateDetailRows({
   return rows;
 }
 
-function getResultChannels(results: UpdateResultsByChannel) {
-  return UPDATE_CHANNELS.filter((channel) => !!results[channel]?.release);
-}
-
-function getPreferredResultChannel({
+export function getPreferredResultChannel({
   currentChannel,
   environment,
+  hasExplicitChannel,
   results,
 }: {
   currentChannel: QortiumAppUpdateChannel;
   environment: QortiumAppUpdateEnvironment;
+  hasExplicitChannel: boolean;
   results: UpdateResultsByChannel;
 }) {
+  // A channel the user picked is a choice about which release line to follow,
+  // so it outranks every result below. Falling through would mean a stable
+  // channel that momentarily fails to resolve — a rate limit, an offline
+  // check, a repository with no stable release yet — silently moves someone
+  // onto prerelease, where the next check offers them the newer line they
+  // just declined. The fallbacks exist for users who have never chosen.
+  if (hasExplicitChannel) {
+    return currentChannel;
+  }
+
   if (results[currentChannel]?.release) {
     return currentChannel;
   }
@@ -303,7 +311,6 @@ export function useAppUpdates({ autoCheck = false }: { autoCheck?: boolean } = {
   const releasePageUrl = getReleasePageUrl(result);
   const updatePlatform = result?.platform ?? environment?.platform;
   const updateAvailable = result?.status === 'available';
-  const availableChannels = useMemo(() => getResultChannels(results), [results]);
   const language = getTranslationLanguage();
   const homeUpdatePolicy = preferences?.homeUpdatePolicy ?? DEFAULT_APP_UPDATE_PREFERENCES.homeUpdatePolicy;
 
@@ -371,6 +378,7 @@ export function useAppUpdates({ autoCheck = false }: { autoCheck?: boolean } = {
       const nextChannel = getPreferredResultChannel({
         currentChannel: channel,
         environment,
+        hasExplicitChannel: !!preferences?.releaseChannel,
         results: nextResults,
       });
       const nextResult = nextResults[nextChannel] ?? null;
@@ -563,7 +571,6 @@ export function useAppUpdates({ autoCheck = false }: { autoCheck?: boolean } = {
   }
 
   return {
-    availableChannels,
     channel,
     checkForUpdates,
     detailRows,
