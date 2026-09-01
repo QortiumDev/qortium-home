@@ -13,6 +13,7 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { base58Decode, base58Encode } from './base58.js';
 import { getNodeApiUrl } from './node-settings.js';
+import { nodeFetch } from './node-tls.js';
 import {
   clearHomeV2AccountManualLock,
   getHomeV2AccountSecurity,
@@ -811,7 +812,13 @@ async function fetchNodeJson(pathname: string, nodeApiUrl: string) {
   let response: Response;
 
   try {
-    response = await fetch(`${nodeApiUrl}${pathname}`);
+    // nodeFetch, not bare fetch: the managed node speaks TLS with Home's own
+    // certificate authority, which a plain main-process fetch does not trust.
+    // With bare fetch every name lookup here failed silently and the account
+    // profile shipped name:null for accounts whose registered name exists
+    // on-chain (observed live 2026-09-01 — Chat's open-group attach gate
+    // disabled for a named account).
+    response = await nodeFetch(`${nodeApiUrl}${pathname}`);
   } catch {
     return null;
   }
