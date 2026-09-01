@@ -34,6 +34,20 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-09-01 - feat(wallet): add Home-local foreign signing foundation
+
+Adds the private-key boundary needed to restore BTC, LTC, DOGE, DGB, RVN,
+DASH, NMC, and FIRO sending without giving an extended private key to Core.
+Home can now attest confirmed funding transactions against its own derived
+addresses, plan legacy P2PKH-input spends with exact integer amounts, enforce
+dust and bounded-input rules, and produce deterministic low-S signatures and
+raw transactions locally. Temporary private-key and hash buffers are erased on
+success and failure where JavaScript permits; the account seed remains under
+Home's existing unlock boundary. This foundation is intentionally not yet
+advertised to QDN apps or connected to broadcast: route policy, approval-time
+revalidation, foreign transaction journaling, and cross-runtime vectors remain
+required before foreign send is enabled.
+
 ### 2026-09-01 - fix(wallet): restore Qortal asset support in Home 2
 
 QDN wallet apps can once again read balances, metadata, and transfer history

@@ -1,3 +1,4 @@
+import { secp256k1 } from '@noble/curves/secp256k1.js';
 import { base58Encode } from './base58.js';
 
 export type ForeignWalletCoin = 'BTC' | 'LTC' | 'DOGE' | 'DGB' | 'RVN' | 'DASH' | 'NMC' | 'FIRO';
@@ -14,6 +15,19 @@ export type ForeignWalletRuntime = {
   publicKey: string;
   xprv58: string;
   xpub58: string;
+};
+
+type ForeignWalletLeafKey = {
+  address: string;
+  path: string;
+  privateKey: Uint8Array;
+  publicKey: Uint8Array;
+};
+
+export type ForeignWalletLeafPublicData = Omit<ForeignWalletLeafKey, 'privateKey'>;
+
+export type ForeignWalletDigestSignature = ForeignWalletLeafPublicData & {
+  derSignature: Uint8Array;
 };
 
 type ForeignWalletSpec = {
@@ -128,6 +142,114 @@ export function deriveForeignWalletRuntime(input: {
   };
 }
 
+/**
+ * Derive one non-hardened receive/change key and erase the temporary private
+ * nodes as soon as the synchronous callback returns. Callers must not retain
+ * the supplied private-key view.
+ */
+function withForeignWalletLeafKey<T>(input: {
+  chain: 0 | 1;
+  coin: ForeignWalletCoin;
+  crypto: ForeignWalletCrypto;
+  index: number;
+  nonce?: number;
+  seed: Uint8Array;
+  walletVersion?: number;
+}, useKey: (key: ForeignWalletLeafKey) => T): T {
+  if ((input.chain !== 0 && input.chain !== 1)
+    || !Number.isSafeInteger(input.index)
+    || input.index < 0
+    || input.index > 0x7fffffff) {
+    throw new Error('Invalid foreign wallet derivation path.');
+  }
+
+  let addressSeed: Uint8Array | undefined;
+  let root: ForeignWalletNode | undefined;
+  let branch: ForeignWalletNode | undefined;
+  let leaf: ForeignWalletNode | undefined;
+
+  try {
+    const spec = getForeignWalletSpec(input.coin);
+    addressSeed = deriveAddressSeed(input.seed, input.walletVersion ?? 2, input.nonce ?? 0, input.crypto);
+    root = deriveForeignWalletRootNode(addressSeed, spec.indicator, input.crypto);
+    branch = deriveForeignWalletChildNode(root, input.chain, input.crypto);
+    leaf = deriveForeignWalletChildNode(branch, input.index, input.crypto);
+    const publicKeyHash = input.crypto.ripemd160(input.crypto.sha256(leaf.publicKey));
+    const address = base58CheckEncode(appendBuffer(spec.addressPrefix, publicKeyHash), input.crypto);
+
+    return useKey({
+      address,
+      path: `m/${input.chain}/${input.index}`,
+      privateKey: leaf.privateKey,
+      publicKey: leaf.publicKey,
+    });
+  } finally {
+    addressSeed?.fill(0);
+    root?.privateKey.fill(0);
+    root?.chainCode.fill(0);
+    branch?.privateKey.fill(0);
+    branch?.chainCode.fill(0);
+    leaf?.privateKey.fill(0);
+    leaf?.chainCode.fill(0);
+  }
+}
+
+export function deriveForeignWalletLeafPublicData(input: {
+  chain: 0 | 1;
+  coin: ForeignWalletCoin;
+  crypto: ForeignWalletCrypto;
+  index: number;
+  nonce?: number;
+  seed: Uint8Array;
+  walletVersion?: number;
+}): ForeignWalletLeafPublicData {
+  return withForeignWalletLeafKey(input, (leaf) => ({
+    address: leaf.address,
+    path: leaf.path,
+    publicKey: Uint8Array.from(leaf.publicKey),
+  }));
+}
+
+export function signForeignWalletDigest(input: {
+  chain: 0 | 1;
+  coin: ForeignWalletCoin;
+  crypto: ForeignWalletCrypto;
+  digest: Uint8Array;
+  index: number;
+  nonce?: number;
+  seed: Uint8Array;
+  walletVersion?: number;
+}): ForeignWalletDigestSignature {
+  if (input.digest.byteLength !== 32) {
+    throw new Error('Foreign wallet signature digest must be 32 bytes.');
+  }
+
+  return withForeignWalletLeafKey(input, (leaf) => {
+    const signature = secp256k1.sign(input.digest, leaf.privateKey, {
+      extraEntropy: false,
+      format: 'der',
+      lowS: true,
+      prehash: false,
+    });
+    const derSignature = signature.toBytes('der');
+
+    if (!secp256k1.verify(derSignature, input.digest, leaf.publicKey, {
+      format: 'der',
+      lowS: true,
+      prehash: false,
+    })) {
+      throw new Error('Foreign wallet signature verification failed.');
+    }
+
+    return {
+      address: leaf.address,
+      derSignature,
+      path: leaf.path,
+      publicKey: Uint8Array.from(leaf.publicKey),
+    };
+  });
+}
+
 function getForeignWalletSpec(coin: ForeignWalletCoin) {
   const spec = FOREIGN_WALLET_SPECS.find((entry) => entry.coin === coin);
 
@@ -162,19 +284,42 @@ function deriveAddressSeed(seed: Uint8Array, walletVersion: number, nonce: numbe
     return Uint8Array.from(seed).slice(0, 32);
   }
 
-  const nonceBytes = int32ToBytes(nonce);
-  const nonceSeed = appendBuffer(appendBuffer(nonceBytes, seed), nonceBytes);
-  const firstHash = crypto.sha512(nonceSeed);
+  const nonceBytes = Uint8Array.from(int32ToBytes(nonce));
+  const nonceSeed = new Uint8Array(nonceBytes.byteLength + seed.byteLength + nonceBytes.byteLength);
+  nonceSeed.set(nonceBytes, 0);
+  nonceSeed.set(seed, nonceBytes.byteLength);
+  nonceSeed.set(nonceBytes, nonceBytes.byteLength + seed.byteLength);
+  let firstHash: Uint8Array | undefined;
+  let finalMaterial: Uint8Array | undefined;
 
-  return crypto.sha512(appendBuffer(firstHash, nonceSeed)).slice(0, 32);
+  try {
+    firstHash = crypto.sha512(nonceSeed);
+    finalMaterial = appendBuffer(firstHash, nonceSeed);
+    return crypto.sha512(finalMaterial).slice(0, 32);
+  } finally {
+    nonceBytes.fill(0);
+    nonceSeed.fill(0);
+    firstHash?.fill(0);
+    finalMaterial?.fill(0);
+  }
 }
 
 function buildForeignWalletSeedHash(addressSeed: Uint8Array, indicator: string | undefined, crypto: ForeignWalletCrypto) {
   const reversedSeed = Uint8Array.from(addressSeed).reverse();
   const seedMaterial = indicator ? appendBuffer(reversedSeed, stringToUtf8Array(indicator)) : reversedSeed;
-  const reverseSeedHash = crypto.sha256(seedMaterial);
+  let reverseSeedHash: Uint8Array | undefined;
+  let finalMaterial: Uint8Array | undefined;
 
-  return crypto.sha512(appendBuffer(reversedSeed, reverseSeedHash));
+  try {
+    reverseSeedHash = crypto.sha256(seedMaterial);
+    finalMaterial = appendBuffer(reversedSeed, reverseSeedHash);
+    return crypto.sha512(finalMaterial);
+  } finally {
+    reversedSeed.fill(0);
+    if (seedMaterial !== reversedSeed) seedMaterial.fill(0);
+    reverseSeedHash?.fill(0);
+    finalMaterial?.fill(0);
+  }
 }
 
 function deriveForeignWalletRootNode(
@@ -183,46 +328,73 @@ function deriveForeignWalletRootNode(
   crypto: ForeignWalletCrypto,
 ): ForeignWalletNode {
   const seedHash = buildForeignWalletSeedHash(addressSeed, indicator, crypto);
-  const privateKey = secp256k1NormalizePrivateKey(seedHash.subarray(0, 32));
-  const chainCode = crypto.sha256(seedHash.subarray(32, 64));
+  try {
+    const privateKey = secp256k1NormalizePrivateKey(seedHash.subarray(0, 32));
+    const chainCode = crypto.sha256(seedHash.subarray(32, 64));
 
-  return {
-    chainCode,
-    privateKey,
-    publicKey: secp256k1CompressedPublicKeyFromPrivate(privateKey),
-  };
+    return {
+      chainCode,
+      privateKey,
+      publicKey: secp256k1CompressedPublicKeyFromPrivate(privateKey),
+    };
+  } finally {
+    seedHash.fill(0);
+  }
 }
 
 function deriveForeignWalletChildNode(parent: ForeignWalletNode, childIndex: number, crypto: ForeignWalletCrypto): ForeignWalletNode {
-  const childHmac = hmacSha512(parent.chainCode, appendBuffer(parent.publicKey, int32ToBytes(childIndex)), crypto);
-  const privateKey = secp256k1AddPrivateKeys(childHmac.subarray(0, 32), parent.privateKey);
+  const childMaterial = appendBuffer(parent.publicKey, int32ToBytes(childIndex));
+  let childHmac: Uint8Array | undefined;
+  try {
+    childHmac = hmacSha512(parent.chainCode, childMaterial, crypto);
+    const privateKey = secp256k1AddPrivateKeys(childHmac.subarray(0, 32), parent.privateKey);
 
-  return {
-    chainCode: childHmac.subarray(32, 64),
-    privateKey,
-    publicKey: secp256k1CompressedPublicKeyFromPrivate(privateKey),
-  };
+    return {
+      chainCode: Uint8Array.from(childHmac.subarray(32, 64)),
+      privateKey,
+      publicKey: secp256k1CompressedPublicKeyFromPrivate(privateKey),
+    };
+  } finally {
+    childMaterial.fill(0);
+    childHmac?.fill(0);
+  }
 }
 
 function hmacSha512(key: Uint8Array, data: Uint8Array, crypto: ForeignWalletCrypto) {
-  let normalizedKey: Uint8Array<ArrayBufferLike> = Uint8Array.from(key);
-
-  if (normalizedKey.length > HMAC_SHA512_BLOCK_BYTES) {
-    normalizedKey = crypto.sha512(normalizedKey);
-  }
-
+  const copiedKey = Uint8Array.from(key);
+  let normalizedKey: Uint8Array<ArrayBufferLike> = copiedKey;
   const keyBlock = new Uint8Array(HMAC_SHA512_BLOCK_BYTES);
-  keyBlock.set(normalizedKey);
-
   const outerKey = new Uint8Array(HMAC_SHA512_BLOCK_BYTES);
   const innerKey = new Uint8Array(HMAC_SHA512_BLOCK_BYTES);
+  let innerMaterial: Uint8Array | undefined;
+  let innerHash: Uint8Array | undefined;
+  let outerMaterial: Uint8Array | undefined;
 
-  for (let index = 0; index < HMAC_SHA512_BLOCK_BYTES; index += 1) {
-    outerKey[index] = keyBlock[index] ^ 0x5c;
-    innerKey[index] = keyBlock[index] ^ 0x36;
+  try {
+    if (normalizedKey.length > HMAC_SHA512_BLOCK_BYTES) {
+      normalizedKey = crypto.sha512(normalizedKey);
+    }
+    keyBlock.set(normalizedKey);
+
+    for (let index = 0; index < HMAC_SHA512_BLOCK_BYTES; index += 1) {
+      outerKey[index] = keyBlock[index] ^ 0x5c;
+      innerKey[index] = keyBlock[index] ^ 0x36;
+    }
+
+    innerMaterial = appendBuffer(innerKey, data);
+    innerHash = crypto.sha512(innerMaterial);
+    outerMaterial = appendBuffer(outerKey, innerHash);
+    return crypto.sha512(outerMaterial);
+  } finally {
+    copiedKey.fill(0);
+    if (normalizedKey !== copiedKey) normalizedKey.fill(0);
+    keyBlock.fill(0);
+    outerKey.fill(0);
+    innerKey.fill(0);
+    innerMaterial?.fill(0);
+    innerHash?.fill(0);
+    outerMaterial?.fill(0);
   }
-
-  return crypto.sha512(appendBuffer(outerKey, crypto.sha512(appendBuffer(innerKey, data))));
 }
 
 function base58CheckEncode(payload: Uint8Array, crypto: ForeignWalletCrypto) {
