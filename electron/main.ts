@@ -25,10 +25,9 @@ import {
 } from './core-manager.js';
 import {
   disableLegacyI2pdRendererEvents,
+  prepareForAppQuit as prepareI2pdForAppQuit,
   registerI2pdManagerIpcHandlers,
   startIfManaged as startI2pdIfManaged,
-  stopRetainedChildForAppQuit as stopI2pdForAppQuit,
-  stopIfManaged as stopI2pdIfManaged,
 } from './i2pd-manager.js';
 import { prewarmRunningCoreApiKeyCache } from './local-api-key.js';
 import {
@@ -1240,17 +1239,14 @@ function registerWindowIpcHandlers() {
   });
 }
 
-// Reconcile Home's current-process i2pd supervision with Core on launch. When
-// Core is running with I2P enabled, start the strict managed generation only if
-// no SAM router is already present. Otherwise stop only the child retained by
-// this Home process. A router surviving another Home process is treated as
-// external and is never adopted or signalled. Best-effort: I2P is a fallback.
+// When Core is running with I2P enabled, ensure Home's strict managed router is
+// available. A router the user started independently remains running when Core
+// is stopped; reopening Home must never turn startup reconciliation into an
+// implicit stop action. Best-effort: I2P is a fallback.
 async function reconcileI2pdWithCore(): Promise<void> {
   try {
     if (await isManagedCoreUsingI2p()) {
       await startI2pdIfManaged();
-    } else {
-      await stopI2pdIfManaged();
     }
   } catch {
     // Never block startup on the I2P fallback.
@@ -1399,43 +1395,20 @@ app.on('window-all-closed', () => {
   }
 });
 
-// Never intentionally lose the ChildProcess authority needed to stop Home's
-// router safely. A normal quit therefore stops only the live child retained by
-// this process, even when Core remains running; the next Home launch can start
-// the strict managed generation again. A router left by a crash is treated as
-// external rather than adopted from mutable PID evidence.
-let i2pdShutdownComplete = false;
+// Closing Home must not stop a router the user deliberately started. The
+// router is already detached from Home and stripped of AppImage mount paths;
+// only revoke a launch that has not yet crossed its final synchronous gate.
 app.on('before-quit', (event) => {
   // First, before anything can cancel the quit: from here on a window close is
   // a real close. Without this, close-to-tray would hide the window Quit just
   // asked to close and the app could never exit from its own tray menu.
   quitRequested = true;
 
-  // A redundant second instance (no lock) never started the shared i2pd/Core, so
-  // it must quit immediately without touching them. Same once shutdown has run.
-  if (!gotSingleInstanceLock || i2pdShutdownComplete) {
-    return;
-  }
+  // A redundant second instance never acquired authority over the shared
+  // router state, so it must not change even the launch gate.
+  if (gotSingleInstanceLock) prepareI2pdForAppQuit();
 
-  event.preventDefault();
-  void (async () => {
-    try {
-      // The manager has its own bounded SIGTERM wait. Await it in full so the
-      // app never discards the only safe ChildProcess authority at a shorter
-      // outer timeout.
-      await stopI2pdForAppQuit();
-    } catch {
-      // Keep Home alive with its ChildProcess authority intact. A later quit
-      // retries the bounded stop; force termination remains the user's explicit
-      // escape hatch if the child cannot be stopped.
-      //
-      // The quit is off, so the flag has to come off with it: Home is running
-      // again, and its windows should behave the way the settings say.
-      quitRequested = false;
-      console.error('Home could not confirm that its managed i2pd child stopped; quit was cancelled.');
-      return;
-    }
-    i2pdShutdownComplete = true;
-    app.quit();
-  })();
+  // Kept in the callback signature because the close-behaviour source contract
+  // verifies that quitRequested is set before any asynchronous quit handling.
+  void event;
 });

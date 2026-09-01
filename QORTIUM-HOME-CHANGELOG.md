@@ -34,6 +34,16 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-09-01 - fix(i2p): keep the managed router running after Home exits
+
+Closing or quitting Home no longer stops an i2pd router that the user started.
+Home prevents a new router launch from racing with shutdown, but an established
+router remains detached from the application and continues serving its SAM
+bridge. On Linux, a later Home session safely recognizes the exact managed
+process by its private PID file, verified executable, launch arguments, owner,
+and kernel start identity, restoring deliberate lifecycle controls without
+claiming or signalling an unrelated local router.
+
 ### 2026-09-01 - fix(i2p): migrate Home 1.x routers and restore live start
 
 Home 2 now recognizes the managed i2pd installation left by Home 1.x instead

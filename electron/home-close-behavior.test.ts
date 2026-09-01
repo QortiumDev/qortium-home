@@ -272,6 +272,27 @@ assert.match(
 );
 assert.match(
   mainSource,
+  /if \(gotSingleInstanceLock\) prepareI2pdForAppQuit\(\);/,
+  'quitting Home must revoke a not-yet-launched i2pd start',
+);
+assert.doesNotMatch(
+  mainSource,
+  /stopRetainedChildForAppQuit|stopI2pdForAppQuit/,
+  'quitting Home must not stop an established managed i2pd router',
+);
+const i2pdManagerSource = readFileSync('electron/i2pd-manager.ts', 'utf8');
+assert.match(
+  i2pdManagerSource,
+  /export function prepareForAppQuit\(\): void \{\s*appShutdownRequested = true;\s*\}/,
+  'the quit gate must synchronously revoke new i2pd launches without signalling the child',
+);
+assert.doesNotMatch(
+  mainSource,
+  /if \(await isManagedCoreUsingI2p\(\)\) \{\s*await startI2pdIfManaged\(\);\s*\} else \{\s*await stopI2pdIfManaged\(\);/,
+  'reopening Home must not stop a standalone managed i2pd router when Core is stopped',
+);
+assert.match(
+  mainSource,
   /quitting: quitRequested/,
   'the close plan must be told about a quit in progress',
 );
