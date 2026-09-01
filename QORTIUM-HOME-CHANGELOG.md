@@ -32,6 +32,14 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## fix(accounts): resolve profile names through the trusted node fetch
+
+The account profile's registered-name lookup used a plain fetch that the
+managed node's own certificate authority does not satisfy, so it failed
+silently and apps were told the selected account has no name — which, among
+other things, disabled open-group file attachments in Chat for accounts whose
+name exists on chain. The lookup now goes through the same trusted node fetch
+the rest of Home uses, so the profile name matches the chain again.
 ## feat(qdn): stage app-held bytes as a publish source
 
 Apps could only publish files chosen through Home's own picker, so a
