@@ -42,8 +42,9 @@ function transportStatus(options: StatusOptions = {}): HomeV2TransportMaintenanc
   return {
     capabilities: {
       canEnsureRouter: coreInstall === 'installed' && issue === null &&
-        ['install', 'migrate', 'start', 'update'].includes(maintenance) &&
-        (maintenance === 'start' ? coreRuntime !== 'unknown' : coreRuntime === 'stopped'),
+        ((routerState === 'managed-stopped' && ['start', 'update'].includes(maintenance) &&
+          coreRuntime !== 'unknown') ||
+          (['install', 'migrate'].includes(maintenance) && coreRuntime === 'stopped')),
       canRevealRouterFolder: routerState === 'managed-running' ||
         (routerState === 'managed-stopped' && maintenance !== 'migrate'),
       canSetDirectAndI2p: canChange && routerReady,
@@ -52,6 +53,9 @@ function transportStatus(options: StatusOptions = {}): HomeV2TransportMaintenanc
       canStopRouter: routerState === 'managed-running' && !fatalIssue,
       canSetModeWhileRunning: coreInstall === 'installed' && coreRuntime === 'running' &&
         mode !== 'unknown' && !fatalIssue,
+      canUpdateRouter: coreInstall === 'installed' && coreRuntime === 'stopped' && issue === null &&
+        maintenance === 'update' &&
+        (routerState === 'managed-running' || routerState === 'managed-stopped'),
     },
     core: { install: coreInstall, runtime: coreRuntime },
     issue,
@@ -237,8 +241,31 @@ try {
     routerState: 'managed-stopped',
     version: '2.59.0-q1',
   })
-  await render(client({ getTransportMaintenanceStatus: async () => updateStatus }))
-  assert.ok(button('Update and restart I2P router'))
+  const updateActions: Array<{ action: string; mode: string | null }> = []
+  await render(client({
+    getTransportMaintenanceStatus: async () => updateStatus,
+    runTransportMaintenanceAction: async (action, mode) => {
+      updateActions.push({ action, mode })
+      return actionResult(updateStatus)
+    },
+  }))
+  assert.ok(button('Start I2P router'))
+  const updateButton = button('Update and restart I2P router')
+  assert.equal(updateButton.disabled, false)
+  await act(async () => {
+    button('Start I2P router').click()
+    await Promise.resolve()
+    await Promise.resolve()
+  })
+  await act(async () => {
+    button('Update and restart I2P router').click()
+    await Promise.resolve()
+    await Promise.resolve()
+  })
+  assert.deepEqual(updateActions, [
+    { action: 'ensure-router', mode: null },
+    { action: 'update-router', mode: null },
+  ])
   assert.match(container.textContent ?? '', /strictly newer verified build/)
 
   await render(client({ getTransportMaintenanceStatus: async () => legacyStatus }))
@@ -267,6 +294,16 @@ try {
   assert.ok(button('Start I2P router'))
   assert.match(container.textContent ?? '', /installed but stopped/)
   assert.doesNotMatch(container.textContent ?? '', /Stop Qortium Core to install or update/)
+
+  const runningOldReleaseStatus = transportStatus({
+    coreRuntime: 'running',
+    maintenance: 'update',
+    routerState: 'managed-stopped',
+    version: '2.60.0-q2',
+  })
+  await render(client({ getTransportMaintenanceStatus: async () => runningOldReleaseStatus }))
+  assert.equal(button('Start I2P router').disabled, false)
+  assert.equal(button('Update and restart I2P router').disabled, true)
 
   let refreshShouldFail = false
   await render(client({

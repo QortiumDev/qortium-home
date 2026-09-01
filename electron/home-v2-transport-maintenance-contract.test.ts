@@ -33,9 +33,11 @@ function status(options: StatusOptions = {}): HomeV2TransportMaintenanceStatus {
   const canChange = coreInstall === 'installed' && coreRuntime === 'stopped' &&
     mode !== 'unknown' && !fatalIssue
   const routerReady = routerState === 'external-running' || routerState === 'managed-running'
-  const canEnsureRouter = coreInstall === 'installed' && issue === null &&
-    ['install', 'migrate', 'start', 'update'].includes(maintenance) &&
-    (maintenance === 'start' ? coreRuntime !== 'unknown' : coreRuntime === 'stopped')
+  const canEnsureRouter = coreInstall === 'installed' && issue === null && (
+    (routerState === 'managed-stopped' && ['start', 'update'].includes(maintenance) &&
+      coreRuntime !== 'unknown') ||
+    (['install', 'migrate'].includes(maintenance) && coreRuntime === 'stopped')
+  )
   return {
     capabilities: {
       canEnsureRouter,
@@ -47,6 +49,9 @@ function status(options: StatusOptions = {}): HomeV2TransportMaintenanceStatus {
       canStopRouter: routerState === 'managed-running' && !fatalIssue,
       canSetModeWhileRunning: coreInstall === 'installed' && coreRuntime === 'running' &&
         mode !== 'unknown' && !fatalIssue,
+      canUpdateRouter: coreInstall === 'installed' && coreRuntime === 'stopped' &&
+        issue === null && maintenance === 'update' &&
+        (routerState === 'managed-running' || routerState === 'managed-stopped'),
     },
     core: { install: coreInstall, runtime: coreRuntime },
     issue,
@@ -77,7 +82,8 @@ function statusRequest(extra: Record<string, unknown> = {}) {
 }
 
 function mutationRequest(
-  action: 'ensure-router' | 'set-mode' | 'set-mode-live' | 'stop-router',
+  action: 'ensure-router' | 'reveal-router' | 'set-mode' | 'set-mode-live' |
+    'stop-router' | 'update-router',
   transportMode: Exclude<HomeV2TransportMode, 'unknown'> | null,
   extra: Record<string, unknown> = {},
 ) {
@@ -105,6 +111,7 @@ function dependencies(overrides: Partial<HomeV2TransportMaintenanceDependencies>
     setRunningCoreTransportMode: async () =>
       ({ code: null, kind: 'completed', warning: 'restart-required' } as const),
     stopRouter: async () => ({ code: null, kind: 'completed', warning: null } as const),
+    updateRouter: async () => ({ code: null, kind: 'completed', warning: null } as const),
     ...overrides,
   } satisfies HomeV2TransportMaintenanceDependencies
 }
@@ -209,6 +216,14 @@ for (const malformed of [
   { ...status(), router: { ...status().router, version: 'x'.repeat(129) } },
   { ...status(), router: { ...status().router, version: 'bad\nversion' } },
   { ...status(), capabilities: { ...status().capabilities, canSetI2pOnly: true } },
+  (() => {
+    const update = status({
+      maintenance: 'update',
+      routerState: 'managed-stopped',
+      version: '2.60.0-q2',
+    })
+    return { ...update, capabilities: { ...update.capabilities, canUpdateRouter: false } }
+  })(),
   status({ maintenance: 'none', routerState: 'missing' }),
   status({ issue: null, maintenance: 'unavailable', mode: 'unknown', routerState: 'unknown' }),
 ] as unknown[]) {
@@ -385,6 +400,91 @@ for (const [preflight, action, mode, expectedCode] of [
   assert.equal(starts, 1)
   assert.equal(result.outcome, 'completed')
   assert.equal(result.code, null)
+}
+
+// A trusted old release remains independently startable. Its update offer is
+// retained after startup instead of being consumed as an implicit update.
+{
+  let reads = 0
+  let starts = 0
+  let updates = 0
+  const stoppedOld = status({
+    coreRuntime: 'running',
+    maintenance: 'update',
+    routerState: 'managed-stopped',
+    version: '2.60.0-q2',
+  })
+  const runningOld = status({
+    coreRuntime: 'running',
+    maintenance: 'update',
+    routerState: 'managed-running',
+    version: '2.60.0-q2',
+  })
+  assert.equal(stoppedOld.capabilities.canEnsureRouter, true)
+  assert.equal(stoppedOld.capabilities.canUpdateRouter, false)
+  const result = await createHomeV2TransportMaintenanceService(dependencies({
+    ensureRouter: async () => {
+      starts += 1
+      return { code: null, kind: 'completed', warning: null }
+    },
+    readStatus: async () => (++reads === 1 ? stoppedOld : runningOld),
+    updateRouter: async () => {
+      updates += 1
+      return { code: null, kind: 'completed', warning: null }
+    },
+  })).runAction(mutationRequest('ensure-router', null))
+  assert.equal(result.outcome, 'completed')
+  assert.equal(result.status.router.maintenance, 'update')
+  assert.equal(starts, 1)
+  assert.equal(updates, 0)
+}
+
+// Updating is a separate stopped-Core mutation and is confirmed only after the
+// new release is the managed running router with no update still pending.
+{
+  let reads = 0
+  let updates = 0
+  const oldRelease = status({
+    maintenance: 'update',
+    routerState: 'managed-running',
+    version: '2.60.0-q2',
+  })
+  const newRelease = status({
+    maintenance: 'none',
+    routerState: 'managed-running',
+    version: '2.61.0-q1',
+  })
+  assert.equal(oldRelease.capabilities.canUpdateRouter, true)
+  const result = await createHomeV2TransportMaintenanceService(dependencies({
+    readStatus: async () => (++reads === 1 ? oldRelease : newRelease),
+    updateRouter: async () => {
+      updates += 1
+      return { code: null, kind: 'completed', warning: null }
+    },
+  })).runAction(mutationRequest('update-router', null))
+  assert.equal(result.outcome, 'completed')
+  assert.equal(result.status.router.version, '2.61.0-q1')
+  assert.equal(updates, 1)
+}
+
+{
+  let updates = 0
+  const runningCore = status({
+    coreRuntime: 'running',
+    maintenance: 'update',
+    routerState: 'managed-running',
+    version: '2.60.0-q2',
+  })
+  const result = await createHomeV2TransportMaintenanceService(dependencies({
+    readStatus: async () => runningCore,
+    updateRouter: async () => {
+      updates += 1
+      return { code: null, kind: 'completed', warning: null }
+    },
+  })).runAction(mutationRequest('update-router', null))
+  assert.equal(result.outcome, 'blocked')
+  assert.equal(result.code, 'core-runtime-not-stopped')
+  assert.equal(updates, 0)
 }
 
 for (const [dependencyResult, outcome, code] of [

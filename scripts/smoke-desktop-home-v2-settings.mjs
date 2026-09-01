@@ -877,14 +877,17 @@ try {
       evaluate(
         client,
         `(() => {
-          const panel = document.querySelector('.home-v2-core-maintenance');
-          const update = document.querySelector('[data-home-v2-app-updates="desktop"]');
-          const check = [...(panel?.querySelectorAll('button') ?? [])]
-            .find((button) => button.textContent.trim() === 'Check release');
-          const qortalPolicy = panel?.querySelector('[data-home-v2-qortal-update-policy]');
-          return panel && update && check && qortalPolicy &&
-              panel.compareDocumentPosition(update) & Node.DOCUMENT_POSITION_FOLLOWING &&
-              panel.querySelectorAll('select').length === 1 &&
+          const activePage = document.querySelector('.home-v2-page-slot:not([hidden])');
+          const sections = [...(activePage?.querySelectorAll('.home-v2-core-settings') ?? [])];
+          const qortiumSection = sections.find((section) =>
+            section.querySelector('.home-v2-core-card[data-network="qortium"]'));
+          const qortalSection = sections.find((section) =>
+            section.querySelector('.home-v2-core-card[data-network="qortal"]'));
+          const panel = qortiumSection?.querySelector(
+            '.home-v2-core-maintenance:not(.home-v2-transport-maintenance):not(.home-v2-qortal-maintenance)'
+          );
+          const qortalPolicy = qortalSection?.querySelector('[data-home-v2-qortal-update-policy]');
+          return panel && qortalPolicy &&
               typeof window.homeV2CoreManagers?.getMaintenanceStatus === 'function' &&
               typeof window.homeV2CoreManagers?.getUpdatePolicy === 'function' &&
               typeof window.homeV2CoreManagers?.setUpdatePolicy === 'function'
@@ -904,7 +907,7 @@ try {
     assert.equal(maintenancePanel.policy.generation, 4)
     assert.equal(maintenancePanel.policy.javaUpdatePolicy, 'notify')
     assert.equal(maintenancePanel.policy.qortalUpdatePolicy, 'notify')
-    assert.match(maintenancePanel.text, /Qortal Core updates/)
+    assert.doesNotMatch(maintenancePanel.text, /Qortal Core updates/)
     assert.doesNotMatch(maintenancePanel.text, /i2pd|transport/i)
     assert.deepEqual(JSON.parse(readFileSync(corePolicyPath, 'utf8')), {
       coreUpdatePolicy: 'off',

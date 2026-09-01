@@ -105,12 +105,13 @@ function transportStatus(
   return {
     capabilities: {
       canEnsureRouter: true,
-    canRevealRouterFolder: false,
+      canRevealRouterFolder: false,
       canSetDirectAndI2p: true,
       canSetDirectOnly: true,
       canSetI2pOnly: false,
       canStopRouter: false,
       canSetModeWhileRunning: false,
+      canUpdateRouter: false,
     },
     core: { install: 'installed', runtime: 'stopped' },
     issue: null,
@@ -353,12 +354,13 @@ function transportActionResult(
   const running = transportStatus({
     capabilities: {
       canEnsureRouter: false,
-    canRevealRouterFolder: false,
+      canRevealRouterFolder: false,
       canSetDirectAndI2p: false,
       canSetDirectOnly: false,
       canSetI2pOnly: false,
       canStopRouter: true,
       canSetModeWhileRunning: true,
+      canUpdateRouter: false,
     },
     core: { install: 'installed', runtime: 'running' },
     router: { maintenance: 'none', state: 'managed-running', version: '2.50.2' },
@@ -371,12 +373,13 @@ function transportActionResult(
   const runningNoRouter = transportStatus({
     capabilities: {
       canEnsureRouter: false,
-    canRevealRouterFolder: false,
+      canRevealRouterFolder: false,
       canSetDirectAndI2p: false,
       canSetDirectOnly: false,
       canSetI2pOnly: false,
       canStopRouter: false,
       canSetModeWhileRunning: true,
+      canUpdateRouter: false,
     },
     core: { install: 'installed', runtime: 'running' },
     router: { maintenance: 'install', state: 'missing', version: null },
@@ -388,12 +391,13 @@ function transportActionResult(
   const unknown = transportStatus({
     capabilities: {
       canEnsureRouter: false,
-    canRevealRouterFolder: false,
+      canRevealRouterFolder: false,
       canSetDirectAndI2p: false,
       canSetDirectOnly: false,
       canSetI2pOnly: false,
       canStopRouter: false,
       canSetModeWhileRunning: false,
+      canUpdateRouter: false,
     },
     core: { install: 'installed', runtime: 'unknown' },
   })

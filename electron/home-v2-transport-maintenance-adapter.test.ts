@@ -92,6 +92,9 @@ function harness(options: {
     async stopManagedRouter() {
       events.push('stop')
     },
+    async updateRouter(restartPreviousOnFailure) {
+      events.push(`update:${restartPreviousOnFailure}`)
+    },
   })
 
   return { dependencies, events }
@@ -130,6 +133,25 @@ assert.deepEqual(
   ['start'],
 )
 
+const runningCoreOldReleaseStart = harness({
+  inspections: [
+    router({ maintenance: 'update', router: 'managed-stopped' }),
+    router({ maintenance: 'update', router: 'managed-running' }),
+  ],
+  runtimeStates: ['running', 'running', 'running'],
+})
+assert.deepEqual(await runningCoreOldReleaseStart.dependencies.ensureRouter(), {
+  code: null,
+  kind: 'completed',
+  warning: null,
+})
+assert.deepEqual(
+  runningCoreOldReleaseStart.events.filter((event) =>
+    event === 'install' || event === 'start' || event.startsWith('update:')),
+  ['start'],
+  'starting a trusted old release must not silently update it',
+)
+
 const legacyMigration = harness({
   inspections: [
     router({ install: 'legacy', maintenance: 'migrate', router: 'legacy-stopped' }),
@@ -164,60 +186,68 @@ const changedTarget: CoreTarget = {
   tagName: 'v1.2.4',
 }
 const targetRace = harness({
-  inspections: [router({ installedVersion: '2.59.0-q1', maintenance: 'update' })],
+  inspections: [router({ maintenance: 'update', router: 'managed-stopped' })],
   targets: [CORE_TARGET, changedTarget],
 })
-assert.deepEqual(await targetRace.dependencies.ensureRouter(), {
+assert.deepEqual(await targetRace.dependencies.updateRouter(), {
   code: 'target-changed',
   kind: 'blocked',
   warning: null,
 })
 assert.equal(targetRace.events.includes('stop'), false)
-assert.equal(targetRace.events.includes('install'), false)
-assert.equal(targetRace.events.includes('start'), false)
+assert.equal(targetRace.events.some((event) => event.startsWith('update:')), false)
 
 const managedUpdate = harness({
   inspections: [
-    router({ installedVersion: '2.59.0-q1', maintenance: 'update' }),
-    router({ installedVersion: '2.59.0-q1', maintenance: 'update', router: 'managed-stopped' }),
-    router({ maintenance: 'start', router: 'managed-stopped' }),
-    router(),
+    router({ maintenance: 'update' }),
+    router({ maintenance: 'update', router: 'managed-stopped' }),
+    router({ installedVersion: '2.61.0-q1' }),
   ],
-  runtimeStates: ['stopped', 'stopped', 'stopped', 'stopped', 'stopped'],
+  runtimeStates: ['stopped', 'stopped', 'stopped'],
 })
-assert.deepEqual(await managedUpdate.dependencies.ensureRouter(), {
+assert.deepEqual(await managedUpdate.dependencies.updateRouter(), {
   code: null,
   kind: 'completed',
   warning: null,
 })
 assert.deepEqual(
-  managedUpdate.events.filter((event) => ['stop', 'install', 'start'].includes(event)),
-  ['stop', 'install', 'start'],
+  managedUpdate.events.filter((event) => event === 'stop' || event.startsWith('update:')),
+  ['stop', 'update:true'],
 )
-assert.equal(managedUpdate.events.filter((event) => event === 'core-runtime').length, 5)
+assert.equal(managedUpdate.events.filter((event) => event === 'core-runtime').length, 3)
 
-const unreadyManagedUpdate = harness({
+const stoppedManagedUpdate = harness({
   inspections: [
-    router({
-      installedVersion: '2.59.0-q1',
-      maintenance: 'update',
-      managedProcessActive: true,
-      router: 'managed-stopped',
-    }),
-    router({ installedVersion: '2.59.0-q1', maintenance: 'update', router: 'managed-stopped' }),
-    router({ maintenance: 'start', router: 'managed-stopped' }),
-    router(),
+    router({ maintenance: 'update', router: 'managed-stopped' }),
+    router({ installedVersion: '2.61.0-q1' }),
   ],
-  runtimeStates: ['stopped', 'stopped', 'stopped', 'stopped', 'stopped'],
+  runtimeStates: ['stopped', 'stopped', 'stopped'],
 })
-assert.deepEqual(await unreadyManagedUpdate.dependencies.ensureRouter(), {
+assert.deepEqual(await stoppedManagedUpdate.dependencies.updateRouter(), {
   code: null,
   kind: 'completed',
   warning: null,
 })
 assert.deepEqual(
-  unreadyManagedUpdate.events.filter((event) => ['stop', 'install', 'start'].includes(event)),
-  ['stop', 'install', 'start'],
+  stoppedManagedUpdate.events.filter((event) => event === 'stop' || event.startsWith('update:')),
+  ['update:false'],
+)
+
+const unconfirmedUpdateStop = harness({
+  inspections: [
+    router({ maintenance: 'update' }),
+    router({ maintenance: 'update' }),
+  ],
+  runtimeStates: ['stopped'],
+})
+assert.deepEqual(await unconfirmedUpdateStop.dependencies.updateRouter(), {
+  code: 'action-unconfirmed',
+  kind: 'unconfirmed',
+  warning: null,
+})
+assert.equal(
+  unconfirmedUpdateStop.events.some((event) => event.startsWith('update:')),
+  false,
 )
 
 const externalEnsure = harness({
@@ -271,19 +301,22 @@ assert.deepEqual(
 )
 assert.equal(directOnlyExternal.events.includes('stop'), false)
 
-const unconfirmedStop = harness({
+const unconfirmedUpdate = harness({
   inspections: [
-    router({ installedVersion: '2.59.0-q1', maintenance: 'update' }),
-    router({ installedVersion: '2.59.0-q1', maintenance: 'update' }),
+    router({ maintenance: 'update', router: 'managed-stopped' }),
+    router({ maintenance: 'update', router: 'managed-stopped' }),
   ],
+  runtimeStates: ['stopped', 'stopped', 'stopped'],
 })
-assert.deepEqual(await unconfirmedStop.dependencies.ensureRouter(), {
+assert.deepEqual(await unconfirmedUpdate.dependencies.updateRouter(), {
   code: 'action-unconfirmed',
   kind: 'unconfirmed',
   warning: null,
 })
-assert.equal(unconfirmedStop.events.includes('install'), false)
-assert.equal(unconfirmedStop.events.includes('start'), false)
+assert.deepEqual(
+  unconfirmedUpdate.events.filter((event) => event === 'stop' || event.startsWith('update:')),
+  ['update:false'],
+)
 
 const unconfirmedStart = harness({
   inspections: [

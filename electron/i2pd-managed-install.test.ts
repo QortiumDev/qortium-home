@@ -1,18 +1,25 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import { lstat, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises'
+import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import {
   I2pdManagedInstallError,
+  activateTrustedI2pdGeneration,
   installPinnedI2pd,
   readI2pdLegacyManagedInstall,
   readI2pdManagedInstall,
+  readTrustedI2pdManagedInstall,
   resolveI2pdManagedInstallPaths,
   type I2pdArchiveExtractor,
   type I2pdManagedInstallDependencies,
 } from './i2pd-managed-install.js'
-import { getPinnedI2pdRelease, type I2pdPinnedRelease } from './i2pd-release-policy.js'
+import {
+  getTrustedI2pdRelease,
+  I2PD_LEGACY_VERSION,
+  I2PD_PINNED_VERSION,
+  type I2pdPinnedRelease,
+} from './i2pd-release-policy.js'
 
 const ARCHIVE = Buffer.from('deterministic managed i2pd archive fixture')
 const RELEASE: I2pdPinnedRelease = Object.freeze({
@@ -20,6 +27,7 @@ const RELEASE: I2pdPinnedRelease = Object.freeze({
   assetName: 'i2pd-2.60.0-q2-linux-x86_64.tar.gz',
   binaryName: 'i2pd',
   downloadUrl: 'https://github.com/QortiumDev/qortium-i2pd/releases/download/2.60.0-q2/i2pd-2.60.0-q2-linux-x86_64.tar.gz',
+  logPolicy: 'legacy-unbounded',
   sha256: createHash('sha256').update(ARCHIVE).digest('hex'),
   size: ARCHIVE.byteLength,
   target: 'linux-x86_64',
@@ -66,6 +74,49 @@ async function noTemporaryEntries(basePath: string) {
   assert.deepEqual((await readdir(paths.versionsPath)).filter((name) => name.startsWith('.staging-')), [])
 }
 
+async function writeTrustedGeneration(
+  basePath: string,
+  release: I2pdPinnedRelease,
+  binaryContents: string,
+) {
+  const paths = resolveI2pdManagedInstallPaths(basePath)
+  await mkdir(paths.downloadsPath, { mode: 0o700, recursive: true })
+  await mkdir(paths.runtimePath, { mode: 0o700, recursive: true })
+  await mkdir(paths.versionsPath, { mode: 0o700, recursive: true })
+  const generation = `${release.version}-${release.target}-${release.sha256}`
+  const generationPath = path.join(paths.versionsPath, generation)
+  const binaryDirectory = path.join(generationPath, 'bin')
+  await mkdir(binaryDirectory, { mode: 0o700, recursive: true })
+  const binaryPath = path.join(binaryDirectory, release.binaryName)
+  await writeFile(binaryPath, binaryContents, { mode: 0o700 })
+  const bytes = Buffer.from(binaryContents)
+  const record = {
+    archiveSha256: release.sha256,
+    archiveSize: release.size,
+    archiveType: release.archiveType,
+    assetName: release.assetName,
+    binaryName: release.binaryName,
+    binaryRelativePath: `bin/${release.binaryName}`,
+    binarySha256: createHash('sha256').update(bytes).digest('hex'),
+    binarySize: bytes.byteLength,
+    generation,
+    installedAt: '2026-09-01T12:00:00.000Z',
+    revision: 1,
+    schema: 'qortium-home-i2pd-managed-install',
+    target: release.target,
+    version: release.version,
+  }
+  const json = `${JSON.stringify(record, null, 2)}\n`
+  await writeFile(path.join(generationPath, '.qortium-home-i2pd-generation.json'), json, {
+    mode: 0o600,
+  })
+  await writeFile(paths.currentRecordPath, json, { mode: 0o600 })
+  if (process.platform !== 'win32') {
+    await chmod(basePath, 0o700)
+    await chmod(generationPath, 0o700)
+  }
+}
+
 {
   const { basePath, root } = await temporaryBase('success')
   try {
@@ -91,6 +142,10 @@ async function noTemporaryEntries(basePath: string) {
     const rawRecord = await readFile(path.join(basePath, 'current.json'), 'utf8')
     assert.doesNotMatch(rawRecord, new RegExp(root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
     assert.equal((await readI2pdManagedInstall({ ...INPUT, basePath }))?.record.archiveSha256, RELEASE.sha256)
+    await expectCode(
+      readTrustedI2pdManagedInstall({ ...INPUT, basePath }),
+      'record-invalid',
+    )
     assert.equal((await installPinnedI2pd({ ...INPUT, basePath }, dependencies({
       fetch: async () => { throw new Error('already-current must not fetch') },
     }))).kind, 'already-current')
@@ -118,7 +173,7 @@ async function noTemporaryEntries(basePath: string) {
 {
   const { basePath, root } = await temporaryBase('legacy-detection')
   try {
-    const release = getPinnedI2pdRelease(INPUT.platform, INPUT.arch)
+    const release = getTrustedI2pdRelease(I2PD_LEGACY_VERSION, INPUT.platform, INPUT.arch)
     assert(release)
     const paths = resolveI2pdManagedInstallPaths(basePath)
     await mkdir(paths.downloadsPath, { mode: 0o700, recursive: true })
@@ -139,6 +194,38 @@ async function noTemporaryEntries(basePath: string) {
 
     assert.equal((await readI2pdLegacyManagedInstall({ ...INPUT, basePath }))?.version, release.version)
     assert.equal(await readI2pdManagedInstall({ ...INPUT, basePath }), null)
+  } finally {
+    await rm(root, { force: true, recursive: true })
+  }
+}
+
+{
+  const { basePath, root } = await temporaryBase('trusted-rollback')
+  try {
+    const oldRelease = getTrustedI2pdRelease(I2PD_LEGACY_VERSION, INPUT.platform, INPUT.arch)
+    const newRelease = getTrustedI2pdRelease(I2PD_PINNED_VERSION, INPUT.platform, INPUT.arch)
+    assert(oldRelease)
+    assert(newRelease)
+    await writeTrustedGeneration(basePath, oldRelease, 'old trusted binary')
+    const oldInstall = await readI2pdManagedInstall({ ...INPUT, basePath })
+    assert(oldInstall)
+    assert.equal(
+      (await readTrustedI2pdManagedInstall({ ...INPUT, basePath }))?.record.version,
+      I2PD_LEGACY_VERSION,
+    )
+    await writeTrustedGeneration(basePath, newRelease, 'new trusted binary')
+    assert.equal(
+      (await readI2pdManagedInstall({ ...INPUT, basePath }))?.record.version,
+      I2PD_PINNED_VERSION,
+    )
+    await activateTrustedI2pdGeneration(
+      { ...INPUT, basePath },
+      oldInstall,
+      { randomToken: () => 'fedcba9876543210fedcba9876543210' },
+    )
+    const restored = await readI2pdManagedInstall({ ...INPUT, basePath })
+    assert.equal(restored?.record.version, I2PD_LEGACY_VERSION)
+    assert.equal(restored?.binaryPath, oldInstall.binaryPath)
   } finally {
     await rm(root, { force: true, recursive: true })
   }

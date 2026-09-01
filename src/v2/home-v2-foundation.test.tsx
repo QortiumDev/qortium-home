@@ -1829,6 +1829,7 @@ function testCoreManagementRenderingAndAndroidDegrade(): void {
           canSetI2pOnly: false,
           canStopRouter: false,
           canSetModeWhileRunning: false,
+          canUpdateRouter: false,
         },
         core: { install: 'installed', runtime: 'stopped' },
         issue: null,

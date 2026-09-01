@@ -51,6 +51,7 @@ export function transportActionMessage(
 export function transportStatusFingerprint(status: HomeV2TransportMaintenanceStatus) {
   return [
     status.capabilities.canEnsureRouter,
+    status.capabilities.canUpdateRouter,
     status.capabilities.canSetDirectAndI2p,
     status.capabilities.canSetDirectOnly,
     status.capabilities.canSetI2pOnly,
@@ -174,6 +175,7 @@ export function useHomeV2TransportMaintenance(onCoreRefresh?: () => void) {
     if (!runAction || !status) return
     if (busyRef.current || stale) return
     if (action === 'ensure-router' && !status.capabilities.canEnsureRouter) return
+    if (action === 'update-router' && !status.capabilities.canUpdateRouter) return
     if (action === 'stop-router' && !status.capabilities.canStopRouter) return
     if (action === 'reveal-router' && !status.capabilities.canRevealRouterFolder) return
     if (action === 'set-mode' && (!mode || !canSetTransportMode(status, mode))) return
@@ -298,6 +300,7 @@ export interface HomeV2TransportManagement {
   readonly onRevealRouterFolder?: () => void
   readonly onSetTransportMode?: (mode: HomeV2SettableTransportMode) => void
   readonly onStopRouter?: () => void
+  readonly onUpdateRouter?: () => void
 }
 
 export function toHomeV2TransportManagement(
@@ -316,6 +319,7 @@ export function toHomeV2TransportManagement(
     },
     onRevealRouterFolder: () => void transport.run('reveal-router', null),
     onStopRouter: () => void transport.run('stop-router', null),
+    onUpdateRouter: () => void transport.run('update-router', null),
     stale: transport.stale,
     status: transport.status,
   }
