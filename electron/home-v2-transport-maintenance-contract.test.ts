@@ -18,6 +18,7 @@ type StatusOptions = Readonly<{
   maintenance?: HomeV2TransportRouterMaintenance
   mode?: HomeV2TransportMode
   routerState?: HomeV2TransportRouterState
+  sam?: HomeV2TransportMaintenanceStatus['router']['sam']
   version?: string | null
 }>
 
@@ -28,11 +29,18 @@ function status(options: StatusOptions = {}): HomeV2TransportMaintenanceStatus {
   const maintenance = options.maintenance ?? 'install'
   const mode = options.mode ?? 'direct-only'
   const routerState = options.routerState ?? 'missing'
+  const sam = options.sam ?? (
+    routerState === 'managed-running' || routerState === 'external-running'
+      ? 'ready'
+      : routerState === 'unsupported' || routerState === 'unknown'
+        ? 'unknown'
+        : 'unavailable'
+  )
   const version = options.version ?? null
   const fatalIssue = issue === 'manager-unavailable' || issue === 'status-unavailable'
   const canChange = coreInstall === 'installed' && coreRuntime === 'stopped' &&
     mode !== 'unknown' && !fatalIssue
-  const routerReady = routerState === 'external-running' || routerState === 'managed-running'
+  const routerReady = sam === 'ready'
   const canEnsureRouter = coreInstall === 'installed' && issue === null && (
     (routerState === 'managed-stopped' && ['start', 'update'].includes(maintenance) &&
       coreRuntime !== 'unknown') ||
@@ -56,8 +64,8 @@ function status(options: StatusOptions = {}): HomeV2TransportMaintenanceStatus {
     core: { install: coreInstall, runtime: coreRuntime },
     issue,
     network: 'qortium',
-    revision: 1,
-    router: { maintenance, state: routerState, version },
+    revision: 2,
+    router: { maintenance, sam, state: routerState, version },
     schema: 'home-v2-transport-maintenance',
     transportMode: mode,
   }
@@ -215,6 +223,9 @@ for (const malformed of [
   { ...status(), privatePath: '/secret/router' },
   { ...status(), router: { ...status().router, version: 'x'.repeat(129) } },
   { ...status(), router: { ...status().router, version: 'bad\nversion' } },
+  { ...status(), router: { ...status().router, sam: 'invalid' } },
+  status({ maintenance: 'none', routerState: 'external-running', sam: 'unavailable' }),
+  status({ routerState: 'missing', sam: 'ready' }),
   { ...status(), capabilities: { ...status().capabilities, canSetI2pOnly: true } },
   (() => {
     const update = status({
@@ -232,6 +243,24 @@ for (const malformed of [
   })).getStatus(statusRequest())
   assert.deepEqual(actual, unavailableStatus)
   assertRedacted(actual)
+}
+
+{
+  const processUpSamDown = status({
+    maintenance: 'none',
+    mode: 'direct-and-i2p',
+    routerState: 'managed-running',
+    sam: 'unavailable',
+    version: '2.60.0-q2',
+  })
+  assert.equal(processUpSamDown.capabilities.canStopRouter, true)
+  assert.equal(processUpSamDown.capabilities.canEnsureRouter, false)
+  assert.equal(processUpSamDown.capabilities.canSetDirectAndI2p, false)
+  assert.equal(processUpSamDown.capabilities.canSetI2pOnly, false)
+  const actual = await createHomeV2TransportMaintenanceService(dependencies({
+    readStatus: async () => processUpSamDown,
+  })).getStatus(statusRequest())
+  assert.deepEqual(actual, processUpSamDown)
 }
 
 {

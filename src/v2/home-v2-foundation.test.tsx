@@ -1834,8 +1834,8 @@ function testCoreManagementRenderingAndAndroidDegrade(): void {
         core: { install: 'installed', runtime: 'stopped' },
         issue: null,
         network: 'qortium',
-        revision: 1,
-        router: { maintenance: 'install', state: 'missing', version: null },
+        revision: 2,
+        router: { maintenance: 'install', sam: 'unavailable', state: 'missing', version: null },
         schema: 'home-v2-transport-maintenance',
         transportMode: 'direct-only',
       },
@@ -1910,6 +1910,12 @@ function testCoreManagementRenderingAndAndroidDegrade(): void {
     ...dashboard.matchAll(/data-home-v2-node-core-transport="dashboard" data-network="(\w+)"/g),
   ].map((match) => match[1])
   assert.deepEqual(transportMatches, ['qortium'])
+  assert.match(dashboard, /data-home-v2-i2p-health="true"/)
+  assert.match(dashboard, /data-home-v2-i2p-health-plane="chain"/)
+  assert.match(dashboard, /chain: session Ready · LeaseSet Ready/)
+  assert.match(dashboard, /data-home-v2-i2p-health-plane="data"/)
+  assert.doesNotMatch(dashboard, /chain: session Ready[^<]*0 peers/,
+    'missing peer counts must remain unknown rather than becoming zero')
   {
     // While the first status poll is in flight the row must still BE there. It
     // used to render nothing, and on a slow poll that is indistinguishable from

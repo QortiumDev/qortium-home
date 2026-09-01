@@ -28,6 +28,9 @@ function router(
     managedProcessActive: routerState === 'managed-running',
     maintenance: 'none',
     router: routerState,
+    sam: routerState === 'managed-running' || routerState === 'external-running'
+      ? 'ready'
+      : 'unavailable',
     supported: true,
     ...overrides,
   }
@@ -277,7 +280,7 @@ assert.deepEqual(
 
 const directOnlyUnready = harness({
   inspections: [
-    router({ managedProcessActive: true, router: 'managed-stopped' }),
+    router({ managedProcessActive: true, router: 'managed-running', sam: 'unavailable' }),
     router({ maintenance: 'start', router: 'managed-stopped' }),
   ],
   runtimeStates: ['stopped', 'stopped'],
@@ -287,6 +290,37 @@ assert.deepEqual(
   { code: null, kind: 'completed', warning: null },
 )
 assert.equal(directOnlyUnready.events.includes('stop'), true)
+
+{
+  const processUpSamDown = harness({
+    inspections: [router({
+      managedProcessActive: true,
+      router: 'managed-running',
+      sam: 'unavailable',
+    })],
+  })
+  const status = await processUpSamDown.dependencies.readStatus() as {
+    capabilities: {
+      canEnsureRouter: boolean
+      canSetDirectAndI2p: boolean
+      canSetI2pOnly: boolean
+      canStopRouter: boolean
+    }
+    router: { sam: string; state: string }
+  }
+  assert.deepEqual(status.router, {
+    maintenance: 'none',
+    sam: 'unavailable',
+    state: 'managed-running',
+    version: '2.60.0-q2',
+  })
+  assert.equal(status.capabilities.canStopRouter, true,
+    'a live managed process remains stoppable when SAM is unavailable')
+  assert.equal(status.capabilities.canEnsureRouter, false,
+    'Home must not launch a second router while the owned process is alive')
+  assert.equal(status.capabilities.canSetDirectAndI2p, false)
+  assert.equal(status.capabilities.canSetI2pOnly, false)
+}
 assert.deepEqual(
   directOnlyManaged.events.filter((event) => event.startsWith('set:') || event === 'stop'),
   ['set:direct-only', 'stop'],

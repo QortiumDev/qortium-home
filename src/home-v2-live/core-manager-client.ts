@@ -735,6 +735,11 @@ const transportRouterMaintenance = new Set<HomeV2TransportMaintenanceStatus['rou
   'unavailable',
   'update',
 ])
+const transportSamStates = new Set<HomeV2TransportMaintenanceStatus['router']['sam']>([
+  'ready',
+  'unavailable',
+  'unknown',
+])
 const transportIssues = new Set<NonNullable<HomeV2TransportMaintenanceStatus['issue']>>([
   'manager-unavailable',
   'status-unavailable',
@@ -775,15 +780,16 @@ export function parseHomeV2TransportMaintenanceStatus(
     'router',
     'schema',
     'transportMode',
-  ]) || value.schema !== 'home-v2-transport-maintenance' || value.revision !== 1 ||
+  ]) || value.schema !== 'home-v2-transport-maintenance' || value.revision !== 2 ||
     value.network !== 'qortium' || !transportModes.has(value.transportMode as HomeV2TransportMode) ||
     !(value.issue === null || transportIssues.has(value.issue as NonNullable<HomeV2TransportMaintenanceStatus['issue']>)) ||
     !isRecord(value.core) || !hasExactKeys(value.core, ['install', 'runtime']) ||
     !['installed', 'missing', 'unknown'].includes(String(value.core.install)) ||
     !['running', 'stopped', 'unknown'].includes(String(value.core.runtime)) ||
-    !isRecord(value.router) || !hasExactKeys(value.router, ['maintenance', 'state', 'version']) ||
+    !isRecord(value.router) || !hasExactKeys(value.router, ['maintenance', 'sam', 'state', 'version']) ||
     !transportRouterStates.has(value.router.state as HomeV2TransportMaintenanceStatus['router']['state']) ||
     !transportRouterMaintenance.has(value.router.maintenance as HomeV2TransportMaintenanceStatus['router']['maintenance']) ||
+    !transportSamStates.has(value.router.sam as HomeV2TransportMaintenanceStatus['router']['sam']) ||
     !isBoundedTransportVersion(value.router.version) ||
     !isRecord(value.capabilities) || !hasExactKeys(value.capabilities, [
       'canEnsureRouter',
@@ -803,11 +809,12 @@ export function parseHomeV2TransportMaintenanceStatus(
   const runtime = value.core.runtime as HomeV2TransportMaintenanceStatus['core']['runtime']
   const routerState = value.router.state as HomeV2TransportMaintenanceStatus['router']['state']
   const maintenance = value.router.maintenance as HomeV2TransportMaintenanceStatus['router']['maintenance']
+  const sam = value.router.sam as HomeV2TransportMaintenanceStatus['router']['sam']
   const version = value.router.version as string | null
   const mode = value.transportMode as HomeV2TransportMode
   const capabilities = value.capabilities as Record<string, boolean>
   const fatalIssue = issue === 'manager-unavailable' || issue === 'status-unavailable'
-  const routerReady = routerState === 'external-running' || routerState === 'managed-running'
+  const routerReady = sam === 'ready'
   const canChangeStoppedCore = install === 'installed' && runtime === 'stopped' &&
     mode !== 'unknown' && !fatalIssue
   const canEnsureRouter = install === 'installed' && issue === null && (
@@ -828,8 +835,15 @@ export function parseHomeV2TransportMaintenanceStatus(
         : routerState === 'missing'
           ? maintenance === 'install' && version === null
           : maintenance === 'unavailable' && version === null
+  const samShapeCoherent = routerState === 'external-running'
+    ? sam === 'ready'
+    : routerState === 'managed-running'
+      ? true
+      : routerState === 'unsupported'
+        ? sam === 'unknown'
+        : sam !== 'ready'
 
-  if (!routerShapeCoherent ||
+  if (!routerShapeCoherent || !samShapeCoherent ||
     ((routerState === 'unsupported') !== (issue === 'unsupported-platform')) ||
     (issue === 'version-unavailable' && !(
       routerState === 'unknown' ||
@@ -868,8 +882,8 @@ export function parseHomeV2TransportMaintenanceStatus(
     core: Object.freeze({ install, runtime }),
     issue,
     network: 'qortium',
-    revision: 1,
-    router: Object.freeze({ maintenance, state: routerState, version }),
+    revision: 2,
+    router: Object.freeze({ maintenance, sam, state: routerState, version }),
     schema: 'home-v2-transport-maintenance',
     transportMode: mode,
   })

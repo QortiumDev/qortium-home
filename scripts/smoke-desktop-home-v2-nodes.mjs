@@ -133,7 +133,7 @@ async function waitForSnapshot(port, timeoutMs = 30000) {
   throw new Error(`Home 2 node snapshot never became available: ${lastError}`)
 }
 
-function assertReadableNode(snapshot, network, mode) {
+function assertReadableNode(snapshot, network, mode, expectedStates = ['online']) {
   const node = snapshot?.nodes?.[network]
   assert.equal(node?.mode, mode, `${network} should remain in ${mode} mode`)
   assert.equal(
@@ -141,7 +141,11 @@ function assertReadableNode(snapshot, network, mode) {
     true,
     `${network} should be readable: ${node?.error ?? 'unknown error'}`,
   )
-  assert.equal(node?.state, 'online', `${network} should be online`)
+  assert.equal(
+    expectedStates.includes(node?.state),
+    true,
+    `${network} should be ${expectedStates.join(' or ')}, not ${node?.state ?? 'missing'}`,
+  )
   assert.match(node?.nodeApiUrl ?? '', /^https:\/\//)
   return node
 }
@@ -179,8 +183,49 @@ try {
     },
   })
   const { page, snapshot: initial } = await waitForSnapshot(port)
-  const localQortium = assertReadableNode(initial, 'qortium', 'local')
+  const localQortium = assertReadableNode(initial, 'qortium', 'local', ['online', 'syncing'])
   assert.equal(localQortium.nodeApiUrl, 'https://127.0.0.1:24891')
+  for (const field of [
+    'i2pChainSessionUp',
+    'i2pDataSessionUp',
+    'i2pChainLeaseSetLookupStatus',
+    'i2pDataLeaseSetLookupStatus',
+    'i2pChainLeaseSetLookupTimestamp',
+    'i2pDataLeaseSetLookupTimestamp',
+    'i2pChainLastInboundHandshakeTimestamp',
+    'i2pDataLastInboundHandshakeTimestamp',
+  ]) {
+    assert.equal(
+      Object.hasOwn(localQortium, field),
+      true,
+      `The packaged desktop bridge omitted ${field}.`,
+    )
+  }
+  const initialDestination = await evaluate(page, `(() => {
+    const active = document.querySelector('.home-v2-page-slot:not([hidden])')
+    return active?.getAttribute('data-internal-page') ?? null
+  })()`)
+  if (initialDestination === 'welcome') {
+    await evaluate(page, `([...document.querySelectorAll('.home-v2-welcome button')]
+      .find((button) => button.textContent.trim() === 'Skip setup')).click()`)
+  }
+  let healthUi = null
+  const healthDeadline = Date.now() + timeoutMs
+  while (Date.now() < healthDeadline && healthUi === null) {
+    const currentPage = await waitForPage(port)
+    healthUi = await evaluate(currentPage, `(() => {
+      const active = document.querySelector('.home-v2-page-slot:not([hidden])')
+      if (active?.getAttribute('data-internal-page') !== 'dashboard') return null
+      const health = active.querySelector('[data-home-v2-i2p-health]')
+      return health ? {
+        text: health.textContent,
+        planes: health.querySelectorAll('[data-home-v2-i2p-health-plane]').length,
+      } : null
+    })()`)
+    if (healthUi === null) await delay(250)
+  }
+  assert.equal(healthUi?.planes, 2, 'The dashboard should show separate chain and data I2P health.')
+  assert.match(healthUi?.text ?? '', /I2P fallback/i)
   assert.equal(
     existsSync(path.join(profileDirectory, 'node-ca', '127.0.0.1_24891.pem')),
     true,

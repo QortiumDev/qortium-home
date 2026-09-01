@@ -137,19 +137,19 @@ function projectRouter(inspection: I2pdMaintenanceInspection): {
   if (!inspection.supported || inspection.router === 'unsupported') {
     return {
       issue: 'unsupported-platform',
-      router: { maintenance: 'unavailable', state: 'unsupported', version: null },
+      router: { maintenance: 'unavailable', sam: 'unknown', state: 'unsupported', version: null },
     }
   }
   if (inspection.router === 'external-running') {
     return {
       issue: null,
-      router: { maintenance: 'none', state: 'external-running', version: null },
+      router: { maintenance: 'none', sam: inspection.sam, state: 'external-running', version: null },
     }
   }
   if (inspection.router === 'missing' && inspection.install === 'missing') {
     return {
       issue: null,
-      router: { maintenance: 'install', state: 'missing', version: null },
+      router: { maintenance: 'install', sam: inspection.sam, state: 'missing', version: null },
     }
   }
   if (inspection.router === 'legacy-stopped' && inspection.install === 'legacy') {
@@ -157,11 +157,11 @@ function projectRouter(inspection: I2pdMaintenanceInspection): {
     return version
       ? {
           issue: null,
-          router: { maintenance: 'migrate', state: 'managed-stopped', version },
+          router: { maintenance: 'migrate', sam: inspection.sam, state: 'managed-stopped', version },
         }
       : {
           issue: 'version-unavailable',
-          router: { maintenance: 'unavailable', state: 'unknown', version: null },
+          router: { maintenance: 'unavailable', sam: inspection.sam, state: 'unknown', version: null },
         }
   }
   if (inspection.router === 'managed-running' || inspection.router === 'managed-stopped') {
@@ -169,13 +169,14 @@ function projectRouter(inspection: I2pdMaintenanceInspection): {
     if (inspection.install !== 'installed' || !version) {
       return {
         issue: 'version-unavailable',
-        router: { maintenance: 'unavailable', state: 'unknown', version: null },
+        router: { maintenance: 'unavailable', sam: inspection.sam, state: 'unknown', version: null },
       }
     }
     return {
       issue: inspection.maintenance === 'unavailable' ? 'version-unavailable' : null,
       router: {
         maintenance: inspection.maintenance,
+        sam: inspection.sam,
         state: inspection.router,
         version,
       },
@@ -183,7 +184,7 @@ function projectRouter(inspection: I2pdMaintenanceInspection): {
   }
   return {
     issue: 'version-unavailable',
-    router: { maintenance: 'unavailable', state: 'unknown', version: null },
+    router: { maintenance: 'unavailable', sam: inspection.sam, state: 'unknown', version: null },
   }
 }
 
@@ -204,8 +205,8 @@ function unavailableStatus(
     core: { install: 'unknown', runtime: 'unknown' },
     issue,
     network: 'qortium',
-    revision: 1,
-    router: { maintenance: 'unavailable', state: 'unknown', version: null },
+    revision: 2,
+    router: { maintenance: 'unavailable', sam: 'unknown', state: 'unknown', version: null },
     schema: 'home-v2-transport-maintenance',
     transportMode: 'unknown',
   }
@@ -235,8 +236,7 @@ async function readStatus(
       projected.issue === 'status-unavailable'
     const canChangeStoppedCore = install === 'installed' && runtime === 'stopped' &&
       transportMode !== 'unknown' && !fatalIssue
-    const routerReady = projected.router.state === 'external-running' ||
-      projected.router.state === 'managed-running'
+    const routerReady = projected.router.sam === 'ready'
     const canEnsureRouter = install === 'installed' && projected.issue === null && (
       (projected.router.state === 'managed-stopped' &&
         (projected.router.maintenance === 'start' || projected.router.maintenance === 'update') &&
@@ -268,7 +268,7 @@ async function readStatus(
       core: { install, runtime },
       issue: projected.issue,
       network: 'qortium',
-      revision: 1,
+      revision: 2,
       router: projected.router,
       schema: 'home-v2-transport-maintenance',
       transportMode,
@@ -317,7 +317,8 @@ async function ensureRouter(
     if (beforeStart.kind === 'blocked') return blocked(beforeStart.code)
     await operations.startRouter()
     inspection = await operations.inspectRouter()
-    if (inspection.router !== 'managed-running' || !inspection.managedProcessActive) {
+    if (inspection.router !== 'managed-running' || !inspection.managedProcessActive ||
+      inspection.sam !== 'ready') {
       return unconfirmed()
     }
   }
@@ -326,7 +327,8 @@ async function ensureRouter(
     ? requireKnownCore(manager, initialCore.target)
     : requireStronglyStoppedCore(manager, initialCore.target))
   if (finalCore.kind === 'blocked') return blocked(finalCore.code)
-  return inspection.router === 'managed-running' && inspection.managedProcessActive
+  return inspection.router === 'managed-running' && inspection.managedProcessActive &&
+    inspection.sam === 'ready'
     ? completed()
     : unconfirmed()
 }
@@ -367,7 +369,7 @@ async function updateRouter(
   const finalCore = await requireStronglyStoppedCore(manager, initialCore.target)
   if (finalCore.kind === 'blocked') return blocked(finalCore.code)
   return inspection.router === 'managed-running' && inspection.managedProcessActive &&
-    inspection.maintenance === 'none'
+    inspection.maintenance === 'none' && inspection.sam === 'ready'
     ? completed()
     : unconfirmed()
 }
@@ -382,7 +384,7 @@ async function setStoppedCoreTransportMode(
 
   if (mode !== 'direct-only') {
     const router = await operations.inspectRouter()
-    if (router.router !== 'external-running' && router.router !== 'managed-running') {
+    if (router.sam !== 'ready') {
       return blocked('i2p-router-required')
     }
   }

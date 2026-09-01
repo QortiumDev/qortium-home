@@ -59,6 +59,7 @@ export function transportStatusFingerprint(status: HomeV2TransportMaintenanceSta
     status.core.runtime,
     status.issue,
     status.router.maintenance,
+    status.router.sam,
     status.router.state,
     status.router.version,
     status.transportMode,
@@ -87,8 +88,7 @@ export function transportModeActionFor(
 ): HomeV2TransportMaintenanceAction | null {
   if (canSetTransportMode(status, mode)) return 'set-mode'
   if (!status.capabilities.canSetModeWhileRunning) return null
-  if (mode !== 'direct-only' &&
-    status.router.state !== 'managed-running' && status.router.state !== 'external-running') {
+  if (mode !== 'direct-only' && status.router.sam !== 'ready') {
     return null
   }
   return 'set-mode-live'

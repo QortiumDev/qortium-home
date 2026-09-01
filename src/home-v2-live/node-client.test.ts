@@ -21,8 +21,19 @@ import { buildHomeV2AppIconPath } from '../../electron/home-v2-app-icon'
 
 const syncedStatus = {
   height: 123,
+  i2pChainLastInboundHandshakeTimestamp: 1_700_000_000_100,
+  i2pChainLeaseSetLookupStatus: 'RESOLVED',
+  i2pChainLeaseSetLookupTimestamp: 1_700_000_000_010,
+  i2pDataLastInboundHandshakeTimestamp: null,
+  i2pDataLeaseSetLookupStatus: 'NOT_RESOLVED',
+  i2pDataLeaseSetLookupTimestamp: 1_700_000_000_020,
   isSynchronizing: false,
+  isI2PChainSessionUp: true,
+  isI2PDataSessionUp: false,
   numberOfConnections: 8,
+  numberOfDataConnections: 4,
+  numberOfI2PConnections: 3,
+  numberOfI2PDataConnections: 0,
   syncBlocksRemaining: 0,
   syncPercent: 100,
   syncPhase: 'SYNCED',
@@ -49,6 +60,14 @@ type Snapshot = {
       lastEnabledMode: string
       mode: string
       nodeApiUrl: string | null
+      i2pChainLastInboundHandshakeTimestamp: number | null
+      i2pChainLeaseSetLookupStatus: string | null
+      i2pChainLeaseSetLookupTimestamp: number | null
+      i2pChainSessionUp: boolean | null
+      i2pDataLastInboundHandshakeTimestamp: number | null
+      i2pDataLeaseSetLookupStatus: string | null
+      i2pDataLeaseSetLookupTimestamp: number | null
+      i2pDataSessionUp: boolean | null
     }
   }
   version: number
@@ -1107,6 +1126,14 @@ const authenticated = (await client.setCustomUrl(
 )) as Snapshot
 assert.equal(authenticated.nodes.qortium.customAuthenticated, true)
 assert.equal(authenticated.nodes.qortium.capabilities.admin, false)
+assert.equal(authenticated.nodes.qortium.i2pChainSessionUp, true)
+assert.equal(authenticated.nodes.qortium.i2pDataSessionUp, false)
+assert.equal(authenticated.nodes.qortium.i2pChainLeaseSetLookupStatus, 'RESOLVED')
+assert.equal(authenticated.nodes.qortium.i2pDataLeaseSetLookupStatus, 'NOT_RESOLVED')
+assert.equal(authenticated.nodes.qortium.i2pChainLeaseSetLookupTimestamp, 1_700_000_000_010)
+assert.equal(authenticated.nodes.qortium.i2pDataLeaseSetLookupTimestamp, 1_700_000_000_020)
+assert.equal(authenticated.nodes.qortium.i2pChainLastInboundHandshakeTimestamp, 1_700_000_000_100)
+assert.equal(authenticated.nodes.qortium.i2pDataLastInboundHandshakeTimestamp, null)
 assert.doesNotMatch(JSON.stringify(authenticated), /private-test-api-key/)
 assert.doesNotMatch(
   preferences.get('home-v2-live-node:qortium') ?? '',

@@ -32,6 +32,7 @@ import {
   prepareManagedLongLivedCommand,
   sanitizeManagedChildEnvironment,
 } from './managed-child-process.js';
+import { projectI2pdObservedRouterState } from './i2pd-runtime-health.js';
 
 // Desktop-only managed i2pd. The immutable installer owns release provenance
 // and generation validation. On Linux, this module can also recover authority
@@ -93,6 +94,8 @@ export type I2pdMaintenanceInspection = Readonly<{
     | 'missing'
     | 'unsupported'
     | 'unknown';
+  /** A successful bounded SAM v3 HELLO, independent of process ownership. */
+  sam: 'ready' | 'unavailable' | 'unknown';
   supported: boolean;
 }>;
 
@@ -412,6 +415,7 @@ async function inspectMaintenanceImpl(): Promise<I2pdMaintenanceInspection> {
       managedProcessActive: false,
       maintenance: 'unavailable',
       router: 'unsupported',
+      sam: 'unknown',
       supported: false,
     };
   }
@@ -429,9 +433,12 @@ async function inspectMaintenanceImpl(): Promise<I2pdMaintenanceInspection> {
       installedVersion: child ? managedChildInstall?.record.version ?? null : null,
       managedProcessActive: child !== null,
       maintenance: 'unavailable',
-      router: child
-        ? samReady ? 'managed-running' : 'managed-stopped'
-        : samReady ? 'external-running' : 'unknown',
+      router: projectI2pdObservedRouterState({
+        absentState: 'unknown',
+        managedProcessActive: child !== null,
+        samReady,
+      }),
+      sam: samReady ? 'ready' : 'unavailable',
       supported: true,
     };
   }
@@ -456,7 +463,12 @@ async function inspectMaintenanceImpl(): Promise<I2pdMaintenanceInspection> {
           installedVersion: legacy.version,
           managedProcessActive: false,
           maintenance: samReady ? 'none' : 'migrate',
-          router: samReady ? 'external-running' : 'legacy-stopped',
+          router: projectI2pdObservedRouterState({
+            absentState: 'legacy-stopped',
+            managedProcessActive: false,
+            samReady,
+          }),
+          sam: samReady ? 'ready' : 'unavailable',
           supported: true,
         };
       }
@@ -466,9 +478,12 @@ async function inspectMaintenanceImpl(): Promise<I2pdMaintenanceInspection> {
       installedVersion: reportedVersion,
       managedProcessActive: managedOwned,
       maintenance: managedOwned ? 'unavailable' : 'install',
-      router: managedOwned
-        ? samReady ? 'managed-running' : 'managed-stopped'
-        : samReady ? 'external-running' : 'missing',
+      router: projectI2pdObservedRouterState({
+        absentState: 'missing',
+        managedProcessActive: managedOwned,
+        samReady,
+      }),
+      sam: samReady ? 'ready' : 'unavailable',
       supported: true,
     };
   }
@@ -489,7 +504,7 @@ async function inspectMaintenanceImpl(): Promise<I2pdMaintenanceInspection> {
     : decision.action === 'update'
       ? 'update' as const
       : current
-        ? samReady ? 'none' as const : 'start' as const
+        ? (managedOwned || samReady) ? 'none' as const : 'start' as const
         : 'unavailable' as const;
 
   return {
@@ -497,10 +512,12 @@ async function inspectMaintenanceImpl(): Promise<I2pdMaintenanceInspection> {
     installedVersion: reportedVersion,
     managedProcessActive: managedOwned,
     maintenance,
-    router: managedOwned
-      ? samReady ? 'managed-running' : 'managed-stopped'
-      : adoptionUnknown && !samReady ? 'unknown'
-        : samReady ? 'external-running' : 'managed-stopped',
+    router: projectI2pdObservedRouterState({
+      absentState: adoptionUnknown ? 'unknown' : 'managed-stopped',
+      managedProcessActive: managedOwned,
+      samReady,
+    }),
+    sam: samReady ? 'ready' : 'unavailable',
     supported: true,
   };
 }
@@ -517,6 +534,7 @@ export async function inspectMaintenance(): Promise<I2pdMaintenanceInspection> {
         managedProcessActive: false,
         maintenance: 'unavailable',
         router: 'unsupported',
+        sam: 'unknown',
         supported: false,
       };
     }
@@ -526,7 +544,12 @@ export async function inspectMaintenance(): Promise<I2pdMaintenanceInspection> {
       installedVersion: managedOwned ? managedChildInstall?.record.version ?? null : null,
       managedProcessActive: managedOwned,
       maintenance: 'unavailable',
-      router: managedOwned ? 'managed-stopped' : 'unknown',
+      router: projectI2pdObservedRouterState({
+        absentState: 'unknown',
+        managedProcessActive: managedOwned,
+        samReady: false,
+      }),
+      sam: 'unknown',
       supported: true,
     };
   }
@@ -544,8 +567,7 @@ export async function getStatus(): Promise<I2pdStatus> {
     supported: inspection.supported,
     installed: inspection.install === 'installed',
     version: inspection.installedVersion,
-    running: inspection.router === 'managed-running' ||
-      inspection.router === 'external-running',
+    running: inspection.sam === 'ready',
     mode,
     samHost: DEFAULT_SAM_HOST,
     samPort: DEFAULT_SAM_PORT,

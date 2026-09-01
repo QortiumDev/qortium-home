@@ -48,6 +48,16 @@ function nullableNumber(value: unknown) {
   return typeof value === 'number' && Number.isFinite(value) ? value : null
 }
 
+function nullableBoolean(value: unknown) {
+  return typeof value === 'boolean' ? value : null
+}
+
+function nullableI2pLeaseSetStatus(value: unknown) {
+  return value === 'RESOLVED' || value === 'NOT_RESOLVED' || value === 'UNKNOWN'
+    ? value
+    : null
+}
+
 export function createInitialHomeV2Node(network: NetworkId): NodeSummary {
   return {
     ref: `home-v2:node:${network}` as NodeProfileRef,
@@ -70,6 +80,14 @@ export function createInitialHomeV2Node(network: NetworkId): NodeSummary {
     dataPeerCount: null,
     i2pPeerCount: null,
     i2pDataPeerCount: null,
+    i2pChainSessionUp: null,
+    i2pDataSessionUp: null,
+    i2pChainLeaseSetLookupStatus: null,
+    i2pDataLeaseSetLookupStatus: null,
+    i2pChainLeaseSetLookupTimestamp: null,
+    i2pDataLeaseSetLookupTimestamp: null,
+    i2pChainLastInboundHandshakeTimestamp: null,
+    i2pDataLastInboundHandshakeTimestamp: null,
     syncPercent: null,
     syncPhase: null,
     lastCheckedAt: null,
@@ -147,6 +165,22 @@ export function parseHomeV2NodeSummary(
     dataPeerCount: nullableNumber(value.dataPeerCount),
     i2pPeerCount: nullableNumber(value.i2pPeerCount),
     i2pDataPeerCount: nullableNumber(value.i2pDataPeerCount),
+    i2pChainSessionUp: nullableBoolean(value.i2pChainSessionUp),
+    i2pDataSessionUp: nullableBoolean(value.i2pDataSessionUp),
+    i2pChainLeaseSetLookupStatus: nullableI2pLeaseSetStatus(
+      value.i2pChainLeaseSetLookupStatus,
+    ),
+    i2pDataLeaseSetLookupStatus: nullableI2pLeaseSetStatus(
+      value.i2pDataLeaseSetLookupStatus,
+    ),
+    i2pChainLeaseSetLookupTimestamp: nullableNumber(value.i2pChainLeaseSetLookupTimestamp),
+    i2pDataLeaseSetLookupTimestamp: nullableNumber(value.i2pDataLeaseSetLookupTimestamp),
+    i2pChainLastInboundHandshakeTimestamp: nullableNumber(
+      value.i2pChainLastInboundHandshakeTimestamp,
+    ),
+    i2pDataLastInboundHandshakeTimestamp: nullableNumber(
+      value.i2pDataLastInboundHandshakeTimestamp,
+    ),
     syncPercent: nullableNumber(value.syncPercent),
     syncPhase: nullableString(value.syncPhase),
     lastCheckedAt: nullableNumber(value.lastCheckedAt),
