@@ -394,6 +394,7 @@ import {
   decodeHomeV2AndroidPublishSource,
   homeV2AndroidPublishSources,
   selectHomeV2AndroidPublishSource,
+  stageHomeV2AndroidPublishBlob,
 } from './public-publish-source'
 import {
   dismissedHomeV2ContextMenuResult,
@@ -7610,7 +7611,7 @@ export function HomeV2LiveApp() {
           validateTarget: assertNameOwned,
         }))
       }
-      if (isAndroidHost && (action === 'SELECT_QDN_PUBLISH_SOURCE' || action === 'PUBLISH_QDN_RESOURCE')) {
+      if (isAndroidHost && (action === 'SELECT_QDN_PUBLISH_SOURCE' || action === 'STAGE_QDN_PUBLISH_SOURCE' || action === 'PUBLISH_QDN_RESOURCE')) {
         if (!context.selectedAccountId) throw new Error('No account is selected for this tab.')
         const accountId = context.selectedAccountId
         const account = accountCatalogueRef.current.accounts.find((candidate) => candidate.id === accountId)
@@ -7635,6 +7636,9 @@ export function HomeV2LiveApp() {
         })
         if (action === 'SELECT_QDN_PUBLISH_SOURCE') {
           return selectHomeV2AndroidPublishSource(binding)
+        }
+        if (action === 'STAGE_QDN_PUBLISH_SOURCE') {
+          return stageHomeV2AndroidPublishBlob(binding, isRecord(requestValue) ? requestValue : {})
         }
         if (!account.isUnlocked) throw new Error('The selected account is locked.')
         if (!vaultClient?.publishPublicResource) {
