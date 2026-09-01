@@ -6,6 +6,7 @@ import {
   type HomeV2PublishSourceBinding,
 } from '../../electron/home-v2-publish-source-tokens'
 import { HOME_V2_PUBLISH_MULTIPLE_MAX_ITEMS } from '../../electron/home-v2-publish-extras-contract'
+import { HOME_V2_PUBLISH_BLOB_MAX_BYTES } from '../../electron/home-v2-publish-blob-source'
 
 type NativeSelection =
   | { canceled: true }
@@ -90,6 +91,58 @@ export async function selectHomeV2AndroidPublishSource(binding: HomeV2PublishSou
     fileName,
     kind: 'file' as const,
     mimeType: source.mimeType,
+    size: source.size,
+    sourceToken: homeV2AndroidPublishSources.issue(binding, source),
+  }
+}
+
+// STAGE_QDN_PUBLISH_SOURCE (attachments-matrix B1), Android side: the app
+// supplies bytes it already holds (paste/drop) and receives the same shape
+// of selection the native picker returns. Validation mirrors the desktop
+// bridge's home-v2-publish-blob-source contract — tighter 25 MiB cap, base64
+// checked before decoding — and the staged base64 lives in the SAME budgeted
+// store the picker uses, so the publish and private-attachment paths redeem
+// it with no further changes. Staging alone grants nothing: the redeeming
+// publish still runs its full approval prompt.
+export function stageHomeV2AndroidPublishBlob(
+  binding: HomeV2PublishSourceBinding,
+  requestValue: Record<string, unknown>,
+) {
+  const encoded = requestValue.bytesBase64
+  if (typeof encoded !== 'string' || !encoded) {
+    throw new Error('STAGE_QDN_PUBLISH_SOURCE requires bytesBase64.')
+  }
+  if (encoded.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(encoded)) {
+    throw new Error('STAGE_QDN_PUBLISH_SOURCE bytesBase64 must be valid base64.')
+  }
+  if (encoded.length > Math.ceil(HOME_V2_PUBLISH_BLOB_MAX_BYTES / 3) * 4) {
+    throw new Error('STAGE_QDN_PUBLISH_SOURCE accepts at most 25 MiB.')
+  }
+  const bytes = decodeHomeV2AndroidPublishSource(encoded)
+  if (bytes.byteLength > HOME_V2_PUBLISH_BLOB_MAX_BYTES) {
+    throw new Error('STAGE_QDN_PUBLISH_SOURCE accepts at most 25 MiB.')
+  }
+  const mimeValue = requestValue.mimeType
+  let mimeType: string | null = null
+  if (mimeValue !== undefined && mimeValue !== null && mimeValue !== '') {
+    if (typeof mimeValue !== 'string' || mimeValue.length > 100 || !/^[\w.+-]+\/[\w.+-]+$/.test(mimeValue)) {
+      throw new Error('STAGE_QDN_PUBLISH_SOURCE mimeType is invalid.')
+    }
+    mimeType = mimeValue
+  }
+  const requestedName = typeof requestValue.fileName === 'string' ? requestValue.fileName.trim() : ''
+  const fileName = requestedName.split(/[\\/]/).pop()?.replace(/[. ]+$/g, '').slice(0, 180) || 'qdn-resource'
+  const source = Object.freeze({
+    dataBase64: encoded,
+    fileName,
+    mimeType,
+    size: bytes.byteLength,
+  })
+  return {
+    canceled: false as const,
+    fileName,
+    kind: 'blob' as const,
+    mimeType,
     size: source.size,
     sourceToken: homeV2AndroidPublishSources.issue(binding, source),
   }

@@ -40,6 +40,16 @@ silently and apps were told the selected account has no name — which, among
 other things, disabled open-group file attachments in Chat for accounts whose
 name exists on chain. The lookup now goes through the same trusted node fetch
 the rest of Home uses, so the profile name matches the chain again.
+## feat(qdn): stage app-held bytes as a publish source
+
+Apps could only publish files chosen through Home's own picker, so a
+screenshot pasted into a chat app or a file dropped onto its composer had no
+way to reach QDN on Home 2. A new STAGE_QDN_PUBLISH_SOURCE action lets an app
+hand Home up to 25 MiB of bytes and get back the same kind of short-lived
+source token the picker issues; publishing that token still shows the normal
+approval prompt before anything is signed or uploaded, on desktop and Android
+alike. The publish actions themselves still refuse inline bytes exactly as
+before.
 
 ## Change Entries
 

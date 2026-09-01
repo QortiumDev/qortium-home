@@ -299,9 +299,11 @@ import {
 } from './home-v2-qortal-private-group-publish.js'
 import {
   homeV2DesktopPublishSources,
+  stageHomeV2DesktopPublishBlob,
   readHomeV2DesktopPublishSource,
   selectHomeV2DesktopPublishSource,
 } from './home-v2-desktop-publish-source.js'
+import { normalizeHomeV2PublishBlobRequest } from './home-v2-publish-blob-source.js'
 import {
   normalizeHomeV2PublicPublishRequest,
   sha256Hex,
@@ -2305,6 +2307,9 @@ async function previewHomeV2PublishSource(
     protocol,
     routeRevision,
   }))
+  if (source.kind !== 'file') {
+    throw new Error('Previewing needs a file selected through the picker; staged bytes cannot be previewed.')
+  }
   const { previewPath, service } = await stageQdnPreviewSource(source.path)
   const rendered = await postHomeV2ChatText(
     node.nodeApiUrl,
@@ -2332,6 +2337,28 @@ async function previewHomeV2PublishSource(
     title: source.fileName,
   })
   return true
+}
+
+// STAGE_QDN_PUBLISH_SOURCE (B1): the app supplies the bytes (paste/drop)
+// instead of Home's picker, and receives the same shape of selection back.
+// No prompt fires here — staging grants nothing; the publish actions that
+// redeem the token still run their full approval flow.
+async function stageHomeV2PublicPublishSource(
+  context: QdnViewContext,
+  protocol: HomeV2AppBridgeProtocol,
+  network: HomeV2AppNetwork,
+  routeRevision: string,
+  requestValue: Record<string, unknown>,
+) {
+  const blob = normalizeHomeV2PublishBlobRequest(requestValue)
+  const node = await getHomeV2ReadableNode(network)
+  return stageHomeV2DesktopPublishBlob(homeV2PublishSourceBinding({
+    context,
+    network,
+    nodeApiUrl: node.nodeApiUrl,
+    protocol,
+    routeRevision,
+  }), blob)
 }
 
 async function selectHomeV2PublicPublishSource(
@@ -10063,6 +10090,15 @@ async function handleRequestWithRuntime(
       protocol,
       network,
       hostInfo.route.revision,
+    )
+  }
+  if (action === 'STAGE_QDN_PUBLISH_SOURCE') {
+    return stageHomeV2PublicPublishSource(
+      context,
+      protocol,
+      network,
+      hostInfo.route.revision,
+      requestValue,
     )
   }
   if (action === 'PREVIEW_QDN_PUBLISH_SOURCE') {

@@ -294,6 +294,16 @@ SHA-256 content pin. Qortal currently rejects mutable resource metadata. See
 [Home 2 public QDN publishing](QDN_PUBLIC_PUBLISHING.md) for request, result,
 unknown-broadcast, and operator-denial behavior.
 
+`STAGE_QDN_PUBLISH_SOURCE` complements the picker for bytes an app already
+legitimately holds — a pasted screenshot or a drag-dropped file. The app sends
+`{ bytesBase64, fileName, mimeType? }` (at most 25 MiB, validated before
+decoding) and receives the same selection shape the picker returns, whose
+`sourceToken` the publish actions redeem unchanged. Staging never prompts and
+grants nothing by itself: the redeeming publish still runs its full approval
+flow, staged bytes live in the same bounded, TTL-limited store as picker
+selections, and the publish contracts continue to refuse inline bytes on the
+publish actions themselves.
+
 Home 2 private chat attachments use `PUBLISH_CHAT_ATTACHMENT`,
 `GET_CHAT_ATTACHMENT_STREAM_URL`, `OPEN_CHAT_ATTACHMENT_VIEWER`, and
 `SAVE_CHAT_ATTACHMENT` through both globals. They reuse the Home-issued source
