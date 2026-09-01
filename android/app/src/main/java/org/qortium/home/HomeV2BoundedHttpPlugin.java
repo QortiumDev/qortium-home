@@ -13,13 +13,15 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 
 /**
- * Narrow authenticated POST transport for foreign-wallet reads. CapacitorHttp
- * materializes the full body before JavaScript can inspect it; this plugin
- * enforces the response ceiling while streaming instead.
+ * Narrow authenticated POST transport for foreign-wallet reads and spend
+ * context. CapacitorHttp materializes the full body before JavaScript can
+ * inspect it; this plugin enforces the caller-selected response ceiling while
+ * streaming instead.
  */
 @CapacitorPlugin(name = "HomeV2BoundedHttp")
 public class HomeV2BoundedHttpPlugin extends Plugin {
-    private static final int MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
+    static final int DEFAULT_RESPONSE_BYTES = 2 * 1024 * 1024;
+    static final int MAX_RESPONSE_BYTES = 20 * 1024 * 1024;
 
     @PluginMethod
     public void post(PluginCall call) {
@@ -34,10 +36,7 @@ public class HomeV2BoundedHttpPlugin extends Plugin {
             String contentType = call.getString("contentType", "application/json");
             String body = call.getString("body", "");
             int timeoutMs = call.getInt("timeoutMs", 20_000);
-            int maxBytes = call.getInt("maxBytes", MAX_RESPONSE_BYTES);
-            if (maxBytes < 1 || maxBytes > MAX_RESPONSE_BYTES) {
-                throw new Exception("Invalid bounded response limit.");
-            }
+            int maxBytes = requireValidMaxBytes(call.getInt("maxBytes", DEFAULT_RESPONSE_BYTES));
             URL target = new URL(urlText);
             if (!"http".equals(target.getProtocol()) && !"https".equals(target.getProtocol())) {
                 throw new Exception("Authenticated node requests require an HTTP(S) URL.");
@@ -59,7 +58,7 @@ public class HomeV2BoundedHttpPlugin extends Plugin {
             int status = connection.getResponseCode();
             long declaredLength = connection.getContentLengthLong();
             if (declaredLength > maxBytes) {
-                throw new Exception("Node API response exceeded the 2 MiB size limit.");
+                throw new Exception("Node API response exceeded the requested size limit.");
             }
             InputStream stream = status >= 400 ? connection.getErrorStream() : connection.getInputStream();
             byte[] responseBytes = readBounded(stream, maxBytes);
@@ -76,6 +75,13 @@ public class HomeV2BoundedHttpPlugin extends Plugin {
         }
     }
 
+    static int requireValidMaxBytes(int maxBytes) throws Exception {
+        if (maxBytes < 1 || maxBytes > MAX_RESPONSE_BYTES) {
+            throw new Exception("Invalid bounded response limit.");
+        }
+        return maxBytes;
+    }
+
     static byte[] readBounded(InputStream stream, int maxBytes) throws Exception {
         if (stream == null) return new byte[0];
         try (InputStream input = stream; ByteArrayOutputStream output = new ByteArrayOutputStream()) {
@@ -85,7 +91,7 @@ public class HomeV2BoundedHttpPlugin extends Plugin {
             while ((count = input.read(buffer)) != -1) {
                 total += count;
                 if (total > maxBytes) {
-                    throw new Exception("Node API response exceeded the 2 MiB size limit.");
+                    throw new Exception("Node API response exceeded the requested size limit.");
                 }
                 output.write(buffer, 0, count);
             }

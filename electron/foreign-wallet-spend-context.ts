@@ -14,8 +14,12 @@ export type ForeignWalletSpendContext = Readonly<{
 }>
 
 const MAX_INPUTS = 1_000
-const MAX_RAW_TRANSACTION_BYTES = 1_000_000
-const MAX_TOTAL_RAW_TRANSACTION_BYTES = 8_000_000
+export const FOREIGN_WALLET_SPEND_CONTEXT_MAX_RAW_TRANSACTION_BYTES = 1_000_000
+export const FOREIGN_WALLET_SPEND_CONTEXT_MAX_TOTAL_RAW_TRANSACTION_BYTES = 8_000_000
+// Core hex-encodes up to 8,000,000 bytes of funding transactions. The extra
+// four MiB covers the JSON object, 1,000 bounded UTXO records and UTF-8 framing
+// without widening the ordinary 2 MiB authenticated-read ceiling.
+export const FOREIGN_WALLET_SPEND_CONTEXT_RESPONSE_MAX_BYTES = 20 * 1024 * 1024
 const MAX_ATOMIC = 0xffffffffffffffffn
 
 export const FOREIGN_WALLET_MAINNET_CHAIN_IDS: Readonly<Record<ForeignWalletCoin, string>> = Object.freeze({
@@ -133,11 +137,12 @@ export function normalizeForeignWalletSpendContext(
     const txHash = canonicalHex(rawHash, 32, 'Foreign wallet previous transaction hash')
     if (previousTransactions.has(txHash)) throw new Error('Foreign wallet previous transaction is duplicated.')
     if (typeof rawHexValue !== 'string' || rawHexValue.length === 0 || rawHexValue.length % 2 !== 0
-      || rawHexValue.length > MAX_RAW_TRANSACTION_BYTES * 2 || !/^[0-9a-fA-F]+$/.test(rawHexValue)) {
+      || rawHexValue.length > FOREIGN_WALLET_SPEND_CONTEXT_MAX_RAW_TRANSACTION_BYTES * 2
+      || !/^[0-9a-fA-F]+$/.test(rawHexValue)) {
       throw new Error('Foreign wallet previous transaction is invalid.')
     }
     totalRawBytes += rawHexValue.length / 2
-    if (totalRawBytes > MAX_TOTAL_RAW_TRANSACTION_BYTES) {
+    if (totalRawBytes > FOREIGN_WALLET_SPEND_CONTEXT_MAX_TOTAL_RAW_TRANSACTION_BYTES) {
       throw new Error('Foreign wallet previous transactions exceed the safe limit.')
     }
     previousTransactions.set(txHash, rawHexValue.toLowerCase())

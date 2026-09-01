@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
 
 import {
+  FOREIGN_WALLET_SPEND_CONTEXT_MAX_TOTAL_RAW_TRANSACTION_BYTES,
+  FOREIGN_WALLET_SPEND_CONTEXT_RESPONSE_MAX_BYTES,
   buildForeignWalletSpendContextRequest,
   getForeignWalletMainnetChainId,
   normalizeForeignWalletSpendContext,
@@ -9,6 +11,13 @@ import {
 const txHash = '11'.repeat(32)
 const rawTransaction = '00'
 const chainId = getForeignWalletMainnetChainId('BTC')
+
+assert.equal(FOREIGN_WALLET_SPEND_CONTEXT_RESPONSE_MAX_BYTES, 20 * 1024 * 1024)
+assert.ok(
+  FOREIGN_WALLET_SPEND_CONTEXT_RESPONSE_MAX_BYTES
+    > FOREIGN_WALLET_SPEND_CONTEXT_MAX_TOTAL_RAW_TRANSACTION_BYTES * 2 + 4 * 1024 * 1024,
+  'The authenticated transport must contain Core hex plus bounded JSON/UTXO overhead.',
+)
 
 function context(overrides: Record<string, unknown> = {}) {
   return {

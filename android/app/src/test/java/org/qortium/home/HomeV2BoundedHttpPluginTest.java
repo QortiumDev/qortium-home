@@ -28,6 +28,23 @@ public class HomeV2BoundedHttpPluginTest {
     }
 
     @Test
+    public void authenticatedSpendContextLimitIsExplicitAndBounded() throws Exception {
+        assertEquals(2 * 1024 * 1024, HomeV2BoundedHttpPlugin.DEFAULT_RESPONSE_BYTES);
+        assertEquals(20 * 1024 * 1024, HomeV2BoundedHttpPlugin.MAX_RESPONSE_BYTES);
+        assertEquals(
+                HomeV2BoundedHttpPlugin.MAX_RESPONSE_BYTES,
+                HomeV2BoundedHttpPlugin.requireValidMaxBytes(
+                        HomeV2BoundedHttpPlugin.MAX_RESPONSE_BYTES));
+        assertThrows(
+                Exception.class,
+                () -> HomeV2BoundedHttpPlugin.requireValidMaxBytes(0));
+        assertThrows(
+                Exception.class,
+                () -> HomeV2BoundedHttpPlugin.requireValidMaxBytes(
+                        HomeV2BoundedHttpPlugin.MAX_RESPONSE_BYTES + 1));
+    }
+
+    @Test
     public void chunkedBodyOverLimitIsRejected() {
         InputStream unknownLengthStream = new InputStream() {
             private int remaining = SERVER_RESPONSE_LIMIT + 1;
@@ -53,6 +70,6 @@ public class HomeV2BoundedHttpPluginTest {
                 () -> HomeV2BoundedHttpPlugin.readBounded(
                         unknownLengthStream, SERVER_RESPONSE_LIMIT));
 
-        assertEquals("Node API response exceeded the 2 MiB size limit.", error.getMessage());
+        assertEquals("Node API response exceeded the requested size limit.", error.getMessage());
     }
 }
