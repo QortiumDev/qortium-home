@@ -29,6 +29,7 @@ async function main() {
       stored = request.value
     },
   }
+  const readStored = (): string | null => stored
   const store = createAndroidForeignWalletTransactionJournalStore(plugin)
 
   assert.equal((await store.read()).entries.length, 0)
@@ -39,7 +40,9 @@ async function main() {
     seed: 'seed-secret-sentinel',
     xpub58: 'xpub-secret-sentinel',
   } as ForeignWalletPendingTransaction)
-  assert.equal(stored?.includes('secret-sentinel'), false)
+  const projected = readStored()
+  assert.ok(projected)
+  assert.equal(projected.includes('secret-sentinel'), false)
   assert.equal((await store.read()).entries[0].stage, 'signed')
   assert.equal((await store.findConflict(entry))?.txId, entry.txId)
 
