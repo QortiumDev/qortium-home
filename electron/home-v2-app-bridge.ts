@@ -316,11 +316,14 @@ import {
   normalizeHomeV2QdnDeleteRequest,
 } from './home-v2-publish-extras-contract.js'
 import {
+  assertHomeV2QortalAtAcceptsAsset,
   assertUnsignedHomeV2QortalPaymentTransaction,
+  assertUnsignedHomeV2QortalTransferAssetTransaction,
   assertUnsignedHomeV2QortiumPaymentTransaction,
   assertUnsignedHomeV2QortiumTransferAssetTransaction,
   buildUnsignedQortiumPaymentTransactionBytes,
   buildUnsignedQortiumTransferAssetTransactionBytes,
+  buildUnsignedQortalTransferAssetTransactionBytes,
   canonicalHomeV2PaymentAction,
   homeV2CheckedTotalDebit,
   homeV2AtomicUnitsText,
@@ -3195,11 +3198,17 @@ async function handleHomeV2PaymentAction(
   action: HomeV2PaymentAction,
   requestValue: Record<string, unknown>,
 ) {
-  const qortalAction = action === 'SEND_QORT'
-  if (qortalAction ? (protocol !== 'qortalRequest' || network !== 'qortal') : (protocol !== 'qdnRequest' || network !== 'qortium')) {
+  const validChain = action === 'SEND_QORT'
+    ? protocol === 'qortalRequest' && network === 'qortal'
+    : action === 'TRANSFER_ASSET'
+      ? (protocol === 'qortalRequest' && network === 'qortal') || (protocol === 'qdnRequest' && network === 'qortium')
+      : protocol === 'qdnRequest' && network === 'qortium'
+  if (!validChain) {
     throw createHomeV2BridgeError(
-      qortalAction
+      action === 'SEND_QORT'
         ? 'SEND_QORT is a Qortal action; call it on qortalRequest.'
+        : action === 'TRANSFER_ASSET'
+          ? 'TRANSFER_ASSET must use qortalRequest for Qortal assets or qdnRequest for Qortium assets.'
         : `${action} is available on the Qortium chain only.`,
       { action, code: 'NODE_CAPABILITY_MISSING', network, retryable: false, routeRevision },
     )
@@ -3287,88 +3296,171 @@ async function handleHomeV2PaymentAction(
       `/addresses/balance/${encodeURIComponent(address)}${assetId !== undefined && assetId !== 0 ? `?assetId=${assetId}` : ''}`,
       `${chainLabel} balance lookup`,
     ))
-    if (action === 'SEND_QORT') {
-      const sendRequest = request as ReturnType<typeof normalizeHomeV2SendQortRequest>
+    if (network === 'qortal') {
+      const isTransfer = action === 'TRANSFER_ASSET'
+      const transferRequest = isTransfer ? request as ReturnType<typeof normalizeHomeV2TransferAssetRequest> : null
+      const sendRequest = isTransfer ? null : request as ReturnType<typeof normalizeHomeV2SendQortRequest>
       const resolveRecipient = async (label: string): Promise<HomeV2PaymentRecipient> => {
-        if (sendRequest.recipientAddress) {
+        if (transferRequest) return transferRequest.recipient
+        if (sendRequest!.recipientAddress) {
           const { normalizeHomeV2PaymentRecipient } = await import('./home-v2-payment-actions.js')
-          return normalizeHomeV2PaymentRecipient(sendRequest.recipientAddress, 'The recipient address')
+          return normalizeHomeV2PaymentRecipient(sendRequest!.recipientAddress, 'The recipient address')
         }
         const nameValue = await readHomeV2ChatJson(
           node.nodeApiUrl,
-          `/names/${encodeURIComponent(sendRequest.recipientName ?? '')}`,
+          `/names/${encodeURIComponent(sendRequest!.recipientName ?? '')}`,
           `Qortal recipient-name ${label}`,
         )
         const owner = stringField(nameValue, 'owner')
-        if (!owner) throw new Error(`The Qortal name ${sendRequest.recipientName} does not resolve to an owner address.`)
+        if (!owner) throw new Error(`The Qortal name ${sendRequest!.recipientName} does not resolve to an owner address.`)
         const { normalizeHomeV2PaymentRecipient } = await import('./home-v2-payment-actions.js')
         return normalizeHomeV2PaymentRecipient(owner, 'The resolved recipient address')
       }
       const recipient = await resolveRecipient('lookup')
-      const unitFee = await readUnitFee('PAYMENT')
-      // Qortal PAYMENT signed length: 4+8+4+64+32+25+8+8+64 = 217.
-      const feeAtomic = homeV2FeeForLength(unitFee, 217)
-      const total = homeV2CheckedTotalDebit(sendRequest.amount.atomic, feeAtomic)
-      const balance = await readAtomicBalance(profile.address)
-      if (balance < total) {
-        throw createHomeV2BridgeError(
-          `Insufficient QORT balance: this send needs ${formatQortAtomic(total)} QORT including the fee, but the node reports ${formatQortAtomic(balance)} QORT.`,
-          { action, code: 'INSUFFICIENT_BALANCE', network, retryable: false, routeRevision },
-        )
+      const amount = (transferRequest ?? sendRequest)!.amount
+      const assetId = transferRequest?.assetId ?? 0
+      const readAssetInfo = async (label: string) => selectHomeV2AssetInfo(await readHomeV2ChatJson(
+        node.nodeApiUrl,
+        `/assets/info?assetId=${assetId}`,
+        `Qortal asset ${label}`,
+      ), assetId)
+      let assetInfo: ReturnType<typeof selectHomeV2AssetInfo> | null = null
+      if (transferRequest) {
+        assetInfo = await readAssetInfo('lookup')
+        if (!assetInfo.isDivisible && amount.atomic % 100_000_000n !== 0n) {
+          throw new Error(`The ${assetInfo.name} asset is indivisible: the amount must be a whole number of units.`)
+        }
+        if (assetInfo.isUnspendable && assetInfo.owner !== profile.address) {
+          throw new Error(`Only the owner of the unspendable ${assetInfo.name} asset can transfer it.`)
+        }
       }
+      const checkAtRecipient = async (label: string) => {
+        if (!transferRequest || !recipient.isAt) return
+        assertHomeV2QortalAtAcceptsAsset(await readHomeV2ChatJson(
+          node.nodeApiUrl,
+          `/at/${encodeURIComponent(recipient.address)}`,
+          `Qortal recipient AT ${label}`,
+        ), assetId)
+      }
+      await checkAtRecipient('lookup')
+      const unitFee = await readUnitFee(isTransfer ? 'TRANSFER_ASSET' : 'PAYMENT')
+      // Qortal signed lengths: PAYMENT 217, TRANSFER_ASSET 225.
+      const feeAtomic = homeV2FeeForLength(unitFee, isTransfer ? 225 : 217)
+      const nativeDebit = isTransfer ? feeAtomic : homeV2CheckedTotalDebit(amount.atomic, feeAtomic)
+      const checkBalances = async () => {
+        const nativeBalance = await readAtomicBalance(profile.address)
+        if (nativeBalance < nativeDebit) {
+          throw createHomeV2BridgeError(
+            `Insufficient QORT balance: this ${isTransfer ? 'transfer needs the fee of' : 'send needs'} ${formatQortAtomic(nativeDebit)} QORT, but the node reports ${formatQortAtomic(nativeBalance)} QORT.`,
+            { action, code: 'INSUFFICIENT_BALANCE', network, retryable: false, routeRevision },
+          )
+        }
+        if (transferRequest && (await readAtomicBalance(profile.address, assetId)) < amount.atomic) {
+          throw createHomeV2BridgeError(
+            `Insufficient asset balance: the transfer needs ${amount.decimal}, but the node reports less.`,
+            { action, code: 'INSUFFICIENT_BALANCE', network, retryable: false, routeRevision },
+          )
+        }
+      }
+      const readLastReference = async (label: string) => {
+        const value = await readHomeV2ChatJson(
+          node.nodeApiUrl,
+          `/addresses/lastreference/${encodeURIComponent(profile.address)}`,
+          `Qortal last-reference ${label}`,
+        )
+        const reference = typeof value === 'string' ? value.trim() : ''
+        if (!reference) throw new Error('The selected Qortal account has no last reference; it may need QORT first.')
+        try {
+          const bytes = base58Decode(reference)
+          if (bytes.byteLength !== 64 || base58Encode(bytes) !== reference) throw new Error()
+        } catch {
+          throw new Error('The Qortal node returned an invalid last reference.')
+        }
+        return reference
+      }
+      await checkBalances()
+      const lastReference = await readLastReference('lookup')
       await requireAccountReadPermission(sender, context, protocol, action, {
         kind: 'payment',
         operationLabel: homeV2PaymentOperationLabel(action),
         paymentDetails: [
-          { label: 'You pay', value: homeV2AtomicUnitsText({ atomic: sendRequest.amount.atomic, decimal: `${sendRequest.amount.decimal} QORT` }) },
+          ...(assetInfo
+            ? [
+                { label: 'Asset', value: homeV2PollApprovalText(assetInfo.name, 'The asset name') },
+                { label: 'Asset ID', value: String(assetId) },
+                { label: 'You send', value: homeV2AtomicUnitsText(amount) },
+              ]
+            : [{ label: 'You pay', value: homeV2AtomicUnitsText({ atomic: amount.atomic, decimal: `${amount.decimal} QORT` }) }]),
           { label: 'Paid to', value: recipient.address },
-          ...(sendRequest.recipientName
+          ...(sendRequest?.recipientName
             ? [{ label: 'Resolved from name', value: homeV2PollApprovalText(sendRequest.recipientName, 'The recipient name') }]
             : []),
           ...(recipient.isAt ? [{ label: 'Destination type', value: 'AT contract address (an automated contract, not a person)' }] : []),
           ...(recipient.address === profile.address ? [{ label: 'Self-payment', value: 'The recipient IS the selected account' }] : []),
           { label: 'Fee', value: `${formatQortAtomic(feeAtomic)} QORT` },
-          { label: 'Total debit', value: `${formatQortAtomic(total)} QORT` },
+          { label: isTransfer ? 'Total native debit' : 'Total debit', value: `${formatQortAtomic(nativeDebit)} QORT` },
         ],
         routeLabel,
-        target: `payment:qortal:${recipient.address}:0:${sendRequest.amount.atomic}`,
+        target: `payment:qortal:${recipient.address}:${assetId}:${amount.atomic}`,
         targetChainLabel: 'Qortal',
       })
       if (!(await isStillValid())) throw new Error('The app, account, or node route changed before the payment was staged.')
       // Re-resolve everything the prompt disclosed; refuse any drift.
       const freshRecipient = await resolveRecipient('recheck')
       if (freshRecipient.address !== recipient.address) throw new Error('The recipient resolution changed after approval.')
-      if ((await readUnitFee('PAYMENT')) !== unitFee) throw new Error('The Qortal fee changed after it was approved.')
-      if ((await readAtomicBalance(profile.address)) < total) {
-        throw new Error('The QORT balance changed after approval and no longer covers this send.')
+      if ((await readUnitFee(isTransfer ? 'TRANSFER_ASSET' : 'PAYMENT')) !== unitFee) throw new Error('The Qortal fee changed after it was approved.')
+      if (transferRequest) {
+        const freshAsset = await readAssetInfo('recheck')
+        if (freshAsset.name !== assetInfo!.name || freshAsset.owner !== assetInfo!.owner ||
+          freshAsset.isDivisible !== assetInfo!.isDivisible || freshAsset.isUnspendable !== assetInfo!.isUnspendable) {
+          throw new Error('The asset description changed after approval.')
+        }
       }
-      const referenceText = await readHomeV2ChatJson(
-        node.nodeApiUrl,
-        `/addresses/lastreference/${encodeURIComponent(profile.address)}`,
-        'Qortal last-reference lookup',
-      )
-      const lastReference = typeof referenceText === 'string' ? referenceText.trim() : ''
-      if (!lastReference) throw new Error('The selected Qortal account has no last reference; it may need QORT first.')
+      await checkAtRecipient('recheck')
+      await checkBalances()
+      if ((await readLastReference('recheck')) !== lastReference) throw new Error('The Qortal last reference changed after approval.')
       assertPaymentFresh()
       const timestamp = paymentTimestamp
       const signingKey = getAccountSecretKey(accountId)
       try {
-        const unsignedBytes = buildUnsignedPaymentTransactionBytes({
-          amountAtomic: sendRequest.amount.atomic,
-          feeAtomic,
-          lastReference,
-          recipient: recipient.address,
-          senderPublicKey: signingKey.publicKey58,
-          timestamp,
-        })
-        assertUnsignedHomeV2QortalPaymentTransaction(unsignedBytes, {
-          amountAtomic: sendRequest.amount.atomic,
-          feeAtomic,
-          lastReference: base58Decode(lastReference),
-          recipientBytes: recipient.bytes,
-          senderPublicKey: signingKey.publicKey58,
-          timestamp,
-        })
+        const unsignedBytes = transferRequest
+          ? buildUnsignedQortalTransferAssetTransactionBytes({
+              amountAtomic: amount.atomic,
+              assetId,
+              feeAtomic,
+              lastReference,
+              recipientBytes: recipient.bytes,
+              senderPublicKey: signingKey.publicKey58,
+              timestamp,
+            })
+          : buildUnsignedPaymentTransactionBytes({
+              amountAtomic: amount.atomic,
+              feeAtomic,
+              lastReference,
+              recipient: recipient.address,
+              senderPublicKey: signingKey.publicKey58,
+              timestamp,
+            })
+        if (transferRequest) {
+          assertUnsignedHomeV2QortalTransferAssetTransaction(unsignedBytes, {
+            amountAtomic: amount.atomic,
+            assetId,
+            feeAtomic,
+            lastReference,
+            recipientBytes: recipient.bytes,
+            senderPublicKey: signingKey.publicKey58,
+            timestamp,
+          })
+        } else {
+          assertUnsignedHomeV2QortalPaymentTransaction(unsignedBytes, {
+            amountAtomic: amount.atomic,
+            feeAtomic,
+            lastReference,
+            recipientBytes: recipient.bytes,
+            senderPublicKey: signingKey.publicKey58,
+            timestamp,
+          })
+        }
         if (!(await isStillValid())) throw new Error('The signing context changed before the payment could be submitted.')
         // The awaited check above can itself take time: re-assert freshness
         // as the LAST act before the signature exists (review round 3).
@@ -3377,12 +3469,13 @@ async function handleHomeV2PaymentAction(
         const transactionSignature = getSignatureFromSignedTransactionBytes(signedBytes)
         return await broadcastHomeV2Payment({
           action,
-          amount: sendRequest.amount,
-          assetId: 0,
+          amount,
+          assetId,
+          assetName: assetInfo?.name,
           network,
           nodeApiUrl: node.nodeApiUrl,
           recipient,
-          recipientName: sendRequest.recipientName,
+          recipientName: sendRequest?.recipientName ?? null,
           signedBytes,
           timestamp,
           transactionSignature,
@@ -3408,6 +3501,9 @@ async function handleHomeV2PaymentAction(
       assetInfo = await readAssetInfo('lookup')
       if (!assetInfo.isDivisible && amount.atomic % 100_000_000n !== 0n) {
         throw new Error(`The ${assetInfo.name} asset is indivisible: the amount must be a whole number of units.`)
+      }
+      if (assetInfo.isUnspendable && assetInfo.owner !== profile.address) {
+        throw new Error(`Only the owner of the unspendable ${assetInfo.name} asset can transfer it.`)
       }
       if (assetInfo.isUnspendable && recipient.isAt) {
         throw new Error(`The ${assetInfo.name} asset is unspendable and cannot be sent to an AT contract.`)
@@ -3466,7 +3562,7 @@ async function handleHomeV2PaymentAction(
     }
     if (transferRequest) {
       const freshAsset = await readAssetInfo('recheck')
-      if (freshAsset.name !== assetInfo!.name || freshAsset.isDivisible !== assetInfo!.isDivisible ||
+      if (freshAsset.name !== assetInfo!.name || freshAsset.owner !== assetInfo!.owner || freshAsset.isDivisible !== assetInfo!.isDivisible ||
         freshAsset.isUnspendable !== assetInfo!.isUnspendable) {
         throw new Error('The asset description changed after approval.')
       }

@@ -582,6 +582,8 @@ for (const action of ['PAYMENT', 'SEND_COIN', 'TRANSFER_ASSET']) {
 }
 // SEND_QORT is Qortal-only and lives on the qortalRequest catalogue.
 assert.equal(androidActions.includes('SEND_QORT'), false, 'SEND_QORT is not a qdnRequest action')
+const androidQortalActions = getHomeV2ContextualAppActions(getHomeV2AppActions('qortalRequest'), 'android')
+assert.equal(androidQortalActions.includes('TRANSFER_ASSET'), true, 'Qortal asset transfers must be available on Android')
 
 // DERIVED, not hand-listed: whatever the catalogue advertises to a desktop app
 // on a given protocol, Android advertises too. A hand-written list of families

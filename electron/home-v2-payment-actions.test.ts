@@ -4,10 +4,13 @@ import { createHash } from 'node:crypto'
 import { base58Encode, base58Decode } from './base58.js'
 import {
   assertUnsignedHomeV2QortalPaymentTransaction,
+  assertUnsignedHomeV2QortalTransferAssetTransaction,
+  assertHomeV2QortalAtAcceptsAsset,
   assertUnsignedHomeV2QortiumPaymentTransaction,
   assertUnsignedHomeV2QortiumTransferAssetTransaction,
   buildUnsignedQortiumPaymentTransactionBytes,
   buildUnsignedQortiumTransferAssetTransactionBytes,
+  buildUnsignedQortalTransferAssetTransactionBytes,
   canonicalHomeV2PaymentAction,
   homeV2CheckedTotalDebit,
   homeV2FeeForLength,
@@ -187,6 +190,38 @@ assert.doesNotThrow(() => assertUnsignedHomeV2QortiumTransferAssetTransaction(tr
   senderPublicKey: senderKey,
   timestamp,
 }))
+const lastReference = new Uint8Array(64).fill(3)
+const qortalTransferBytes = buildUnsignedQortalTransferAssetTransactionBytes({
+  amountAtomic: 225_000_000n,
+  assetId: 7,
+  feeAtomic: 1_000_000n,
+  lastReference,
+  recipientBytes: recipient.bytes,
+  senderPublicKey: senderKey,
+  timestamp,
+})
+assert.equal(qortalTransferBytes.byteLength, 161)
+assert.doesNotThrow(() => assertUnsignedHomeV2QortalTransferAssetTransaction(qortalTransferBytes, {
+  amountAtomic: 225_000_000n,
+  assetId: 7,
+  feeAtomic: 1_000_000n,
+  lastReference,
+  recipientBytes: recipient.bytes,
+  senderPublicKey: senderKey,
+  timestamp,
+}))
+assert.throws(() => assertUnsignedHomeV2QortalTransferAssetTransaction(
+  Uint8Array.from([...qortalTransferBytes, 0]),
+  {
+    amountAtomic: 225_000_000n,
+    assetId: 7,
+    feeAtomic: 1_000_000n,
+    lastReference,
+    recipientBytes: recipient.bytes,
+    senderPublicKey: senderKey,
+    timestamp,
+  },
+))
 const mutate = (bytes: Uint8Array, offset: number) => {
   const copy = Uint8Array.from(bytes)
   copy[offset] = copy[offset] === 0xff ? 0 : copy[offset] + 1
@@ -219,13 +254,27 @@ for (let offset = 0; offset < transferBytes.byteLength; offset += 1) {
     `transfer byte ${offset} mutation must refuse`,
   )
 }
+for (let offset = 0; offset < qortalTransferBytes.byteLength; offset += 1) {
+  assert.throws(
+    () => assertUnsignedHomeV2QortalTransferAssetTransaction(mutate(qortalTransferBytes, offset), {
+      amountAtomic: 225_000_000n,
+      assetId: 7,
+      feeAtomic: 1_000_000n,
+      lastReference,
+      recipientBytes: recipient.bytes,
+      senderPublicKey: senderKey,
+      timestamp,
+    }),
+    Error,
+    `qortal transfer byte ${offset} mutation must refuse`,
+  )
+}
 assert.throws(() => assertUnsignedHomeV2QortiumPaymentTransaction(
   Uint8Array.from([...paymentBytes, 0]),
   { amountAtomic: 150_000_000n, feeAtomic: 1_000_000n, recipientBytes: recipient.bytes, senderPublicKey: senderKey, timestamp },
 ))
 // Qortal form verifier (against the existing serializer's layout).
 {
-  const lastReference = new Uint8Array(64).fill(3)
   const qortalBytes = Uint8Array.from([
     0, 0, 0, 2,
     ...new Uint8Array(new BigInt64Array([BigInt(timestamp)]).buffer).reverse(),
@@ -269,11 +318,14 @@ assert.throws(() => homeV2CheckedTotalDebit(9_223_372_036_854_775_807n, 1n), /ou
 
 // --- selectors ---
 assert.deepEqual(
-  selectHomeV2AssetInfo({ assetId: 7, isDivisible: true, name: 'GOLD' }, 7),
-  { isDivisible: true, isUnspendable: false, name: 'GOLD' },
+  selectHomeV2AssetInfo({ assetId: 7, isDivisible: true, name: 'GOLD', owner: accountAddress }, 7),
+  { isDivisible: true, isUnspendable: false, name: 'GOLD', owner: accountAddress },
 )
-assert.throws(() => selectHomeV2AssetInfo({ assetId: 8, isDivisible: true, name: 'GOLD' }, 7), /different asset/)
+assert.throws(() => selectHomeV2AssetInfo({ assetId: 8, isDivisible: true, name: 'GOLD', owner: accountAddress }, 7), /different asset/)
 assert.throws(() => selectHomeV2AssetInfo({ name: 'GOLD' }, 7), /invalid shape/)
+assert.doesNotThrow(() => assertHomeV2QortalAtAcceptsAsset({ assetId: 7, isFinished: false }, 7))
+assert.throws(() => assertHomeV2QortalAtAcceptsAsset({ assetId: 8, isFinished: false }, 7), /does not match/)
+assert.throws(() => assertHomeV2QortalAtAcceptsAsset({ assetId: 7, isFinished: true }, 7), /finished/)
 assert.equal(selectHomeV2AtomicBalance('12.5'), 1_250_000_000n)
 assert.equal(selectHomeV2AtomicBalance(3), 300_000_000n)
 assert.equal(selectHomeV2AtomicBalance({ balance: '0.00000001' }), 1n)

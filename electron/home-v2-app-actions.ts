@@ -220,6 +220,9 @@ const QORTAL_ACTIONS = [
   'GET_ACCOUNT_RATING',
   'GET_ACTIVE_CHATS',
   'GET_ADMIN_GROUP_JOIN_REQUESTS',
+  'GET_ASSET_BALANCES',
+  'GET_ASSET_INFO',
+  'GET_ASSET_TRANSFERS',
   'GET_AT',
   'GET_AT_DATA',
   'GET_BALANCE',
@@ -315,6 +318,9 @@ const QORTAL_ACTIONS = [
   // SEND_QORT is the Qortal PAYMENT compatibility action: locally built on
   // the existing Qortal serializer, qortalRequest only.
   'SEND_QORT',
+  // Qortal and Qortium share the TRANSFER_ASSET request shape, but Home signs
+  // each chain's distinct type-12 wire form on its matching protocol.
+  'TRANSFER_ASSET',
 ] as const
 // SEARCH_GROUPS (Qortium-only): /groups/search does not exist on Qortal
 // (verified absent from both the Qortal master 6.1.5 and develop checkouts'

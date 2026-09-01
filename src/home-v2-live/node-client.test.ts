@@ -839,7 +839,7 @@ await assert.rejects(
 )
 
 assert.equal(getHomeV2AppActions('qdnRequest').includes('GET_ASSET_BALANCES'), true)
-assert.equal(getHomeV2AppActions('qortalRequest').includes('GET_ASSET_BALANCES'), false)
+assert.equal(getHomeV2AppActions('qortalRequest').includes('GET_ASSET_BALANCES'), true)
 assert.deepEqual(
   await client.requestApp('qdnRequest', {
     action: 'GET_ASSET_BALANCES',
@@ -861,9 +861,13 @@ await assert.rejects(
   }),
   /non-negative safe integer/,
 )
-await assert.rejects(
-  () => client.requestApp('qortalRequest', { action: 'GET_ASSET_INFO', assetId: 5 }),
-  /GET_ASSET_INFO is not implemented for qortalRequest/,
+assert.deepEqual(
+  await client.requestApp('qortalRequest', { action: 'GET_ASSET_INFO', assetId: 5 }),
+  [],
+)
+assert.equal(
+  `${new URL(lastRequestedUrl).pathname}${new URL(lastRequestedUrl).search}`,
+  '/assets/info?assetId=5',
 )
 const appContext = {
   resourceLocation: 'qdn://APP/Trust/Trust',
@@ -1186,6 +1190,16 @@ assert.equal(androidQortalActions.includes('SEND_MESSAGE'), false)
 // Android — on both protocols, so the legacy wallet's qortalRequest works.
 assert.equal(androidQortalActions.includes('UNLOCK_SELECTED_ACCOUNT'), true, 'Android must advertise UNLOCK on qortalRequest')
 assert.equal(androidQdnActions.includes('UNLOCK_SELECTED_ACCOUNT'), true)
+assert.equal(androidQortalActions.includes('TRANSFER_ASSET'), true, 'Android must advertise Qortal asset transfers')
+await assert.rejects(
+  client.requestApp('qortalRequest', {
+    action: 'TRANSFER_ASSET',
+    amount: '1',
+    assetId: 7,
+    recipient: 'AG9QWs1tEBTmXoH2rrQXwV4LdMAM99o5WD',
+  }, appContext),
+  (error: Error) => /must be approved through Home/.test(error.message),
+)
 // The Home shell raises the approval and the vault signs, so the node client
 // is not where a MESSAGE can be signed from: one arriving here bypassed the
 // prompt, and the refusal says that rather than blaming the platform.

@@ -34,6 +34,16 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-09-01 - fix(wallet): restore Qortal asset support in Home 2
+
+QDN wallet apps can once again read balances, metadata, and transfer history
+for Qortal assets beyond QORT. Home also restores Qortal asset transfers on
+both desktop and Android while keeping Qortium asset transfers on their own
+network. Each transfer is built and signed locally for the selected chain,
+shows the exact asset, amount, recipient, QORT fee, and route for approval,
+and refuses if the fee, asset description, balances, account reference, app,
+account, or route changes before signing.
+
 ### 2026-09-01 - fix(i2p): keep the managed router running after Home exits
 
 Closing or quitting Home no longer stops an i2pd router that the user started.

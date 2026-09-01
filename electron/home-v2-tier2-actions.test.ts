@@ -159,6 +159,7 @@ for (const action of ['GET_WALLET_BALANCE', 'GET_USER_WALLET_INFO', 'GET_USER_WA
 assert.ok(qdnActions.includes('SEND_COIN'), 'native SEND_COIN is restored on qdnRequest')
 assert.ok(!qortalActions.includes('SEND_COIN'), 'SEND_COIN is not a qortalRequest action; SEND_QORT is')
 assert.ok(qortalActions.includes('SEND_QORT'), 'SEND_QORT is restored on qortalRequest')
+assert.ok(qortalActions.includes('TRANSFER_ASSET'), 'Qortal asset transfers are restored on qortalRequest')
 assert.ok(!qdnActions.includes('SEND_QORT'), 'SEND_QORT must NOT be advertised on qdnRequest: its serializer is Qortal-specific')
 
 // No duplicates crept in while editing two long literal lists.

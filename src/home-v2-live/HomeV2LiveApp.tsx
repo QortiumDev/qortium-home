@@ -249,6 +249,7 @@ import {
   normalizeHomeV2AtMessageRequest,
 } from '../../electron/home-v2-at-message-actions'
 import {
+  assertHomeV2QortalAtAcceptsAsset,
   canonicalHomeV2PaymentAction,
   homeV2AtomicUnitsText,
   homeV2CheckedTotalDebit,
@@ -3754,14 +3755,18 @@ export function HomeV2LiveApp() {
             value.writeTargetChainLabel !== 'Qortium' ||
             value.writeSingleRequestOnly !== true))
         // Payments MOVE FUNDS: fully specified single-request or not at
-        // all, caption-pinned per action, chain-pinned per action (the three
-        // Qortium sends on qdnRequest, SEND_QORT on qortalRequest), with the
+        // all, caption-pinned per action, chain-pinned per action (native
+        // Qortium sends on qdnRequest, SEND_QORT on qortalRequest, and asset
+        // transfers on either correctly paired protocol), with the
         // exact payment-grade row sequence.
         || (isHomeV2PaymentAction(value.action) &&
           (value.writeKind !== 'payment' ||
             (value.action === 'SEND_QORT'
               ? value.protocol !== 'qortalRequest' || value.targetNetwork !== 'qortal' || value.writeTargetChainLabel !== 'Qortal'
-              : value.protocol !== 'qdnRequest' || value.targetNetwork !== 'qortium' || value.writeTargetChainLabel !== 'Qortium') ||
+              : value.action === 'TRANSFER_ASSET'
+                ? !((value.protocol === 'qortalRequest' && value.targetNetwork === 'qortal' && value.writeTargetChainLabel === 'Qortal') ||
+                    (value.protocol === 'qdnRequest' && value.targetNetwork === 'qortium' && value.writeTargetChainLabel === 'Qortium'))
+                : value.protocol !== 'qdnRequest' || value.targetNetwork !== 'qortium' || value.writeTargetChainLabel !== 'Qortium') ||
             !isSequencedDetailRows(PAYMENT_DETAIL_SEQUENCES[value.action], value.paymentDetails) ||
             value.writeOperationLabel !== homeV2PaymentOperationLabel(value.action) ||
             typeof value.writeRouteLabel !== 'string' ||
@@ -6817,13 +6822,21 @@ export function HomeV2LiveApp() {
       // request and the vault refuses if its own re-derivation of any of them
       // disagrees; the total debit follows from the amount and the fee.
       if (isAndroidHost && isHomeV2PaymentAction(action)) {
-        const qortalPayment = action === 'SEND_QORT'
+        const qortalChain = protocol === 'qortalRequest'
+        const sendQort = action === 'SEND_QORT'
         // The serializers are chain-specific, so the chain is asserted here as
         // well as in the catalogue: a signing path must not depend on a
         // catalogue entry staying correct.
-        if (qortalPayment ? protocol !== 'qortalRequest' : protocol !== 'qdnRequest') {
-          throw new Error(qortalPayment
+        const validChain = sendQort
+          ? qortalChain
+          : action === 'TRANSFER_ASSET'
+            ? protocol === 'qdnRequest' || qortalChain
+            : protocol === 'qdnRequest'
+        if (!validChain) {
+          throw new Error(sendQort
             ? 'SEND_QORT is a Qortal action; call it on qortalRequest.'
+            : action === 'TRANSFER_ASSET'
+              ? 'TRANSFER_ASSET must use qortalRequest for Qortal assets or qdnRequest for Qortium assets.'
             : `${action} is available on the Qortium chain only.`)
         }
         if (!context.selectedAccountId) throw new Error('No account is selected for this tab.')
@@ -6841,7 +6854,7 @@ export function HomeV2LiveApp() {
         ) {
           throw new Error('Payments are unavailable on this platform.')
         }
-        const targetNetwork: NetworkId = qortalPayment ? 'qortal' : 'qortium'
+        const targetNetwork: NetworkId = qortalChain ? 'qortal' : 'qortium'
         // Checked BEFORE the prompt, as desktop does: an account whose last
         // signed payment could not be recorded must not be asked to authorize
         // another spend that was never going to happen.
@@ -6868,7 +6881,7 @@ export function HomeV2LiveApp() {
         try {
           paymentRequest = isTransfer
             ? normalizeHomeV2TransferAssetRequest(rawRequest)
-            : qortalPayment
+            : sendQort
               ? normalizeHomeV2SendQortRequest(rawRequest)
               : normalizeHomeV2NativeSendRequest(action, rawRequest)
         } catch (error) {
@@ -6879,7 +6892,7 @@ export function HomeV2LiveApp() {
             throw Object.assign(new Error(error.message), {
               action,
               code: 'FOREIGN_SEND_UNAVAILABLE',
-              network: qortalPayment ? 'qortal' : 'qortium',
+              network: qortalChain ? 'qortal' : 'qortium',
               retryable: false,
             })
           }
@@ -6908,7 +6921,7 @@ export function HomeV2LiveApp() {
         const assetId = isTransfer ? (paymentRequest as HomeV2TransferAssetRequest).assetId : 0
         let recipient: HomeV2PaymentRecipient
         let recipientName: string | null = null
-        if (qortalPayment) {
+        if (sendQort) {
           const sendRequest = paymentRequest as HomeV2SendQortRequest
           if (sendRequest.recipientAddress) {
             recipient = normalizeHomeV2PaymentRecipient(sendRequest.recipientAddress, 'The recipient address')
@@ -6934,16 +6947,31 @@ export function HomeV2LiveApp() {
           if (!assetInfo.isDivisible && amount.atomic % 100_000_000n !== 0n) {
             throw new Error(`The ${assetInfo.name} asset is indivisible: the amount must be a whole number of units.`)
           }
-          if (assetInfo.isUnspendable && recipient.isAt) {
-            throw new Error(`The ${assetInfo.name} asset is unspendable and cannot be sent to an AT contract.`)
+          if (qortalChain) {
+            if (assetInfo.isUnspendable && assetInfo.owner !== account.address) {
+              throw new Error(`Only the owner of the unspendable ${assetInfo.name} asset can transfer it.`)
+            }
+            if (recipient.isAt) {
+              assertHomeV2QortalAtAcceptsAsset(
+                await readNodeValue(`/at/${encodeURIComponent(recipient.address)}`, 'The recipient Qortal AT does not exist.'),
+                assetId,
+              )
+            }
+          } else if (assetInfo.isUnspendable) {
+            if (assetInfo.owner !== account.address) {
+              throw new Error(`Only the owner of the unspendable ${assetInfo.name} asset can transfer it.`)
+            }
+            if (recipient.isAt) {
+              throw new Error(`The ${assetInfo.name} asset is unspendable and cannot be sent to an AT contract.`)
+            }
           }
         }
         // Qortium signed lengths: PAYMENT 153, TRANSFER_ASSET 161. Qortal
-        // PAYMENT carries a 64-byte last reference: 217.
+        // forms carry a 64-byte last reference: PAYMENT 217, transfer 225.
         const unitFee = await readUnitFee(isTransfer ? 'TRANSFER_ASSET' : 'PAYMENT')
-        const feeAtomic = homeV2FeeForLength(unitFee, qortalPayment ? 217 : isTransfer ? 161 : 153)
+        const feeAtomic = homeV2FeeForLength(unitFee, qortalChain ? (isTransfer ? 225 : 217) : isTransfer ? 161 : 153)
         const nativeDebit = isTransfer ? feeAtomic : homeV2CheckedTotalDebit(amount.atomic, feeAtomic)
-        const coinLabel = qortalPayment ? 'QORT' : 'native coin'
+        const coinLabel = qortalChain ? 'QORT' : 'native coin'
         const nativeBalance = await readAtomicBalance(account.address)
         if (nativeBalance < nativeDebit) {
           throw new Error(
@@ -6952,6 +6980,22 @@ export function HomeV2LiveApp() {
         }
         if (isTransfer && assetId !== 0 && (await readAtomicBalance(account.address, assetId)) < amount.atomic) {
           throw new Error(`Insufficient asset balance: the transfer needs ${amount.decimal}.`)
+        }
+        const lastReferenceValue = qortalChain
+          ? await readNodeValue(
+              `/addresses/lastreference/${encodeURIComponent(account.address)}`,
+              'The Qortal last-reference lookup is unavailable.',
+            )
+          : null
+        const approvedLastReference = typeof lastReferenceValue === 'string' ? lastReferenceValue.trim() : null
+        if (qortalChain) {
+          try {
+            if (!approvedLastReference) throw new Error()
+            const bytes = base58Decode(approvedLastReference)
+            if (bytes.byteLength !== 64 || base58Encode(bytes) !== approvedLastReference) throw new Error()
+          } catch {
+            throw new Error('The Qortal node returned an invalid last reference.')
+          }
         }
         const rows = [
           ...(assetInfo
@@ -6980,7 +7024,7 @@ export function HomeV2LiveApp() {
             : []),
           { label: 'Fee', value: `${formatQortAtomic(feeAtomic)} ${coinLabel}` },
           {
-            label: qortalPayment ? 'Total debit' : 'Total native debit',
+            label: isTransfer ? 'Total native debit' : qortalChain ? 'Total debit' : 'Total native debit',
             value: `${formatQortAtomic(nativeDebit)} ${coinLabel}`,
           },
         ]
@@ -6988,7 +7032,7 @@ export function HomeV2LiveApp() {
         const parsedApp = resolveAppIdentity()
         const appId = brand<AppId>(`home-v2:permission-app:${parsedApp.identityKey}`)
         const nodeRoute = `${nodeBefore.mode}|${nodeBefore.nodeApiUrl}`
-        const chainLabel = qortalPayment ? 'Qortal' : 'Qortium'
+        const chainLabel = qortalChain ? 'Qortal' : 'Qortium'
         const decision = await queueAndroidPermissionPrompt(createPermissionPrompt({
           id: brand<PermissionRequestId>(globalThis.crypto.randomUUID()),
           protocol,
@@ -7043,8 +7087,12 @@ export function HomeV2LiveApp() {
           approvedAddress: account.address,
           approvedAmountAtomic: amount.atomic.toString(),
           approvedAssetId: assetId,
+          approvedAssetIsDivisible: assetInfo?.isDivisible ?? null,
+          approvedAssetIsUnspendable: assetInfo?.isUnspendable ?? null,
           approvedAssetName: assetInfo?.name ?? null,
+          approvedAssetOwner: assetInfo?.owner ?? null,
           approvedFeeAtomic: feeAtomic.toString(),
+          approvedLastReference,
           approvedRecipientAddress: recipient.address,
           approvedTimestamp: paymentTimestamp,
           isStillValid,

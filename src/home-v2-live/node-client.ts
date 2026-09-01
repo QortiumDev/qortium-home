@@ -1336,19 +1336,19 @@ export function createPortableNodeClient(
       // than falling through to the generic read-only message, which would
       // misdescribe a family this platform DOES implement.
       if (
-        protocol === 'qdnRequest' &&
-        (isHomeV2PollWriteAction(action) ||
+        ((protocol === 'qdnRequest' &&
+          (isHomeV2PollWriteAction(action) ||
           isHomeV2NameWriteAction(action) ||
           isHomeV2GroupMutationAction(action) ||
           isHomeV2RatingAction(action) ||
           action === 'SET_ACCOUNT_AVATAR' ||
           isHomeV2PublishExtraAction(action) ||
-          action === 'SEND_MESSAGE' ||
-          isHomeV2PaymentAction(action))
+          action === 'SEND_MESSAGE')) ||
+        isHomeV2PaymentAction(action))
       ) {
         throw createHomeV2BridgeError(
           `${action} must be approved through Home before it can be signed.`,
-          { action, code: 'NODE_CAPABILITY_MISSING', network: 'qortium', retryable: false },
+          { action, code: 'NODE_CAPABILITY_MISSING', network: protocol === 'qortalRequest' ? 'qortal' : 'qortium', retryable: false },
         )
       }
       const androidRefusal = homeV2AndroidActionRefusal(action, protocol)

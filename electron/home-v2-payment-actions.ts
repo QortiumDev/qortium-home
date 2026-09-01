@@ -20,7 +20,8 @@ import { parseHomeV2CoinAmount, type HomeV2CoinAmount } from './home-v2-app-acti
  *   PAYMENT (type 2, asset 0). 1.x built these as asset transfers through
  *   an API-keyed Core builder and sent the account's PRIVATE KEY to the
  *   node's /transactions/sign; Home 2 serializes and signs locally.
- * - `TRANSFER_ASSET` is the Qortium type-12 transfer.
+ * - `TRANSFER_ASSET` is the type-12 transfer on either chain. Qortium omits
+ *   lastReference; Qortal carries the ordinary 64-byte lastReference.
  * - `SEND_QORT` is the separate Qortal PAYMENT compatibility action, using
  *   the existing qortal-payment.ts serializer (64-byte lastReference).
  * - `SEND_COIN`'s 1.x FOREIGN arm (deriving BTC/LTC/... wallets from the
@@ -312,6 +313,28 @@ export function buildUnsignedQortiumTransferAssetTransactionBytes(input: {
   )
 }
 
+export function buildUnsignedQortalTransferAssetTransactionBytes(input: {
+  readonly amountAtomic: bigint
+  readonly assetId: number
+  readonly feeAtomic: bigint
+  readonly lastReference: string | Uint8Array
+  readonly recipientBytes: Uint8Array
+  readonly senderPublicKey: string | Uint8Array
+  readonly timestamp: number
+}) {
+  return concatBytes(
+    int32Bytes(12, 'Transaction type'),
+    int64Bytes(BigInt(input.timestamp), 'Timestamp'),
+    int32Bytes(0, 'Transaction group ID'),
+    exactBytes(input.lastReference, 64, 'Last reference'),
+    exactBytes(input.senderPublicKey, 32, 'Sender public key'),
+    exactBytes(input.recipientBytes, 25, 'Recipient address'),
+    int64Bytes(BigInt(input.assetId), 'Asset ID'),
+    int64Bytes(input.amountAtomic, 'Transfer amount'),
+    int64Bytes(input.feeAtomic, 'Transfer fee'),
+  )
+}
+
 export function assertUnsignedHomeV2QortiumPaymentTransaction(
   bytes: Uint8Array,
   expected: {
@@ -354,6 +377,38 @@ export function assertUnsignedHomeV2QortiumTransferAssetTransaction(
   if (reader.int32('Transaction type') !== 12) throw new Error(`${label} changed the approved transaction type.`)
   if (reader.int64('Timestamp') !== BigInt(expected.timestamp)) throw new Error(`${label} changed the approved timestamp.`)
   if (reader.int32('Transaction group ID') !== 0) throw new Error(`${label} changed the approved transaction group.`)
+  if (!equalBytes(reader.exact(32, 'Sender public key'), exactBytes(expected.senderPublicKey, 32, 'Sender public key'))) {
+    throw new Error(`${label} changed the approved sender.`)
+  }
+  if (!equalBytes(reader.exact(25, 'Recipient address'), exactBytes(expected.recipientBytes, 25, 'Recipient address'))) {
+    throw new Error(`${label} changed the approved recipient.`)
+  }
+  if (reader.int64('Asset ID') !== BigInt(expected.assetId)) throw new Error(`${label} changed the approved asset.`)
+  if (reader.int64('Transfer amount') !== expected.amountAtomic) throw new Error(`${label} changed the approved amount.`)
+  if (reader.int64('Transfer fee') !== expected.feeAtomic) throw new Error(`${label} changed the approved fee.`)
+  reader.done(label)
+}
+
+export function assertUnsignedHomeV2QortalTransferAssetTransaction(
+  bytes: Uint8Array,
+  expected: {
+    readonly amountAtomic: bigint
+    readonly assetId: number
+    readonly feeAtomic: bigint
+    readonly lastReference: string | Uint8Array
+    readonly recipientBytes: Uint8Array
+    readonly senderPublicKey: string | Uint8Array
+    readonly timestamp: number
+  },
+) {
+  const label = 'qortal TRANSFER_ASSET transaction'
+  const reader = new ByteReader(bytes)
+  if (reader.int32('Transaction type') !== 12) throw new Error(`${label} changed the approved transaction type.`)
+  if (reader.int64('Timestamp') !== BigInt(expected.timestamp)) throw new Error(`${label} changed the approved timestamp.`)
+  if (reader.int32('Transaction group ID') !== 0) throw new Error(`${label} changed the approved transaction group.`)
+  if (!equalBytes(reader.exact(64, 'Last reference'), exactBytes(expected.lastReference, 64, 'Last reference'))) {
+    throw new Error(`${label} changed the last reference.`)
+  }
   if (!equalBytes(reader.exact(32, 'Sender public key'), exactBytes(expected.senderPublicKey, 32, 'Sender public key'))) {
     throw new Error(`${label} changed the approved sender.`)
   }
@@ -444,22 +499,31 @@ export type HomeV2AssetInfo = Readonly<{
   isDivisible: boolean
   isUnspendable: boolean
   name: string
+  owner: string
 }>
 
 export function selectHomeV2AssetInfo(value: unknown, assetId: number): HomeV2AssetInfo {
   if (!isRecord(value)) throw new Error('Asset lookup answered an invalid shape.')
   const reportedId = value.assetId
-  if (typeof reportedId === 'number' && reportedId !== assetId) {
+  if (!Number.isSafeInteger(reportedId)) throw new Error('Asset lookup answered an invalid shape.')
+  if (reportedId !== assetId) {
     throw new Error('Asset lookup answered a different asset.')
   }
-  const { isDivisible, isUnspendable, name } = value
-  if (typeof isDivisible !== 'boolean' || typeof name !== 'string' || !name) {
+  const { isDivisible, isUnspendable, name, owner } = value
+  if (typeof isDivisible !== 'boolean' || typeof name !== 'string' || !name || typeof owner !== 'string' || !owner) {
     throw new Error('Asset lookup answered an invalid shape.')
   }
   if (isUnspendable !== undefined && typeof isUnspendable !== 'boolean') {
     throw new Error('Asset lookup answered an invalid shape.')
   }
-  return Object.freeze({ isDivisible, isUnspendable: isUnspendable === true, name })
+  return Object.freeze({ isDivisible, isUnspendable: isUnspendable === true, name, owner })
+}
+
+export function assertHomeV2QortalAtAcceptsAsset(value: unknown, assetId: number) {
+  if (!isRecord(value)) throw new Error('Qortal AT lookup answered an invalid shape.')
+  if (!Number.isSafeInteger(value.assetId)) throw new Error('Qortal AT lookup answered an invalid asset.')
+  if (value.isFinished !== false) throw new Error('The recipient AT is finished or unavailable for payments.')
+  if (value.assetId !== assetId) throw new Error('The selected Qortal asset does not match the recipient AT.')
 }
 
 // A confirmed balance in atomic units from Core's decimal string answer.
