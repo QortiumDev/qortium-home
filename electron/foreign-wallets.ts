@@ -1,5 +1,5 @@
 import { secp256k1 } from '@noble/curves/secp256k1.js';
-import { base58Encode } from './base58.js';
+import { base58Decode, base58Encode } from './base58.js';
 
 export type ForeignWalletCoin = 'BTC' | 'LTC' | 'DOGE' | 'DGB' | 'RVN' | 'DASH' | 'NMC' | 'FIRO';
 
@@ -97,6 +97,47 @@ export function normalizeForeignWalletCoin(value: unknown): ForeignWalletCoin {
 
 export function getForeignWalletCoins() {
   return FOREIGN_WALLET_SPECS.map((spec) => spec.coin);
+}
+
+/**
+ * Return a domain-separated, non-secret identity for one canonical root xpub.
+ * The journal stores only this digest, never the xpub or any key material.
+ */
+export function fingerprintForeignWalletPublicRuntime(input: {
+  coin: ForeignWalletCoin;
+  crypto: ForeignWalletCrypto;
+  xpub58: string;
+}) {
+  const xpub58 = typeof input.xpub58 === 'string' ? input.xpub58.trim() : '';
+  let encoded: Uint8Array;
+  try {
+    encoded = base58Decode(xpub58);
+  } catch {
+    throw new Error('Invalid foreign wallet extended public key.');
+  }
+  if (encoded.byteLength !== 82 || base58Encode(encoded) !== xpub58) {
+    throw new Error('Invalid foreign wallet extended public key.');
+  }
+  const payload = encoded.subarray(0, 78);
+  const checksum = encoded.subarray(78);
+  const expectedChecksum = doubleSha256(payload, input.crypto).subarray(0, 4);
+  if (!equalBytes(checksum, expectedChecksum)) {
+    throw new Error('Invalid foreign wallet extended public key.');
+  }
+  const spec = getForeignWalletSpec(input.coin);
+  if (!equalBytes(payload.subarray(0, 4), Uint8Array.from(int32ToBytes(spec.xpubVersion)))
+    || payload[4] !== 0
+    || payload.subarray(5, 13).some((byte) => byte !== 0)
+    || (payload[45] !== 0x02 && payload[45] !== 0x03)) {
+    throw new Error('Invalid foreign wallet root extended public key.');
+  }
+  try {
+    secp256k1.Point.fromBytes(payload.subarray(45));
+  } catch {
+    throw new Error('Invalid foreign wallet root extended public key.');
+  }
+  const domain = stringToUtf8Array(`qortium-home:foreign-wallet-journal:v1\0${input.coin}\0`);
+  return bytesToHex(input.crypto.sha256(appendBuffer(domain, payload)));
 }
 
 export function deriveForeignWalletRuntime(input: {
@@ -342,6 +383,14 @@ function appendBuffer(first: Uint8Array | number[], second: Uint8Array | number[
   nextBuffer.set(secondBuffer, firstBuffer.byteLength);
 
   return nextBuffer;
+}
+
+function equalBytes(left: Uint8Array, right: Uint8Array) {
+  return left.byteLength === right.byteLength && left.every((byte, index) => byte === right[index]);
+}
+
+function bytesToHex(bytes: Uint8Array) {
+  return [...bytes].map((byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
 function int32ToBytes(value: number) {

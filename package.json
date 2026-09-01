@@ -112,6 +112,7 @@
     "test:foreign-wallet-transaction": "npm run build:electron && node dist-electron/foreign-wallet-transaction.test.js",
     "test:foreign-wallet-spend-plan": "npm run build:electron && node dist-electron/foreign-wallet-spend-plan.test.js",
     "test:foreign-wallet-spend-context": "npm run build:electron && node dist-electron/foreign-wallet-spend-context.test.js",
+    "test:foreign-wallet-transaction-journal": "npm run build:electron && node dist-electron/foreign-wallet-transaction-journal.test.js && node dist-electron/foreign-wallet-transaction-journal-store.test.js",
     "test:home-v2-avatar-actions": "npm run build:electron && node dist-electron/home-v2-avatar-actions.test.js",
     "test:home-v2-chat-actions": "npm run build:electron && node dist-electron/home-v2-chat-actions.test.js",
     "test:home-v2-direct-chat-actions": "npm run build:electron && node dist-electron/home-v2-direct-chat-actions.test.js",
