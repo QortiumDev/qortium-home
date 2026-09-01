@@ -90,14 +90,12 @@ export const QDN_APP_DECRYPT_CAPABILITIES = ['account.decrypt'] as const;
  * allowed to decrypt data it already holds has not thereby been allowed to read
  * a mailbox.
  *
- * Durable, but only USABLE on a trusted local node. The limit noted above for
- * account.decrypt bites hardest here: a serving node sees the plaintext an app
- * touches regardless of the sandbox, so on a public node the operator would see
- * DMs the app reads. The grant is therefore SUSPENDED rather than revoked when
- * the selected node is not local -- the user falls back to per-request prompts
- * and the grant resumes when they return to their own node. Revoking would
- * punish a temporary node switch; the check is at USE time, so a grant made on
- * a local Core never silently applies to a public one.
+ * Usable on any node route since 2026-09-01 (the former local-Core-only rule
+ * rested on a false premise: these reads fetch ciphertext and decrypt inside
+ * Home, so a serving node never sees message plaintext). Note the direct-read
+ * actions themselves are permissionless (2026-08-24), so this capability is
+ * presently vestigial; it stays defined and listed so any held grant remains
+ * visible and revocable.
  */
 export const QDN_APP_DIRECT_CHAT_CAPABILITIES = ['account.directChat'] as const;
 /**
@@ -109,11 +107,13 @@ export const QDN_APP_DIRECT_CHAT_CAPABILITIES = ['account.directChat'] as const;
  * too. Folding them into one capability would mean a grant for either silently
  * covering both, and neither prompt says that.
  *
- * The node-trust limit is identical and applies for the identical reason: the
- * node serving an app sees the plaintext that app reads, whoever runs it. So
- * this is usable only on Home's own local Core, SUSPENDED (prompt again) rather
- * than revoked while another node is selected, and checked at USE time so a
- * grant made on a local Core never silently applies to a public one.
+ * Stored and honored on ANY node route (owner decision, 2026-09-01; the
+ * former local-Core-only rule rested on the false premise that a serving
+ * node sees plaintext -- group history is fetched as ciphertext and
+ * decrypted inside Home). A public route still observes access metadata,
+ * exactly as it did under the route-independent session grant; the durable
+ * form extends the observation horizon, which the decision accepted.
+ * Revocable in Settings > QDN Apps.
  */
 export const QDN_APP_GROUP_CHAT_CAPABILITIES = ['account.groupChat'] as const;
 export const QDN_ACCOUNT_SCOPED_CAPABILITIES = [

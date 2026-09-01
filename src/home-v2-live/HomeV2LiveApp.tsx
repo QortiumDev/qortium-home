@@ -214,6 +214,7 @@ import {
   homeV2AccountReadPromptTitle,
   createHomeV2SessionGrantStore,
   homeV2DurableAccountReadCapability,
+  homeV2DurablePrivateGroupReadCapability,
   homeV2PermissionGrantKey,
   homeV2PermissionGrantFamily,
   isHomeV2AccountReadAction,
@@ -1209,7 +1210,7 @@ function persistDurableAccountReadGrant(
   accountId: string,
   // Every account-scoped durable capability goes through here. They are stored
   // and revoked separately; only the write path is shared.
-  capability: 'account.read' | 'account.encrypt' | 'account.decrypt',
+  capability: 'account.read' | 'account.encrypt' | 'account.decrypt' | 'account.groupChat',
 ): Promise<boolean> {
   return persistDurableGrantAsync({
     capability,
@@ -8334,7 +8335,8 @@ export function HomeV2LiveApp() {
         // private-group WRITE and key operation prompting.
         const privateGroupReadCapability = singleRequestOnly
           ? null
-          : homeV2DurableAccountReadCapability(action)
+          : homeV2DurableAccountReadCapability(action) ??
+            homeV2DurablePrivateGroupReadCapability(action)
         const appCapabilityKey = context.resourceLocation || ''
         // Bound to the canonical resource principal AND the selected account,
         // matching the desktop bridge.

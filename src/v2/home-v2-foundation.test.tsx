@@ -3029,28 +3029,36 @@ function testGrantIdentityAndSendRateLimitHardening(): void {
     }
     assert.ok(staleCheck > 0)
   }
-  // The durable DIRECT MESSAGE grant is usable ONLY on a trusted local node.
-  // Asserted against the source because it is the whole point of the grant: a
-  // serving node sees the plaintext an app reads, so a grant made on the user's
-  // own Core must never apply on a public one. The trust flag is read from the
-  // request details, so it is evaluated per request rather than once at grant
-  // time, and holding the grant on an untrusted node falls through to the
-  // prompt -- suspension, not revocation.
-  assert.match(
+  // The durable private-read grants are honored and recorded on ANY node
+  // route (owner decision, 2026-09-01, reversing the 2026-08-30 trusted-node
+  // gate): these reads hand the node only ciphertext and decrypt locally, so
+  // route trust changes what an operator can observe (metadata) no more than
+  // the session grant already did. The former gate must stay fully gone --
+  // half-removing it would re-create the silent always-allow downgrade.
+  assert.doesNotMatch(
     appBridge,
-    /writeDetails\.trustedNode === true[\s\S]{0,400}hasQdnAccountCapability\(appGrantKey, context\.accountId, 'account\.directChat'\)/,
-    'the direct-message grant must be gated on a trusted node at USE time',
+    /trustedNode/,
+    'no private-read grant may be gated on a node-trust flag',
   )
-  // And a grant must not be RECORDED on an untrusted node either: minting one
-  // where it can never apply would promise the user something untrue.
+  // Both capabilities are still persisted, account-bound, and behind the
+  // stale-resource check.
   assert.match(
     appBridge,
     /capability: 'account\.directChat'/,
   )
-  assert.ok(
-    appBridge.indexOf("writeDetails.trustedNode === true") <
-      appBridge.indexOf("capability: 'account.directChat'"),
-    'the durable direct-message grant must only be persisted on a trusted node',
+  assert.match(
+    appBridge,
+    /capability: 'account\.groupChat'/,
+  )
+  assert.match(
+    appBridge,
+    /liveResourceMatchesGrant\(context\)[\s\S]{0,12000}hasQdnAccountCapability\(appGrantKey, context\.accountId, 'account\.groupChat'\)/,
+  )
+  // And the store predicate: an 'always' on the two group reads records
+  // account.groupChat with no route condition between decision and write.
+  assert.match(
+    appBridge,
+    /GET_PRIVATE_GROUP_ACTIVE_CHATS'[\s\S]{0,400}writeDetails\?\.kind === 'private-group'[\s\S]{0,200}capability: 'account\.groupChat'/,
   )
 
   // The durable chat.send grant must also sit after the stale-resource check.

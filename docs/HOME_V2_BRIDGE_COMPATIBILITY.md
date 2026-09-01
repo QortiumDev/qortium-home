@@ -119,7 +119,7 @@ request `notifications.manage`, and the assigned app gets no head start.
 | `SEND_CHAT_EDIT` | both | `{ signature, timestamp }`, or a signed non-retryable unknown-outcome result | Requires a canonical 64-byte `chatReference`; exact original public message, chain, group, sender ownership, route, account, payload codec, and reference are checked before prompting and before signing | yes | yes |
 | `SEND_CHAT_DELETE` | both | `{ signature, timestamp }`, or a signed non-retryable unknown-outcome result | Same ownership/reference/context checks as edit. Qortium uses its empty-message revision. Qortal accepts only Home's canonical empty Hub-v3 edit with no images; Hub renders the retained original row as no message, while both transactions remain on-chain | yes | yes |
 | `SEND_CHAT_REACTION` | both | `{ signature, timestamp }`, or a signed non-retryable unknown-outcome result | Requires the exact reaction envelope and canonical reference; the target may belong to another sender, but must be the original public text message in the selected chain/group | yes | yes |
-| `GET_PRIVATE_DIRECT_ACTIVE_CHATS`, `SEARCH_PRIVATE_DIRECT_CHAT_MESSAGES` | both | Selected-account-scoped rows with plaintext `data`, or a per-row `decryptionStatus: "FAILED"` without plaintext | Trusted direct-read prompt; exact selected account and participant selectors; encrypted text only; 100-row and 1 MiB response bounds; no plaintext bridge cache; keys never leave Home | yes | yes |
+| `GET_PRIVATE_DIRECT_ACTIVE_CHATS`, `SEARCH_PRIVATE_DIRECT_CHAT_MESSAGES` | both | Selected-account-scoped rows with plaintext `data`, or a per-row `decryptionStatus: "FAILED"` without plaintext | No prompt (permissionless reads, owner decision 2026-08-24); exact selected account and participant selectors; encrypted text only; 100-row and 1 MiB response bounds; no plaintext bridge cache; keys never leave Home | yes | yes |
 | `SEND_DIRECT_CHAT_MESSAGE`, `SEND_DIRECT_CHAT_EDIT`, `SEND_DIRECT_CHAT_DELETE`, `SEND_DIRECT_CHAT_REACTION` | both | `{ signature, timestamp }`, or a signed non-retryable unknown-outcome result | Single-request direct-write prompt; recipient key, exact original/reference/participant binding, payload codec, route, account, and app/tab context rechecked before signing. Qortium uses QDM1; Qortal uses legacy v2 secretbox. Delete clears displayed content but does not erase transactions | yes | yes |
 | `GET_PRIVATE_GROUP_ACTIVE_CHATS`, `GET_PRIVATE_GROUP_CHAT_STATE`, `SEARCH_PRIVATE_GROUP_CHAT_MESSAGES` | both | Selected-account-scoped state or retained rows with plaintext `data`; unavailable rows report `MISSING_KEY` without ciphertext or reusable keys | Qortium verifies bounded signed QPGC state/control records. Qortal accepts only newest-valid current-admin `DOCUMENT_PRIVATE` bundles and old/new authenticated `encryptSingle` messages. Both recheck current membership, account, app/tab, and route | yes | yes |
 | `REQUEST_PRIVATE_GROUP_CHAT_KEY`, `RESOLVE_PRIVATE_GROUP_CHAT_KEY_REQUESTS`, `ROTATE_PRIVATE_GROUP_CHAT_KEY` | both | Recovery state, `{ signature, timestamp }`, bounded relay/republish result, or signed non-retryable unknown-outcome result | Single-request prompt. Qortium creates/relays QPGC controls; Qortal recovers from or republishes/rotates the current-admin key bundle. Qortal publication requires the selected operator's QDN staging route or returns `NODE_CAPABILITY_MISSING` | yes | yes |
@@ -619,14 +619,19 @@ duplicate the first. See [QDN bridge action notes](BRIDGE_ACTIONS.md).
 ## Private-chat reads and the durable `account.read` grant (2026-08-30)
 
 Reading private chat history — direct **and** group — is no longer covered by a
-durable `account.read` grant. It needs its own capability, and that capability
-works only on Home's own local Core.
+durable `account.read` grant; it needs its own capability.
+
+Updated 2026-09-01: the local-Core-only condition on those capabilities was
+removed (owner decision). The reads fetch ciphertext and decrypt inside Home,
+so the durable grant is stored and honored on any node route; a public route
+observes access metadata only, as it already did under session grants. The
+direct-read actions are permissionless (2026-08-24) and do not prompt at all.
 
   action                                durable capability
-  GET_PRIVATE_DIRECT_ACTIVE_CHATS       account.directChat   (local Core only)
-  SEARCH_PRIVATE_DIRECT_CHAT_MESSAGES   account.directChat   (local Core only)
-  GET_PRIVATE_GROUP_ACTIVE_CHATS        account.groupChat    (local Core only)
-  SEARCH_PRIVATE_GROUP_CHAT_MESSAGES    account.groupChat    (local Core only)
+  GET_PRIVATE_DIRECT_ACTIVE_CHATS       (permissionless)
+  SEARCH_PRIVATE_DIRECT_CHAT_MESSAGES   (permissionless)
+  GET_PRIVATE_GROUP_ACTIVE_CHATS        account.groupChat    (any route)
+  SEARCH_PRIVATE_GROUP_CHAT_MESSAGES    account.groupChat    (any route)
   GET_PRIVATE_GROUP_CHAT_STATE          account.read
   GET_CHAT_ATTACHMENT_STREAM_URL        account.read
   OPEN_CHAT_ATTACHMENT_VIEWER           account.read
@@ -644,10 +649,12 @@ Two faults, found on 2026-08-30 and both fixed by the same exclusion:
   direct messages" recorded `account.read` — account identity, pending
   transactions and attachment reads included. The `account.directChat` block
   added in #465 was unreachable.
-- **It defeated the node-trust rule.** `account.directChat` is usable only on a
-  local Core, because whichever node serves an app sees the plaintext that app
-  reads. `account.read` carried no such condition, so the capability actually
-  granted bypassed the gate built for exactly this.
+- **It defeated the node-trust rule (historical).** At the time,
+  `account.directChat` was usable only on a local Core, and `account.read`
+  carried no such condition, so the capability actually granted bypassed that
+  gate. The gate itself was removed on 2026-09-01 (see the update above): the
+  reads fetch ciphertext and decrypt inside Home, so the "node sees plaintext"
+  premise did not hold. The grant-must-match-prompt fault stands on its own.
 
 ### What changed for existing grants
 

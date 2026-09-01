@@ -196,14 +196,16 @@ export function homeV2AccountReadPermissionDetails(accountLabel: string) {
  *   before the account.directChat one and returns. The user was shown one thing
  *   and given a wider one, covering account identity, pending transactions and
  *   attachment reads.
- * - It defeated the node-trust rule. account.directChat is deliberately usable
- *   only on Home's own local Core, because the node serving an app sees the
- *   plaintext that app reads. 'account.read' carried no such condition, so the
- *   capability actually granted bypassed the gate added for exactly this.
+ * - It collapsed two different decisions into one capability. Reading chat
+ *   history is its own disclosure with its own Settings card; sweeping it
+ *   into 'account.read' meant revoking one revoked the other invisibly.
  *
- * Excluding them here fixes both: an "always" on a chat read now falls through
- * to the specific, node-gated capability, and an account.read held from some
- * other action stops covering chat history.
+ * Excluding them here keeps the durable grant exactly as wide as the prompt:
+ * an "always" on a chat read records the specific account.directChat /
+ * account.groupChat capability, and an account.read held from some other
+ * action stops covering chat history. (The former node-trust gate on those
+ * capabilities was removed 2026-09-01 -- the reads are ciphertext-to-the-node
+ * and decrypted locally -- so they are now honored on any route.)
  */
 const PRIVATE_CHAT_READ_ACTIONS = new Set<string>([
   'GET_PRIVATE_DIRECT_ACTIVE_CHATS',
@@ -245,6 +247,20 @@ const PRIVATE_ATTACHMENT_READ_ACTIONS = new Set<string>([
   'GET_CHAT_ATTACHMENT_STREAM_URL',
   'OPEN_CHAT_ATTACHMENT_VIEWER',
 ])
+
+/**
+ * The durable capability for the private-GROUP reads (owner decision,
+ * 2026-09-01): 'account.groupChat', stored and honored on ANY node route —
+ * these reads hand the node only ciphertext and decrypt locally, so route
+ * trust changes what an operator observes (access metadata) no more than the
+ * route-independent session grant already did. Returns null for everything
+ * else; the direct reads are permissionless (2026-08-24) and never prompt.
+ */
+export function homeV2DurablePrivateGroupReadCapability(action: string): 'account.groupChat' | null {
+  return action === 'GET_PRIVATE_GROUP_ACTIVE_CHATS' || action === 'SEARCH_PRIVATE_GROUP_CHAT_MESSAGES'
+    ? 'account.groupChat'
+    : null
+}
 
 export function homeV2AccountReadPromptKind(action: string): HomeV2AccountReadPromptKind | null {
   if (!isHomeV2AccountReadAction(action)) return null

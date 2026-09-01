@@ -32,6 +32,22 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## fix(qdn): honor "always allow" for private group chat reads on any node
+
+Answering "Always allow" to the private-group chat read prompt silently did
+nothing lasting unless Home was connected to its own local Core, so the
+prompt kept returning every session while promising it would not — and on
+Android the durable choice was never offered at all. The restriction
+protected less than it seemed: these reads only ever send the node requests
+for encrypted data, and all decryption happens inside Home, so a public node
+sees the same access metadata either way; what a lasting grant adds is that
+this metadata exposure continues across app launches, which is the tradeoff
+this change accepts knowingly. The durable grant is now stored and honored
+on any node route on desktop and Android alike, stays bound to the app and
+account, and remains revocable in Settings > QDN Apps. The prompt still
+shows which node route serves the read at the moment of consent. (Direct
+messages were unaffected: those reads do not prompt.)
+
 ## fix(qdn): let attachment streams display through page security policies
 
 Private chat attachments decrypted correctly, but the pages that display them
