@@ -21,7 +21,11 @@ export function routerStatusMessage(status: HomeV2TransportMaintenanceStatus) {
   if (status.core.install === 'unknown') {
     return t('home2.transportMaintenance.status.coreUnknown')
   }
-  if (status.core.runtime === 'running') {
+  if (status.core.runtime === 'running' && (
+    status.router.maintenance === 'install' ||
+    status.router.maintenance === 'migrate' ||
+    status.router.maintenance === 'update'
+  )) {
     return t('home2.transportMaintenance.status.coreRunning')
   }
   if (status.core.runtime === 'unknown') {

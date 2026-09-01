@@ -144,7 +144,7 @@ function assertMaintenanceStatus(value) {
   assert.deepEqual(Object.keys(value.core).sort(), [
     'channel', 'helpersOutOfSyncVersion', 'installedCommit', 'installModified', 'installedTag',
     'installedVersion', 'localApiUrl', 'nodeAutoUpdateMode', 'runtime', 'runtimeBlockedReason',
-    'update',
+    'update', 'updateSources',
   ].sort())
   assert.deepEqual(Object.keys(value.java).sort(), [
     'source', 'targetMajorVersion', 'updateAvailable', 'version',
@@ -251,10 +251,10 @@ function assertTransportMaintenanceStatus(value) {
   assert.equal(value.schema, 'home-v2-transport-maintenance')
   assert.equal(value.revision, 1)
   assert.deepEqual(Object.keys(value.capabilities).sort(), [
-    'canEnsureRouter', 'canSetDirectAndI2p', 'canSetDirectOnly', 'canSetI2pOnly',
-    // The router stop control and the apply-now transport mode change, both
-    // added 2026-08-30. Their presence here is real end-to-end evidence: this
-    // list comes from the running AppImage over CDP, not from a fixture.
+    'canEnsureRouter', 'canRevealRouterFolder', 'canSetDirectAndI2p', 'canSetDirectOnly',
+    'canSetI2pOnly',
+    // These router controls come from the running AppImage over CDP, not from
+    // a fixture, so this remains exact end-to-end evidence for the bridge.
     'canSetModeWhileRunning', 'canStopRouter',
   ])
   assert.deepEqual(Object.keys(value.core).sort(), ['install', 'runtime'])

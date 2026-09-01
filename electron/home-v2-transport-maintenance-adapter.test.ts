@@ -97,13 +97,56 @@ function harness(options: {
   return { dependencies, events }
 }
 
-const runningCore = harness({ runtimeStates: ['running'] })
+const runningCore = harness({
+  inspections: [router({
+    install: 'missing',
+    installedVersion: null,
+    maintenance: 'install',
+    router: 'missing',
+  })],
+  runtimeStates: ['running'],
+})
 assert.deepEqual(await runningCore.dependencies.ensureRouter(), {
   code: 'core-runtime-not-stopped',
   kind: 'blocked',
   warning: null,
 })
-assert.deepEqual(runningCore.events, ['core-status', 'core-runtime'])
+assert.deepEqual(runningCore.events, ['inspect', 'core-status', 'core-runtime'])
+
+const runningCoreStart = harness({
+  inspections: [
+    router({ maintenance: 'start', router: 'managed-stopped' }),
+    router(),
+  ],
+  runtimeStates: ['running', 'running', 'running'],
+})
+assert.deepEqual(await runningCoreStart.dependencies.ensureRouter(), {
+  code: null,
+  kind: 'completed',
+  warning: null,
+})
+assert.deepEqual(
+  runningCoreStart.events.filter((event) => ['install', 'start'].includes(event)),
+  ['start'],
+)
+
+const legacyMigration = harness({
+  inspections: [
+    router({ install: 'legacy', maintenance: 'migrate', router: 'legacy-stopped' }),
+    router({ maintenance: 'start', router: 'managed-stopped' }),
+    router(),
+  ],
+  runtimeStates: ['stopped', 'stopped', 'stopped', 'stopped'],
+})
+assert.deepEqual(await legacyMigration.dependencies.ensureRouter(), {
+  code: null,
+  kind: 'completed',
+  warning: null,
+})
+assert.deepEqual(
+  legacyMigration.events.filter((event) => ['install', 'start'].includes(event)),
+  ['install', 'start'],
+)
 
 const unknownCore = harness({ runtimeStates: ['unknown'] })
 assert.deepEqual(

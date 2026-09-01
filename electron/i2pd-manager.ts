@@ -7,6 +7,7 @@ import net from 'node:net';
 import path from 'node:path';
 import {
   installPinnedI2pd,
+  readI2pdLegacyManagedInstall,
   readI2pdManagedInstall,
   type I2pdManagedInstall,
 } from './i2pd-managed-install.js';
@@ -71,12 +72,13 @@ export type I2pdStatus = {
 };
 
 export type I2pdMaintenanceInspection = Readonly<{
-  install: 'installed' | 'missing' | 'unknown';
+  install: 'installed' | 'legacy' | 'missing' | 'unknown';
   installedVersion: string | null;
   managedProcessActive: boolean;
-  maintenance: 'install' | 'none' | 'start' | 'unavailable' | 'update';
+  maintenance: 'install' | 'migrate' | 'none' | 'start' | 'unavailable' | 'update';
   router:
     | 'external-running'
+    | 'legacy-stopped'
     | 'managed-running'
     | 'managed-stopped'
     | 'missing'
@@ -171,6 +173,10 @@ export async function revealHomeV2ManagedI2pd(): Promise<boolean> {
 
 async function readInstalledI2pd(): Promise<I2pdManagedInstall | null> {
   return await readI2pdManagedInstall(managedInstallInput());
+}
+
+async function readLegacyInstalledI2pd() {
+  return await readI2pdLegacyManagedInstall(managedInstallInput());
 }
 
 function isLiveChild(child: ChildProcess | null): child is ChildProcess {
@@ -412,6 +418,19 @@ async function inspectMaintenanceImpl(): Promise<I2pdMaintenanceInspection> {
     ? managedChildInstall?.record.version ?? null
     : installed?.record.version ?? null;
   if (!installed) {
+    if (!managedOwned) {
+      const legacy = await readLegacyInstalledI2pd();
+      if (legacy) {
+        return {
+          install: 'legacy',
+          installedVersion: legacy.version,
+          managedProcessActive: false,
+          maintenance: samReady ? 'none' : 'migrate',
+          router: samReady ? 'external-running' : 'legacy-stopped',
+          supported: true,
+        };
+      }
+    }
     return {
       install: managedOwned ? 'unknown' : 'missing',
       installedVersion: reportedVersion,
