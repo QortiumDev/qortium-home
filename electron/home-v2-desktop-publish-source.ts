@@ -10,13 +10,51 @@ import {
   type HomeV2PublishSourceDescriptor,
 } from './home-v2-publish-source-tokens.js'
 
-export type HomeV2DesktopPublishSource = HomeV2PublishSourceDescriptor & Readonly<{
-  device: bigint
-  inode: bigint
-  path: string
-}>
+export type HomeV2DesktopPublishSource = HomeV2PublishSourceDescriptor & (
+  | Readonly<{
+      device: bigint
+      inode: bigint
+      kind: 'file'
+      path: string
+    }>
+  // STAGE_QDN_PUBLISH_SOURCE (B1): bytes an app handed over (paste/drop),
+  // held in main-process memory until published, released, or TTL-evicted.
+  | Readonly<{
+      bytes: Uint8Array
+      kind: 'blob'
+    }>
+)
 
-export const homeV2DesktopPublishSources = new HomeV2PublishSourceTokenStore<HomeV2DesktopPublishSource>(16)
+// File sources cost no store memory (bytes stay on disk until publish); blob
+// sources are budgeted so staged pastes can never grow Home's memory
+// unboundedly — the oldest staged blobs are evicted once the budget is hit.
+export const homeV2DesktopPublishSources = new HomeV2PublishSourceTokenStore<HomeV2DesktopPublishSource>(
+  16,
+  undefined,
+  undefined,
+  { maximumBytes: 96 * 1024 * 1024, sizeOf: (source) => (source.kind === 'blob' ? source.size : 0) },
+)
+
+export function stageHomeV2DesktopPublishBlob(
+  binding: HomeV2PublishSourceBinding,
+  blob: Readonly<{ bytes: Uint8Array; fileName: string; mimeType: string | null }>,
+) {
+  const source: HomeV2DesktopPublishSource = Object.freeze({
+    bytes: blob.bytes,
+    fileName: blob.fileName,
+    kind: 'blob' as const,
+    mimeType: blob.mimeType,
+    size: blob.bytes.byteLength,
+  })
+  return {
+    canceled: false as const,
+    fileName: source.fileName,
+    kind: 'blob' as const,
+    mimeType: source.mimeType,
+    size: source.size,
+    sourceToken: homeV2DesktopPublishSources.issue(binding, source),
+  }
+}
 
 export async function selectHomeV2DesktopPublishSource(
   windowId: number,
@@ -45,6 +83,7 @@ export async function selectHomeV2DesktopPublishSource(
     device: stats.dev,
     fileName: nodePath.basename(selectedPath).slice(0, 180) || 'qdn-resource',
     inode: stats.ino,
+    kind: 'file' as const,
     mimeType: null,
     path: selectedPath,
     size,
@@ -60,6 +99,15 @@ export async function selectHomeV2DesktopPublishSource(
 }
 
 export async function readHomeV2DesktopPublishSource(source: HomeV2DesktopPublishSource) {
+  if (source.kind === 'blob') {
+    // Copy on read: publish paths hash and post these bytes, and must never
+    // share a buffer with whatever else still references the staged source.
+    if (source.bytes.byteLength !== source.size) {
+      throw new Error('Staged publish source changed after staging. Stage the bytes again.')
+    }
+    return Uint8Array.from(source.bytes)
+  }
+
   const noFollow = typeof fsConstants.O_NOFOLLOW === 'number' ? fsConstants.O_NOFOLLOW : 0
   let handle
   try {

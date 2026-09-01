@@ -32,6 +32,17 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## feat(qdn): stage app-held bytes as a publish source
+
+Apps could only publish files chosen through Home's own picker, so a
+screenshot pasted into a chat app or a file dropped onto its composer had no
+way to reach QDN on Home 2. A new STAGE_QDN_PUBLISH_SOURCE action lets an app
+hand Home up to 25 MiB of bytes and get back the same kind of short-lived
+source token the picker issues; publishing that token still shows the normal
+approval prompt before anything is signed or uploaded, on desktop and Android
+alike. The publish actions themselves still refuse inline bytes exactly as
+before.
+
 ## Change Entries
 
 ### 2026-09-01 - feat(wallet): add Home-local foreign signing foundation
