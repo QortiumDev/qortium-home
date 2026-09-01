@@ -135,7 +135,9 @@ request `notifications.manage`, and the assigned app gets no head start.
 | `CREATE_POLL`, `VOTE_ON_POLL`, `UPDATE_POLL` | `qdnRequest` | 1.x wrappers: `{ accepted: true, action, pollName \| pollId (+ optionIndex/optionIndexes or newPollName), network, result, signature, transactionSignature, timestamp }`; an unclear broadcast answers `accepted: false` with `outcome: "unknown"` and is retained in the pending-transaction journal | Single-request `poll.write` prompt each, never a session or durable grant. Signs one fee-free transaction via the keyless `/polls/public/*` builders with local byte-assertion, MemoryPoW, and local Ed25519 — the account key never leaves Home. A vote prompt names the poll and the selected option labels (one-based; 0 removes) and the poll is re-read after approval so a changed name or option list refuses the sign. `fee`/`txGroupId` when present must be 0; `pollId` starts at 1; needs a selected unlocked account and a route exposing the public builders (`NODE_CAPABILITY_MISSING` otherwise) | yes | yes (signed in the Android vault on the same build → byte-assert → MemoryPoW → sign sequence; prompt rows held to the same per-action contract, and the poll state the prompt was shown against is the baseline the pre-sign re-read is checked against) |
 | `REGISTER_NAME`, `UPDATE_NAME`, `SELL_NAME`, `CANCEL_SELL_NAME`, `BUY_NAME` | `qdnRequest` | 1.x wrappers: `{ accepted: true, action, name (+ newName/amount/recipient/seller per action), network, result, signature, transactionSignature, timestamp }`; an unclear broadcast answers `accepted: false` with `outcome: "unknown"` and journals against the coarse per-action target | Single-request `name.write` prompt each, never a session or durable grant. Signs one fee-free transaction via the keyless `/names/public/*` builders (Core #269) with local byte-assertion (new type 3–7 verifiers), MemoryPoW, and local Ed25519. BUY_NAME PAYS the sale amount to the seller: payment-grade prompt, live-state-resolved seller/price/restriction with exact-match on app-supplied values, and the sale state re-read after approval. Exact-spelling rule: a reduced-name lookup answering a different stored spelling refuses. Amounts are exact atomic bigints; `fee`/`txGroupId` when present must be 0; needs a selected unlocked account and a route exposing the builders | yes | yes (same in-vault signing path as the poll family, BUY_NAME included — a purchase available on desktop but not on the user's phone would be a half-working platform, not a safer one; the signed price and seller are the approved ones, so a sale re-listed while the prompt is open refuses instead of being paid at the new price) |
 | `CREATE_GROUP`, `UPDATE_GROUP`, `GROUP_APPROVAL`, `SET_GROUP`, `SET_GROUP_AVATAR` | `qdnRequest` | 1.x wrappers plus `changed` (a no-op update/set/avatar answers `changed: false` WITHOUT signing); an unclear broadcast answers `accepted: false` with `outcome: "unknown"` and journals | Single-request `group.mutation` prompt each, never a session or durable grant. Built LOCALLY on the group-admin transformer pattern (types 22/23/33/34/49, zero-nonce build → byte-verify → MemoryPoW → verify stamped → local Ed25519). GROUP_APPROVAL resolves and DISCLOSES the pending transaction it votes on and re-reads it after approval; UPDATE_GROUP prompts the complete replacement with "(unchanged)" rows and has no ownership transfer; SET_GROUP_AVATAR signs a QDN pointer only (bytes go through PUBLISH_QDN_RESOURCE separately). fee/txGroupId when present must be 0; groups created inside a transaction group cannot be updated through Home (creationGroupId is not API-exposed) | yes | yes (local transformer on Android, as the group-admin family already is: the vault verifies the transformer's bytes AND the stamped bytes, and the approved group state is both the comparison baseline and the source of UPDATE_GROUP's merged values; GROUP_APPROVAL also refuses a non-admin vote up front) |
-| `GET_USER_WALLET` | both | `{ address, assetId: 0, assetName: "Native Asset", native: true }` | No prompt, and permissionless by a strictly-less argument: it returns the selected account's address plus three constants, where `GET_SELECTED_ACCOUNT` — already permissionless — returns that same address plus the account name and lock state. No node call, no key derivation, no unlocked account required. **Native asset only.** Accepts `assetId: 0` and the coin aliases `NATIVE`/`NATIVE_ASSET`/`ASSET_0`/`ASSET0`, plus `QORT`, which Home 1.x wrongly routed to the foreign path; an absent selector defaults to native. Any foreign coin is refused with the coded, non-retryable `FOREIGN_WALLET_UNAVAILABLE` rather than answered with the native address. Never offered to a chromeless widget, for the same reason `GET_SELECTED_ACCOUNT` is not | yes | yes |
+| `GET_USER_WALLET` | both for native; foreign on `qdnRequest` | Native: `{ address, assetId: 0, assetName: "Native Asset", native: true }`; foreign: `{ address, coin, publicKey, publickey }` | Native remains permissionless and unlock-free. Foreign supports BTC/LTC/DOGE/DGB/RVN/DASH/NMC/FIRO only, requires unlock plus the separate session-scoped foreign-wallet disclosure, derives public watch material locally without requiring Core or serializing xprv, and is never offered to widgets | yes | yes |
+| `GET_WALLET_BALANCE`, `GET_USER_WALLET_INFO`, `GET_USER_WALLET_TRANSACTIONS` | `qdnRequest` | Core balance/address-info/transaction payload | Same foreign-wallet session disclosure and exact eight-coin set; xpub-only authenticated POST to reachable local or authenticated custom Qortium Core; redirect refusal, bounded response, Core error 1201 normalization; ARRR excluded | yes | yes |
+| `SET_CURRENT_FOREIGN_SERVER` | `qdnRequest` | Core `ServerConnectionInfo`, including preserved `success: false` | Single-request prompt showing coin, node, host, port, connection, and optional certificate fingerprint; route/key revision recheck; trusted Core only; ARRR excluded | yes | yes |
 | `GET_BALANCE`, `GET_ACCOUNT_DATA` | both | Bare Core JSON | No prompt. An absent `address` now defaults to the selected account (Home 1.x behavior, lost in the first Home 2 tranche), and `GET_BALANCE` honors a non-negative integer `assetId` instead of silently answering with the native balance for every asset. Both defaults are neutral — the subject is the caller's own account, whose address it can already read — except in a chromeless widget, where the self-addressing default is withheld and an explicit `address` is required | yes | yes |
 | `GET_CROSSCHAIN_BLOCKCHAINS`, `GET_CROSSCHAIN_SERVER_INFO`, `GET_FOREIGN_FEE`, `GET_SERVER_CONNECTION_HISTORY` | both | Blockchain list with a projected `QORT` row and a `homeWallet` capability per row; bare server array; `{ fee, feePerKb }` or `{ fee }`; bare Core JSON | No prompt; zero-key bounded reads of the node's own `/crosschain` prefix. No wallet seed, key derivation, unlocked account or API key is involved. `coin` is resolved against a strict allowlist (BTC, LTC, DOGE, DGB, RVN, DASH, NMC, FIRO, ARRR) before it can become a URL path segment; `ARRR` is accepted here although Home cannot derive an ARRR wallet, because these reads need no key material and Home 1.x wrongly reused the HD-wallet coin list. `GET_FOREIGN_FEE` normalizes Core's per-kilobyte `feekb` to a per-byte `fee` with ceiling rounding, so a fee never rounds down below what the foreign chain requires | yes | yes |
 | `GET_MARKET_PRICES` | both | `{ cacheHit, cacheTtlMs, coins, currencies, fetchedAt, missing, prices, source, stale, staleReason? }` | No prompt. **The only bridge action that leaves the Qortal/Qortium node network**, reaching `api.coingecko.com`. Home fetches ONE fixed superset — every supported coin and currency, with change — and projects each app's requested subset locally, so the outbound URL is a compile-time constant that no app input reaches; an app cannot vary coins, currencies, or the change flag to alter what is sent, and nothing identifying is sent (no address, account id, public key, app identity, node URL, cookie, or custom header beyond `Accept`). At most one outbound request per cache interval, globally — a minimum interval governs *attempts*, so even a run of failures cannot exceed it — and concurrent callers share one in-flight fetch. On a fetch failure a cached answer is returned with `stale: true` and a `staleReason`; with nothing cached the error propagates rather than inventing a price. Route-independent — a disabled or unreachable node route has no bearing on it | yes | yes |
@@ -211,8 +213,8 @@ and Android fixtures pass.
 | Names, groups, polls | `BUY_NAME`, `CANCEL_SELL_NAME`, `CREATE_GROUP`, `CREATE_POLL`, `REGISTER_NAME`, `SELL_NAME`, `UPDATE_GROUP`, `UPDATE_NAME`, `VOTE_ON_POLL` (the two poll actions have the `qdnRequest` family implemented — see the table above — but these v3 forms stay deferred: Hub's poll contract is a different legacy transaction — pollName target, zero-based index, paid fee and last reference — and must not be mechanically translated) |
 | QDN writes | Deletion and legacy inline/path publishing; Home 2 single-resource `PUBLISH_QDN_RESOURCE` — and now `PUBLISH_MULTIPLE_QDN_RESOURCES` as a bounded batch of it — are implemented through the separate H5B source-token contract (Hub's inline `data64`/`encrypt` multi-publish fields stay refused) |
 | Encryption and group keys | `DECRYPT_AESGCM`, `DECRYPT_DATA`, `DECRYPT_DATA_WITH_SHARING_KEY`, `DECRYPT_QORTAL_GROUP_DATA`, `ENCRYPT_DATA_WITH_SHARING_KEY`, `ENCRYPT_QORTAL_GROUP_DATA`, `REENCRYPT_GROUP_KEYS` (`ENCRYPT_DATA` is now implemented on both protocols — see below. `ENCRYPT_QORTAL_GROUP_DATA` is NOT the same mechanism despite the shared `qortalGroupEncryptedData` marker: it takes a `groupId` and a shared symmetric key fetched from a `DOCUMENT_PRIVATE` resource published by group admins, and needs the read side of private-group keys, which Home does not have yet) |
-| Wallets, payments, signing | `GET_USER_WALLET_INFO`, `GET_USER_WALLET_TRANSACTIONS`, `GET_WALLET_BALANCE`, `MULTI_ASSET_PAYMENT_WITH_PRIVATE_DATA`, `SEND_COIN`, `SIGN_FOREIGN_FEES`, `SIGN_TRANSACTION`, `TRANSFER_ASSET` (`GET_USER_WALLET` is implemented for the NATIVE asset only — see the wallet-family note below) |
-| Foreign chain and trading | `ADD_FOREIGN_SERVER`, `CANCEL_TRADE_SELL_ORDER`, `CREATE_TRADE_BUY_ORDER`, `CREATE_TRADE_SELL_ORDER`, `GET_ARRR_SYNC_STATUS`, `REMOVE_FOREIGN_SERVER`, `SET_CURRENT_FOREIGN_SERVER`, `START_CROSSCHAIN_SERVER`, `UPDATE_FOREIGN_FEE` (the four zero-key `/crosschain` READS are implemented) |
+| Wallets, payments, signing | `MULTI_ASSET_PAYMENT_WITH_PRIVATE_DATA`, foreign `SEND_COIN`, `SIGN_FOREIGN_FEES`, `SIGN_TRANSACTION` (`GET_USER_WALLET`, the three foreign wallet reads, QORT send, and protocol-bound `TRANSFER_ASSET` are implemented — see the wallet-family note below) |
+| Foreign chain and trading | `ADD_FOREIGN_SERVER`, `CANCEL_TRADE_SELL_ORDER`, `CREATE_TRADE_BUY_ORDER`, `CREATE_TRADE_SELL_ORDER`, `GET_ARRR_SYNC_STATUS`, `REMOVE_FOREIGN_SERVER`, `START_CROSSCHAIN_SERVER`, `UPDATE_FOREIGN_FEE` (the four zero-key `/crosschain` reads and `SET_CURRENT_FOREIGN_SERVER` are implemented) |
 | AT/admin and other host UI | `ADMIN_ACTION`, `CREATE_AND_COPY_EMBED_LINK`, `DEPLOY_AT`, `OPEN_USER_LOOKUP` |
 
 ## Deferred Qortium surface
@@ -258,14 +260,13 @@ replacement is shipped:
 | `SEARCH_QORTAL_TRANSACTIONS` | `SEARCH_TRANSACTIONS` |
 | `SEND_QORTAL_GROUP_CHAT` | `SEND_CHAT_MESSAGE` |
 
-**Deferred (22) — planned by family, unadvertised until each family's
+**Deferred (18) — planned by family, unadvertised until each family's
 request/result/error, permission, denial, stale-context, malformed-input,
 desktop, and Android fixtures pass:**
 
 | Family | Deferred actions | Notes |
 | --- | --- | --- |
 | ~~Publishing preview~~ | ~~`PREVIEW_QDN_PUBLISH_SOURCE`~~ | **No longer deferred (2026-08-30)** — implemented as an app-tab preview, local nodes only; see its subsection below |
-| Foreign wallets | `GET_USER_WALLET_INFO`, `GET_USER_WALLET_TRANSACTIONS`, `GET_WALLET_BALANCE`, `SET_CURRENT_FOREIGN_SERVER` | Awaits the W3 design — see the wallet-family subsection below; the four zero-key `/crosschain` READS and native-only `GET_USER_WALLET` are implemented |
 | Node settings and admin | `GET_NODE_SETTINGS_METADATA`, `UPDATE_NODE_SETTINGS`, `RESTART_NODE` | Node settings stay deferred; Home's own DISPLAY settings are implemented (see below) |
 | Background notification subscriptions | `NOTIFICATION_ADD`, `NOTIFICATION_GET`, `NOTIFICATION_REMOVE` | Distinct from the implemented `NOTIFICATION_HAS_PERMISSION`/`SHOW_NOTIFICATION` contract and the `NOTIFICATION_MANAGER_*` family |
 | App assignments | `GET_APP_ASSIGNMENTS`, `REQUEST_APP_ASSIGNMENT` | F4 is Settings-only; app-facing delegation remains deferred |
@@ -277,25 +278,24 @@ not carried.
 
 ### Wallet family
 
-`GET_USER_WALLET` is implemented for the **native asset only**. Foreign wallet
-reads and foreign sends remain deferred pending the W3 foreign-wallet design.
+`GET_USER_WALLET` supports the native asset on both globals and the eight
+non-ARRR foreign wallets on `qdnRequest`. Balance, address-info, transaction
+history, and foreign-server selection are restored on `qdnRequest`. Foreign
+sending remains unavailable.
 
 The distinction is not arbitrary. The native branch returns an address Home
 already knows and already hands out permissionlessly through
 `GET_SELECTED_ACCOUNT`. The foreign branch, as Home 1.x implemented it, derives
 a BTC/LTC/DOGE/DGB/RVN/DASH/NMC/FIRO HD wallet from the account seed — a
 different and much larger security boundary, with its own key-derivation code,
-its own xprv/xpub handling, and its own failure modes. Home 2 does not carry
-that code at all on this path: a foreign coin is refused with the coded
-`FOREIGN_WALLET_UNAVAILABLE`, never answered with the native address, because
-an app displaying a Qortium address as somebody's Bitcoin receive address is
-the dangerous failure here.
-
-When the W3 design lands it must NOT simply widen this handler. Foreign wallet
-access needs its own action, its own prompt, and its own review — and
-`GET_USER_WALLET`'s place in `HOME_V2_PERMISSIONLESS_ACTIONS` must be revisited
-at the same time, since the strictly-less-than-`GET_SELECTED_ACCOUNT` argument
-that justifies it today would no longer hold.
+its own xprv/xpub handling, and its own failure modes. The Home 2 foreign path
+therefore uses a separate session grant even though it
+keeps the Home 1.x wire action names. It derives only address/xpub watch data,
+never serializes an xprv, and wipes copied seed and private-node buffers. Receive
+address derivation is entirely Home-local; balance/history reads send only xpub
+to a trusted Qortium Core. The native action's entry in
+`HOME_V2_PERMISSIONLESS_ACTIONS` applies only when the request is native; the
+foreign disclosure kind explicitly bypasses that early return.
 
 ### `PREVIEW_QDN_PUBLISH_SOURCE`
 
@@ -436,8 +436,8 @@ serializer). All four sign locally — the 1.x Qortium paths sent the account
 private key to the node — pay the Home-quoted pinned chain fee (these types
 have NO MemoryPoW alternative), and journal unknown outcomes under the
 exact spend intent with a fail-closed guard. `SEND_COIN`'s 1.x foreign-coin
-arm refuses loudly (`FOREIGN_SEND_UNAVAILABLE`) — foreign wallets stay
-deferred behind W3. On today's Qortium Previewnet, which deliberately has
+arm refuses loudly (`FOREIGN_SEND_UNAVAILABLE`) — foreign sending remains
+deferred. On today's Qortium Previewnet, which deliberately has
 no native asset yet, the Qortium arms refuse honestly at the balance and
 asset pre-checks. **All four work on Android**, on the same terms: every
 number the prompt disclosed travels with the request and the vault refuses if

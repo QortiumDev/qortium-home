@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import { createECDH, createHash } from 'node:crypto';
 import {
+  deriveForeignWalletPublicRuntime,
   deriveForeignWalletRuntime,
+  fingerprintForeignWalletPublicRuntime,
   getForeignWalletCoins,
   normalizeForeignWalletCoin,
   type ForeignWalletCoin,
@@ -172,6 +174,31 @@ for (const coin of getForeignWalletCoins()) {
   const addressPayload = decodeBase58Check(wallet.address, 21);
   assert.equal(addressPayload[0], fixture.addressPrefix);
   assertExtendedKeyPair(fixture);
+
+  const publicWallet = deriveForeignWalletPublicRuntime({
+    coin,
+    crypto: cryptoAdapter,
+    seed: PUBLIC_TEST_SEED,
+    walletVersion: 2,
+  });
+  assert.deepEqual(publicWallet, {
+    address: fixture.address,
+    coin,
+    publicKey: fixture.xpub58,
+    xpub58: fixture.xpub58,
+  });
+  assert.equal('xprv58' in publicWallet, false);
+  assert.equal(JSON.stringify(publicWallet).includes(fixture.xprv58), false);
+  assert.match(fingerprintForeignWalletPublicRuntime({
+    coin,
+    crypto: cryptoAdapter,
+    xpub58: publicWallet.xpub58,
+  }), /^[0-9a-f]{64}$/);
+  assert.throws(() => fingerprintForeignWalletPublicRuntime({
+    coin,
+    crypto: cryptoAdapter,
+    xpub58: fixture.xprv58,
+  }), /extended public key/);
 }
 
 for (const [alias, coin] of [

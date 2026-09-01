@@ -218,9 +218,17 @@ import {
   homeV2PermissionGrantFamily,
   isHomeV2AccountReadAction,
   isHomeV2ChatSendAction,
+  isHomeV2ForeignWalletPermissionAction,
   isHomeV2PermissionlessAction,
 } from '../../electron/home-v2-session-grants'
 import { getHomeV2BridgeStateDetails } from '../../electron/home-v2-app-runtime'
+import {
+  isHomeV2ForeignWalletReadAction,
+  normalizeHomeV2ForeignServerRequest,
+  normalizeHomeV2ForeignWalletCoin,
+} from '../../electron/home-v2-foreign-wallet-actions'
+import { getForeignWalletPublicResponse } from '../../electron/foreign-wallet-read-contract'
+import { isHomeV2NativeWalletRequest } from '../../electron/home-v2-wallet-actions'
 import { unwrapAndroidNodeRecord } from './android-node-envelope'
 import {
   normalizeHomeV2CreateGroupRequest,
@@ -249,6 +257,7 @@ import {
   normalizeHomeV2AtMessageRequest,
 } from '../../electron/home-v2-at-message-actions'
 import {
+  assertHomeV2QortalAtAcceptsAsset,
   canonicalHomeV2PaymentAction,
   homeV2AtomicUnitsText,
   homeV2CheckedTotalDebit,
@@ -3573,6 +3582,8 @@ export function HomeV2LiveApp() {
             value.action !== 'ENCRYPT_DATA' &&
             value.action !== 'GET_SELECTED_ACCOUNT' &&
             value.action !== 'GET_USER_ACCOUNT' &&
+            !isHomeV2ForeignWalletPermissionAction(value.action) &&
+            value.action !== 'SET_CURRENT_FOREIGN_SERVER' &&
             value.action !== 'GET_PENDING_TRANSACTIONS' &&
             value.action !== 'FORGET_PENDING_TRANSACTION' &&
             value.action !== 'UNLOCK_SELECTED_ACCOUNT' &&
@@ -3624,6 +3635,27 @@ export function HomeV2LiveApp() {
           typeof value.accountId !== 'string') ||
         typeof value.tabId !== 'string' ||
         (value.targetNetwork !== 'qortal' && value.targetNetwork !== 'qortium') ||
+        (isHomeV2ForeignWalletPermissionAction(value.action) &&
+          (value.writeKind !== 'foreign-wallet-read' ||
+            value.protocol !== 'qdnRequest' ||
+            value.targetNetwork !== 'qortium' ||
+            typeof value.foreignWalletCoin !== 'string' ||
+            typeof value.writeOperationLabel !== 'string' ||
+            typeof value.writeRouteLabel !== 'string' ||
+            value.writeTargetChainLabel !== 'Qortium' ||
+            value.writeSingleRequestOnly !== false)) ||
+        (value.action === 'SET_CURRENT_FOREIGN_SERVER' &&
+          (value.writeKind !== 'foreign-server' ||
+            value.protocol !== 'qdnRequest' ||
+            value.targetNetwork !== 'qortium' ||
+            typeof value.foreignServerCoin !== 'string' ||
+            !Array.isArray(value.foreignServerDetails) ||
+            !value.foreignServerDetails.every((detail) =>
+              isRecord(detail) && typeof detail.label === 'string' && typeof detail.value === 'string') ||
+            typeof value.writeOperationLabel !== 'string' ||
+            typeof value.writeRouteLabel !== 'string' ||
+            value.writeTargetChainLabel !== 'Qortium' ||
+            value.writeSingleRequestOnly !== true)) ||
         ((isHomeV2PublicChatAction(value.action) || isHomeV2GroupWriteAction(value.action)) &&
           (typeof value.writeOperationLabel !== 'string' ||
             typeof value.writeTargetChainLabel !== 'string')) ||
@@ -3754,14 +3786,18 @@ export function HomeV2LiveApp() {
             value.writeTargetChainLabel !== 'Qortium' ||
             value.writeSingleRequestOnly !== true))
         // Payments MOVE FUNDS: fully specified single-request or not at
-        // all, caption-pinned per action, chain-pinned per action (the three
-        // Qortium sends on qdnRequest, SEND_QORT on qortalRequest), with the
+        // all, caption-pinned per action, chain-pinned per action (native
+        // Qortium sends on qdnRequest, SEND_QORT on qortalRequest, and asset
+        // transfers on either correctly paired protocol), with the
         // exact payment-grade row sequence.
         || (isHomeV2PaymentAction(value.action) &&
           (value.writeKind !== 'payment' ||
             (value.action === 'SEND_QORT'
               ? value.protocol !== 'qortalRequest' || value.targetNetwork !== 'qortal' || value.writeTargetChainLabel !== 'Qortal'
-              : value.protocol !== 'qdnRequest' || value.targetNetwork !== 'qortium' || value.writeTargetChainLabel !== 'Qortium') ||
+              : value.action === 'TRANSFER_ASSET'
+                ? !((value.protocol === 'qortalRequest' && value.targetNetwork === 'qortal' && value.writeTargetChainLabel === 'Qortal') ||
+                    (value.protocol === 'qdnRequest' && value.targetNetwork === 'qortium' && value.writeTargetChainLabel === 'Qortium'))
+                : value.protocol !== 'qdnRequest' || value.targetNetwork !== 'qortium' || value.writeTargetChainLabel !== 'Qortium') ||
             !isSequencedDetailRows(PAYMENT_DETAIL_SEQUENCES[value.action], value.paymentDetails) ||
             value.writeOperationLabel !== homeV2PaymentOperationLabel(value.action) ||
             typeof value.writeRouteLabel !== 'string' ||
@@ -3958,6 +3994,8 @@ export function HomeV2LiveApp() {
       const isRatingWrite = isHomeV2RatingAction(value.action)
       const isAccountAvatar = value.action === 'SET_ACCOUNT_AVATAR'
       const isPaymentSend = isHomeV2PaymentAction(value.action)
+      const isForeignWalletRead = isHomeV2ForeignWalletPermissionAction(value.action)
+      const isForeignServerWrite = value.action === 'SET_CURRENT_FOREIGN_SERVER'
       // A zero-fee chain MESSAGE to an AT. Its own prompt kind: it signs, so it
       // must never inherit the read-only account prompt's wording, its
       // 'account.read' grant family, or its session/always scopes.
@@ -3975,7 +4013,7 @@ export function HomeV2LiveApp() {
       const isDecrypt = value.action === 'DECRYPT_DATA'
       const accountReadPromptKind = homeV2AccountReadPromptKind(value.action)
       const isGenericAccountRead = accountReadPromptKind === 'account'
-      const operationLabel = isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment || isNotification || isBookmarkManager || isNotificationManager || isHomeSettingsUpdate || isJournalForget || isMintingWrite || isListWrite || isPollWrite || isNameWrite || isGroupMutation || isPublishMultiple || isQdnDelete || isRatingWrite || isAccountAvatar || isPaymentSend || isAtMessage || isEncrypt || isDecrypt
+      const operationLabel = isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment || isNotification || isBookmarkManager || isNotificationManager || isHomeSettingsUpdate || isJournalForget || isMintingWrite || isListWrite || isPollWrite || isNameWrite || isGroupMutation || isPublishMultiple || isQdnDelete || isRatingWrite || isAccountAvatar || isPaymentSend || isForeignWalletRead || isForeignServerWrite || isAtMessage || isEncrypt || isDecrypt
         ? String(value.writeOperationLabel)
         : ''
       const prompt = createPermissionPrompt({
@@ -3988,6 +4026,10 @@ export function HomeV2LiveApp() {
           ? 'account.encrypt'
           : isWidgetPrompt
           ? 'window.widget.open'
+          : isForeignWalletRead
+          ? 'account.foreign-wallet.read'
+          : isForeignServerWrite
+          ? 'node.foreign-server.write'
           : isAccountRead
           ? 'account.read'
           : isChatWrite
@@ -4097,6 +4139,10 @@ export function HomeV2LiveApp() {
           ? 'Allow this change to Home settings?'
           : accountReadPromptKind
           ? homeV2AccountReadPromptTitle(accountReadPromptKind)
+          : isForeignWalletRead
+          ? 'Allow foreign wallet access?'
+          : isForeignServerWrite
+          ? 'Change the foreign-chain server?'
           : isJournalRead
             ? 'Allow pending transaction access?'
           : isJournalForget
@@ -4118,6 +4164,10 @@ export function HomeV2LiveApp() {
           ? `${appTitle} wants to change the Home settings listed below. This approval covers this one change only — the app must ask again for the next one. It cannot read or change your accounts, node connections, or saved data.`
           : isListWrite
           ? `${appTitle} wants to change a named list stored on your own node. Apps on this node share these lists — they commonly drive blocking and following — so this change affects what other apps show you. This approval covers this one change only; nothing is signed and nothing on chain changes.`
+          : isForeignWalletRead
+          ? `${appTitle} wants Home to derive public watch-only wallet data for supported foreign chains and let your trusted Qortium Core read balances and transaction history. The app receives addresses and an extended public key, never a seed or private key.`
+          : isForeignServerWrite
+          ? `${appTitle} wants to change which server your trusted Qortium Core uses for one foreign chain. This approval covers this one change only.`
           : isPollWrite
           ? `${appTitle} wants to sign and broadcast one poll transaction from the selected account. It carries no payment and costs no fee — Home pays for it with proof-of-work on this device. Everything it does is shown below, exactly as it will be signed; this approval covers this one transaction only.`
           : isGroupMutation
@@ -4443,6 +4493,21 @@ export function HomeV2LiveApp() {
                   value: 'Touching any other minter’s key on this node, giving the app any private or minting key, or changing minting on any node but this local one',
                 },
               ]
+          : isForeignWalletRead
+            ? [
+                { label: 'Account', value: account?.label ?? accountId },
+                { label: 'Coin', value: String(value.foreignWalletCoin) },
+                { label: 'Node', value: String(value.writeRouteLabel) },
+                { label: 'Shared with app', value: 'Receive address and extended public key (xpub)' },
+                { label: 'Not shared', value: 'Wallet seed, private key, or extended private key (xprv)' },
+              ]
+          : isForeignServerWrite
+            ? [
+                { label: 'Account', value: account?.label ?? accountId },
+                { label: 'Coin', value: String(value.foreignServerCoin) },
+                { label: 'Node', value: String(value.writeRouteLabel) },
+                ...(value.foreignServerDetails as Array<{ label: string; value: string }>),
+              ]
           : isPublish || isPrivateAttachment
             ? [
                 { label: 'Account', value: account?.label ?? accountId },
@@ -4512,6 +4577,10 @@ export function HomeV2LiveApp() {
           // writeSingleRequestOnly reaching us intact, and the main process
           // independently refuses to retain a grant for it.
           ? ['single-request']
+          : isForeignServerWrite
+          ? ['single-request']
+          : isForeignWalletRead
+          ? ['single-request', 'session']
           // Second, and only after the signing arm above: a test pins
           // SEND_MESSAGE's arm first so no later edit can shadow it.
           //
@@ -6817,13 +6886,21 @@ export function HomeV2LiveApp() {
       // request and the vault refuses if its own re-derivation of any of them
       // disagrees; the total debit follows from the amount and the fee.
       if (isAndroidHost && isHomeV2PaymentAction(action)) {
-        const qortalPayment = action === 'SEND_QORT'
+        const qortalChain = protocol === 'qortalRequest'
+        const sendQort = action === 'SEND_QORT'
         // The serializers are chain-specific, so the chain is asserted here as
         // well as in the catalogue: a signing path must not depend on a
         // catalogue entry staying correct.
-        if (qortalPayment ? protocol !== 'qortalRequest' : protocol !== 'qdnRequest') {
-          throw new Error(qortalPayment
+        const validChain = sendQort
+          ? qortalChain
+          : action === 'TRANSFER_ASSET'
+            ? protocol === 'qdnRequest' || qortalChain
+            : protocol === 'qdnRequest'
+        if (!validChain) {
+          throw new Error(sendQort
             ? 'SEND_QORT is a Qortal action; call it on qortalRequest.'
+            : action === 'TRANSFER_ASSET'
+              ? 'TRANSFER_ASSET must use qortalRequest for Qortal assets or qdnRequest for Qortium assets.'
             : `${action} is available on the Qortium chain only.`)
         }
         if (!context.selectedAccountId) throw new Error('No account is selected for this tab.')
@@ -6841,7 +6918,7 @@ export function HomeV2LiveApp() {
         ) {
           throw new Error('Payments are unavailable on this platform.')
         }
-        const targetNetwork: NetworkId = qortalPayment ? 'qortal' : 'qortium'
+        const targetNetwork: NetworkId = qortalChain ? 'qortal' : 'qortium'
         // Checked BEFORE the prompt, as desktop does: an account whose last
         // signed payment could not be recorded must not be asked to authorize
         // another spend that was never going to happen.
@@ -6868,7 +6945,7 @@ export function HomeV2LiveApp() {
         try {
           paymentRequest = isTransfer
             ? normalizeHomeV2TransferAssetRequest(rawRequest)
-            : qortalPayment
+            : sendQort
               ? normalizeHomeV2SendQortRequest(rawRequest)
               : normalizeHomeV2NativeSendRequest(action, rawRequest)
         } catch (error) {
@@ -6879,7 +6956,7 @@ export function HomeV2LiveApp() {
             throw Object.assign(new Error(error.message), {
               action,
               code: 'FOREIGN_SEND_UNAVAILABLE',
-              network: qortalPayment ? 'qortal' : 'qortium',
+              network: qortalChain ? 'qortal' : 'qortium',
               retryable: false,
             })
           }
@@ -6908,7 +6985,7 @@ export function HomeV2LiveApp() {
         const assetId = isTransfer ? (paymentRequest as HomeV2TransferAssetRequest).assetId : 0
         let recipient: HomeV2PaymentRecipient
         let recipientName: string | null = null
-        if (qortalPayment) {
+        if (sendQort) {
           const sendRequest = paymentRequest as HomeV2SendQortRequest
           if (sendRequest.recipientAddress) {
             recipient = normalizeHomeV2PaymentRecipient(sendRequest.recipientAddress, 'The recipient address')
@@ -6934,16 +7011,31 @@ export function HomeV2LiveApp() {
           if (!assetInfo.isDivisible && amount.atomic % 100_000_000n !== 0n) {
             throw new Error(`The ${assetInfo.name} asset is indivisible: the amount must be a whole number of units.`)
           }
-          if (assetInfo.isUnspendable && recipient.isAt) {
-            throw new Error(`The ${assetInfo.name} asset is unspendable and cannot be sent to an AT contract.`)
+          if (qortalChain) {
+            if (assetInfo.isUnspendable && assetInfo.owner !== account.address) {
+              throw new Error(`Only the owner of the unspendable ${assetInfo.name} asset can transfer it.`)
+            }
+            if (recipient.isAt) {
+              assertHomeV2QortalAtAcceptsAsset(
+                await readNodeValue(`/at/${encodeURIComponent(recipient.address)}`, 'The recipient Qortal AT does not exist.'),
+                assetId,
+              )
+            }
+          } else if (assetInfo.isUnspendable) {
+            if (assetInfo.owner !== account.address) {
+              throw new Error(`Only the owner of the unspendable ${assetInfo.name} asset can transfer it.`)
+            }
+            if (recipient.isAt) {
+              throw new Error(`The ${assetInfo.name} asset is unspendable and cannot be sent to an AT contract.`)
+            }
           }
         }
         // Qortium signed lengths: PAYMENT 153, TRANSFER_ASSET 161. Qortal
-        // PAYMENT carries a 64-byte last reference: 217.
+        // forms carry a 64-byte last reference: PAYMENT 217, transfer 225.
         const unitFee = await readUnitFee(isTransfer ? 'TRANSFER_ASSET' : 'PAYMENT')
-        const feeAtomic = homeV2FeeForLength(unitFee, qortalPayment ? 217 : isTransfer ? 161 : 153)
+        const feeAtomic = homeV2FeeForLength(unitFee, qortalChain ? (isTransfer ? 225 : 217) : isTransfer ? 161 : 153)
         const nativeDebit = isTransfer ? feeAtomic : homeV2CheckedTotalDebit(amount.atomic, feeAtomic)
-        const coinLabel = qortalPayment ? 'QORT' : 'native coin'
+        const coinLabel = qortalChain ? 'QORT' : 'native coin'
         const nativeBalance = await readAtomicBalance(account.address)
         if (nativeBalance < nativeDebit) {
           throw new Error(
@@ -6952,6 +7044,22 @@ export function HomeV2LiveApp() {
         }
         if (isTransfer && assetId !== 0 && (await readAtomicBalance(account.address, assetId)) < amount.atomic) {
           throw new Error(`Insufficient asset balance: the transfer needs ${amount.decimal}.`)
+        }
+        const lastReferenceValue = qortalChain
+          ? await readNodeValue(
+              `/addresses/lastreference/${encodeURIComponent(account.address)}`,
+              'The Qortal last-reference lookup is unavailable.',
+            )
+          : null
+        const approvedLastReference = typeof lastReferenceValue === 'string' ? lastReferenceValue.trim() : null
+        if (qortalChain) {
+          try {
+            if (!approvedLastReference) throw new Error()
+            const bytes = base58Decode(approvedLastReference)
+            if (bytes.byteLength !== 64 || base58Encode(bytes) !== approvedLastReference) throw new Error()
+          } catch {
+            throw new Error('The Qortal node returned an invalid last reference.')
+          }
         }
         const rows = [
           ...(assetInfo
@@ -6980,7 +7088,7 @@ export function HomeV2LiveApp() {
             : []),
           { label: 'Fee', value: `${formatQortAtomic(feeAtomic)} ${coinLabel}` },
           {
-            label: qortalPayment ? 'Total debit' : 'Total native debit',
+            label: isTransfer ? 'Total native debit' : qortalChain ? 'Total debit' : 'Total native debit',
             value: `${formatQortAtomic(nativeDebit)} ${coinLabel}`,
           },
         ]
@@ -6988,7 +7096,7 @@ export function HomeV2LiveApp() {
         const parsedApp = resolveAppIdentity()
         const appId = brand<AppId>(`home-v2:permission-app:${parsedApp.identityKey}`)
         const nodeRoute = `${nodeBefore.mode}|${nodeBefore.nodeApiUrl}`
-        const chainLabel = qortalPayment ? 'Qortal' : 'Qortium'
+        const chainLabel = qortalChain ? 'Qortal' : 'Qortium'
         const decision = await queueAndroidPermissionPrompt(createPermissionPrompt({
           id: brand<PermissionRequestId>(globalThis.crypto.randomUUID()),
           protocol,
@@ -7043,8 +7151,12 @@ export function HomeV2LiveApp() {
           approvedAddress: account.address,
           approvedAmountAtomic: amount.atomic.toString(),
           approvedAssetId: assetId,
+          approvedAssetIsDivisible: assetInfo?.isDivisible ?? null,
+          approvedAssetIsUnspendable: assetInfo?.isUnspendable ?? null,
           approvedAssetName: assetInfo?.name ?? null,
+          approvedAssetOwner: assetInfo?.owner ?? null,
           approvedFeeAtomic: feeAtomic.toString(),
+          approvedLastReference,
           approvedRecipientAddress: recipient.address,
           approvedTimestamp: paymentTimestamp,
           isStillValid,
@@ -8911,6 +9023,225 @@ export function HomeV2LiveApp() {
           txGroupId: chatRequest.txGroupId,
           validateTarget,
         }))
+      }
+      const foreignWalletRequest = protocol === 'qdnRequest' && (
+        isHomeV2ForeignWalletReadAction(action) ||
+        (action === 'GET_USER_WALLET' && isRecord(requestValue) && !isHomeV2NativeWalletRequest(requestValue))
+      )
+      if (isAndroidHost && foreignWalletRequest) {
+        const receiveOnly = action === 'GET_USER_WALLET'
+        const foreignWalletRead = nodeClient.foreignWalletRead
+        if (!vaultClient?.getForeignWalletPublicData || (!receiveOnly && !foreignWalletRead)) {
+          throw new Error('Foreign wallet access is unavailable on this platform.')
+        }
+        if (!context.selectedAccountId) throw new Error('No account is selected for this tab.')
+        const accountId = context.selectedAccountId
+        const account = accountCatalogueRef.current.accounts.find((candidate) => candidate.id === accountId)
+        if (!account) throw new Error('The selected account is no longer available.')
+        if (!account.isUnlocked) throw new Error('The selected account is locked.')
+        const request = isRecord(requestValue) ? requestValue : {}
+        const coin = normalizeHomeV2ForeignWalletCoin(request)
+        const routeBeforePrompt = receiveOnly
+          ? null
+          : parseHomeV2NodesSnapshot(await nodeClient.getSnapshot()).qortium
+        if (
+          routeBeforePrompt &&
+          (!routeBeforePrompt.nodeApiUrl || !routeBeforePrompt.capabilities.read || routeBeforePrompt.adminTrusted !== true)
+        ) {
+          throw new Error('Foreign wallet reads require a reachable authenticated Qortium node.')
+        }
+        const trust = receiveOnly
+          ? { origin: 'Home local wallet', revision: 'home-local-wallet-v1', trusted: true as const }
+          : await nodeClient.adminTrust?.()
+        if (!trust?.trusted) throw new Error(trust?.reason ?? 'Using a foreign wallet requires an authenticated Qortium node.')
+        const parsedApp = resolveAppIdentity()
+        const grantKey = homeV2PermissionGrantKey({
+          accountId,
+          accountUnlocked: true,
+          action,
+          appIdentity: parsedApp.identityKey,
+          nodeRoute: trust.origin,
+          principalId: 'android',
+          protocol,
+          tabId: context.tabId,
+        })
+        if (!androidSessionAccountGrants.current.has(grantKey)) {
+          const appId = brand<AppId>(`home-v2:permission-app:${parsedApp.identityKey}`)
+          const prompt = createPermissionPrompt({
+            id: brand<PermissionRequestId>(globalThis.crypto.randomUUID()),
+            protocol,
+            action: action as 'GET_USER_WALLET' | 'GET_WALLET_BALANCE' | 'GET_USER_WALLET_INFO' | 'GET_USER_WALLET_TRANSACTIONS',
+            capability: 'account.foreign-wallet.read',
+            appId,
+            appIdentityKey: parsedApp.identityKey,
+            appTitle: parsedApp.title,
+            context: {
+              appId,
+              identityId: brand<IdentityId>(`home-v2:identity:${accountId}`),
+              nodeProfileRef: snapshot.nodes.qortium.ref,
+              tabId: brand<TabId>(context.tabId),
+              targetNetwork: 'qortium',
+              walletRef: brand<WalletRef>(`home-v2:wallet:${account.walletId}`),
+            },
+            title: 'Allow foreign wallet access?',
+            summary: receiveOnly
+              ? `${parsedApp.title} wants Home to derive a receive address and public watch-only wallet data for a supported foreign chain. The app receives an address and extended public key, never a seed or private key.`
+              : `${parsedApp.title} wants Home to derive public watch-only wallet data for a supported foreign chain and let your authenticated Qortium Core read balances and transaction history. The app receives addresses and an extended public key, never a seed or private key.`,
+            details: [
+              { label: 'Account', value: account.label },
+              { label: 'Coin', value: coin },
+              { label: 'Node', value: trust.origin },
+              { label: 'Shared with app', value: 'Receive address and extended public key (xpub)' },
+              { label: 'Not shared', value: 'Wallet seed, private key, or extended private key (xprv)' },
+            ],
+            allowedScopes: ['single-request', 'session'],
+          })
+          const decision = await queueAndroidSessionGrantPermission(grantKey, prompt, context.tabId)
+          if (!decision.approved) throw new Error('Foreign wallet access was denied.')
+          if (decision.scope === 'session') {
+            androidSessionAccountGrants.current.add(grantKey, {
+              family: homeV2PermissionGrantFamily(action),
+              hostWebContentsId: 'android',
+              network: 'qortium',
+              tabId: context.tabId,
+            })
+          }
+        }
+        const freshTab = productStateRef.current.tabs.find((tab) => tab.id === context.tabId)
+        const freshAccount = accountCatalogueRef.current.accounts.find((candidate) => candidate.id === accountId)
+        const currentTrust = receiveOnly ? trust : await nodeClient.adminTrust?.()
+        if (
+          selectedAccountId !== accountId ||
+          !freshTab ||
+          freshTab.context.resourceLocation !== context.resourceLocation ||
+          !freshAccount?.isUnlocked ||
+          !currentTrust?.trusted ||
+          currentTrust.revision !== trust.revision
+        ) {
+          throw new Error('Account access context changed before the foreign wallet read started.')
+        }
+        const wallet = await vaultClient.getForeignWalletPublicData(accountId, coin)
+        const tabAfterDerivation = productStateRef.current.tabs.find((tab) => tab.id === context.tabId)
+        const accountAfterDerivation = accountCatalogueRef.current.accounts.find((candidate) => candidate.id === accountId)
+        const trustAfterDerivation = receiveOnly ? trust : await nodeClient.adminTrust?.()
+        const routeAfterDerivation = receiveOnly
+          ? null
+          : parseHomeV2NodesSnapshot(await nodeClient.getSnapshot()).qortium
+        if (
+          selectedAccountId !== accountId ||
+          !tabAfterDerivation ||
+          tabAfterDerivation.context.resourceLocation !== context.resourceLocation ||
+          !accountAfterDerivation?.isUnlocked ||
+          !trustAfterDerivation?.trusted ||
+          trustAfterDerivation.revision !== trust.revision ||
+          (routeAfterDerivation !== null && (
+            !routeAfterDerivation.nodeApiUrl ||
+            !routeAfterDerivation.capabilities.read ||
+            routeAfterDerivation.adminTrusted !== true
+          ))
+        ) {
+          throw new Error('Account access context changed while the foreign wallet was being derived.')
+        }
+        if (action === 'GET_USER_WALLET') return getForeignWalletPublicResponse(wallet)
+        if (!foreignWalletRead) throw new Error('Foreign wallet reads are unavailable on this platform.')
+        const result = await foreignWalletRead(
+          action as 'GET_WALLET_BALANCE' | 'GET_USER_WALLET_INFO' | 'GET_USER_WALLET_TRANSACTIONS',
+          wallet,
+          trust.revision,
+        )
+        const tabAfterRead = productStateRef.current.tabs.find((tab) => tab.id === context.tabId)
+        const accountAfterRead = accountCatalogueRef.current.accounts.find((candidate) => candidate.id === accountId)
+        const trustAfterRead = await nodeClient.adminTrust?.()
+        const routeAfterRead = parseHomeV2NodesSnapshot(await nodeClient.getSnapshot()).qortium
+        if (
+          selectedAccountId !== accountId ||
+          !tabAfterRead ||
+          tabAfterRead.context.resourceLocation !== context.resourceLocation ||
+          !accountAfterRead?.isUnlocked ||
+          !trustAfterRead?.trusted ||
+          trustAfterRead.revision !== trust.revision ||
+          !routeAfterRead.nodeApiUrl ||
+          !routeAfterRead.capabilities.read ||
+          routeAfterRead.adminTrusted !== true
+        ) {
+          throw new Error('Account access context changed before the foreign wallet result could be delivered.')
+        }
+        return result
+      }
+      if (isAndroidHost && protocol === 'qdnRequest' && action === 'SET_CURRENT_FOREIGN_SERVER') {
+        if (!nodeClient.setForeignServer) throw new Error('Foreign server management is unavailable on this platform.')
+        if (!context.selectedAccountId) throw new Error('No account is selected for this tab.')
+        const accountId = context.selectedAccountId
+        const account = accountCatalogueRef.current.accounts.find((candidate) => candidate.id === accountId)
+        if (!account?.isUnlocked) throw new Error('Selected account is locked.')
+        const request = isRecord(requestValue) ? requestValue : {}
+        const coin = normalizeHomeV2ForeignWalletCoin(request)
+        const server = normalizeHomeV2ForeignServerRequest(request)
+        const routeBeforePrompt = parseHomeV2NodesSnapshot(await nodeClient.getSnapshot()).qortium
+        if (!routeBeforePrompt.nodeApiUrl || !routeBeforePrompt.capabilities.read || routeBeforePrompt.adminTrusted !== true) {
+          throw new Error('Foreign server management requires a reachable authenticated Qortium node.')
+        }
+        const trust = await nodeClient.adminTrust?.()
+        if (!trust?.trusted) throw new Error(trust?.reason ?? 'Changing a foreign server requires an authenticated Qortium node.')
+        const parsedApp = resolveAppIdentity()
+        const appId = brand<AppId>(`home-v2:permission-app:${parsedApp.identityKey}`)
+        const decision = await queueAndroidPermissionPrompt(createPermissionPrompt({
+          id: brand<PermissionRequestId>(globalThis.crypto.randomUUID()),
+          protocol,
+          action: 'SET_CURRENT_FOREIGN_SERVER',
+          capability: 'node.foreign-server.write',
+          appId,
+          appIdentityKey: parsedApp.identityKey,
+          appTitle: parsedApp.title,
+          context: {
+            appId,
+            identityId: brand<IdentityId>(`home-v2:identity:${accountId}`),
+            nodeProfileRef: snapshot.nodes.qortium.ref,
+            tabId: brand<TabId>(context.tabId),
+            targetNetwork: 'qortium',
+            walletRef: brand<WalletRef>(`home-v2:wallet:${account.walletId}`),
+          },
+          title: 'Change the foreign-chain server?',
+          summary: `${parsedApp.title} wants to change which server your authenticated Qortium Core uses for ${coin}. This approval covers this one change only.`,
+          details: [
+            { label: 'Account', value: account.label },
+            { label: 'Coin', value: coin },
+            { label: 'Node', value: trust.origin },
+            { label: 'Host', value: server.hostName },
+            { label: 'Port', value: String(server.port) },
+            { label: 'Connection', value: server.connectionType },
+            ...(server.certificateSha256Fingerprint
+              ? [{ label: 'Certificate SHA-256', value: server.certificateSha256Fingerprint }]
+              : []),
+          ],
+          allowedScopes: ['single-request'],
+        }), context.tabId)
+        if (!decision.approved) throw new Error('Foreign server selection was denied.')
+        const freshTab = productStateRef.current.tabs.find((tab) => tab.id === context.tabId)
+        const freshAccount = accountCatalogueRef.current.accounts.find((candidate) => candidate.id === accountId)
+        if (
+          selectedAccountId !== accountId ||
+          !freshTab ||
+          freshTab.context.resourceLocation !== context.resourceLocation ||
+          !freshAccount?.isUnlocked
+        ) {
+          throw new Error('Account access context changed before the server change started.')
+        }
+        const result = await nodeClient.setForeignServer(coin, server, trust.revision)
+        const tabAfterWrite = productStateRef.current.tabs.find((tab) => tab.id === context.tabId)
+        const accountAfterWrite = accountCatalogueRef.current.accounts.find((candidate) => candidate.id === accountId)
+        const trustAfterWrite = await nodeClient.adminTrust?.()
+        if (
+          selectedAccountId !== accountId ||
+          !tabAfterWrite ||
+          tabAfterWrite.context.resourceLocation !== context.resourceLocation ||
+          !accountAfterWrite?.isUnlocked ||
+          !trustAfterWrite?.trusted ||
+          trustAfterWrite.revision !== trust.revision
+        ) {
+          throw new Error('Account access context changed before the server result could be delivered.')
+        }
+        return result
       }
       if (action !== 'GET_SELECTED_ACCOUNT' && action !== 'GET_USER_ACCOUNT') {
         return nodeClient.requestApp(protocol, requestValue, context)

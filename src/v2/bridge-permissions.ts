@@ -14,6 +14,7 @@ export type PermissionRequestId = Brand<string, 'PermissionRequestId'>
 export type PermissionScope = 'single-request' | 'session' | 'always'
 export type PermissionCapability =
   | 'account.read'
+  | 'account.foreign-wallet.read'
   | 'account.public.read'
   | 'qdn.publish'
   | 'qortal.account.read'
@@ -55,6 +56,7 @@ export type PermissionCapability =
   // (GET_ALL_LISTS, GET_LIST) carry no capability at all — they never prompt,
   // exactly as in Home 1.x.
   | 'node.lists.write'
+  | 'node.foreign-server.write'
   // Creating, updating, or voting on a chain poll (CREATE_POLL, UPDATE_POLL,
   // VOTE_ON_POLL). Signs one fee-free transaction per approval. Never durable
   // and never 'account.read': single-request prompt only, like
@@ -150,6 +152,11 @@ export interface PermissionPrompt {
     | 'ENCRYPT_DATA'
     | 'GET_SELECTED_ACCOUNT'
     | 'GET_USER_ACCOUNT'
+    | 'GET_USER_WALLET'
+    | 'GET_WALLET_BALANCE'
+    | 'GET_USER_WALLET_INFO'
+    | 'GET_USER_WALLET_TRANSACTIONS'
+    | 'SET_CURRENT_FOREIGN_SERVER'
     | 'JOIN_GROUP'
     | 'LEAVE_GROUP'
     | 'APPROVE_GROUP_JOIN_REQUEST'
@@ -356,15 +363,18 @@ function grantMatchesPrompt(
   prompt: PermissionPrompt,
 ): boolean {
   const unifiedAccountRead = grant.capability === 'account.read' && prompt.capability === 'account.read'
+  const unifiedForeignWalletRead = grant.capability === 'account.foreign-wallet.read' &&
+    prompt.capability === 'account.foreign-wallet.read'
+  const unifiedRead = unifiedAccountRead || unifiedForeignWalletRead
   return (
-    (unifiedAccountRead || grant.protocol === prompt.protocol) &&
-    (unifiedAccountRead || grant.action === prompt.action) &&
+    (unifiedRead || grant.protocol === prompt.protocol) &&
+    (unifiedRead || grant.action === prompt.action) &&
     grant.capability === prompt.capability &&
     grant.appIdentityKey === prompt.appIdentityKey &&
     grant.identityId === prompt.context.identityId &&
     grant.walletRef === prompt.context.walletRef &&
-    (unifiedAccountRead || grant.targetNetwork === prompt.context.targetNetwork) &&
-    (unifiedAccountRead || grant.nodeProfileRef === prompt.context.nodeProfileRef) &&
+    (unifiedRead || grant.targetNetwork === prompt.context.targetNetwork) &&
+    (unifiedRead || grant.nodeProfileRef === prompt.context.nodeProfileRef) &&
     (grant.scope === 'always' || grant.sourceTabId === prompt.context.tabId)
   )
 }
@@ -413,17 +423,20 @@ export function resolvePermissionPrompt(
     grants = [
       ...state.grants.filter((candidate) => {
         const unifiedAccountRead = candidate.capability === 'account.read' && grant.capability === 'account.read'
+        const unifiedForeignWalletRead = candidate.capability === 'account.foreign-wallet.read' &&
+          grant.capability === 'account.foreign-wallet.read'
+        const unifiedRead = unifiedAccountRead || unifiedForeignWalletRead
         return !(
           candidate.scope === grant.scope &&
           (grant.scope === 'always' || candidate.sourceTabId === grant.sourceTabId) &&
-          (unifiedAccountRead || candidate.protocol === grant.protocol) &&
+          (unifiedRead || candidate.protocol === grant.protocol) &&
           candidate.capability === grant.capability &&
           candidate.appIdentityKey === grant.appIdentityKey &&
-          (unifiedAccountRead || candidate.action === grant.action) &&
+          (unifiedRead || candidate.action === grant.action) &&
           candidate.identityId === grant.identityId &&
           candidate.walletRef === grant.walletRef &&
-          (unifiedAccountRead || candidate.targetNetwork === grant.targetNetwork) &&
-          (unifiedAccountRead || candidate.nodeProfileRef === grant.nodeProfileRef)
+          (unifiedRead || candidate.targetNetwork === grant.targetNetwork) &&
+          (unifiedRead || candidate.nodeProfileRef === grant.nodeProfileRef)
         )
       }),
       grant,

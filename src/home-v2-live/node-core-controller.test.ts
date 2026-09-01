@@ -145,6 +145,11 @@ assert.equal(nodes.qortal.lastEnabledMode, 'local')
 const parsedNodes = parseHomeV2NodesSnapshot({ version: 1, nodes })
 assert.equal(parsedNodes.qortium.network, 'qortium')
 assert.equal(parsedNodes.qortal.network, 'qortal')
+assert.equal(parsedNodes.qortium.adminTrusted, false)
+assert.equal(parseHomeV2NodesSnapshot({
+  version: 1,
+  nodes: { ...nodes, qortium: { ...nodes.qortium, adminTrusted: true } },
+}).qortium.adminTrusted, true)
 assert.throws(() =>
   parseHomeV2NodesSnapshot({ version: 1, nodes: { ...nodes, unexpected: {} } }),
 )

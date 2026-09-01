@@ -187,7 +187,7 @@ A second batch of Home 1.x actions. Every one is a public read except
 that prompts. `PREVIEW_QDN_PUBLISH_SOURCE` is deliberately NOT part of it — see
 [Home 2 bridge compatibility](HOME_V2_BRIDGE_COMPATIBILITY.md) for why.
 
-- **`GET_USER_WALLET`** (both globals, no prompt). Native asset only:
+- **`GET_USER_WALLET`** (both globals for native; `qdnRequest` for foreign):
 
   ```js
   const wallet = await qdnRequest({ action: 'GET_USER_WALLET', assetId: 0 });
@@ -198,12 +198,22 @@ that prompts. `PREVIEW_QDN_PUBLISH_SOURCE` is deliberately NOT part of it — se
   `NATIVE_ASSET`, `ASSET_0`, `ASSET0`, and `QORT`; an absent selector defaults
   to native. `QORT` is a deliberate addition — Home 1.x sent it down the
   foreign path, where it failed as an unsupported foreign coin, which is why
-  the legacy wallet's native row was broken. Any actual foreign coin is refused
-  with the coded, non-retryable error `FOREIGN_WALLET_UNAVAILABLE`; it is never
-  answered with the native address, because an app showing a Qortium address as
-  a Bitcoin receive address is the failure worth preventing. Permissionless
+  the legacy wallet's native row was broken. The native result is permissionless
   because it returns strictly less than `GET_SELECTED_ACCOUNT`, which already
-  is. Not offered to a chromeless widget.
+  is. A foreign selector (BTC/LTC/DOGE/DGB/RVN/DASH/NMC/FIRO) instead requires
+  an unlocked account and the separate session-scoped foreign-wallet disclosure;
+  the receive-address action itself does not require Core. Home derives only
+  the receive address and xpub; the new path never serializes an xprv. Not
+  offered to a chromeless widget.
+- **`GET_WALLET_BALANCE`, `GET_USER_WALLET_INFO`,
+  `GET_USER_WALLET_TRANSACTIONS`** (`qdnRequest` only) use that same public-only
+  derivation and disclosure, then POST only the xpub to the trusted Core. API
+  keys remain inside Home. Redirects are refused and responses are bounded.
+- **`SET_CURRENT_FOREIGN_SERVER`** (`qdnRequest` only) validates the same exact
+  eight-coin set (ARRR remains excluded), shows the node and complete server DTO
+  in a single-request prompt, and rechecks node/key revision before its
+  authenticated POST. A Core `200` response with `success: false` is preserved.
+  Foreign send remains unavailable.
 - **`GET_BALANCE` and `GET_ACCOUNT_DATA`** regain their Home 1.x defaults:
   `address` is optional and falls back to the selected account, and
   `GET_BALANCE` forwards a non-negative integer `assetId` as
@@ -359,10 +369,11 @@ F4 Settings-only implementation does not advertise them through its
 
 ## Balances and wallet capability discovery
 
-`GET_BALANCE` reads a Qortium-chain asset balance. `address` is optional and
-defaults to the selected account. `assetId` is also optional and accepts a
-non-negative safe integer or integer string at either the top level or inside
-`payload`:
+`GET_BALANCE` reads an asset balance on the protocol that invoked it:
+`qdnRequest` selects Qortium and `qortalRequest` selects Qortal. `address` is
+optional and defaults to the selected account. `assetId` is also optional and
+accepts a non-negative safe integer or integer string at either the top level
+or inside `payload`:
 
 ```js
 const nativeDefault = await qdnRequest({ action: 'GET_BALANCE' });
@@ -383,9 +394,11 @@ Core error; in particular, Previewnet currently has no asset `0`, so the
 explicit-native example is a contract example rather than a claim that the
 asset exists there.
 
-`GET_QORT_BALANCE` is separate: it reads QORT from the Qortal chain through
-Home's configured public-node path. It does not accept a Qortal asset ID.
-Qortal assets other than QORT are not supported by Home.
+QORT is Qortal asset `0`, so apps should read it with `qortalRequest` and an
+explicit `assetId: 0` (or the QORT compatibility action where applicable).
+`GET_ASSET_INFO`, `GET_ASSET_BALANCES`, and `GET_ASSET_TRANSFERS` are likewise
+available on both globals and remain bound to the invoking protocol. Asset IDs
+are never used to guess a chain.
 
 `GET_CROSSCHAIN_BLOCKCHAINS` preserves every field and row returned by the
 connected Qortium Core, prepends Home's QORT row, and adds this feature-detectable
@@ -397,9 +410,13 @@ projection to each row:
     "implemented": true,
     "read": true,
     "receive": true,
-    "send": true,
+    "send": false,
     "requiresUnlockedAccount": true,
-    "sendMode": "TRUSTED_CORE"
+    "readMode": "TRUSTED_CORE",
+    "receiveMode": "HOME_LOCAL",
+    "sendMode": "NONE",
+    "serverManagement": true,
+    "serverManagementMode": "TRUSTED_CORE"
   }
 }
 ```
@@ -411,9 +428,10 @@ Home itself:
 
 - QORT uses `HOME_SIGNED_PUBLIC_NODE`: Home signs locally and submits only
   signed bytes to a Qortal public node.
-- BTC, LTC, DOGE, DGB, RVN, DASH, NMC, and FIRO use `TRUSTED_CORE`: Home
-  implements balance, receive, and send, but a send still requires a trusted
-  Core connection and an unlocked account.
+- BTC, LTC, DOGE, DGB, RVN, DASH, NMC, and FIRO use `HOME_LOCAL` receive and
+  `TRUSTED_CORE` read/server-management modes. Foreign send is deliberately
+  unadvertised (`send: false`, `sendMode: "NONE"`) until Home-local signing,
+  approval, journaling, and final-raw-transaction broadcast are wired.
 - Other and unknown currency codes fail closed with all operation flags false
   and `sendMode: "NONE"`.
 
@@ -435,7 +453,9 @@ alias `blockchain`) for BTC, LTC, DOGE, DGB, RVN, DASH, NMC, and FIRO:
 - `GET_USER_WALLET_TRANSACTIONS` sends the extended public key as `text/plain`
   to `/crosschain/{coin}/wallettransactions`.
 
-These actions require an unlocked account and a trusted local Core connection.
+These actions require an unlocked account. The three balance/info/history reads
+also require a trusted local or authenticated custom Qortium Core; the receive
+address does not.
 Home never sends the extended private key in a read request or returns it to the
 app. If Core reports API error `1201` because it cannot connect to a
 wallet-capable server, `qdnRequest` rejects with an `Error` whose `code` is

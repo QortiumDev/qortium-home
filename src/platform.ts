@@ -240,11 +240,14 @@ import { arbitraryRawToSigningBytes } from '../electron/arbitrary-tx';
 import { assertUnsignedQortiumAtMessageTransaction } from '../electron/qdn-at-message-validation';
 import { normalizeHomeV2AtMessageRequest } from '../electron/home-v2-at-message-actions';
 import {
+  assertHomeV2QortalAtAcceptsAsset,
   assertUnsignedHomeV2QortalPaymentTransaction,
+  assertUnsignedHomeV2QortalTransferAssetTransaction,
   assertUnsignedHomeV2QortiumPaymentTransaction,
   assertUnsignedHomeV2QortiumTransferAssetTransaction,
   buildUnsignedQortiumPaymentTransactionBytes,
   buildUnsignedQortiumTransferAssetTransactionBytes,
+  buildUnsignedQortalTransferAssetTransactionBytes,
   homeV2CheckedTotalDebit,
   homeV2FeeForLength,
   normalizeHomeV2NativeSendRequest,
@@ -271,6 +274,7 @@ import {
   type QdnPublishVerificationInput,
 } from '../electron/qdn-content-attestation';
 import {
+  deriveForeignWalletPublicRuntime,
   deriveForeignWalletRuntime,
   normalizeForeignWalletCoin,
 } from '../electron/foreign-wallets';
@@ -14311,8 +14315,12 @@ async function sendAndroidHomeV2Payment(input: {
   readonly address: string;
   readonly approvedAmountAtomic: bigint;
   readonly approvedAssetId: number;
+  readonly approvedAssetIsDivisible: boolean | null;
+  readonly approvedAssetIsUnspendable: boolean | null;
   readonly approvedAssetName: string | null;
+  readonly approvedAssetOwner: string | null;
   readonly approvedFeeAtomic: bigint;
+  readonly approvedLastReference: string | null;
   readonly approvedRecipientAddress: string;
   readonly approvedTimestamp: number;
   readonly isStillValid: () => Promise<boolean>;
@@ -14322,8 +14330,9 @@ async function sendAndroidHomeV2Payment(input: {
   readonly signingKey: { address: string; publicKey58: string; secretKey: Uint8Array };
 }) {
   const {
-    action, address, approvedAmountAtomic, approvedAssetId, approvedAssetName,
-    approvedFeeAtomic, approvedRecipientAddress, approvedTimestamp, isStillValid,
+    action, address, approvedAmountAtomic, approvedAssetId, approvedAssetIsDivisible,
+    approvedAssetIsUnspendable, approvedAssetName, approvedAssetOwner, approvedFeeAtomic, approvedLastReference,
+    approvedRecipientAddress, approvedTimestamp, isStillValid,
     network, nodeApiUrl, requestValue, signingKey,
   } = input;
   if (signingKey.address !== address) {
@@ -14339,10 +14348,25 @@ async function sendAndroidHomeV2Payment(input: {
   };
   assertPaymentFresh();
   const isTransfer = action === 'TRANSFER_ASSET';
-  const isQortal = action === 'SEND_QORT';
+  const isSendQort = action === 'SEND_QORT';
+  const isQortal = network === 'qortal';
+  const validChain = isSendQort
+    ? isQortal
+    : isTransfer
+      ? true
+      : !isQortal;
+  if (!validChain) throw new Error('The payment action does not match the approved chain.');
+  if (isQortal ? approvedLastReference === null : approvedLastReference !== null) {
+    throw new Error('The approved last-reference state does not match the approved chain.');
+  }
+  if (isTransfer
+    ? approvedAssetName === null || approvedAssetOwner === null || approvedAssetIsDivisible === null || approvedAssetIsUnspendable === null
+    : approvedAssetName !== null || approvedAssetOwner !== null || approvedAssetIsDivisible !== null || approvedAssetIsUnspendable !== null) {
+    throw new Error('The approved asset description does not match the payment action.');
+  }
   const request = isTransfer
     ? normalizeHomeV2TransferAssetRequest(requestValue)
-    : isQortal
+    : isSendQort
       ? normalizeHomeV2SendQortRequest(requestValue)
       : normalizeHomeV2NativeSendRequest(action, requestValue);
   const amount = request.amount;
@@ -14369,9 +14393,9 @@ async function sendAndroidHomeV2Payment(input: {
       '',
     ),
   );
-  // Qortium signed lengths: PAYMENT 153, TRANSFER_ASSET 161. Qortal PAYMENT
-  // carries a 64-byte last reference: 217.
-  const feeLength = isQortal ? 217 : isTransfer ? 161 : 153;
+  // Qortium signed lengths: PAYMENT 153, TRANSFER_ASSET 161. Qortal forms
+  // carry a 64-byte last reference: PAYMENT 217, transfer 225.
+  const feeLength = isQortal ? (isTransfer ? 225 : 217) : isTransfer ? 161 : 153;
   const unitFee = await readUnitFee(isTransfer ? 'TRANSFER_ASSET' : 'PAYMENT');
   const feeAtomic = homeV2FeeForLength(unitFee, feeLength);
   if (feeAtomic !== approvedFeeAtomic) {
@@ -14381,7 +14405,7 @@ async function sendAndroidHomeV2Payment(input: {
   // answer: a Qortal name that re-points between approval and signing must not
   // silently redirect the funds.
   let recipient: HomeV2PaymentRecipient;
-  if (isQortal) {
+  if (isSendQort) {
     const sendRequest = request as HomeV2SendQortRequest;
     if (sendRequest.recipientAddress) {
       recipient = normalizeHomeV2PaymentRecipient(sendRequest.recipientAddress, 'The recipient address');
@@ -14418,14 +14442,38 @@ async function sendAndroidHomeV2Payment(input: {
       ),
       assetId,
     );
-    if (freshAsset.name !== approvedAssetName) {
+    if (freshAsset.name !== approvedAssetName || freshAsset.owner !== approvedAssetOwner) {
+      throw new Error('The asset description changed after it was approved; nothing was signed.');
+    }
+    if (freshAsset.isDivisible !== approvedAssetIsDivisible || freshAsset.isUnspendable !== approvedAssetIsUnspendable) {
       throw new Error('The asset description changed after it was approved; nothing was signed.');
     }
     if (!freshAsset.isDivisible && amount.atomic % 100_000_000n !== 0n) {
       throw new Error(`The ${freshAsset.name} asset is indivisible: the amount must be a whole number of units.`);
     }
-    if (freshAsset.isUnspendable && recipient.isAt) {
-      throw new Error(`The ${freshAsset.name} asset is unspendable and cannot be sent to an AT contract.`);
+    if (isQortal) {
+      if (freshAsset.isUnspendable && freshAsset.owner !== address) {
+        throw new Error(`Only the owner of the unspendable ${freshAsset.name} asset can transfer it.`);
+      }
+      if (recipient.isAt) {
+        assertHomeV2QortalAtAcceptsAsset(
+          await fetchLocalNodeApiPayload(
+            nodeApiUrl,
+            `/at/${encodeURIComponent(recipient.address)}`,
+            'The recipient Qortal AT does not exist.',
+            CHAT_SIGNING_RESPONSE_MAX_BYTES,
+            '',
+          ),
+          assetId,
+        );
+      }
+    } else if (freshAsset.isUnspendable) {
+      if (freshAsset.owner !== address) {
+        throw new Error(`Only the owner of the unspendable ${freshAsset.name} asset can transfer it.`);
+      }
+      if (recipient.isAt) {
+        throw new Error(`The ${freshAsset.name} asset is unspendable and cannot be sent to an AT contract.`);
+      }
     }
   }
   const nativeDebit = isTransfer ? feeAtomic : homeV2CheckedTotalDebit(amount.atomic, feeAtomic);
@@ -14448,22 +14496,52 @@ async function sendAndroidHomeV2Payment(input: {
     );
     const lastReference = typeof referenceValue === 'string' ? referenceValue.trim() : '';
     if (!lastReference) throw new Error('The selected Qortal account has no last reference; it may need QORT first.');
-    unsignedBytes = buildUnsignedPaymentTransactionBytes({
-      amountAtomic: amount.atomic,
-      feeAtomic,
-      lastReference,
-      recipient: recipient.address,
-      senderPublicKey: signingKey.publicKey58,
-      timestamp: approvedTimestamp,
-    });
-    assertUnsignedHomeV2QortalPaymentTransaction(unsignedBytes, {
-      amountAtomic: amount.atomic,
-      feeAtomic,
-      lastReference: base58Decode(lastReference),
-      recipientBytes: recipient.bytes,
-      senderPublicKey: signingKey.publicKey58,
-      timestamp: approvedTimestamp,
-    });
+    try {
+      const bytes = base58Decode(lastReference);
+      if (bytes.byteLength !== 64 || base58Encode(bytes) !== lastReference) throw new Error();
+    } catch {
+      throw new Error('The Qortal node returned an invalid last reference.');
+    }
+    if (lastReference !== approvedLastReference) {
+      throw new Error('The Qortal last reference changed after it was approved; nothing was signed.');
+    }
+    if (isTransfer) {
+      unsignedBytes = buildUnsignedQortalTransferAssetTransactionBytes({
+        amountAtomic: amount.atomic,
+        assetId,
+        feeAtomic,
+        lastReference,
+        recipientBytes: recipient.bytes,
+        senderPublicKey: signingKey.publicKey58,
+        timestamp: approvedTimestamp,
+      });
+      assertUnsignedHomeV2QortalTransferAssetTransaction(unsignedBytes, {
+        amountAtomic: amount.atomic,
+        assetId,
+        feeAtomic,
+        lastReference,
+        recipientBytes: recipient.bytes,
+        senderPublicKey: signingKey.publicKey58,
+        timestamp: approvedTimestamp,
+      });
+    } else {
+      unsignedBytes = buildUnsignedPaymentTransactionBytes({
+        amountAtomic: amount.atomic,
+        feeAtomic,
+        lastReference,
+        recipient: recipient.address,
+        senderPublicKey: signingKey.publicKey58,
+        timestamp: approvedTimestamp,
+      });
+      assertUnsignedHomeV2QortalPaymentTransaction(unsignedBytes, {
+        amountAtomic: amount.atomic,
+        feeAtomic,
+        lastReference,
+        recipientBytes: recipient.bytes,
+        senderPublicKey: signingKey.publicKey58,
+        timestamp: approvedTimestamp,
+      });
+    }
   } else if (isTransfer) {
     unsignedBytes = buildUnsignedQortiumTransferAssetTransactionBytes({
       amountAtomic: amount.atomic,
@@ -16431,6 +16509,20 @@ export function createAndroidHomeV2VaultClient(): HomeV2VaultClient {
     }
   };
   return {
+    async getForeignWalletPublicData(accountId, coin) {
+      const seed = await getAccountForeignWalletSeed(accountId)
+      try {
+        return deriveForeignWalletPublicRuntime({
+          coin: normalizeForeignWalletCoin(coin),
+          crypto: getForeignWalletCrypto(),
+          nonce: seed.addressIndex,
+          seed: seed.seed,
+          walletVersion: seed.walletVersion,
+        })
+      } finally {
+        seed.seed.fill(0)
+      }
+    },
     async getState() {
       if (!androidHomeV2AutoUnlockAttempted) {
         androidHomeV2AutoUnlockAttempted = true;
@@ -16850,8 +16942,12 @@ export function createAndroidHomeV2VaultClient(): HomeV2VaultClient {
           address: request.approvedAddress,
           approvedAmountAtomic: BigInt(request.approvedAmountAtomic),
           approvedAssetId: request.approvedAssetId,
+          approvedAssetIsDivisible: request.approvedAssetIsDivisible,
+          approvedAssetIsUnspendable: request.approvedAssetIsUnspendable,
           approvedAssetName: request.approvedAssetName,
+          approvedAssetOwner: request.approvedAssetOwner,
           approvedFeeAtomic: BigInt(request.approvedFeeAtomic),
+          approvedLastReference: request.approvedLastReference,
           approvedRecipientAddress: request.approvedRecipientAddress,
           approvedTimestamp: request.approvedTimestamp,
           isStillValid: async () => (await request.isStillValid()) === true,

@@ -11,7 +11,7 @@ import {
   type Session,
   type WebContents,
 } from 'electron'
-import { randomBytes, randomUUID } from 'node:crypto'
+import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { writeFile } from 'node:fs/promises'
 import nodePath from 'node:path'
 import nacl from 'tweetnacl'
@@ -221,6 +221,7 @@ import {
   homeV2PermissionGrantFamily,
   isHomeV2AccountReadAction,
   isHomeV2ChatSendAction,
+  isHomeV2ForeignWalletPermissionAction,
   isHomeV2PermissionlessAction,
 } from './home-v2-session-grants.js'
 import {
@@ -316,11 +317,14 @@ import {
   normalizeHomeV2QdnDeleteRequest,
 } from './home-v2-publish-extras-contract.js'
 import {
+  assertHomeV2QortalAtAcceptsAsset,
   assertUnsignedHomeV2QortalPaymentTransaction,
+  assertUnsignedHomeV2QortalTransferAssetTransaction,
   assertUnsignedHomeV2QortiumPaymentTransaction,
   assertUnsignedHomeV2QortiumTransferAssetTransaction,
   buildUnsignedQortiumPaymentTransactionBytes,
   buildUnsignedQortiumTransferAssetTransactionBytes,
+  buildUnsignedQortalTransferAssetTransactionBytes,
   canonicalHomeV2PaymentAction,
   homeV2CheckedTotalDebit,
   homeV2AtomicUnitsText,
@@ -434,6 +438,7 @@ import {
 import {
   accountExists,
   getAccountProfile,
+  getAccountForeignWalletSeed,
   getAccountSecretKey,
   getAccountSigningKey,
   getAccountSigningPublicKey,
@@ -444,6 +449,21 @@ import {
   signTransactionWithNonce,
   stampTransactionNonce,
 } from './accounts.js'
+import {
+  deriveForeignWalletPublicRuntime,
+  type ForeignWalletPublicRuntime,
+} from './foreign-wallets.js'
+import {
+  executeForeignWalletRead,
+  getForeignWalletPublicResponse,
+  type ForeignWalletReadEndpoint,
+} from './foreign-wallet-read-contract.js'
+import {
+  isHomeV2ForeignWalletAdminAction,
+  isHomeV2ForeignWalletReadAction,
+  normalizeHomeV2ForeignServerRequest,
+  normalizeHomeV2ForeignWalletCoin,
+} from './home-v2-foreign-wallet-actions.js'
 import { createHomeV2SendRateLimiter } from './home-v2-send-rate-limiter.js'
 import { assertHomeV2UnlockCompleted } from './home-v2-unlock-contract.js'
 import { base58Decode, base58Encode } from './base58.js'
@@ -520,7 +540,6 @@ import {
   buildHomeV2AccountBalancePath,
   buildHomeV2AccountDataPath,
   buildHomeV2UserWalletResult,
-  homeV2ForeignWalletUnavailableError,
   isHomeV2NativeWalletRequest,
   resolveHomeV2AccountReadAddress,
 } from './home-v2-wallet-actions.js'
@@ -603,6 +622,10 @@ type AccountReadAction =
   // it shares the GET_SELECTED_ACCOUNT handler and so passes through the same
   // gate, which returns immediately for permissionless actions.
   | 'GET_USER_WALLET'
+  | 'GET_WALLET_BALANCE'
+  | 'GET_USER_WALLET_INFO'
+  | 'GET_USER_WALLET_TRANSACTIONS'
+  | 'SET_CURRENT_FOREIGN_SERVER'
   // The one SIGNING member of this union. It is never permissionless and never
   // grantable; see the singleRequestOnly rule below.
   | 'SEND_MESSAGE'
@@ -1508,6 +1531,17 @@ async function requireAccountReadPermission(
     readonly encryptDetails: readonly { readonly label: string; readonly value: string }[]
     readonly operationLabel: string
   } | {
+    readonly kind: 'foreign-wallet-read'
+    readonly coin: string
+    readonly operationLabel: string
+    readonly routeLabel: string
+  } | {
+    readonly kind: 'foreign-server'
+    readonly coin: string
+    readonly operationLabel: string
+    readonly routeLabel: string
+    readonly serverDetails: readonly { readonly label: string; readonly value: string }[]
+  } | {
     readonly kind: 'rating'
     readonly operationLabel: string
     // The per-action rows, escaped and re-validated in the shell. A
@@ -1534,10 +1568,12 @@ async function requireAccountReadPermission(
   // publishes, spends, unlocks the account or writes to disk still gates
   // below. The checks above this line are NOT skipped: an unselected account
   // and a drifted live resource are still refused.
-  if (isHomeV2PermissionlessAction(action)) return
+  if (isHomeV2PermissionlessAction(action) && writeDetails?.kind !== 'foreign-wallet-read') return
 
   const targetNetwork = protocol === 'qortalRequest' ? 'qortal' : 'qortium'
-  const routeIndependent = action === 'GET_PENDING_TRANSACTIONS' || action === 'FORGET_PENDING_TRANSACTION'
+  const routeIndependent = action === 'GET_PENDING_TRANSACTIONS' ||
+    action === 'FORGET_PENDING_TRANSACTION' ||
+    (action === 'GET_USER_WALLET' && writeDetails?.kind === 'foreign-wallet-read')
   const nodeBefore = routeIndependent ? null : await getHomeV2ReadableNode(targetNetwork)
   const nodeRoute = nodeBefore ? `${nodeBefore.mode}|${nodeBefore.nodeApiUrl}` : 'route-independent'
   const accountUnlocked = isAccountUnlocked(context.accountId)
@@ -1569,6 +1605,8 @@ async function requireAccountReadPermission(
           ? 'account-avatar'
         : writeDetails?.kind === 'payment'
           ? writeDetails.target
+        : writeDetails?.kind === 'foreign-server'
+          ? `foreign-server:${writeDetails.coin}`
         : ''
   const grantKey = homeV2PermissionGrantKey({
     accountId: context.accountId,
@@ -1613,6 +1651,7 @@ async function requireAccountReadPermission(
     writeDetails?.kind === 'account-avatar' ||
     // Payments MOVE FUNDS. Never a session or durable grant, ever.
     writeDetails?.kind === 'payment' ||
+    writeDetails?.kind === 'foreign-server' ||
     (writeDetails?.kind === 'group' || writeDetails?.kind === 'direct' || writeDetails?.kind === 'private-group') &&
     writeDetails.singleRequestOnly === true
   // A durable per-app chat-send grant ("always allow", revocable in QDN Apps
@@ -1951,6 +1990,25 @@ async function requireAccountReadPermission(
                 writeRouteLabel: writeDetails.routeLabel,
                 writeSingleRequestOnly: true,
                 writeTargetChainLabel: writeDetails.targetChainLabel,
+              }
+          : writeDetails?.kind === 'foreign-wallet-read'
+            ? {
+                foreignWalletCoin: writeDetails.coin,
+                writeKind: 'foreign-wallet-read',
+                writeOperationLabel: writeDetails.operationLabel,
+                writeRouteLabel: writeDetails.routeLabel,
+                writeSingleRequestOnly: false,
+                writeTargetChainLabel: 'Qortium',
+              }
+          : writeDetails?.kind === 'foreign-server'
+            ? {
+                foreignServerCoin: writeDetails.coin,
+                foreignServerDetails: writeDetails.serverDetails.map((detail) => ({ ...detail })),
+                writeKind: 'foreign-server',
+                writeOperationLabel: writeDetails.operationLabel,
+                writeRouteLabel: writeDetails.routeLabel,
+                writeSingleRequestOnly: true,
+                writeTargetChainLabel: 'Qortium',
               }
             : {}),
       })
@@ -3195,11 +3253,17 @@ async function handleHomeV2PaymentAction(
   action: HomeV2PaymentAction,
   requestValue: Record<string, unknown>,
 ) {
-  const qortalAction = action === 'SEND_QORT'
-  if (qortalAction ? (protocol !== 'qortalRequest' || network !== 'qortal') : (protocol !== 'qdnRequest' || network !== 'qortium')) {
+  const validChain = action === 'SEND_QORT'
+    ? protocol === 'qortalRequest' && network === 'qortal'
+    : action === 'TRANSFER_ASSET'
+      ? (protocol === 'qortalRequest' && network === 'qortal') || (protocol === 'qdnRequest' && network === 'qortium')
+      : protocol === 'qdnRequest' && network === 'qortium'
+  if (!validChain) {
     throw createHomeV2BridgeError(
-      qortalAction
+      action === 'SEND_QORT'
         ? 'SEND_QORT is a Qortal action; call it on qortalRequest.'
+        : action === 'TRANSFER_ASSET'
+          ? 'TRANSFER_ASSET must use qortalRequest for Qortal assets or qdnRequest for Qortium assets.'
         : `${action} is available on the Qortium chain only.`,
       { action, code: 'NODE_CAPABILITY_MISSING', network, retryable: false, routeRevision },
     )
@@ -3287,88 +3351,171 @@ async function handleHomeV2PaymentAction(
       `/addresses/balance/${encodeURIComponent(address)}${assetId !== undefined && assetId !== 0 ? `?assetId=${assetId}` : ''}`,
       `${chainLabel} balance lookup`,
     ))
-    if (action === 'SEND_QORT') {
-      const sendRequest = request as ReturnType<typeof normalizeHomeV2SendQortRequest>
+    if (network === 'qortal') {
+      const isTransfer = action === 'TRANSFER_ASSET'
+      const transferRequest = isTransfer ? request as ReturnType<typeof normalizeHomeV2TransferAssetRequest> : null
+      const sendRequest = isTransfer ? null : request as ReturnType<typeof normalizeHomeV2SendQortRequest>
       const resolveRecipient = async (label: string): Promise<HomeV2PaymentRecipient> => {
-        if (sendRequest.recipientAddress) {
+        if (transferRequest) return transferRequest.recipient
+        if (sendRequest!.recipientAddress) {
           const { normalizeHomeV2PaymentRecipient } = await import('./home-v2-payment-actions.js')
-          return normalizeHomeV2PaymentRecipient(sendRequest.recipientAddress, 'The recipient address')
+          return normalizeHomeV2PaymentRecipient(sendRequest!.recipientAddress, 'The recipient address')
         }
         const nameValue = await readHomeV2ChatJson(
           node.nodeApiUrl,
-          `/names/${encodeURIComponent(sendRequest.recipientName ?? '')}`,
+          `/names/${encodeURIComponent(sendRequest!.recipientName ?? '')}`,
           `Qortal recipient-name ${label}`,
         )
         const owner = stringField(nameValue, 'owner')
-        if (!owner) throw new Error(`The Qortal name ${sendRequest.recipientName} does not resolve to an owner address.`)
+        if (!owner) throw new Error(`The Qortal name ${sendRequest!.recipientName} does not resolve to an owner address.`)
         const { normalizeHomeV2PaymentRecipient } = await import('./home-v2-payment-actions.js')
         return normalizeHomeV2PaymentRecipient(owner, 'The resolved recipient address')
       }
       const recipient = await resolveRecipient('lookup')
-      const unitFee = await readUnitFee('PAYMENT')
-      // Qortal PAYMENT signed length: 4+8+4+64+32+25+8+8+64 = 217.
-      const feeAtomic = homeV2FeeForLength(unitFee, 217)
-      const total = homeV2CheckedTotalDebit(sendRequest.amount.atomic, feeAtomic)
-      const balance = await readAtomicBalance(profile.address)
-      if (balance < total) {
-        throw createHomeV2BridgeError(
-          `Insufficient QORT balance: this send needs ${formatQortAtomic(total)} QORT including the fee, but the node reports ${formatQortAtomic(balance)} QORT.`,
-          { action, code: 'INSUFFICIENT_BALANCE', network, retryable: false, routeRevision },
-        )
+      const amount = (transferRequest ?? sendRequest)!.amount
+      const assetId = transferRequest?.assetId ?? 0
+      const readAssetInfo = async (label: string) => selectHomeV2AssetInfo(await readHomeV2ChatJson(
+        node.nodeApiUrl,
+        `/assets/info?assetId=${assetId}`,
+        `Qortal asset ${label}`,
+      ), assetId)
+      let assetInfo: ReturnType<typeof selectHomeV2AssetInfo> | null = null
+      if (transferRequest) {
+        assetInfo = await readAssetInfo('lookup')
+        if (!assetInfo.isDivisible && amount.atomic % 100_000_000n !== 0n) {
+          throw new Error(`The ${assetInfo.name} asset is indivisible: the amount must be a whole number of units.`)
+        }
+        if (assetInfo.isUnspendable && assetInfo.owner !== profile.address) {
+          throw new Error(`Only the owner of the unspendable ${assetInfo.name} asset can transfer it.`)
+        }
       }
+      const checkAtRecipient = async (label: string) => {
+        if (!transferRequest || !recipient.isAt) return
+        assertHomeV2QortalAtAcceptsAsset(await readHomeV2ChatJson(
+          node.nodeApiUrl,
+          `/at/${encodeURIComponent(recipient.address)}`,
+          `Qortal recipient AT ${label}`,
+        ), assetId)
+      }
+      await checkAtRecipient('lookup')
+      const unitFee = await readUnitFee(isTransfer ? 'TRANSFER_ASSET' : 'PAYMENT')
+      // Qortal signed lengths: PAYMENT 217, TRANSFER_ASSET 225.
+      const feeAtomic = homeV2FeeForLength(unitFee, isTransfer ? 225 : 217)
+      const nativeDebit = isTransfer ? feeAtomic : homeV2CheckedTotalDebit(amount.atomic, feeAtomic)
+      const checkBalances = async () => {
+        const nativeBalance = await readAtomicBalance(profile.address)
+        if (nativeBalance < nativeDebit) {
+          throw createHomeV2BridgeError(
+            `Insufficient QORT balance: this ${isTransfer ? 'transfer needs the fee of' : 'send needs'} ${formatQortAtomic(nativeDebit)} QORT, but the node reports ${formatQortAtomic(nativeBalance)} QORT.`,
+            { action, code: 'INSUFFICIENT_BALANCE', network, retryable: false, routeRevision },
+          )
+        }
+        if (transferRequest && (await readAtomicBalance(profile.address, assetId)) < amount.atomic) {
+          throw createHomeV2BridgeError(
+            `Insufficient asset balance: the transfer needs ${amount.decimal}, but the node reports less.`,
+            { action, code: 'INSUFFICIENT_BALANCE', network, retryable: false, routeRevision },
+          )
+        }
+      }
+      const readLastReference = async (label: string) => {
+        const value = await readHomeV2ChatJson(
+          node.nodeApiUrl,
+          `/addresses/lastreference/${encodeURIComponent(profile.address)}`,
+          `Qortal last-reference ${label}`,
+        )
+        const reference = typeof value === 'string' ? value.trim() : ''
+        if (!reference) throw new Error('The selected Qortal account has no last reference; it may need QORT first.')
+        try {
+          const bytes = base58Decode(reference)
+          if (bytes.byteLength !== 64 || base58Encode(bytes) !== reference) throw new Error()
+        } catch {
+          throw new Error('The Qortal node returned an invalid last reference.')
+        }
+        return reference
+      }
+      await checkBalances()
+      const lastReference = await readLastReference('lookup')
       await requireAccountReadPermission(sender, context, protocol, action, {
         kind: 'payment',
         operationLabel: homeV2PaymentOperationLabel(action),
         paymentDetails: [
-          { label: 'You pay', value: homeV2AtomicUnitsText({ atomic: sendRequest.amount.atomic, decimal: `${sendRequest.amount.decimal} QORT` }) },
+          ...(assetInfo
+            ? [
+                { label: 'Asset', value: homeV2PollApprovalText(assetInfo.name, 'The asset name') },
+                { label: 'Asset ID', value: String(assetId) },
+                { label: 'You send', value: homeV2AtomicUnitsText(amount) },
+              ]
+            : [{ label: 'You pay', value: homeV2AtomicUnitsText({ atomic: amount.atomic, decimal: `${amount.decimal} QORT` }) }]),
           { label: 'Paid to', value: recipient.address },
-          ...(sendRequest.recipientName
+          ...(sendRequest?.recipientName
             ? [{ label: 'Resolved from name', value: homeV2PollApprovalText(sendRequest.recipientName, 'The recipient name') }]
             : []),
           ...(recipient.isAt ? [{ label: 'Destination type', value: 'AT contract address (an automated contract, not a person)' }] : []),
           ...(recipient.address === profile.address ? [{ label: 'Self-payment', value: 'The recipient IS the selected account' }] : []),
           { label: 'Fee', value: `${formatQortAtomic(feeAtomic)} QORT` },
-          { label: 'Total debit', value: `${formatQortAtomic(total)} QORT` },
+          { label: isTransfer ? 'Total native debit' : 'Total debit', value: `${formatQortAtomic(nativeDebit)} QORT` },
         ],
         routeLabel,
-        target: `payment:qortal:${recipient.address}:0:${sendRequest.amount.atomic}`,
+        target: `payment:qortal:${recipient.address}:${assetId}:${amount.atomic}`,
         targetChainLabel: 'Qortal',
       })
       if (!(await isStillValid())) throw new Error('The app, account, or node route changed before the payment was staged.')
       // Re-resolve everything the prompt disclosed; refuse any drift.
       const freshRecipient = await resolveRecipient('recheck')
       if (freshRecipient.address !== recipient.address) throw new Error('The recipient resolution changed after approval.')
-      if ((await readUnitFee('PAYMENT')) !== unitFee) throw new Error('The Qortal fee changed after it was approved.')
-      if ((await readAtomicBalance(profile.address)) < total) {
-        throw new Error('The QORT balance changed after approval and no longer covers this send.')
+      if ((await readUnitFee(isTransfer ? 'TRANSFER_ASSET' : 'PAYMENT')) !== unitFee) throw new Error('The Qortal fee changed after it was approved.')
+      if (transferRequest) {
+        const freshAsset = await readAssetInfo('recheck')
+        if (freshAsset.name !== assetInfo!.name || freshAsset.owner !== assetInfo!.owner ||
+          freshAsset.isDivisible !== assetInfo!.isDivisible || freshAsset.isUnspendable !== assetInfo!.isUnspendable) {
+          throw new Error('The asset description changed after approval.')
+        }
       }
-      const referenceText = await readHomeV2ChatJson(
-        node.nodeApiUrl,
-        `/addresses/lastreference/${encodeURIComponent(profile.address)}`,
-        'Qortal last-reference lookup',
-      )
-      const lastReference = typeof referenceText === 'string' ? referenceText.trim() : ''
-      if (!lastReference) throw new Error('The selected Qortal account has no last reference; it may need QORT first.')
+      await checkAtRecipient('recheck')
+      await checkBalances()
+      if ((await readLastReference('recheck')) !== lastReference) throw new Error('The Qortal last reference changed after approval.')
       assertPaymentFresh()
       const timestamp = paymentTimestamp
       const signingKey = getAccountSecretKey(accountId)
       try {
-        const unsignedBytes = buildUnsignedPaymentTransactionBytes({
-          amountAtomic: sendRequest.amount.atomic,
-          feeAtomic,
-          lastReference,
-          recipient: recipient.address,
-          senderPublicKey: signingKey.publicKey58,
-          timestamp,
-        })
-        assertUnsignedHomeV2QortalPaymentTransaction(unsignedBytes, {
-          amountAtomic: sendRequest.amount.atomic,
-          feeAtomic,
-          lastReference: base58Decode(lastReference),
-          recipientBytes: recipient.bytes,
-          senderPublicKey: signingKey.publicKey58,
-          timestamp,
-        })
+        const unsignedBytes = transferRequest
+          ? buildUnsignedQortalTransferAssetTransactionBytes({
+              amountAtomic: amount.atomic,
+              assetId,
+              feeAtomic,
+              lastReference,
+              recipientBytes: recipient.bytes,
+              senderPublicKey: signingKey.publicKey58,
+              timestamp,
+            })
+          : buildUnsignedPaymentTransactionBytes({
+              amountAtomic: amount.atomic,
+              feeAtomic,
+              lastReference,
+              recipient: recipient.address,
+              senderPublicKey: signingKey.publicKey58,
+              timestamp,
+            })
+        if (transferRequest) {
+          assertUnsignedHomeV2QortalTransferAssetTransaction(unsignedBytes, {
+            amountAtomic: amount.atomic,
+            assetId,
+            feeAtomic,
+            lastReference,
+            recipientBytes: recipient.bytes,
+            senderPublicKey: signingKey.publicKey58,
+            timestamp,
+          })
+        } else {
+          assertUnsignedHomeV2QortalPaymentTransaction(unsignedBytes, {
+            amountAtomic: amount.atomic,
+            feeAtomic,
+            lastReference,
+            recipientBytes: recipient.bytes,
+            senderPublicKey: signingKey.publicKey58,
+            timestamp,
+          })
+        }
         if (!(await isStillValid())) throw new Error('The signing context changed before the payment could be submitted.')
         // The awaited check above can itself take time: re-assert freshness
         // as the LAST act before the signature exists (review round 3).
@@ -3377,12 +3524,13 @@ async function handleHomeV2PaymentAction(
         const transactionSignature = getSignatureFromSignedTransactionBytes(signedBytes)
         return await broadcastHomeV2Payment({
           action,
-          amount: sendRequest.amount,
-          assetId: 0,
+          amount,
+          assetId,
+          assetName: assetInfo?.name,
           network,
           nodeApiUrl: node.nodeApiUrl,
           recipient,
-          recipientName: sendRequest.recipientName,
+          recipientName: sendRequest?.recipientName ?? null,
           signedBytes,
           timestamp,
           transactionSignature,
@@ -3408,6 +3556,9 @@ async function handleHomeV2PaymentAction(
       assetInfo = await readAssetInfo('lookup')
       if (!assetInfo.isDivisible && amount.atomic % 100_000_000n !== 0n) {
         throw new Error(`The ${assetInfo.name} asset is indivisible: the amount must be a whole number of units.`)
+      }
+      if (assetInfo.isUnspendable && assetInfo.owner !== profile.address) {
+        throw new Error(`Only the owner of the unspendable ${assetInfo.name} asset can transfer it.`)
       }
       if (assetInfo.isUnspendable && recipient.isAt) {
         throw new Error(`The ${assetInfo.name} asset is unspendable and cannot be sent to an AT contract.`)
@@ -3466,7 +3617,7 @@ async function handleHomeV2PaymentAction(
     }
     if (transferRequest) {
       const freshAsset = await readAssetInfo('recheck')
-      if (freshAsset.name !== assetInfo!.name || freshAsset.isDivisible !== assetInfo!.isDivisible ||
+      if (freshAsset.name !== assetInfo!.name || freshAsset.owner !== assetInfo!.owner || freshAsset.isDivisible !== assetInfo!.isDivisible ||
         freshAsset.isUnspendable !== assetInfo!.isUnspendable) {
         throw new Error('The asset description changed after approval.')
       }
@@ -4069,7 +4220,7 @@ async function decryptHomeV2PrivateAttachment(
 
 async function readBoundedResponse(
   response: Response,
-  method: 'GET' | 'HEAD',
+  method: 'GET' | 'HEAD' | 'POST',
   maxBytes = HOME_V2_APP_LIMITS.responseBytes,
 ) {
   const declared = Number(response.headers.get('content-length'))
@@ -7607,6 +7758,188 @@ async function resolveHomeV2AdminNode(network: HomeV2AppNetwork) {
   }
 }
 
+function foreignWalletCrypto() {
+  return {
+    ripemd160: (data: Uint8Array) => Uint8Array.from(createHash('ripemd160').update(data).digest()),
+    sha256: (data: Uint8Array) => Uint8Array.from(createHash('sha256').update(data).digest()),
+    sha512: (data: Uint8Array) => Uint8Array.from(createHash('sha512').update(data).digest()),
+  }
+}
+
+function assertHomeV2TrustedForeignWalletNode(
+  action: string,
+  trust: HomeV2AdminTrust,
+): asserts trust is Extract<HomeV2AdminTrust, { readonly trusted: true }> {
+  if (trust.trusted) return
+  throw createHomeV2BridgeError(
+    homeV2AdminTrustMessage(trust.reason, 'Using a foreign wallet'),
+    {
+      action,
+      code: 'NODE_CAPABILITY_MISSING',
+      network: 'qortium',
+      retryable: false,
+    },
+  )
+}
+
+async function postHomeV2TrustedForeignWallet(
+  nodeApiUrl: string,
+  apiKey: string,
+  pathname: string,
+  body: string,
+  contentType: 'application/json' | 'text/plain',
+) {
+  const response = await nodeFetch(`${nodeApiUrl}${pathname}`, {
+    body,
+    headers: {
+      'Content-Type': contentType,
+      'X-API-KEY': apiKey,
+    },
+    method: 'POST',
+    redirect: 'error',
+    signal: AbortSignal.timeout(20_000),
+  })
+  const result = await readBoundedResponse(response, 'POST', 2 * 1024 * 1024)
+  if (!result.ok) {
+    const coreError = isHomeV2AppRecord(result.data) && typeof result.data.error === 'number'
+      ? { error: result.data.error }
+      : null
+    throw Object.assign(
+      new Error(coreError
+        ? JSON.stringify(coreError)
+        : `Foreign wallet request returned HTTP ${result.status}.`),
+      { status: result.status },
+    )
+  }
+  return result.data
+}
+
+async function deriveHomeV2ForeignWallet(
+  sender: WebContents,
+  context: QdnViewContext,
+  protocol: HomeV2AppBridgeProtocol,
+  action: 'GET_USER_WALLET' | 'GET_WALLET_BALANCE' | 'GET_USER_WALLET_INFO' | 'GET_USER_WALLET_TRANSACTIONS',
+  requestValue: Record<string, unknown>,
+  resolvedInput?: Awaited<ReturnType<typeof resolveHomeV2AdminNode>>,
+): Promise<{
+  readonly nodeApiUrl?: string
+  readonly apiKey?: string
+  readonly wallet: ForeignWalletPublicRuntime
+}> {
+  if (protocol !== 'qdnRequest') throw new Error(`${action} foreign-wallet access requires qdnRequest.`)
+  const coin = normalizeHomeV2ForeignWalletCoin(requestValue)
+  const receiveOnly = action === 'GET_USER_WALLET'
+  const resolved = receiveOnly ? null : (resolvedInput ?? await resolveHomeV2AdminNode('qortium'))
+  if (resolved) assertHomeV2TrustedForeignWalletNode(action, resolved.trust)
+  if (!context.accountId || !isAccountUnlocked(context.accountId)) {
+    throw new Error('Selected account is locked.')
+  }
+  await requireAccountReadPermission(sender, context, protocol, action, {
+    coin,
+    kind: 'foreign-wallet-read',
+    operationLabel: receiveOnly ? 'Read foreign receive wallet' : 'Read foreign wallet',
+    routeLabel: resolved?.node.nodeApiUrl ?? 'Home local wallet',
+  })
+  if (!context.accountId || !isAccountUnlocked(context.accountId) || !liveResourceMatchesGrant(context)) {
+    throw new Error('Account access context changed before the foreign wallet read started.')
+  }
+  const current = receiveOnly ? null : await resolveHomeV2AdminNode('qortium')
+  if (current && resolved) {
+    assertHomeV2TrustedForeignWalletNode(action, current.trust)
+    if (!current.trust.trusted || !resolved.trust.trusted) {
+      throw new Error('Foreign wallet reads require an authenticated Qortium node.')
+    }
+    if (current.trust.revision !== resolved.trust.revision) {
+      throw new Error('The selected Qortium node or its API key changed before the wallet read could start.')
+    }
+  }
+  const seed = getAccountForeignWalletSeed(context.accountId)
+  try {
+    return {
+      ...(current ? { apiKey: current.apiKey, nodeApiUrl: current.node.nodeApiUrl } : {}),
+      wallet: deriveForeignWalletPublicRuntime({
+        coin,
+        crypto: foreignWalletCrypto(),
+        nonce: seed.addressIndex,
+        seed: seed.seed,
+        walletVersion: seed.walletVersion,
+      }),
+    }
+  } finally {
+    seed.seed.fill(0)
+  }
+}
+
+async function readHomeV2ForeignWallet(
+  sender: WebContents,
+  context: QdnViewContext,
+  protocol: HomeV2AppBridgeProtocol,
+  action: 'GET_WALLET_BALANCE' | 'GET_USER_WALLET_INFO' | 'GET_USER_WALLET_TRANSACTIONS',
+  requestValue: Record<string, unknown>,
+) {
+  const endpoint: ForeignWalletReadEndpoint = action === 'GET_WALLET_BALANCE'
+    ? 'walletbalance'
+    : action === 'GET_USER_WALLET_INFO'
+      ? 'addressinfos'
+      : 'wallettransactions'
+  const derived = await deriveHomeV2ForeignWallet(sender, context, protocol, action, requestValue)
+  if (!derived.nodeApiUrl || !derived.apiKey) {
+    throw new Error('Foreign wallet reads require an authenticated Qortium node.')
+  }
+  const nodeApiUrl = derived.nodeApiUrl
+  const apiKey = derived.apiKey
+  return executeForeignWalletRead(derived.wallet, endpoint, (request) =>
+    postHomeV2TrustedForeignWallet(
+      nodeApiUrl,
+      apiKey,
+      request.pathname,
+      request.body,
+      request.contentType,
+    ))
+}
+
+async function setHomeV2ForeignServer(
+  sender: WebContents,
+  context: QdnViewContext,
+  protocol: HomeV2AppBridgeProtocol,
+  requestValue: Record<string, unknown>,
+) {
+  if (protocol !== 'qdnRequest') throw new Error('SET_CURRENT_FOREIGN_SERVER requires qdnRequest.')
+  const coin = normalizeHomeV2ForeignWalletCoin(requestValue)
+  const server = normalizeHomeV2ForeignServerRequest(requestValue)
+  const before = await resolveHomeV2AdminNode('qortium')
+  assertHomeV2TrustedForeignWalletNode('SET_CURRENT_FOREIGN_SERVER', before.trust)
+  if (!context.accountId || !isAccountUnlocked(context.accountId)) {
+    throw new Error('Selected account is locked.')
+  }
+  await requireAccountReadPermission(sender, context, protocol, 'SET_CURRENT_FOREIGN_SERVER', {
+    coin,
+    kind: 'foreign-server',
+    operationLabel: 'Change foreign-chain server',
+    routeLabel: before.node.nodeApiUrl,
+    serverDetails: [
+      { label: 'Host', value: server.hostName },
+      { label: 'Port', value: String(server.port) },
+      { label: 'Connection', value: server.connectionType },
+      ...(server.certificateSha256Fingerprint
+        ? [{ label: 'Certificate SHA-256', value: server.certificateSha256Fingerprint }]
+        : []),
+    ],
+  })
+  const current = await resolveHomeV2AdminNode('qortium')
+  assertHomeV2TrustedForeignWalletNode('SET_CURRENT_FOREIGN_SERVER', current.trust)
+  if (current.trust.revision !== before.trust.revision) {
+    throw new Error('The selected Qortium node or its API key changed before the server change could start.')
+  }
+  return postHomeV2TrustedForeignWallet(
+    current.node.nodeApiUrl,
+    current.apiKey,
+    `/crosschain/${coin.toLowerCase()}/setcurrentserver`,
+    JSON.stringify(server),
+    'application/json',
+  )
+}
+
 function assertHomeV2TrustedMintingNode(
   action: HomeV2MintingWriteAction,
   network: HomeV2AppNetwork,
@@ -9965,12 +10298,31 @@ async function handleRequestWithRuntime(
   // address for a foreign coin, which would be the dangerous failure: an app
   // showing a Qortium address as somebody's Bitcoin receive address.
   if (action === 'GET_USER_WALLET') {
-    await requireAccountReadPermission(sender, context, protocol, action)
-    if (!isHomeV2NativeWalletRequest(requestValue)) {
-      throw homeV2ForeignWalletUnavailableError(requestValue.coin ?? requestValue.blockchain)
+    if (isHomeV2NativeWalletRequest(requestValue)) {
+      await requireAccountReadPermission(sender, context, protocol, action)
+      const profile = await getAccountProfile(context.accountId as string)
+      return buildHomeV2UserWalletResult(profile.address)
     }
-    const profile = await getAccountProfile(context.accountId as string)
-    return buildHomeV2UserWalletResult(profile.address)
+    const derived = await deriveHomeV2ForeignWallet(
+      sender,
+      context,
+      protocol,
+      action,
+      requestValue,
+    )
+    return getForeignWalletPublicResponse(derived.wallet)
+  }
+  if (isHomeV2ForeignWalletReadAction(action)) {
+    return readHomeV2ForeignWallet(
+      sender,
+      context,
+      protocol,
+      action as 'GET_WALLET_BALANCE' | 'GET_USER_WALLET_INFO' | 'GET_USER_WALLET_TRANSACTIONS',
+      requestValue,
+    )
+  }
+  if (isHomeV2ForeignWalletAdminAction(action)) {
+    return setHomeV2ForeignServer(sender, context, protocol, requestValue)
   }
   if (action === 'GET_SELECTED_ACCOUNT' || action === 'GET_USER_ACCOUNT') {
     await requireAccountReadPermission(sender, context, protocol, action)
@@ -10120,10 +10472,15 @@ async function handleRequestWithRuntime(
       // The `/crosschain` family keeps the two 1.x response projections: the
       // QORT row added to the blockchain list, and feekb normalized to a
       // per-byte fee.
+      const foreignWalletTrustedCoreAvailable = action === 'GET_CROSSCHAIN_BLOCKCHAINS'
+        ? await resolveHomeV2AdminNode('qortium').then(({ trust }) => trust.trusted, () => false)
+        : false
       return projectHomeV2CrosschainReadResult(
         action,
         chainReadRequest,
         responseDataOrThrow(result, `${action} request`),
+        true,
+        foreignWalletTrustedCoreAvailable,
       )
     }
     // Both cores answer a valid-but-absent AT with an empty 2xx body (Qortal
@@ -10285,10 +10642,13 @@ async function handleRequest(
       getHomeV2AppNodeState('qortal'),
       getHomeV2AppNodeState('qortium'),
     ])
+    const qortiumAdminTrusted = qortiumNode.capabilities.read && !!qortiumNode.nodeApiUrl &&
+      await resolveHomeV2AdminNode('qortium').then(({ trusted }) => trusted, () => false)
+    const qualifiedQortiumNode = { ...qortiumNode, adminTrusted: qortiumAdminTrusted }
     hostInfo = getHomeV2AppHostInfo({
       accountId: context.accountId,
       hostVersion: app.getVersion(),
-      node: network === 'qortal' ? qortalNode : qortiumNode,
+      node: network === 'qortal' ? qortalNode : qualifiedQortiumNode,
       platform: 'desktop',
       platformVersion: '2.1',
       protocol,
@@ -10304,7 +10664,7 @@ async function handleRequest(
       qortium: getHomeV2AppRouteDescriptor({
         accountId: context.accountId,
         network: 'qortium',
-        node: qortiumNode,
+        node: qualifiedQortiumNode,
         platform: 'desktop',
         protocol: 'qdnRequest',
       }),

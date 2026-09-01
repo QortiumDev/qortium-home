@@ -1,4 +1,4 @@
-import type { ForeignWalletRuntime } from './foreign-wallets.js';
+import type { ForeignWalletPublicRuntime } from './foreign-wallets.js';
 
 export type ForeignWalletReadEndpoint = 'addressinfos' | 'walletbalance' | 'wallettransactions';
 
@@ -10,7 +10,7 @@ export type ForeignWalletReadRequest = {
 
 export const FOREIGN_WALLET_BACKEND_UNAVAILABLE_CODE = 'FOREIGN_WALLET_BACKEND_UNAVAILABLE';
 
-export function getForeignWalletPublicResponse(wallet: ForeignWalletRuntime) {
+export function getForeignWalletPublicResponse(wallet: ForeignWalletPublicRuntime) {
   return {
     address: wallet.address,
     coin: wallet.coin,
@@ -20,7 +20,7 @@ export function getForeignWalletPublicResponse(wallet: ForeignWalletRuntime) {
 }
 
 export function buildForeignWalletReadRequest(
-  wallet: ForeignWalletRuntime,
+  wallet: ForeignWalletPublicRuntime,
   endpoint: ForeignWalletReadEndpoint,
 ): ForeignWalletReadRequest {
   return {
@@ -48,7 +48,7 @@ function getCoreApiErrorCode(error: unknown) {
   return undefined;
 }
 
-export function normalizeForeignWalletReadError(error: unknown, coin: ForeignWalletRuntime['coin']) {
+export function normalizeForeignWalletReadError(error: unknown, coin: ForeignWalletPublicRuntime['coin']) {
   if (getCoreApiErrorCode(error) === 1201) {
     return Object.assign(
       new Error(`${coin} wallet backend is unavailable. Qortium Core could not connect to a wallet-capable server.`),
@@ -60,7 +60,7 @@ export function normalizeForeignWalletReadError(error: unknown, coin: ForeignWal
 }
 
 export async function executeForeignWalletRead<T>(
-  wallet: ForeignWalletRuntime,
+  wallet: ForeignWalletPublicRuntime,
   endpoint: ForeignWalletReadEndpoint,
   post: (request: ForeignWalletReadRequest) => Promise<T>,
 ) {

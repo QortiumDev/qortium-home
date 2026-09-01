@@ -92,6 +92,8 @@ const SMOKES = [
   { script: 'smoke:desktop:qdn-permissions', needs: 'core', note: 'needs QDN fixtures' },
   { script: 'smoke:desktop:qdn-api', needs: 'core' },
   { script: 'smoke:desktop:qdn-api:packaged', needs: 'core' },
+  { script: 'smoke:desktop:qdn-wallet-read:packaged', needs: 'network',
+    note: 'needs a local Qortium Core and a reachable public Qortal node' },
   { script: 'smoke:desktop:qdn-game', needs: 'core' },
   { script: 'smoke:desktop:qdn-write', needs: 'core' },
   { script: 'smoke:desktop:qdn-media-seek', needs: 'core' },

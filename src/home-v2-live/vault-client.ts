@@ -5,6 +5,10 @@ import type {
   HomeV2VaultState,
 } from '../v2/contracts'
 import type {
+  ForeignWalletCoin,
+  ForeignWalletPublicRuntime,
+} from '../../electron/foreign-wallets'
+import type {
   HomeV2PrivateAttachmentConversation,
   HomeV2PrivateAttachmentDescriptor,
 } from '../../electron/home-v2-private-attachment-contract'
@@ -242,6 +246,10 @@ export interface HomeV2VaultClient {
   exportAccount(accountId: string): Promise<{ canceled: boolean; fileName?: string; uri?: string }>
   getPrivateKeyAddress(privateKey: string): Promise<string>
   getSigningPublicKey?(accountId: string): Promise<string>
+  getForeignWalletPublicData?(
+    accountId: string,
+    coin: ForeignWalletCoin,
+  ): Promise<ForeignWalletPublicRuntime>
   getState(): Promise<HomeV2VaultState>
   importPrivateKey(
     request: HomeV2ImportPrivateKeyRequest,
@@ -369,11 +377,15 @@ export interface HomeV2VaultClient {
     readonly approvedAddress: string
     readonly approvedAmountAtomic: string
     readonly approvedAssetId: number
+    readonly approvedAssetIsDivisible: boolean | null
+    readonly approvedAssetIsUnspendable: boolean | null
     // The asset NAME the prompt displayed, re-derived in the vault. Desktop
     // re-reads the asset after approval and refuses on drift; without this the
     // Android prompt's asset name would rest on a single pre-prompt read.
     readonly approvedAssetName: string | null
+    readonly approvedAssetOwner: string | null
     readonly approvedFeeAtomic: string
+    readonly approvedLastReference: string | null
     readonly approvedRecipientAddress: string
     readonly approvedTimestamp: number
     readonly isStillValid: () => boolean | Promise<boolean>
