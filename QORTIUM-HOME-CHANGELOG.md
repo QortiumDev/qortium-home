@@ -32,6 +32,16 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## fix(qdn): let attachment streams display through page security policies
+
+Private chat attachments decrypted correctly, but the pages that display them
+blocked the special stream address Home hands out, so the viewer and the
+in-chat image reveal showed a broken image on desktop. Home's own viewer page
+and the policy applied to rendered apps now explicitly allow that
+Home-controlled stream scheme for images, media, and reads. Each stream link
+remains single-purpose: bound to the requesting app, account, and session,
+and it expires on its own.
+
 ## fix(accounts): resolve profile names through the trusted node fetch
 
 The account profile's registered-name lookup used a plain fetch that the

@@ -103,6 +103,7 @@
     "test:home-v2-node-core-controller-hook": "esbuild src/home-v2-live/node-core-controller-hook.test.tsx --bundle --platform=node --format=esm --packages=external --outfile=dist-electron/home-v2-node-core-controller-hook.test.js && node scripts/run-home-v2-node-core-controller-hook-test.mjs",
     "test:home-v2-app-resource-discovery": "npm run build:electron && node dist-electron/home-v2-app-resource-discovery.test.js",
     "test:home-v2-image-cache": "npm run build:electron && node dist-electron/home-v2-image-cache.test.js",
+    "test:home-v2-stream-csp": "npm run build:electron && node dist-electron/home-v2-stream-csp.test.js",
     "test:home-v2-publish-blob-source": "npm run build:electron && node dist-electron/home-v2-publish-blob-source.test.js",
     "test:home-v2-app-actions": "npm run build:electron && node dist-electron/home-v2-app-actions.test.js",
     "test:home-v2-tier2-actions": "npm run build:electron && node dist-electron/home-v2-tier2-actions.test.js",

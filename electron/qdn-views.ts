@@ -11,6 +11,7 @@ import {
   type WebContents,
 } from 'electron';
 import { registerHomeV2DesktopResourceStreamProtocol } from './home-v2-desktop-resource-stream.js';
+import { allowHomeV2ResourceStreamInCsp } from './home-v2-stream-csp.js';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { installCertificateVerifyProc } from './node-tls.js';
@@ -1427,9 +1428,12 @@ function applyViewGuards(entry: QdnViewEntry) {
     for (const headerName of Object.keys(responseHeaders)) {
       if (headerName.toLowerCase() === 'content-security-policy') {
         const values = responseHeaders[headerName];
-        responseHeaders[headerName] = (Array.isArray(values) ? values : [values]).map((value) =>
-          relaxQdnAppCspForQortal(value),
-        );
+        responseHeaders[headerName] = (Array.isArray(values) ? values : [values]).map((value) => {
+          const relaxed = relaxQdnAppCspForQortal(value);
+          // Home 2 also lets the rendered app display private-attachment
+          // streams (qortium-home-resource:) — see home-v2-stream-csp.ts.
+          return process.env.QORTIUM_HOME_V2 === '1' ? allowHomeV2ResourceStreamInCsp(relaxed) : relaxed;
+        });
       }
     }
 

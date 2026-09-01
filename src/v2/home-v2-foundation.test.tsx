@@ -2876,8 +2876,14 @@ function testProductionHomeV2EntryIsCapabilityScoped(): void {
   )
   assert.doesNotMatch(qortiumNodeSettings, /writeNodeSettings\(refreshedSettings\)/)
   assert.match(platform, /getPrivateKeyAddress:\s*getAddressFromPrivateKey/)
-  assert.match(html, /connect-src 'none'/)
-  assert.match(html, /img-src 'self' data: blob:/)
+  // The shell deliberately reaches NO network origin; the only allowed
+  // connect/img/media source beyond static assets is Home's own capability
+  // stream scheme (home-v2-stream-csp.ts) so the resource viewer can display
+  // private attachments. Keep asserting the no-network property directly.
+  assert.match(html, /connect-src qortium-home-resource:;/)
+  assert.match(html, /media-src qortium-home-resource:;/)
+  assert.doesNotMatch(html, /connect-src[^;]*(http:|https:|ws:|wss:)/)
+  assert.match(html, /img-src 'self' data: blob: qortium-home-resource:/)
   assert.match(html, /src="\/src\/home-v2-live\/main\.tsx"/)
 
   const liveSources = collectV2SourceFiles('src/home-v2-live')
