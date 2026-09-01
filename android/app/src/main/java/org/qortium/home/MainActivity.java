@@ -15,6 +15,7 @@ public class MainActivity extends BridgeActivity {
         WebView.setWebContentsDebuggingEnabled((getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0);
         registerPlugin(QdnRenderProxyPlugin.class);
         registerPlugin(HomeV2SecureStoragePlugin.class);
+        registerPlugin(HomeV2BoundedHttpPlugin.class);
         registerPlugin(HomeV2ProfileRecoveryPlugin.class);
         registerPlugin(QdnFileSaverPlugin.class);
         registerPlugin(QdnPublishSourcePlugin.class);

@@ -274,6 +274,7 @@ import {
   type QdnPublishVerificationInput,
 } from '../electron/qdn-content-attestation';
 import {
+  deriveForeignWalletPublicRuntime,
   deriveForeignWalletRuntime,
   normalizeForeignWalletCoin,
 } from '../electron/foreign-wallets';
@@ -16508,6 +16509,20 @@ export function createAndroidHomeV2VaultClient(): HomeV2VaultClient {
     }
   };
   return {
+    async getForeignWalletPublicData(accountId, coin) {
+      const seed = await getAccountForeignWalletSeed(accountId)
+      try {
+        return deriveForeignWalletPublicRuntime({
+          coin: normalizeForeignWalletCoin(coin),
+          crypto: getForeignWalletCrypto(),
+          nonce: seed.addressIndex,
+          seed: seed.seed,
+          walletVersion: seed.walletVersion,
+        })
+      } finally {
+        seed.seed.fill(0)
+      }
+    },
     async getState() {
       if (!androidHomeV2AutoUnlockAttempted) {
         androidHomeV2AutoUnlockAttempted = true;

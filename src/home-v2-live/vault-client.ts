@@ -5,6 +5,10 @@ import type {
   HomeV2VaultState,
 } from '../v2/contracts'
 import type {
+  ForeignWalletCoin,
+  ForeignWalletPublicRuntime,
+} from '../../electron/foreign-wallets'
+import type {
   HomeV2PrivateAttachmentConversation,
   HomeV2PrivateAttachmentDescriptor,
 } from '../../electron/home-v2-private-attachment-contract'
@@ -242,6 +246,10 @@ export interface HomeV2VaultClient {
   exportAccount(accountId: string): Promise<{ canceled: boolean; fileName?: string; uri?: string }>
   getPrivateKeyAddress(privateKey: string): Promise<string>
   getSigningPublicKey?(accountId: string): Promise<string>
+  getForeignWalletPublicData?(
+    accountId: string,
+    coin: ForeignWalletCoin,
+  ): Promise<ForeignWalletPublicRuntime>
   getState(): Promise<HomeV2VaultState>
   importPrivateKey(
     request: HomeV2ImportPrivateKeyRequest,

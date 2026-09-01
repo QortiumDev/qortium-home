@@ -23,6 +23,7 @@ export type HomeWalletCapability = {
 };
 
 const QORT_CURRENCY_CODE = 'QORT';
+const FOREIGN_CURRENCY_CODES = new Set(['BTC', 'LTC', 'DOGE', 'DGB', 'RVN', 'DASH', 'NMC', 'FIRO']);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
@@ -32,7 +33,11 @@ function getCurrencyCode(value: unknown) {
   return typeof value === 'string' ? value.trim().toUpperCase() : '';
 }
 
-export function getHomeWalletCapability(currencyCode: unknown): HomeWalletCapability {
+export function getHomeWalletCapability(
+  currencyCode: unknown,
+  foreignWalletLocalAvailable = false,
+  foreignWalletTrustedCoreAvailable = foreignWalletLocalAvailable,
+): HomeWalletCapability {
   const normalizedCurrencyCode = getCurrencyCode(currencyCode);
   const isQort = normalizedCurrencyCode === QORT_CURRENCY_CODE;
 
@@ -53,6 +58,23 @@ export function getHomeWalletCapability(currencyCode: unknown): HomeWalletCapabi
     };
   }
 
+  if (foreignWalletLocalAvailable && FOREIGN_CURRENCY_CODES.has(normalizedCurrencyCode)) {
+    return {
+      contract: HOME_WALLET_CONTRACT,
+      implemented: true,
+      protocol: 'qdnRequest',
+      read: foreignWalletTrustedCoreAvailable,
+      readMode: foreignWalletTrustedCoreAvailable ? 'TRUSTED_CORE' : 'NONE',
+      receive: true,
+      receiveMode: 'HOME_LOCAL',
+      requiresUnlockedAccount: true,
+      send: false,
+      sendMode: 'NONE',
+      serverManagement: foreignWalletTrustedCoreAvailable,
+      serverManagementMode: foreignWalletTrustedCoreAvailable ? 'TRUSTED_CORE' : 'NONE',
+    };
+  }
+
   return {
     contract: HOME_WALLET_CONTRACT,
     implemented: false,
@@ -69,23 +91,38 @@ export function getHomeWalletCapability(currencyCode: unknown): HomeWalletCapabi
   };
 }
 
-export function addHomeWalletCapability(blockchain: unknown) {
+export function addHomeWalletCapability(
+  blockchain: unknown,
+  foreignWalletLocalAvailable = false,
+  foreignWalletTrustedCoreAvailable = foreignWalletLocalAvailable,
+) {
   if (!isRecord(blockchain)) {
     return blockchain;
   }
 
   return {
     ...blockchain,
-    homeWallet: getHomeWalletCapability(blockchain.currencyCode),
+    homeWallet: getHomeWalletCapability(
+      blockchain.currencyCode,
+      foreignWalletLocalAvailable,
+      foreignWalletTrustedCoreAvailable,
+    ),
   };
 }
 
 export function buildHomeBlockchainDiscovery(
   blockchains: unknown,
   qortalPublicNodeBlockchainInfo: Record<string, unknown>,
+  foreignWalletLocalAvailable = false,
+  foreignWalletTrustedCoreAvailable = foreignWalletLocalAvailable,
 ) {
   const addQortAndCapabilities = (rows: unknown[]) =>
-    [qortalPublicNodeBlockchainInfo, ...rows].map(addHomeWalletCapability);
+    [qortalPublicNodeBlockchainInfo, ...rows].map((row) =>
+      addHomeWalletCapability(
+        row,
+        foreignWalletLocalAvailable,
+        foreignWalletTrustedCoreAvailable,
+      ));
 
   if (Array.isArray(blockchains)) {
     return addQortAndCapabilities(blockchains);

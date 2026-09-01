@@ -7,10 +7,9 @@
 // two hosts differ only in HOW they resolve the selected account's address;
 // everything below takes that address as an argument.
 //
-// Scope note: this file covers the NATIVE asset only. Foreign (BTC/LTC/…)
-// wallet reads and sends stay deferred pending the W3 foreign-wallet design —
-// they need HD key derivation from the wallet seed, which is a different and
-// much larger security boundary than "tell the app its own Qortium address".
+// Scope note: this file covers the NATIVE asset only. The separate Home 2
+// foreign-wallet module owns BTC/LTC/… receive/read/server behavior and its
+// prompt/trusted-Core boundary. Foreign sends remain deliberately unavailable.
 
 import { normalizeHomeV2Address } from './home-v2-app-actions.js'
 

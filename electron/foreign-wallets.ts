@@ -17,6 +17,8 @@ export type ForeignWalletRuntime = {
   xpub58: string;
 };
 
+export type ForeignWalletPublicRuntime = Omit<ForeignWalletRuntime, 'xprv58'>;
+
 type ForeignWalletLeafKey = {
   address: string;
   path: string;
@@ -140,6 +142,73 @@ export function deriveForeignWalletRuntime(input: {
       version: spec.xpubVersion,
     }, input.crypto),
   };
+}
+
+/**
+ * Derive only the public/watch material Home 2 may expose or send to Core.
+ * Temporary private nodes and copied seed material are erased before return;
+ * unlike the maintained Home 1.x compatibility helper above, no xprv is ever
+ * serialized into a JavaScript string.
+ */
+export function deriveForeignWalletPublicRuntime(input: {
+  coin: ForeignWalletCoin;
+  crypto: ForeignWalletCrypto;
+  nonce?: number;
+  seed: Uint8Array;
+  walletVersion?: number;
+}): ForeignWalletPublicRuntime {
+  let seed: Uint8Array | undefined;
+  let addressSeed: Uint8Array | undefined;
+  let root: ForeignWalletNode | undefined;
+  let receive: ForeignWalletNode | undefined;
+  let firstAddress: ForeignWalletNode | undefined;
+
+  try {
+    const spec = getForeignWalletSpec(input.coin);
+    seed = Uint8Array.from(input.seed);
+    addressSeed = deriveAddressSeed(
+      seed,
+      input.walletVersion ?? 2,
+      input.nonce ?? 0,
+      input.crypto,
+    );
+    root = deriveForeignWalletRootNode(addressSeed, spec.indicator, input.crypto);
+    receive = deriveForeignWalletChildNode(root, 0, input.crypto);
+    firstAddress = deriveForeignWalletChildNode(receive, 0, input.crypto);
+    const publicKeyHash = input.crypto.ripemd160(
+      input.crypto.sha256(firstAddress.publicKey),
+    );
+    const xpub58 = serializeExtendedPublicKey(
+      {
+        chainCode: root.chainCode,
+        childIndex: 0,
+        depth: 0,
+        parentFingerprint: Uint8Array.from([0, 0, 0, 0]),
+        publicKey: root.publicKey,
+        version: spec.xpubVersion,
+      },
+      input.crypto,
+    );
+
+    return {
+      address: base58CheckEncode(
+        appendBuffer(spec.addressPrefix, publicKeyHash),
+        input.crypto,
+      ),
+      coin: spec.coin,
+      publicKey: xpub58,
+      xpub58,
+    };
+  } finally {
+    seed?.fill(0);
+    addressSeed?.fill(0);
+    root?.privateKey.fill(0);
+    root?.chainCode.fill(0);
+    receive?.privateKey.fill(0);
+    receive?.chainCode.fill(0);
+    firstAddress?.privateKey.fill(0);
+    firstAddress?.chainCode.fill(0);
+  }
 }
 
 /**

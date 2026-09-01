@@ -5,6 +5,7 @@ import {
   createPortableNodeClient,
   normalizeHomeV2AvatarReadResult,
   parseHomeV2CoreOnChainUpdateStatus,
+  parseHomeV2BoundedHttpBody,
   parseHomeV2AppResourceCandidates,
   parseHomeV2AppIconResponse,
   parseHomeV2AvatarResponse,
@@ -26,6 +27,12 @@ const syncedStatus = {
   syncPercent: 100,
   syncPhase: 'SYNCED',
 }
+
+assert.equal(parseHomeV2BoundedHttpBody('123456789', 'text/plain'), '123456789')
+assert.deepEqual(parseHomeV2BoundedHttpBody('{"ok":true}', 'text/plain'), { ok: true })
+assert.deepEqual(parseHomeV2BoundedHttpBody('[1,2]', 'application/octet-stream'), [1, 2])
+assert.equal(parseHomeV2BoundedHttpBody('true', 'application/json'), true)
+assert.equal(parseHomeV2BoundedHttpBody('{broken', 'application/json'), '{broken')
 
 type Snapshot = {
   nodes: {
@@ -90,6 +97,9 @@ let lastRequestedTimeoutMs: number | undefined
 let lastRequestedMethod: string | undefined
 let lastRequestedHeaders: Readonly<Record<string, string>> | undefined
 let lastDisableRedirects: boolean | undefined
+let lastRequestedBody: string | undefined
+let lastBoundedMaxBytes: number | undefined
+let boundedRequestCount = 0
 let coreUpdateGetCount = 0
 let coreUpdatePostCount = 0
 let coreUpdateResponse: unknown = { updateAvailable: true }
@@ -112,11 +122,12 @@ const dependencies: PortableNodeClientDependencies = {
   async setSecret(key, value) {
     secrets.set(key, value)
   },
-  async requestJson(url, method, timeoutMs, headers, disableRedirects) {
+  async requestJson(url, method, timeoutMs, headers, disableRedirects, body) {
     lastRequestedUrl = url
     lastRequestedMethod = method
     lastRequestedHeaders = headers
     lastDisableRedirects = disableRedirects
+    lastRequestedBody = body
     lastRequestedTimeoutMs = timeoutMs
     const origin = new URL(url).origin
     requestCount.set(origin, (requestCount.get(origin) ?? 0) + 1)
@@ -131,6 +142,31 @@ const dependencies: PortableNodeClientDependencies = {
       }
       return {
         data: coreUpdateResponse,
+        latencyMs: 1,
+        ok: true,
+        status: 200,
+      }
+    }
+    if (url.endsWith('/crosschain/blockchains')) {
+      return {
+        data: [{ currencyCode: 'BTC', displayName: 'Bitcoin' }],
+        latencyMs: 1,
+        ok: true,
+        status: 200,
+      }
+    }
+    if (url.includes('/crosschain/') && url.endsWith('/walletbalance')) {
+      return { data: '123456789', latencyMs: 1, ok: true, status: 200 }
+    }
+    if (url.includes('/crosschain/') && url.endsWith('/addressinfos')) {
+      return { data: [{ address: 'watch-address' }], latencyMs: 1, ok: true, status: 200 }
+    }
+    if (url.includes('/crosschain/') && url.endsWith('/wallettransactions')) {
+      return { data: [{ txHash: 'public-history' }], latencyMs: 1, ok: true, status: 200 }
+    }
+    if (url.includes('/crosschain/') && url.endsWith('/setcurrentserver')) {
+      return {
+        data: { notes: 'connection refused', success: false },
         latencyMs: 1,
         ok: true,
         status: 200,
@@ -163,6 +199,31 @@ const dependencies: PortableNodeClientDependencies = {
       ok: true,
       status: 200,
     }
+  },
+  async requestBoundedJson(url, timeoutMs, headers, body, maxBytes) {
+    boundedRequestCount += 1
+    lastRequestedUrl = url
+    lastRequestedMethod = 'POST'
+    lastRequestedHeaders = headers
+    lastDisableRedirects = true
+    lastRequestedBody = body
+    lastRequestedTimeoutMs = timeoutMs
+    lastBoundedMaxBytes = maxBytes
+    if (url.endsWith('/walletbalance')) {
+      return { data: '123456789', latencyMs: 1, ok: true, status: 200 }
+    }
+    if (url.endsWith('/addressinfos')) {
+      return { data: [{ address: 'watch-address' }], latencyMs: 1, ok: true, status: 200 }
+    }
+    if (url.endsWith('/setcurrentserver')) {
+      return {
+        data: { notes: 'connection refused', success: false },
+        latencyMs: 1,
+        ok: true,
+        status: 200,
+      }
+    }
+    return { data: [{ txHash: 'public-history' }], latencyMs: 1, ok: true, status: 200 }
   },
   async requestBinary(url, timeoutMs) {
     lastRequestedBinaryUrl = url
@@ -200,6 +261,14 @@ assert.equal(initialNetworkSnapshot.nodes.qortal.lastEnabledMode, 'public')
 assert.equal(initialNetworkSnapshot.nodes.qortium.mode, 'disabled')
 assert.equal(initialNetworkSnapshot.nodes.qortium.lastEnabledMode, 'public')
 await client.setMode('qortal', 'public')
+
+const publicQortalDiscovery = await client.requestApp('qortalRequest', {
+  action: 'GET_CROSSCHAIN_BLOCKCHAINS',
+}) as Array<{ currencyCode?: string; homeWallet?: Record<string, unknown> }>
+const publicQortalBtc = publicQortalDiscovery.find((row) => row.currencyCode === 'BTC')
+assert.equal(publicQortalBtc?.homeWallet?.receive, true)
+assert.equal(publicQortalBtc?.homeWallet?.read, false)
+assert.equal(publicQortalBtc?.homeWallet?.serverManagement, false)
 
 await client.saveShellState({ version: 1, selectedAccountId: 'wallet:one:2' })
 assert.deepEqual(await client.getShellState(), {
@@ -1059,6 +1128,70 @@ await client.setCustomUrl(
   'https://qortium-admin.example',
   'private-test-api-key',
 )
+
+const authenticatedQortalDiscovery = await client.requestApp('qortalRequest', {
+  action: 'GET_CROSSCHAIN_BLOCKCHAINS',
+}) as Array<{ currencyCode?: string; homeWallet?: Record<string, unknown> }>
+const authenticatedQortalBtc = authenticatedQortalDiscovery.find((row) => row.currencyCode === 'BTC')
+assert.equal(authenticatedQortalBtc?.homeWallet?.receive, true)
+assert.equal(authenticatedQortalBtc?.homeWallet?.read, true)
+assert.equal(authenticatedQortalBtc?.homeWallet?.serverManagement, true)
+
+const foreignWallet = {
+  address: 'DPublicReceiveAddress',
+  coin: 'DGB' as const,
+  publicKey: 'xpub-public-wallet',
+  xpub58: 'xpub-public-wallet',
+}
+assert.equal(typeof client.foreignWalletRead, 'function')
+assert.equal(typeof client.setForeignServer, 'function')
+const foreignTrust = await client.adminTrust!()
+assert.equal(foreignTrust.trusted, true)
+if (!foreignTrust.trusted) throw new Error('Expected authenticated foreign-wallet node.')
+assert.equal(await client.foreignWalletRead!('GET_WALLET_BALANCE', foreignWallet, foreignTrust.revision), '123456789')
+assert.equal(lastRequestedUrl, 'https://qortium-admin.example/crosschain/dgb/walletbalance')
+assert.equal(lastRequestedMethod, 'POST')
+assert.equal(lastRequestedTimeoutMs, 20_000)
+assert.equal(lastRequestedHeaders?.['Content-Type'], 'text/plain')
+assert.equal(lastRequestedHeaders?.['X-API-KEY'], 'private-test-api-key')
+assert.equal(lastDisableRedirects, true)
+assert.equal(lastRequestedBody, foreignWallet.xpub58)
+assert.equal(lastBoundedMaxBytes, 2 * 1024 * 1024)
+assert.deepEqual(await client.foreignWalletRead!('GET_USER_WALLET_INFO', foreignWallet, foreignTrust.revision), [
+  { address: 'watch-address' },
+])
+assert.equal(lastRequestedHeaders?.['Content-Type'], 'application/json')
+assert.equal(lastRequestedBody, JSON.stringify({ xpub58: foreignWallet.xpub58 }))
+assert.deepEqual(await client.foreignWalletRead!('GET_USER_WALLET_TRANSACTIONS', foreignWallet, foreignTrust.revision), [
+  { txHash: 'public-history' },
+])
+assert.deepEqual(await client.setForeignServer!('DGB', {
+  connectionType: 'SSL',
+  hostName: 'electrum.example',
+  port: 50002,
+}, foreignTrust.revision), {
+  notes: 'connection refused',
+  success: false,
+})
+assert.equal(lastRequestedUrl, 'https://qortium-admin.example/crosschain/dgb/setcurrentserver')
+assert.equal(lastRequestedHeaders?.['Content-Type'], 'application/json')
+assert.equal(lastRequestedHeaders?.['X-API-KEY'], 'private-test-api-key')
+assert.equal(lastDisableRedirects, true)
+assert.equal(lastRequestedBody, JSON.stringify({
+  connectionType: 'SSL',
+  hostName: 'electrum.example',
+  port: 50002,
+}))
+assert.equal(lastBoundedMaxBytes, 64 * 1024)
+
+const boundedBeforeCredentialChange = boundedRequestCount
+await client.setCustomUrl('qortium', 'https://qortium-admin.example', 'rotated-test-api-key')
+await assert.rejects(
+  () => client.foreignWalletRead!('GET_WALLET_BALANCE', foreignWallet, foreignTrust.revision),
+  /API key changed/,
+)
+assert.equal(boundedRequestCount, boundedBeforeCredentialChange, 'revision drift must refuse before authenticated POST')
+await client.setCustomUrl('qortium', 'https://qortium-admin.example', 'private-test-api-key')
 
 coreUpdateResponse = {
   binaryResourcePercentLoaded: 42,

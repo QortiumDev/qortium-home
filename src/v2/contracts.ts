@@ -241,6 +241,8 @@ export interface NodeSummary {
   readonly statusText: string
   readonly isTrusted: boolean
   readonly customAuthenticated: boolean
+  /** Authoritative admin-route trust, including the current credential. */
+  readonly adminTrusted?: boolean
   readonly customConfigured: boolean
   readonly customUrl: string | null
   readonly localCoreState: LocalCoreState

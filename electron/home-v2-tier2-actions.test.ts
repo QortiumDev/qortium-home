@@ -69,6 +69,11 @@ import { buildUnsignedQortiumAtMessageTransactionBytes } from './qdn-at-message.
 import { HOME_V2_PERMISSIONLESS_ACTIONS } from './home-v2-session-grants.js'
 import { HOME_V2_JOURNALED_MUTATIONS } from './home-v2-transaction-journal.js'
 import { HOME_V2_ROUTE_INDEPENDENT_ACTIONS } from './home-v2-app-runtime.js'
+import {
+  isHomeV2TrustedForeignWalletRoute,
+  normalizeHomeV2ForeignServerRequest,
+  normalizeHomeV2ForeignWalletCoin,
+} from './home-v2-foreign-wallet-actions.js'
 
 // A real Qortium Previewnet AT address: the SMPL faucet V1, which is the one
 // shipped SEND_MESSAGE recipient (qortium-casino website/src/config.js:11).
@@ -146,21 +151,46 @@ assert.ok(
 assert.ok(qdnActions.includes('PREVIEW_QDN_PUBLISH_SOURCE'))
 assert.ok(qortalActions.includes('PREVIEW_QDN_PUBLISH_SOURCE'))
 
-// The foreign-wallet family stays deferred pending the W3 design. Restoring
-// GET_USER_WALLET must not have dragged its siblings in with it. SEND_COIN
-// left this list with the payment family: it is restored NATIVE-ONLY on
-// qdnRequest, and its 1.x foreign arm refuses with the coded
-// FOREIGN_SEND_UNAVAILABLE error rather than being advertised as foreign
-// capability (see home-v2-payment-actions.test.ts).
+// Foreign receive/read/server management is qdnRequest-only. The same Wallet
+// app may be published on either QDN because Home injects both bridge globals;
+// QORT remains on qortalRequest and foreign send remains unavailable.
 for (const action of ['GET_WALLET_BALANCE', 'GET_USER_WALLET_INFO', 'GET_USER_WALLET_TRANSACTIONS', 'SET_CURRENT_FOREIGN_SERVER']) {
-  assert.ok(!qdnActions.includes(action), `${action} must stay deferred`)
-  assert.ok(!qortalActions.includes(action), `${action} must stay deferred`)
+  assert.ok(qdnActions.includes(action), `${action} must be advertised on qdnRequest`)
+  assert.ok(!qortalActions.includes(action), `${action} must not be advertised on qortalRequest`)
 }
 assert.ok(qdnActions.includes('SEND_COIN'), 'native SEND_COIN is restored on qdnRequest')
 assert.ok(!qortalActions.includes('SEND_COIN'), 'SEND_COIN is not a qortalRequest action; SEND_QORT is')
 assert.ok(qortalActions.includes('SEND_QORT'), 'SEND_QORT is restored on qortalRequest')
 assert.ok(qortalActions.includes('TRANSFER_ASSET'), 'Qortal asset transfers are restored on qortalRequest')
 assert.ok(!qdnActions.includes('SEND_QORT'), 'SEND_QORT must NOT be advertised on qdnRequest: its serializer is Qortal-specific')
+
+for (const coin of ['BTC', 'LTC', 'DOGE', 'DGB', 'RVN', 'DASH', 'NMC', 'FIRO']) {
+  assert.equal(normalizeHomeV2ForeignWalletCoin({ coin: coin.toLowerCase() }), coin)
+}
+assert.equal(normalizeHomeV2ForeignWalletCoin({ payload: { coin: 'btc' } }), 'BTC')
+for (const coin of ['ARRR', 'BCH', '', null]) {
+  assert.throws(() => normalizeHomeV2ForeignWalletCoin({ coin }), /Unsupported foreign wallet coin/)
+}
+assert.deepEqual(normalizeHomeV2ForeignServerRequest({
+  coin: 'BTC',
+  server: { connection: 'ssl', host: 'electrum.example', port: '50002' },
+}), {
+  connectionType: 'SSL',
+  hostName: 'electrum.example',
+  port: 50002,
+})
+for (const request of [
+  { server: { connection: 'SSL', host: '', port: 50002 } },
+  { server: { connection: 'SSL', host: 'bad host', port: 50002 } },
+  { server: { connection: 'SSL', host: 'electrum.example', port: 0 } },
+  { server: { connection: 'UDP', host: 'electrum.example', port: 50002 } },
+  { server: { certificate: 'not-a-sha256', connection: 'SSL', host: 'electrum.example', port: 50002 } },
+]) {
+  assert.throws(() => normalizeHomeV2ForeignServerRequest(request))
+}
+assert.equal(isHomeV2TrustedForeignWalletRoute({ adminTrusted: true, reachable: true }), true)
+assert.equal(isHomeV2TrustedForeignWalletRoute({ adminTrusted: false, reachable: true }), false)
+assert.equal(isHomeV2TrustedForeignWalletRoute({ adminTrusted: true, reachable: false }), false)
 
 // No duplicates crept in while editing two long literal lists.
 for (const [label, actions] of [['qdnRequest', qdnActions], ['qortalRequest', qortalActions]] as const) {
@@ -172,7 +202,7 @@ for (const [label, actions] of [['qdnRequest', qdnActions], ['qortalRequest', qo
 
 assert.ok(
   (HOME_V2_PERMISSIONLESS_ACTIONS as readonly string[]).includes('GET_USER_WALLET'),
-  'GET_USER_WALLET is permissionless: it returns strictly less than GET_SELECTED_ACCOUNT, which already is',
+  'native GET_USER_WALLET remains permissionless; the foreign branch forces a separate prompt',
 )
 assert.ok(
   (HOME_V2_PERMISSIONLESS_ACTIONS as readonly string[]).includes('GET_SELECTED_ACCOUNT'),
@@ -209,6 +239,9 @@ function sliceAfter(source: string, marker: string, length: number, label: strin
 }
 
 const bridgeSource = readRepoSource('../electron/home-v2-app-bridge.ts', './home-v2-app-bridge.ts')
+assert.ok(bridgeSource.includes("kind: 'foreign-wallet-read'"))
+assert.ok(bridgeSource.includes('deriveForeignWalletPublicRuntime'))
+assert.ok(!sliceAfter(bridgeSource, 'async function deriveHomeV2ForeignWallet', 5000, 'foreign wallet bridge').includes('deriveForeignWalletRuntime('))
 assert.ok(
   sliceAfter(bridgeSource, 'const singleRequestOnly =', 900, 'bridge').includes("action === 'SEND_MESSAGE'"),
   'SEND_MESSAGE must be named directly in the singleRequestOnly rule, not merely inherited from its write kind',

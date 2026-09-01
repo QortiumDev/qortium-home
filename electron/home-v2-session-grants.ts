@@ -61,6 +61,23 @@ export const HOME_V2_ACCOUNT_READ_ACTIONS = Object.freeze([
 
 const ACCOUNT_READ_ACTIONS = new Set<string>(HOME_V2_ACCOUNT_READ_ACTIONS)
 
+export const HOME_V2_FOREIGN_WALLET_READ_ACTIONS = Object.freeze([
+  'GET_USER_WALLET',
+  'GET_WALLET_BALANCE',
+  'GET_USER_WALLET_INFO',
+  'GET_USER_WALLET_TRANSACTIONS',
+] as const)
+
+export type HomeV2ForeignWalletPermissionAction = typeof HOME_V2_FOREIGN_WALLET_READ_ACTIONS[number]
+
+const FOREIGN_WALLET_READ_ACTIONS = new Set<string>(HOME_V2_FOREIGN_WALLET_READ_ACTIONS)
+
+export function isHomeV2ForeignWalletPermissionAction(
+  action: string,
+): action is HomeV2ForeignWalletPermissionAction {
+  return FOREIGN_WALLET_READ_ACTIONS.has(action)
+}
+
 /**
  * Actions that need no prompt at all (owner decision 2026-08-24: reading is
  * permissionless). Deliberately NARROWER than HOME_V2_ACCOUNT_READ_ACTIONS:
@@ -92,12 +109,10 @@ const ACCOUNT_READ_ACTIONS = new Set<string>(HOME_V2_ACCOUNT_READ_ACTIONS)
  * less besides. It calls no node, derives no key, and does not require an
  * unlocked account (electron/home-v2-wallet-actions.ts).
  *
- * The FOREIGN branch of this action name — which in Home 1.x derived a BTC/LTC/…
- * HD wallet from the account seed — is not implemented in Home 2 at all; it is
- * refused with a coded error. So there is no key-derivation path sitting behind
- * this name that could inherit permissionless status by accident. If the W3
- * foreign-wallet design ever lands, it must NOT simply extend this handler:
- * it needs its own action and its own prompt, and this entry must be revisited.
+ * The FOREIGN branch is deliberately split inside the handler. It never takes
+ * this permissionless early return: requireAccountReadPermission receives the
+ * `foreign-wallet-read` disclosure kind, which forces the separate
+ * account.foreign-wallet.read session grant before any seed-derived work.
  */
 export const HOME_V2_PERMISSIONLESS_ACTIONS = Object.freeze([
   'GET_SELECTED_ACCOUNT',
@@ -283,6 +298,7 @@ export function homeV2AccountReadAlwaysAllowDetail(accountLabel: string) {
 // that true even if the single-request rule is ever relaxed. The user-facing
 // grouping lives in the prompt's `account.minting` capability instead.
 export function homeV2PermissionGrantFamily(action: string): string {
+  if (isHomeV2ForeignWalletPermissionAction(action)) return 'account.foreign-wallet.read'
   if (isHomeV2AccountReadAction(action)) return 'account.read'
   if (PUBLIC_CHAT_MUTATIONS.has(action)) return 'chat.public.mutate'
   if (DIRECT_CHAT_MUTATIONS.has(action)) return 'chat.direct.mutate'

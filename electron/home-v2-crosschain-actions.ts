@@ -216,10 +216,17 @@ export function projectHomeV2CrosschainReadResult(
   action: string,
   request: Record<string, unknown>,
   data: unknown,
+  foreignWalletLocalAvailable = false,
+  foreignWalletTrustedCoreAvailable = foreignWalletLocalAvailable,
 ) {
   if (action === 'GET_CROSSCHAIN_BLOCKCHAINS') {
     // 1.x qdn.ts:3077-3082.
-    return buildHomeBlockchainDiscovery(data, HOME_V2_QORTAL_PUBLIC_NODE_BLOCKCHAIN_INFO as unknown as Record<string, unknown>)
+    return buildHomeBlockchainDiscovery(
+      data,
+      HOME_V2_QORTAL_PUBLIC_NODE_BLOCKCHAIN_INFO as unknown as Record<string, unknown>,
+      foreignWalletLocalAvailable,
+      foreignWalletTrustedCoreAvailable,
+    )
   }
   if (action === 'GET_CROSSCHAIN_SERVER_INFO') {
     // 1.x qdn.ts:1931-1936: unwrap `{ servers: [...] }` to the bare array both

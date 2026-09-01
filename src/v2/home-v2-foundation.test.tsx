@@ -3133,14 +3133,13 @@ function testGrantIdentityAndSendRateLimitHardening(): void {
     appBridge,
     /decision\.scope === 'always' &&\s*\n\s*durableAccountReadCapability &&\s*\n\s*appGrantKey &&\s*\n\s*grantAccountId/,
   )
-  // The permissionless early return still precedes every grant check, so this
-  // feature did not widen what needs no prompt at all. (Budget widened for
-  // the Home 2.1 restoration wave's write arms — node-list, poll, name,
-  // group-mutation, publish-multiple, qdn-delete; the ordering property is
-  // what matters and is unchanged.)
+  // The permissionless early return still precedes every grant check. Its one
+  // explicit exception is the foreign branch of GET_USER_WALLET: the native
+  // result remains permissionless, while the xpub/history branch supplies the
+  // dedicated foreign-wallet disclosure kind and must continue into a prompt.
   assert.match(
     appBridge,
-    /isHomeV2PermissionlessAction\(action\)\) return[\s\S]{0,5200}homeV2DurableAccountReadCapability\(action\)/,
+    /isHomeV2PermissionlessAction\(action\) && writeDetails\?\.kind !== 'foreign-wallet-read'\) return[\s\S]{0,6200}homeV2DurableAccountReadCapability\(action\)/,
   )
   assert.match(appBridge, /liveResourceMatchesGrant\(freshContext\)/)
   assert.match(appBridge, /isQdnViewVisible\(context\.windowId, context\.tabId\)/)

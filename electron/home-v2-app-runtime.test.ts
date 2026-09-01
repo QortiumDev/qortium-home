@@ -162,11 +162,14 @@ assert.deepEqual(getHomeV2AvailableAppActions('qortalRequest', {
   // third-party price list rather than a node — see the note beside it in
   // HOME_V2_ROUTE_INDEPENDENT_ACTIONS.
   'GET_MARKET_PRICES',
+  // Native and supported foreign receive-wallet answers are Home-local too.
+  'GET_USER_WALLET',
 ])
 
 const authenticatedCustomInfo = getHomeV2AppHostInfo({
   hostVersion: '2.1.0',
   node: {
+    adminTrusted: true,
     capabilities: { read: true },
     customAuthenticated: true,
     customConfigured: true,
@@ -178,6 +181,89 @@ const authenticatedCustomInfo = getHomeV2AppHostInfo({
   protocol: 'qdnRequest',
 })
 assert.equal(authenticatedCustomInfo.route.configuredKind, 'custom-authenticated')
+
+const unauthenticatedCustomInfo = getHomeV2AppHostInfo({
+  hostVersion: '2.1.0',
+  node: {
+    capabilities: { read: true },
+    customAuthenticated: false,
+    customConfigured: true,
+    mode: 'custom',
+    nodeApiUrl: 'https://custom.example',
+  },
+  platform: 'desktop',
+  platformVersion: '2.0',
+  protocol: 'qdnRequest',
+})
+const localInfo = getHomeV2AppHostInfo({
+  hostVersion: '2.1.0',
+  node: {
+    adminTrusted: true,
+    capabilities: { read: true },
+    customConfigured: false,
+    mode: 'local',
+    nodeApiUrl: 'http://127.0.0.1:24891',
+  },
+  platform: 'desktop',
+  platformVersion: '2.0',
+  protocol: 'qdnRequest',
+})
+
+const foreignWalletActions = [
+  'GET_WALLET_BALANCE',
+  'GET_USER_WALLET_INFO',
+  'GET_USER_WALLET_TRANSACTIONS',
+  'SET_CURRENT_FOREIGN_SERVER',
+] as const
+assert.equal(getHomeV2AvailableAppActions('qdnRequest', {
+  qortal: publicInfo.route,
+  qortium: publicInfo.route,
+}).includes('GET_USER_WALLET'), true, 'native qdnRequest wallet receive must remain available on public routes')
+for (const action of foreignWalletActions) {
+  assert.equal(
+    getHomeV2AvailableAppActions('qdnRequest', {
+      qortal: authenticatedCustomInfo.route,
+      qortium: authenticatedCustomInfo.route,
+    }).includes(action),
+    true,
+    `authenticated custom route must advertise ${action}`,
+  )
+  assert.equal(
+    getHomeV2AvailableAppActions('qdnRequest', {
+      qortal: publicInfo.route,
+      qortium: publicInfo.route,
+    }).includes(action),
+    false,
+    `public route must hide ${action}`,
+  )
+  assert.equal(
+    getHomeV2AvailableAppActions('qdnRequest', {
+      qortal: unreachableInfo.route,
+      qortium: unreachableInfo.route,
+    }).includes(action),
+    false,
+    `unreachable route must hide ${action}`,
+  )
+  assert.equal(getHomeV2AvailableAppActions('qdnRequest', {
+    qortal: unauthenticatedCustomInfo.route,
+    qortium: unauthenticatedCustomInfo.route,
+  }).includes(action), false, `unauthenticated custom route must hide ${action}`)
+  assert.equal(getHomeV2AvailableAppActions('qdnRequest', {
+    qortal: localInfo.route,
+    qortium: localInfo.route,
+  }).includes(action), true, `local route must advertise ${action}`)
+}
+
+const trustedWidgetActions = getHomeV2ContextualAppActions(
+  getHomeV2AvailableAppActions('qdnRequest', {
+    qortal: authenticatedCustomInfo.route,
+    qortium: authenticatedCustomInfo.route,
+  }),
+  'widget',
+)
+for (const action of foreignWalletActions) {
+  assert.equal(trustedWidgetActions.includes(action), false, `widget must hide ${action}`)
+}
 
 const operationalChatActions = [
   'GET_ACTIVE_CHATS',
@@ -491,6 +577,9 @@ for (const action of [
   // the selected account's address. It is GET_SELECTED_ACCOUNT by another
   // name and is excluded with it.
   'GET_USER_WALLET',
+  'GET_WALLET_BALANCE',
+  'GET_USER_WALLET_INFO',
+  'GET_USER_WALLET_TRANSACTIONS',
   // SEND_MESSAGE signs; the prefix rule already excludes it, pinned so a
   // rename cannot quietly admit a signing action to a surface with no prompt.
   'SEND_MESSAGE',

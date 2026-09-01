@@ -54,6 +54,12 @@ import {
   resolveHomeV2AccountReadAddress,
 } from '../../electron/home-v2-wallet-actions'
 import {
+  executeForeignWalletRead,
+  type ForeignWalletReadEndpoint,
+} from '../../electron/foreign-wallet-read-contract'
+import type { ForeignWalletPublicRuntime } from '../../electron/foreign-wallets'
+import type { HomeV2ForeignServerRequest } from '../../electron/home-v2-foreign-wallet-actions'
+import {
   HomeV2MarketPriceCache,
   HOME_V2_MARKET_PRICE_MAX_BYTES,
   HOME_V2_MARKET_PRICE_TIMEOUT_MS,
@@ -180,6 +186,16 @@ export interface HomeV2NodeClient {
     request: Record<string, unknown>,
     approvedRevision: string,
   ): Promise<unknown>
+  foreignWalletRead?(
+    action: 'GET_WALLET_BALANCE' | 'GET_USER_WALLET_INFO' | 'GET_USER_WALLET_TRANSACTIONS',
+    wallet: ForeignWalletPublicRuntime,
+    approvedRevision: string,
+  ): Promise<unknown>
+  setForeignServer?(
+    coin: ForeignWalletPublicRuntime['coin'],
+    server: HomeV2ForeignServerRequest,
+    approvedRevision: string,
+  ): Promise<unknown>
 }
 
 export interface HomeV2CoreOnChainUpdateStatus {
@@ -249,6 +265,18 @@ export interface PortableNodeClientDependencies {
     ok: boolean
     status: number
   }>
+  requestBoundedJson?(
+    url: string,
+    timeoutMs: number,
+    headers: Readonly<Record<string, string>>,
+    body: string,
+    maxBytes: number,
+  ): Promise<{
+    data: unknown
+    latencyMs: number
+    ok: boolean
+    status: number
+  }>
   requestBinary(url: string, timeoutMs?: number): Promise<{
     data: unknown
     headers: Readonly<Record<string, string>>
@@ -260,6 +288,22 @@ export interface PortableNodeClientDependencies {
     mimeType: string
   }): Promise<{ canceled: boolean }>
   now(): number
+}
+
+export function parseHomeV2BoundedHttpBody(body: string, contentType = ''): unknown {
+  if (!body) return null
+  if (
+    contentType.toLowerCase().includes('json') ||
+    body.trimStart().startsWith('{') ||
+    body.trimStart().startsWith('[')
+  ) {
+    try {
+      return JSON.parse(body) as unknown
+    } catch {
+      return body
+    }
+  }
+  return body
 }
 
 const PUBLIC_NODE_URLS = {
@@ -790,6 +834,7 @@ function emptySummary(
     isTrusted: settings.mode === 'local',
     customAuthenticated:
       network === 'qortium' && settings.mode === 'custom' && !!settings.apiKey,
+    adminTrusted: false,
     customConfigured: !!settings.customUrl,
     customUrl: settings.customUrl || null,
     localCoreState: 'unsupported',
@@ -949,12 +994,22 @@ export function createPortableNodeClient(
       }
     }
     const status = result.status
+    const adminTrust = network === 'qortium'
+      ? evaluateHomeV2AdminTrust({
+          attached: settings.apiKey ? { apiKey: settings.apiKey, origin: settings.customUrl } : null,
+          managedApiKey: '',
+          mode: settings.mode,
+          network,
+          nodeApiUrl: result.nodeApiUrl,
+        })
+      : null
     return {
       ...emptySummary(network, settings, checkedAt, null),
       label: endpointHost(result.nodeApiUrl),
       state: 'online' as const,
       statusText: 'Online',
       nodeApiUrl: result.nodeApiUrl,
+      adminTrusted: adminTrust?.trusted === true,
       height: numberField(status, 'height'),
       peerCount:
         numberField(status, 'numberOfConnections') ??
@@ -1021,7 +1076,7 @@ export function createPortableNodeClient(
    * so the key never crosses into the React layer. Refusals carry the shared
    * trust wording, which names the fix rather than the platform.
    */
-  async function requireAdminNode(operation: string) {
+  async function resolveAdminTrust(operation: string) {
     const settings = await readSettings('qortium')
     const nodeApiUrl = settings.mode === 'custom' ? settings.customUrl : ''
     const trust = evaluateHomeV2AdminTrust({
@@ -1031,8 +1086,20 @@ export function createPortableNodeClient(
       network: 'qortium',
       nodeApiUrl,
     })
-    if (!trust.trusted) throw new Error(homeV2AdminTrustMessage(trust.reason, operation))
-    return { apiKey: trust.apiKey, nodeApiUrl: trust.origin, revision: trust.revision }
+    return trust.trusted
+      ? { apiKey: trust.apiKey, nodeApiUrl: trust.origin, origin: trust.origin, revision: trust.revision, trusted: true as const }
+      : {
+          origin: '',
+          reason: homeV2AdminTrustMessage(trust.reason, operation),
+          revision: '',
+          trusted: false as const,
+        }
+  }
+
+  async function requireAdminNode(operation: string) {
+    const trust = await resolveAdminTrust(operation)
+    if (!trust.trusted) throw new Error(trust.reason)
+    return { apiKey: trust.apiKey, nodeApiUrl: trust.nodeApiUrl, revision: trust.revision }
   }
 
   async function requestAdminJson(nodeApiUrl: string, path: string, apiKey: string) {
@@ -1202,23 +1269,10 @@ export function createPortableNodeClient(
      * attached-key case: a custom node the user bound their own API key to.
      */
     async adminTrust() {
-      const settings = await readSettings('qortium')
-      const nodeApiUrl = settings.mode === 'custom' ? settings.customUrl : ''
-      const trust = evaluateHomeV2AdminTrust({
-        attached: settings.apiKey ? { apiKey: settings.apiKey, origin: settings.customUrl } : null,
-        managedApiKey: '',
-        mode: settings.mode,
-        network: 'qortium',
-        nodeApiUrl,
-      })
+      const trust = await resolveAdminTrust('Using administrative Qortium features')
       return trust.trusted
         ? { origin: trust.origin, revision: trust.revision, trusted: true as const }
-        : {
-            origin: '',
-            reason: homeV2AdminTrustMessage(trust.reason, 'Using QDN lists'),
-            revision: '',
-            trusted: false as const,
-          }
+        : trust
     },
     async listRead(action, request) {
       const { apiKey, nodeApiUrl } = await requireAdminNode('Using QDN lists')
@@ -1252,6 +1306,61 @@ export function createPortableNodeClient(
         buildHomeV2ListWriteBody(items),
         apiKey,
       )
+    },
+    async foreignWalletRead(action, wallet, approvedRevision) {
+      const endpoint: ForeignWalletReadEndpoint = action === 'GET_WALLET_BALANCE'
+        ? 'walletbalance'
+        : action === 'GET_USER_WALLET_INFO'
+          ? 'addressinfos'
+          : 'wallettransactions'
+      const { apiKey, nodeApiUrl, revision } = await requireAdminNode('Using a foreign wallet')
+      if (revision !== approvedRevision) {
+        throw new Error('The selected Qortium node or its API key changed before the wallet read could start.')
+      }
+      const requestBoundedJson = dependencies.requestBoundedJson
+      if (!requestBoundedJson) {
+        throw new Error('Bounded authenticated node requests are unavailable on this platform.')
+      }
+      return executeForeignWalletRead(wallet, endpoint, async (request) => {
+        const response = await requestBoundedJson(
+          `${nodeApiUrl}${request.pathname}`,
+          20_000,
+          { 'Content-Type': request.contentType, 'X-API-KEY': apiKey },
+          request.body,
+          2 * 1024 * 1024,
+        )
+        if (!response.ok) {
+          const coreError = isRecord(response.data) && typeof response.data.error === 'number'
+            ? { error: response.data.error }
+            : null
+          const message = coreError
+            ? JSON.stringify(coreError)
+            : `Foreign wallet request failed with HTTP ${response.status}.`
+          throw Object.assign(new Error(message), { status: response.status })
+        }
+        return response.data
+      })
+    },
+    async setForeignServer(coin, server, approvedRevision) {
+      const { apiKey, nodeApiUrl, revision } = await requireAdminNode('Changing a foreign-chain server')
+      if (revision !== approvedRevision) {
+        throw new Error('The selected Qortium node or its API key changed before the server change could start.')
+      }
+      const requestBoundedJson = dependencies.requestBoundedJson
+      if (!requestBoundedJson) {
+        throw new Error('Bounded authenticated node requests are unavailable on this platform.')
+      }
+      const response = await requestBoundedJson(
+        `${nodeApiUrl}/crosschain/${coin.toLowerCase()}/setcurrentserver`,
+        20_000,
+        { 'Content-Type': 'application/json', 'X-API-KEY': apiKey },
+        JSON.stringify(server),
+        64 * 1024,
+      )
+      if (!response.ok) {
+        throw new Error(`Foreign server selection failed with HTTP ${response.status}.`)
+      }
+      return response.data
     },
     async requestApp(protocol, requestValue, context) {
       if (!isHomeV2AppRecord(requestValue)) throw new Error('App requests must be objects.')
@@ -1587,7 +1696,18 @@ export function createPortableNodeClient(
           normalizeHomeV2ResponseMaxBytes(request.maxBytes),
         )
         if (isHomeV2CrosschainReadAction(action)) {
-          return projectHomeV2CrosschainReadResult(action, chainReadRequest, data)
+          const qortiumSummary = action === 'GET_CROSSCHAIN_BLOCKCHAINS'
+            ? (await getSnapshot()).nodes.qortium
+            : null
+          const foreignWalletTrustedCoreAvailable = !!qortiumSummary?.nodeApiUrl &&
+            qortiumSummary.capabilities.read && qortiumSummary.adminTrusted === true
+          return projectHomeV2CrosschainReadResult(
+            action,
+            chainReadRequest,
+            data,
+            true,
+            foreignWalletTrustedCoreAvailable,
+          )
         }
         // Both cores answer a valid-but-absent AT with an empty 2xx body;
         // normalize that to the same documented error the desktop bridge uses.

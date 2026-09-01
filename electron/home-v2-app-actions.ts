@@ -9,6 +9,10 @@ import {
   isHomeV2CrosschainReadAction,
 } from './home-v2-crosschain-actions.js'
 import { HOME_V2_MARKET_PRICE_ACTIONS } from './home-v2-market-prices.js'
+import {
+  HOME_V2_FOREIGN_WALLET_ADMIN_ACTIONS,
+  HOME_V2_FOREIGN_WALLET_READ_ACTIONS,
+} from './home-v2-foreign-wallet-actions.js'
 import { getPollOptionsInput } from './qdn-poll-options-input.js'
 import {
   getOptionalPollVoteOptionIndexes,
@@ -105,6 +109,7 @@ const QDN_ACTIONS = [
   'GET_BALANCE',
   'GET_CHAT_MESSAGE',
   'GET_CHAT_ATTACHMENT_STREAM_URL',
+  ...HOME_V2_FOREIGN_WALLET_READ_ACTIONS,
   ...HOME_V2_CROSSCHAIN_READ_ACTIONS,
   'GET_GROUP',
   'GET_GROUP_BANS',
@@ -192,6 +197,7 @@ const QDN_ACTIONS = [
   'SELL_NAME',
   'SET_GROUP',
   'SET_GROUP_AVATAR',
+  ...HOME_V2_FOREIGN_WALLET_ADMIN_ACTIONS,
   'UNLOCK_SELECTED_ACCOUNT',
   'UPDATE_GROUP',
   'UPDATE_NAME',

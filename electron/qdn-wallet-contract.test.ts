@@ -88,9 +88,32 @@ const unavailableCapability: HomeWalletCapability = {
   serverManagement: false,
   serverManagementMode: 'NONE',
 };
+const trustedForeignCapability: HomeWalletCapability = {
+  contract: 'qortium-home-wallet-v1',
+  implemented: true,
+  protocol: 'qdnRequest',
+  read: true,
+  readMode: 'TRUSTED_CORE',
+  receive: true,
+  receiveMode: 'HOME_LOCAL',
+  requiresUnlockedAccount: true,
+  send: false,
+  sendMode: 'NONE',
+  serverManagement: true,
+  serverManagementMode: 'TRUSTED_CORE',
+};
+const receiveOnlyForeignCapability: HomeWalletCapability = {
+  ...trustedForeignCapability,
+  read: false,
+  readMode: 'NONE',
+  serverManagement: false,
+  serverManagementMode: 'NONE',
+};
 assert.deepEqual(getHomeWalletCapability('QORT'), qortCapability);
 for (const coin of expectedForeignWalletCoins) {
   assert.deepEqual(getHomeWalletCapability(coin), unavailableCapability);
+  assert.deepEqual(getHomeWalletCapability(coin, true, false), receiveOnlyForeignCapability);
+  assert.deepEqual(getHomeWalletCapability(coin, true), trustedForeignCapability);
 }
 for (const coin of ['BCH', 'PPC', 'KMD', 'VRSC', 'ZEC', 'LBC', 'XVG', 'ARRR', 'UNKNOWN', '', null]) {
   assert.deepEqual(getHomeWalletCapability(coin), unavailableCapability);
@@ -130,6 +153,14 @@ assert.deepEqual(projectedWrapped, {
   ...wrapped,
   data: projected,
 });
+
+const trustedProjected = buildHomeBlockchainDiscovery(coreRows, qortalInfo, true);
+assert.ok(Array.isArray(trustedProjected));
+assert.deepEqual(trustedProjected[1], {
+  ...coreRows[0],
+  homeWallet: trustedForeignCapability,
+});
+assert.deepEqual(trustedProjected[2], { ...coreRows[1], homeWallet: unavailableCapability });
 
 const unexpectedResponse = { status: 204 };
 assert.equal(buildHomeBlockchainDiscovery(unexpectedResponse, qortalInfo), unexpectedResponse);

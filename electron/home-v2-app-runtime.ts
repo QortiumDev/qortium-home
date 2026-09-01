@@ -4,6 +4,11 @@ import {
   type HomeV2AppBridgeProtocol,
   type HomeV2AppNetwork,
 } from './home-v2-app-actions.js'
+import {
+  isHomeV2ForeignWalletAdminAction,
+  isHomeV2ForeignWalletReadAction,
+  isHomeV2TrustedForeignWalletRoute,
+} from './home-v2-foreign-wallet-actions.js'
 
 export type HomeV2AppPlatform = 'android' | 'desktop'
 export type HomeV2ConfiguredRouteKind =
@@ -14,6 +19,7 @@ export type HomeV2ConfiguredRouteKind =
   | 'public'
 
 export interface HomeV2AppNodeState {
+  readonly adminTrusted?: boolean
   readonly capabilities: { readonly read: boolean }
   readonly customAuthenticated?: boolean
   readonly customConfigured: boolean
@@ -23,6 +29,7 @@ export interface HomeV2AppNodeState {
 }
 
 export interface HomeV2AppRouteDescriptor {
+  readonly adminTrusted: boolean
   readonly available: boolean
   readonly configuredKind: HomeV2ConfiguredRouteKind
   readonly effectiveKind: Exclude<HomeV2ConfiguredRouteKind, 'disabled'> | null
@@ -68,6 +75,9 @@ export const HOME_V2_ROUTE_INDEPENDENT_ACTIONS = Object.freeze([
   // returns nothing but public prices.
   'GET_MARKET_PRICES',
   'GET_PENDING_TRANSACTIONS',
+  // Both native and supported foreign receive-wallet answers are derived
+  // locally by Home. Foreign balance/history reads remain route-gated.
+  'GET_USER_WALLET',
   'IS_USING_PUBLIC_NODE',
   'NOTIFICATION_HAS_PERMISSION',
   // Both open actions are route-independent for the same reason: they hand an
@@ -139,6 +149,7 @@ export function getHomeV2AppRouteDescriptor(input: {
     (input.node.mode !== 'custom' || input.node.customConfigured)
   const available = configured && platformSupportsRoute
   const reachable = available && input.node.capabilities.read && !!input.node.nodeApiUrl
+  const adminTrusted = reachable && input.node.adminTrusted === true
   const effectiveKind = available && configuredKind !== 'disabled' ? configuredKind : null
   const revision = routeRevision([
     input.platform,
@@ -148,10 +159,12 @@ export function getHomeV2AppRouteDescriptor(input: {
     effectiveKind ?? 'none',
     available ? 'available' : 'unavailable',
     reachable ? 'reachable' : 'unreachable',
+    adminTrusted ? 'admin-trusted' : 'admin-untrusted',
     input.node.nodeApiUrl ?? 'none',
     input.accountId ?? 'none',
   ].join('|'))
   return Object.freeze({
+    adminTrusted,
     available,
     configuredKind,
     effectiveKind,
@@ -169,6 +182,13 @@ export function getHomeV2AvailableAppActions(
   return Object.freeze(implemented.filter((action) => {
     if (routeIndependent.has(action)) return true
     const route = routes[getHomeV2AppNetwork(protocol, action)]
+    if (
+      protocol === 'qdnRequest' &&
+      (isHomeV2ForeignWalletReadAction(action) ||
+        isHomeV2ForeignWalletAdminAction(action))
+    ) {
+      return isHomeV2TrustedForeignWalletRoute(route)
+    }
     return HOME_V2_REACHABLE_ROUTE_ACTIONS.has(action) ? route.reachable : route.available
   }))
 }
@@ -220,6 +240,7 @@ function isWidgetPublicReadAction(action: string) {
     // Its entire answer is the selected account's address, so it is
     // GET_SELECTED_ACCOUNT by another name and is excluded with it.
     action === 'GET_USER_WALLET' ||
+    isHomeV2ForeignWalletReadAction(action) ||
     // The Home-settings reads match GET_ and would otherwise be admitted here.
     // They are excluded because a widget has no trusted Home chrome to raise
     // the UPDATE_HOME_SETTINGS prompt on, and shipping the read half of a

@@ -1,6 +1,6 @@
 import { Capacitor, CapacitorHttp, registerPlugin } from '@capacitor/core'
 import { Preferences } from '@capacitor/preferences'
-import { createPortableNodeClient } from './node-client'
+import { createPortableNodeClient, parseHomeV2BoundedHttpBody } from './node-client'
 
 interface HomeV2SecureStoragePlugin {
   unwrap(request: { accountId: string }): Promise<{ value: string | null }>
@@ -8,9 +8,21 @@ interface HomeV2SecureStoragePlugin {
   wrap(request: { accountId: string; value: string }): Promise<void>
 }
 
+interface HomeV2BoundedHttpPlugin {
+  post(request: {
+    apiKey: string
+    body: string
+    contentType: string
+    maxBytes: number
+    timeoutMs: number
+    url: string
+  }): Promise<{ body: string; contentType?: string | null; status: number }>
+}
+
 const HomeV2SecureStorage = registerPlugin<HomeV2SecureStoragePlugin>(
   'HomeV2SecureStorage',
 )
+const HomeV2BoundedHttp = registerPlugin<HomeV2BoundedHttpPlugin>('HomeV2BoundedHttp')
 
 export function createAndroidHomeV2NodeClient() {
   if (!Capacitor.isNativePlatform() || Capacitor.getPlatform() !== 'android') {
@@ -53,6 +65,24 @@ export function createAndroidHomeV2NodeClient() {
       return {
         data: response.data,
         headers: response.headers,
+        latencyMs: Date.now() - startedAt,
+        ok: response.status >= 200 && response.status < 300,
+        status: response.status,
+      }
+    },
+    async requestBoundedJson(url, timeoutMs, headers, body, maxBytes) {
+      const startedAt = Date.now()
+      const response = await HomeV2BoundedHttp.post({
+        apiKey: headers['X-API-KEY'] ?? '',
+        body,
+        contentType: headers['Content-Type'] ?? 'application/json',
+        maxBytes,
+        timeoutMs,
+        url,
+      })
+      const data = parseHomeV2BoundedHttpBody(response.body, response.contentType ?? '')
+      return {
+        data,
         latencyMs: Date.now() - startedAt,
         ok: response.status >= 200 && response.status < 300,
         status: response.status,
