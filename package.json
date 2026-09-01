@@ -155,6 +155,7 @@
     "test:i2pd-release-policy": "node scripts/ensure-electron-build.mjs && node dist-electron/i2pd-release-policy.test.js",
     "test:i2pd-sam-protocol": "node scripts/ensure-electron-build.mjs && node dist-electron/i2pd-sam-protocol.test.js",
     "test:i2pd-managed-install": "node scripts/ensure-electron-build.mjs && node dist-electron/i2pd-managed-install.test.js",
+    "test:i2pd-managed-process": "node scripts/ensure-electron-build.mjs && node dist-electron/i2pd-managed-process.test.js",
     "test:qortium-transport-mode": "node scripts/ensure-electron-build.mjs && node dist-electron/qortium-transport-mode.test.js",
     "test:qortium-transport-runtime-authority": "node scripts/ensure-electron-build.mjs && node dist-electron/qortium-transport-runtime-authority.test.js",
     "test:qortal-managed-install": "node scripts/ensure-electron-build.mjs && node dist-electron/qortal-managed-install.test.js",
