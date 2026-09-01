@@ -2,7 +2,7 @@
 
 import { execFile, spawn } from 'node:child_process';
 import { createServer } from 'node:net';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -370,7 +370,7 @@ async function getPageTarget(cdpPort, predicate, label) {
 
 async function navigateToFixture(client) {
   await waitUntil('Qortium Home address bar', appTimeoutMs, async () => {
-    const found = await evaluate(client, "!!document.querySelector('#browser-address')");
+    const found = await evaluate(client, "!!document.querySelector('.home-v2-address input')");
 
     return found === true;
   });
@@ -379,7 +379,7 @@ async function navigateToFixture(client) {
     client,
     `
       (async () => {
-        const input = document.querySelector('#browser-address');
+        const input = document.querySelector('.home-v2-address input');
         const form = input && input.closest('form');
         if (!input || !form) return { ok: false, message: 'Address bar was not found.' };
         const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
@@ -468,6 +468,23 @@ async function runQdnRequest(qdnClient, request) {
 
   if (!result?.ok) {
     fail(result?.message || `${request.action} failed.`);
+  }
+
+  return result.result;
+}
+
+async function runQortalRequest(qdnClient, request) {
+  const result = await evaluate(
+    qdnClient,
+    `
+      window.qortalRequest(${JSON.stringify(request)})
+        .then((result) => ({ ok: true, result }))
+        .catch((error) => ({ ok: false, message: String(error && error.message || error) }))
+    `,
+  );
+
+  if (!result?.ok) {
+    fail(result?.message || `${request.action} failed through qortalRequest.`);
   }
 
   return result.result;
@@ -670,7 +687,7 @@ function assertNodeSettingsMetadata(metadata) {
   }
 }
 
-async function assertWalletBridgeContract(qdnClient) {
+async function assertWalletBridgeContract(qdnClient, includeQortalBalances = false) {
   const blockchains = await runQdnRequest(qdnClient, { action: 'GET_CROSSCHAIN_BLOCKCHAINS' });
   const homeForeignCoins = new Set(['BTC', 'LTC', 'DOGE', 'DGB', 'RVN', 'DASH', 'NMC', 'FIRO']);
 
@@ -688,9 +705,23 @@ async function assertWalletBridgeContract(qdnClient) {
       `GET_CROSSCHAIN_BLOCKCHAINS returned an incorrect Home capability for ${row?.currencyCode}.`,
     );
     assert(
-      row?.homeWallet?.sendMode === (expectedImplemented ? 'TRUSTED_CORE' : 'NONE'),
+      row?.homeWallet?.send === false && row?.homeWallet?.sendMode === 'NONE',
       `GET_CROSSCHAIN_BLOCKCHAINS returned an incorrect send mode for ${row?.currencyCode}.`,
     );
+    if (expectedImplemented) {
+      assert(
+        row?.homeWallet?.receive === true && row.homeWallet.receiveMode === 'HOME_LOCAL',
+        `GET_CROSSCHAIN_BLOCKCHAINS did not advertise Home-local receive for ${row?.currencyCode}.`,
+      );
+      assert(
+        row?.homeWallet?.read === true && row.homeWallet.readMode === 'TRUSTED_CORE',
+        `GET_CROSSCHAIN_BLOCKCHAINS did not advertise trusted-Core reads for ${row?.currencyCode}.`,
+      );
+      assert(
+        row?.homeWallet?.serverManagement === true && row.homeWallet.serverManagementMode === 'TRUSTED_CORE',
+        `GET_CROSSCHAIN_BLOCKCHAINS did not advertise trusted-Core server management for ${row?.currencyCode}.`,
+      );
+    }
   }
 
   const assetsResponse = await runQdnRequest(qdnClient, {
@@ -698,7 +729,7 @@ async function assertWalletBridgeContract(qdnClient) {
     path: '/assets?limit=1&reverse=true',
   });
   const asset = Array.isArray(assetsResponse?.data) ? assetsResponse.data[0] : null;
-  assert(Number.isSafeInteger(asset?.assetId) && asset.assetId >= 0, 'Core did not return an extant asset for GET_BALANCE smoke coverage.');
+  assert(Number.isSafeInteger(asset?.assetId) && asset.assetId > 0, 'Core did not return a nonzero extant asset for GET_BALANCE smoke coverage.');
   assert(typeof asset?.owner === 'string' && asset.owner.startsWith('Q'), 'Extant asset did not include a Qortium owner.');
 
   const balance = await runQdnRequest(qdnClient, {
@@ -711,6 +742,47 @@ async function assertWalletBridgeContract(qdnClient) {
     path: `/addresses/balance/${encodeURIComponent(asset.owner)}?assetId=${asset.assetId}`,
   });
   assert(balance === direct?.data, 'GET_BALANCE did not match the explicit Core asset-balance endpoint.');
+
+  if (!includeQortalBalances) return;
+
+  const qortalAssetsResponse = await runQortalRequest(qdnClient, {
+    action: 'FETCH_NODE_API',
+    path: '/assets?limit=1&reverse=true',
+  });
+  const qortalAsset = Array.isArray(qortalAssetsResponse?.data) ? qortalAssetsResponse.data[0] : null;
+  assert(
+    Number.isSafeInteger(qortalAsset?.assetId) && qortalAsset.assetId > 0,
+    'Qortal did not return a nonzero extant asset for qortalRequest balance coverage.',
+  );
+  assert(
+    typeof qortalAsset?.owner === 'string' && qortalAsset.owner.startsWith('Q'),
+    'Extant Qortal asset did not include a Qortal owner.',
+  );
+
+  const qortalAssetBalance = await runQortalRequest(qdnClient, {
+    action: 'GET_BALANCE',
+    address: qortalAsset.owner,
+    assetId: qortalAsset.assetId,
+  });
+  const qortalAssetDirect = await runQortalRequest(qdnClient, {
+    action: 'FETCH_NODE_API',
+    path: `/addresses/balance/${encodeURIComponent(qortalAsset.owner)}?assetId=${qortalAsset.assetId}`,
+  });
+  assert(
+    qortalAssetBalance === qortalAssetDirect?.data,
+    'qortalRequest GET_BALANCE did not match the explicit Qortal nonzero-asset balance endpoint.',
+  );
+
+  const qortBalance = await runQortalRequest(qdnClient, {
+    action: 'GET_BALANCE',
+    address: qortalAsset.owner,
+    assetId: 0,
+  });
+  const qortDirect = await runQortalRequest(qdnClient, {
+    action: 'FETCH_NODE_API',
+    path: `/addresses/balance/${encodeURIComponent(qortalAsset.owner)}`,
+  });
+  assert(qortBalance === qortDirect?.data, 'qortalRequest QORT balance did not match the explicit Qortal endpoint.');
 }
 
 async function runBridgeAssertions(qdnClient) {
@@ -995,6 +1067,15 @@ async function runSmoke({ appImagePath, electronBin, mode, viteBin }) {
   let electronProcess = null;
 
   const cdpPort = await getFreePort();
+  const walletOnly = hasArgument('--wallet-only') || process.env.QORTIUM_HOME_WALLET_READ_ONLY === '1';
+  if (walletOnly) {
+    mkdirSync(userDataDir, { recursive: true });
+    writeFileSync(
+      path.join(userDataDir, 'qortal-node-settings.json'),
+      `${JSON.stringify({ customUrl: '', lastEnabledMode: 'public', mode: 'public' }, null, 2)}\n`,
+      { encoding: 'utf8', mode: 0o600 },
+    );
+  }
   const smokeEnv = {
     ...process.env,
     QORTIUM_HOME_NODE_API_KEY_PATH: nodeApiKeyPath,
@@ -1014,7 +1095,7 @@ async function runSmoke({ appImagePath, electronBin, mode, viteBin }) {
       const devServerUrl = `http://127.0.0.1:${vitePort}`;
 
       smokeEnv.VITE_DEV_SERVER_URL = devServerUrl;
-      mainPagePredicate = (url) => url.startsWith(devServerUrl);
+      mainPagePredicate = (url) => url.startsWith(devServerUrl) && url.includes('/v2-live.html');
 
       log(`Starting Vite on ${devServerUrl}.`);
       viteProcess = createManagedProcess(
@@ -1035,7 +1116,8 @@ async function runSmoke({ appImagePath, electronBin, mode, viteBin }) {
       smokeEnv.APPIMAGE_EXTRACT_AND_RUN = smokeEnv.APPIMAGE_EXTRACT_AND_RUN || '1';
       mainPagePredicate = (url) =>
         !url.includes('/render/') &&
-        (url === 'about:blank' || url.startsWith('file://') || url.includes('/dist/index.html'));
+        url.startsWith('file://') &&
+        url.includes('/dist/v2-live.html');
       appCommand = appImagePath;
       appArgs = [`--remote-debugging-port=${cdpPort}`];
     }
@@ -1059,10 +1141,12 @@ async function runSmoke({ appImagePath, electronBin, mode, viteBin }) {
       await waitUntil('Qortium Home styles', appTimeoutMs, async () =>
         evaluate(
           mainClient,
-          "!!document.querySelector('#browser-address') && getComputedStyle(document.body).fontFamily.length > 0",
+          "document.readyState === 'complete' && !!document.querySelector('.home-v2-tabs') && !!document.querySelector('.home-v2-address input') && getComputedStyle(document.body).fontFamily.length > 0",
         ),
       );
-      await assertWideLoadingLayout(mainClient);
+      if (!walletOnly) {
+        await assertWideLoadingLayout(mainClient);
+      }
       await navigateToFixture(mainClient);
 
       const qdnTarget = await getPageTarget(
@@ -1074,10 +1158,17 @@ async function runSmoke({ appImagePath, electronBin, mode, viteBin }) {
 
       try {
         await qdnClient.send('Runtime.enable');
-        log(`Running bridge API assertions in ${qdnTarget.url}.`);
-        await runBridgeAssertions(qdnClient);
-        await runMediaPlayerOverlayAssertions(mainClient, qdnClient);
-        await runResourceViewerOverlayAssertions(mainClient, qdnClient);
+        if (walletOnly) {
+          log(`Running wallet bridge assertions in ${qdnTarget.url}.`);
+          assert(await evaluate(qdnClient, 'typeof window.qdnRequest') === 'function', 'qdnRequest was not injected.');
+          assert(await evaluate(qdnClient, 'typeof window.qortalRequest') === 'function', 'qortalRequest was not injected.');
+          await assertWalletBridgeContract(qdnClient, true);
+        } else {
+          log(`Running bridge API assertions in ${qdnTarget.url}.`);
+          await runBridgeAssertions(qdnClient);
+          await runMediaPlayerOverlayAssertions(mainClient, qdnClient);
+          await runResourceViewerOverlayAssertions(mainClient, qdnClient);
+        }
       } finally {
         qdnClient.close();
       }

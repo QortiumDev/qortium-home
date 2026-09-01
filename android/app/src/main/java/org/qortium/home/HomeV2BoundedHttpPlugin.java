@@ -76,7 +76,7 @@ public class HomeV2BoundedHttpPlugin extends Plugin {
         }
     }
 
-    private static byte[] readBounded(InputStream stream, int maxBytes) throws Exception {
+    static byte[] readBounded(InputStream stream, int maxBytes) throws Exception {
         if (stream == null) return new byte[0];
         try (InputStream input = stream; ByteArrayOutputStream output = new ByteArrayOutputStream()) {
             byte[] buffer = new byte[8192];

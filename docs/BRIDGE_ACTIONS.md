@@ -369,10 +369,11 @@ F4 Settings-only implementation does not advertise them through its
 
 ## Balances and wallet capability discovery
 
-`GET_BALANCE` reads a Qortium-chain asset balance. `address` is optional and
-defaults to the selected account. `assetId` is also optional and accepts a
-non-negative safe integer or integer string at either the top level or inside
-`payload`:
+`GET_BALANCE` reads an asset balance on the protocol that invoked it:
+`qdnRequest` selects Qortium and `qortalRequest` selects Qortal. `address` is
+optional and defaults to the selected account. `assetId` is also optional and
+accepts a non-negative safe integer or integer string at either the top level
+or inside `payload`:
 
 ```js
 const nativeDefault = await qdnRequest({ action: 'GET_BALANCE' });
@@ -393,9 +394,11 @@ Core error; in particular, Previewnet currently has no asset `0`, so the
 explicit-native example is a contract example rather than a claim that the
 asset exists there.
 
-`GET_QORT_BALANCE` is separate: it reads QORT from the Qortal chain through
-Home's configured public-node path. It does not accept a Qortal asset ID.
-Qortal assets other than QORT are not supported by Home.
+QORT is Qortal asset `0`, so apps should read it with `qortalRequest` and an
+explicit `assetId: 0` (or the QORT compatibility action where applicable).
+`GET_ASSET_INFO`, `GET_ASSET_BALANCES`, and `GET_ASSET_TRANSFERS` are likewise
+available on both globals and remain bound to the invoking protocol. Asset IDs
+are never used to guess a chain.
 
 `GET_CROSSCHAIN_BLOCKCHAINS` preserves every field and row returned by the
 connected Qortium Core, prepends Home's QORT row, and adds this feature-detectable
@@ -407,9 +410,13 @@ projection to each row:
     "implemented": true,
     "read": true,
     "receive": true,
-    "send": true,
+    "send": false,
     "requiresUnlockedAccount": true,
-    "sendMode": "TRUSTED_CORE"
+    "readMode": "TRUSTED_CORE",
+    "receiveMode": "HOME_LOCAL",
+    "sendMode": "NONE",
+    "serverManagement": true,
+    "serverManagementMode": "TRUSTED_CORE"
   }
 }
 ```
@@ -421,9 +428,10 @@ Home itself:
 
 - QORT uses `HOME_SIGNED_PUBLIC_NODE`: Home signs locally and submits only
   signed bytes to a Qortal public node.
-- BTC, LTC, DOGE, DGB, RVN, DASH, NMC, and FIRO use `TRUSTED_CORE`: Home
-  implements balance, receive, and send, but a send still requires a trusted
-  Core connection and an unlocked account.
+- BTC, LTC, DOGE, DGB, RVN, DASH, NMC, and FIRO use `HOME_LOCAL` receive and
+  `TRUSTED_CORE` read/server-management modes. Foreign send is deliberately
+  unadvertised (`send: false`, `sendMode: "NONE"`) until Home-local signing,
+  approval, journaling, and final-raw-transaction broadcast are wired.
 - Other and unknown currency codes fail closed with all operation flags false
   and `sendMode: "NONE"`.
 
