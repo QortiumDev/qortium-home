@@ -116,8 +116,8 @@ function transportStatus(
     core: { install: 'installed', runtime: 'stopped' },
     issue: null,
     network: 'qortium',
-    revision: 1,
-    router: { maintenance: 'install', state: 'missing', version: null },
+    revision: 2,
+    router: { maintenance: 'install', sam: 'unavailable', state: 'missing', version: null },
     schema: 'home-v2-transport-maintenance',
     transportMode: 'direct-only',
     ...overrides,
@@ -251,7 +251,7 @@ function transportActionResult(
   assert.notEqual(
     transportStatusFingerprint(base),
     transportStatusFingerprint(transportStatus({
-      router: { maintenance: 'update', state: 'managed-running', version: '2.50.0' },
+      router: { maintenance: 'update', sam: 'ready', state: 'managed-running', version: '2.50.0' },
     })),
   )
 
@@ -363,7 +363,7 @@ function transportActionResult(
       canUpdateRouter: false,
     },
     core: { install: 'installed', runtime: 'running' },
-    router: { maintenance: 'none', state: 'managed-running', version: '2.50.2' },
+    router: { maintenance: 'none', sam: 'ready', state: 'managed-running', version: '2.50.2' },
   })
   assert.equal(transportModeActionFor(running, 'direct-only'), 'set-mode-live')
   assert.equal(transportModeActionFor(running, 'i2p-only'), 'set-mode-live')
@@ -382,7 +382,7 @@ function transportActionResult(
       canUpdateRouter: false,
     },
     core: { install: 'installed', runtime: 'running' },
-    router: { maintenance: 'install', state: 'missing', version: null },
+    router: { maintenance: 'install', sam: 'unavailable', state: 'missing', version: null },
   })
   assert.equal(transportModeActionFor(runningNoRouter, 'direct-only'), 'set-mode-live')
   assert.equal(transportModeActionFor(runningNoRouter, 'i2p-only'), null)

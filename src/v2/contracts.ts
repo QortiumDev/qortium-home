@@ -258,6 +258,17 @@ export interface NodeSummary {
    */
   readonly i2pPeerCount: number | null
   readonly i2pDataPeerCount: number | null
+  /** Core-side SAM session state; null when the Core does not report it. */
+  readonly i2pChainSessionUp: boolean | null
+  readonly i2pDataSessionUp: boolean | null
+  /** Last local self-lookup result for each published I2P LeaseSet. */
+  readonly i2pChainLeaseSetLookupStatus: 'RESOLVED' | 'NOT_RESOLVED' | 'UNKNOWN' | null
+  readonly i2pDataLeaseSetLookupStatus: 'RESOLVED' | 'NOT_RESOLVED' | 'UNKNOWN' | null
+  readonly i2pChainLeaseSetLookupTimestamp: number | null
+  readonly i2pDataLeaseSetLookupTimestamp: number | null
+  /** Positive external evidence since this Core process started. */
+  readonly i2pChainLastInboundHandshakeTimestamp: number | null
+  readonly i2pDataLastInboundHandshakeTimestamp: number | null
   readonly syncPercent: number | null
   readonly syncPhase: string | null
   readonly lastCheckedAt: number | null

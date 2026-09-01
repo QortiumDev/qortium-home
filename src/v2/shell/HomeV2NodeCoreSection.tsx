@@ -13,16 +13,76 @@ import type {
   NetworkId,
   NodeConnectionMode,
 } from '../contracts'
+import { deriveI2pCoreHealth, type I2pCorePlaneHealth } from '../i2p-health'
 import { CoreManagerCard, type HomeV2CoreManagement } from './CoreManagerCards'
 import { homeUpdateStatusText } from './HomeUpdateSettings'
 import { NetworkBadge, networkLabels } from './NetworkBadge'
-import { ensureLabel, routerStatusMessage } from './TransportMaintenancePanel'
+import { ensureLabel, routerStatusMessage, samStatusMessage } from './TransportMaintenancePanel'
 
 const nodeModeLabelKeys: Readonly<Record<NodeConnectionMode, TranslationKey>> = {
   disabled: 'home2.node.mode.disabled',
   local: 'home2.node.mode.local',
   public: 'home2.node.mode.public',
   custom: 'home2.node.mode.custom',
+}
+
+function i2pHealthStateLabel(value: I2pCorePlaneHealth['session']) {
+  if (value === 'up') return t('common.ready')
+  if (value === 'down') return t('common.unavailable')
+  return t('common.unknown')
+}
+
+function i2pLeaseSetLabel(value: I2pCorePlaneHealth['leaseSet']) {
+  if (value === 'resolved') return t('common.ready')
+  if (value === 'not-resolved') return t('common.unavailable')
+  return t('common.unknown')
+}
+
+function i2pPlaneText(
+  planeName: 'chain' | 'data',
+  plane: I2pCorePlaneHealth,
+) {
+  if (plane.conflict) return t('home2.node.waitingForStatus')
+  const peers = plane.peerCount === null
+    ? t('common.unknown')
+    : planeName === 'chain'
+      ? t('home2.node.peers', { count: plane.peerCount })
+      : t('home2.node.dataPeers', { count: plane.peerCount })
+  const timestamp = plane.lastInboundHandshakeTimestamp
+  const inbound = timestamp !== null && Number.isSafeInteger(timestamp) && timestamp >= 0
+    ? new Date(timestamp).toLocaleString()
+    : t('common.unknown')
+  const leaseSetTimestamp = plane.leaseSetLookupTimestamp
+  const leaseSetAt = leaseSetTimestamp !== null && Number.isSafeInteger(leaseSetTimestamp) &&
+    leaseSetTimestamp >= 0
+    ? new Date(leaseSetTimestamp).toLocaleString()
+    : t('common.unknown')
+  return t('home2.node.i2pCorePlane', {
+    inbound,
+    leaseSet: i2pLeaseSetLabel(plane.leaseSet),
+    leaseSetAt,
+    peers,
+    plane: planeName,
+    session: i2pHealthStateLabel(plane.session),
+  })
+}
+
+function I2pCoreHealthDetails({ node }: { readonly node: HomeV2Snapshot['nodes']['qortium'] }) {
+  if (node.mode === 'disabled' || (node.state !== 'online' && node.state !== 'syncing') || node.error) {
+    return null
+  }
+  const health = deriveI2pCoreHealth(node)
+  return (
+    <div className="home-v2-i2p-health" data-home-v2-i2p-health>
+      <strong>{t('connections.activityLabel')}</strong>
+      {health.reported ? (
+        <>
+          <small data-home-v2-i2p-health-plane="chain">{i2pPlaneText('chain', health.chain)}</small>
+          <small data-home-v2-i2p-health-plane="data">{i2pPlaneText('data', health.data)}</small>
+        </>
+      ) : <small>{t('home2.node.waitingForStatus')}</small>}
+    </div>
+  )
 }
 
 export interface HomeV2NodeCoreSectionProps {
@@ -139,6 +199,7 @@ function NodeConnection({
               .join(' · ') || t('home2.node.waitingForStatus'))}
         </small>
         <small>{node.localCoreStatusText}</small>
+        {network === 'qortium' ? <I2pCoreHealthDetails node={node} /> : null}
       </div>
       <div className="home-v2-node-actions">
         {onOpenCoreDocs && node.capabilities.read ? (
@@ -471,6 +532,7 @@ function TransportRow({
       <div className="home-v2-node-core-row__copy">
         <strong>{t('home2.transportMaintenance.title')}</strong>
         <small id="node-core-transport-state">{routerStatusMessage(status)}</small>
+        <small data-home-v2-node-core-sam-state>{samStatusMessage(status)}</small>
       </div>
       <div className="home-v2-node-core-row__controls">
         {transport.mode && transport.onSetTransportMode ? (

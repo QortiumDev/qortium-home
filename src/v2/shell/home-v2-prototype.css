@@ -1914,6 +1914,16 @@ body,
   white-space: nowrap;
 }
 
+.home-v2-i2p-health {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.home-v2-i2p-health small {
+  white-space: normal;
+}
+
 .home-v2-node-detail small {
   color: var(--v2-muted);
   font-size: var(--v2-type-small);

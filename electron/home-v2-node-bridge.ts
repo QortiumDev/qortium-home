@@ -110,6 +110,19 @@ function booleanField(value: unknown, key: string) {
   return isRecord(value) && value[key] === true
 }
 
+function nullableBooleanField(value: unknown, key: string) {
+  if (!isRecord(value)) return null
+  const field = value[key]
+  return typeof field === 'boolean' ? field : null
+}
+
+function i2pLeaseSetStatusField(value: unknown, key: string) {
+  const field = stringField(value, key)
+  return field === 'RESOLVED' || field === 'NOT_RESOLVED' || field === 'UNKNOWN'
+    ? field
+    : null
+}
+
 function requiredString(value: unknown, field: string, maxLength = 240) {
   if (typeof value !== 'string' || !value.trim() || value.length > maxLength) {
     throw new Error(`${field} is required.`)
@@ -421,6 +434,20 @@ function normalizeNodeSummary(
     // omits the split rather than claiming every peer is direct IP.
     i2pPeerCount: numberField(status, 'numberOfI2PConnections'),
     i2pDataPeerCount: numberField(status, 'numberOfI2PDataConnections'),
+    i2pChainSessionUp: nullableBooleanField(status, 'isI2PChainSessionUp'),
+    i2pDataSessionUp: nullableBooleanField(status, 'isI2PDataSessionUp'),
+    i2pChainLeaseSetLookupStatus: i2pLeaseSetStatusField(status, 'i2pChainLeaseSetLookupStatus'),
+    i2pDataLeaseSetLookupStatus: i2pLeaseSetStatusField(status, 'i2pDataLeaseSetLookupStatus'),
+    i2pChainLeaseSetLookupTimestamp: numberField(status, 'i2pChainLeaseSetLookupTimestamp'),
+    i2pDataLeaseSetLookupTimestamp: numberField(status, 'i2pDataLeaseSetLookupTimestamp'),
+    i2pChainLastInboundHandshakeTimestamp: numberField(
+      status,
+      'i2pChainLastInboundHandshakeTimestamp',
+    ),
+    i2pDataLastInboundHandshakeTimestamp: numberField(
+      status,
+      'i2pDataLastInboundHandshakeTimestamp',
+    ),
     syncPercent,
     syncPhase: stringField(status, 'syncPhase'),
     lastCheckedAt: Date.now(),

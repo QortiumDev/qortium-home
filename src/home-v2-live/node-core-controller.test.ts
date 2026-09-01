@@ -294,12 +294,25 @@ for (const bad of [
         dataPeerCount: 16,
         i2pPeerCount: 8,
         i2pDataPeerCount: 16,
+        i2pChainSessionUp: true,
+        i2pDataSessionUp: false,
+        i2pChainLeaseSetLookupStatus: 'RESOLVED',
+        i2pDataLeaseSetLookupStatus: 'NOT_RESOLVED',
+        i2pChainLeaseSetLookupTimestamp: 1_000,
+        i2pDataLeaseSetLookupTimestamp: 2_000,
+        i2pChainLastInboundHandshakeTimestamp: 3_000,
+        i2pDataLastInboundHandshakeTimestamp: null,
       },
     },
   })
   assert.equal(split.qortium.i2pPeerCount, 8,
     'i2pPeerCount must be RETURNED by the parser, not merely accepted')
   assert.equal(split.qortium.i2pDataPeerCount, 16)
+  assert.equal(split.qortium.i2pChainSessionUp, true)
+  assert.equal(split.qortium.i2pDataSessionUp, false)
+  assert.equal(split.qortium.i2pChainLeaseSetLookupStatus, 'RESOLVED')
+  assert.equal(split.qortium.i2pDataLeaseSetLookupStatus, 'NOT_RESOLVED')
+  assert.equal(split.qortium.i2pChainLastInboundHandshakeTimestamp, 3_000)
 
   const olderCore = parseHomeV2NodesSnapshot({
     version: 1,
@@ -307,6 +320,10 @@ for (const bad of [
   })
   assert.equal(olderCore.qortium.i2pPeerCount, null)
   assert.equal(olderCore.qortium.i2pDataPeerCount, null)
+  assert.equal(olderCore.qortium.i2pChainSessionUp, null)
+  assert.equal(olderCore.qortium.i2pDataSessionUp, null)
+  assert.equal(olderCore.qortium.i2pChainLeaseSetLookupStatus, null)
+  assert.equal(olderCore.qortium.i2pDataLeaseSetLookupStatus, null)
 }
 
 // The router's progress envelope. Its producer lives in the main process and

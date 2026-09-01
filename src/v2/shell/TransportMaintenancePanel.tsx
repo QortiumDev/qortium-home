@@ -35,6 +35,9 @@ export function routerStatusMessage(status: HomeV2TransportMaintenanceStatus) {
     return t('home2.transportMaintenance.status.externalRunning')
   }
   if (status.router.state === 'managed-running') {
+    if (status.router.sam !== 'ready') {
+      return t('home2.transportMaintenance.status.managedRunningSamUnavailable')
+    }
     return status.router.maintenance === 'update'
       ? t('home2.transportMaintenance.status.managedRunningUpdate')
       : t('home2.transportMaintenance.status.managedRunning')
@@ -54,6 +57,16 @@ export function routerStatusMessage(status: HomeV2TransportMaintenanceStatus) {
     return t('home2.transportMaintenance.status.versionUnavailable')
   }
   return t('home2.transportMaintenance.status.unavailable')
+}
+
+export function samStatusMessage(status: HomeV2TransportMaintenanceStatus) {
+  if (status.router.sam === 'ready') {
+    return t('home2.transportMaintenance.status.samReady')
+  }
+  if (status.router.sam === 'unavailable') {
+    return t('home2.transportMaintenance.status.samUnavailable')
+  }
+  return t('home2.transportMaintenance.status.samUnknown')
 }
 
 function modeDescription(mode: SettableTransportMode) {
@@ -243,6 +256,9 @@ export function TransportMaintenancePanel({
       <CoreProgressBar progress={progress} />
       <p className="home-v2-core-notice" id="transport-maintenance-router-state">
         {routerStatusMessage(status)}
+      </p>
+      <p className="home-v2-core-notice" data-home-v2-transport-sam-state>
+        {samStatusMessage(status)}
       </p>
       {stale ? (
         <p className="home-v2-core-notice" role="alert">

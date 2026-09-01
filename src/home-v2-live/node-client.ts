@@ -608,6 +608,19 @@ function stringField(value: unknown, key: string) {
   return typeof field === 'string' && field.trim() ? field.trim() : null
 }
 
+function nullableBooleanField(value: unknown, key: string) {
+  if (!isRecord(value)) return null
+  const field = value[key]
+  return typeof field === 'boolean' ? field : null
+}
+
+function i2pLeaseSetStatusField(value: unknown, key: string) {
+  const field = stringField(value, key)
+  return field === 'RESOLVED' || field === 'NOT_RESOLVED' || field === 'UNKNOWN'
+    ? field
+    : null
+}
+
 function isLoopback(hostname: string) {
   const normalized = hostname.toLowerCase().replace(/^\[|\]$/g, '')
   return (
@@ -845,6 +858,14 @@ function emptySummary(
     dataPeerCount: null,
     i2pPeerCount: null,
     i2pDataPeerCount: null,
+    i2pChainSessionUp: null,
+    i2pDataSessionUp: null,
+    i2pChainLeaseSetLookupStatus: null,
+    i2pDataLeaseSetLookupStatus: null,
+    i2pChainLeaseSetLookupTimestamp: null,
+    i2pDataLeaseSetLookupTimestamp: null,
+    i2pChainLastInboundHandshakeTimestamp: null,
+    i2pDataLastInboundHandshakeTimestamp: null,
     syncPercent: null,
     syncPhase: null,
     lastCheckedAt: now,
@@ -1019,6 +1040,26 @@ export function createPortableNodeClient(
       dataPeerCount: numberField(status, 'numberOfDataConnections'),
       i2pPeerCount: numberField(status, 'numberOfI2PConnections'),
       i2pDataPeerCount: numberField(status, 'numberOfI2PDataConnections'),
+      i2pChainSessionUp: nullableBooleanField(status, 'isI2PChainSessionUp'),
+      i2pDataSessionUp: nullableBooleanField(status, 'isI2PDataSessionUp'),
+      i2pChainLeaseSetLookupStatus: i2pLeaseSetStatusField(
+        status,
+        'i2pChainLeaseSetLookupStatus',
+      ),
+      i2pDataLeaseSetLookupStatus: i2pLeaseSetStatusField(
+        status,
+        'i2pDataLeaseSetLookupStatus',
+      ),
+      i2pChainLeaseSetLookupTimestamp: numberField(status, 'i2pChainLeaseSetLookupTimestamp'),
+      i2pDataLeaseSetLookupTimestamp: numberField(status, 'i2pDataLeaseSetLookupTimestamp'),
+      i2pChainLastInboundHandshakeTimestamp: numberField(
+        status,
+        'i2pChainLastInboundHandshakeTimestamp',
+      ),
+      i2pDataLastInboundHandshakeTimestamp: numberField(
+        status,
+        'i2pDataLastInboundHandshakeTimestamp',
+      ),
       syncPercent: numberField(status, 'syncPercent'),
       syncPhase: stringField(status, 'syncPhase'),
       capabilities: {

@@ -24,6 +24,7 @@ type StatusOptions = Readonly<{
   maintenance?: HomeV2TransportMaintenanceStatus['router']['maintenance']
   mode?: HomeV2TransportMode
   routerState?: HomeV2TransportMaintenanceStatus['router']['state']
+  sam?: HomeV2TransportMaintenanceStatus['router']['sam']
   version?: string | null
 }>
 
@@ -34,11 +35,18 @@ function transportStatus(options: StatusOptions = {}): HomeV2TransportMaintenanc
   const maintenance = options.maintenance ?? 'install'
   const mode = options.mode ?? 'direct-only'
   const routerState = options.routerState ?? 'missing'
+  const sam = options.sam ?? (
+    routerState === 'managed-running' || routerState === 'external-running'
+      ? 'ready' as const
+      : routerState === 'unsupported' || routerState === 'unknown'
+        ? 'unknown' as const
+        : 'unavailable' as const
+  )
   const version = options.version ?? null
   const fatalIssue = issue === 'manager-unavailable' || issue === 'status-unavailable'
   const canChange = coreInstall === 'installed' && coreRuntime === 'stopped' &&
     mode !== 'unknown' && !fatalIssue
-  const routerReady = routerState === 'external-running' || routerState === 'managed-running'
+  const routerReady = sam === 'ready'
   return {
     capabilities: {
       canEnsureRouter: coreInstall === 'installed' && issue === null &&
@@ -60,8 +68,8 @@ function transportStatus(options: StatusOptions = {}): HomeV2TransportMaintenanc
     core: { install: coreInstall, runtime: coreRuntime },
     issue,
     network: 'qortium',
-    revision: 1,
-    router: { maintenance, state: routerState, version },
+    revision: 2,
+    router: { maintenance, sam, state: routerState, version },
     schema: 'home-v2-transport-maintenance',
     transportMode: mode,
   }
@@ -215,6 +223,24 @@ try {
   assert.deepEqual([...actions], [{ action: 'ensure-router', mode: null }])
   assert.match(container.textContent ?? '', /Local SAM readiness does not confirm I2P reachability/)
   assert.doesNotMatch(container.textContent ?? '', /SAM.*(?:private|reachable)/i)
+
+  const processUpSamDown = transportStatus({
+    maintenance: 'none',
+    mode: 'direct-and-i2p',
+    routerState: 'managed-running',
+    sam: 'unavailable',
+    version: '2.60.0-q2',
+  })
+  await render(client({ getTransportMaintenanceStatus: async () => processUpSamDown }))
+  assert.match(container.textContent ?? '', /router process is running/i)
+  assert.match(container.textContent ?? '', /SAM service: unavailable or still starting/i)
+  assert.equal(hasButton('Stop I2P router'), true,
+    'a live managed process must remain stoppable while SAM is unavailable')
+  assert.equal(hasButton('Start I2P router'), false,
+    'Home must not offer a second start while the managed process is alive')
+  const unreadyOptions = [...container.querySelectorAll('option')]
+  assert.equal((unreadyOptions[0] as HTMLOptionElement).disabled, true)
+  assert.equal((unreadyOptions[2] as HTMLOptionElement).disabled, true)
 
   await render(client({ getTransportMaintenanceStatus: async () => externalStatus,
     runTransportMaintenanceAction: async (action, mode) => {

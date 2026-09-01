@@ -22,6 +22,8 @@ export type HomeV2TransportRouterMaintenance =
   | 'unavailable'
   | 'update'
 
+export type HomeV2TransportSamState = 'ready' | 'unavailable' | 'unknown'
+
 export type HomeV2TransportMaintenanceIssue =
   | 'manager-unavailable'
   | 'status-unavailable'
@@ -67,9 +69,11 @@ export type HomeV2TransportMaintenanceStatus = {
   }
   readonly issue: HomeV2TransportMaintenanceIssue | null
   readonly network: 'qortium'
-  readonly revision: 1
+  readonly revision: 2
   readonly router: {
     readonly maintenance: HomeV2TransportRouterMaintenance
+    /** Local SAM v3 handshake result; independent of managed-process state. */
+    readonly sam: HomeV2TransportSamState
     readonly state: HomeV2TransportRouterState
     readonly version: string | null
   }
@@ -213,6 +217,11 @@ const ROUTER_STATES = new Set<HomeV2TransportRouterState>([
   'unsupported',
   'unknown',
 ])
+const SAM_STATES = new Set<HomeV2TransportSamState>([
+  'ready',
+  'unavailable',
+  'unknown',
+])
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
@@ -244,15 +253,16 @@ function normalizeStatus(value: unknown): HomeV2TransportMaintenanceStatus | nul
     'router',
     'schema',
     'transportMode',
-  ]) || value.schema !== 'home-v2-transport-maintenance' || value.revision !== 1 ||
+  ]) || value.schema !== 'home-v2-transport-maintenance' || value.revision !== 2 ||
     value.network !== 'qortium' || !MODES.has(value.transportMode as HomeV2TransportMode) ||
     !(value.issue === null || ISSUES.has(value.issue as HomeV2TransportMaintenanceIssue)) ||
     !isRecord(value.core) || !hasExactKeys(value.core, ['install', 'runtime']) ||
     !['installed', 'missing', 'unknown'].includes(String(value.core.install)) ||
     !['running', 'stopped', 'unknown'].includes(String(value.core.runtime)) ||
-    !isRecord(value.router) || !hasExactKeys(value.router, ['maintenance', 'state', 'version']) ||
+    !isRecord(value.router) || !hasExactKeys(value.router, ['maintenance', 'sam', 'state', 'version']) ||
     !ROUTER_STATES.has(value.router.state as HomeV2TransportRouterState) ||
     !ROUTER_MAINTENANCE.has(value.router.maintenance as HomeV2TransportRouterMaintenance) ||
+    !SAM_STATES.has(value.router.sam as HomeV2TransportSamState) ||
     !isBoundedPrintableVersion(value.router.version) ||
     !isRecord(value.capabilities) || !hasExactKeys(value.capabilities, [
       'canEnsureRouter',
@@ -272,11 +282,12 @@ function normalizeStatus(value: unknown): HomeV2TransportMaintenanceStatus | nul
   const runtime = value.core.runtime as HomeV2TransportMaintenanceStatus['core']['runtime']
   const routerState = value.router.state as HomeV2TransportRouterState
   const maintenance = value.router.maintenance as HomeV2TransportRouterMaintenance
+  const sam = value.router.sam as HomeV2TransportSamState
   const transportMode = value.transportMode as HomeV2TransportMode
   const version = value.router.version as string | null
   const capabilities = value.capabilities as Record<string, boolean>
   const fatalIssue = issue === 'manager-unavailable' || issue === 'status-unavailable'
-  const routerReady = routerState === 'external-running' || routerState === 'managed-running'
+  const routerReady = sam === 'ready'
   const canChangeStoppedCore = install === 'installed' && runtime === 'stopped' &&
     transportMode !== 'unknown' && !fatalIssue
   const expectedCanStop = routerState === 'managed-running' && !fatalIssue
@@ -306,8 +317,15 @@ function normalizeStatus(value: unknown): HomeV2TransportMaintenanceStatus | nul
         : routerState === 'missing'
           ? maintenance === 'install' && version === null
           : maintenance === 'unavailable' && version === null
+  const samShapeCoherent = routerState === 'external-running'
+    ? sam === 'ready'
+    : routerState === 'managed-running'
+      ? true
+      : routerState === 'unsupported'
+        ? sam === 'unknown'
+        : sam !== 'ready'
 
-  if (!routerShapeCoherent ||
+  if (!routerShapeCoherent || !samShapeCoherent ||
     ((routerState === 'unsupported') !== (issue === 'unsupported-platform')) ||
     (issue === 'version-unavailable' && !(
       routerState === 'unknown' ||
@@ -345,8 +363,8 @@ function normalizeStatus(value: unknown): HomeV2TransportMaintenanceStatus | nul
     core: Object.freeze({ install, runtime }),
     issue,
     network: 'qortium',
-    revision: 1,
-    router: Object.freeze({ maintenance, state: routerState, version }),
+    revision: 2,
+    router: Object.freeze({ maintenance, sam, state: routerState, version }),
     schema: 'home-v2-transport-maintenance',
     transportMode,
   })
@@ -367,8 +385,13 @@ function unavailableStatus(): HomeV2TransportMaintenanceStatus {
     core: Object.freeze({ install: 'unknown', runtime: 'unknown' }),
     issue: 'status-unavailable',
     network: 'qortium',
-    revision: 1,
-    router: Object.freeze({ maintenance: 'unavailable', state: 'unknown', version: null }),
+    revision: 2,
+    router: Object.freeze({
+      maintenance: 'unavailable',
+      sam: 'unknown',
+      state: 'unknown',
+      version: null,
+    }),
     schema: 'home-v2-transport-maintenance',
     transportMode: 'unknown',
   })
