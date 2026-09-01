@@ -16,6 +16,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(QdnRenderProxyPlugin.class);
         registerPlugin(HomeV2SecureStoragePlugin.class);
         registerPlugin(HomeV2BoundedHttpPlugin.class);
+        registerPlugin(HomeV2ForeignWalletJournalPlugin.class);
         registerPlugin(HomeV2ProfileRecoveryPlugin.class);
         registerPlugin(QdnFileSaverPlugin.class);
         registerPlugin(QdnPublishSourcePlugin.class);

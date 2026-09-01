@@ -113,6 +113,12 @@ function canonicalWalletIdentity(
   return `${canonicalHex(value.walletFingerprint, 32, 'Pending foreign wallet fingerprint')}|${coin}|${chainId}`
 }
 
+export function getForeignWalletOperationKey(
+  value: Pick<ForeignWalletPendingTransaction, 'chainId' | 'coin' | 'walletFingerprint'>,
+) {
+  return canonicalWalletIdentity(value)
+}
+
 function transactionKeyFromInput(
   value: Pick<ForeignWalletPendingTransaction, 'chainId' | 'coin' | 'txId' | 'walletFingerprint'>,
 ) {
