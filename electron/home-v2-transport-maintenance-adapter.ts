@@ -32,7 +32,11 @@ type CoreTarget = Readonly<{
 }>
 
 type CoreGuard =
-  | Readonly<{ kind: 'ready'; target: CoreTarget }>
+  | Readonly<{
+      kind: 'ready'
+      runtime: 'running' | 'stopped'
+      target: CoreTarget
+    }>
   | Readonly<{ code: HomeV2TransportMaintenanceBlockedCode; kind: 'blocked' }>
 
 function completed(): HomeV2TransportMaintenanceDependencyResult {
@@ -75,7 +79,7 @@ function sameCoreTarget(left: CoreTarget, right: CoreTarget) {
     left.tagName === right.tagName
 }
 
-async function requireStronglyStoppedCore(
+async function requireKnownCore(
   manager: QortiumCoreManagerEntry,
   expectedTarget?: CoreTarget,
 ): Promise<CoreGuard> {
@@ -101,9 +105,21 @@ async function requireStronglyStoppedCore(
   } catch {
     return { code: 'core-runtime-unknown', kind: 'blocked' }
   }
-  if (runtime === 'running') return { code: 'core-runtime-not-stopped', kind: 'blocked' }
-  if (runtime !== 'stopped') return { code: 'core-runtime-unknown', kind: 'blocked' }
-  return { kind: 'ready', target }
+  if (runtime !== 'running' && runtime !== 'stopped') {
+    return { code: 'core-runtime-unknown', kind: 'blocked' }
+  }
+  return { kind: 'ready', runtime, target }
+}
+
+async function requireStronglyStoppedCore(
+  manager: QortiumCoreManagerEntry,
+  expectedTarget?: CoreTarget,
+): Promise<CoreGuard> {
+  const guard = await requireKnownCore(manager, expectedTarget)
+  if (guard.kind === 'blocked') return guard
+  return guard.runtime === 'stopped'
+    ? guard
+    : { code: 'core-runtime-not-stopped', kind: 'blocked' }
 }
 
 function boundedVersion(value: unknown) {
@@ -134,6 +150,18 @@ function projectRouter(inspection: I2pdMaintenanceInspection): {
       issue: null,
       router: { maintenance: 'install', state: 'missing', version: null },
     }
+  }
+  if (inspection.router === 'legacy-stopped' && inspection.install === 'legacy') {
+    const version = boundedVersion(inspection.installedVersion)
+    return version
+      ? {
+          issue: null,
+          router: { maintenance: 'migrate', state: 'managed-stopped', version },
+        }
+      : {
+          issue: 'version-unavailable',
+          router: { maintenance: 'unavailable', state: 'unknown', version: null },
+        }
   }
   if (inspection.router === 'managed-running' || inspection.router === 'managed-stopped') {
     const version = boundedVersion(inspection.installedVersion)
@@ -207,12 +235,17 @@ async function readStatus(
       transportMode !== 'unknown' && !fatalIssue
     const routerReady = projected.router.state === 'external-running' ||
       projected.router.state === 'managed-running'
-    const canEnsureRouter = install === 'installed' && runtime === 'stopped' &&
-      projected.issue === null && (
+    const routerMaintenanceAvailable = projected.issue === null && (
         projected.router.maintenance === 'install' ||
+        projected.router.maintenance === 'migrate' ||
         projected.router.maintenance === 'start' ||
         projected.router.maintenance === 'update'
       )
+    const canEnsureRouter = install === 'installed' && routerMaintenanceAvailable && (
+      projected.router.maintenance === 'start'
+        ? runtime === 'running' || runtime === 'stopped'
+        : runtime === 'stopped'
+    )
 
     return {
       capabilities: {
@@ -224,8 +257,8 @@ async function readStatus(
         // one is found by connecting to a SAM port, so Home never learns which
         // executable is behind it -- there is nothing to open, rather than
         // something withheld.
-        canRevealRouterFolder: projected.router.state === 'managed-running' ||
-          projected.router.state === 'managed-stopped',
+        canRevealRouterFolder: inspection.router === 'managed-running' ||
+          inspection.router === 'managed-stopped',
         canSetModeWhileRunning: install === 'installed' && runtime === 'running' &&
           transportMode !== 'unknown' && !fatalIssue,
         canStopRouter: projected.router.state === 'managed-running' && !fatalIssue,
@@ -247,9 +280,6 @@ async function ensureRouter(
   operations: HomeV2TransportMaintenanceAdapterOperations,
 ): Promise<HomeV2TransportMaintenanceDependencyResult> {
   const manager = resolveQortiumManager(operations.resolveManager)
-  const initialCore = await requireStronglyStoppedCore(manager)
-  if (initialCore.kind === 'blocked') return blocked(initialCore.code)
-
   let inspection = await operations.inspectRouter()
   if (inspection.router === 'external-running') return blocked('external-router-active')
   if (!inspection.supported || inspection.router === 'unsupported') {
@@ -258,6 +288,13 @@ async function ensureRouter(
   if (inspection.router === 'unknown' || inspection.install === 'unknown' ||
     inspection.maintenance === 'unavailable') return blocked('status-unavailable')
   if (inspection.maintenance === 'none') return blocked('action-not-allowed')
+
+  const startOnly = inspection.install === 'installed' &&
+    inspection.maintenance === 'start' && inspection.router === 'managed-stopped'
+  const initialCore = await (startOnly
+    ? requireKnownCore(manager)
+    : requireStronglyStoppedCore(manager))
+  if (initialCore.kind === 'blocked') return blocked(initialCore.code)
 
   if (inspection.maintenance === 'update' &&
     (inspection.router === 'managed-running' || inspection.router === 'managed-stopped')) {
@@ -270,7 +307,8 @@ async function ensureRouter(
     if (inspection.router !== 'managed-stopped') return unconfirmed()
   }
 
-  if (inspection.maintenance === 'install' || inspection.maintenance === 'update') {
+  if (inspection.maintenance === 'install' || inspection.maintenance === 'migrate' ||
+    inspection.maintenance === 'update') {
     const beforeInstall = await requireStronglyStoppedCore(manager, initialCore.target)
     if (beforeInstall.kind === 'blocked') return blocked(beforeInstall.code)
     await operations.installRouter()
@@ -282,7 +320,9 @@ async function ensureRouter(
   }
 
   if (inspection.router === 'managed-stopped') {
-    const beforeStart = await requireStronglyStoppedCore(manager, initialCore.target)
+    const beforeStart = await (startOnly
+      ? requireKnownCore(manager, initialCore.target)
+      : requireStronglyStoppedCore(manager, initialCore.target))
     if (beforeStart.kind === 'blocked') return blocked(beforeStart.code)
     await operations.startRouter()
     inspection = await operations.inspectRouter()
@@ -291,7 +331,9 @@ async function ensureRouter(
     }
   }
 
-  const finalCore = await requireStronglyStoppedCore(manager, initialCore.target)
+  const finalCore = await (startOnly
+    ? requireKnownCore(manager, initialCore.target)
+    : requireStronglyStoppedCore(manager, initialCore.target))
   if (finalCore.kind === 'blocked') return blocked(finalCore.code)
   return inspection.router === 'managed-running' && inspection.managedProcessActive
     ? completed()

@@ -65,9 +65,14 @@ export type I2pdManagedInstall = Readonly<{
   record: I2pdManagedInstallRecordV1
 }>
 
+export type I2pdLegacyManagedInstall = Readonly<{
+  paths: I2pdManagedInstallPaths
+  version: string
+}>
+
 export type I2pdManagedInstallResult = Readonly<{
   install: I2pdManagedInstall
-  kind: 'installed' | 'reused-generation' | 'already-current'
+  kind: 'installed' | 'migrated-legacy' | 'reused-generation' | 'already-current'
 }>
 
 export type I2pdArchiveExtractor = (input: Readonly<{
@@ -344,6 +349,34 @@ function isExactLegacyCurrentRecord(
     : candidate === expectedResolved
 }
 
+async function readI2pdLegacyManagedInstallForRelease(input: Readonly<{
+  arch: string
+  basePath: string
+  platform: string
+}>, release: I2pdPinnedRelease): Promise<I2pdLegacyManagedInstall | null> {
+  const paths = resolveI2pdManagedInstallPaths(input.basePath)
+  if (!(await validateExistingLayout(paths))) return null
+  try {
+    const file = await readBoundedFile(paths.currentRecordPath, MAX_RECORD_BYTES)
+    const parsed = JSON.parse(file.bytes) as unknown
+    return isExactLegacyCurrentRecord(parsed, paths, release)
+      ? Object.freeze({ paths, version: release.version })
+      : null
+  } catch (error) {
+    if (errorCode(error) === 'ENOENT' || error instanceof SyntaxError) return null
+    throw error
+  }
+}
+
+export async function readI2pdLegacyManagedInstall(input: Readonly<{
+  arch: string
+  basePath: string
+  platform: string
+}>): Promise<I2pdLegacyManagedInstall | null> {
+  const release = getPinnedI2pdRelease(input.platform, input.arch)
+  return release ? await readI2pdLegacyManagedInstallForRelease(input, release) : null
+}
+
 async function writeAtomicPrivateJson(targetPath: string, value: unknown, token: string) {
   const temporaryPath = path.join(path.dirname(targetPath), `.${path.basename(targetPath)}.${token}.tmp`)
   const handle = await open(temporaryPath, 'wx', 0o600)
@@ -542,6 +575,61 @@ async function downloadPinnedArchive(
   }
 }
 
+async function stageVerifiedLegacyArchive(
+  sourcePath: string,
+  destinationPath: string,
+  release: I2pdPinnedRelease,
+) {
+  let source: Awaited<ReturnType<typeof open>> | undefined
+  let destination: Awaited<ReturnType<typeof open>> | undefined
+  let staged = false
+  try {
+    const before = await lstat(sourcePath)
+    if (!before.isFile() || before.isSymbolicLink() || before.size !== release.size) return false
+    source = await open(sourcePath, 'r')
+    const opened = await source.stat()
+    if (!opened.isFile() || opened.dev !== before.dev || opened.ino !== before.ino ||
+      opened.size !== before.size) return false
+
+    destination = await open(destinationPath, 'wx', 0o600)
+    const hash = createHash('sha256')
+    const buffer = Buffer.allocUnsafe(64 * 1024)
+    let position = 0
+    while (position < opened.size) {
+      const { bytesRead } = await source.read(
+        buffer,
+        0,
+        Math.min(buffer.length, opened.size - position),
+        position,
+      )
+      if (bytesRead <= 0) return false
+      hash.update(buffer.subarray(0, bytesRead))
+      let written = 0
+      while (written < bytesRead) {
+        const result = await destination.write(buffer, written, bytesRead - written, position + written)
+        if (result.bytesWritten <= 0) return false
+        written += result.bytesWritten
+      }
+      position += bytesRead
+    }
+
+    const after = await source.stat()
+    if (after.dev !== opened.dev || after.ino !== opened.ino || after.size !== opened.size ||
+      hash.digest('hex') !== release.sha256) return false
+    await destination.sync()
+    if (process.platform !== 'win32') await destination.chmod(0o600)
+    staged = true
+    return true
+  } catch (error) {
+    if (errorCode(error) === 'ENOENT') return false
+    throw error
+  } finally {
+    await source?.close().catch(() => undefined)
+    await destination?.close().catch(() => undefined)
+    if (!staged) await rm(destinationPath, { force: true }).catch(() => undefined)
+  }
+}
+
 function recordForRelease(
   release: I2pdPinnedRelease,
   binaryRelativePath: string,
@@ -622,11 +710,11 @@ async function readGenerationRecord(
   }
 }
 
-export async function readI2pdManagedInstall(input: Readonly<{
+async function readI2pdManagedInstallForRelease(input: Readonly<{
   arch: string
   basePath: string
   platform: string
-}>): Promise<I2pdManagedInstall | null> {
+}>, legacyRelease: I2pdPinnedRelease | null): Promise<I2pdManagedInstall | null> {
   const target = resolveI2pdReleaseTarget(input.platform, input.arch)
   if (!target) throw new I2pdManagedInstallError('target-unsupported', 'Managed i2pd is unsupported on this target.')
   const paths = resolveI2pdManagedInstallPaths(input.basePath)
@@ -644,8 +732,7 @@ export async function readI2pdManagedInstall(input: Readonly<{
   let record: I2pdManagedInstallRecordV1
   try {
     const parsed = JSON.parse(bytes) as unknown
-    const release = getPinnedI2pdRelease(input.platform, input.arch)
-    if (release && isExactLegacyCurrentRecord(parsed, paths, release)) return null
+    if (legacyRelease && isExactLegacyCurrentRecord(parsed, paths, legacyRelease)) return null
     requirePrivateRecordMode(mode)
     record = parseRecord(parsed, target)
   } catch (error) {
@@ -657,6 +744,17 @@ export async function readI2pdManagedInstall(input: Readonly<{
     throw new I2pdManagedInstallError('record-invalid', 'The current and generation i2pd records did not match.')
   }
   return await validateGeneration(paths, target, record)
+}
+
+export async function readI2pdManagedInstall(input: Readonly<{
+  arch: string
+  basePath: string
+  platform: string
+}>): Promise<I2pdManagedInstall | null> {
+  return await readI2pdManagedInstallForRelease(
+    input,
+    getPinnedI2pdRelease(input.platform, input.arch),
+  )
 }
 
 export async function installPinnedI2pd(
@@ -681,7 +779,8 @@ export async function installPinnedI2pd(
   }
   const paths = resolveI2pdManagedInstallPaths(input.basePath)
   await ensureLayout(paths)
-  const existing = await readI2pdManagedInstall(input)
+  const existing = await readI2pdManagedInstallForRelease(input, release)
+  const legacy = existing ? null : await readI2pdLegacyManagedInstallForRelease(input, release)
   if (existing) {
     const decision = classifyI2pdRelease(existing.record.version, input.platform, input.arch)
     if (decision.action === 'none' && decision.reason === 'installed-current') {
@@ -719,7 +818,7 @@ export async function installPinnedI2pd(
     const install = await validateGeneration(paths, release.target, generationRecord)
     await dependencies.beforeActivate?.(generationRecord)
     await writeAtomicPrivateJson(paths.currentRecordPath, generationRecord, token)
-    return Object.freeze({ install, kind: 'reused-generation' })
+    return Object.freeze({ install, kind: legacy ? 'migrated-legacy' : 'reused-generation' })
   } catch (error) {
     if (errorCode(error) !== 'ENOENT') throw error
   }
@@ -728,12 +827,21 @@ export async function installPinnedI2pd(
   const stagingPath = path.join(paths.versionsPath, `.staging-${generation}-${token}`)
   let staged = false
   try {
-    await downloadPinnedArchive(
-      release,
-      archivePath,
-      dependencies.fetch ?? globalThis.fetch,
-      timeoutMs,
-    )
+    const reusedLegacyArchive = legacy
+      ? await stageVerifiedLegacyArchive(
+          path.join(paths.downloadsPath, release.assetName),
+          archivePath,
+          release,
+        )
+      : false
+    if (!reusedLegacyArchive) {
+      await downloadPinnedArchive(
+        release,
+        archivePath,
+        dependencies.fetch ?? globalThis.fetch,
+        timeoutMs,
+      )
+    }
     await mkdir(stagingPath, { mode: 0o700, recursive: false })
     staged = true
     await (dependencies.extractArchive ?? defaultExtractArchive)({
@@ -774,7 +882,7 @@ export async function installPinnedI2pd(
     } catch (error) {
       throw new I2pdManagedInstallError('activation-failed', 'The managed i2pd generation could not be activated.', { cause: error })
     }
-    return Object.freeze({ install, kind: 'installed' })
+    return Object.freeze({ install, kind: legacy ? 'migrated-legacy' : 'installed' })
   } finally {
     await rm(archivePath, { force: true }).catch(() => undefined)
     if (staged) await rm(stagingPath, { force: true, recursive: true }).catch(() => undefined)

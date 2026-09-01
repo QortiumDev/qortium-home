@@ -6,6 +6,7 @@ import path from 'node:path'
 import {
   I2pdManagedInstallError,
   installPinnedI2pd,
+  readI2pdLegacyManagedInstall,
   readI2pdManagedInstall,
   resolveI2pdManagedInstallPaths,
   type I2pdArchiveExtractor,
@@ -115,37 +116,98 @@ async function noTemporaryEntries(basePath: string) {
 }
 
 {
-  const { basePath, root } = await temporaryBase('legacy-record')
+  const { basePath, root } = await temporaryBase('legacy-detection')
   try {
-    const legacyRelease = getPinnedI2pdRelease(INPUT.platform, INPUT.arch)
-    assert(legacyRelease)
+    const release = getPinnedI2pdRelease(INPUT.platform, INPUT.arch)
+    assert(release)
     const paths = resolveI2pdManagedInstallPaths(basePath)
     await mkdir(paths.downloadsPath, { mode: 0o700, recursive: true })
     await mkdir(paths.runtimePath, { mode: 0o700 })
     await mkdir(paths.versionsPath, { mode: 0o700 })
-    const legacyGenerationPath = path.join(
-      paths.versionsPath,
-      `${legacyRelease.version}-${legacyRelease.target}`,
-    )
+    const legacyGenerationPath = path.join(paths.versionsPath, `${release.version}-${release.target}`)
     await mkdir(legacyGenerationPath, { mode: 0o700 })
-    const legacyBinaryPath = path.join(legacyGenerationPath, legacyRelease.binaryName)
+    const legacyBinaryPath = path.join(legacyGenerationPath, release.binaryName)
     await writeFile(legacyBinaryPath, 'legacy binary fixture')
     await writeFile(paths.currentRecordPath, `${JSON.stringify({
-      asset: legacyRelease.assetName,
+      asset: release.assetName,
+      binaryPath: legacyBinaryPath,
+      installedAt: '2026-06-28T02:05:54.315Z',
+      sha256: release.sha256,
+      target: release.target,
+      version: release.version,
+    }, null, 2)}\n`, { mode: 0o660 })
+
+    assert.equal((await readI2pdLegacyManagedInstall({ ...INPUT, basePath }))?.version, release.version)
+    assert.equal(await readI2pdManagedInstall({ ...INPUT, basePath }), null)
+  } finally {
+    await rm(root, { force: true, recursive: true })
+  }
+}
+
+{
+  const { basePath, root } = await temporaryBase('legacy-record')
+  try {
+    const paths = resolveI2pdManagedInstallPaths(basePath)
+    await mkdir(paths.downloadsPath, { mode: 0o700, recursive: true })
+    await mkdir(paths.runtimePath, { mode: 0o700 })
+    await mkdir(paths.versionsPath, { mode: 0o700 })
+    await writeFile(path.join(paths.runtimePath, 'router.keys'), 'preserved legacy identity')
+    const legacyGenerationPath = path.join(
+      paths.versionsPath,
+      `${RELEASE.version}-${RELEASE.target}`,
+    )
+    await mkdir(legacyGenerationPath, { mode: 0o700 })
+    const legacyBinaryPath = path.join(legacyGenerationPath, RELEASE.binaryName)
+    await writeFile(legacyBinaryPath, 'legacy binary fixture')
+    await writeFile(path.join(paths.downloadsPath, RELEASE.assetName), ARCHIVE, { mode: 0o660 })
+    await writeFile(paths.currentRecordPath, `${JSON.stringify({
+      asset: RELEASE.assetName,
       binaryPath: legacyBinaryPath,
       installedAt: '2026-08-21T12:34:56.000Z',
-      sha256: legacyRelease.sha256,
-      target: legacyRelease.target,
-      version: legacyRelease.version,
+      sha256: RELEASE.sha256,
+      target: RELEASE.target,
+      version: RELEASE.version,
+    }, null, 2)}\n`, { mode: 0o644 })
+
+    const migrated = await installPinnedI2pd({ ...INPUT, basePath }, dependencies({
+      fetch: async () => { throw new Error('verified legacy archive must be reused') },
+    }))
+    assert.equal(migrated.kind, 'migrated-legacy')
+    assert.equal((await readI2pdManagedInstall({ ...INPUT, basePath }))?.record.revision, 1)
+    assert.equal(await readFile(legacyBinaryPath, 'utf8'), 'legacy binary fixture')
+    assert.equal(await readFile(path.join(paths.runtimePath, 'router.keys'), 'utf8'), 'preserved legacy identity')
+  } finally {
+    await rm(root, { force: true, recursive: true })
+  }
+}
+
+{
+  const { basePath, root } = await temporaryBase('legacy-archive-fallback')
+  try {
+    const paths = resolveI2pdManagedInstallPaths(basePath)
+    await mkdir(paths.downloadsPath, { mode: 0o700, recursive: true })
+    await mkdir(paths.runtimePath, { mode: 0o700 })
+    await mkdir(paths.versionsPath, { mode: 0o700 })
+    const legacyGenerationPath = path.join(paths.versionsPath, `${RELEASE.version}-${RELEASE.target}`)
+    await mkdir(legacyGenerationPath, { mode: 0o700 })
+    const legacyBinaryPath = path.join(legacyGenerationPath, RELEASE.binaryName)
+    await writeFile(legacyBinaryPath, 'legacy binary fixture')
+    await writeFile(path.join(paths.downloadsPath, RELEASE.assetName), 'wrong archive')
+    await writeFile(paths.currentRecordPath, `${JSON.stringify({
+      asset: RELEASE.assetName,
+      binaryPath: legacyBinaryPath,
+      installedAt: '2026-08-21T12:34:56.000Z',
+      sha256: RELEASE.sha256,
+      target: RELEASE.target,
+      version: RELEASE.version,
     }, null, 2)}\n`, { mode: 0o644 })
 
     let fetches = 0
     const migrated = await installPinnedI2pd({ ...INPUT, basePath }, dependencies({
       fetch: async () => { fetches += 1; return response() },
     }))
-    assert.equal(migrated.kind, 'installed')
+    assert.equal(migrated.kind, 'migrated-legacy')
     assert.equal(fetches, 1)
-    assert.equal((await readI2pdManagedInstall({ ...INPUT, basePath }))?.record.revision, 1)
     assert.equal(await readFile(legacyBinaryPath, 'utf8'), 'legacy binary fixture')
   } finally {
     await rm(root, { force: true, recursive: true })

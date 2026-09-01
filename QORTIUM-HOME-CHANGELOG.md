@@ -34,6 +34,21 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-09-01 - fix(i2p): migrate Home 1.x routers and restore live start
+
+Home 2 now recognizes the managed i2pd installation left by Home 1.x instead
+of describing it as missing. Starting that router migrates it into Home 2's
+stricter immutable-install format while preserving the old binary and the
+router's identity and network data. When the old downloaded archive is still
+available, Home reuses it only after it exactly matches the size and SHA-256
+digest built into this Home release; otherwise it downloads and verifies a
+fresh copy.
+
+An already migrated router can also be started while Qortium Core is running,
+restoring the old start-button behavior. Installing, migrating, and updating
+the router still require Core to be stopped, and Home still controls only the
+router process started by the current Home session.
+
 ### 2026-08-31 - fix(settings): reopen Settings where you left it
 
 Settings always opened on General, however deep in Runtime or QDN Apps you had

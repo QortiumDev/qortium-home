@@ -16,6 +16,7 @@ export type HomeV2TransportRouterState =
 
 export type HomeV2TransportRouterMaintenance =
   | 'install'
+  | 'migrate'
   | 'none'
   | 'start'
   | 'unavailable'
@@ -194,6 +195,7 @@ const MODES = new Set<HomeV2TransportMode>([
 ])
 const ROUTER_MAINTENANCE = new Set<HomeV2TransportRouterMaintenance>([
   'install',
+  'migrate',
   'none',
   'start',
   'unavailable',
@@ -275,18 +277,25 @@ function normalizeStatus(value: unknown): HomeV2TransportMaintenanceStatus | nul
   const expectedCanStop = routerState === 'managed-running' && !fatalIssue
   // Re-derived here, like every other capability, so a status claiming a folder
   // can be opened for an EXTERNAL router is rejected rather than displayed.
-  const expectedCanReveal = routerState === 'managed-running' || routerState === 'managed-stopped'
+  const expectedCanReveal = routerState === 'managed-running' ||
+    (routerState === 'managed-stopped' && maintenance !== 'migrate')
   const expectedCanSetLive = install === 'installed' && runtime === 'running' &&
     transportMode !== 'unknown' && !fatalIssue
-  const expectedCanEnsure = install === 'installed' && runtime === 'stopped' && issue === null &&
-    (maintenance === 'install' || maintenance === 'start' || maintenance === 'update')
+  const routerMaintenanceAvailable = maintenance === 'install' || maintenance === 'migrate' ||
+    maintenance === 'start' || maintenance === 'update'
+  const expectedCanEnsure = install === 'installed' && issue === null && routerMaintenanceAvailable && (
+    maintenance === 'start'
+      ? runtime === 'running' || runtime === 'stopped'
+      : runtime === 'stopped'
+  )
 
   const routerShapeCoherent = routerState === 'external-running'
     ? maintenance === 'none' && version === null
     : routerState === 'managed-running'
       ? version !== null && (maintenance === 'none' || maintenance === 'update' || maintenance === 'unavailable')
       : routerState === 'managed-stopped'
-        ? version !== null && (maintenance === 'start' || maintenance === 'update' || maintenance === 'unavailable')
+        ? version !== null && (maintenance === 'migrate' || maintenance === 'start' ||
+          maintenance === 'update' || maintenance === 'unavailable')
         : routerState === 'missing'
           ? maintenance === 'install' && version === null
           : maintenance === 'unavailable' && version === null
@@ -426,9 +435,11 @@ function preflightCode(
   }
 
   if (request.action === 'ensure-router') {
-    if (status.core.runtime !== 'stopped') return 'core-runtime-not-stopped'
     if (status.router.state === 'external-running') return 'external-router-active'
     if (status.router.state === 'unsupported') return 'router-unsupported'
+    if (status.core.runtime !== 'stopped' && status.router.maintenance !== 'start') {
+      return 'core-runtime-not-stopped'
+    }
     return status.capabilities.canEnsureRouter ? null : 'action-not-allowed'
   }
 

@@ -729,6 +729,7 @@ const transportRouterStates = new Set<HomeV2TransportMaintenanceStatus['router']
 ])
 const transportRouterMaintenance = new Set<HomeV2TransportMaintenanceStatus['router']['maintenance']>([
   'install',
+  'migrate',
   'none',
   'start',
   'unavailable',
@@ -808,14 +809,20 @@ export function parseHomeV2TransportMaintenanceStatus(
   const routerReady = routerState === 'external-running' || routerState === 'managed-running'
   const canChangeStoppedCore = install === 'installed' && runtime === 'stopped' &&
     mode !== 'unknown' && !fatalIssue
-  const canEnsureRouter = install === 'installed' && runtime === 'stopped' && issue === null &&
-    (maintenance === 'install' || maintenance === 'start' || maintenance === 'update')
+  const routerMaintenanceAvailable = maintenance === 'install' || maintenance === 'migrate' ||
+    maintenance === 'start' || maintenance === 'update'
+  const canEnsureRouter = install === 'installed' && issue === null && routerMaintenanceAvailable && (
+    maintenance === 'start'
+      ? runtime === 'running' || runtime === 'stopped'
+      : runtime === 'stopped'
+  )
   const routerShapeCoherent = routerState === 'external-running'
     ? maintenance === 'none' && version === null
     : routerState === 'managed-running'
       ? version !== null && (maintenance === 'none' || maintenance === 'update' || maintenance === 'unavailable')
       : routerState === 'managed-stopped'
-        ? version !== null && (maintenance === 'start' || maintenance === 'update' || maintenance === 'unavailable')
+        ? version !== null && (maintenance === 'migrate' || maintenance === 'start' ||
+          maintenance === 'update' || maintenance === 'unavailable')
         : routerState === 'missing'
           ? maintenance === 'install' && version === null
           : maintenance === 'unavailable' && version === null
@@ -836,8 +843,8 @@ export function parseHomeV2TransportMaintenanceStatus(
     capabilities.canSetDirectOnly !== canChangeStoppedCore ||
     capabilities.canSetDirectAndI2p !== (canChangeStoppedCore && routerReady) ||
     capabilities.canSetI2pOnly !== (canChangeStoppedCore && routerReady) ||
-    capabilities.canRevealRouterFolder !==
-      (routerState === 'managed-running' || routerState === 'managed-stopped') ||
+    capabilities.canRevealRouterFolder !== (routerState === 'managed-running' ||
+      (routerState === 'managed-stopped' && maintenance !== 'migrate')) ||
     capabilities.canStopRouter !== (routerState === 'managed-running' && !fatalIssue) ||
     capabilities.canSetModeWhileRunning !== (install === 'installed' && runtime === 'running' &&
       mode !== 'unknown' && !fatalIssue)) {

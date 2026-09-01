@@ -41,9 +41,11 @@ function transportStatus(options: StatusOptions = {}): HomeV2TransportMaintenanc
   const routerReady = routerState === 'external-running' || routerState === 'managed-running'
   return {
     capabilities: {
-      canEnsureRouter: coreInstall === 'installed' && coreRuntime === 'stopped' && issue === null &&
-        ['install', 'start', 'update'].includes(maintenance),
-      canRevealRouterFolder: routerState === 'managed-running' || routerState === 'managed-stopped',
+      canEnsureRouter: coreInstall === 'installed' && issue === null &&
+        ['install', 'migrate', 'start', 'update'].includes(maintenance) &&
+        (maintenance === 'start' ? coreRuntime !== 'unknown' : coreRuntime === 'stopped'),
+      canRevealRouterFolder: routerState === 'managed-running' ||
+        (routerState === 'managed-stopped' && maintenance !== 'migrate'),
       canSetDirectAndI2p: canChange && routerReady,
       canSetDirectOnly: canChange,
       canSetI2pOnly: canChange && routerReady,
@@ -70,6 +72,11 @@ const readyStatus = transportStatus({
 const externalStatus = transportStatus({
   maintenance: 'none',
   routerState: 'external-running',
+})
+const legacyStatus = transportStatus({
+  maintenance: 'migrate',
+  routerState: 'managed-stopped',
+  version: '2.60.0-q2',
 })
 
 function actionResult(
@@ -119,6 +126,7 @@ function TransportMaintenanceHarness() {
 }
 
 assert.deepEqual(parseHomeV2TransportMaintenanceStatus(missingStatus), missingStatus)
+assert.deepEqual(parseHomeV2TransportMaintenanceStatus(legacyStatus), legacyStatus)
 assert.throws(() => parseHomeV2TransportMaintenanceStatus({
   ...missingStatus,
   privatePath: '/secret/i2pd',
@@ -233,9 +241,14 @@ try {
   assert.ok(button('Update and restart I2P router'))
   assert.match(container.textContent ?? '', /strictly newer verified build/)
 
+  await render(client({ getTransportMaintenanceStatus: async () => legacyStatus }))
+  assert.ok(button('Start I2P router'))
+  assert.match(container.textContent ?? '', /2\.60\.0-q2/)
+  assert.match(container.textContent ?? '', /installed but stopped/)
+
   // A running Core can now change the mode through the node's API, so the
   // selector stays usable and the note says a restart applies it. Router
-  // maintenance still needs Core stopped, and still says so.
+  // Installing or migrating still needs Core stopped, and still says so.
   const runningStatus = transportStatus({ coreRuntime: 'running' })
   await render(client({ getTransportMaintenanceStatus: async () => runningStatus }))
   assert.equal(container.querySelector('select')?.hasAttribute('disabled'), false)
@@ -243,6 +256,17 @@ try {
   assert.doesNotMatch(container.textContent ?? '', /Stop Qortium Core before applying/)
   assert.match(container.textContent ?? '', /Stop Qortium Core to install or update its I2P router/)
   assert.equal(hasButton('Install and start I2P router'), false)
+
+  const runningStartStatus = transportStatus({
+    coreRuntime: 'running',
+    maintenance: 'start',
+    routerState: 'managed-stopped',
+    version: '2.60.0-q2',
+  })
+  await render(client({ getTransportMaintenanceStatus: async () => runningStartStatus }))
+  assert.ok(button('Start I2P router'))
+  assert.match(container.textContent ?? '', /installed but stopped/)
+  assert.doesNotMatch(container.textContent ?? '', /Stop Qortium Core to install or update/)
 
   let refreshShouldFail = false
   await render(client({

@@ -33,12 +33,14 @@ function status(options: StatusOptions = {}): HomeV2TransportMaintenanceStatus {
   const canChange = coreInstall === 'installed' && coreRuntime === 'stopped' &&
     mode !== 'unknown' && !fatalIssue
   const routerReady = routerState === 'external-running' || routerState === 'managed-running'
-  const canEnsureRouter = coreInstall === 'installed' && coreRuntime === 'stopped' && issue === null &&
-    ['install', 'start', 'update'].includes(maintenance)
+  const canEnsureRouter = coreInstall === 'installed' && issue === null &&
+    ['install', 'migrate', 'start', 'update'].includes(maintenance) &&
+    (maintenance === 'start' ? coreRuntime !== 'unknown' : coreRuntime === 'stopped')
   return {
     capabilities: {
       canEnsureRouter,
-      canRevealRouterFolder: routerState === 'managed-running' || routerState === 'managed-stopped',
+      canRevealRouterFolder: routerState === 'managed-running' ||
+        (routerState === 'managed-stopped' && maintenance !== 'migrate'),
       canSetDirectAndI2p: canChange && routerReady,
       canSetDirectOnly: canChange,
       canSetI2pOnly: canChange && routerReady,
@@ -319,6 +321,12 @@ for (const [request, finalStatus] of [
 for (const [preflight, action, mode, expectedCode] of [
   [status(), 'set-mode', 'i2p-only', 'i2p-router-required'],
   [status({ coreRuntime: 'running' }), 'set-mode', 'direct-only', 'core-runtime-not-stopped'],
+  [status({
+    coreRuntime: 'running',
+    maintenance: 'migrate',
+    routerState: 'managed-stopped',
+    version: '2.60.0-q2',
+  }), 'ensure-router', null, 'core-runtime-not-stopped'],
   [status({ coreInstall: 'missing', mode: 'unknown' }), 'ensure-router', null, 'core-install-missing'],
   [status({
     maintenance: 'none',
@@ -350,6 +358,33 @@ for (const [preflight, action, mode, expectedCode] of [
   assert.equal(result.outcome, 'blocked')
   assert.equal(result.code, expectedCode)
   assert.equal(mutationCalls, 0)
+}
+
+{
+  let reads = 0
+  let starts = 0
+  const starting = status({
+    coreRuntime: 'running',
+    maintenance: 'start',
+    routerState: 'managed-stopped',
+    version: '2.60.0-q2',
+  })
+  const running = status({
+    coreRuntime: 'running',
+    maintenance: 'none',
+    routerState: 'managed-running',
+    version: '2.60.0-q2',
+  })
+  const result = await createHomeV2TransportMaintenanceService(dependencies({
+    ensureRouter: async () => {
+      starts += 1
+      return { code: null, kind: 'completed', warning: null }
+    },
+    readStatus: async () => (++reads === 1 ? starting : running),
+  })).runAction(mutationRequest('ensure-router', null))
+  assert.equal(starts, 1)
+  assert.equal(result.outcome, 'completed')
+  assert.equal(result.code, null)
 }
 
 for (const [dependencyResult, outcome, code] of [
