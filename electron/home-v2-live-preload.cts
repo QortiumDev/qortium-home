@@ -269,7 +269,8 @@ contextBridge.exposeInMainWorld('homeV2CoreManagers', {
       schema: 'home-v2-transport-maintenance-request',
     }),
   runTransportMaintenanceAction: (
-    action: 'ensure-router' | 'set-mode',
+    action: 'ensure-router' | 'reveal-router' | 'set-mode' | 'set-mode-live' |
+      'stop-router' | 'update-router',
     transportMode: 'direct-and-i2p' | 'direct-only' | 'i2p-only' | null,
   ) => ipcRenderer.invoke('home-v2-core-manager:runTransportMaintenanceAction', {
     action,

@@ -48,6 +48,7 @@ import {
   install as installI2pd,
   start as startI2pd,
   stopIfManaged as stopI2pdIfManaged,
+  updateAndStart as updateI2pdAndStart,
 } from './i2pd-manager.js'
 
 /**
@@ -189,6 +190,7 @@ export function registerHomeV2CoreManagerBridgeIpcHandlers() {
       revealManagedRouter: revealHomeV2ManagedI2pd,
       startRouter: startI2pd,
       stopManagedRouter: stopI2pdIfManaged,
+      updateRouter: updateI2pdAndStart,
     })),
   )
   ipcMain.handle(

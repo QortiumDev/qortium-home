@@ -793,6 +793,7 @@ export function parseHomeV2TransportMaintenanceStatus(
       'canSetModeWhileRunning',
       'canRevealRouterFolder',
       'canStopRouter',
+      'canUpdateRouter',
     ]) || Object.values(value.capabilities).some((entry) => typeof entry !== 'boolean')) {
     throw new Error('Invalid Home 2 transport maintenance status.')
   }
@@ -809,13 +810,14 @@ export function parseHomeV2TransportMaintenanceStatus(
   const routerReady = routerState === 'external-running' || routerState === 'managed-running'
   const canChangeStoppedCore = install === 'installed' && runtime === 'stopped' &&
     mode !== 'unknown' && !fatalIssue
-  const routerMaintenanceAvailable = maintenance === 'install' || maintenance === 'migrate' ||
-    maintenance === 'start' || maintenance === 'update'
-  const canEnsureRouter = install === 'installed' && issue === null && routerMaintenanceAvailable && (
-    maintenance === 'start'
-      ? runtime === 'running' || runtime === 'stopped'
-      : runtime === 'stopped'
+  const canEnsureRouter = install === 'installed' && issue === null && (
+    (routerState === 'managed-stopped' && (maintenance === 'start' || maintenance === 'update') &&
+      (runtime === 'running' || runtime === 'stopped')) ||
+    ((maintenance === 'install' || maintenance === 'migrate') && runtime === 'stopped')
   )
+  const canUpdateRouter = install === 'installed' && runtime === 'stopped' && issue === null &&
+    maintenance === 'update' &&
+    (routerState === 'managed-running' || routerState === 'managed-stopped')
   const routerShapeCoherent = routerState === 'external-running'
     ? maintenance === 'none' && version === null
     : routerState === 'managed-running'
@@ -846,6 +848,7 @@ export function parseHomeV2TransportMaintenanceStatus(
     capabilities.canRevealRouterFolder !== (routerState === 'managed-running' ||
       (routerState === 'managed-stopped' && maintenance !== 'migrate')) ||
     capabilities.canStopRouter !== (routerState === 'managed-running' && !fatalIssue) ||
+    capabilities.canUpdateRouter !== canUpdateRouter ||
     capabilities.canSetModeWhileRunning !== (install === 'installed' && runtime === 'running' &&
       mode !== 'unknown' && !fatalIssue)) {
     throw new Error('Invalid Home 2 transport maintenance status.')
@@ -860,6 +863,7 @@ export function parseHomeV2TransportMaintenanceStatus(
       canSetModeWhileRunning: capabilities.canSetModeWhileRunning,
       canRevealRouterFolder: capabilities.canRevealRouterFolder,
       canStopRouter: capabilities.canStopRouter,
+      canUpdateRouter: capabilities.canUpdateRouter,
     }),
     core: Object.freeze({ install, runtime }),
     issue,

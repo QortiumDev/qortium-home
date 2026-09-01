@@ -18,6 +18,7 @@ import { extract as extractTar } from 'tar'
 import {
   classifyI2pdRelease,
   getPinnedI2pdRelease,
+  getTrustedI2pdReleases,
   resolveI2pdReleaseTarget,
   type I2pdPinnedRelease,
   type I2pdReleaseTarget,
@@ -152,6 +153,19 @@ function expectedAssetName(
 
 function expectedBinaryName(target: I2pdReleaseTarget) {
   return target.startsWith('windows-') ? 'i2pd.exe' as const : 'i2pd' as const
+}
+
+function recordMatchesRelease(
+  record: I2pdManagedInstallRecordV1,
+  release: I2pdPinnedRelease,
+) {
+  return record.version === release.version &&
+    record.target === release.target &&
+    record.archiveType === release.archiveType &&
+    record.assetName === release.assetName &&
+    record.archiveSha256 === release.sha256 &&
+    record.archiveSize === release.size &&
+    record.binaryName === release.binaryName
 }
 
 function normalizeRelativePath(value: string) {
@@ -373,8 +387,11 @@ export async function readI2pdLegacyManagedInstall(input: Readonly<{
   basePath: string
   platform: string
 }>): Promise<I2pdLegacyManagedInstall | null> {
-  const release = getPinnedI2pdRelease(input.platform, input.arch)
-  return release ? await readI2pdLegacyManagedInstallForRelease(input, release) : null
+  for (const release of getTrustedI2pdReleases(input.platform, input.arch)) {
+    const legacy = await readI2pdLegacyManagedInstallForRelease(input, release)
+    if (legacy) return legacy
+  }
+  return null
 }
 
 async function writeAtomicPrivateJson(targetPath: string, value: unknown, token: string) {
@@ -714,7 +731,7 @@ async function readI2pdManagedInstallForRelease(input: Readonly<{
   arch: string
   basePath: string
   platform: string
-}>, legacyRelease: I2pdPinnedRelease | null): Promise<I2pdManagedInstall | null> {
+}>, trustedReleases: readonly I2pdPinnedRelease[]): Promise<I2pdManagedInstall | null> {
   const target = resolveI2pdReleaseTarget(input.platform, input.arch)
   if (!target) throw new I2pdManagedInstallError('target-unsupported', 'Managed i2pd is unsupported on this target.')
   const paths = resolveI2pdManagedInstallPaths(input.basePath)
@@ -732,7 +749,7 @@ async function readI2pdManagedInstallForRelease(input: Readonly<{
   let record: I2pdManagedInstallRecordV1
   try {
     const parsed = JSON.parse(bytes) as unknown
-    if (legacyRelease && isExactLegacyCurrentRecord(parsed, paths, legacyRelease)) return null
+    if (trustedReleases.some((release) => isExactLegacyCurrentRecord(parsed, paths, release))) return null
     requirePrivateRecordMode(mode)
     record = parseRecord(parsed, target)
   } catch (error) {
@@ -753,8 +770,57 @@ export async function readI2pdManagedInstall(input: Readonly<{
 }>): Promise<I2pdManagedInstall | null> {
   return await readI2pdManagedInstallForRelease(
     input,
-    getPinnedI2pdRelease(input.platform, input.arch),
+    getTrustedI2pdReleases(input.platform, input.arch),
   )
+}
+
+/** Runtime authority gate: structural self-consistency alone is not enough to
+ * execute a managed binary. The current record must match an exact descriptor
+ * in Home's trusted old/new catalogue. */
+export async function readTrustedI2pdManagedInstall(input: Readonly<{
+  arch: string
+  basePath: string
+  platform: string
+}>): Promise<I2pdManagedInstall | null> {
+  const installed = await readI2pdManagedInstall(input)
+  if (!installed) return null
+  const trusted = getTrustedI2pdReleases(input.platform, input.arch)
+    .some((release) => recordMatchesRelease(installed.record, release))
+  if (!trusted) {
+    throw new I2pdManagedInstallError(
+      'record-invalid',
+      'The managed i2pd current record was not an exact trusted release.',
+    )
+  }
+  return installed
+}
+
+/**
+ * Re-activates an already validated immutable generation. This is deliberately
+ * narrower than installation: it performs no download or extraction and is
+ * used by the manager to restore the previous trusted release after a failed
+ * update readiness check.
+ */
+export async function activateTrustedI2pdGeneration(
+  input: Readonly<{ arch: string; basePath: string; platform: string }>,
+  expected: I2pdManagedInstall,
+  dependencies: Pick<I2pdManagedInstallDependencies, 'randomToken'> = {},
+): Promise<I2pdManagedInstall> {
+  const target = resolveI2pdReleaseTarget(input.platform, input.arch)
+  if (!target) throw new I2pdManagedInstallError('target-unsupported', 'Managed i2pd is unsupported on this target.')
+  const paths = resolveI2pdManagedInstallPaths(input.basePath)
+  if (expected.paths.basePath !== paths.basePath || expected.record.target !== target) {
+    throw new I2pdManagedInstallError('record-invalid', 'The rollback i2pd generation did not match this installation.')
+  }
+  const release = getTrustedI2pdReleases(input.platform, input.arch)
+    .find((candidate) => recordMatchesRelease(expected.record, candidate))
+  if (!release) {
+    throw new I2pdManagedInstallError('record-invalid', 'The rollback i2pd generation was not a trusted release.')
+  }
+  const validated = await validateGeneration(paths, target, expected.record)
+  const token = safeToken((dependencies.randomToken ?? defaultToken)())
+  await writeAtomicPrivateJson(paths.currentRecordPath, validated.record, token)
+  return validated
 }
 
 export async function installPinnedI2pd(
@@ -779,16 +845,20 @@ export async function installPinnedI2pd(
   }
   const paths = resolveI2pdManagedInstallPaths(input.basePath)
   await ensureLayout(paths)
-  const existing = await readI2pdManagedInstallForRelease(input, release)
+  const trustedReleases = getTrustedI2pdReleases(input.platform, input.arch)
+  const existing = await readI2pdManagedInstallForRelease(
+    input,
+    [...trustedReleases, release],
+  )
   const legacy = existing ? null : await readI2pdLegacyManagedInstallForRelease(input, release)
   if (existing) {
-    const decision = classifyI2pdRelease(existing.record.version, input.platform, input.arch)
-    if (decision.action === 'none' && decision.reason === 'installed-current') {
-      if (existing.record.archiveSha256 !== release.sha256 || existing.record.archiveSize !== release.size) {
+    if (existing.record.version === release.version) {
+      if (!recordMatchesRelease(existing.record, release)) {
         throw new I2pdManagedInstallError('record-invalid', 'The current i2pd version did not match its pinned release.')
       }
       return Object.freeze({ install: existing, kind: 'already-current' })
     }
+    const decision = classifyI2pdRelease(existing.record.version, input.platform, input.arch)
     if (decision.action !== 'install' && decision.action !== 'update') {
       throw new I2pdManagedInstallError('installed-newer', 'The pinned i2pd release would not be an upgrade.')
     }

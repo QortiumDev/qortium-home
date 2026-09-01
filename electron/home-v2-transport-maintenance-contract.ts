@@ -49,6 +49,8 @@ export type HomeV2TransportMaintenanceStatus = {
      */
     readonly canRevealRouterFolder: boolean
     readonly canStopRouter: boolean
+    /** A newer trusted release can be installed while Core is stopped. */
+    readonly canUpdateRouter: boolean
     /**
      * Whether the mode can be changed on a RUNNING Core, through its API.
      *
@@ -81,6 +83,7 @@ export type HomeV2TransportMaintenanceAction =
   | 'set-mode'
   | 'set-mode-live'
   | 'stop-router'
+  | 'update-router'
 
 export type HomeV2TransportMaintenanceActionCode =
   | 'action-not-allowed'
@@ -147,6 +150,7 @@ export type HomeV2TransportMaintenanceDependencies = {
     mode: Exclude<HomeV2TransportMode, 'unknown'>,
   ) => Promise<HomeV2TransportMaintenanceDependencyResult>
   readonly stopRouter: () => Promise<HomeV2TransportMaintenanceDependencyResult>
+  readonly updateRouter: () => Promise<HomeV2TransportMaintenanceDependencyResult>
 }
 
 type MutationRequest = Readonly<{
@@ -258,6 +262,7 @@ function normalizeStatus(value: unknown): HomeV2TransportMaintenanceStatus | nul
       'canSetI2pOnly',
       'canSetModeWhileRunning',
       'canStopRouter',
+      'canUpdateRouter',
     ]) || Object.values(value.capabilities).some((entry) => typeof entry !== 'boolean')) {
     return null
   }
@@ -275,18 +280,20 @@ function normalizeStatus(value: unknown): HomeV2TransportMaintenanceStatus | nul
   const canChangeStoppedCore = install === 'installed' && runtime === 'stopped' &&
     transportMode !== 'unknown' && !fatalIssue
   const expectedCanStop = routerState === 'managed-running' && !fatalIssue
+  const expectedCanUpdate = install === 'installed' && runtime === 'stopped' &&
+    maintenance === 'update' && issue === null &&
+    (routerState === 'managed-running' || routerState === 'managed-stopped')
   // Re-derived here, like every other capability, so a status claiming a folder
   // can be opened for an EXTERNAL router is rejected rather than displayed.
   const expectedCanReveal = routerState === 'managed-running' ||
     (routerState === 'managed-stopped' && maintenance !== 'migrate')
   const expectedCanSetLive = install === 'installed' && runtime === 'running' &&
     transportMode !== 'unknown' && !fatalIssue
-  const routerMaintenanceAvailable = maintenance === 'install' || maintenance === 'migrate' ||
-    maintenance === 'start' || maintenance === 'update'
-  const expectedCanEnsure = install === 'installed' && issue === null && routerMaintenanceAvailable && (
-    maintenance === 'start'
-      ? runtime === 'running' || runtime === 'stopped'
-      : runtime === 'stopped'
+  const expectedCanEnsure = install === 'installed' && issue === null && (
+    (routerState === 'managed-stopped' &&
+      (maintenance === 'start' || maintenance === 'update') &&
+      (runtime === 'running' || runtime === 'stopped')) ||
+    ((maintenance === 'install' || maintenance === 'migrate') && runtime === 'stopped')
   )
 
   const routerShapeCoherent = routerState === 'external-running'
@@ -319,6 +326,7 @@ function normalizeStatus(value: unknown): HomeV2TransportMaintenanceStatus | nul
     (capabilities.canSetI2pOnly !== (canChangeStoppedCore && routerReady)) ||
     (capabilities.canRevealRouterFolder !== expectedCanReveal) ||
     (capabilities.canStopRouter !== expectedCanStop) ||
+    (capabilities.canUpdateRouter !== expectedCanUpdate) ||
     (capabilities.canSetModeWhileRunning !== expectedCanSetLive)) {
     return null
   }
@@ -332,6 +340,7 @@ function normalizeStatus(value: unknown): HomeV2TransportMaintenanceStatus | nul
       canSetI2pOnly: capabilities.canSetI2pOnly,
       canSetModeWhileRunning: capabilities.canSetModeWhileRunning,
       canStopRouter: capabilities.canStopRouter,
+      canUpdateRouter: capabilities.canUpdateRouter,
     }),
     core: Object.freeze({ install, runtime }),
     issue,
@@ -353,6 +362,7 @@ function unavailableStatus(): HomeV2TransportMaintenanceStatus {
       canSetI2pOnly: false,
       canSetModeWhileRunning: false,
       canStopRouter: false,
+      canUpdateRouter: false,
     }),
     core: Object.freeze({ install: 'unknown', runtime: 'unknown' }),
     issue: 'status-unavailable',
@@ -379,12 +389,13 @@ function normalizeMutationRequest(value: unknown): MutationRequest {
     value.revision !== 1 || value.network !== 'qortium' ||
     (value.action !== 'ensure-router' && value.action !== 'reveal-router' &&
       value.action !== 'set-mode' && value.action !== 'set-mode-live' &&
-      value.action !== 'stop-router') ||
+      value.action !== 'stop-router' && value.action !== 'update-router') ||
     !(value.transportMode === null || (
       MODES.has(value.transportMode as HomeV2TransportMode) && value.transportMode !== 'unknown'
     )) ||
     ((value.action === 'ensure-router' || value.action === 'reveal-router' ||
-      value.action === 'stop-router') && value.transportMode !== null) ||
+      value.action === 'stop-router' || value.action === 'update-router') &&
+      value.transportMode !== null) ||
     ((value.action === 'set-mode' || value.action === 'set-mode-live') &&
       value.transportMode === null)) {
     throw new Error('An exact Qortium transport maintenance mutation request is required.')
@@ -419,6 +430,13 @@ function preflightCode(
     return status.capabilities.canStopRouter ? null : 'action-not-allowed'
   }
 
+  if (request.action === 'update-router') {
+    if (status.router.state === 'external-running') return 'external-router-active'
+    if (status.router.state === 'unsupported') return 'router-unsupported'
+    if (status.core.runtime !== 'stopped') return 'core-runtime-not-stopped'
+    return status.capabilities.canUpdateRouter ? null : 'action-not-allowed'
+  }
+
   if (request.action === 'set-mode-live') {
     // Deliberately the mirror image of the file path's gate: this one requires a
     // RUNNING Core, because it writes through the node's API rather than its
@@ -437,7 +455,8 @@ function preflightCode(
   if (request.action === 'ensure-router') {
     if (status.router.state === 'external-running') return 'external-router-active'
     if (status.router.state === 'unsupported') return 'router-unsupported'
-    if (status.core.runtime !== 'stopped' && status.router.maintenance !== 'start') {
+    if (status.core.runtime !== 'stopped' &&
+      status.router.maintenance !== 'start' && status.router.maintenance !== 'update') {
       return 'core-runtime-not-stopped'
     }
     return status.capabilities.canEnsureRouter ? null : 'action-not-allowed'
@@ -513,6 +532,9 @@ function mappedDependencyResult(
       ? status.issue !== 'manager-unavailable' && status.issue !== 'status-unavailable'
       : request.action === 'ensure-router'
       ? status.issue === null && status.router.state === 'managed-running' &&
+        (status.router.maintenance === 'none' || status.router.maintenance === 'update')
+      : request.action === 'update-router'
+      ? status.issue === null && status.router.state === 'managed-running' &&
         status.router.maintenance === 'none'
       : request.action === 'set-mode-live'
       // The node stored the value; it does not take effect until Core restarts,
@@ -573,6 +595,8 @@ export function createHomeV2TransportMaintenanceService(
             ? await dependencies.revealRouterFolder()
             : request.action === 'ensure-router'
             ? await dependencies.ensureRouter()
+            : request.action === 'update-router'
+            ? await dependencies.updateRouter()
             : request.action === 'stop-router'
             ? await dependencies.stopRouter()
             : request.action === 'set-mode-live'

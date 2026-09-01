@@ -66,9 +66,6 @@ export function ensureLabel(status: HomeV2TransportMaintenanceStatus) {
   if (status.router.maintenance === 'install') {
     return t('home2.transportMaintenance.router.installAndStart')
   }
-  if (status.router.maintenance === 'update') {
-    return t('home2.transportMaintenance.router.updateAndRestart')
-  }
   return t('home2.transportMaintenance.router.start')
 }
 
@@ -224,6 +221,16 @@ export function TransportMaintenancePanel({
               {busy === 'stop-router'
                 ? t('home2.common.working')
                 : t('home2.transportMaintenance.router.stop')}
+            </button>
+          ) : null}
+          {status.router.maintenance === 'update' ? (
+            <button className="home-v2-primary-button" type="button"
+              aria-describedby="transport-maintenance-router-state"
+              disabled={busy !== null || stale || !status.capabilities.canUpdateRouter}
+              onClick={() => void run('update-router', null)}>
+              {busy === 'update-router'
+                ? t('home2.common.working')
+                : t('home2.transportMaintenance.router.updateAndRestart')}
             </button>
           ) : null}
         </div>
