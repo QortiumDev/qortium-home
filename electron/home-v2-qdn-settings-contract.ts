@@ -71,8 +71,9 @@ export type HomeV2QdnSettingsState = {
   /**
    * Its own card, for the same reason the others have theirs: reading a
    * MAILBOX is a different power from decrypting data an app already holds.
-   * Listed even while suspended -- the grant is only usable on a trusted local
-   * node, and a grant the user cannot see is a grant they cannot revoke.
+   * (Usable on any node route since 2026-09-01; the direct reads themselves
+   * are currently permissionless, so held grants are vestigial but stay
+   * listed -- a grant the user cannot see is a grant they cannot revoke.)
    */
   readonly accountDirectChat: Readonly<{
     apps: readonly Readonly<{ accountId: string; appKey: string; grantedAt: string }>[]
@@ -80,10 +81,9 @@ export type HomeV2QdnSettingsState = {
     version: 1
   }>
   /**
-   * Durable private-GROUP chat read grants, on the same terms as
-   * accountDirectChat and listed for the same reason: suspended on a node that
-   * is not Home's own local Core, and shown anyway, because a grant the user
-   * cannot see is a grant they cannot revoke.
+   * Durable private-GROUP chat read grants. Stored and honored on any node
+   * route since 2026-09-01, and listed because a grant the user cannot see
+   * is a grant they cannot revoke.
    */
   readonly accountGroupChat: Readonly<{
     apps: readonly Readonly<{ accountId: string; appKey: string; grantedAt: string }>[]

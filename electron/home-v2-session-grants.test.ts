@@ -5,6 +5,7 @@ import {
   homeV2AccountReadPromptSummary,
   homeV2AccountReadPromptTitle,
   homeV2DurableAccountReadCapability,
+  homeV2DurablePrivateGroupReadCapability,
   homeV2PermissionGrantKey,
   homeV2PermissionGrantFamily,
   isHomeV2AccountReadAction,
@@ -244,11 +245,12 @@ assert.equal(store.size(), 1)
   //     'account.read' -- the generic durable block runs first and returns, so
   //     the account.directChat block below it never ran. The user was shown one
   //     thing and granted a wider one.
-  //   - 'account.read' carries no node-trust condition, so it satisfied chat
-  //     reads on ANY node, bypassing the local-Core-only rule that
-  //     account.directChat exists to enforce.
+  //   - (historical) 'account.read' carried no node-trust condition, so it
+  //     satisfied chat reads on ANY node, bypassing the local-Core-only rule
+  //     of the time; that rule was itself removed on 2026-09-01.
   //
-  // They now fall through to their own node-gated capabilities.
+  // They fall through to their own capabilities (node-trust gate removed
+  // 2026-09-01; group reads map via homeV2DurablePrivateGroupReadCapability).
   for (const action of HOME_V2_ACCOUNT_READ_ACTIONS) {
     if (isHomeV2PrivateChatReadAction(action)) {
       assert.equal(
@@ -282,6 +284,13 @@ assert.equal(store.size(), 1)
     'account.read',
     'group chat STATE stays on the ordinary read grant',
   )
+  // The group-read durable capability helper: exactly the two history reads,
+  // nothing else — STATE and the (permissionless) direct reads return null.
+  assert.equal(homeV2DurablePrivateGroupReadCapability('GET_PRIVATE_GROUP_ACTIVE_CHATS'), 'account.groupChat')
+  assert.equal(homeV2DurablePrivateGroupReadCapability('SEARCH_PRIVATE_GROUP_CHAT_MESSAGES'), 'account.groupChat')
+  assert.equal(homeV2DurablePrivateGroupReadCapability('GET_PRIVATE_GROUP_CHAT_STATE'), null)
+  assert.equal(homeV2DurablePrivateGroupReadCapability('SEARCH_PRIVATE_DIRECT_CHAT_MESSAGES'), null)
+  assert.equal(homeV2DurablePrivateGroupReadCapability('SEND_PRIVATE_GROUP_CHAT_MESSAGE'), null)
   assert.equal(
     new Set(
       HOME_V2_ACCOUNT_READ_ACTIONS

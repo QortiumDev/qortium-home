@@ -71,8 +71,9 @@ Home 2 also exposes a portable, fine-grained direct-message family on both
 `qdnRequest` and `qortalRequest`:
 `GET_PRIVATE_DIRECT_ACTIVE_CHATS`, `SEARCH_PRIVATE_DIRECT_CHAT_MESSAGES`,
 `SEND_DIRECT_CHAT_MESSAGE`, `SEND_DIRECT_CHAT_EDIT`,
-`SEND_DIRECT_CHAT_DELETE`, and `SEND_DIRECT_CHAT_REACTION`. Direct reads require
-an unlocked selected account and a scoped `chat.direct.read` approval; writes
+`SEND_DIRECT_CHAT_DELETE`, and `SEND_DIRECT_CHAT_REACTION`. Direct reads need
+an unlocked selected account and do not prompt (permissionless reads, owner
+decision 2026-08-24); writes
 use a single-request `chat.direct.send` approval. Home performs all QDM1 or
 Qortal legacy-v2 key agreement, decryption, encryption, proof of work, field
 attestation, signing, and broadcast inside the trusted host. Apps receive
