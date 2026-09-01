@@ -42,7 +42,9 @@ both desktop and Android while keeping Qortium asset transfers on their own
 network. Each transfer is built and signed locally for the selected chain,
 shows the exact asset, amount, recipient, QORT fee, and route for approval,
 and refuses if the fee, asset description, balances, account reference, app,
-account, or route changes before signing.
+account, or route changes before signing. Home's wallet discovery also stops
+claiming that foreign-wallet reads and sends are implemented before those
+Home 2 handlers exist, so Wallet apps can disable unavailable controls safely.
 
 ### 2026-09-01 - fix(i2p): keep the managed router running after Home exits
 

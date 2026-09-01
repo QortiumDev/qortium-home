@@ -1,18 +1,28 @@
-import { getForeignWalletCoins } from './foreign-wallets.js';
+export const HOME_WALLET_CONTRACT = 'qortium-home-wallet-v1' as const;
 
-export type HomeWalletSendMode = 'HOME_SIGNED_PUBLIC_NODE' | 'TRUSTED_CORE' | 'NONE';
+export type HomeWalletMode =
+  | 'HOME_LOCAL'
+  | 'PUBLIC_NODE'
+  | 'HOME_SIGNED_PUBLIC_NODE'
+  | 'TRUSTED_CORE'
+  | 'NONE';
 
 export type HomeWalletCapability = {
+  contract: typeof HOME_WALLET_CONTRACT;
   implemented: boolean;
+  protocol: 'qdnRequest' | 'qortalRequest';
   read: boolean;
+  readMode: HomeWalletMode;
   receive: boolean;
+  receiveMode: HomeWalletMode;
   requiresUnlockedAccount: boolean;
   send: boolean;
-  sendMode: HomeWalletSendMode;
+  sendMode: HomeWalletMode;
+  serverManagement: boolean;
+  serverManagementMode: HomeWalletMode;
 };
 
 const QORT_CURRENCY_CODE = 'QORT';
-const foreignWalletCoins = new Set<string>(getForeignWalletCoins());
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
@@ -25,26 +35,37 @@ function getCurrencyCode(value: unknown) {
 export function getHomeWalletCapability(currencyCode: unknown): HomeWalletCapability {
   const normalizedCurrencyCode = getCurrencyCode(currencyCode);
   const isQort = normalizedCurrencyCode === QORT_CURRENCY_CODE;
-  const isSupportedForeignWallet = foreignWalletCoins.has(normalizedCurrencyCode);
 
-  if (isQort || isSupportedForeignWallet) {
+  if (isQort) {
     return {
+      contract: HOME_WALLET_CONTRACT,
       implemented: true,
+      protocol: 'qortalRequest',
       read: true,
+      readMode: 'PUBLIC_NODE',
       receive: true,
+      receiveMode: 'HOME_LOCAL',
       requiresUnlockedAccount: true,
       send: true,
-      sendMode: isQort ? 'HOME_SIGNED_PUBLIC_NODE' : 'TRUSTED_CORE',
+      sendMode: 'HOME_SIGNED_PUBLIC_NODE',
+      serverManagement: false,
+      serverManagementMode: 'NONE',
     };
   }
 
   return {
+    contract: HOME_WALLET_CONTRACT,
     implemented: false,
+    protocol: 'qdnRequest',
     read: false,
+    readMode: 'NONE',
     receive: false,
+    receiveMode: 'NONE',
     requiresUnlockedAccount: false,
     send: false,
     sendMode: 'NONE',
+    serverManagement: false,
+    serverManagementMode: 'NONE',
   };
 }
 
