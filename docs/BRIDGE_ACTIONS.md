@@ -1216,7 +1216,9 @@ values render quoted so Home's own annotations ("(not present)", "(empty)")
 cannot be forged by app-supplied values. After approval, trust is
 re-resolved and the write refuses a node or credential that changed while
 the prompt was open; then one keyed `PATCH /admin/settings` runs with
-redirects refused. The result is rebuilt from an allowlist (`saved`,
+redirects refused, and a failed keyed call answers a fixed operation/status
+message rather than the node's error body (which a hostile responder could
+stuff with received headers). The result is rebuilt from an allowlist (`saved`,
 `updated`, `removed`, `applied`, `restartRequired`); Core's `settingsPath` —
 the node's settings file location on disk — is deliberately dropped, because
 an app asked to change a setting, not to learn the node's filesystem layout.

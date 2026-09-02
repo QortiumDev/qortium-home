@@ -496,10 +496,23 @@ function isNodeSettingsDetailRows(action: string, value: unknown): boolean {
   }
   if (value.length < 3 || value.length > 129 || value.length % 2 === 0) return false
   if (!row(value[0], 'Node', 500)) return false
+  // The value encoding is part of the contract, not a courtesy: a string
+  // value renders QUOTED and the bare annotations belong to Home, so a row
+  // whose value is neither an annotation, a quoted string, nor JSON-shaped
+  // text could impersonate the reserved annotations and is refused.
+  const encoded = (candidate: unknown, allowNotPresent: boolean) => {
+    const text = (candidate as { value?: unknown }).value
+    if (typeof text !== 'string') return false
+    if (text === '(empty)') return true
+    if (text === '(not present)') return allowNotPresent
+    if (text.startsWith('"') && text.endsWith('"') && text.length >= 3) return true
+    return /^[-0-9tfn{[]/.test(text)
+  }
   for (let index = 1; index < value.length; index += 2) {
     const current = value[index] as { label?: unknown }
     const proposed = value[index + 1] as { label?: unknown }
     if (!row(current, null, 1_010) || !row(proposed, null, 1_010)) return false
+    if (!encoded(current, true) || !encoded(proposed, false)) return false
     const currentLabel = String(current.label)
     const proposedLabel = String(proposed.label)
     if (!currentLabel.endsWith(' (current)') || !proposedLabel.endsWith(' (proposed)')) return false
@@ -3789,6 +3802,8 @@ export function HomeV2LiveApp() {
         // what would change on the user's node is refused, not rendered.
         || (isHomeV2NodeSettingsWriteAction(value.action) &&
           (value.writeKind !== 'node-settings' ||
+            value.protocol !== 'qdnRequest' ||
+            value.targetNetwork !== 'qortium' ||
             !isNodeSettingsDetailRows(value.action, value.nodeSettingsDetails) ||
             typeof value.writeOperationLabel !== 'string' ||
             typeof value.writeRouteLabel !== 'string' ||

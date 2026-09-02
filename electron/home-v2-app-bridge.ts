@@ -8662,14 +8662,18 @@ async function requestHomeV2NodeSettingsText(
     signal: AbortSignal.timeout(CHAT_WRITE_TIMEOUT_MS),
   })
   const result = await readBoundedResponse(response, 'GET', CHAT_SIGNING_RESPONSE_MAX_BYTES)
-  const text = result.body.trim()
   if (!result.ok) {
+    // The error is a FIXED operation/status message, never the node's body:
+    // this call carried the administrative key, and a hostile node or proxy
+    // could echo received headers into its error text, which flows onward to
+    // the calling app. Same scrub rationale as scrubbedHomeV2MintingError
+    // (dual-model review 2026-09-01, finding 1).
     throw Object.assign(
-      new Error(readableNodeErrorMessage(text, `${fallbackMessage} HTTP ${result.status}.`)),
+      new Error(`${fallbackMessage} HTTP ${result.status}.`),
       { status: result.status },
     )
   }
-  return text
+  return result.body.trim()
 }
 
 /**

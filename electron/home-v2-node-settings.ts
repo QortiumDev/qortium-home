@@ -78,9 +78,18 @@ export function normalizeHomeV2NodeSettingsPatch(
   if (entries.length > MAX_PATCH_ENTRIES) {
     throw new Error(`Node settings update requests may include at most ${MAX_PATCH_ENTRIES} settings.`)
   }
-  for (const [key] of entries) {
+  for (const [key, value] of entries) {
     if (!key || key.length > MAX_SETTING_KEY_LENGTH || /[\u0000-\u001f\u007f]/.test(key)) {
       throw new Error(`Node setting names may contain at most ${MAX_SETTING_KEY_LENGTH} characters.`)
+    }
+    // JSON.stringify SKIPS a top-level undefined/function/symbol value, so a
+    // patch entry carrying one would render on the prompt ("null") yet be
+    // silently absent from the body — the approved change would not be sent.
+    // The family's promise is "shown exactly as it will be applied": refuse
+    // the entry instead. (NaN/Infinity and NESTED undefined serialize the
+    // same way on both paths, so they stay accepted.)
+    if (JSON.stringify(value) === undefined) {
+      throw new Error(`Node setting ${key} must have a JSON-serializable value.`)
     }
   }
   return Object.fromEntries(entries)
