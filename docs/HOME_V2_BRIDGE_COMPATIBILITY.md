@@ -388,6 +388,22 @@ now refused rather than silently defaulted the way 1.x did). A folder selection:
   `readHomeV2DesktopPublishSource` — the raw-bytes reader the chat-attachment
   path uses — still refuses one by name.
 
+**What a publish re-checks, exactly.** Every directory is opened
+`O_RDONLY|O_DIRECTORY|O_NOFOLLOW` and compared by device/inode against the
+identity the walk recorded, immediately before its contents are listed — and
+the listing then re-resolves the path, because Node has no `fdopendir`, so a
+swap inside that interval is NOT detected. That residual is accepted (only a
+local process running as the user can reach it) rather than closed with a
+platform-specific `/proc/self/fd` re-entry. What bounds it is everything that
+does not depend on a path: every file is re-identified by regular-file kind,
+device, inode and size on its own open handle before a byte is read; the bytes
+read are bounded by the size the SELECTION measured (so growth refuses, while
+selection-time bytes belonging to later-excluded names leave that much slack);
+links are refused outright; and a batch checks its aggregate both before
+opening anything and after packaging. What is not claimed: that the folder is
+unchanged since the picker — a change Home has not yet walked is simply what it
+packages, under the hash the prompt disclosed.
+
 **Core is never handed a path the user owns.** Validating a selection and then
 POSTing the live path is a check/use gap: between the walk and the render an
 escaping symlink can be added, a file can grow past the cap, or the whole path

@@ -325,10 +325,10 @@ export function matchesHomeV2PublishEntryIdentity(
  * is one, and confirm it is the same directory the walk classified.
  *
  * Node cannot enumerate a directory from a file descriptor (there is no
- * `fdopendir` binding), so the listing below still goes through the path. The
- * residual is therefore a swap in the window between this fstat and that
- * `opendir` — which per-entry identity then catches anyway, because every file
- * under a swapped directory has a different inode.
+ * `fdopendir` binding), so the caller's listing still goes through the path.
+ * The window between this fstat and that `opendir` is an ACCEPTED residual —
+ * see the note at the `opendir` call — narrowed but not closed by per-entry
+ * identity, because a file under a swapped directory has a different inode.
  */
 async function assertHomeV2PublishDirectoryIdentity(
   directoryPath: string,
@@ -462,17 +462,33 @@ async function walkHomeV2PublishTree(
   // Immediately before listing it, and against the identity the caller (or the
   // parent iteration) recorded for it.
   await assertHomeV2PublishDirectoryIdentity(current, currentIdentity)
+  // ACCEPTED RESIDUAL (decision recorded on PR #504): the verified directory
+  // handle is closed above and the listing below re-resolves the same PATH, so
+  // a swap landing in that interval is not detected here. Node exposes no
+  // `fdopendir`, and the platform-specific way to close it — re-entering
+  // through /proc/self/fd — is not something Home will carry. What bounds it:
+  // the only actor who can win that race is a local process already running as
+  // this user, and what such a process could smuggle in is still limited by
+  // the checks that do not depend on the path — every file is re-identified by
+  // (device, inode, size) on its own open handle before a byte is read, and
+  // the total is bounded by the size the selection measured.
   const directory = await openDirectoryStream(current, UNREADABLE_ENTRY)
   for await (const entry of directory) {
     const entryPath = nodePath.join(current, entry.name)
     const relativePath = relative ? `${relative}/${entry.name}` : entry.name
+    // BEFORE the excluded-name skip, so "any link refuses the folder" is
+    // literally true. Skipping first would have made a link NAMED `.git` or
+    // `.env` an exception to the rule, and an exception to this particular
+    // rule is a name an attacker chooses.
+    if (entry.isSymbolicLink() && visitor.symbolicLinks === 'refuse') {
+      throw homeV2PublishSourceError(LINKED_ENTRY)
+    }
     if (visitor.skipEntry?.(entry.name, entry.isDirectory())) {
       state.excluded += 1
       continue
     }
     countEntry(state, limits)
     if (entry.isSymbolicLink()) {
-      if (visitor.symbolicLinks === 'refuse') throw homeV2PublishSourceError(LINKED_ENTRY)
       // A contained link is resolved for its containment check either way.
       // One that resolves to a directory is skipped rather than expanded,
       // because a cycle is easier to create than to detect.

@@ -70,24 +70,37 @@ materialised fresh for whichever operation redeems the token —
 `PREVIEW_QDN_PUBLISH_SOURCE` stages a copy for the local node, and
 `PUBLISH_QDN_RESOURCE` packages a zip.
 
-What "re-checked" means precisely, because it is not "the folder is frozen":
+Home does not freeze the folder, and it does not re-verify everything. These
+are the checks it actually makes, and the gaps they leave:
 
-- **The folder itself** is re-checked by device and inode before it is listed,
-  and every subdirectory is opened `O_NOFOLLOW` and checked the same way
-  immediately before its contents are listed.
-- **Every file** is opened `O_NOFOLLOW` and must still be the entry the walk
-  classified — same device, same inode, same size — or the publish refuses. A
-  file that grew, or a path component swapped underneath, is a different inode.
-- **Bytes** are counted as they are read, against the size the SELECTION
-  measured for that folder, so a folder that gained content afterwards is
-  refused rather than published.
-- **A batch** additionally re-checks the total of the packaged archives after
-  packaging, having already refused the aggregate of the selection-time sizes
-  before opening anything.
+- **Directories.** Each one — the folder itself and every subdirectory — is
+  opened `O_RDONLY|O_DIRECTORY|O_NOFOLLOW` and its device and inode compared
+  against what the walk recorded, immediately before its contents are listed.
+  The listing itself then re-resolves the same path, because Node cannot
+  enumerate a directory from a file descriptor. **A swap landing in the
+  interval between that check and that listing is not detected.**
+- **Files.** Each one is opened `O_NOFOLLOW` and must still be the entry the
+  walk classified — regular file, same device, same inode, same size — before
+  a byte is read. This is what does not depend on the path, so it holds even
+  for a directory swapped above the file: a different file is a different
+  inode.
+- **Bytes.** Counted as they are read, bounded by the size the SELECTION
+  measured for that folder. Growth is therefore refused. The bound is on the
+  TOTAL, so bytes the selection counted for entries that are later excluded
+  (the never-packaged names) leave that much slack in it.
+- **Links.** Refused outright, so nothing in the archive was reached through a
+  path resolved at read time.
+- **A batch.** The aggregate of the selection-time sizes is refused before
+  anything is opened, and the total of the packaged archives is checked again
+  after packaging.
 
-What is NOT covered: a change made before Home's walk sees it is simply what
-Home packages — the walk and the read agree with each other, and the approval
-prompt shows the hash of exactly those bytes.
+What is NOT guaranteed: that the folder is what it was when you picked it. A
+change made before Home's walk sees it is simply what Home packages — the walk
+and the read agree with each other — and the approval prompt then shows the
+hash of exactly those bytes. The one race above is an accepted residual: only a
+local process already running as your user can reach it, and what it could
+substitute is still bounded by the per-file identity check and the
+selection-time byte budget.
 
 Whether the folder needs a top-level index file (`index.html`, `index.htm`,
 `default.html`, `default.htm`, `home.html` or `home.htm`) depends on what it is

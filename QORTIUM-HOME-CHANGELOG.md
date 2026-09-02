@@ -56,15 +56,19 @@ with its poster and its captions -- it needs only to have something in it. The
 folder picker no longer asks for a home page at all, because at that point Home
 does not yet know which of the two you are doing.
 
-The folder is checked twice, not once. It is checked when you pick it, and
-every file and folder inside it is checked again as it is read, because minutes
-can pass in between -- long enough for a file to grow, or for a folder in the
-middle of the path to be swapped for another one. A file that is no longer the
-file Home measured, or a folder that has gained content since you chose it, is
-refused rather than published. Shortcuts (symbolic links) are refused outright:
-a published folder is ordinary files and folders, which is also what stops a
-shortcut from carrying one of the never-published files in under an innocent
-name.
+Minutes can pass between choosing a folder and approving the publish -- long
+enough for a file in it to grow, or for a folder in the middle of the path to
+be replaced. So each file is identified again at the moment it is opened, and
+one that is no longer the file Home measured is refused; a folder that has
+gained content since you chose it is refused too, because the amount Home will
+read is fixed at what it measured then. Shortcuts (symbolic links) are refused
+outright: a published folder is ordinary files and folders, which is also what
+stops a shortcut from carrying one of the never-published files in under an
+innocent name.
+
+This is not the same as promising the folder cannot change. A change Home has
+not looked at yet is simply what gets published, and the approval prompt shows
+you the exact fingerprint of those bytes before anything is sent.
 
 Two kinds of file are treated specially. Version-control folders, .env files,
 credential directories and editor leftovers are never packaged, whatever the

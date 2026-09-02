@@ -682,6 +682,22 @@ try {
       await removeHomeV2PublishPreviewStagingDir(packedWithoutLink.stagingDir)
     }
 
+    // A link whose NAME is on the always-excluded list refuses the folder too.
+    // The link check runs BEFORE the excluded-name skip, because skipping
+    // first would make "any link refuses the folder" untrue for exactly the
+    // names an attacker would choose.
+    const excludedLinkRoot = nodePath.join(root, 'pack-linked-excluded')
+    await mkdir(excludedLinkRoot)
+    await writeFile(nodePath.join(excludedLinkRoot, 'index.html'), 'x')
+    await writeFile(nodePath.join(excludedLinkRoot, 'secret.txt'), 'SECRET=1')
+    await symlink(nodePath.join(excludedLinkRoot, 'secret.txt'), nodePath.join(excludedLinkRoot, '.env'))
+    const excludedLinkSource = await describeHomeV2PublishSourcePath(excludedLinkRoot, 'directory')
+    await refusal(
+      packHomeV2PublishDirectory(excludedLinkSource, homeV2PublishPackagingLimits(1024 * 1024)),
+      /contains links, which cannot be published/,
+      'a link named after an always-excluded file is refused, not skipped',
+    )
+
     // A directory link is refused too, not just a file one: O_NOFOLLOW guards
     // the final component only, so a link in the middle of a path is exactly
     // the component this rule exists to keep out.
