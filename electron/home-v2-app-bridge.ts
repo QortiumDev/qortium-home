@@ -301,6 +301,7 @@ import { selectHomeV2DesktopPublishSource } from './home-v2-desktop-publish-sour
 import {
   HOME_V2_PUBLISH_BATCH_MAX_TOTAL_BYTES,
   HOME_V2_PUBLISH_DIRECTORY_LIMITS,
+  getRequestedHomeV2PublishIncludeHidden,
   getRequestedHomeV2PublishSourceKind,
   homeV2DesktopPublishSources,
   prepareHomeV2PublishArtifact,
@@ -1419,6 +1420,11 @@ async function requireAccountReadPermission(
   } | {
     readonly kind: 'publish'
     readonly contentHash: string
+    // Folder publishes only: what the packaged archive holds. Absent for a
+    // single file or staged bytes, where the name and hash already say it.
+    readonly entryCount?: number
+    readonly excludedCount?: number
+    readonly hiddenCount?: number
     readonly fileName: string
     readonly operationLabel: string
     readonly resourceCoordinate: string
@@ -1918,7 +1924,10 @@ async function requireAccountReadPermission(
             ? {
                 writeKind: 'publish',
                 publishContentHash: writeDetails.contentHash,
+                publishEntryCount: writeDetails.entryCount ?? null,
+                publishExcludedCount: writeDetails.excludedCount ?? null,
                 publishFee: writeDetails.fee ?? null,
+                publishHiddenCount: writeDetails.hiddenCount ?? null,
                 publishFileName: writeDetails.fileName,
                 publishMetadataCategory: writeDetails.metadataCategory ?? null,
                 publishMetadataDescription: writeDetails.metadataDescription ?? null,
@@ -2588,7 +2597,10 @@ async function publishHomeV2PublicPublishSource(
   // inode. Either way the bytes are not resident yet: the prompt below is
   // built from a STREAMED hash, and the archive is only loaded once the user
   // has approved that exact hash.
-  const artifact = await prepareHomeV2PublishArtifact(source, { maximumBytes })
+  const artifact = await prepareHomeV2PublishArtifact(source, {
+    includeHidden: getRequestedHomeV2PublishIncludeHidden(requestValue),
+    maximumBytes,
+  })
   try {
     const contentHash = await artifact.sha256()
     // A packaged folder is uploaded (and named) as the archive it now is, so
@@ -2622,6 +2634,18 @@ async function publishHomeV2PublicPublishSource(
       routeLabel: `${node.mode} · ${node.nodeApiUrl}`,
       size: artifact.byteLength,
       targetChainLabel: network === 'qortal' ? 'Qortal' : 'Qortium',
+      // Folder rows. A folder publish is the one case where the file name and
+      // the hash do not tell the user what they are about to publish, so the
+      // prompt says how many entries the archive holds, how many were dropped
+      // by the always-excluded list, and how many hidden files the app asked
+      // to include.
+      ...(artifact.isZip
+        ? {
+            entryCount: artifact.entryCount,
+            excludedCount: artifact.excludedCount,
+            hiddenCount: artifact.hiddenCount,
+          }
+        : {}),
     })
     const isStillValid = async () => {
       const fresh = getQdnViewContextForWebContents(sender)
@@ -2731,8 +2755,9 @@ async function publishHomeV2MultiplePublishSources(
     // Hashed from a STREAM, not from a retained buffer: what a batch keeps
     // alive across the prompt is one open handle (or one temp archive) per
     // item, and the bytes themselves are loaded one item at a time below.
+    const includeHidden = getRequestedHomeV2PublishIncludeHidden(requestValue)
     for (const entry of resolved) {
-      const artifact = await prepareHomeV2PublishArtifact(entry.source, { maximumBytes })
+      const artifact = await prepareHomeV2PublishArtifact(entry.source, { includeHidden, maximumBytes })
       items.push({
         artifact,
         contentHash: await artifact.sha256(),
@@ -2782,6 +2807,11 @@ async function publishHomeV2MultiplePublishSources(
       rows.push({ label: `File ${position}`, value: homeV2PollApprovalText(entry.fileName, 'The file name') })
       rows.push({ label: `Size ${position}`, value: `${entry.artifact.byteLength} bytes` })
       rows.push({ label: `SHA-256 ${position}`, value: entry.contentHash })
+      if (entry.artifact.isZip) {
+        rows.push({ label: `Folder entries ${position}`, value: String(entry.artifact.entryCount) })
+        rows.push({ label: `Excluded ${position}`, value: String(entry.artifact.excludedCount) })
+        rows.push({ label: `Hidden files ${position}`, value: String(entry.artifact.hiddenCount) })
+      }
       // The mutable-metadata values signed alongside the bytes (Qortium only —
       // the item normalizer refuses metadata on Qortal). A row appears exactly
       // when that field is being published; an omitted row means nothing is.

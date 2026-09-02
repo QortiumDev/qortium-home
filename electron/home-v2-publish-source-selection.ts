@@ -750,6 +750,99 @@ export async function readHomeV2DesktopPublishSource(source: HomeV2DesktopPublis
 }
 
 // -----------------------------------------------------------------------------
+// Hidden-file policy.
+//
+// A folder publish is the one place in Home where a user points at a directory
+// and every byte under it goes to a public chain. The names below are the ones
+// that are almost never meant to travel: version-control stores (with their
+// full history), environment files (with their secrets), editor and OS
+// metadata. They are dropped ALWAYS, opt-in or not, and the approval prompt
+// says how many were dropped so the drop is visible rather than silent.
+//
+// Every OTHER dotfile is a refusal, not a drop: Home cannot tell `.htaccess`
+// (wanted) from `.bash_history` (catastrophic), so it refuses the publish and
+// makes the app ask again with `includeHidden: true`. The prompt then shows
+// the count, and the user is the one who decides.
+// -----------------------------------------------------------------------------
+
+const HOME_V2_PUBLISH_ALWAYS_EXCLUDED_NAMES: ReadonlySet<string> = new Set([
+  '.aws',
+  '.bzr',
+  '.ds_store',
+  '.git',
+  '.gnupg',
+  '.hg',
+  '.idea',
+  '.netrc',
+  '.npmrc',
+  '.pypirc',
+  '.ssh',
+  '.svn',
+  '.vs',
+  '.vscode',
+  'thumbs.db',
+])
+
+/** Names dropped from a folder publish whatever the app asked for. */
+export function isHomeV2PublishAlwaysExcludedName(name: string) {
+  const lower = name.toLowerCase()
+  if (HOME_V2_PUBLISH_ALWAYS_EXCLUDED_NAMES.has(lower)) return true
+  // .env, .env.local, .env.production.local — the whole family.
+  if (lower === '.env' || lower.startsWith('.env.')) return true
+  // Editor leftovers: vim swap files and the ~ backups several editors write.
+  if (/^\..*\.sw[a-p]$/.test(lower)) return true
+  if (lower.endsWith('~')) return true
+  return false
+}
+
+export function isHomeV2PublishHiddenName(name: string) {
+  return name.startsWith('.')
+}
+
+const HIDDEN_WITHOUT_CONSENT =
+  'Selected folder contains hidden files. Ask again with includeHidden to publish them, or remove them from the folder.'
+
+export type HomeV2PublishHiddenCounts = { excluded: number; hidden: number }
+
+/**
+ * The walker's `skipEntry` for a publish: drops the always-excluded names,
+ * counts the hidden ones, and refuses outright when hidden entries would be
+ * published without the app having asked for them.
+ */
+export function homeV2PublishHiddenFilter(includeHidden: boolean, counts: HomeV2PublishHiddenCounts) {
+  return (name: string) => {
+    if (isHomeV2PublishAlwaysExcludedName(name)) {
+      counts.excluded += 1
+      return true
+    }
+    if (!isHomeV2PublishHiddenName(name)) return false
+    if (!includeHidden) throw homeV2PublishSourceError(HIDDEN_WITHOUT_CONSENT)
+    counts.hidden += 1
+    return false
+  }
+}
+
+/**
+ * `includeHidden` as an app may send it on a publish request.
+ *
+ * Absent means false — the fail-closed direction — and anything that is not a
+ * boolean is refused rather than coerced, because `includeHidden: 'false'`
+ * coercing to true is precisely the mistake this flag must not make.
+ */
+export function getRequestedHomeV2PublishIncludeHidden(
+  requestValue: Record<string, unknown> | null | undefined,
+) {
+  const raw = requestValue && typeof requestValue === 'object'
+    ? (requestValue as Record<string, unknown>).includeHidden
+    : undefined
+  if (raw === undefined || raw === null) return false
+  if (typeof raw !== 'boolean') {
+    throw homeV2PublishSourceError('QDN publish includeHidden must be true or false.')
+  }
+  return raw
+}
+
+// -----------------------------------------------------------------------------
 // Publish packaging.
 //
 // A folder is PUBLISHED as a zip (Core unpacks it when the upload carries
@@ -896,7 +989,10 @@ export type HomeV2PublishPackagedDirectory = Readonly<{
   archivePath: string
   byteLength: number
   entryCount: number
+  /** Entries dropped by the always-excluded list (VCS stores, .env, editor junk). */
   excludedCount: number
+  /** Dotfiles the app explicitly opted into publishing. */
+  hiddenCount: number
   stagingDir: string
 }>
 
@@ -907,7 +1003,7 @@ export type HomeV2PublishPackagedDirectory = Readonly<{
 export async function packHomeV2PublishDirectory(
   source: HomeV2DesktopPublishSource,
   limits: HomeV2PublishPackagingLimits,
-  visitorOverrides: Pick<HomeV2PublishTreeVisitor, 'skipEntry'> = {},
+  options: Readonly<{ includeHidden?: boolean }> = {},
 ): Promise<HomeV2PublishPackagedDirectory> {
   if (source.kind !== 'directory') {
     throw homeV2PublishSourceError('Only a folder selection can be packaged for publishing.')
@@ -922,10 +1018,11 @@ export async function packHomeV2PublishDirectory(
     let byteLength = 0
     const state = newWalkState()
     const seen = new Set<string>()
+    const counts: HomeV2PublishHiddenCounts = { excluded: 0, hidden: 0 }
     try {
       const writer = new HomeV2PublishZipWriter(archive, limits.maximumPackagedBytes)
       await walkHomeV2PublishTree(root, root, '', 0, state, limits, {
-        ...visitorOverrides,
+        skipEntry: homeV2PublishHiddenFilter(options.includeHidden === true, counts),
         onFile: async (absolutePath, relativePath) => {
           const name = canonicalHomeV2PublishEntryName(relativePath, limits, seen)
           const handle = await openContainedFile(absolutePath)
@@ -952,7 +1049,8 @@ export async function packHomeV2PublishDirectory(
       archivePath,
       byteLength,
       entryCount: state.entries,
-      excludedCount: state.excluded,
+      excludedCount: counts.excluded,
+      hiddenCount: counts.hidden,
       stagingDir,
     })
   } catch (error) {
@@ -976,6 +1074,7 @@ export type HomeV2PublishArtifact = Readonly<{
   byteLength: number
   entryCount: number
   excludedCount: number
+  hiddenCount: number
   isZip: boolean
   dispose: () => Promise<void>
   read: () => Promise<Uint8Array>
@@ -1005,10 +1104,11 @@ async function* singleChunk(bytes: Uint8Array) {
 }
 
 export type HomeV2PublishArtifactOptions = Readonly<{
+  /** The app's explicit opt-in to publishing dotfiles. Absent means no. */
+  includeHidden?: boolean
   /** The ceiling this publish route discovered, already clamped by the caller. */
   maximumBytes: number
   packagingLimits?: HomeV2PublishPackagingLimits
-  skipEntry?: HomeV2PublishTreeVisitor['skipEntry']
 }>
 
 export async function prepareHomeV2PublishArtifact(
@@ -1028,6 +1128,7 @@ export async function prepareHomeV2PublishArtifact(
       dispose: async () => undefined,
       entryCount: 1,
       excludedCount: 0,
+      hiddenCount: 0,
       isZip: false,
       // Copy on read: publish paths hash and post these bytes, and must never
       // share a buffer with whatever else still references the staged source.
@@ -1038,7 +1139,9 @@ export async function prepareHomeV2PublishArtifact(
 
   if (source.kind === 'directory') {
     const limits = options.packagingLimits ?? homeV2PublishPackagingLimits(maximumBytes)
-    const packaged = await packHomeV2PublishDirectory(source, limits, { skipEntry: options.skipEntry })
+    const packaged = await packHomeV2PublishDirectory(source, limits, {
+      includeHidden: options.includeHidden === true,
+    })
     let expectedHash: string | null = null
     const rememberHash = (hash: string) => {
       if (expectedHash !== null && hash !== expectedHash) throw homeV2PublishSourceError(CHANGED_ENTRY)
@@ -1051,6 +1154,7 @@ export async function prepareHomeV2PublishArtifact(
       dispose: async () => removeHomeV2PublishPreviewStagingDir(packaged.stagingDir),
       entryCount: packaged.entryCount,
       excludedCount: packaged.excludedCount,
+      hiddenCount: packaged.hiddenCount,
       isZip: true,
       read: async () => {
         const bytes = await readAllBounded(openArchive, packaged.byteLength)
@@ -1103,6 +1207,7 @@ export async function prepareHomeV2PublishArtifact(
     },
     entryCount: 1,
     excludedCount: 0,
+    hiddenCount: 0,
     isZip: false,
     read: async () => {
       const bytes = await readAllBounded(openFileStream, source.size)
