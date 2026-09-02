@@ -84,6 +84,21 @@ assert.throws(
 // ---------------------------------------------------------------------------
 // Writable keys — object map (current Core), array forms, fail-closed default
 // ---------------------------------------------------------------------------
+// The REAL wire shape: Core's JAXB map serialization, verified live against
+// a running Previewnet Core (writable.entry = [{ key, value }]). Treating
+// 'entry' itself as the one writable key was the bug the live probe caught.
+{
+  const keys = homeV2WritableSettingKeys({
+    writable: { entry: [
+      { key: 'wallets', value: { restartRequired: true, type: 'BOOLEAN_MAP' } },
+      { key: 'maxPeers', value: { restartRequired: true, type: 'INTEGER' } },
+    ] },
+  })
+  assert.equal(keys.has('wallets'), true)
+  assert.equal(keys.has('maxPeers'), true)
+  assert.equal(keys.has('entry'), false)
+  assert.equal(keys.size, 2)
+}
 {
   const keys = homeV2WritableSettingKeys({
     writable: { qdnEnabled: { restartRequired: false, type: 'BOOLEAN' }, maxPeers: { restartRequired: true, type: 'INTEGER' } },

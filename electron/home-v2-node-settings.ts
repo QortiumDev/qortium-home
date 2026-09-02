@@ -97,16 +97,24 @@ export function normalizeHomeV2NodeSettingsPatch(
 
 /**
  * The keys the node itself declares writable, from its
- * `/admin/settings/metadata` answer. Current Cores serve `writable` as an
- * object map (key → { type, restartRequired }); the array-of-entries form is
- * accepted too, as 1.x did, for older builds. Anything else answers an empty
- * set, which refuses every patch key — fail closed, never open.
+ * `/admin/settings/metadata` answer. Running Cores serve `writable` in the
+ * JAXB map serialization — `{ entry: [{ key, value }] }` — verified live
+ * against Previewnet Core 2026-09-01 (55 entries), and the form 1.x parsed
+ * first. A plain object map (key → { type, restartRequired }) and a flat
+ * array are accepted too. Anything else answers an empty set, which refuses
+ * every patch key — fail closed, never open.
  */
 export function homeV2WritableSettingKeys(metadata: unknown): ReadonlySet<string> {
   const keys = new Set<string>()
   if (!isRecord(metadata)) return keys
   const writable = metadata.writable
   if (isRecord(writable)) {
+    if (Array.isArray(writable.entry)) {
+      for (const entry of writable.entry) {
+        if (isRecord(entry) && typeof entry.key === 'string' && entry.key) keys.add(entry.key)
+      }
+      return keys
+    }
     for (const key of Object.keys(writable)) keys.add(key)
     return keys
   }
