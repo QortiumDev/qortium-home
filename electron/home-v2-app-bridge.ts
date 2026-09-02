@@ -375,7 +375,7 @@ import {
   normalizeHomeV2EncryptDataRequest,
 } from './home-v2-encryption-actions.js'
 import type { HomeV2PublishSourceBinding } from './home-v2-publish-source-tokens.js'
-import { normalizeHomeV2PublishSourceKind } from './home-v2-publish-source-tokens.js'
+import { HOME_V2_PUBLISH_SOURCE_MAX_BYTES, normalizeHomeV2PublishSourceKind } from './home-v2-publish-source-tokens.js'
 import { getHomeV2PublishSizeCeiling } from './home-v2-publish-limits.js'
 import {
   appendHomeV2GroupMembershipSignature,
@@ -2354,8 +2354,15 @@ async function selectHomeV2PublicPublishSource(
   requestValue: Record<string, unknown>,
 ) {
   const node = await getHomeV2ReadableNode(network)
-  const kind = normalizeHomeV2PublishSourceKind(requestValue.kind)
-  const ceilingBytes = await getHomeV2PublishSizeCeiling(network, node.nodeApiUrl)
+  // Directory bundling and the node-discovered ceiling are Qortium-only:
+  // publishQortium is the only publish path that understands isZip, and
+  // Qortal's base64-body upload has its own separate size ceiling (a V8
+  // string-length limit around 384 MiB) that a Qortium-derived ceiling
+  // could exceed. Qortal keeps exactly its pre-existing behavior.
+  const kind = network === 'qortium' ? normalizeHomeV2PublishSourceKind(requestValue.kind) : 'file'
+  const ceilingBytes = network === 'qortium'
+    ? await getHomeV2PublishSizeCeiling(network, node.nodeApiUrl)
+    : HOME_V2_PUBLISH_SOURCE_MAX_BYTES
   return selectHomeV2DesktopPublishSource(context.windowId, homeV2PublishSourceBinding({
     context,
     network,
