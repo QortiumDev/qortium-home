@@ -19,14 +19,49 @@ if (!selected.canceled) {
 }
 ```
 
-The selected file must be between 1 byte and 100 MiB. The token is bound to the
-requesting app, tab, selected account, invoked network, exact node route, and
-route revision. It expires after 30 minutes. Android retains only one pending
-selection at a time; choosing another file invalidates the earlier token.
+The selected file must be at least 1 byte. Its maximum size is not a fixed
+figure: for Qortium, Home discovers the connected node's advertised publish
+ceiling (`GET /arbitrary/limits`) and uses it, backstopped by Home's own hard
+safety ceiling of 1 GiB, so a node can only ever shrink the effective limit,
+never grow it past what Home is willing to attempt - if the node does not
+support that endpoint or answers something unusable, Home falls back to a
+conservative 100 MiB default instead. For Qortal, and on Android for either
+network, the ceiling remains a fixed 100 MiB, unchanged. The token is bound to
+the requesting app, tab, selected account, invoked network, exact node route,
+and route revision. It expires after 30 minutes. Android retains only one
+pending selection at a time; choosing another file invalidates the earlier
+token.
 
 Apps cannot provide native paths, URIs, inline bytes, Base64, filenames, or
 MIME claims to the publish action. Home reopens and verifies the desktop file
 at use time; Android uses only the bytes returned by its native picker.
+
+On desktop only, and only for the Qortium global, an app can request
+`kind: 'directory'` in place of the default `'file'`:
+
+```js
+const selected = await qdnRequest({
+  action: 'SELECT_QDN_PUBLISH_SOURCE',
+  kind: 'directory',
+});
+
+if (!selected.canceled) {
+  // selected.kind reports which kind was actually used.
+  console.log(selected.fileName, selected.kind, selected.size, selected.sourceToken);
+}
+```
+
+Home opens a native folder picker instead of a file picker, zips the selected
+folder's contents in memory against the same discovered ceiling, and returns a
+source token the same way. `PUBLISH_QDN_RESOURCE` then unpacks a
+directory-derived token into a multi-file resource server-side; the app does
+not do anything differently for it - it still just passes the same
+`sourceToken` it would for a file. `kind: 'directory'` is not available on
+Qortal or on Android: Qortal's separate, non-streamable base64-body upload
+path cannot support directory bundling and keeps its own much lower practical
+ceiling (a V8 string-length limit around 384 MiB), so a Qortal request
+silently keeps `kind: 'file'` regardless of what was asked for; Android's
+native picker remains single-file-only.
 
 ## Publish the selected source
 
