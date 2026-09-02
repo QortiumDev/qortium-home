@@ -37,6 +37,11 @@ type PublishInput = {
   readonly expectedFeeAtomic?: bigint
   readonly fileName: string
   readonly isStillValid: () => boolean | Promise<boolean>
+  // True when sourceBytes is a ZIP archive of a directory selection, rather
+  // than the raw content of a single file. Threaded to the upload URL
+  // (?isZip=true, so Core unpacks it into a multi-file resource) and to the
+  // attestation source descriptor's unpackZip flag.
+  readonly isZip?: boolean
   readonly network: HomeV2PublicPublishNetwork
   readonly nodeApiUrl: string
   readonly resource: QdnWriteResourceRequest
@@ -57,12 +62,13 @@ export type HomeV2PublishedResourceBytes = Readonly<{
   transactionSignature: string
 }>
 
-function queryForQortiumResource(resource: QdnWriteResourceRequest, fileName: string) {
+function queryForQortiumResource(resource: QdnWriteResourceRequest, fileName: string, isZip: boolean) {
   const query = new URLSearchParams({ filename: fileName })
   if (resource.title) query.set('title', resource.title)
   if (resource.description) query.set('description', resource.description)
   if (resource.category) query.set('category', resource.category)
   for (const tag of resource.tags) query.append('tags', tag)
+  if (isZip) query.set('isZip', 'true')
   return query.toString()
 }
 
@@ -91,7 +97,13 @@ async function responseText(response: Response, label: string) {
 async function postBytes(nodeApiUrl: string, path: string, bytes: Uint8Array, label: string) {
   const url = `${nodeApiUrl}${path}`
   const response = await nodeFetch(url, {
-    body: Uint8Array.from(bytes),
+    // The caller already owns an exclusive, freshly-read/copied buffer
+    // (see readHomeV2DesktopPublishSource's "copy on read"); copying it
+    // again here served no purpose. (Cast matches the existing BodyInit
+    // precedent in qdn.ts's postLocalNodeUpload: TS 5.9's generic
+    // Uint8Array<ArrayBufferLike> doesn't structurally satisfy BodyInit's
+    // ArrayBuffer-backed ArrayBufferView, though it's valid at runtime.)
+    body: bytes as unknown as BodyInit,
     headers: { 'Content-Type': 'application/octet-stream' },
     method: 'POST',
     redirect: 'error',
@@ -172,7 +184,7 @@ async function fetchQdnArtifact(nodeApiUrl: string, hash: Uint8Array, maxBytes: 
 }
 
 async function publishQortium(input: PublishInput, signingKey: ReturnType<typeof getAccountSecretKey>) {
-  const query = queryForQortiumResource(input.resource, input.fileName)
+  const query = queryForQortiumResource(input.resource, input.fileName, Boolean(input.isZip))
   const started = Date.now()
   const unsignedBase58 = await postBytes(
     input.nodeApiUrl,
@@ -199,7 +211,7 @@ async function publishQortium(input: PublishInput, signingKey: ReturnType<typeof
       title: input.resource.title,
     },
     fetchArtifact: (hash, maxBytes) => fetchQdnArtifact(input.nodeApiUrl, hash, maxBytes),
-    source: { bytes: input.sourceBytes, filename: input.fileName, unpackZip: false },
+    source: { bytes: input.sourceBytes, filename: input.fileName, unpackZip: Boolean(input.isZip) },
     verify: verifyQdnPublishInWorker,
   })
   const signingBytes = arbitraryRawToSigningBytes(unsignedBytes)
