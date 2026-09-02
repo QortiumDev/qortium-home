@@ -47,18 +47,26 @@ local synced Previewnet Core at the time of each check; apps must use
   `/crosschain/<coin>/wallet/public/spend-context`. Home probes that route
   once per node/API-key revision before advertising `send`, so an older
   trusted Core answers `send: false` rather than advertising a capability it
-  would then 404 on.
+  would then 404 on. The probe only reports the route as present on an
+  affirmative answer (it rejected a deliberately invalid body on its merits);
+  404/405 means absent, and anything else — a 5xx, a timeout, an auth failure
+  — is inconclusive, which also advertises `send: false` and is re-checked
+  after thirty seconds so a blip recovers quickly.
 - The two numbers Home takes from Core on trust — `recommendedFeePerByte` and
   `minimumNonDustOutput` — are checked against per-coin absolute ceilings
   (`electron/foreign-wallet-policy-bounds.ts`) before any plan is built, and
   again on the post-approval re-read. A value above its ceiling is REFUSED,
-  never clamped. The ceilings are conservative sanity bounds set well above
-  anything these chains have plausibly reported, not a reproduction of each
-  chain's relay policy; the inflated-dust case matters most, because change
-  below the dust floor is absorbed into the fee rather than returned. The
-  finished plan is bounded too: its total fee must fit the per-coin ceiling
-  for its size, and a fixed-amount send may not pay more in fee than it sends
-  once the payment is large enough for that comparison to mean anything.
+  never clamped. The ceilings are derived from Core's own declared values in
+  `src/main/java/org/qortium/crosschain/BitcoinyChainSpecs.java` — at least ten
+  times each chain's `minNonDustOutput` and well above its `defaultFeePerKb` —
+  so an honest Core is never refused. Dogecoin is the reason that derivation
+  matters: its dust floor is `Coin.COIN`, a whole coin, and a ceiling guessed
+  from Bitcoin's 546 would refuse every real Dogecoin send. The inflated-dust
+  case is the dangerous one, because change below the dust floor is absorbed
+  into the fee rather than returned. The finished plan is bounded too: its
+  total fee must fit the per-coin ceiling for its size, and a fixed-amount
+  send may never pay more in fee than it sends, at any size — the refusal
+  points at send-max or a larger amount.
 - **Acceptance gate.** Enabling foreign send for real use is gated on a
   packaged acceptance pass against a Core that carries the spend-context and
   chain-bound broadcast routes. Until that pass exists there is no end-to-end
@@ -85,6 +93,11 @@ local synced Previewnet Core at the time of each check; apps must use
 
   Home's own Settings surface can list the retained entries read-only; no QDN
   app can enumerate them, and no app- or shell-facing channel removes one.
+  Reconciliation believes the administratively trusted Core's account of the
+  wallet's history by design: that node already supplies the UTXO set, the fee
+  rate and the broadcast relay, so it is named as foreign sending's integrity
+  trust root rather than being checked by a verification Home cannot perform,
+  and the read-only pending list stays the manual recovery surface.
 - **Core trade engine** records Core/AT capability. Home currently exposes no
   mediated trade actions, so QDN apps cannot safely drive those trades yet.
 - **Live acceptance** becomes complete only after deterministic vectors and the

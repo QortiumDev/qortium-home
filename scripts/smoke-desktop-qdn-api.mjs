@@ -822,9 +822,21 @@ async function assertForeignSendDryRun(qdnClient, userDataDir) {
     return;
   }
 
-  // Sending additionally needs a selected, UNLOCKED account, which this smoke
-  // deliberately does not have: the truthful answer here is send:false.
+  // Sending additionally needs a selected, UNLOCKED account.
+  //
+  // GAP, stated rather than hidden: no desktop smoke can create or unlock an
+  // account today — none of them has a wallet fixture or a passphrase source,
+  // and this one runs against a fresh temporary user-data directory with no
+  // account at all. So the probe below exercises the DISCOVERY half and the
+  // refusal half, and the unlocked-account half of the send gate is not
+  // covered here. Covering it needs a no-funds test account in the smoke
+  // environment, which belongs with the wired integration harness (PR 2).
+  // Until then `send` is expected to be false, and the assertions check that
+  // whatever discovery claims is consistent with what the send actually does.
   const expectsSend = btc.homeWallet.send === true;
+  if (!expectsSend) {
+    log('NOTE: no unlocked account in this smoke environment, so the unlocked half of the send gate is not exercised.');
+  }
   assert(
     expectsSend
       ? btc.homeWallet.sendMode === 'HOME_LOCAL'

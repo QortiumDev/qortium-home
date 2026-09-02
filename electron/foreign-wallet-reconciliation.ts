@@ -16,6 +16,16 @@ import type { ForeignWalletPendingTransaction } from './foreign-wallet-transacti
  * whose transaction cannot be found stays, and the send that found it refuses
  * and names it, because absence from a history read is not evidence the
  * transaction does not exist — the node may simply not have seen it yet.
+ *
+ * TRUST ROOT (owner decision). This step believes the administratively
+ * trusted Core's account of the wallet's history, and that is deliberate: the
+ * same node already supplies the UTXO set every plan is built from, the fee
+ * rate it is priced at, and the relay the signed bytes go out through, so it
+ * can already withhold or replay a transaction whatever this step does.
+ * Foreign sending names that Core as its integrity trust root rather than
+ * pretending to a verification it cannot perform, and the read-only list of
+ * retained entries is the manual recovery surface for the case where a user
+ * does not want to take the node's word for it.
  */
 
 const MAX_HISTORY_ENTRIES = 10_000

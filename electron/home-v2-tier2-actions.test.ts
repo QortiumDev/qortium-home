@@ -1312,4 +1312,42 @@ const androidCrosschain = stripComments(sliceAfter(
 assert.ok(!androidCrosschain.includes('foreignWalletSendAvailable'))
 assert.ok(!/foreignWalletTrustedCoreAvailable,\s*\n\s*\w/.test(androidCrosschain.replace(/\)[\s\S]*$/, ')')))
 
+// The live-context guard must not read mutable state before its own await.
+// Pinned in the bridge because the ordering is the whole property: a guard
+// that snapshots first answers about a world the await already invalidated.
+const guardSource = stripComments(
+  sliceAfter(bridgeSource, 'isStillValid: () => evaluateHomeV2ForeignSendValidity(', 700, 'foreign send guard'),
+)
+assert.ok(guardSource.includes('readAccountUnlocked:'))
+assert.ok(guardSource.includes('readLiveContextMatches:'))
+assert.ok(
+  !bridgeSource.includes('const current = await getHomeV2ReadableNode(\'qortium\').catch(() => null)\n        return !!current'),
+  'the foreign send guard must not resolve the node after reading state',
+)
+const guardHelper = stripComments(
+  sliceAfter(foreignSendModule, 'export async function evaluateHomeV2ForeignSendValidity', 900, 'guard helper'),
+)
+const awaitAt = guardHelper.indexOf('await input.resolveRoute()')
+assert.ok(awaitAt > -1)
+assert.ok(
+  guardHelper.indexOf('input.readLiveContextMatches()') > awaitAt
+    && guardHelper.indexOf('input.readAccountUnlocked()') > awaitAt,
+  'every mutable input is read after the await',
+)
+assert.ok(
+  !guardHelper.slice(guardHelper.indexOf('input.readLiveContextMatches()')).includes('await '),
+  'and no further await follows that read',
+)
+
+// The route probe advertises a capability only on an affirmative answer.
+const probeSource = stripComments(
+  sliceAfter(bridgeSource, 'async function probeHomeV2ForeignSendRouteSupported', 1_400, 'route probe'),
+)
+assert.ok(probeSource.includes('classifyForeignWalletRouteProbe('))
+assert.ok(probeSource.includes("outcome === 'supported'"))
+assert.ok(
+  !probeSource.includes('supported = true'),
+  'the probe must not default to supported',
+)
+
 console.log('Home v2 tier-2 action tests passed.')

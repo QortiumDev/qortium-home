@@ -68,12 +68,25 @@ Two numbers come from your node rather than from you: the fee rate it
 recommends, and the smallest output the coin's network will carry. Both move
 money without appearing in the amount you typed — and the second one matters
 more than it looks, because change too small to be worth returning is added to
-the fee instead. Home now holds both to a fixed ceiling for each coin, set well
-above anything these networks have realistically asked for. A node reporting
-something beyond that is refused outright rather than quietly obeyed, and the
-finished transaction is checked again: it cannot pay a fee out of proportion to
-its size, and a normal send cannot pay more in fee than it sends. The approval
-shows the rate you are actually paying, which is not always the rate quoted.
+the fee instead. Home now holds both to a fixed ceiling for each coin, taken
+from the values Qortium Core itself declares for that chain rather than guessed,
+with generous room above them. That distinction is not academic: a Dogecoin's
+smallest usable output is a whole coin, hundreds of thousands of times
+Bitcoin's, so a ceiling picked by eye would have refused every honest Dogecoin
+send. A node reporting something beyond the ceiling is refused outright rather
+than quietly obeyed, and the finished transaction is checked again: it cannot
+pay a fee out of proportion to its size, and it can never pay more in fee than
+it sends — if that is really what you want, Home points you at sending the
+whole balance instead. The approval shows the rate you are actually paying,
+which is not always the rate quoted.
+
+One thing worth stating plainly: when Home checks a wallet's history to settle
+an unresolved send, it takes your trusted node's word for what it finds. That
+is a deliberate choice rather than an oversight. The same node already tells
+Home which coins the wallet holds, what the fee should be, and carries the
+finished transaction to the network, so it is the thing being trusted either
+way. The list of unresolved sends stays visible in Home's own settings for
+anyone who would rather check for themselves.
 
 If a send's outcome could not be established, the record Home keeps of it now
 has a way out. The next time you send from the same wallet, Home asks your node
@@ -95,7 +108,10 @@ above.
 Sending is offered only when your node is one Home administratively trusts, an
 account is unlocked, and that node is actually new enough to support it — Home
 checks for the feature rather than assuming it, so an older node says sending
-is unavailable instead of failing at the last moment. On a public node apps are
+is unavailable instead of failing at the last moment. That check only counts as
+a yes when the node answers affirmatively; if it cannot be reached, or answers
+in a way that settles nothing, Home says sending is unavailable and tries again
+shortly rather than assuming the best. On a public node apps are
 told plainly that sending is unavailable rather than being allowed to try. It
 is available for the eight chains above only. This release adds the capability
 and its tests; no funded send has been made yet, and DigiByte, Namecoin and
