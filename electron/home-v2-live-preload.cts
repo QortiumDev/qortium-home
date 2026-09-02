@@ -169,6 +169,16 @@ contextBridge.exposeInMainWorld('homeV2NodeAdmin', {
     ipcRenderer.invoke('home-v2-node-admin:clear', network),
 })
 
+/**
+ * Home's own read-only view of foreign transactions whose outcome could not
+ * be proved. Shell-only: it is not a QDN action, no app can reach it, and
+ * there is deliberately no companion that removes an entry.
+ */
+contextBridge.exposeInMainWorld('homeV2ForeignWallet', {
+  listPendingTransactions: () =>
+    ipcRenderer.invoke('home-v2-app:foreignWalletPendingTransactions'),
+})
+
 contextBridge.exposeInMainWorld('homeV2RetainedViewer', {
   readBytes: (request: { maxBytes: number; url: string }) =>
     ipcRenderer.invoke('home-v2-retained-viewer:readBytes', request),

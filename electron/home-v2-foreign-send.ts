@@ -6,10 +6,21 @@ import {
   type ForeignWalletSpendContext,
 } from './foreign-wallet-spend-context.js'
 import { normalizeForeignWalletReadError } from './foreign-wallet-read-contract.js'
+import {
+  assertForeignWalletContextWithinPolicy,
+  assertForeignWalletPlanWithinPolicy,
+} from './foreign-wallet-policy-bounds.js'
+import {
+  foreignWalletReconciliationRefusal,
+  reconcileForeignWalletPendingTransactions,
+  HomeV2ForeignSendReconciliationPendingError,
+} from './foreign-wallet-reconciliation.js'
 import { runForeignWalletOperationExclusive } from './foreign-wallet-operation-lock.js'
 import { planForeignWalletSpend, type ForeignWalletSpendPlan } from './foreign-wallet-spend-plan.js'
 import {
   buildForeignWalletSignedTransaction,
+  createForeignWalletPreviousTransactionCache,
+  type ForeignWalletPreviousTransactionCache,
   type ForeignWalletWatchInput,
 } from './foreign-wallet-transaction.js'
 import type {
@@ -22,6 +33,7 @@ import {
   fingerprintForeignWalletPublicRuntime,
   type ForeignWalletCoin,
   type ForeignWalletCrypto,
+  type ForeignWalletPublicRuntime,
 } from './foreign-wallets.js'
 import {
   buildHomeV2ForeignSendApprovalRows,
@@ -119,14 +131,23 @@ export type HomeV2ForeignSendDeps = Readonly<{
       key: HomeV2ForeignSendJournalKey,
       returnedTxId: unknown,
     ): { readonly cleanupError?: string; readonly journalCleared: boolean }
+    clearReconciled(key: HomeV2ForeignSendJournalKey, observedTxId: string): unknown
     findConflict(input: Pick<
       ForeignWalletPendingTransaction,
       'chainId' | 'coin' | 'outpoints' | 'walletFingerprint'
     >): ForeignWalletPendingTransaction | undefined
+    listPending(input: Pick<
+      ForeignWalletPendingTransaction,
+      'chainId' | 'coin' | 'walletFingerprint'
+    >): readonly ForeignWalletPendingTransaction[]
     recordBroadcastAttempt(key: HomeV2ForeignSendJournalKey, now: number): unknown
     recordSigned(entry: ForeignWalletPendingTransaction): unknown
   }>
   now(): number
+  // The wallet's own confirmed/unconfirmed history, used ONLY to settle a
+  // retained write-ahead entry against the exact transaction id Home signed.
+  // The result never reaches the calling app.
+  readWalletHistory(wallet: ForeignWalletPublicRuntime): Promise<unknown>
   postTrusted(
     pathname: string,
     body: string,
@@ -151,8 +172,31 @@ function outpointKey(input: Pick<ForeignWalletWatchInput, 'txHash' | 'txPos'>) {
   return `${input.txHash.toLowerCase()}:${input.txPos}`
 }
 
-function bytesToHex(bytes: Uint8Array) {
-  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')
+function hexToBytes(value: string) {
+  return Uint8Array.from(
+    { length: value.length / 2 },
+    (_entry, index) => Number.parseInt(value.slice(index * 2, index * 2 + 2), 16),
+  )
+}
+
+/**
+ * A bytewise scan, deliberately NOT a string comparison.
+ *
+ * The obvious way to check that a payload does not contain the seed is to hex
+ * the seed and look for that substring. That materializes the whole secret as
+ * an immutable JS string, which cannot be zeroed and lives until the garbage
+ * collector happens to reclaim it — a worse leak than the one it checks for.
+ * The haystack (the signed transaction) is public; the needle stays bytes.
+ */
+function containsByteSequence(haystack: Uint8Array, needle: Uint8Array) {
+  if (needle.byteLength === 0 || needle.byteLength > haystack.byteLength) return false
+  const limit = haystack.byteLength - needle.byteLength
+  for (let start = 0; start <= limit; start += 1) {
+    let index = 0
+    while (index < needle.byteLength && haystack[start + index] === needle[index]) index += 1
+    if (index === needle.byteLength) return true
+  }
+  return false
 }
 
 /**
@@ -173,7 +217,15 @@ async function readSpendContext(
       'application/json',
       FOREIGN_WALLET_SPEND_CONTEXT_RESPONSE_MAX_BYTES,
     )
-    return normalizeForeignWalletSpendContext(data, coin)
+    const context = normalizeForeignWalletSpendContext(data, coin)
+    // Applied on EVERY read, including the post-approval one, so a node cannot
+    // pass the check once and then move the numbers underneath the plan.
+    assertForeignWalletContextWithinPolicy({
+      coin,
+      minimumNonDustOutput: context.minimumNonDustOutput,
+      recommendedFeePerByte: context.recommendedFeePerByte,
+    })
+    return context
   } catch (error) {
     throw normalizeForeignWalletReadError(error, coin)
   }
@@ -181,6 +233,7 @@ async function readSpendContext(
 
 function planSpend(input: {
   amountAtomic: bigint | null
+  cache: ForeignWalletPreviousTransactionCache
   coin: ForeignWalletCoin
   context: ForeignWalletSpendContext
   deps: HomeV2ForeignSendDeps
@@ -188,8 +241,9 @@ function planSpend(input: {
   recipientAddress: string
   sendMax: boolean
 }) {
-  return input.deps.withWalletSeed((seed, nonce, walletVersion) => planForeignWalletSpend({
+  const plan = input.deps.withWalletSeed((seed, nonce, walletVersion) => planForeignWalletSpend({
     ...(input.sendMax ? {} : { amount: input.amountAtomic as bigint }),
+    cache: input.cache,
     coin: input.coin,
     crypto: input.deps.crypto,
     feePerByte: input.feePerByte,
@@ -201,6 +255,17 @@ function planSpend(input: {
     utxos: input.context.utxos,
     walletVersion,
   }))
+  // The fee finally charged can exceed rate x size, because change below the
+  // dust floor is absorbed into it. This is the check that sees that number.
+  assertForeignWalletPlanWithinPolicy({
+    amount: plan.amount,
+    coin: input.coin,
+    estimatedMaximumSize: plan.estimatedMaximumSize,
+    fee: plan.fee,
+    feePerByte: plan.feePerByte,
+    sendMax: plan.sendMax,
+  })
+  return plan
 }
 
 /**
@@ -308,8 +373,31 @@ export async function executeHomeV2ForeignSend(
     xpub58: wallet.xpub58,
   })
 
+  // One parse of each distinct funding transaction, shared across planning,
+  // re-planning and signing. A wallet holding a thousand outputs of the same
+  // megabyte transaction would otherwise re-parse that megabyte a thousand
+  // times per phase.
+  const previousTransactions = createForeignWalletPreviousTransactionCache()
+
   return runForeignWalletOperationExclusive({ chainId, coin, walletFingerprint }, async () => {
     const route = await deps.resolveRoute()
+
+    // Settle anything this wallet already owes an answer for, BEFORE reading
+    // state or asking the user. A retained entry means a signed transaction
+    // whose fate Home could not prove; the only thing that clears it is
+    // finding that exact transaction id in the wallet's own history.
+    const pending = deps.journal.listPending({ chainId, coin, walletFingerprint })
+    if (pending.length > 0) {
+      const outcome = await reconcileForeignWalletPendingTransactions(pending, {
+        clear: (entry, observedTxId) => deps.journal.clearReconciled(
+          { chainId, coin, txId: entry.txId, walletFingerprint },
+          observedTxId,
+        ),
+        readHistory: () => deps.readWalletHistory(wallet),
+      })
+      if (outcome.retained.length > 0) throw foreignWalletReconciliationRefusal(coin, outcome.retained)
+    }
+
     const context = await readSpendContext(deps, coin, wallet.xpub58)
     const feePerByte = resolveHomeV2ForeignSendFeePerByte(
       normalized.feePerByteAtomic,
@@ -317,6 +405,7 @@ export async function executeHomeV2ForeignSend(
     )
     const plan = planSpend({
       amountAtomic: normalized.amountAtomic,
+      cache: previousTransactions,
       coin,
       context,
       deps,
@@ -368,6 +457,7 @@ export async function executeHomeV2ForeignSend(
     assertSpendContextUnchanged(context, contextAfter, plan)
     const planAfter = planSpend({
       amountAtomic: normalized.amountAtomic,
+      cache: previousTransactions,
       coin,
       context: contextAfter,
       deps,
@@ -379,10 +469,26 @@ export async function executeHomeV2ForeignSend(
       sendMax: normalized.sendMax,
     })
     assertPlanUnchanged(plan, planAfter)
+
+    // The re-read above is an authenticated round trip that can take twenty
+    // seconds, and the checks BEFORE it are stale by the time it returns: the
+    // app could have navigated, the account could have locked, the node could
+    // have been swapped. These two are therefore repeated as the LAST awaits
+    // in the whole function. Everything from here to the broadcast — signing,
+    // the write-ahead record and the attempt marker — is synchronous, so no
+    // further drift can open between the final check and the signature.
+    const routeFinal = await deps.resolveRoute()
+    if (routeFinal.revision !== route.revision || routeFinal.nodeApiUrl !== route.nodeApiUrl) {
+      throw new Error('The selected Qortium node or its API key changed before the foreign send could be signed.')
+    }
+    if (!(await deps.isStillValid())) {
+      throw new Error('The app, account, or node route changed before the foreign send could be signed.')
+    }
     assertForeignSendFresh()
 
     const signed = deps.withWalletSeed((seed, nonce, walletVersion) => {
       const built = buildForeignWalletSignedTransaction({
+        cache: previousTransactions,
         coin,
         crypto: deps.crypto,
         inputs: plan.inputs,
@@ -392,11 +498,12 @@ export async function executeHomeV2ForeignSend(
         transactionVersion: context.transactionVersion,
         walletVersion,
       })
-      // A last, cheap proof that nothing secret is about to be posted: the
-      // payload is pure hex (so it can carry no Base58 xprv text) and it does
-      // not contain the wallet seed.
+      // A last, cheap proof that nothing secret is about to be posted. The
+      // payload must be pure lowercase hex, which alone rules out any Base58
+      // 'xprv' text, and its BYTES must not contain the seed. The seed is
+      // compared as bytes on purpose — see containsByteSequence.
       if (!/^[0-9a-f]+$/.test(built.rawTransactionHex)
-        || built.rawTransactionHex.includes(bytesToHex(seed))) {
+        || containsByteSequence(hexToBytes(built.rawTransactionHex), seed)) {
         throw new Error('The signed foreign transaction failed its key-material check and was discarded.')
       }
       return built

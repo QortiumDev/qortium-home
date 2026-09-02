@@ -11,14 +11,22 @@ import { createHash } from 'node:crypto'
 
 import {
   addSignedForeignWalletPendingTransaction,
+  clearReconciledForeignWalletPendingTransaction,
   confirmForeignWalletBroadcastSuccess,
   createEmptyForeignWalletTransactionJournal,
   findForeignWalletPendingTransactionConflict,
   markForeignWalletBroadcastAttempted,
+  selectForeignWalletPendingTransactions,
   type ForeignWalletPendingTransaction,
   type ForeignWalletTransactionJournal,
 } from './foreign-wallet-transaction-journal.js'
 import { getForeignWalletMainnetChainId } from './foreign-wallet-spend-context.js'
+import { planForeignWalletSpend } from './foreign-wallet-spend-plan.js'
+import {
+  assertForeignWalletSigningWorkBounds,
+  buildForeignWalletSignedTransaction,
+  createForeignWalletPreviousTransactionCache,
+} from './foreign-wallet-transaction.js'
 import {
   deriveForeignWalletLeafPublicData,
   deriveForeignWalletPublicRuntime,
@@ -26,9 +34,12 @@ import {
 } from './foreign-wallets.js'
 import {
   executeHomeV2ForeignSend,
-  HomeV2ForeignSendReconciliationError,
   type HomeV2ForeignSendDeps,
 } from './home-v2-foreign-send.js'
+import {
+  foreignWalletHistoryContainsTransaction,
+  HomeV2ForeignSendReconciliationPendingError,
+} from './foreign-wallet-reconciliation.js'
 import { createHomeV2PendingTransactionFromResult } from './home-v2-transaction-journal.js'
 
 const PUBLIC_TEST_SEED = Uint8Array.from({ length: 32 }, (_value, index) => index + 1)
@@ -215,6 +226,7 @@ type HarnessOptions = {
   routes?: readonly { nodeApiUrl: string; revision: string }[]
   spendContexts?: readonly unknown[]
   startingJournal?: ForeignWalletTransactionJournal
+  walletHistory?: (read: number) => unknown
 }
 
 function createHarness(options: HarnessOptions = {}) {
@@ -226,6 +238,7 @@ function createHarness(options: HarnessOptions = {}) {
   let spendContextReads = 0
   let broadcasts = 0
   let routeReads = 0
+  let historyReads = 0
 
   const routes = options.routes ?? [{ nodeApiUrl: 'http://127.0.0.1:24891', revision: 'rev-1' }]
   const spendContexts = options.spendContexts ?? [DEFAULT_CONTEXT, DEFAULT_CONTEXT]
@@ -253,7 +266,12 @@ function createHarness(options: HarnessOptions = {}) {
           }
         }
       },
+      clearReconciled: (key, observedTxId) => {
+        journal = clearReconciledForeignWalletPendingTransaction(journal, key, observedTxId)
+        return journal
+      },
       findConflict: (input) => findForeignWalletPendingTransactionConflict(journal, input),
+      listPending: (input) => selectForeignWalletPendingTransactions(journal, input),
       recordBroadcastAttempt: (key, now) => {
         journal = markForeignWalletBroadcastAttempted(journal, key, now)
         return journal
@@ -265,6 +283,12 @@ function createHarness(options: HarnessOptions = {}) {
       },
     },
     now: () => clock,
+    readWalletHistory: async () => {
+      historyReads += 1
+      const answer = options.walletHistory ? options.walletHistory(historyReads) : []
+      if (answer instanceof Error) throw answer
+      return answer
+    },
     postTrusted: async (pathname, body, contentType, maxBytes) => {
       posts.push({ body, contentType, maxBytes, pathname })
       if (pathname === SPEND_CONTEXT_PATH) {
@@ -303,6 +327,7 @@ function createHarness(options: HarnessOptions = {}) {
     broadcastCount: () => broadcasts,
     deps,
     entries: () => journal.entries,
+    historyReadCount: () => historyReads,
     posts,
     seedCopies,
   }
@@ -645,13 +670,61 @@ for (const failure of [
     [UTXO_A.txHash, UTXO_B.txHash].sort(),
   )
 
-  const retry = createHarness({ startingJournal: { entries: harness.entries(), version: 1 as const } })
+  // A second send is stopped by RECONCILIATION, before planning: the node's
+  // wallet history does not contain the retained transaction, so Home still
+  // cannot prove its outcome and refuses by name rather than guessing.
+  const retainedJournal = { entries: harness.entries(), version: 1 as const }
+  const retry = createHarness({ startingJournal: retainedJournal, walletHistory: () => [] })
   const error = await rejection(executeHomeV2ForeignSend(FIXED_SEND, retry.deps))
-  assert.ok(error instanceof HomeV2ForeignSendReconciliationError)
-  assert.equal((error as HomeV2ForeignSendReconciliationError).code, 'FOREIGN_SEND_RECONCILIATION_REQUIRED')
+  assert.ok(error instanceof HomeV2ForeignSendReconciliationPendingError)
+  assert.equal((error as HomeV2ForeignSendReconciliationPendingError).code, 'FOREIGN_SEND_RECONCILIATION_REQUIRED')
   assert.ok(error.message.includes(String(result.txId)))
-  assert.equal(retry.approvals.length, 0, 'a conflicted send never reaches the user')
+  assert.equal(retry.approvals.length, 0, 'an unreconciled send never reaches the user')
   assert.equal(broadcastPosts(retry.posts).length, 0)
+  assert.equal(retry.entries().length, 1, 'an unprovable transaction is never discarded')
+  assert.equal(retry.historyReadCount(), 1, 'the wallet history is read once, not once per entry')
+
+  // The other branch: the node's history DOES contain that exact transaction,
+  // so the entry is settled on proof and the wallet is usable again.
+  const reconciled = createHarness({
+    broadcast: () => null,
+    startingJournal: retainedJournal,
+    walletHistory: () => [
+      { timestamp: 1, totalAmount: 1, txHash: 'cd'.repeat(32) },
+      { timestamp: 2, totalAmount: 2, txHash: String(result.txId) },
+    ],
+  })
+  const replayed = await executeHomeV2ForeignSend(FIXED_SEND, reconciled.deps)
+  assert.equal(replayed.foreignOutcome, 'mismatch', 'the replay itself still runs the full flow')
+  assert.equal(reconciled.approvals.length, 1, 'a reconciled wallet may be used again')
+  // The old entry is gone; only the new send's own entry remains.
+  assert.equal(reconciled.entries().length, 1)
+  assert.equal(reconciled.entries()[0].txId, replayed.txId)
+
+  // Proof is exact: a near-miss transaction id settles nothing.
+  const nearMiss = createHarness({
+    startingJournal: retainedJournal,
+    // One character different, chosen so it can never coincide with the real
+    // id however that id happens to end.
+    walletHistory: () => [{
+      txHash: `${String(result.txId)[0] === '0' ? '1' : '0'}${String(result.txId).slice(1)}`,
+    }],
+  })
+  const nearMissError = await rejection(executeHomeV2ForeignSend(FIXED_SEND, nearMiss.deps))
+  assert.ok(nearMissError instanceof HomeV2ForeignSendReconciliationPendingError)
+  assert.equal(nearMiss.entries().length, 1)
+
+  // A history the node answers with an unusable shape is not "absent": it is
+  // refused, so a broken read can never look like a clean wallet.
+  const badShape = createHarness({ startingJournal: retainedJournal, walletHistory: () => ({ nope: true }) })
+  const badShapeError = await rejection(executeHomeV2ForeignSend(FIXED_SEND, badShape.deps))
+  assert.match(badShapeError.message, /unusable shape/)
+  assert.equal(badShape.entries().length, 1)
+
+  // A wallet with nothing retained never reads the history at all.
+  const clean = createHarness({ broadcast: () => null })
+  await executeHomeV2ForeignSend(FIXED_SEND, clean.deps)
+  assert.equal(clean.historyReadCount(), 0)
 }
 
 // ---------------------------------------------------------------------------
@@ -753,5 +826,243 @@ for (const result of [
     null,
   )
 }
+
+// ---------------------------------------------------------------------------
+// Post-approval drift that opens DURING the second spend-context read.
+//
+// The re-read is an authenticated round trip that can take twenty seconds.
+// The checks made before it are stale by the time it returns, so the route and
+// validity checks are repeated as the last awaits before signing. These fakes
+// flip state while that read is in flight.
+
+{
+  let valid = true
+  const harness = createHarness({
+    broadcast: () => null,
+    isStillValid: async () => valid,
+    spendContexts: [DEFAULT_CONTEXT, DEFAULT_CONTEXT],
+  })
+  // Flip validity from inside the second spend-context read, i.e. after the
+  // post-approval isStillValid() has already answered true.
+  const inner = harness.deps.postTrusted
+  let contextReads = 0
+  const drifting: HomeV2ForeignSendDeps = {
+    ...harness.deps,
+    postTrusted: async (pathname, body, contentType, maxBytes) => {
+      const answer = await inner(pathname, body, contentType, maxBytes)
+      if (pathname === SPEND_CONTEXT_PATH) {
+        contextReads += 1
+        if (contextReads === 2) valid = false
+      }
+      return answer
+    },
+  }
+  const error = await rejection(executeHomeV2ForeignSend(FIXED_SEND, drifting))
+  assert.match(error.message, /changed before the foreign send could be signed/)
+  assert.equal(harness.entries().length, 0, 'nothing is written ahead when the context drifted')
+  assert.equal(broadcastPosts(harness.posts).length, 0)
+}
+
+{
+  let revision = 'rev-1'
+  const harness = createHarness({ broadcast: () => null })
+  const inner = harness.deps.postTrusted
+  let contextReads = 0
+  const drifting: HomeV2ForeignSendDeps = {
+    ...harness.deps,
+    postTrusted: async (pathname, body, contentType, maxBytes) => {
+      const answer = await inner(pathname, body, contentType, maxBytes)
+      if (pathname === SPEND_CONTEXT_PATH) {
+        contextReads += 1
+        if (contextReads === 2) revision = 'rev-2'
+      }
+      return answer
+    },
+    resolveRoute: async () => ({
+      apiKey: 'test-key',
+      nodeApiUrl: 'http://127.0.0.1:24891',
+      revision,
+      routeLabel: 'local',
+    }),
+  }
+  const error = await rejection(executeHomeV2ForeignSend(FIXED_SEND, drifting))
+  assert.match(error.message, /node or its API key changed/)
+  assert.equal(harness.entries().length, 0)
+  assert.equal(broadcastPosts(harness.posts).length, 0)
+}
+
+// ---------------------------------------------------------------------------
+// Node-reported numbers have absolute ceilings, not only relative ones.
+
+for (const [overrides, pattern] of [
+  [{ recommendedFeePerByte: '2001' }, /fee rate of 2001 atomic units per byte/],
+  [{ minimumNonDustOutput: '10001' }, /minimum output of 10001 atomic units/],
+] as const) {
+  const poisoned = spendContext([UTXO_A, UTXO_B, UTXO_C], overrides)
+  const harness = createHarness({ spendContexts: [poisoned, poisoned] })
+  const error = await rejection(executeHomeV2ForeignSend(FIXED_SEND, harness.deps))
+  assert.match(error.message, pattern)
+  assert.equal(harness.approvals.length, 0)
+}
+
+// The ceilings sit above every value a real chain reports, so an ordinary
+// context is untouched by them.
+{
+  const funded = fixtureUtxo(4, 10_000_000n, 50)
+  const busy = spendContext([funded], { recommendedFeePerByte: '2000', minimumNonDustOutput: '10000' })
+  const harness = createHarness({ broadcast: () => null, spendContexts: [busy, busy] })
+  const result = await executeHomeV2ForeignSend(
+    { amount: '0.00100000', coin: 'BTC', feePerByte: '2000', recipient: RECIPIENT },
+    harness.deps,
+  )
+  assert.equal(harness.approvals.length, 1)
+  assert.equal(result.foreignOutcome, 'mismatch')
+}
+
+// An absorbed-dust fee is measured against the absolute cap too, and the
+// prompt shows the rate actually paid.
+{
+  const single = spendContext([UTXO_A])
+  const harness = createHarness({ broadcast: () => null, spendContexts: [single, single] })
+  await executeHomeV2ForeignSend({ amount: '0.00097584', coin: 'BTC', recipient: RECIPIENT }, harness.deps)
+  const rate = harness.approvals[0].rows.find((row) => row.label === 'Fee rate')
+  assert.ok(rate)
+  assert.match(rate.value, /quoted, \d+ effective/)
+}
+
+// ---------------------------------------------------------------------------
+// Each DISTINCT funding transaction is parsed once, not once per output that
+// references it, and not once per phase.
+//
+// A wallet holding 1,000 outputs of the same 1 MiB funding transaction would
+// otherwise re-parse that megabyte 1,000 times, three times over (plan,
+// re-plan, sign). The cache is exercised here through the pure planner and
+// signer, which is where it lives; the orchestrator sharing ONE cache across
+// all three phases is pinned in the tier-2 source checks.
+
+{
+  const cache = createForeignWalletPreviousTransactionCache()
+  const utxos = [UTXO_A, UTXO_B, UTXO_C].map((utxo) => ({
+    address: utxo.address,
+    height: utxo.height,
+    path: utxo.pathAsString,
+    previousTransactionHex: utxo.rawTransactionHex,
+    scriptPubKey: utxo.scriptPubKeyHex,
+    txHash: utxo.txHash,
+    txPos: utxo.outputIndex,
+    value: BigInt(utxo.value),
+  }))
+  const planned = planForeignWalletSpend({
+    amount: 100_000n,
+    cache,
+    coin: COIN,
+    crypto: cryptoAdapter,
+    feePerByte: 12n,
+    minimumNonDustOutput: 546n,
+    nonce: NONCE,
+    recipientAddress: RECIPIENT,
+    seed: PUBLIC_TEST_SEED,
+    utxos,
+    walletVersion: WALLET_VERSION,
+  })
+  assert.equal(cache.parses, 3, 'planning parses each distinct funding transaction once')
+  // Re-planning over the same context reuses every parse.
+  planForeignWalletSpend({
+    amount: 100_000n,
+    cache,
+    coin: COIN,
+    crypto: cryptoAdapter,
+    feePerByte: 12n,
+    minimumNonDustOutput: 546n,
+    nonce: NONCE,
+    recipientAddress: RECIPIENT,
+    seed: PUBLIC_TEST_SEED,
+    utxos,
+    walletVersion: WALLET_VERSION,
+  })
+  assert.equal(cache.parses, 3, 're-planning reuses the parses planning already did')
+  buildForeignWalletSignedTransaction({
+    cache,
+    coin: COIN,
+    crypto: cryptoAdapter,
+    inputs: planned.inputs,
+    nonce: NONCE,
+    outputs: planned.outputs,
+    seed: PUBLIC_TEST_SEED,
+    transactionVersion: 1,
+    walletVersion: WALLET_VERSION,
+  })
+  assert.equal(cache.parses, 3, 'signing reuses them too')
+  assert.equal(cache.entries.size, 3)
+
+  // Many outputs of ONE funding transaction: still one parse.
+  const shared = createForeignWalletPreviousTransactionCache()
+  for (let repeat = 0; repeat < 5; repeat += 1) {
+    planForeignWalletSpend({
+      amount: 50_000n,
+      cache: shared,
+      coin: COIN,
+      crypto: cryptoAdapter,
+      feePerByte: 12n,
+      minimumNonDustOutput: 546n,
+      nonce: NONCE,
+      recipientAddress: RECIPIENT,
+      seed: PUBLIC_TEST_SEED,
+      utxos: [utxos[0], utxos[1]],
+      walletVersion: WALLET_VERSION,
+    })
+  }
+  assert.equal(shared.parses, 2, 'repeat plans over the same inputs never re-parse')
+
+  // The cache key is only a hint: a different body under the same hash is
+  // re-parsed, and then refused, rather than reusing the cached parse.
+  const poisoned = createForeignWalletPreviousTransactionCache()
+  planForeignWalletSpend({
+    amount: 50_000n,
+    cache: poisoned,
+    coin: COIN,
+    crypto: cryptoAdapter,
+    feePerByte: 12n,
+    minimumNonDustOutput: 546n,
+    nonce: NONCE,
+    recipientAddress: RECIPIENT,
+    seed: PUBLIC_TEST_SEED,
+    utxos: [utxos[0], utxos[1]],
+    walletVersion: WALLET_VERSION,
+  })
+  assert.throws(() => planForeignWalletSpend({
+    amount: 50_000n,
+    cache: poisoned,
+    coin: COIN,
+    crypto: cryptoAdapter,
+    feePerByte: 12n,
+    minimumNonDustOutput: 546n,
+    nonce: NONCE,
+    recipientAddress: RECIPIENT,
+    seed: PUBLIC_TEST_SEED,
+    utxos: [{ ...utxos[0], previousTransactionHex: utxos[1].previousTransactionHex }],
+    walletVersion: WALLET_VERSION,
+  }), /does not match its raw transaction/)
+}
+
+// A shape too expensive to sign is refused by name rather than stalling.
+assert.throws(
+  () => assertForeignWalletSigningWorkBounds(1_000, [25, 150_000]),
+  /too expensive to sign/,
+)
+assert.doesNotThrow(() => assertForeignWalletSigningWorkBounds(1_000, [25, 25]))
+
+// ---------------------------------------------------------------------------
+// The wallet history matcher itself.
+
+assert.equal(foreignWalletHistoryContainsTransaction([{ txHash: 'ab'.repeat(32) }], 'AB'.repeat(32)), true)
+assert.equal(foreignWalletHistoryContainsTransaction({ transactions: [{ txHash: 'ab'.repeat(32) }] }, 'ab'.repeat(32)), true)
+assert.equal(foreignWalletHistoryContainsTransaction([], 'ab'.repeat(32)), false)
+assert.equal(foreignWalletHistoryContainsTransaction([{ txHash: 'cd'.repeat(32) }], 'ab'.repeat(32)), false)
+// Only `txHash` counts, and only a canonical 32-byte hex value.
+assert.equal(foreignWalletHistoryContainsTransaction([{ txid: 'ab'.repeat(32) }], 'ab'.repeat(32)), false)
+assert.equal(foreignWalletHistoryContainsTransaction([{ txHash: `${'ab'.repeat(32)}ff` }], 'ab'.repeat(32)), false)
+assert.throws(() => foreignWalletHistoryContainsTransaction('nope', 'ab'.repeat(32)), /unusable shape/)
+assert.throws(() => foreignWalletHistoryContainsTransaction([], 'not-hex'), /transaction ID is invalid/)
 
 console.log('home-v2-foreign-send tests passed.')

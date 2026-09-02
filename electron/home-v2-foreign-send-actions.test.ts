@@ -222,6 +222,7 @@ const withChange = buildHomeV2ForeignSendApprovalRows({
   amount: 100_000n,
   change: 195_488n,
   changeAddress: CHANGE_ADDRESS,
+  estimatedMaximumSize: 376,
   fee: 4_512n,
   feePerByte: 12n,
   inputAmount: 300_000n,
@@ -250,11 +251,47 @@ assert.ok(withChange[6].value.includes(CHANGE_ADDRESS))
 assert.ok(withChange[6].value.includes('already spending from'))
 assert.ok(withChange[7].value.startsWith('2 confirmed outputs'))
 assert.equal(withChange[8].value, '0.00104512 BTC (104512 satoshis)')
+// 4512 / 376 = 12 exactly: nothing was absorbed, so only the quoted rate shows.
+assert.equal(withChange[5].value, '12 satoshis per byte across the 376-byte transaction')
+
+// When dust change IS absorbed, the prompt must show the rate actually paid.
+const absorbed = buildHomeV2ForeignSendApprovalRows({
+  amount: 97_584n,
+  change: 0n,
+  changeAddress: null,
+  estimatedMaximumSize: 193,
+  fee: 2_416n,
+  feePerByte: 12n,
+  inputAmount: 100_000n,
+  inputs: [{}],
+  recipientAddress: RECIPIENT,
+  sendMax: false,
+}, { chainId, coin: 'BTC' })
+assert.ok(isSequencedDetailRows(FOREIGN_SEND_DETAIL_SEQUENCE, absorbed))
+const absorbedRate = absorbed.find((row) => row.label === 'Fee rate')
+assert.ok(absorbedRate)
+assert.match(absorbedRate.value, /^12 satoshis per byte quoted, 13 effective/)
+const heavilyAbsorbed = buildHomeV2ForeignSendApprovalRows({
+  amount: 97_000n,
+  change: 0n,
+  changeAddress: null,
+  estimatedMaximumSize: 193,
+  fee: 3_000n,
+  feePerByte: 12n,
+  inputAmount: 100_000n,
+  inputs: [{}],
+  recipientAddress: RECIPIENT,
+  sendMax: false,
+}, { chainId, coin: 'BTC' })
+const heavyRate = heavilyAbsorbed.find((row) => row.label === 'Fee rate')
+assert.ok(heavyRate)
+assert.match(heavyRate.value, /^12 satoshis per byte quoted, 16 effective across the 193-byte transaction \(change too small to return was added to the fee\)$/)
 
 const maxRows = buildHomeV2ForeignSendApprovalRows({
   amount: 344_108n,
   change: 0n,
   changeAddress: null,
+  estimatedMaximumSize: 491,
   fee: 5_892n,
   feePerByte: 12n,
   inputAmount: 350_000n,

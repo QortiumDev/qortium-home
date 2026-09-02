@@ -482,12 +482,16 @@ import {
   executeHomeV2ForeignSend,
   HomeV2ForeignSendReconciliationError,
 } from './home-v2-foreign-send.js'
+import { HomeV2ForeignSendReconciliationPendingError } from './foreign-wallet-reconciliation.js'
 import {
+  clearReconciledStoredForeignWalletPendingTransaction,
   confirmStoredForeignWalletBroadcastSuccess,
   findStoredForeignWalletPendingTransactionConflict,
+  listStoredForeignWalletPendingTransactions,
   recordForeignWalletBroadcastAttempt,
   recordSignedForeignWalletPendingTransaction,
 } from './foreign-wallet-transaction-journal-store.js'
+import { buildForeignWalletReadRequest } from './foreign-wallet-read-contract.js'
 import { createHomeV2SendRateLimiter } from './home-v2-send-rate-limiter.js'
 import { assertHomeV2UnlockCompleted } from './home-v2-unlock-contract.js'
 import { base58Decode, base58Encode } from './base58.js'
@@ -7913,6 +7917,57 @@ async function postHomeV2TrustedForeignWallet(
  * unlocked account, an administratively trusted Core, and a route pinned for
  * the whole operation.
  */
+/**
+ * Whether the SELECTED Core actually implements the Home-signed send route.
+ *
+ * Administrative trust says the node will answer authenticated calls; it does
+ * not say the node is new enough to have
+ * `/crosschain/<coin>/wallet/public/spend-context`. An older trusted Core
+ * would otherwise be advertised as HOME_LOCAL and then 404 at send time,
+ * which is exactly the "capability that lies" case.
+ *
+ * The probe posts a deliberately INVALID body: a Core that has the route
+ * rejects it with a validation error, a Core that lacks it answers 404. Only
+ * 404 (or 405, the same absence reported differently) counts as unsupported —
+ * every other outcome, including a transport failure, is treated as supported
+ * so a momentary blip cannot silently withdraw a real capability.
+ */
+const homeV2ForeignSendRouteProbes = new Map<string, { checkedAt: number; supported: boolean }>()
+const FOREIGN_SEND_ROUTE_PROBE_TTL_MS = 5 * 60_000
+
+async function probeHomeV2ForeignSendRouteSupported(
+  nodeApiUrl: string,
+  apiKey: string,
+  revision: string,
+) {
+  const key = `${nodeApiUrl}|${revision}`
+  const cached = homeV2ForeignSendRouteProbes.get(key)
+  const now = Date.now()
+  if (cached && now - cached.checkedAt < FOREIGN_SEND_ROUTE_PROBE_TTL_MS) return cached.supported
+  let supported = true
+  try {
+    await postHomeV2TrustedForeignWallet(
+      nodeApiUrl,
+      apiKey,
+      '/crosschain/btc/wallet/public/spend-context',
+      JSON.stringify({ expectedChainId: '', xpub58: '' }),
+      'application/json',
+      64 * 1024,
+    )
+  } catch (error) {
+    const status = (error as { status?: unknown }).status
+    if (status === 404 || status === 405) supported = false
+  }
+  homeV2ForeignSendRouteProbes.set(key, { checkedAt: now, supported })
+  // Bounded: one entry per route revision seen, and revisions change rarely.
+  if (homeV2ForeignSendRouteProbes.size > 32) {
+    for (const [candidate, entry] of homeV2ForeignSendRouteProbes) {
+      if (now - entry.checkedAt >= FOREIGN_SEND_ROUTE_PROBE_TTL_MS) homeV2ForeignSendRouteProbes.delete(candidate)
+    }
+  }
+  return supported
+}
+
 async function handleHomeV2ForeignSendAction(
   sender: WebContents,
   context: QdnViewContext,
@@ -7960,13 +8015,29 @@ async function handleHomeV2ForeignSendAction(
         return !!current && `${current.mode}|${current.nodeApiUrl}` === nodeRoute
       },
       journal: {
+        clearReconciled: (key, observedTxId) =>
+          clearReconciledStoredForeignWalletPendingTransaction(userData, key, observedTxId),
         confirmBroadcastSuccess: (key, returnedTxId) =>
           confirmStoredForeignWalletBroadcastSuccess(userData, key, returnedTxId),
         findConflict: (input) => findStoredForeignWalletPendingTransactionConflict(userData, input),
+        listPending: (input) => listStoredForeignWalletPendingTransactions(userData, input),
         recordBroadcastAttempt: (key, now) => recordForeignWalletBroadcastAttempt(userData, key, now),
         recordSigned: (entry) => recordSignedForeignWalletPendingTransaction(userData, entry),
       },
       now: () => Date.now(),
+      readWalletHistory: async (wallet) => {
+        // The SAME authenticated read the wallet-history action uses, on the
+        // pinned route. It settles a retained write-ahead entry and nothing
+        // else: the result never reaches the app.
+        const request = buildForeignWalletReadRequest(wallet, 'wallettransactions')
+        return postHomeV2TrustedForeignWallet(
+          nodeApiUrl,
+          apiKey,
+          request.pathname,
+          request.body,
+          request.contentType,
+        )
+      },
       postTrusted: (pathname, body, contentType, maxBytes) => postHomeV2TrustedForeignWallet(
         nodeApiUrl,
         apiKey,
@@ -7998,7 +8069,8 @@ async function handleHomeV2ForeignSendAction(
       },
     })
   } catch (error) {
-    if (error instanceof HomeV2ForeignSendReconciliationError) {
+    if (error instanceof HomeV2ForeignSendReconciliationError
+      || error instanceof HomeV2ForeignSendReconciliationPendingError) {
       throw createHomeV2BridgeError(error.message, {
         action,
         code: error.code,
@@ -10892,17 +10964,30 @@ async function handleRequestWithRuntime(
       // The `/crosschain` family keeps the two 1.x response projections: the
       // QORT row added to the blockchain list, and feekb normalized to a
       // per-byte fee.
-      const foreignWalletTrustedCoreAvailable = action === 'GET_CROSSCHAIN_BLOCKCHAINS'
-        ? await resolveHomeV2AdminNode('qortium').then(({ trust }) => trust.trusted, () => false)
-        : false
-      // Sending is advertised only when Home could actually do it right now:
-      // the same trusted-Core predicate as reading, PLUS a selected account
-      // that is unlocked, because the send derives its signing keys from that
-      // account's seed. Never on a public or untrusted route. An app that sees
-      // send:false must not be able to make it true by asking.
-      const foreignWalletSendAvailable = foreignWalletTrustedCoreAvailable &&
-        !!context.accountId &&
-        isAccountUnlocked(context.accountId)
+      // Reading needs an administratively trusted Core. SENDING needs three
+      // more things, each checked rather than assumed: a selected account that
+      // is unlocked (the signing keys come from its seed), and a Core new
+      // enough to have the route the send actually uses. An older trusted Core
+      // advertised as able to send would 404 at the last moment, which is
+      // exactly the capability-that-lies case. Never on a public or untrusted
+      // route, and an app that sees send:false cannot make it true by asking.
+      const foreignWalletDiscovery = action === 'GET_CROSSCHAIN_BLOCKCHAINS'
+        ? await resolveHomeV2AdminNode('qortium').then(
+            async (resolved) => {
+              if (!resolved.trust.trusted) return { send: false, trusted: false }
+              const unlocked = !!context.accountId && isAccountUnlocked(context.accountId)
+              const send = unlocked && await probeHomeV2ForeignSendRouteSupported(
+                resolved.node.nodeApiUrl,
+                resolved.apiKey,
+                resolved.trust.revision,
+              )
+              return { send, trusted: true }
+            },
+            () => ({ send: false, trusted: false }),
+          )
+        : { send: false, trusted: false }
+      const foreignWalletTrustedCoreAvailable = foreignWalletDiscovery.trusted
+      const foreignWalletSendAvailable = foreignWalletDiscovery.send
       return projectHomeV2CrosschainReadResult(
         action,
         chainReadRequest,
@@ -11333,6 +11418,28 @@ export function registerHomeV2AppBridgeIpcHandlers() {
         ? 'session'
         : 'single-request'
     pending.resolve({ approved, scope: approved ? scope : null })
+  })
+  /**
+   * The retained foreign write-ahead entries, for Home's own Settings surface.
+   *
+   * Read-only and shell-only on purpose. It is NOT a QDN action and it is not
+   * reachable from an app: an app must not be able to enumerate which
+   * transactions a wallet has outstanding, and there is deliberately no
+   * companion that removes one. Clearing happens only through automatic
+   * reconciliation, which requires the exact transaction id to appear in the
+   * wallet's own history on the trusted node.
+   */
+  ipcMain.handle('home-v2-app:foreignWalletPendingTransactions', (event) => {
+    assertAuthorizedHomeV2Sender(event)
+    return listStoredForeignWalletPendingTransactions(app.getPath('userData')).map((entry) => ({
+      broadcastAttemptedAt: entry.broadcastAttemptedAt ?? null,
+      chainId: entry.chainId,
+      coin: entry.coin,
+      createdAt: entry.createdAt,
+      stage: entry.stage,
+      txId: entry.txId,
+      walletFingerprint: entry.walletFingerprint,
+    }))
   })
   // The shell window's reply to a Home-settings round-trip. Mirrors
   // 'qdn-app:resolveBookmarkManagerRequest' in home-v2-collections-bridge.ts:

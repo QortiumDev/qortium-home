@@ -1,4 +1,5 @@
 import { getForeignWalletMainnetChainId } from './foreign-wallet-spend-context.js'
+import { foreignWalletEffectiveFeePerByte } from './foreign-wallet-policy-bounds.js'
 import { normalizeForeignWalletCoin, type ForeignWalletCoin } from './foreign-wallets.js'
 import { parseHomeV2CoinAmount } from './home-v2-app-actions.js'
 import {
@@ -253,6 +254,7 @@ export type HomeV2ForeignSendApprovalPlan = Readonly<{
   amount: bigint
   change: bigint
   changeAddress: string | null
+  estimatedMaximumSize: number
   fee: bigint
   feePerByte: bigint
   inputAmount: bigint
@@ -271,6 +273,7 @@ export function buildHomeV2ForeignSendApprovalRows(
   context: Readonly<{ chainId: string; coin: string }>,
 ): readonly { readonly label: string; readonly value: string }[] {
   const { coin } = context
+  const effective = foreignWalletEffectiveFeePerByte(plan.fee, plan.estimatedMaximumSize)
   return Object.freeze([
     { label: 'You send', value: homeV2ForeignAmountText(plan.amount, coin) },
     { label: 'Paid to', value: plan.recipientAddress },
@@ -283,7 +286,16 @@ export function buildHomeV2ForeignSendApprovalRows(
         }]
       : []),
     { label: 'Network fee', value: homeV2ForeignAmountText(plan.fee, coin) },
-    { label: 'Fee rate', value: `${plan.feePerByte} satoshis per byte` },
+    // Both rates, because they can differ: change too small to be spendable
+    // is absorbed into the fee rather than returned, and the EFFECTIVE rate is
+    // the only place that shows up before the transaction is signed.
+    {
+      label: 'Fee rate',
+      value: effective > plan.feePerByte
+        ? `${plan.feePerByte} satoshis per byte quoted, ${effective} effective across the `
+          + `${plan.estimatedMaximumSize}-byte transaction (change too small to return was added to the fee)`
+        : `${plan.feePerByte} satoshis per byte across the ${plan.estimatedMaximumSize}-byte transaction`,
+    },
     ...(plan.changeAddress
       ? [{
           label: 'Change back to you',
