@@ -12,6 +12,7 @@ import {
   type HomeV2PublishSourceBinding,
   type HomeV2PublishSourceDescriptor,
 } from './home-v2-publish-source-tokens.js'
+import { PUBLIC_QDN_ATTESTATION_MAX_BYTES } from './qdn-content-attestation.js'
 
 export type HomeV2DesktopPublishSource = HomeV2PublishSourceDescriptor & (
   | Readonly<{
@@ -26,6 +27,14 @@ export type HomeV2DesktopPublishSource = HomeV2PublishSourceDescriptor & (
       bytes: Uint8Array
       kind: 'blob'
     }>
+  // A directory selection, zipped in memory at selection time (see
+  // buildHomeV2DirectoryPublishZip). From here on it's just bytes like a
+  // blob source, plus isZip so the publish path knows to unpack it.
+  | Readonly<{
+      bytes: Uint8Array
+      isZip: true
+      kind: 'directory'
+    }>
 )
 
 // File sources cost no store memory (bytes stay on disk until publish); blob
@@ -35,7 +44,19 @@ export const homeV2DesktopPublishSources = new HomeV2PublishSourceTokenStore<Hom
   16,
   undefined,
   undefined,
-  { maximumBytes: 96 * 1024 * 1024, sizeOf: (source) => (source.kind === 'blob' ? source.size : 0) },
+  {
+    // Paste/drop blobs stay individually capped by HOME_V2_PUBLISH_BLOB_MAX_BYTES
+    // (25 MiB) - this is the AGGREGATE budget across all retained in-memory
+    // sources. Zip-bundled directory selections can each be up to
+    // PUBLIC_QDN_ATTESTATION_MAX_BYTES, so the aggregate budget is widened to
+    // 2x that, letting at least one full-size selection be retained without
+    // being evicted while still bounding how much memory repeated large
+    // folder selections (without publishing) can pin - without this,
+    // nothing would stop up to `maximumEntries` (16) such selections from
+    // being retained simultaneously.
+    maximumBytes: 2 * PUBLIC_QDN_ATTESTATION_MAX_BYTES,
+    sizeOf: (source) => (source.kind === 'blob' || source.kind === 'directory' ? source.size : 0),
+  },
 )
 
 export function stageHomeV2DesktopPublishBlob(
@@ -124,6 +145,8 @@ export async function buildHomeV2DirectoryPublishZip(directoryPath: string, ceil
 export async function selectHomeV2DesktopPublishSource(
   windowId: number,
   binding: HomeV2PublishSourceBinding,
+  kind: 'file' | 'directory' = 'file',
+  ceilingBytes: number = HOME_V2_PUBLISH_SOURCE_MAX_BYTES,
 ) {
   const hostWindow = BrowserWindow.fromId(windowId)
   if (!hostWindow || hostWindow.isDestroyed()) {
@@ -131,18 +154,42 @@ export async function selectHomeV2DesktopPublishSource(
   }
   const result = await dialog.showOpenDialog(hostWindow, {
     buttonLabel: 'Select',
-    properties: ['openFile'],
+    properties: [kind === 'directory' ? 'openDirectory' : 'openFile'],
     title: `Select ${binding.network === 'qortal' ? 'Qortal' : 'Qortium'} publish source`,
   })
   if (result.canceled || !result.filePaths[0]) return { canceled: true as const }
   const selectedPath = result.filePaths[0]
+
+  if (kind === 'directory') {
+    const zipped = await buildHomeV2DirectoryPublishZip(selectedPath, ceilingBytes)
+    const source: HomeV2DesktopPublishSource = Object.freeze({
+      bytes: zipped.bytes,
+      fileName: `${nodePath.basename(selectedPath).slice(0, 176) || 'qdn-resource'}.zip`,
+      isZip: true as const,
+      kind: 'directory' as const,
+      mimeType: null,
+      size: zipped.size,
+    })
+    return {
+      canceled: false as const,
+      fileName: source.fileName,
+      kind: 'directory' as const,
+      mimeType: source.mimeType,
+      size: zipped.size,
+      sourceToken: homeV2DesktopPublishSources.issue(binding, source),
+    }
+  }
+
   const stats = await lstat(selectedPath, { bigint: true })
   if (!stats.isFile() || stats.isSymbolicLink()) {
     throw new Error('Publish source must be a regular file, not a directory or symbolic link.')
   }
   const size = Number(stats.size)
-  if (!Number.isSafeInteger(size) || size < 1 || size > HOME_V2_PUBLISH_SOURCE_MAX_BYTES) {
-    throw new Error('Publish source must be between 1 byte and 100 MiB.')
+  if (!Number.isSafeInteger(size) || size < 1) {
+    throw new Error('Publish source is empty or unreadable.')
+  }
+  if (size > ceilingBytes) {
+    throw new Error('Publish source exceeds the size this node will accept.')
   }
   const source: HomeV2DesktopPublishSource = Object.freeze({
     device: stats.dev,
@@ -164,7 +211,7 @@ export async function selectHomeV2DesktopPublishSource(
 }
 
 export async function readHomeV2DesktopPublishSource(source: HomeV2DesktopPublishSource) {
-  if (source.kind === 'blob') {
+  if (source.kind === 'blob' || source.kind === 'directory') {
     // Copy on read: publish paths hash and post these bytes, and must never
     // share a buffer with whatever else still references the staged source.
     if (source.bytes.byteLength !== source.size) {
