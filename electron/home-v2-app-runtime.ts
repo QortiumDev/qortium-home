@@ -290,22 +290,35 @@ export function homeV2WidgetWithholdsSelfSubject(action: string) {
 }
 
 /**
- * Actions Android cannot run.
+ * Actions Android cannot run, each with the reason it cannot.
  *
- * DELIBERATELY EMPTY as of 2026-08-27: the parity wave finished, and every
- * action Home 2 implements now runs on Android — polls, names, group
- * mutations, ratings, the account avatar, QDN lists, the publishing extras,
- * contract messages, and payments. What used to be here was never a security
- * posture; it was a list of things not yet ported, and describing an
- * unimplemented feature as a safety measure is how a half-working platform
- * gets mistaken for a careful one.
- *
- * The mechanism stays because a future action may genuinely need it — a
- * capability that depends on a desktop-only OS integration, say. Anything
- * added here needs a reason that is true of the ACTION rather than of the
- * porting schedule.
+ * The 2026-08-27 parity wave emptied this: every SIGNING family runs on
+ * Android, and describing an unimplemented feature as a safety measure is how
+ * a half-working platform gets mistaken for a careful one. Anything added here
+ * needs a reason that is true of the ACTION rather than of the porting
+ * schedule, and the reason is written next to the entry so the refusal cannot
+ * drift away from it — the single generic "requires transaction signing"
+ * message this used to emit was already wrong for the first entry added.
  */
-const ANDROID_UNSUPPORTED_ACTIONS = new Set<string>([])
+const ANDROID_UNSUPPORTED_ACTION_REASONS = new Map<string, string>([
+  [
+    // Not a porting gap of Home's: previewing POSTs the chosen source to a
+    // node that renders it, and the desktop handler is gated to a LOCAL Core
+    // for exactly that reason. Home for Android runs no Core, so the honest
+    // answer is that the capability is absent, not that the button is missing.
+    //
+    // Future Android path, when there is one: Core's
+    // POST /arbitrary/preview/{service}/upload?archive=&filename= takes the
+    // BYTES rather than a local path, which is what Home 1.x Android used
+    // (src/platform.ts, the PREVIEW_QDN_PUBLISH_SOURCE branch). It still needs
+    // a trusted node with a write key, so it is a node-trust decision before
+    // it is a client one.
+    'PREVIEW_QDN_PUBLISH_SOURCE',
+    'PREVIEW_QDN_PUBLISH_SOURCE renders the chosen source on your own local Qortium Core, which Qortium Home for Android does not run.',
+  ],
+])
+
+const ANDROID_UNSUPPORTED_ACTIONS: ReadonlySet<string> = new Set(ANDROID_UNSUPPORTED_ACTION_REASONS.keys())
 
 export function isHomeV2AndroidUnsupportedAction(action: string) {
   return ANDROID_UNSUPPORTED_ACTIONS.has(action)
@@ -337,7 +350,8 @@ export function homeV2AndroidActionRefusal(
   if (!getHomeV2AppActions(protocol).includes(action)) return null
   const network = getHomeV2AppNetwork(protocol, action)
   return {
-    message: `${action} requires transaction signing, which is only available in Qortium Home desktop.`,
+    message: ANDROID_UNSUPPORTED_ACTION_REASONS.get(action)
+      ?? `${action} is only available in Qortium Home desktop.`,
     network,
   }
 }
@@ -345,10 +359,8 @@ export function homeV2AndroidActionRefusal(
 export function getHomeV2ContextualAppActions(
   availableActions: readonly string[],
   context: 'android' | 'tab' | 'widget',
-  // Overridable so the withholding MECHANISM stays testable while the real set
-  // is empty: an empty list is not the same as a broken filter, and the next
-  // action that genuinely needs withholding should not be the one to discover
-  // that.
+  // Overridable so the withholding MECHANISM stays testable independently of
+  // whatever the real set happens to hold.
   unsupportedOnAndroid: ReadonlySet<string> = ANDROID_UNSUPPORTED_ACTIONS,
 ): readonly string[] {
   const filtered = availableActions.filter((action) => {

@@ -294,7 +294,15 @@ const QORTAL_ACTIONS = [
   'SAVE_CHAT_ATTACHMENT',
   'SELECT_QDN_PUBLISH_SOURCE',
   'STAGE_QDN_PUBLISH_SOURCE',
-  'PREVIEW_QDN_PUBLISH_SOURCE',
+  // PREVIEW_QDN_PUBLISH_SOURCE is deliberately absent here while SELECT and
+  // STAGE stay: those two feed PUBLISH_QDN_RESOURCE, which Qortal does have.
+  // Previewing does not go to a chain at all -- it POSTs the source to a node
+  // that renders it, so it needs a LOCAL Core with a write key, and Home 2
+  // holds no such key for the Qortal route (getHomeV2SignedWriteApiKey returns
+  // '' for 'qortal'). Advertising it would mean advertising an action that can
+  // only ever refuse. This is how the other local-Core-only actions are
+  // handled: RESTART_NODE, UPDATE_NODE_SETTINGS and GET_NODE_SETTINGS_METADATA
+  // are on the qdnRequest catalogue only, for the same reason.
   'SEARCH_CHAT_MESSAGES',
   'SEARCH_PRIVATE_DIRECT_CHAT_MESSAGES',
   'SEARCH_PRIVATE_GROUP_CHAT_MESSAGES',

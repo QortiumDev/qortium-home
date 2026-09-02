@@ -1,64 +1,25 @@
 import { BrowserWindow, dialog } from 'electron'
-import { constants as fsConstants } from 'node:fs'
-import { lstat, open } from 'node:fs/promises'
-import nodePath from 'node:path'
 
 import {
-  HOME_V2_PUBLISH_SOURCE_MAX_BYTES,
-  HomeV2PublishSourceTokenStore,
-  type HomeV2PublishSourceBinding,
-  type HomeV2PublishSourceDescriptor,
-} from './home-v2-publish-source-tokens.js'
+  describeHomeV2PublishSourcePath,
+  homeV2DesktopPublishSources,
+  homeV2PublishSourceDialogProperties,
+  type HomeV2PublishSourcePickKind,
+} from './home-v2-publish-source-selection.js'
+import type { HomeV2PublishSourceBinding } from './home-v2-publish-source-tokens.js'
 
-export type HomeV2DesktopPublishSource = HomeV2PublishSourceDescriptor & (
-  | Readonly<{
-      device: bigint
-      inode: bigint
-      kind: 'file'
-      path: string
-    }>
-  // STAGE_QDN_PUBLISH_SOURCE (B1): bytes an app handed over (paste/drop),
-  // held in main-process memory until published, released, or TTL-evicted.
-  | Readonly<{
-      bytes: Uint8Array
-      kind: 'blob'
-    }>
-)
-
-// File sources cost no store memory (bytes stay on disk until publish); blob
-// sources are budgeted so staged pastes can never grow Home's memory
-// unboundedly — the oldest staged blobs are evicted once the budget is hit.
-export const homeV2DesktopPublishSources = new HomeV2PublishSourceTokenStore<HomeV2DesktopPublishSource>(
-  16,
-  undefined,
-  undefined,
-  { maximumBytes: 96 * 1024 * 1024, sizeOf: (source) => (source.kind === 'blob' ? source.size : 0) },
-)
-
-export function stageHomeV2DesktopPublishBlob(
-  binding: HomeV2PublishSourceBinding,
-  blob: Readonly<{ bytes: Uint8Array; fileName: string; mimeType: string | null }>,
-) {
-  const source: HomeV2DesktopPublishSource = Object.freeze({
-    bytes: blob.bytes,
-    fileName: blob.fileName,
-    kind: 'blob' as const,
-    mimeType: blob.mimeType,
-    size: blob.bytes.byteLength,
-  })
-  return {
-    canceled: false as const,
-    fileName: source.fileName,
-    kind: 'blob' as const,
-    mimeType: source.mimeType,
-    size: source.size,
-    sourceToken: homeV2DesktopPublishSources.issue(binding, source),
-  }
-}
-
+/**
+ * The desktop picker. Everything it decides about the picked path — what a
+ * source may be, how big it may get, what a folder must contain — lives in
+ * home-v2-publish-source-selection.ts, which imports no electron and is
+ * therefore testable under plain node.
+ */
 export async function selectHomeV2DesktopPublishSource(
   windowId: number,
   binding: HomeV2PublishSourceBinding,
+  // Defaults to 'file' so the publish and chat-attachment flows are unchanged:
+  // only PREVIEW's caller asks for a folder, and only because it asks.
+  kind: HomeV2PublishSourcePickKind = 'file',
 ) {
   const hostWindow = BrowserWindow.fromId(windowId)
   if (!hostWindow || hostWindow.isDestroyed()) {
@@ -66,71 +27,17 @@ export async function selectHomeV2DesktopPublishSource(
   }
   const result = await dialog.showOpenDialog(hostWindow, {
     buttonLabel: 'Select',
-    properties: ['openFile'],
+    properties: homeV2PublishSourceDialogProperties(kind),
     title: `Select ${binding.network === 'qortal' ? 'Qortal' : 'Qortium'} publish source`,
   })
   if (result.canceled || !result.filePaths[0]) return { canceled: true as const }
-  const selectedPath = result.filePaths[0]
-  const stats = await lstat(selectedPath, { bigint: true })
-  if (!stats.isFile() || stats.isSymbolicLink()) {
-    throw new Error('Publish source must be a regular file, not a directory or symbolic link.')
-  }
-  const size = Number(stats.size)
-  if (!Number.isSafeInteger(size) || size < 1 || size > HOME_V2_PUBLISH_SOURCE_MAX_BYTES) {
-    throw new Error('Publish source must be between 1 byte and 100 MiB.')
-  }
-  const source: HomeV2DesktopPublishSource = Object.freeze({
-    device: stats.dev,
-    fileName: nodePath.basename(selectedPath).slice(0, 180) || 'qdn-resource',
-    inode: stats.ino,
-    kind: 'file' as const,
-    mimeType: null,
-    path: selectedPath,
-    size,
-  })
+  const source = await describeHomeV2PublishSourcePath(result.filePaths[0], kind)
   return {
     canceled: false as const,
     fileName: source.fileName,
-    kind: 'file' as const,
+    kind: source.kind,
     mimeType: source.mimeType,
-    size,
+    size: source.size,
     sourceToken: homeV2DesktopPublishSources.issue(binding, source),
-  }
-}
-
-export async function readHomeV2DesktopPublishSource(source: HomeV2DesktopPublishSource) {
-  if (source.kind === 'blob') {
-    // Copy on read: publish paths hash and post these bytes, and must never
-    // share a buffer with whatever else still references the staged source.
-    if (source.bytes.byteLength !== source.size) {
-      throw new Error('Staged publish source changed after staging. Stage the bytes again.')
-    }
-    return Uint8Array.from(source.bytes)
-  }
-
-  const noFollow = typeof fsConstants.O_NOFOLLOW === 'number' ? fsConstants.O_NOFOLLOW : 0
-  let handle
-  try {
-    handle = await open(source.path, fsConstants.O_RDONLY | noFollow)
-  } catch {
-    throw new Error('Selected publish source is no longer safely readable. Select the file again.')
-  }
-  try {
-    const stats = await handle.stat({ bigint: true })
-    if (
-      !stats.isFile() ||
-      stats.dev !== source.device ||
-      stats.ino !== source.inode ||
-      Number(stats.size) !== source.size
-    ) {
-      throw new Error('Selected publish source changed after selection. Select the file again.')
-    }
-    const bytes = new Uint8Array(await handle.readFile())
-    if (bytes.byteLength !== source.size) {
-      throw new Error('Selected publish source changed while it was being read.')
-    }
-    return bytes
-  } finally {
-    await handle.close()
   }
 }
