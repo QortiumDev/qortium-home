@@ -7,6 +7,9 @@ import { zipSync } from 'fflate';
 import { attestPublicQdnPublish } from '../dist-electron/qdn-content-attestation.js';
 import { assertPublicArbitraryTransaction } from '../dist-electron/public-transaction-validation.js';
 import { fetchBoundedBytes } from '../dist-electron/bounded-response.js';
+import { PUBLIC_QDN_ATTESTATION_MAX_BYTES } from '../dist-electron/qdn-content-attestation.js';
+
+assert.equal(PUBLIC_QDN_ATTESTATION_MAX_BYTES, 4 * 1024 * 1024 * 1024);
 
 const encoder = new TextEncoder();
 const BASE58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';

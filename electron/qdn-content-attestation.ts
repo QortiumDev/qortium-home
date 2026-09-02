@@ -7,7 +7,7 @@ import type { PublicArbitraryTransactionDetails } from './public-transaction-val
 const AES_GCM_NONCE_BYTES = 12;
 const AES_GCM_TAG_BYTES = 16;
 const ARBITRARY_CHUNK_BYTES = 512 * 1024;
-const MAX_ATTESTED_BYTES = 100 * 1024 * 1024;
+export const PUBLIC_QDN_ATTESTATION_MAX_BYTES = 4 * 1024 * 1024 * 1024;
 const MAX_METADATA_BYTES = 4 * 1024 * 1024;
 const MAX_ZIP_ENTRIES = 10_000;
 const MAX_ZIP_PATH_BYTES = 1_024;
@@ -68,7 +68,7 @@ function decodeBase58(value: string) {
 }
 
 function assertBounded(bytes: Uint8Array, label: string) {
-  if (bytes.byteLength > MAX_ATTESTED_BYTES + AES_GCM_NONCE_BYTES + AES_GCM_TAG_BYTES) {
+  if (bytes.byteLength > PUBLIC_QDN_ATTESTATION_MAX_BYTES + AES_GCM_NONCE_BYTES + AES_GCM_TAG_BYTES) {
     throw new Error(`${label} exceeded Home's bounded public QDN attestation limit.`);
   }
 }
@@ -116,7 +116,7 @@ function unzipFiles(bytes: Uint8Array, stripDataRoot: boolean) {
         }
         if (file.name.endsWith('/')) return false;
         inflatedBytes += file.originalSize;
-        if (inflatedBytes > MAX_ATTESTED_BYTES) {
+        if (inflatedBytes > PUBLIC_QDN_ATTESTATION_MAX_BYTES) {
           throw new Error('QDN ZIP content exceeded Home\'s bounded attestation limit.');
         }
         return true;
