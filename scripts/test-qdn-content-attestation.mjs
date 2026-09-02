@@ -547,4 +547,84 @@ await assert.rejects(attestPublicQdnPublish({
   source: { bytes: zipBombSource, filename: 'zip-bomb.zip', unpackZip: true },
 }), /bounded attestation limit/);
 
+// The entry-count-aware margin from the previous round only counted FILES
+// (unzipFiles's Map excludes directory entries), but Core's real repack
+// overhead is dominated by DIRECTORIES, not files, for any realistically
+// nested publish. Build a small-static-site-shaped fflate zip - 50 files
+// spread across many unique nested directory paths, several directories
+// per file - and pick a claimed rawSize that the OLD file-only-counting
+// formula would have wrongly rejected as tampering, but the NEW
+// structural-element-counting formula (files AND implied directories)
+// correctly accepts.
+const nestedEntries = {};
+const NESTED_FILE_COUNT = 50;
+const NESTED_SECTIONS = 8;
+const NESTED_SUBSECTIONS = 5;
+for (let index = 0; index < NESTED_FILE_COUNT; index += 1) {
+  const section = index % NESTED_SECTIONS;
+  const subsection = index % NESTED_SUBSECTIONS;
+  nestedEntries[`docs/section-${section}/sub-${subsection}/page-${index}/index.html`] =
+    encoder.encode(`<h1>Page ${index}</h1>`);
+}
+const nestedSource = zipSync(nestedEntries, { level: 0 });
+
+// Reproduce the OLD formula exactly: entryCount came from
+// unzipFiles(source.bytes, false).size, which is files only (directories
+// end in '/' and unzipFiles's filter returns false for those, so they
+// never make it into the Map).
+const nestedFilePaths = Object.keys(nestedEntries);
+const oldNestedEntryCount = nestedFilePaths.length;
+const oldNestedMargin = Math.ceil(nestedSource.byteLength * 1.1) + 4096 + 256 * oldNestedEntryCount;
+
+// The new structuralElementCount counts files AND every implied directory
+// path (e.g. 'docs', 'docs/section-0', 'docs/section-0/sub-0', ...).
+const nestedDirectories = new Set();
+for (const path of nestedFilePaths) {
+  const parts = path.split('/');
+  for (let index = 1; index < parts.length; index += 1) {
+    nestedDirectories.add(parts.slice(0, index).join('/'));
+  }
+}
+const newNestedStructuralElementCount = nestedFilePaths.length + nestedDirectories.size;
+const newNestedMargin =
+  Math.ceil(nestedSource.byteLength * 1.1) + 4096 + 2048 * newNestedStructuralElementCount;
+assert.ok(
+  nestedDirectories.size > nestedFilePaths.length,
+  'fixture must have more unique directories than files to actually exercise directory-blindness, not just a file-count edge case',
+);
+
+// Pick a claimed rawSize just above what the OLD formula could justify -
+// this is exactly the shape of claim Core would legitimately make for this
+// publish once its own directory-entry repack overhead is included, and
+// the OLD formula would wrongly reject it as "inconsistent with the
+// approved publish".
+const nestedClaimedRawSize = oldNestedMargin + 5_000;
+assert.ok(
+  nestedClaimedRawSize > oldNestedMargin,
+  'test fixture must exceed the OLD file-only-counting margin to actually exercise the directory-blindness regression',
+);
+assert.ok(
+  nestedClaimedRawSize <= newNestedMargin,
+  'test fixture must stay within the NEW structural-element-counting margin',
+);
+// fetchArtifact throws a distinctive marker if invoked - proving the size
+// gate accepted the claim and reached the fetch step, rather than rejecting
+// it with "inconsistent with the approved publish" the way the old
+// file-only-counting margin would have for this same claimed rawSize.
+await assert.rejects(attestPublicQdnPublish({
+  details: {
+    compression: 1,
+    data: randomBytes(32),
+    dataType: 0,
+    metadataHash: new Uint8Array(0),
+    rawSize: nestedClaimedRawSize,
+    secret: randomBytes(32),
+  },
+  expectedMetadata: noMetadata,
+  fetchArtifact: async () => {
+    throw new Error('MARKER: reached fetchArtifact, nested-directory-aware size margin accepted the claim');
+  },
+  source: { bytes: nestedSource, filename: 'docs-site.zip', unpackZip: true },
+}), /MARKER: reached fetchArtifact/);
+
 console.log('Public QDN content attestation tests passed.');

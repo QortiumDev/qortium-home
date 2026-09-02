@@ -143,6 +143,37 @@ function unzipFiles(bytes: Uint8Array, stripDataRoot: boolean, maxInflatedBytes:
   return files;
 }
 
+/**
+ * Counts every file AND every implied directory in a zip's central
+ * directory, WITHOUT decompressing any file's content - unlike
+ * unzipFiles, which is used elsewhere in this file specifically because
+ * it needs the actual file bytes for comparison. This function only
+ * needs a count, so its filter always returns false, meaning fflate's
+ * unzipSync never inflates anything - it only reads entry metadata
+ * (name, sizes) from the zip's local/central headers.
+ */
+function countZipStructuralElements(bytes: Uint8Array): number {
+  const paths: string[] = [];
+  try {
+    unzipSync(bytes, {
+      filter(file) {
+        if (!file.name.endsWith('/')) paths.push(file.name);
+        return false;
+      },
+    });
+  } catch {
+    throw new Error('QDN content attestation could not decode the packaged approved source ZIP.');
+  }
+  const directories = new Set<string>();
+  for (const path of paths) {
+    const parts = path.split('/');
+    for (let index = 1; index < parts.length; index += 1) {
+      directories.add(parts.slice(0, index).join('/'));
+    }
+  }
+  return paths.length + directories.size;
+}
+
 function expectedFiles(source: QdnPublishAttestationSource) {
   if (source.unpackZip) return unzipFiles(source.bytes, false);
   return new Map([[normalizeResourcePath(source.filename), source.bytes]]);
@@ -344,14 +375,22 @@ export async function attestPublicQdnPublish({
   // approved publish actually was. Bound it against what the approved
   // source can actually justify instead. The margin must account for
   // more than encryption overhead: Core repacks a multi-file publish
-  // into its OWN zip (explicit directory entries, extended-timestamp
-  // extra fields, data descriptors), measurably larger per entry than
-  // the zip Home's own fflate-based zipSync produces as the approved
-  // source - so the allowance scales with entry count, not just total
-  // size, or ordinary many-small-file publishes (icon sets, locale
-  // packs) would be rejected as if the node had tampered.
-  const entryCount = source.unpackZip ? unzipFiles(source.bytes, false).size : 1;
-  const maxJustifiedCiphertextBytes = Math.ceil(source.bytes.byteLength * 1.1) + 4096 + 256 * entryCount;
+  // into its OWN zip (explicit directory entries, per-entry extra
+  // fields, data descriptors), measurably larger than the zip Home's
+  // own fflate-based zipSync produces as the approved source. Rather
+  // than model Core's exact per-file/per-directory byte cost (fragile,
+  // library-specific, and previous attempts at this exact calibration
+  // were wrong), count every structural element - every file AND every
+  // implied directory - in the approved source WITHOUT decompressing
+  // any file content, and allow a generous flat amount per element.
+  // This is bounded in aggregate by MAX_ZIP_ENTRIES regardless of how
+  // the allowance is distributed, so it can't reopen the size-based DoS
+  // even in the worst case: 10,000 * 2048 bytes (~20 MB) against a
+  // 1 GiB ceiling is negligible, while comfortably covering the largest
+  // measured real per-entry overhead with room to spare.
+  const structuralElementCount = source.unpackZip ? countZipStructuralElements(source.bytes) : 1;
+  const maxJustifiedCiphertextBytes =
+    Math.ceil(source.bytes.byteLength * 1.1) + 4096 + 2048 * structuralElementCount;
   if (details.rawSize > maxJustifiedCiphertextBytes) {
     throw new Error('Public QDN builder claimed a content size inconsistent with the approved publish.');
   }
