@@ -1,4 +1,4 @@
-import { BrowserWindow, dialog } from 'electron'
+import { app, BrowserWindow, dialog } from 'electron'
 
 import {
   describeHomeV2PublishSourcePath,
@@ -7,6 +7,26 @@ import {
   type HomeV2PublishSourcePickKind,
 } from './home-v2-publish-source-selection.js'
 import type { HomeV2PublishSourceBinding } from './home-v2-publish-source-tokens.js'
+
+/**
+ * The path a smoke run picks instead of opening the native dialog, or null.
+ *
+ * A native file dialog cannot be driven over CDP, so the publish-source smokes
+ * would otherwise be unable to exercise anything past the picker. Mirrors the
+ * 1.x hook exactly (isQdnWriteSmokeMode in electron/qdn.ts): a DEVELOPMENT
+ * build plus an explicit opt-in env var, so a shipped Home can never take this
+ * branch however its environment is set. Everything after the picker -- the
+ * path rules, the size caps, the token binding -- is unchanged, so the smoke
+ * exercises the real flow and not a bypass of it.
+ */
+function homeV2PublishSourceSmokePath(): string | null {
+  if (app.isPackaged || process.env.QORTIUM_HOME_V2_PUBLISH_SOURCE_SMOKE !== '1') return null
+  const smokePath = process.env.QORTIUM_HOME_V2_PUBLISH_SOURCE_SMOKE_PATH?.trim()
+  if (!smokePath) {
+    throw new Error('The publish-source smoke path was not set.')
+  }
+  return smokePath
+}
 
 /**
  * The desktop picker. Everything it decides about the picked path — what a
@@ -24,6 +44,18 @@ export async function selectHomeV2DesktopPublishSource(
   const hostWindow = BrowserWindow.fromId(windowId)
   if (!hostWindow || hostWindow.isDestroyed()) {
     throw new Error('Publish source selection does not belong to an active Home window.')
+  }
+  const smokePath = homeV2PublishSourceSmokePath()
+  if (smokePath) {
+    const source = await describeHomeV2PublishSourcePath(smokePath, kind)
+    return {
+      canceled: false as const,
+      fileName: source.fileName,
+      kind: source.kind,
+      mimeType: source.mimeType,
+      size: source.size,
+      sourceToken: homeV2DesktopPublishSources.issue(binding, source),
+    }
   }
   const result = await dialog.showOpenDialog(hostWindow, {
     buttonLabel: 'Select',

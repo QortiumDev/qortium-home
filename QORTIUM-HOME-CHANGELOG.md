@@ -32,6 +32,31 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## fix(qdn): the publish preview actually opens
+
+Explore's "Preview local file" said "Preview opened in Home." and then nothing
+appeared. The file really was sent to your own Core, and Core really did build
+the preview -- the last step, opening it in a tab, was the one that silently did
+nothing.
+
+Home 2 keeps a list of apps in its shell state that was only ever filled in by
+the design fixture, never by the real application: every app tab you open is
+built from the address you opened, on the spot. The preview looked the
+requesting app up in that empty list, found nothing, and gave up without a
+word. Because Home tells the app the preview opened as soon as it has handed it
+over, the app had already congratulated you.
+
+The preview tab is now rebuilt from the tab that asked for it, which is both
+correct and stricter: a preview can only ever borrow the identity and address of
+the app that requested it. The tab is also named after the file you picked, so a
+preview is easy to tell apart from the app beside it. The empty list is now
+labelled as fixture-only so nothing reads it that way again.
+
+Two new guards come with it, because neither layer alone could see this failure:
+a unit test for the shell's decision, and a headless end-to-end run
+(`npm run smoke:desktop:qdn-publish-preview`) that picks a file, previews it,
+and fails unless a real preview tab opens and renders.
+
 ## fix(qdn): folder previews are back, and preview is only offered where it works
 
 Explore's "Preview local file" button lets you look at something before you
