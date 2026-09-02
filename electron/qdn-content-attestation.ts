@@ -341,13 +341,17 @@ export async function attestPublicQdnPublish({
   // handed over yet - trusting it unconditionally as the download cap
   // would let a hostile node force Home to download/decrypt/inflate up
   // to PUBLIC_QDN_ATTESTATION_MAX_BYTES regardless of how small the
-  // APPROVED publish actually was. Bound it against what the approved
-  // source can actually justify instead: encryption adds a small fixed
-  // overhead (AES-GCM nonce + tag), and compression's worst case is a
-  // small, bounded expansion - a 10% margin plus 4 KiB of headroom is
-  // generous for any real compressor while still closing off an
-  // arbitrarily-inflated claim.
-  const maxJustifiedCiphertextBytes = Math.max(Math.ceil(source.bytes.byteLength * 1.1) + 4096, 1024);
+  // approved publish actually was. Bound it against what the approved
+  // source can actually justify instead. The margin must account for
+  // more than encryption overhead: Core repacks a multi-file publish
+  // into its OWN zip (explicit directory entries, extended-timestamp
+  // extra fields, data descriptors), measurably larger per entry than
+  // the zip Home's own fflate-based zipSync produces as the approved
+  // source - so the allowance scales with entry count, not just total
+  // size, or ordinary many-small-file publishes (icon sets, locale
+  // packs) would be rejected as if the node had tampered.
+  const entryCount = source.unpackZip ? unzipFiles(source.bytes, false).size : 1;
+  const maxJustifiedCiphertextBytes = Math.ceil(source.bytes.byteLength * 1.1) + 4096 + 256 * entryCount;
   if (details.rawSize > maxJustifiedCiphertextBytes) {
     throw new Error('Public QDN builder claimed a content size inconsistent with the approved publish.');
   }

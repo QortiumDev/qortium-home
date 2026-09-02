@@ -454,4 +454,58 @@ await assert.rejects(attestPublicQdnPublish({
   source: { bytes: disproportionateSource, filename: 'tiny.txt', unpackZip: false },
 }), /inconsistent with the approved publish/);
 
+// The old flat 10% + 4 KiB margin only accounted for AES-GCM overhead and
+// generic compression variance. It did not account for the dominant real
+// factor: Core repacks a multi-file publish into its OWN zip format
+// (explicit directory entries, extended-timestamp extra fields, data
+// descriptors), which is measurably larger per entry than the zip Home's
+// own fflate zipSync produces as the approved source. For an ordinary
+// many-small-file publish (an icon set, a locale pack) that per-entry
+// overhead compounds across every file and the flat margin would wrongly
+// reject the node's claimed rawSize as "inconsistent with the approved
+// publish" even though nothing was tampered with. Build a many-small-file
+// fflate zip, and pick a claimed rawSize that the OLD flat margin would
+// have rejected but the NEW entry-count-aware margin correctly accepts.
+const manySmallEntries = {};
+const MANY_SMALL_FILE_COUNT = 180;
+for (let index = 0; index < MANY_SMALL_FILE_COUNT; index += 1) {
+  manySmallEntries[`icons/icon-${index}.txt`] = encoder.encode(`tiny icon payload ${index}`);
+}
+const manySmallFilesSource = zipSync(manySmallEntries, { level: 0 });
+const oldFlatMargin = Math.ceil(manySmallFilesSource.byteLength * 1.1) + 4096;
+const newEntryAwareMargin = oldFlatMargin + 256 * MANY_SMALL_FILE_COUNT;
+const manySmallFilesClaimedRawSize = oldFlatMargin + 5_000;
+assert.ok(
+  manySmallFilesClaimedRawSize > oldFlatMargin,
+  'test fixture must exceed the old flat margin to actually exercise the regression scenario',
+);
+assert.ok(
+  manySmallFilesClaimedRawSize <= newEntryAwareMargin,
+  'test fixture must stay within the new entry-count-aware margin',
+);
+// fetchArtifact throws a distinctive marker if invoked - proving the size
+// gate accepted the claim and reached the fetch step, rather than rejecting
+// it with "inconsistent with the approved publish" the way the old flat
+// margin would have for this same claimed rawSize.
+await assert.rejects(attestPublicQdnPublish({
+  details: {
+    compression: 1,
+    data: randomBytes(32),
+    dataType: 0,
+    metadataHash: new Uint8Array(0),
+    rawSize: manySmallFilesClaimedRawSize,
+    secret: randomBytes(32),
+  },
+  expectedMetadata: noMetadata,
+  fetchArtifact: async () => {
+    throw new Error('MARKER: reached fetchArtifact, size margin accepted the claim');
+  },
+  source: { bytes: manySmallFilesSource, filename: 'icons.zip', unpackZip: true },
+}), /MARKER: reached fetchArtifact/);
+
+// The previous test proving a wildly disproportionate rawSize claim is
+// still rejected (500 MiB against a few-hundred-byte source) already
+// exists above and still runs against the new formula - entry-count
+// headroom for a single tiny file is negligible next to a 500 MiB claim.
+
 console.log('Public QDN content attestation tests passed.');
