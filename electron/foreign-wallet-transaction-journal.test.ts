@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto'
 
 import {
   addSignedForeignWalletPendingTransaction,
+  clearReconciledForeignWalletPendingTransaction,
   confirmForeignWalletBroadcastSuccess,
   createEmptyForeignWalletTransactionJournal,
   findForeignWalletPendingTransactionConflict,
@@ -10,6 +11,7 @@ import {
   markForeignWalletBroadcastAttempted,
   sanitizeForeignWalletPendingTransaction,
   sanitizeForeignWalletTransactionJournal,
+  selectForeignWalletPendingTransactions,
   type ForeignWalletPendingTransaction,
 } from './foreign-wallet-transaction-journal.js'
 import { getForeignWalletMainnetChainId } from './foreign-wallet-spend-context.js'
@@ -176,5 +178,83 @@ assert.throws(() => sanitizeForeignWalletTransactionJournal({
   entries: [entry(), entry({ txId: 'aa'.repeat(32) })],
   version: 1,
 }), /conflicting outpoint/)
+
+// --- reconciliation -------------------------------------------------------
+//
+// Clearing an entry on the strength of the wallet's own history takes exactly
+// the proof a broadcast reply takes: the byte-exact transaction id. What it
+// adds is the ability to settle a 'signed' entry, which is what a crash
+// between the write-ahead record and the broadcast attempt leaves behind.
+
+{
+  const signedEntry = entry()
+  const journal = addSignedForeignWalletPendingTransaction(
+    createEmptyForeignWalletTransactionJournal(),
+    signedEntry,
+  )
+  const key = {
+    chainId: signedEntry.chainId,
+    coin: signedEntry.coin,
+    txId: signedEntry.txId,
+    walletFingerprint: signedEntry.walletFingerprint,
+  }
+  // A 'signed' entry can be settled; confirmBroadcastSuccess cannot do that.
+  assert.throws(
+    () => confirmForeignWalletBroadcastSuccess(journal, key, signedEntry.txId),
+    /not marked as broadcast attempted/,
+  )
+  assert.equal(clearReconciledForeignWalletPendingTransaction(journal, key, signedEntry.txId).entries.length, 0)
+
+  // ...and so can a broadcast-attempted one.
+  const attempted = markForeignWalletBroadcastAttempted(journal, key, signedEntry.createdAt + 1)
+  assert.equal(clearReconciledForeignWalletPendingTransaction(attempted, key, signedEntry.txId).entries.length, 0)
+
+  // But only against the EXACT id. No prefix, no case trick, no absence.
+  for (const wrong of [
+    'ab'.repeat(32),
+    `${signedEntry.txId.slice(0, 62)}00`,
+    signedEntry.txId.slice(0, 62),
+    '',
+    null,
+    undefined,
+  ]) {
+    assert.throws(
+      () => clearReconciledForeignWalletPendingTransaction(journal, key, wrong),
+      /Broadcast foreign transaction ID|is invalid/,
+      `a mismatched id must never clear an entry: ${String(wrong)}`,
+    )
+  }
+  // An entry that is not there cannot be "cleared" into existence either.
+  assert.throws(
+    () => clearReconciledForeignWalletPendingTransaction(
+      createEmptyForeignWalletTransactionJournal(),
+      key,
+      signedEntry.txId,
+    ),
+    /was not found/,
+  )
+
+  // The read-only selector: this wallet and coin only, oldest first.
+  const second = entry({
+    createdAt: signedEntry.createdAt + 5,
+    outpoints: [{ outputIndex: 7, txHash: 'bc'.repeat(32) }],
+    txId: 'bd'.repeat(32),
+  })
+  const both = addSignedForeignWalletPendingTransaction(journal, second)
+  const selected = selectForeignWalletPendingTransactions(both, {
+    chainId: signedEntry.chainId,
+    coin: signedEntry.coin,
+    walletFingerprint: signedEntry.walletFingerprint,
+  })
+  assert.deepEqual(selected.map((candidate) => candidate.txId), [signedEntry.txId, second.txId])
+  assert.equal(
+    selectForeignWalletPendingTransactions(both, {
+      chainId: getForeignWalletMainnetChainId('LTC'),
+      coin: 'LTC',
+      walletFingerprint: signedEntry.walletFingerprint,
+    }).length,
+    0,
+  )
+}
 
 console.log('Foreign wallet transaction journal contract tests passed.')

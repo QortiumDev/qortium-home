@@ -268,6 +268,50 @@ export function confirmForeignWalletBroadcastSuccess(
   })
 }
 
+/**
+ * Remove an entry because the wallet's own confirmed/unconfirmed history,
+ * read back from the trusted node, contains the EXACT transaction Home
+ * signed.
+ *
+ * This is not a forget: it takes the same proof `confirmForeignWalletBroadcastSuccess`
+ * takes — a byte-exact txid match — and differs only in where the proof came
+ * from (the wallet history rather than the broadcast reply) and in accepting
+ * a 'signed' entry, which is what a crash between the write-ahead record and
+ * the broadcast attempt leaves behind. There is deliberately no path that
+ * drops an entry without that proof.
+ */
+export function clearReconciledForeignWalletPendingTransaction(
+  journal: ForeignWalletTransactionJournal,
+  input: Pick<ForeignWalletPendingTransaction, 'chainId' | 'coin' | 'txId' | 'walletFingerprint'>,
+  observedTxId: unknown,
+): ForeignWalletTransactionJournal {
+  const current = sanitizeForeignWalletTransactionJournal(journal)
+  const wanted = transactionKeyFromInput(input)
+  normalizeConfirmedForeignWalletTransactionId(input.txId, observedTxId)
+  if (!current.entries.some((candidate) => transactionKey(candidate) === wanted)) {
+    throw new Error('Pending foreign transaction was not found.')
+  }
+  return sanitizeForeignWalletTransactionJournal({
+    entries: current.entries.filter((entry) => transactionKey(entry) !== wanted),
+    version: 1,
+  })
+}
+
+/**
+ * Every entry retained for one wallet and coin, oldest first. Read-only: the
+ * caller decides what to do about them, and nothing here removes anything.
+ */
+export function selectForeignWalletPendingTransactions(
+  journal: ForeignWalletTransactionJournal,
+  input: Pick<ForeignWalletPendingTransaction, 'chainId' | 'coin' | 'walletFingerprint'>,
+): readonly ForeignWalletPendingTransaction[] {
+  const current = sanitizeForeignWalletTransactionJournal(journal)
+  const walletKey = canonicalWalletIdentity(input)
+  return Object.freeze(current.entries
+    .filter((entry) => conflictWalletKey(entry) === walletKey)
+    .sort((left, right) => left.createdAt - right.createdAt))
+}
+
 export function normalizeConfirmedForeignWalletTransactionId(
   expectedTxId: unknown,
   returnedTxId: unknown,
