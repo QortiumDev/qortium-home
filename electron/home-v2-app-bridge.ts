@@ -313,6 +313,7 @@ import {
   readHomeV2DesktopPublishSource,
 } from './home-v2-publish-source-selection.js'
 import { normalizeHomeV2PublishBlobRequest } from './home-v2-publish-blob-source.js'
+import { isQdnBrowserArchiveService } from './qdn-browser-archive-services.js'
 import {
   normalizeHomeV2PublicPublishRequest,
   sha256Hex,
@@ -2620,8 +2621,15 @@ async function publishHomeV2PublicPublishSource(
   // built from a STREAMED hash, and the archive is only loaded once the user
   // has approved that exact hash.
   const includeHidden = getRequestedHomeV2PublishIncludeHidden(requestValue)
+  // Only a SITE needs an index file. The browser-archive services are the ones
+  // Home renders through an HTML entry point (and WEBSITE is the one Core
+  // validates an index for), so a folder published as one of those must hold
+  // one; a VIDEO, AUDIO or DOCUMENT bundle — a media file with its poster and
+  // captions — must not be made to invent one. The service is known here and
+  // nowhere earlier, which is why the picker does not ask.
+  const requireIndexFile = isQdnBrowserArchiveService(request.resource.service)
   const artifact = await withHomeV2PublishSourceErrors(
-    () => prepareHomeV2PublishArtifact(source, { includeHidden, maximumBytes }),
+    () => prepareHomeV2PublishArtifact(source, { includeHidden, maximumBytes, requireIndexFile }),
   )
   try {
     const contentHash = await withHomeV2PublishSourceErrors(() => artifact.sha256())
@@ -2779,8 +2787,14 @@ async function publishHomeV2MultiplePublishSources(
     // item, and the bytes themselves are loaded one item at a time below.
     const includeHidden = getRequestedHomeV2PublishIncludeHidden(requestValue)
     for (const entry of resolved) {
+      // Per ITEM: one batch can mix a WEBSITE folder with a VIDEO bundle, and
+      // the index rule follows each item's own service.
       const artifact = await withHomeV2PublishSourceErrors(
-        () => prepareHomeV2PublishArtifact(entry.source, { includeHidden, maximumBytes }),
+        () => prepareHomeV2PublishArtifact(entry.source, {
+          includeHidden,
+          maximumBytes,
+          requireIndexFile: isQdnBrowserArchiveService(entry.item.resource.service),
+        }),
       )
       items.push({
         artifact,

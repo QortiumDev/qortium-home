@@ -72,9 +72,23 @@ materialised fresh for whichever operation redeems the token —
 re-enforce every rule while they read it, so a folder that changed between
 selection and use is refused rather than used.
 
-The folder must hold a top-level index file (`index.html`, `index.htm`,
-`default.html`, `default.htm`, `home.html` or `home.htm`) — the same
-requirement previewing has, and the same one Core's `WEBSITE` render has.
+Whether the folder needs a top-level index file (`index.html`, `index.htm`,
+`default.html`, `default.htm`, `home.html` or `home.htm`) depends on what it is
+being published AS, so the check happens at publish time and not in the picker:
+
+| Target | Rule |
+| --- | --- |
+| `WEBSITE`, `APP`, `GAME` | A top-level index file is required. These are the services Home renders through an HTML entry point, and `WEBSITE` is the one Core validates an index for; without one the resource cannot be opened. |
+| Everything else | Only that the folder holds at least one file. A `VIDEO`, `AUDIO` or `DOCUMENT` bundle — a media file with its poster and captions — has no index to offer and is not asked for one. |
+| `PREVIEW_QDN_PUBLISH_SOURCE` | Always requires one, whatever the eventual service: a preview renders the folder as a `WEBSITE`, and one with no entry point would show you nothing. |
+
+An index that the hidden-file policy drops, or one nested in a subfolder, does
+not satisfy the rule — what counts is a top-level name that actually went into
+the archive.
+
+Home does not otherwise second-guess the service: a folder publish only makes
+sense for a service that accepts multiple files, and Core's own service table
+is what refuses the rest.
 
 At publish time the archive is streamed to a Home-owned temporary file, never
 built in memory, and it is bounded by:

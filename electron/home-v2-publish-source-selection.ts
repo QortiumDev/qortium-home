@@ -435,7 +435,12 @@ export async function describeHomeV2PublishSourcePath(
     if (kind === 'file') {
       throw homeV2PublishSourceError('Publish source must be a regular file, not a directory or symbolic link.')
     }
-    await assertHomeV2PublishDirectoryIndexFile(selectedPath, limits)
+    // No entry-file assertion here. Whether a folder needs an index depends on
+    // what it is going to BE, and SELECT_QDN_PUBLISH_SOURCE does not know that
+    // yet: the same token can be redeemed by a WEBSITE publish (which needs
+    // one), a VIDEO bundle of a media file with its poster and captions (which
+    // does not), or a preview (which always does, because it renders). Each of
+    // those asserts for itself, against the tree it is actually about to use.
     return Object.freeze({
       device: stats.dev,
       fileName,
@@ -885,6 +890,8 @@ const UNSAFE_ENTRY_NAME =
 const COLLIDING_ENTRY_NAME =
   'Selected folder contains two entries that would unpack to the same name. Rename one and select the folder again.'
 const EMPTY_FOLDER = 'Selected folder holds nothing that can be published.'
+const MISSING_PUBLISH_INDEX =
+  'This folder has no index file, which a website or app publish requires.'
 const CHANGED_ENTRY = 'Selected folder changed while it was being packaged. Select the folder again.'
 const TOO_LARGE_FOR_MEMORY =
   'Selected publish source is larger than Home will hold in memory to publish it.'
@@ -1002,13 +1009,21 @@ export type HomeV2PublishPackagedDirectory = Readonly<{
 }>
 
 /**
- * Package a folder selection into a Home-owned temp zip. The caller ALWAYS
- * removes `stagingDir`.
+ * Package a folder selection into a Home-owned temp zip.
+ *
+ * `requireIndexFile` is the SERVICE's rule, not the picker's: a folder
+ * published as a site (the browser-archive services Home renders through an
+ * HTML entry point, and the one Core validates an index for) must hold one at
+ * the top level, and a folder published as a media or document bundle must not
+ * be made to invent one. The caller decides, because only the publish request
+ * names the service. Either way the archive must hold at least one file.
+ *
+ * The caller ALWAYS removes `stagingDir`.
  */
 export async function packHomeV2PublishDirectory(
   source: HomeV2DesktopPublishSource,
   limits: HomeV2PublishPackagingLimits,
-  options: Readonly<{ includeHidden?: boolean }> = {},
+  options: Readonly<{ includeHidden?: boolean; requireIndexFile?: boolean }> = {},
 ): Promise<HomeV2PublishPackagedDirectory> {
   if (source.kind !== 'directory') {
     throw homeV2PublishSourceError('Only a folder selection can be packaged for publishing.')
@@ -1024,12 +1039,17 @@ export async function packHomeV2PublishDirectory(
     const state = newWalkState()
     const seen = new Set<string>()
     const counts: HomeV2PublishHiddenCounts = { excluded: 0, hidden: 0 }
+    let hasIndexFile = false
     try {
       const writer = new HomeV2PublishZipWriter(archive, limits.maximumPackagedBytes)
       await walkHomeV2PublishTree(root, root, '', 0, state, limits, {
         skipEntry: homeV2PublishHiddenFilter(options.includeHidden === true, counts),
         onFile: async (absolutePath, relativePath) => {
           const name = canonicalHomeV2PublishEntryName(relativePath, limits, seen)
+          // Recorded from the name that actually goes INTO the archive, so an
+          // index dropped by the hidden-file policy or refused for its name
+          // cannot satisfy the requirement it is no longer part of.
+          if (!name.includes('/') && HOME_V2_PUBLISH_PREVIEW_INDEX_FILES.has(name)) hasIndexFile = true
           const handle = await openContainedFile(absolutePath)
           try {
             // fstat on the OPEN handle, so the size the budget is spent
@@ -1046,6 +1066,9 @@ export async function packHomeV2PublishDirectory(
         specialEntry: 'refuse',
       })
       if (writer.entryCount === 0) throw homeV2PublishSourceError(EMPTY_FOLDER)
+      if (options.requireIndexFile === true && !hasIndexFile) {
+        throw homeV2PublishSourceError(MISSING_PUBLISH_INDEX)
+      }
       byteLength = await writer.finish()
     } finally {
       await archive.close().catch(() => undefined)
@@ -1118,6 +1141,12 @@ export type HomeV2PublishArtifactOptions = Readonly<{
   /** The ceiling this publish route discovered, already clamped by the caller. */
   maximumBytes: number
   packagingLimits?: HomeV2PublishPackagingLimits
+  /**
+   * Whether the target SERVICE renders the folder as a site and therefore
+   * needs a top-level index file. Absent means no, which is the right default
+   * for a media or document bundle.
+   */
+  requireIndexFile?: boolean
 }>
 
 export async function prepareHomeV2PublishArtifact(
@@ -1150,6 +1179,7 @@ export async function prepareHomeV2PublishArtifact(
     const limits = options.packagingLimits ?? homeV2PublishPackagingLimits(maximumBytes)
     const packaged = await packHomeV2PublishDirectory(source, limits, {
       includeHidden: options.includeHidden === true,
+      requireIndexFile: options.requireIndexFile === true,
     })
     let expectedHash: string | null = null
     const rememberHash = (hash: string) => {

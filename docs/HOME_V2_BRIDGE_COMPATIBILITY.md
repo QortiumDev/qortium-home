@@ -366,7 +366,11 @@ now refused rather than silently defaulted the way 1.x did). A folder selection:
 
 - opens `openDirectory` instead of `openFile`;
 - must contain a top-level entry file (`index.html` and Core's five siblings --
-  the list is shared with the 1.x preview stager, not copied);
+  the list is shared with the 1.x preview stager, not copied) to be PREVIEWED,
+  and to be PUBLISHED as one of the browser-archive services (`WEBSITE`,
+  `APP`, `GAME`). Published as anything else -- a `VIDEO`, `AUDIO` or
+  `DOCUMENT` bundle -- it needs only one file, which is why the picker itself
+  no longer asserts an index: it does not yet know the service;
 - is measured with a stat-only walk, capped at 512 MiB and 20,000 entries, and
   refused outright if it contains a symbolic link pointing outside the folder
   (Core follows the path Home hands it, so an escaping link would preview a

@@ -16,6 +16,7 @@ import {
   HOME_V2_PUBLISH_PREVIEW_INDEX_FILES,
   assertHomeV2DesktopPublishDirectoryUnchanged,
   assertHomeV2DesktopPublishFileUnchanged,
+  assertHomeV2PublishDirectoryIndexFile,
   canonicalHomeV2PublishEntryName,
   describeHomeV2PublishSourcePath,
   getRequestedHomeV2PublishIncludeHidden,
@@ -192,14 +193,21 @@ try {
     /must be a folder, not a file or symbolic link/,
   )
 
-  // A WEBSITE preview with no entry point renders nothing, so it is refused in
-  // the picker instead of after the node has already been handed the path.
+  // The PICKER is service-agnostic: it cannot know whether the token will be
+  // redeemed by a WEBSITE publish (index required), a VIDEO bundle (not), or a
+  // preview (always, because it renders). So an index-less folder is SELECTED
+  // fine, and each of those asserts for itself further down.
   const noIndex = nodePath.join(root, 'no-index')
   await mkdir(noIndex, { recursive: true })
   await writeFile(nodePath.join(noIndex, 'readme.txt'), 'nope')
-  await assert.rejects(
-    describeHomeV2PublishSourcePath(noIndex, 'directory'),
+  const noIndexSource = await describeHomeV2PublishSourcePath(noIndex, 'directory')
+  assert.equal(noIndexSource.kind, 'directory')
+  // Previewing it still refuses: a WEBSITE render with no entry point shows
+  // the user nothing.
+  await refusal(
+    stageHomeV2PublishSourceForPreview(noIndexSource),
     /index file \(for example index\.html\)/,
+    'a preview of an index-less folder is refused',
   )
   // The accepted entry-point names are Core's list, shared with the 1.x
   // preview stager rather than copied.
@@ -207,6 +215,7 @@ try {
     const folder = nodePath.join(root, `entry-${indexName}`)
     await mkdir(folder, { recursive: true })
     await writeFile(nodePath.join(folder, indexName), 'x')
+    await assertHomeV2PublishDirectoryIndexFile(folder)
     assert.equal((await describeHomeV2PublishSourcePath(folder, 'directory')).kind, 'directory')
   }
 
@@ -354,7 +363,7 @@ try {
     await writeFile(nodePath.join(crowdedNoIndex, `file-${index}.txt`), 'y')
   }
   await refusal(
-    describeHomeV2PublishSourcePath(crowdedNoIndex, 'directory', smallLimits),
+    assertHomeV2PublishDirectoryIndexFile(crowdedNoIndex, smallLimits),
     /holds more than 5 entries/,
     'the index scan stops at the entry limit',
   )
@@ -712,6 +721,74 @@ try {
   }
 
   // ---------------------------------------------------------------------------
+  // The index rule follows the SERVICE, not the picker.
+  //
+  // A media bundle -- the video with its poster and its captions -- is the
+  // reason folder publishing exists for anything other than websites, and it
+  // has no index.html to offer. Core agrees: VIDEO, AUDIO and DOCUMENT are all
+  // declared single=false in its Service table, and only WEBSITE carries the
+  // MISSING_INDEX_FILE validator.
+  // ---------------------------------------------------------------------------
+  {
+    const mediaRoot = nodePath.join(root, 'pack-media')
+    await mkdir(mediaRoot)
+    await writeFile(nodePath.join(mediaRoot, 'clip.mp4'), 'pretend video bytes')
+    await writeFile(nodePath.join(mediaRoot, 'poster.jpg'), 'pretend poster bytes')
+    await writeFile(nodePath.join(mediaRoot, 'captions.vtt'), 'WEBVTT\n')
+    const mediaSource = await describeHomeV2PublishSourcePath(mediaRoot, 'directory')
+
+    // VIDEO/AUDIO/DOCUMENT: packaged as it is.
+    const bundle = await packHomeV2PublishDirectory(mediaSource, homeV2PublishPackagingLimits(1024 * 1024))
+    try {
+      assert.deepEqual(
+        Object.keys(unzipSync(new Uint8Array(await readFile(bundle.archivePath)))).sort(),
+        ['captions.vtt', 'clip.mp4', 'poster.jpg'],
+      )
+    } finally {
+      await removeHomeV2PublishPreviewStagingDir(bundle.stagingDir)
+    }
+
+    // WEBSITE/APP/GAME: refused, because Home renders those through an HTML
+    // entry point and there is none.
+    await refusal(
+      packHomeV2PublishDirectory(mediaSource, homeV2PublishPackagingLimits(1024 * 1024), {
+        requireIndexFile: true,
+      }),
+      /no index file, which a website or app publish requires/,
+      'a site publish of an index-less folder is refused',
+    )
+    await refusal(
+      prepareHomeV2PublishArtifact(mediaSource, { maximumBytes: 1024 * 1024, requireIndexFile: true }),
+      /no index file, which a website or app publish requires/,
+      'the artifact carries the service rule through',
+    )
+
+    // The same folder with an index passes the site rule, so the refusal above
+    // is the missing index talking and not a check that refuses everything.
+    await writeFile(nodePath.join(mediaRoot, 'index.html'), '<video src="clip.mp4"></video>')
+    const siteSource = await describeHomeV2PublishSourcePath(mediaRoot, 'directory')
+    const site = await packHomeV2PublishDirectory(siteSource, homeV2PublishPackagingLimits(1024 * 1024), {
+      requireIndexFile: true,
+    })
+    await removeHomeV2PublishPreviewStagingDir(site.stagingDir)
+
+    // An index that the hidden-file policy drops does not satisfy the rule:
+    // what counts is the name that actually went into the archive.
+    const shadowRoot = nodePath.join(root, 'pack-shadow-index')
+    await mkdir(nodePath.join(shadowRoot, '.vscode'), { recursive: true })
+    await writeFile(nodePath.join(shadowRoot, '.vscode', 'index.html'), 'x')
+    await writeFile(nodePath.join(shadowRoot, 'clip.mp4'), 'y')
+    const shadowSource = await describeHomeV2PublishSourcePath(shadowRoot, 'directory')
+    await refusal(
+      packHomeV2PublishDirectory(shadowSource, homeV2PublishPackagingLimits(1024 * 1024), {
+        requireIndexFile: true,
+      }),
+      /no index file, which a website or app publish requires/,
+      'a nested or excluded index does not satisfy the top-level rule',
+    )
+  }
+
+  // ---------------------------------------------------------------------------
   // Hidden files.
   // ---------------------------------------------------------------------------
   {
@@ -868,6 +945,18 @@ try {
     'the batch disposes every prepared artifact',
   )
   assert.ok(bridgeSource.includes('await artifact.dispose()'), 'the single publish disposes its artifact')
+
+  // The index rule comes from the SERVICE, through the classification the rest
+  // of Home already uses for browser-rendered archives, and the batch applies
+  // it per item rather than once for the request.
+  assert.ok(
+    bridgeSource.includes('isQdnBrowserArchiveService(request.resource.service)'),
+    'the single publish derives requireIndexFile from its service',
+  )
+  assert.ok(
+    bridgeSource.includes('isQdnBrowserArchiveService(entry.item.resource.service)'),
+    'the batch derives requireIndexFile per item',
+  )
 
   // Nothing untagged reaches an app from the packaging or reading steps: this
   // module's own refusals are path-free sentences and pass through, and a raw

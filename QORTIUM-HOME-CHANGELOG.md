@@ -49,6 +49,13 @@ needs. The archive is written to a temporary file a piece at a time rather than
 assembled in memory, so packaging a large folder does not freeze the app, and
 the temporary file is deleted whether the publish succeeds or fails.
 
+What the folder has to contain depends on what you are publishing it as.
+Published as a website or an app, it needs a home page at the top level, the
+same as before. Published as a video, audio or document bundle -- a media file
+with its poster and its captions -- it needs only to have something in it. The
+folder picker no longer asks for a home page at all, because at that point Home
+does not yet know which of the two you are doing.
+
 The folder is checked twice, not once. It is checked when you pick it, and
 checked again while it is being read, because minutes can pass in between --
 long enough for a file to grow or to be swapped for a shortcut pointing
