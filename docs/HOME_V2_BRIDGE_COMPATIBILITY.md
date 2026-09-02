@@ -91,6 +91,9 @@ request `notifications.manage`, and the assigned app gets no head start.
 | `GET_PENDING_TRANSACTIONS` | both | This app/account/chain's opaque unknown-outcome entries without Home-internal account or app keys; an automatic QPGC setup entry may include `stage: "key-announcement"` | Route-independent scoped `transactions.pending.read` approval; message and key material are never stored | yes | yes |
 | `FORGET_PENDING_TRANSACTION` | both | `{ forgotten, network, signature }` | Route-independent single-request `transactions.pending.forget` approval after app reconciliation | yes | yes |
 | `GET_NODE_INFO`, `GET_NODE_STATUS` | both | Bare Core JSON | Protocol selects Qortium or Qortal | yes | yes |
+| `GET_NODE_SETTINGS_METADATA` | `qdnRequest` | Bare Core JSON (`/admin/settings/metadata`, the same anonymous route the passthrough allows) | No prompt; ordinary route availability | yes | yes |
+| `UPDATE_NODE_SETTINGS` | `qdnRequest` | Allowlisted `{ saved, updated, removed, applied, restartRequired }` — Core's `settingsPath` is deliberately dropped | Admin-trusted Qortium route only (managed local Core or attached-key custom node), advertised accordingly by `SHOW_ACTIONS`; validated BEFORE prompting (1.x patch shapes, ≤64 settings, keys ≤120 chars, node-declared writable keys only, values display-bounded); **single-request** `node.settings.write` approval naming every current/proposed value; trust re-resolved after the prompt; keyed `PATCH` refuses redirects | yes | yes |
+| `RESTART_NODE` | `qdnRequest` | `{ accepted: true }` | Same admin-trust rule and **single-request** `node.settings.write` approval with the pinned Impact row; keyed `GET /admin/restart`, fire-and-forget as every existing caller of that route | yes | yes |
 | `IS_USING_PUBLIC_NODE` | both | Boolean for the configured route | Protocol selects network; remains callable while the route is unavailable | yes | yes |
 | `FETCH_NODE_API` | both | Bounded response envelope | GET/HEAD allowlist; protocol selects network | yes | yes |
 | `FETCH_QORTAL_NODE_API` | `qdnRequest` | Bounded response envelope | Explicit Qortal GET/HEAD allowlist | yes | yes |
@@ -260,14 +263,14 @@ replacement is shipped:
 | `SEARCH_QORTAL_TRANSACTIONS` | `SEARCH_TRANSACTIONS` |
 | `SEND_QORTAL_GROUP_CHAT` | `SEND_CHAT_MESSAGE` |
 
-**Deferred (18) — planned by family, unadvertised until each family's
+**Deferred (15) — planned by family, unadvertised until each family's
 request/result/error, permission, denial, stale-context, malformed-input,
 desktop, and Android fixtures pass:**
 
 | Family | Deferred actions | Notes |
 | --- | --- | --- |
 | ~~Publishing preview~~ | ~~`PREVIEW_QDN_PUBLISH_SOURCE`~~ | **No longer deferred (2026-08-30)** — implemented as an app-tab preview, local nodes only; see its subsection below |
-| Node settings and admin | `GET_NODE_SETTINGS_METADATA`, `UPDATE_NODE_SETTINGS`, `RESTART_NODE` | Node settings stay deferred; Home's own DISPLAY settings are implemented (see below) |
+| ~~Node settings and admin~~ | ~~`GET_NODE_SETTINGS_METADATA`, `UPDATE_NODE_SETTINGS`, `RESTART_NODE`~~ | **No longer deferred (2026-09-01)** — implemented on the node-administration trust rule (see the implemented table above and `docs/BRIDGE_ACTIONS.md` § Node settings actions) |
 | Background notification subscriptions | `NOTIFICATION_ADD`, `NOTIFICATION_GET`, `NOTIFICATION_REMOVE` | Distinct from the implemented `NOTIFICATION_HAS_PERMISSION`/`SHOW_NOTIFICATION` contract and the `NOTIFICATION_MANAGER_*` family |
 | App assignments | `GET_APP_ASSIGNMENTS`, `REQUEST_APP_ASSIGNMENT` | F4 is Settings-only; app-facing delegation remains deferred |
 

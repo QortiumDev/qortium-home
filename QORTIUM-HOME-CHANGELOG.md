@@ -32,6 +32,23 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## feat(qdn): apps can manage your node's settings again
+
+The Node app could show your node under Home 2 but no longer change it: the
+three bridge actions it uses to edit Core settings and restart the node were
+still on the not-yet-carried list. They are now implemented, on Home 2's
+terms rather than by reviving old code. Editing settings and restarting are
+offered only for a node you actually administer — the Core Home runs itself,
+or a custom node you attached your own API key to, on desktop and Android
+alike — and never for a public node. Every change asks you first, every
+time, listing each setting with its current value and the proposed one, and
+a restart request says plainly what it will do. Home checks the request
+against what your node itself declares changeable before you are ever asked,
+refuses anything too large to show in full, and re-checks that the node and
+key have not changed while the dialog was open. What the app learns back is
+only whether the change saved and which settings want a restart — details
+like where your node keeps its files stay on the node.
+
 ## fix(qdn): restore the Node app's settings and peers reads
 
 The Node app's dashboard came back empty under Home 2: the Core settings

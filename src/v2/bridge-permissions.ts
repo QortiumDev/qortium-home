@@ -56,6 +56,13 @@ export type PermissionCapability =
   // (GET_ALL_LISTS, GET_LIST) carry no capability at all — they never prompt,
   // exactly as in Home 1.x.
   | 'node.lists.write'
+  // Updating settings on, or restarting, the user's OWN node
+  // (UPDATE_NODE_SETTINGS, RESTART_NODE). Like 'node.lists.write' this
+  // capability is NEVER durable: single-request prompt only, never written to
+  // the grant store, no card in QDN Apps settings. The matching READ
+  // (GET_NODE_SETTINGS_METADATA) carries no capability at all — it never
+  // prompts, exactly as in Home 1.x.
+  | 'node.settings.write'
   | 'node.foreign-server.write'
   // Creating, updating, or voting on a chain poll (CREATE_POLL, UPDATE_POLL,
   // VOTE_ON_POLL). Signs one fee-free transaction per approval. Never durable
@@ -226,6 +233,9 @@ export interface PermissionPrompt {
     // GET_ALL_LISTS and GET_LIST are deliberately absent: both are unprompted.
     | 'ADD_TO_LIST'
     | 'REMOVE_FROM_LIST'
+    // GET_NODE_SETTINGS_METADATA is deliberately absent: unprompted read.
+    | 'UPDATE_NODE_SETTINGS'
+    | 'RESTART_NODE'
     | 'CREATE_POLL'
     | 'UPDATE_POLL'
     | 'VOTE_ON_POLL'

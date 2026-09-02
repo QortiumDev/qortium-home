@@ -907,4 +907,50 @@ assert.equal(isHomeV2AndroidUnsupportedAction('ENCRYPT_DATA'), false)
 assert.equal(homeV2AndroidActionRefusal('ENCRYPT_DATA', 'qdnRequest'), null)
 assert.equal(homeV2AndroidActionRefusal('ENCRYPT_DATA', 'qortalRequest'), null)
 
+// ---------------------------------------------------------------------------
+// Node-settings family availability: the writes are advertised only on an
+// admin-trusted reachable Qortium route (the foreign-wallet rule); the
+// metadata read follows ordinary route availability; widgets never see the
+// writes at all.
+// ---------------------------------------------------------------------------
+{
+  const trustedActions = getHomeV2AvailableAppActions('qdnRequest', {
+    qortal: publicInfo.route,
+    qortium: localInfo.route,
+  })
+  for (const action of ['RESTART_NODE', 'UPDATE_NODE_SETTINGS', 'GET_NODE_SETTINGS_METADATA']) {
+    assert.equal(trustedActions.includes(action), true, `${action} must be advertised on an admin-trusted route.`)
+  }
+  const attachedActions = getHomeV2AvailableAppActions('qdnRequest', {
+    qortal: publicInfo.route,
+    qortium: authenticatedCustomInfo.route,
+  })
+  for (const action of ['RESTART_NODE', 'UPDATE_NODE_SETTINGS']) {
+    assert.equal(attachedActions.includes(action), true, `${action} must be advertised on an attached-key custom route.`)
+  }
+  const publicActions = getHomeV2AvailableAppActions('qdnRequest', {
+    qortal: publicInfo.route,
+    qortium: publicInfo.route,
+  })
+  for (const action of ['RESTART_NODE', 'UPDATE_NODE_SETTINGS']) {
+    assert.equal(publicActions.includes(action), false, `${action} must not be advertised on a public route.`)
+  }
+  // The metadata read is the same anonymous route FETCH_NODE_API allows, so
+  // it stays available wherever ordinary reads are.
+  assert.equal(publicActions.includes('GET_NODE_SETTINGS_METADATA'), true)
+  const untrustedCustomActions = getHomeV2AvailableAppActions('qdnRequest', {
+    qortal: publicInfo.route,
+    qortium: unauthenticatedCustomInfo.route,
+  })
+  for (const action of ['RESTART_NODE', 'UPDATE_NODE_SETTINGS']) {
+    assert.equal(untrustedCustomActions.includes(action), false, `${action} must not be advertised without the node's key.`)
+  }
+  // Widgets: the writes never reach a widget's action list even on a trusted
+  // route — they are not public reads and match no widget prefix.
+  const widgetActions = getHomeV2ContextualAppActions(trustedActions, 'widget')
+  for (const action of ['RESTART_NODE', 'UPDATE_NODE_SETTINGS']) {
+    assert.equal(widgetActions.includes(action), false, `${action} must not be offered to widgets.`)
+  }
+}
+
 console.log('Home v2 app runtime contract tests passed.')

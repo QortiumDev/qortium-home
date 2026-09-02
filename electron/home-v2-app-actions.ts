@@ -123,6 +123,14 @@ const QDN_ACTIONS = [
   'GET_MEMBER_KICKS',
   'GET_MINTING_STATUS',
   'GET_NAME_DATA',
+  // The Node app's settings family, qdnRequest-only like GET_HOME_SETTINGS*:
+  // Qortium Home is the only host with a node-settings concept, and
+  // evaluateHomeV2AdminTrust refuses network 'qortal' outright, so a
+  // qortalRequest copy could never be answered honestly. The metadata READ is
+  // promptless (the same anonymous Core route FETCH_NODE_API already allows);
+  // the two WRITES prompt on every request and are advertised only for an
+  // admin-trusted route (home-v2-app-runtime.ts).
+  'GET_NODE_SETTINGS_METADATA',
   'GET_PRIMARY_NAME',
   'GET_PRIVATE_DIRECT_ACTIVE_CHATS',
   'GET_PRIVATE_GROUP_ACTIVE_CHATS',
@@ -152,6 +160,7 @@ const QDN_ACTIONS = [
   'REMOVE_FROM_LIST',
   'REMOVE_GROUP_ADMIN',
   'REMOVE_MINTING_ACCOUNT',
+  'RESTART_NODE',
   'START_MINTING',
   'OPEN_QDN_RESOURCE_VIEWER',
   'OPEN_QDN_DOCUMENT_VIEWER',
@@ -202,6 +211,7 @@ const QDN_ACTIONS = [
   'UNLOCK_SELECTED_ACCOUNT',
   'UPDATE_GROUP',
   'UPDATE_NAME',
+  'UPDATE_NODE_SETTINGS',
   'UPDATE_POLL',
   'VOTE_ON_POLL',
 ] as const

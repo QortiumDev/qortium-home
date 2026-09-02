@@ -9,6 +9,7 @@ import {
   isHomeV2ForeignWalletReadAction,
   isHomeV2TrustedForeignWalletRoute,
 } from './home-v2-foreign-wallet-actions.js'
+import { isHomeV2NodeSettingsWriteAction } from './home-v2-node-settings.js'
 
 export type HomeV2AppPlatform = 'android' | 'desktop'
 export type HomeV2ConfiguredRouteKind =
@@ -188,6 +189,14 @@ export function getHomeV2AvailableAppActions(
         isHomeV2ForeignWalletAdminAction(action))
     ) {
       return isHomeV2TrustedForeignWalletRoute(route)
+    }
+    // The node-settings writes administer a node, so SHOW_ACTIONS stays
+    // honest the same way the foreign-wallet family does: advertised only on
+    // a reachable route the user actually administers (their managed local
+    // Core, or a custom node with their attached key). The metadata READ is
+    // not gated — it is the same anonymous Core route FETCH_NODE_API allows.
+    if (protocol === 'qdnRequest' && isHomeV2NodeSettingsWriteAction(action)) {
+      return route.reachable && route.adminTrusted
     }
     return HOME_V2_REACHABLE_ROUTE_ACTIONS.has(action) ? route.reachable : route.available
   }))

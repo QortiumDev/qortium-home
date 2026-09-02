@@ -289,6 +289,7 @@ import {
   selectHomeV2AccountAvatarPointer,
 } from '../../electron/home-v2-account-avatar-actions'
 import { canonicalHomeV2VoteSelection, normalizeHomeV2CreatePollRequest, normalizeHomeV2UpdatePollRequest, normalizeHomeV2VoteOnPollRequest, selectHomeV2PollTarget, resolveHomeV2AppAlias, homeV2NameOperationLabel, homeV2PollOperationLabel, homeV2PublishExtraOperationLabel, isHomeV2ListAction, isHomeV2ListWriteAction, isHomeV2NameWriteAction, isHomeV2PollWriteAction, isHomeV2PublishExtraAction, normalizeHomeV2BuyNameRequest, normalizeHomeV2CancelSellNameRequest, normalizeHomeV2ListItems, normalizeHomeV2ListName, normalizeHomeV2RegisterNameRequest, normalizeHomeV2SellNameRequest, normalizeHomeV2UpdateNameRequest, selectHomeV2NameTarget, serializeHomeV2ListItemsForApproval } from '../../electron/home-v2-app-actions'
+import { HOME_V2_RESTART_NODE_IMPACT, isHomeV2NodeSettingsWriteAction } from '../../electron/home-v2-node-settings'
 import { homeV2GroupMutationOperationLabel, isHomeV2GroupMutationAction } from '../../electron/home-v2-group-mutation-actions'
 import { homeV2RatingOperationLabel, isHomeV2RatingAction } from '../../electron/home-v2-rating-actions'
 import { homeV2AccountAvatarOperationLabel } from '../../electron/home-v2-account-avatar-actions'
@@ -464,6 +465,48 @@ function isNodeListDetailRows(
     candidate.value.length <= maxLength &&
     !/[\u0000-\u001f\u007f]/.test(candidate.value)
   return row(value[0], 'List', 120) && row(value[1], 'Items', 4_000) && row(value[2], 'Node', 500)
+}
+
+/**
+ * The rows a node-settings write prompt must carry, validated per ACTION.
+ * RESTART_NODE: exactly the pinned Impact row (Home's own wording,
+ * byte-for-byte) and the Node row. UPDATE_NODE_SETTINGS: the Node row, then
+ * 1-64 current/proposed pairs whose labels name the same setting key. Value
+ * caps mirror what the main process can produce — keys at most 120
+ * characters, displayed values at most 1,000 escaped characters plus quotes,
+ * the node URL at most 500.
+ */
+function isNodeSettingsDetailRows(action: string, value: unknown): boolean {
+  if (!Array.isArray(value)) return false
+  const row = (candidate: unknown, label: string | null, maxLength: number) =>
+    isRecord(candidate) &&
+    Object.keys(candidate).length === 2 &&
+    (label === null
+      ? typeof candidate.label === 'string' && candidate.label.length <= 132
+      : candidate.label === label) &&
+    typeof candidate.value === 'string' &&
+    candidate.value.length > 0 &&
+    candidate.value.length <= maxLength &&
+    !/[\u0000-\u001f\u007f]/.test(candidate.value)
+  if (action === 'RESTART_NODE') {
+    return value.length === 2 &&
+      row(value[0], 'Impact', 200) &&
+      (value[0] as { value?: unknown }).value === HOME_V2_RESTART_NODE_IMPACT &&
+      row(value[1], 'Node', 500)
+  }
+  if (value.length < 3 || value.length > 129 || value.length % 2 === 0) return false
+  if (!row(value[0], 'Node', 500)) return false
+  for (let index = 1; index < value.length; index += 2) {
+    const current = value[index] as { label?: unknown }
+    const proposed = value[index + 1] as { label?: unknown }
+    if (!row(current, null, 1_010) || !row(proposed, null, 1_010)) return false
+    const currentLabel = String(current.label)
+    const proposedLabel = String(proposed.label)
+    if (!currentLabel.endsWith(' (current)') || !proposedLabel.endsWith(' (proposed)')) return false
+    const key = currentLabel.slice(0, -' (current)'.length)
+    if (!key || key.length > 120 || key !== proposedLabel.slice(0, -' (proposed)'.length)) return false
+  }
+  return true
 }
 
 /**
@@ -3613,6 +3656,7 @@ export function HomeV2LiveApp() {
             !isHomeV2GroupMembershipAction(value.action) &&
             !isHomeV2MintingWriteAction(value.action) &&
             !isHomeV2ListWriteAction(value.action) &&
+            !isHomeV2NodeSettingsWriteAction(value.action) &&
             !isHomeV2PollWriteAction(value.action) &&
             !isHomeV2NameWriteAction(value.action) &&
             !isHomeV2GroupMutationAction(value.action) &&
@@ -3734,6 +3778,18 @@ export function HomeV2LiveApp() {
         || (isHomeV2ListWriteAction(value.action) &&
           (value.writeKind !== 'node-list' ||
             !isNodeListDetailRows(value.nodeListDetails) ||
+            typeof value.writeOperationLabel !== 'string' ||
+            typeof value.writeRouteLabel !== 'string' ||
+            typeof value.writeTargetChainLabel !== 'string' ||
+            value.writeSingleRequestOnly !== true))
+        // Node-settings writes must arrive as single-request prompts carrying
+        // the exact per-action row sequence: RESTART_NODE the pinned Impact
+        // row plus the Node row; UPDATE_NODE_SETTINGS the Node row plus the
+        // per-key current/proposed pairs. A prompt that cannot show exactly
+        // what would change on the user's node is refused, not rendered.
+        || (isHomeV2NodeSettingsWriteAction(value.action) &&
+          (value.writeKind !== 'node-settings' ||
+            !isNodeSettingsDetailRows(value.action, value.nodeSettingsDetails) ||
             typeof value.writeOperationLabel !== 'string' ||
             typeof value.writeRouteLabel !== 'string' ||
             typeof value.writeTargetChainLabel !== 'string' ||
@@ -3988,6 +4044,7 @@ export function HomeV2LiveApp() {
       const isJournalForget = value.action === 'FORGET_PENDING_TRANSACTION'
       const isMintingWrite = isHomeV2MintingWriteAction(value.action)
       const isListWrite = isHomeV2ListWriteAction(value.action)
+      const isNodeSettingsWrite = isHomeV2NodeSettingsWriteAction(value.action)
       const isPollWrite = isHomeV2PollWriteAction(value.action)
       const isNameWrite = isHomeV2NameWriteAction(value.action)
       const isGroupMutation = isHomeV2GroupMutationAction(value.action)
@@ -4015,7 +4072,7 @@ export function HomeV2LiveApp() {
       const isDecrypt = value.action === 'DECRYPT_DATA'
       const accountReadPromptKind = homeV2AccountReadPromptKind(value.action)
       const isGenericAccountRead = accountReadPromptKind === 'account'
-      const operationLabel = isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment || isNotification || isBookmarkManager || isNotificationManager || isHomeSettingsUpdate || isJournalForget || isMintingWrite || isListWrite || isPollWrite || isNameWrite || isGroupMutation || isPublishMultiple || isQdnDelete || isRatingWrite || isAccountAvatar || isPaymentSend || isForeignWalletRead || isForeignServerWrite || isAtMessage || isEncrypt || isDecrypt
+      const operationLabel = isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment || isNotification || isBookmarkManager || isNotificationManager || isHomeSettingsUpdate || isJournalForget || isMintingWrite || isListWrite || isPollWrite || isNameWrite || isGroupMutation || isPublishMultiple || isQdnDelete || isRatingWrite || isAccountAvatar || isPaymentSend || isForeignWalletRead || isForeignServerWrite || isAtMessage || isEncrypt || isDecrypt || isNodeSettingsWrite
         ? String(value.writeOperationLabel)
         : ''
       const prompt = createPermissionPrompt({
@@ -4074,6 +4131,10 @@ export function HomeV2LiveApp() {
               // like 'home.settings.write' (see bridge-permissions.ts).
               : isListWrite
                 ? 'node.lists.write'
+              // Reconfigures or restarts the user's own Core: its own
+              // capability, never durable, single-request only.
+              : isNodeSettingsWrite
+                ? 'node.settings.write'
               // Signs a chain transaction: its own capability, never
               // 'account.read', single-request only (see bridge-permissions).
               : isPollWrite
@@ -4151,6 +4212,10 @@ export function HomeV2LiveApp() {
             ? 'Forget pending transaction?'
           : isAtMessage
             ? 'Send a message to a contract?'
+          : isNodeSettingsWrite
+            ? value.action === 'RESTART_NODE'
+              ? 'Restart your node?'
+              : 'Change node settings?'
           : isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment || isMintingWrite || isListWrite || isPollWrite || isNameWrite || isGroupMutation || isPublishMultiple || isQdnDelete || isRatingWrite || isAccountAvatar || isPaymentSend
           ? `Allow ${operationLabel.toLowerCase()}?`
           : 'Allow account access?',
@@ -4166,6 +4231,10 @@ export function HomeV2LiveApp() {
           ? `${appTitle} wants to change the Home settings listed below. This approval covers this one change only — the app must ask again for the next one. It cannot read or change your accounts, node connections, or saved data.`
           : isListWrite
           ? `${appTitle} wants to change a named list stored on your own node. Apps on this node share these lists — they commonly drive blocking and following — so this change affects what other apps show you. This approval covers this one change only; nothing is signed and nothing on chain changes.`
+          : isNodeSettingsWrite
+          ? value.action === 'RESTART_NODE'
+            ? `${appTitle} wants to restart your own node's Core. Syncing, minting, and every app using this node pause until it comes back. This approval covers this one restart only; nothing is signed and nothing on chain changes.`
+            : `${appTitle} wants to change the node settings listed below on your own node. Every change is shown exactly as it will be applied; some settings only take effect after a restart, which is asked about separately. This approval covers this one change only; nothing is signed and nothing on chain changes.`
           : isForeignWalletRead
           ? `${appTitle} wants Home to derive public watch-only wallet data for supported foreign chains and let your trusted Qortium Core read balances and transaction history. The app receives addresses and an extended public key, never a seed or private key.`
           : isForeignServerWrite
@@ -4256,6 +4325,20 @@ export function HomeV2LiveApp() {
               // without it pushing the buttons off-screen.
               ...(value.nodeListDetails as readonly { label: string; value: string }[])
                 .map((detail) => detail.label === 'Items'
+                  ? { label: detail.label, value: detail.value, variant: 'scroll' as const }
+                  : { label: detail.label, value: detail.value }),
+              { label: 'Scope', value: 'This one request only' },
+            ]
+          : isNodeSettingsWrite
+          ? [
+              { label: 'App', value: appTitle },
+              // The per-action rows, re-checked by isNodeSettingsDetailRows
+              // above. Setting values can carry up to ~1,000 escaped
+              // characters, so the current/proposed rows scroll like the
+              // group Description rows; the Impact and Node rows render
+              // plainly.
+              ...(value.nodeSettingsDetails as readonly { label: string; value: string }[])
+                .map((detail) => detail.label.endsWith(' (current)') || detail.label.endsWith(' (proposed)')
                   ? { label: detail.label, value: detail.value, variant: 'scroll' as const }
                   : { label: detail.label, value: detail.value }),
               { label: 'Scope', value: 'This one request only' },
@@ -6460,6 +6543,83 @@ export function HomeV2LiveApp() {
           isRecord(requestValue) ? requestValue : {},
           trust.revision,
         )
+      }
+      // Node settings on Android. Same node-ownership rule as lists: allowed
+      // wherever the user attached their own node's API key. The key stays
+      // inside the node client — this arm only raises the approval and asks
+      // the client to act, binding the approval to the trust revision the
+      // plan named (the client re-resolves and refuses if the node or key
+      // moved while the prompt was open).
+      if (isAndroidHost && protocol === 'qdnRequest' && isHomeV2NodeSettingsWriteAction(action)) {
+        const settingsClient = nodeClient as HomeV2NodeClient
+        if (!settingsClient.adminTrust || !settingsClient.nodeSettingsApproval ||
+          !settingsClient.nodeSettingsWrite || !settingsClient.nodeRestart) {
+          throw new Error('Node settings are unavailable in this build.')
+        }
+        const parsedApp = resolveAppIdentity()
+        const appId = brand<AppId>(`home-v2:permission-app:${parsedApp.identityKey}`)
+        const promptContext = {
+          appId,
+          identityId: brand<IdentityId>(`home-v2:identity:app:${parsedApp.identityKey}`),
+          nodeProfileRef: snapshot.nodes.qortium.ref,
+          tabId: brand<TabId>(context.tabId),
+          targetNetwork: 'qortium' as const,
+          walletRef: null,
+        }
+        if (action === 'RESTART_NODE') {
+          const trust = await settingsClient.adminTrust()
+          if (!trust.trusted) throw new Error(trust.reason ?? 'This node cannot be administered from Home.')
+          const decision = await queueAndroidPermissionPrompt(createPermissionPrompt({
+            id: brand<PermissionRequestId>(globalThis.crypto.randomUUID()),
+            protocol,
+            action,
+            capability: 'node.settings.write',
+            appId,
+            appIdentityKey: parsedApp.identityKey,
+            appTitle: parsedApp.title,
+            context: promptContext,
+            title: 'Restart your node?',
+            summary: `${parsedApp.title} wants to restart your own node's Core. Syncing, minting, and every app using this node pause until it comes back. This approval covers this one restart only; nothing is signed and nothing on chain changes.`,
+            details: [
+              { label: 'App', value: parsedApp.title },
+              { label: 'Impact', value: HOME_V2_RESTART_NODE_IMPACT },
+              { label: 'Node', value: trust.origin },
+              { label: 'Scope', value: 'This one request only' },
+            ],
+            allowedScopes: ['single-request'],
+          }), context.tabId)
+          if (!decision.approved || decision.scope !== 'single-request') {
+            throw new Error('The node restart was denied.')
+          }
+          return await settingsClient.nodeRestart(trust.revision)
+        }
+        // The client validates the patch against the node's own writable
+        // declaration and derives the current/proposed rows BEFORE any
+        // prompt — a malformed or non-writable patch never gets this far.
+        const plan = await settingsClient.nodeSettingsApproval(isRecord(requestValue) ? requestValue : {})
+        const decision = await queueAndroidPermissionPrompt(createPermissionPrompt({
+          id: brand<PermissionRequestId>(globalThis.crypto.randomUUID()),
+          protocol,
+          action,
+          capability: 'node.settings.write',
+          appId,
+          appIdentityKey: parsedApp.identityKey,
+          appTitle: parsedApp.title,
+          context: promptContext,
+          title: 'Change node settings?',
+          summary: `${parsedApp.title} wants to change the node settings listed below on your own node. Every change is shown exactly as it will be applied; some settings only take effect after a restart, which is asked about separately. This approval covers this one change only; nothing is signed and nothing on chain changes.`,
+          details: [
+            { label: 'App', value: parsedApp.title },
+            { label: 'Node', value: plan.origin },
+            ...plan.rows.map((row) => ({ label: row.label, value: row.value, variant: 'scroll' as const })),
+            { label: 'Scope', value: 'This one request only' },
+          ],
+          allowedScopes: ['single-request'],
+        }), context.tabId)
+        if (!decision.approved || decision.scope !== 'single-request') {
+          throw new Error('The node settings change was denied.')
+        }
+        return await settingsClient.nodeSettingsWrite(isRecord(requestValue) ? requestValue : {}, plan.revision)
       }
       if (isAndroidHost && (action === 'GET_PENDING_TRANSACTIONS' || action === 'FORGET_PENDING_TRANSACTION')) {
         if (!context.selectedAccountId) throw new Error('No account is selected for this tab.')

@@ -438,6 +438,16 @@ import {
   type HomeV2MintingWriteAction,
 } from './home-v2-minting.js'
 import {
+  HOME_V2_RESTART_NODE_IMPACT,
+  buildHomeV2NodeSettingsApprovalRows,
+  createHomeV2NodeSettingsUpdateResult,
+  homeV2NodeSettingsOperationLabel,
+  homeV2WritableSettingKeys,
+  isHomeV2NodeSettingsWriteAction,
+  normalizeHomeV2NodeSettingsPatch,
+  type HomeV2NodeSettingsWriteAction,
+} from './home-v2-node-settings.js'
+import {
   accountExists,
   getAccountProfile,
   getAccountForeignWalletSeed,
@@ -659,6 +669,7 @@ type AccountReadAction =
   | 'UNLOCK_SELECTED_ACCOUNT'
   | HomeV2MintingWriteAction
   | HomeV2ListWriteAction
+  | HomeV2NodeSettingsWriteAction
   | HomeV2PollWriteAction
   | HomeV2NameWriteAction
   | HomeV2GroupMutationAction
@@ -1434,6 +1445,15 @@ async function requireAccountReadPermission(
     readonly routeLabel: string
     readonly targetChainLabel: string
   } | {
+    readonly kind: 'node-settings'
+    // RESTART_NODE: the pinned Impact row plus the Node row. UPDATE: the Node
+    // row plus the per-key current/proposed rows. The shell re-validates the
+    // sequence per action before rendering, as it does nodeListDetails.
+    readonly settingsDetails: readonly { readonly label: string; readonly value: string }[]
+    readonly operationLabel: string
+    readonly routeLabel: string
+    readonly targetChainLabel: string
+  } | {
     readonly kind: 'poll'
     readonly operationLabel: string
     // The per-action rows (Poll/Selection for a vote; Name/Description/
@@ -1621,6 +1641,9 @@ async function requireAccountReadPermission(
     // List writes change what the user's node stores, and what other apps
     // then show. Every one asks again, exactly as 1.x prompted per request.
     writeDetails?.kind === 'node-list' ||
+    // Node-settings writes reconfigure or restart the user's own Core.
+    // Every one asks again, exactly as 1.x prompted per request.
+    writeDetails?.kind === 'node-settings' ||
     // Poll writes sign chain transactions. Never a session or durable grant.
     writeDetails?.kind === 'poll' ||
     // Name writes sign chain transactions too — BUY_NAME moves coins.
@@ -1882,6 +1905,17 @@ async function requireAccountReadPermission(
                 // The Node/List/Items rows. Plain label/value strings,
                 // re-validated in the shell before they are rendered.
                 nodeListDetails: writeDetails.listDetails.map((detail) => ({ ...detail })),
+                writeOperationLabel: writeDetails.operationLabel,
+                writeRouteLabel: writeDetails.routeLabel,
+                writeSingleRequestOnly: true,
+                writeTargetChainLabel: writeDetails.targetChainLabel,
+              }
+          : writeDetails?.kind === 'node-settings'
+            ? {
+                writeKind: 'node-settings',
+                // The per-action row sequence. Plain label/value strings,
+                // re-validated in the shell before they are rendered.
+                nodeSettingsDetails: writeDetails.settingsDetails.map((detail) => ({ ...detail })),
                 writeOperationLabel: writeDetails.operationLabel,
                 writeRouteLabel: writeDetails.routeLabel,
                 writeSingleRequestOnly: true,
@@ -8566,6 +8600,186 @@ async function handleHomeV2ListAction(
   )
 }
 
+/**
+ * Node settings are the node's own configuration, so the family shares the
+ * administrative trust rule with lists and minting: Home's own managed Core,
+ * or a custom node the user attached their API key to
+ * (resolveHomeV2AdminNode / evaluateHomeV2AdminTrust). The metadata READ is
+ * not handled here — it is a plain anonymous Core route answered by the
+ * shared read handler, exactly like GET_NODE_STATUS.
+ */
+async function resolveHomeV2NodeSettingsNode(action: string) {
+  const resolved = await resolveHomeV2AdminNode('qortium')
+  if (!resolved.trust.trusted) {
+    throw createHomeV2BridgeError(
+      homeV2AdminTrustMessage(
+        resolved.trust.reason,
+        action === 'RESTART_NODE' ? 'Restarting the node' : 'Updating node settings',
+      ),
+      { action, code: 'NODE_CAPABILITY_MISSING', network: 'qortium', retryable: false },
+    )
+  }
+  return resolved
+}
+
+// The read twin for this family: the two anonymous settings reads UPDATE
+// validation needs (current values and writable metadata). No key is
+// attached — Core serves both routes anonymously — but redirects are refused
+// anyway so the answer comes from the node the trust gate named.
+async function readHomeV2NodeSettingsJson(nodeApiUrl: string, path: string, label: string) {
+  const response = await nodeFetch(`${nodeApiUrl}${path}`, {
+    method: 'GET',
+    redirect: 'error',
+    signal: AbortSignal.timeout(15_000),
+  })
+  const result = await readBoundedResponse(response, 'GET', LIST_READ_MAX_BYTES)
+  if (!result.ok) {
+    throw Object.assign(new Error(`${label} returned HTTP ${result.status}.`), { status: result.status })
+  }
+  return result.data
+}
+
+// The keyed call: PATCH /admin/settings or GET /admin/restart, key attached.
+// Redirects are refused for the same reason as requestHomeV2ListText — a
+// redirect would let the RESPONDER move the administrative key to a host the
+// trust gate never approved. (Security review 2026-08-26, finding 1.)
+async function requestHomeV2NodeSettingsText(
+  method: 'GET' | 'PATCH',
+  nodeApiUrl: string,
+  path: string,
+  body: string | undefined,
+  fallbackMessage: string,
+  apiKey: string,
+) {
+  const response = await nodeFetch(`${nodeApiUrl}${path}`, {
+    method,
+    headers: {
+      ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
+      ...(apiKey ? { 'X-API-KEY': apiKey } : {}),
+    },
+    body,
+    redirect: 'error',
+    signal: AbortSignal.timeout(CHAT_WRITE_TIMEOUT_MS),
+  })
+  const result = await readBoundedResponse(response, 'GET', CHAT_SIGNING_RESPONSE_MAX_BYTES)
+  const text = result.body.trim()
+  if (!result.ok) {
+    throw Object.assign(
+      new Error(readableNodeErrorMessage(text, `${fallbackMessage} HTTP ${result.status}.`)),
+      { status: result.status },
+    )
+  }
+  return text
+}
+
+/**
+ * Runs UPDATE_NODE_SETTINGS or RESTART_NODE on desktop: validate BEFORE
+ * prompting, prompt on every request, re-resolve trust after the prompt,
+ * then one keyed call — the exact shape of handleHomeV2ListAction.
+ *
+ * 1.x parity with three deliberate differences: trust comes from
+ * resolveHomeV2AdminNode (so an attached custom node qualifies, not only a
+ * non-network one); the update result is rebuilt from an allowlist instead of
+ * passing Core's response through (the settings file path stays on the
+ * node); and RESTART_NODE remains fire-and-forget exactly as every existing
+ * /admin/restart caller is — core-manager's process-scan fallback already
+ * tolerates the pid change a self-restart causes.
+ */
+async function handleHomeV2NodeSettingsAction(
+  sender: WebContents,
+  context: QdnViewContext,
+  protocol: HomeV2AppBridgeProtocol,
+  action: HomeV2NodeSettingsWriteAction,
+  requestValue: Record<string, unknown>,
+) {
+  const operationLabel = homeV2NodeSettingsOperationLabel(action)
+  if (action === 'RESTART_NODE') {
+    const before = await resolveHomeV2NodeSettingsNode(action)
+    await requireAccountReadPermission(sender, context, protocol, action, {
+      kind: 'node-settings',
+      operationLabel,
+      routeLabel: `${before.node.mode} · ${before.node.nodeApiUrl}`,
+      settingsDetails: [
+        { label: 'Impact', value: HOME_V2_RESTART_NODE_IMPACT },
+        { label: 'Node', value: before.node.nodeApiUrl },
+      ],
+      targetChainLabel: 'Qortium',
+    })
+    const rateLimitDecision = chatSendRateLimiter.checkAndRecordSend(chatSendRateLimitKey(sender, context))
+    if (!rateLimitDecision.allowed) throw new Error(rateLimitDecision.message)
+    // Re-resolve after the prompt: the approval named one node and one
+    // credential, and the restart must not follow the key anywhere else.
+    const after = await resolveHomeV2NodeSettingsNode(action)
+    if (
+      after.node.nodeApiUrl !== before.node.nodeApiUrl ||
+      !before.trust.trusted ||
+      !after.trust.trusted ||
+      after.trust.origin !== before.trust.origin ||
+      after.trust.revision !== before.trust.revision
+    ) {
+      throw new Error('The selected Qortium node or its API key changed before the write could start.')
+    }
+    await requestHomeV2NodeSettingsText(
+      'GET',
+      after.node.nodeApiUrl,
+      '/admin/restart',
+      undefined,
+      'Node restart request failed.',
+      after.apiKey,
+    )
+    return { accepted: true }
+  }
+  // Validate BEFORE prompting: a malformed patch, an oversized batch, or a
+  // key the node does not declare writable can never raise a prompt.
+  const patch = normalizeHomeV2NodeSettingsPatch(requestValue)
+  const before = await resolveHomeV2NodeSettingsNode(action)
+  const [metadata, currentSettings] = await Promise.all([
+    readHomeV2NodeSettingsJson(before.node.nodeApiUrl, '/admin/settings/metadata', 'Node settings metadata lookup'),
+    readHomeV2NodeSettingsJson(before.node.nodeApiUrl, '/admin/settings', 'Node settings lookup'),
+  ])
+  const writableKeys = homeV2WritableSettingKeys(metadata)
+  for (const key of Object.keys(patch)) {
+    if (!writableKeys.has(key)) throw new Error(`Node setting ${key} is not writable.`)
+  }
+  await requireAccountReadPermission(sender, context, protocol, action, {
+    kind: 'node-settings',
+    operationLabel,
+    routeLabel: `${before.node.mode} · ${before.node.nodeApiUrl}`,
+    settingsDetails: [
+      { label: 'Node', value: before.node.nodeApiUrl },
+      ...buildHomeV2NodeSettingsApprovalRows(currentSettings, patch),
+    ],
+    targetChainLabel: 'Qortium',
+  })
+  const rateLimitDecision = chatSendRateLimiter.checkAndRecordSend(chatSendRateLimitKey(sender, context))
+  if (!rateLimitDecision.allowed) throw new Error(rateLimitDecision.message)
+  const after = await resolveHomeV2NodeSettingsNode(action)
+  if (
+    after.node.nodeApiUrl !== before.node.nodeApiUrl ||
+    !before.trust.trusted ||
+    !after.trust.trusted ||
+    after.trust.origin !== before.trust.origin ||
+    after.trust.revision !== before.trust.revision
+  ) {
+    throw new Error('The selected Qortium node or its API key changed before the write could start.')
+  }
+  const text = await requestHomeV2NodeSettingsText(
+    'PATCH',
+    after.node.nodeApiUrl,
+    '/admin/settings',
+    JSON.stringify(patch),
+    'Node settings update request failed.',
+    after.apiKey,
+  )
+  let parsed: unknown = null
+  try {
+    parsed = JSON.parse(text)
+  } catch {
+    parsed = null
+  }
+  return createHomeV2NodeSettingsUpdateResult(parsed)
+}
+
 // ---------------------------------------------------------------------------
 // Polls (Home 2.1 restoration, Qortium qdnRequest only)
 //
@@ -10011,6 +10225,9 @@ async function handleRequestWithRuntime(
   if (isHomeV2ListAction(action)) {
     return handleHomeV2ListAction(sender, context, protocol, action, requestValue)
   }
+  if (isHomeV2NodeSettingsWriteAction(action)) {
+    return handleHomeV2NodeSettingsAction(sender, context, protocol, action, requestValue)
+  }
   if (isHomeV2PollWriteAction(action)) {
     return handleHomeV2PollAction(sender, context, protocol, action, requestValue)
   }
@@ -10599,6 +10816,8 @@ async function handleRequestWithRuntime(
       ? '/admin/status'
       : action === 'GET_NODE_INFO'
         ? '/admin/info'
+        : action === 'GET_NODE_SETTINGS_METADATA'
+          ? '/admin/settings/metadata'
         : action === 'FETCH_NODE_API' || action === 'FETCH_QORTAL_NODE_API'
           ? normalizeHomeV2ReadPath(requestValue.path)
           : null
@@ -10610,7 +10829,7 @@ async function handleRequestWithRuntime(
     method,
     normalizeHomeV2ResponseMaxBytes(requestValue.maxBytes),
   )
-  if (action === 'GET_NODE_STATUS' || action === 'GET_NODE_INFO') {
+  if (action === 'GET_NODE_STATUS' || action === 'GET_NODE_INFO' || action === 'GET_NODE_SETTINGS_METADATA') {
     if (!result.ok) throw new Error(`Node request returned HTTP ${result.status}.`)
     return result.data
   }
