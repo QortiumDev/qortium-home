@@ -313,7 +313,12 @@ export function homeV2AccountReadAlwaysAllowDetail(accountLabel: string) {
 // which means no grant is retained under either name; the exact family keeps
 // that true even if the single-request rule is ever relaxed. The user-facing
 // grouping lives in the prompt's `account.minting` capability instead.
-export function homeV2PermissionGrantFamily(action: string): string {
+export function homeV2PermissionGrantFamily(action: string, writeKind?: string): string {
+  // A foreign-coin send shares the SEND_COIN spelling with the native send but
+  // is a different operation entirely: a different chain, a different signer,
+  // a different disclosure. Its own family keeps one prompt from deduping
+  // against, or being satisfied by, the other.
+  if (writeKind === 'foreign-send') return 'payment.FOREIGN_SEND'
   if (isHomeV2ForeignWalletPermissionAction(action)) return 'account.foreign-wallet.read'
   if (isHomeV2AccountReadAction(action)) return 'account.read'
   if (PUBLIC_CHAT_MUTATIONS.has(action)) return 'chat.public.mutate'
@@ -339,8 +344,9 @@ export function homeV2PermissionGrantKey(input: {
   readonly protocol: string
   readonly tabId: string
   readonly target?: string
+  readonly writeKind?: string
 }): string {
-  const family = homeV2PermissionGrantFamily(input.action)
+  const family = homeV2PermissionGrantFamily(input.action, input.writeKind)
   const principal = [
     input.principalId,
     input.tabId,

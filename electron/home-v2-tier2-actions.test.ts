@@ -66,7 +66,7 @@ import {
   normalizeHomeV2AtMessageRequest,
 } from './home-v2-at-message-actions.js'
 import { buildUnsignedQortiumAtMessageTransactionBytes } from './qdn-at-message.js'
-import { HOME_V2_PERMISSIONLESS_ACTIONS } from './home-v2-session-grants.js'
+import { homeV2PermissionGrantFamily, HOME_V2_PERMISSIONLESS_ACTIONS } from './home-v2-session-grants.js'
 import { HOME_V2_JOURNALED_MUTATIONS } from './home-v2-transaction-journal.js'
 import { HOME_V2_ROUTE_INDEPENDENT_ACTIONS } from './home-v2-app-runtime.js'
 import {
@@ -1091,5 +1091,85 @@ const priceHandler = stripComments(
 )
 assert.ok(priceHandler.includes('await fetch(url,'), 'market prices must use the plain global fetch')
 assert.ok(!priceHandler.includes('nodeFetch'), 'market prices must not use nodeFetch')
+
+// ---------------------------------------------------------------------------
+// Foreign-coin sending: the wiring properties, asserted about the CODE
+// because each of them is a negative that no return value can express.
+
+// The foreign arm splits off BEFORE the native normalizer, the native
+// per-account in-flight lock and the native journal fail-closed gate. If this
+// order ever inverts, a foreign send starts taking (and being blocked by) the
+// native payment machinery it deliberately stays out of.
+const paymentHandler = stripComments(
+  sliceAfter(bridgeSource, 'async function handleHomeV2PaymentAction', 4_000, 'payment handler'),
+)
+const foreignSplit = paymentHandler.indexOf('isHomeV2ForeignSendRequest(action, requestValue)')
+assert.notEqual(foreignSplit, -1, 'the payment handler must route foreign sends out')
+for (const later of [
+  'homeV2PaymentJournalFailures.has(accountId)',
+  'normalizeHomeV2NativeSendRequest(action, requestValue)',
+  'homeV2PaymentSendLocks.add(lockKey)',
+]) {
+  const at = paymentHandler.indexOf(later)
+  assert.notEqual(at, -1, `payment handler no longer contains ${later}`)
+  assert.ok(at > foreignSplit, `the foreign split must come before ${later}`)
+}
+
+// The native Base58 journal is keyed on a top-level signature and an
+// 'unknown' outcome. A foreign send carries neither, so it is kept out of
+// both journal steps rather than relying on the result shape alone.
+const dispatcherJournal = stripComments(
+  sliceAfter(bridgeSource, 'const foreignSend = isHomeV2ForeignSendRequest(action, aliasedRequest)', 2_000, 'dispatcher'),
+)
+assert.ok(dispatcherJournal.includes('!foreignSend &&'))
+assert.ok(dispatcherJournal.includes('context.accountId && !foreignSend'))
+
+// The handler keeps the gates that DO apply, and never reaches for the
+// account's ed25519 signing key: a foreign transaction is signed with a
+// secp256k1 leaf key that never leaves foreign-wallets.ts.
+const foreignSendHandler = stripComments(
+  sliceAfter(bridgeSource, 'async function handleHomeV2ForeignSendAction', 4_500, 'foreign send handler'),
+)
+for (const required of [
+  'assertHomeV2TrustedForeignWalletNode',
+  'getAccountForeignWalletSeed',
+  'seed.seed.fill(0)',
+  "kind: 'foreign-send'",
+]) {
+  assert.ok(foreignSendHandler.includes(required), `foreign send handler must use ${required}`)
+}
+for (const forbidden of [
+  'getAccountSecretKey',
+  'homeV2PaymentSendLocks',
+  'homeV2PaymentJournalFailures',
+  'recordHomeV2PendingTransaction',
+  'xprv58',
+]) {
+  assert.ok(!foreignSendHandler.includes(forbidden), `foreign send handler must not use ${forbidden}`)
+}
+
+// A foreign send is never a session or durable grant, and its grant family is
+// its own so it cannot dedupe against a native payment prompt.
+assert.ok(sliceAfter(bridgeSource, 'const singleRequestOnly =', 3_000, 'bridge')
+  .includes("writeDetails?.kind === 'foreign-send'"))
+assert.equal(homeV2PermissionGrantFamily('SEND_COIN'), 'payment.PAYMENT')
+assert.equal(homeV2PermissionGrantFamily('SEND_COIN', 'foreign-send'), 'payment.FOREIGN_SEND')
+assert.notEqual(
+  homeV2PermissionGrantFamily('SEND_COIN', 'foreign-send'),
+  homeV2PermissionGrantFamily('PAYMENT'),
+)
+
+// The shell validates the foreign grammar separately from the payment one and
+// renders its own non-forgeable disclosure line.
+for (const required of [
+  "value.writeKind === 'foreign-send'",
+  "value.writeKind !== 'foreign-send'",
+  'FOREIGN_SEND_DETAIL_SEQUENCE, value.foreignSendDetails',
+  'homeV2ForeignSendOperationLabel(value.foreignSendCoin)',
+  'This one foreign-coin send only',
+  'Wallet seed, private key, or extended private key (xprv)',
+]) {
+  assert.ok(liveAppSource.includes(required), `HomeV2LiveApp must contain ${required}`)
+}
 
 console.log('Home v2 tier-2 action tests passed.')

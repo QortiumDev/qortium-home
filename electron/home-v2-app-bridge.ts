@@ -468,6 +468,7 @@ import {
 import {
   executeForeignWalletRead,
   getForeignWalletPublicResponse,
+  FOREIGN_WALLET_BACKEND_UNAVAILABLE_CODE,
   type ForeignWalletReadEndpoint,
 } from './foreign-wallet-read-contract.js'
 import {
@@ -476,6 +477,17 @@ import {
   normalizeHomeV2ForeignServerRequest,
   normalizeHomeV2ForeignWalletCoin,
 } from './home-v2-foreign-wallet-actions.js'
+import { isHomeV2ForeignSendRequest } from './home-v2-foreign-send-actions.js'
+import {
+  executeHomeV2ForeignSend,
+  HomeV2ForeignSendReconciliationError,
+} from './home-v2-foreign-send.js'
+import {
+  confirmStoredForeignWalletBroadcastSuccess,
+  findStoredForeignWalletPendingTransactionConflict,
+  recordForeignWalletBroadcastAttempt,
+  recordSignedForeignWalletPendingTransaction,
+} from './foreign-wallet-transaction-journal-store.js'
 import { createHomeV2SendRateLimiter } from './home-v2-send-rate-limiter.js'
 import { assertHomeV2UnlockCompleted } from './home-v2-unlock-contract.js'
 import { base58Decode, base58Encode } from './base58.js'
@@ -1528,6 +1540,20 @@ async function requireAccountReadPermission(
     readonly target: string
     readonly targetChainLabel: string
   } | {
+    readonly kind: 'foreign-send'
+    readonly chainId: string
+    readonly coin: string
+    // The per-send rows, escaped and re-validated in the shell against the
+    // foreign-send sequence. Payment-grade like the native rows: the exact
+    // decimal AND atomic amount, who is paid, the fee and its rate, where
+    // change goes, and what is actually debited.
+    readonly foreignSendDetails: readonly { readonly label: string; readonly value: string }[]
+    readonly operationLabel: string
+    readonly routeLabel: string
+    // 'foreign-send:<coin>:<chainId>:<recipient>:<amountAtomic|max>'.
+    readonly target: string
+    readonly targetChainLabel: 'Qortium'
+  } | {
     readonly kind: 'decrypt'
     readonly decryptDetails: readonly { readonly label: string; readonly value: string }[]
     readonly operationLabel: string
@@ -1609,7 +1635,7 @@ async function requireAccountReadPermission(
           ? writeDetails.target
         : writeDetails?.kind === 'account-avatar'
           ? 'account-avatar'
-        : writeDetails?.kind === 'payment'
+        : writeDetails?.kind === 'payment' || writeDetails?.kind === 'foreign-send'
           ? writeDetails.target
         : writeDetails?.kind === 'foreign-server'
           ? `foreign-server:${writeDetails.coin}`
@@ -1624,6 +1650,7 @@ async function requireAccountReadPermission(
     protocol,
     tabId: context.tabId,
     target: grantTarget,
+    writeKind: writeDetails?.kind,
   })
   const singleRequestOnly = action === 'UNLOCK_SELECTED_ACCOUNT' ||
     // SEND_MESSAGE signs a chain transaction. Pinned to the ACTION rather than
@@ -1658,8 +1685,10 @@ async function requireAccountReadPermission(
     writeDetails?.kind === 'rating' ||
     // The account avatar signs a chain transaction too.
     writeDetails?.kind === 'account-avatar' ||
-    // Payments MOVE FUNDS. Never a session or durable grant, ever.
+    // Payments MOVE FUNDS, native or foreign. A foreign send moves them on
+    // another chain, irreversibly. Never a session or durable grant, ever.
     writeDetails?.kind === 'payment' ||
+    writeDetails?.kind === 'foreign-send' ||
     writeDetails?.kind === 'foreign-server' ||
     (writeDetails?.kind === 'group' || writeDetails?.kind === 'direct' || writeDetails?.kind === 'private-group') &&
     writeDetails.singleRequestOnly === true
@@ -2011,6 +2040,17 @@ async function requireAccountReadPermission(
                 writeRouteLabel: writeDetails.routeLabel,
                 writeSingleRequestOnly: true,
                 writeTargetChainLabel: writeDetails.targetChainLabel,
+              }
+          : writeDetails?.kind === 'foreign-send'
+            ? {
+                foreignSendChainId: writeDetails.chainId,
+                foreignSendCoin: writeDetails.coin,
+                foreignSendDetails: writeDetails.foreignSendDetails.map((detail) => ({ ...detail })),
+                writeKind: 'foreign-send',
+                writeOperationLabel: writeDetails.operationLabel,
+                writeRouteLabel: writeDetails.routeLabel,
+                writeSingleRequestOnly: true,
+                writeTargetChainLabel: 'Qortium',
               }
           : writeDetails?.kind === 'foreign-wallet-read'
             ? {
@@ -3321,6 +3361,13 @@ async function handleHomeV2PaymentAction(
     routeRevision,
   })
   const accountId = context.accountId
+  // The foreign arm splits off BEFORE the native normalizer, the native
+  // in-flight lock and the native journal gate. `handleHomeV2PaymentAction`
+  // keeps its blanket foreign refusal below as the fail-closed backstop for
+  // anything this predicate does not claim.
+  if (action === 'SEND_COIN' && isHomeV2ForeignSendRequest(action, requestValue)) {
+    return handleHomeV2ForeignSendAction(sender, context, protocol, network, routeRevision, requestValue)
+  }
   if (homeV2PaymentJournalFailures.has(accountId)) {
     throw createHomeV2BridgeError(
       'A previously signed payment could not be recorded for reconciliation. Payment actions are blocked for this account until it is reconciled.',
@@ -7823,6 +7870,11 @@ async function postHomeV2TrustedForeignWallet(
   pathname: string,
   body: string,
   contentType: 'application/json' | 'text/plain',
+  // The ordinary authenticated-read ceiling. The spend context is the one
+  // caller that legitimately needs more: Core hex-encodes up to 8 MiB of
+  // funding transactions into it, so it passes its own bound rather than
+  // widening this default for every other foreign-wallet call.
+  maxBytes = 2 * 1024 * 1024,
 ) {
   const response = await nodeFetch(`${nodeApiUrl}${pathname}`, {
     body,
@@ -7834,7 +7886,7 @@ async function postHomeV2TrustedForeignWallet(
     redirect: 'error',
     signal: AbortSignal.timeout(20_000),
   })
-  const result = await readBoundedResponse(response, 'POST', 2 * 1024 * 1024)
+  const result = await readBoundedResponse(response, 'POST', maxBytes)
   if (!result.ok) {
     const coreError = isHomeV2AppRecord(result.data) && typeof result.data.error === 'number'
       ? { error: result.data.error }
@@ -7847,6 +7899,143 @@ async function postHomeV2TrustedForeignWallet(
     )
   }
   return result.data
+}
+
+/**
+ * The foreign arm of `SEND_COIN`.
+ *
+ * Deliberately NOT part of `handleHomeV2PaymentAction`'s machinery: it takes
+ * neither the native per-account payment lock (the per-WALLET foreign lock is
+ * the right granularity, and it is taken inside the orchestrator) nor the
+ * native journal fail-closed gate (a foreign ambiguity belongs in the foreign
+ * journal, and must never block native payments or be blocked by them). It
+ * keeps every gate that DOES apply: qdnRequest on Qortium, a selected and
+ * unlocked account, an administratively trusted Core, and a route pinned for
+ * the whole operation.
+ */
+async function handleHomeV2ForeignSendAction(
+  sender: WebContents,
+  context: QdnViewContext,
+  protocol: HomeV2AppBridgeProtocol,
+  network: HomeV2AppNetwork,
+  routeRevision: string,
+  requestValue: Record<string, unknown>,
+) {
+  const action = 'SEND_COIN'
+  const accountId = context.accountId
+  if (!accountId) throw new Error('No account is selected for this tab.')
+  const pinned = await resolveHomeV2AdminNode('qortium')
+  assertHomeV2TrustedForeignWalletNode(action, pinned.trust)
+  const pinnedRevision = pinned.trust.revision
+  const nodeApiUrl = pinned.node.nodeApiUrl
+  const nodeRoute = pinned.nodeRoute
+  const apiKey = pinned.apiKey
+  const routeLabel = `${pinned.node.mode} \u00b7 ${nodeApiUrl}`
+  const userData = app.getPath('userData')
+  const appIdentity = homeV2AppIdentityKey(context)
+
+  try {
+    return await executeHomeV2ForeignSend(requestValue, {
+      appIdentity,
+      approve: async (rows, meta) => {
+        await requireAccountReadPermission(sender, context, protocol, action, {
+          chainId: meta.chainId,
+          coin: meta.coin,
+          foreignSendDetails: rows.map((row) => ({ ...row })),
+          kind: 'foreign-send',
+          operationLabel: meta.operationLabel,
+          routeLabel,
+          target: meta.target,
+          targetChainLabel: 'Qortium',
+        })
+      },
+      crypto: foreignWalletCrypto(),
+      isStillValid: async () => {
+        const fresh = getQdnViewContextForWebContents(sender)
+        if (!fresh || !sameViewContext(context, fresh) || !liveResourceMatchesGrant(fresh)
+          || !isAccountUnlocked(accountId)) {
+          return false
+        }
+        const current = await getHomeV2ReadableNode('qortium').catch(() => null)
+        return !!current && `${current.mode}|${current.nodeApiUrl}` === nodeRoute
+      },
+      journal: {
+        confirmBroadcastSuccess: (key, returnedTxId) =>
+          confirmStoredForeignWalletBroadcastSuccess(userData, key, returnedTxId),
+        findConflict: (input) => findStoredForeignWalletPendingTransactionConflict(userData, input),
+        recordBroadcastAttempt: (key, now) => recordForeignWalletBroadcastAttempt(userData, key, now),
+        recordSigned: (entry) => recordSignedForeignWalletPendingTransaction(userData, entry),
+      },
+      now: () => Date.now(),
+      postTrusted: (pathname, body, contentType, maxBytes) => postHomeV2TrustedForeignWallet(
+        nodeApiUrl,
+        apiKey,
+        pathname,
+        body,
+        contentType,
+        maxBytes,
+      ),
+      resolveRoute: async () => {
+        const current = await resolveHomeV2AdminNode('qortium')
+        assertHomeV2TrustedForeignWalletNode(action, current.trust)
+        if (current.trust.revision !== pinnedRevision || current.node.nodeApiUrl !== nodeApiUrl) {
+          throw new Error('The selected Qortium node or its API key changed during the foreign send.')
+        }
+        return {
+          apiKey: current.apiKey,
+          nodeApiUrl: current.node.nodeApiUrl,
+          revision: current.trust.revision,
+          routeLabel,
+        }
+      },
+      withWalletSeed: (use) => {
+        const seed = getAccountForeignWalletSeed(accountId)
+        try {
+          return use(seed.seed, seed.addressIndex, seed.walletVersion)
+        } finally {
+          seed.seed.fill(0)
+        }
+      },
+    })
+  } catch (error) {
+    if (error instanceof HomeV2ForeignSendReconciliationError) {
+      throw createHomeV2BridgeError(error.message, {
+        action,
+        code: error.code,
+        network,
+        retryable: false,
+        routeRevision,
+      })
+    }
+    if (error instanceof HomeV2ForeignSendError) {
+      throw createHomeV2BridgeError(error.message, {
+        action,
+        code: 'FOREIGN_SEND_UNAVAILABLE',
+        network,
+        retryable: false,
+        routeRevision,
+      })
+    }
+    if (error instanceof Error && (error as { code?: unknown }).code === FOREIGN_WALLET_BACKEND_UNAVAILABLE_CODE) {
+      throw createHomeV2BridgeError(error.message, {
+        action,
+        code: FOREIGN_WALLET_BACKEND_UNAVAILABLE_CODE,
+        network,
+        retryable: false,
+        routeRevision,
+      })
+    }
+    if (error instanceof Error && /already in progress for this wallet and coin/.test(error.message)) {
+      throw createHomeV2BridgeError(error.message, {
+        action,
+        code: 'FOREIGN_SEND_IN_PROGRESS',
+        network,
+        retryable: true,
+        routeRevision,
+      })
+    }
+    throw error
+  }
 }
 
 async function deriveHomeV2ForeignWallet(
@@ -10916,8 +11105,14 @@ async function handleRequest(
       getHomeV2AvailableAppActions(protocol, routes),
       isWidgetTabId(context.tabId) ? 'widget' : 'tab',
     )
+    // The Base58 journal is the NATIVE chain's. A foreign send is journaled by
+    // txid in the foreign write-ahead log instead, and must be kept out of
+    // this one entirely: its results carry no Base58 signature, so recording
+    // one would throw and fail-close every native payment for the account.
+    const foreignSend = isHomeV2ForeignSendRequest(action, aliasedRequest)
     if (
       context.accountId &&
+      !foreignSend &&
       contextualActions.includes(action) &&
       isHomeV2JournaledMutation(action)
     ) {
@@ -10955,7 +11150,7 @@ async function handleRequest(
       contextualActions,
     )
     try {
-      const entry = context.accountId
+      const entry = context.accountId && !foreignSend
         ? createHomeV2PendingTransactionFromResult({
             accountId: context.accountId,
             action,

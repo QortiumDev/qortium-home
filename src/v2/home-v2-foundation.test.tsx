@@ -3074,7 +3074,12 @@ function testGrantIdentityAndSendRateLimitHardening(): void {
   // unlock, a group-admin action or a minting write.
   assert.match(
     appBridge,
-    /liveResourceMatchesGrant\(context\)[\s\S]{0,10000}hasQdnAccountCapability\(appGrantKey, context\.accountId, durableAccountReadCapability\)/,
+    // The window is a proximity heuristic that has to grow as
+    // requireAccountReadPermission grows (the foreign-send write kind added a
+    // grant target, a single-request rule and a grant-key field ahead of this
+    // point). ORDERING is the property being pinned; 12000 matches the
+    // account.groupChat pin above.
+    /liveResourceMatchesGrant\(context\)[\s\S]{0,12000}hasQdnAccountCapability\(appGrantKey, context\.accountId, durableAccountReadCapability\)/,
   )
   // The durable read grant is bound to the selected account, not just the app,
   // so it cannot survive an account switch the way the session grant cannot.
