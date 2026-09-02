@@ -544,9 +544,10 @@ Home 2's clean, network-qualified single-resource replacement is documented in
 [Home 2 public QDN publishing](QDN_PUBLIC_PUBLISHING.md), including `kind:
 'directory'` support on desktop for the Qortium global. The following broader
 inline-payload and preview surface remains specific to the retained
-compatibility bridge; Home 2 does not advertise those legacy variants, and its
-directory support does not extend to Qortal (which keeps the single-file,
-100 MiB behavior `kind` requests are silently ignored for).
+compatibility bridge; Home 2 does not advertise those legacy variants. Folder
+sources do not extend to Qortal: a `kind: 'directory'` request on
+`qortalRequest` is REFUSED by name rather than quietly downgraded to a file
+picker, because a token no Qortal path can redeem is worse than an error.
 
 Single-resource publishing can use inline `data64`/`base64` payloads or a
 Home-owned file/folder picker on desktop and a Home-owned single-file native
@@ -570,7 +571,9 @@ only the opaque `sourceToken`.
 > user's own local Core with a write key — Home 2 holds none for the Qortal
 > route, and Home for Android runs no Core. `SELECT_QDN_PUBLISH_SOURCE`,
 > `STAGE_QDN_PUBLISH_SOURCE` and `PUBLISH_QDN_RESOURCE` are unaffected and stay
-> on both globals. A folder source is preview-only — it cannot be published.
+> on both globals. A folder source can also be PUBLISHED as of 2026-09-02, on
+> Qortium desktop only — see [Home 2 public QDN
+> publishing](QDN_PUBLIC_PUBLISHING.md) § Folder sources.
 > See [Home 2 bridge compatibility](HOME_V2_BRIDGE_COMPATIBILITY.md).
 
 ```js

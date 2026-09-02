@@ -20,23 +20,35 @@ if (!selected.canceled) {
 ```
 
 The selected file must be at least 1 byte. Its maximum size is not a fixed
-figure: for Qortium, Home discovers the connected node's advertised publish
-ceiling (`GET /arbitrary/limits`) and uses it, backstopped by Home's own hard
-safety ceiling of 1 GiB, so a node can only ever shrink the effective limit,
-never grow it past what Home is willing to attempt - if the node does not
-support that endpoint or answers something unusable, Home falls back to a
-conservative 100 MiB default instead. For Qortal, and on Android for either
-network, the ceiling remains a fixed 100 MiB, unchanged. The token is bound to
-the requesting app, tab, selected account, invoked network, exact node route,
-and route revision. It expires after 30 minutes. Android retains only one
-pending selection at a time; choosing another file invalidates the earlier
-token.
+figure: for Qortium, Home asks the connected node what it accepts
+(`GET /arbitrary/limits`) and then clamps that answer by two ceilings of its
+own, so a node can only ever shrink the effective limit and never grow it:
+
+| Ceiling | Value | Why |
+| --- | --- | --- |
+| Attestation | 1 GiB | The largest approved source Home will attest at all. |
+| Resident memory | 256 MiB | The publish pipeline still hands attestation a byte array and holds several derivatives of it, so this — not what Core accepts — is what Home is willing to keep in the main process. It is the binding one today. |
+
+If the node does not support that endpoint or answers something unusable, Home
+falls back to a conservative 100 MiB instead. For Qortal, and on Android for
+either network, the ceiling stays a fixed 100 MiB, unchanged.
+
+The token is bound to the requesting app, tab, selected account, invoked
+network, exact node route, and route revision. It expires after 30 minutes.
+Android retains SEVERAL pending selections — a batch publish needs them — but
+under a total budget of 64 MiB of Base64 (roughly 48 MiB of raw bytes), because
+Capacitor's picker returns Base64 through the JS bridge and every retained
+selection is a copy in WebView memory. A new selection evicts the
+least-recently-used ones until it fits, and one larger than the whole budget is
+refused outright.
 
 Apps cannot provide native paths, URIs, inline bytes, Base64, filenames, or
 MIME claims to the publish action. Home reopens and verifies the desktop file
 at use time; Android uses only the bytes returned by its native picker.
 
-On desktop only, and only for the Qortium global, an app can request
+## Folder sources (desktop, Qortium only)
+
+On desktop, and only for the Qortium global, an app can request
 `kind: 'directory'` in place of the default `'file'`:
 
 ```js
@@ -51,17 +63,79 @@ if (!selected.canceled) {
 }
 ```
 
-Home opens a native folder picker instead of a file picker, zips the selected
-folder's contents in memory against the same discovered ceiling, and returns a
-source token the same way. `PUBLISH_QDN_RESOURCE` then unpacks a
-directory-derived token into a multi-file resource server-side; the app does
-not do anything differently for it - it still just passes the same
-`sourceToken` it would for a file. `kind: 'directory'` is not available on
-Qortal or on Android: Qortal's separate, non-streamable base64-body upload
-path cannot support directory bundling and keeps its own much lower practical
-ceiling (a V8 string-length limit around 384 MiB), so a Qortal request
-silently keeps `kind: 'file'` regardless of what was asked for; Android's
-native picker remains single-file-only.
+Home opens a native folder picker, walks the folder to measure it, and returns
+a token bound exactly like a file token. It does NOT hold the folder's bytes:
+what is retained is a descriptor (path plus device/inode), and the folder is
+materialised fresh for whichever operation redeems the token —
+`PREVIEW_QDN_PUBLISH_SOURCE` stages a copy for the local node, and
+`PUBLISH_QDN_RESOURCE` packages a zip. Both re-check the folder's identity and
+re-enforce every rule while they read it, so a folder that changed between
+selection and use is refused rather than used.
+
+The folder must hold a top-level index file (`index.html`, `index.htm`,
+`default.html`, `default.htm`, `home.html` or `home.htm`) — the same
+requirement previewing has, and the same one Core's `WEBSITE` render has.
+
+At publish time the archive is streamed to a Home-owned temporary file, never
+built in memory, and it is bounded by:
+
+| Bound | Value |
+| --- | --- |
+| Entries (files plus directories) | 10,000 |
+| Directory depth | 32 |
+| Bytes of any one entry path | 1,024 |
+| Bytes read from the folder | 512 MiB |
+| Bytes of the finished archive | the effective publish ceiling (see above) |
+
+The entry and path bounds are the values Home's publish attestation refuses at,
+enforced here so a folder is refused BEFORE it is uploaded rather than after.
+Entry names are checked, not rewritten: an empty, `.`, `..`, absolute,
+backslash-bearing, control-character-bearing or drive-letter-prefixed segment
+is refused, and so are two entries that would unpack to the same name.
+Symbolic links pointing outside the folder are refused; contained ones are
+materialised as ordinary files. Devices, FIFOs and sockets are refused.
+
+`PUBLISH_QDN_RESOURCE` then uploads the archive with `isZip=true`, so Core
+unpacks it into a multi-file resource. The app passes the same `sourceToken` it
+would for a file and does nothing else differently.
+
+### Hidden files
+
+Version-control stores, `.env` files, credential directories and editor/OS
+metadata (`.git`, `.hg`, `.svn`, `.env*`, `.DS_Store`, `Thumbs.db`, `.idea`,
+`.vscode`, `.ssh`, `.gnupg`, `.aws`, `.npmrc`, `.netrc`, vim swap files, `~`
+backups) are dropped from the archive ALWAYS, and the approval prompt reports
+how many were dropped.
+
+Any OTHER dotfile stops the publish. Home cannot tell `.htaccess` (wanted) from
+`.bash_history` (catastrophic), so the app must ask for them explicitly:
+
+```js
+await qdnRequest({
+  action: 'PUBLISH_QDN_RESOURCE',
+  sourceToken: selected.sourceToken,
+  includeHidden: true,
+  // ...the resource coordinate and metadata as usual
+});
+```
+
+`includeHidden` must be a boolean; the string `'false'` is an error, not a
+value. It applies to the whole request, including every item of a
+`PUBLISH_MULTIPLE_QDN_RESOURCES` batch. The always-dropped names above stay
+dropped whatever it says.
+
+The approval prompt for a packaged folder shows three rows a single-file prompt
+does not: how many entries the archive holds, how many were dropped, and how
+many hidden files are being included.
+
+### Where folder sources are not available
+
+`kind: 'directory'` is refused on `qortalRequest`: Qortal's base64-body upload
+path cannot carry a zip flag and keeps its own much lower practical ceiling (a
+V8 string-length limit around 384 MiB). It is refused by name rather than
+downgraded to a file picker, so an app never receives a token it cannot use.
+Android has no folder picker and no local Core, so neither previewing nor
+folder publishing exists there.
 
 ## Publish the selected source
 

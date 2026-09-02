@@ -11,7 +11,11 @@ import { tmpdir } from 'node:os'
 import nodePath from 'node:path'
 import { pipeline } from 'node:stream/promises'
 
-import { HomeV2PublishZipWriter, sha256HexOfStream } from './home-v2-publish-zip.js'
+import {
+  HomeV2PublishZipLimitError,
+  HomeV2PublishZipWriter,
+  sha256HexOfStream,
+} from './home-v2-publish-zip.js'
 
 import {
   HOME_V2_PUBLISH_SOURCE_MAX_BYTES,
@@ -137,7 +141,7 @@ function entryLimitError(limits: HomeV2PublishDirectoryLimits) {
 
 function byteLimitError(limits: HomeV2PublishDirectoryLimits) {
   return homeV2PublishSourceError(
-    `Selected folder exceeds the ${limits.maximumBytes.toLocaleString()} byte preview limit.`,
+    `Selected folder exceeds the ${limits.maximumBytes.toLocaleString()} byte limit.`,
   )
 }
 
@@ -884,6 +888,7 @@ const EMPTY_FOLDER = 'Selected folder holds nothing that can be published.'
 const CHANGED_ENTRY = 'Selected folder changed while it was being packaged. Select the folder again.'
 const TOO_LARGE_FOR_MEMORY =
   'Selected publish source is larger than Home will hold in memory to publish it.'
+const PACKAGED_TOO_LARGE = 'Selected folder is larger than this publish route accepts once packaged.'
 
 export type HomeV2PublishPackagingLimits = HomeV2PublishDirectoryLimits &
   Readonly<{
@@ -1055,6 +1060,10 @@ export async function packHomeV2PublishDirectory(
     })
   } catch (error) {
     await removeHomeV2PublishPreviewStagingDir(stagingDir)
+    // The zip writer's ceiling refusal is the one error in this path that is
+    // not already an app-safe tagged one, and an untagged error reaching the
+    // bridge is replaced by a constant that says nothing useful.
+    if (error instanceof HomeV2PublishZipLimitError) throw homeV2PublishSourceError(PACKAGED_TOO_LARGE)
     throw error
   }
 }

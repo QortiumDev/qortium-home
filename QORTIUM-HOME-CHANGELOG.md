@@ -32,6 +32,42 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## feat(qdn): publish a whole folder, and let the node say how big a publish may be
+
+Publishing from an app used to mean choosing one file, no larger than 100 MiB.
+Two changes here, both on Qortium and both on the desktop app.
+
+Home now asks your node how large a publish it will accept instead of assuming
+100 MiB. A node can only ever lower the answer, never raise it past what Home
+is willing to attempt: whatever the node says is capped by Home's own limits,
+and if your node is too old to answer, Home keeps the old 100 MiB.
+
+You can also hand an app a whole folder. Home opens a folder picker, packages
+the folder into a single archive as it publishes it, and your node unpacks it
+into a multi-file resource -- which is what publishing a website actually
+needs. The archive is written to a temporary file a piece at a time rather than
+assembled in memory, so packaging a large folder does not freeze the app, and
+the temporary file is deleted whether the publish succeeds or fails.
+
+The folder is checked twice, not once. It is checked when you pick it, and
+checked again while it is being read, because minutes can pass in between --
+long enough for a file to grow or to be swapped for a shortcut pointing
+somewhere else on your disk. Anything that changed is refused rather than
+published.
+
+Two kinds of file are treated specially. Version-control folders, .env files,
+credential directories and editor leftovers are never published, and the
+approval prompt tells you how many were left out. Any other hidden file stops
+the publish entirely until the app asks for hidden files by name -- Home cannot
+tell a wanted .htaccess from a private .bash_history, so it asks you instead of
+guessing. The approval prompt for a folder now also shows how many entries the
+archive holds, so you can see the shape of what you are about to publish before
+you approve it.
+
+Folder publishing is Qortium desktop only. Qortal keeps single files at
+100 MiB, and asking it for a folder is an honest error rather than a silent
+downgrade. Android has no folder picker and is unchanged.
+
 ## fix(qdn): the publish preview actually opens
 
 Explore's "Preview local file" said "Preview opened in Home." and then nothing

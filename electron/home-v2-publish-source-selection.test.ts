@@ -1,22 +1,33 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { lstat, mkdtemp, mkdir, opendir, rename, rm, symlink, truncate, utimes, writeFile } from 'node:fs/promises'
-import { existsSync } from 'node:fs'
+import { lstat, mkdtemp, mkdir, opendir, readFile, rename, rm, symlink, truncate, utimes, writeFile } from 'node:fs/promises'
+import { existsSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import nodePath from 'node:path'
 
+import { unzipSync } from 'fflate'
+
 import {
+  HOME_V2_PUBLISH_BATCH_MAX_TOTAL_BYTES,
   HOME_V2_PUBLISH_DIRECTORY_MAX_BYTES,
+  HOME_V2_PUBLISH_IN_MEMORY_MAX_BYTES,
+  HOME_V2_PUBLISH_PACKAGING_STAGING_PREFIX,
   HOME_V2_PUBLISH_PREVIEW_STAGING_PREFIX,
   HOME_V2_PUBLISH_PREVIEW_INDEX_FILES,
   assertHomeV2DesktopPublishDirectoryUnchanged,
   assertHomeV2DesktopPublishFileUnchanged,
+  canonicalHomeV2PublishEntryName,
   describeHomeV2PublishSourcePath,
+  getRequestedHomeV2PublishIncludeHidden,
   getRequestedHomeV2PublishSourceKind,
+  homeV2PublishPackagingLimits,
   homeV2PublishPreviewTempAncestor,
   homeV2PublishSourceDialogProperties,
+  isHomeV2PublishAlwaysExcludedName,
   isHomeV2PublishSourceError,
   measureHomeV2PublishDirectoryBytes,
+  packHomeV2PublishDirectory,
+  prepareHomeV2PublishArtifact,
   readHomeV2DesktopPublishSource,
   removeHomeV2PublishPreviewStagingDir,
   stageHomeV2PublishSourceForPreview,
@@ -44,13 +55,21 @@ async function refusal(promise: Promise<unknown>, pattern: RegExp, label: string
   return message
 }
 
-async function listPreviewStagingDirs() {
+async function listStagingDirs(prefix: string) {
   const names: string[] = []
   const handle = await opendir(tmpdir())
   for await (const entry of handle) {
-    if (entry.name.startsWith(HOME_V2_PUBLISH_PREVIEW_STAGING_PREFIX)) names.push(entry.name)
+    if (entry.name.startsWith(prefix)) names.push(entry.name)
   }
   return names.sort()
+}
+
+async function listPreviewStagingDirs() {
+  return listStagingDirs(HOME_V2_PUBLISH_PREVIEW_STAGING_PREFIX)
+}
+
+async function listPublishStagingDirs() {
+  return listStagingDirs(HOME_V2_PUBLISH_PACKAGING_STAGING_PREFIX)
 }
 
 async function listStagedEntries(directory: string, prefix = ''): Promise<string[]> {
@@ -231,11 +250,11 @@ try {
   await truncate(bulky, HOME_V2_PUBLISH_DIRECTORY_MAX_BYTES + 1)
   await assert.rejects(
     describeHomeV2PublishSourcePath(oversize, 'directory'),
-    /exceeds the .* byte preview limit/,
+    /exceeds the .* byte limit/,
   )
   await assert.rejects(
     measureHomeV2PublishDirectoryBytes(oversize),
-    /exceeds the .* byte preview limit/,
+    /exceeds the .* byte limit/,
   )
 
   // -------------------------------------------------------------------------
@@ -408,7 +427,7 @@ try {
   await truncate(grown, HOME_V2_PUBLISH_DIRECTORY_MAX_BYTES + 1)
   await refusal(
     stageHomeV2PublishSourceForPreview(growingSource),
-    /exceeds the .* byte preview limit/,
+    /exceeds the .* byte limit/,
     'the byte cap is re-enforced during the copy',
   )
 
@@ -542,6 +561,334 @@ try {
   assert.equal(homeV2PublishPreviewTempAncestor(nodePath.join(tmpdir(), 'something-else', 'x')), null)
   assert.equal(homeV2PublishPreviewTempAncestor('/etc/passwd'), null)
   assert.equal(homeV2PublishPreviewTempAncestor(tmpdir()), null)
+
+  // ===========================================================================
+  // PUBLISH PACKAGING
+  //
+  // Everything below is the publish half of a folder selection: the streaming
+  // zip, the ceilings that bound it, the identity re-checks that make a
+  // post-selection swap refuse, and the hidden-file policy.
+  // ===========================================================================
+  const packRoot = nodePath.join(root, 'pack-site')
+  await mkdir(nodePath.join(packRoot, 'assets'), { recursive: true })
+  await writeFile(nodePath.join(packRoot, 'index.html'), '<h1>hello</h1>')
+  await writeFile(nodePath.join(packRoot, 'assets', 'app.js'), 'console.log(1)\n'.repeat(64))
+  const packSource = await describeHomeV2PublishSourcePath(packRoot, 'directory')
+
+  {
+    const packed = await packHomeV2PublishDirectory(packSource, homeV2PublishPackagingLimits(1024 * 1024))
+    try {
+      const archive = new Uint8Array(await readFile(packed.archivePath))
+      const files = unzipSync(archive)
+      // The archive is readable by the very unzip attestation runs over it.
+      assert.deepEqual(Object.keys(files).sort(), ['assets/app.js', 'index.html'])
+      assert.equal(new TextDecoder().decode(files['index.html']), '<h1>hello</h1>')
+      assert.equal(packed.byteLength, (await lstat(packed.archivePath)).size)
+      assert.equal(packed.hiddenCount, 0)
+      assert.equal(packed.excludedCount, 0)
+      // Compression actually happened: the repeated JS is far smaller stored.
+      assert.ok(packed.byteLength < 15 * 64, 'entries must be deflated, not stored')
+      // The temp archive is Home-owned and not world-readable.
+      assert.equal((await lstat(packed.archivePath)).mode & 0o077, 0)
+    } finally {
+      await removeHomeV2PublishPreviewStagingDir(packed.stagingDir)
+    }
+  }
+
+  // A folder emptied AFTER selection is refused rather than producing a
+  // zero-entry archive Core would accept and render as nothing.
+  {
+    const emptyDirectory = nodePath.join(root, 'pack-empty')
+    await mkdir(emptyDirectory)
+    await writeFile(nodePath.join(emptyDirectory, 'index.html'), 'x')
+    const emptySource = await describeHomeV2PublishSourcePath(emptyDirectory, 'directory')
+    await rm(nodePath.join(emptyDirectory, 'index.html'))
+    await refusal(
+      packHomeV2PublishDirectory(emptySource, homeV2PublishPackagingLimits(1024 * 1024)),
+      /holds nothing that can be published/,
+      'a folder emptied after selection is refused',
+    )
+  }
+
+  // ---------------------------------------------------------------------------
+  // Post-selection swap. The descriptor was taken minutes ago; between then and
+  // packaging, an entry can be replaced by a link pointing anywhere.
+  // ---------------------------------------------------------------------------
+  {
+    const swapRoot = nodePath.join(root, 'pack-swap')
+    await mkdir(swapRoot)
+    await writeFile(nodePath.join(swapRoot, 'index.html'), 'x')
+    await writeFile(nodePath.join(swapRoot, 'data.bin'), 'safe')
+    const swapSource = await describeHomeV2PublishSourcePath(swapRoot, 'directory')
+    const outside = nodePath.join(root, 'outside-secret.txt')
+    await writeFile(outside, 'SECRET')
+    await rm(nodePath.join(swapRoot, 'data.bin'))
+    await symlink(outside, nodePath.join(swapRoot, 'data.bin'))
+    await refusal(
+      packHomeV2PublishDirectory(swapSource, homeV2PublishPackagingLimits(1024 * 1024)),
+      /symbolic link pointing outside/,
+      'a file swapped for an escaping link after selection is refused at packaging',
+    )
+  }
+
+  // ---------------------------------------------------------------------------
+  // Growth after the measurement. The byte budget is spent on bytes AS READ, so
+  // a file that grew between the walk and the package cannot smuggle them in.
+  // ---------------------------------------------------------------------------
+  {
+    const growRoot = nodePath.join(root, 'pack-grow')
+    await mkdir(growRoot)
+    await writeFile(nodePath.join(growRoot, 'index.html'), 'a'.repeat(64))
+    const growSource = await describeHomeV2PublishSourcePath(growRoot, 'directory')
+    assert.equal(growSource.size, 64)
+    await writeFile(nodePath.join(growRoot, 'index.html'), 'a'.repeat(4096))
+    await refusal(
+      packHomeV2PublishDirectory(
+        growSource,
+        homeV2PublishPackagingLimits(1024 * 1024, { maximumBytes: growSource.size }),
+      ),
+      /exceeds the .* byte limit/,
+      'a file grown after selection is refused against the measured budget',
+    )
+  }
+
+  // ---------------------------------------------------------------------------
+  // Work caps, proven against injectable limits rather than by building a
+  // folder with ten thousand files in it.
+  // ---------------------------------------------------------------------------
+  {
+    const floodRoot = nodePath.join(root, 'pack-flood')
+    await mkdir(floodRoot)
+    for (const name of ['index.html', 'a.txt', 'b.txt', 'c.txt', 'd.txt', 'e.txt']) {
+      await writeFile(nodePath.join(floodRoot, name), 'x')
+    }
+    const floodSource = await describeHomeV2PublishSourcePath(floodRoot, 'directory')
+    await refusal(
+      packHomeV2PublishDirectory(floodSource, homeV2PublishPackagingLimits(1024 * 1024, { maximumEntries: 3 })),
+      /more than 3 entries/,
+      'the entry budget stops the walk',
+    )
+
+    const deepRoot = nodePath.join(root, 'pack-deep')
+    await mkdir(nodePath.join(deepRoot, 'a', 'b', 'c'), { recursive: true })
+    await writeFile(nodePath.join(deepRoot, 'index.html'), 'x')
+    await writeFile(nodePath.join(deepRoot, 'a', 'b', 'c', 'deep.html'), 'x')
+    const deepSource = await describeHomeV2PublishSourcePath(deepRoot, 'directory')
+    await refusal(
+      packHomeV2PublishDirectory(deepSource, homeV2PublishPackagingLimits(1024 * 1024, { maximumDepth: 2 })),
+      /nests more than 2 levels/,
+      'the depth bound stops the walk',
+    )
+    // The same folder packages fine at the real depth bound.
+    const deepOk = await packHomeV2PublishDirectory(deepSource, homeV2PublishPackagingLimits(1024 * 1024))
+    await removeHomeV2PublishPreviewStagingDir(deepOk.stagingDir)
+
+    const longRoot = nodePath.join(root, 'pack-long')
+    await mkdir(longRoot)
+    await writeFile(nodePath.join(longRoot, 'index.html'), 'x')
+    await writeFile(nodePath.join(longRoot, 'a-rather-long-name.html'), 'x')
+    const longSource = await describeHomeV2PublishSourcePath(longRoot, 'directory')
+    await refusal(
+      packHomeV2PublishDirectory(longSource, homeV2PublishPackagingLimits(1024 * 1024, { maximumPathBytes: 8 })),
+      /cannot be published safely/,
+      'an over-long entry path is refused before it is written',
+    )
+  }
+
+  // Entry names are canonical, and two entries that would unpack to one name
+  // are refused rather than silently overwriting each other.
+  {
+    const seen = new Set<string>()
+    const nameLimits = { maximumPathBytes: 1024 }
+    assert.equal(canonicalHomeV2PublishEntryName('a/b.txt', nameLimits, seen), 'a/b.txt')
+    assert.throws(() => canonicalHomeV2PublishEntryName('A/B.TXT', nameLimits, seen), /unpack to the same name/)
+    for (const bad of ['', '/abs.txt', '../escape.txt', 'a/../b.txt', 'a//b.txt', 'C:/x.txt', 'back\\slash.txt']) {
+      assert.throws(
+        () => canonicalHomeV2PublishEntryName(bad, nameLimits, new Set()),
+        /cannot be published safely/,
+        `entry name ${JSON.stringify(bad)} must be refused`,
+      )
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Hidden files.
+  // ---------------------------------------------------------------------------
+  {
+    const hiddenRoot = nodePath.join(root, 'pack-hidden')
+    await mkdir(nodePath.join(hiddenRoot, '.git'), { recursive: true })
+    await writeFile(nodePath.join(hiddenRoot, '.git', 'config'), 'url = git@example')
+    await writeFile(nodePath.join(hiddenRoot, '.env'), 'SECRET=1')
+    await writeFile(nodePath.join(hiddenRoot, '.DS_Store'), 'junk')
+    await writeFile(nodePath.join(hiddenRoot, 'index.html'), 'x')
+    const hiddenSource = await describeHomeV2PublishSourcePath(hiddenRoot, 'directory')
+
+    // The always-excluded names are dropped, and the drop is counted.
+    const dropped = await packHomeV2PublishDirectory(hiddenSource, homeV2PublishPackagingLimits(1024 * 1024))
+    try {
+      const files = unzipSync(new Uint8Array(await readFile(dropped.archivePath)))
+      assert.deepEqual(Object.keys(files), ['index.html'])
+      assert.equal(dropped.excludedCount, 3)
+      assert.equal(dropped.hiddenCount, 0)
+    } finally {
+      await removeHomeV2PublishPreviewStagingDir(dropped.stagingDir)
+    }
+
+    // Any OTHER dotfile stops the publish until the app asks for it by name.
+    await writeFile(nodePath.join(hiddenRoot, '.htaccess'), 'deny')
+    const consentSource = await describeHomeV2PublishSourcePath(hiddenRoot, 'directory')
+    await refusal(
+      packHomeV2PublishDirectory(consentSource, homeV2PublishPackagingLimits(1024 * 1024)),
+      /contains hidden files/,
+      'a dotfile is refused without an explicit opt-in',
+    )
+    const optedIn = await packHomeV2PublishDirectory(
+      consentSource,
+      homeV2PublishPackagingLimits(1024 * 1024),
+      { includeHidden: true },
+    )
+    try {
+      const files = unzipSync(new Uint8Array(await readFile(optedIn.archivePath)))
+      assert.deepEqual(Object.keys(files).sort(), ['.htaccess', 'index.html'])
+      assert.equal(optedIn.hiddenCount, 1)
+      // Opting in does NOT resurrect the always-excluded names.
+      assert.equal(optedIn.excludedCount, 3)
+    } finally {
+      await removeHomeV2PublishPreviewStagingDir(optedIn.stagingDir)
+    }
+
+    assert.equal(isHomeV2PublishAlwaysExcludedName('.env.production.local'), true)
+    assert.equal(isHomeV2PublishAlwaysExcludedName('.index.html.swp'), true)
+    assert.equal(isHomeV2PublishAlwaysExcludedName('notes.txt~'), true)
+    assert.equal(isHomeV2PublishAlwaysExcludedName('Thumbs.db'), true)
+    assert.equal(isHomeV2PublishAlwaysExcludedName('environment.json'), false)
+
+    // The opt-in is a strict boolean: a truthy string is a refusal, not a yes.
+    assert.equal(getRequestedHomeV2PublishIncludeHidden({}), false)
+    assert.equal(getRequestedHomeV2PublishIncludeHidden(null), false)
+    assert.equal(getRequestedHomeV2PublishIncludeHidden({ includeHidden: true }), true)
+    for (const bad of ['true', 'false', 1, 0, {}]) {
+      assert.throws(
+        () => getRequestedHomeV2PublishIncludeHidden({ includeHidden: bad }),
+        /includeHidden must be true or false/,
+        `includeHidden ${JSON.stringify(bad)} must be refused`,
+      )
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // The artifact the publish paths actually consume.
+  // ---------------------------------------------------------------------------
+  {
+    const artifactFile = nodePath.join(root, 'artifact.bin')
+    await writeFile(artifactFile, 'artifact-bytes')
+    const fileArtifactSource = await describeHomeV2PublishSourcePath(artifactFile)
+    const artifact = await prepareHomeV2PublishArtifact(fileArtifactSource, { maximumBytes: 1024 * 1024 })
+    try {
+      const hash = await artifact.sha256()
+      assert.match(hash, /^[0-9a-f]{64}$/)
+      assert.equal(artifact.isZip, false)
+      assert.equal(new TextDecoder().decode(await artifact.read()), 'artifact-bytes')
+      // An IN-PLACE rewrite of the same length keeps the inode and the size,
+      // so only the re-hash inside read() can see it. That is the difference
+      // between publishing what was approved and publishing what replaced it.
+      await writeFile(artifactFile, 'ARTIFACT-BYTES')
+      await refusal(artifact.read(), /changed after selection/, 'an in-place rewrite is caught at read time')
+    } finally {
+      await artifact.dispose()
+    }
+
+    // Home's own memory ceiling refuses before anything is read.
+    const smallCeiling = await prepareHomeV2PublishArtifact(fileArtifactSource, { maximumBytes: 4 }).then(
+      (prepared) => prepared.dispose().then(() => 'prepared'),
+      (error: unknown) => String((error as Error).message),
+    )
+    assert.match(String(smallCeiling), /larger than Home will hold in memory/)
+
+    // A folder artifact owns a temp archive and cleans it up on dispose.
+    const folderArtifact = await prepareHomeV2PublishArtifact(packSource, { maximumBytes: 1024 * 1024 })
+    assert.equal(folderArtifact.isZip, true)
+    assert.equal(folderArtifact.entryCount, 3, 'two files plus the assets directory')
+    const folderHash = await folderArtifact.sha256()
+    const folderBytes = await folderArtifact.read()
+    assert.equal(folderBytes.byteLength, folderArtifact.byteLength)
+    assert.deepEqual(Object.keys(unzipSync(folderBytes)).sort(), ['assets/app.js', 'index.html'])
+    assert.match(folderHash, /^[0-9a-f]{64}$/)
+    const stagingBefore = (await listPublishStagingDirs()).length
+    await folderArtifact.dispose()
+    assert.equal((await listPublishStagingDirs()).length, stagingBefore - 1, 'dispose removes the temp archive')
+
+    // A packaged folder cannot exceed the archive ceiling: the writer stops
+    // mid-entry rather than measuring the finished file afterwards.
+    await refusal(
+      packHomeV2PublishDirectory(packSource, homeV2PublishPackagingLimits(64)),
+      /larger than this publish route accepts once packaged/,
+      'the archive ceiling is enforced as the archive is written',
+    )
+  }
+
+  // ===========================================================================
+  // SOURCE PINS — how the bridge wires this module.
+  //
+  // The publish handlers need an account, a window and a node to run, so the
+  // properties below are asserted against the CODE. Each one is a rule whose
+  // absence would not fail any other test here: the folder gates are negatives,
+  // and a leaked artifact is invisible until memory runs out.
+  // ===========================================================================
+  const bridgeSource = readFileSync(new URL('../electron/home-v2-app-bridge.ts', import.meta.url), 'utf8')
+
+  // Home's ceilings are what the node-discovered one is clamped to.
+  assert.equal(HOME_V2_PUBLISH_IN_MEMORY_MAX_BYTES, 256 * 1024 * 1024)
+  assert.equal(HOME_V2_PUBLISH_BATCH_MAX_TOTAL_BYTES, 512 * 1024 * 1024)
+
+  // isZip reaches the upload and the attestation from the ARTIFACT, not from a
+  // guess about the descriptor: a file source that was somehow packaged, or a
+  // folder that was not, would otherwise be described wrongly to Core.
+  assert.ok(bridgeSource.includes('isZip: artifact.isZip'), 'the single publish forwards the artifact isZip')
+  assert.ok(bridgeSource.includes('isZip: entry.artifact.isZip'), 'the batch publish forwards the artifact isZip')
+
+  // Folder sources are refused on Qortal at BOTH ends: the picker (so no dead
+  // token is issued) and the publish (so a token issued before a route change
+  // cannot be redeemed there).
+  assert.equal(
+    bridgeSource.split('Folder publish sources are available on Qortium only').length - 1,
+    3,
+    'the Qortium-only folder gate guards selection, single publish and batch publish',
+  )
+
+  // The batch aggregate is refused BEFORE anything is opened, read or packaged.
+  const batchSource = bridgeSource.slice(bridgeSource.indexOf('async function publishHomeV2MultiplePublishSources'))
+  assert.ok(
+    batchSource.indexOf('HOME_V2_PUBLISH_BATCH_MAX_TOTAL_BYTES') <
+      batchSource.indexOf('prepareHomeV2PublishArtifact'),
+    'the batch byte cap must be enforced before the first artifact is prepared',
+  )
+  assert.ok(
+    batchSource.includes('await entry.artifact.dispose()'),
+    'the batch disposes every prepared artifact',
+  )
+  assert.ok(bridgeSource.includes('await artifact.dispose()'), 'the single publish disposes its artifact')
+
+  // The chat-attachment path takes the RAW-BYTES reader, which refuses a
+  // folder by name — an attachment is one encrypted file, and packaging one
+  // into a zip would be a different action wearing this one's prompt.
+  const attachmentSource = bridgeSource.slice(bridgeSource.indexOf('async function publishHomeV2PrivateAttachmentSource'))
+  assert.ok(attachmentSource.includes('readHomeV2DesktopPublishSource'))
+  assert.ok(
+    !attachmentSource.slice(0, attachmentSource.indexOf('\n}')).includes('prepareHomeV2PublishArtifact'),
+    'the attachment path never packages a folder',
+  )
+
+  // Folder publishing is desktop-only because it is main-process-only: neither
+  // Android arm has any of this machinery, which is why nothing there needs a
+  // second gate.
+  for (const androidArm of ['../src/platform.ts', '../electron/home-v2-app-runtime.ts']) {
+    const armSource = readFileSync(new URL(androidArm, import.meta.url), 'utf8')
+    assert.ok(
+      !armSource.includes('prepareHomeV2PublishArtifact') && !armSource.includes('packHomeV2PublishDirectory'),
+      `${androidArm} must not reach the desktop packaging path`,
+    )
+  }
 
   // ---------------------------------------------------------------------------
   // Nothing the app sees names a directory on the user's machine.
