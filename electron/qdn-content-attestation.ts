@@ -7,9 +7,38 @@ import type { PublicArbitraryTransactionDetails } from './public-transaction-val
 const AES_GCM_NONCE_BYTES = 12;
 const AES_GCM_TAG_BYTES = 16;
 const ARBITRARY_CHUNK_BYTES = 512 * 1024;
-export const PUBLIC_QDN_ATTESTATION_MAX_BYTES = 1024 * 1024 * 1024;
+/**
+ * The largest APPROVED SOURCE Home will attest — the bytes the user saw a hash
+ * of and approved, and therefore the ceiling a publish route may discover from
+ * a node (home-v2-publish-limits.ts clamps to this).
+ */
+export const PUBLIC_QDN_ATTESTATION_MAX_SOURCE_BYTES = 1024 * 1024 * 1024;
 const MAX_METADATA_BYTES = 4 * 1024 * 1024;
 const MAX_ZIP_ENTRIES = 10_000;
+// How much larger than the approved source the PACKAGED artifact may be. Core
+// repacks a multi-file publish into its own zip (explicit directory entries,
+// per-entry extra fields, data descriptors) and then encrypts it, so the
+// artifact it hands back is legitimately bigger than what Home uploaded.
+const ATTESTATION_MARGIN_RATIO = 1.1;
+const ATTESTATION_MARGIN_FLAT_BYTES = 4096;
+const ATTESTATION_MARGIN_PER_ELEMENT_BYTES = 2048;
+
+/**
+ * The largest PACKAGED artifact (ciphertext) verification will accept, which
+ * is a DIFFERENT number from the source ceiling and must be at least as large.
+ *
+ * Keeping one constant for both is what made a near-ceiling publish fail
+ * asymmetrically: the pre-download bound below allows the source plus its
+ * repack margin, while assertBounded refused anything over the source ceiling,
+ * so a source close to the ceiling could pass the bound, be downloaded in
+ * full, and only then be refused — a hostile node's free way to make Home
+ * fetch a gigabyte. The two limits are now derived from each other, so
+ * everything the pre-download bound permits is something verification accepts.
+ */
+export const PUBLIC_QDN_ATTESTATION_MAX_PACKAGED_BYTES =
+  Math.ceil(PUBLIC_QDN_ATTESTATION_MAX_SOURCE_BYTES * ATTESTATION_MARGIN_RATIO) +
+  ATTESTATION_MARGIN_FLAT_BYTES +
+  ATTESTATION_MARGIN_PER_ELEMENT_BYTES * MAX_ZIP_ENTRIES;
 const MAX_ZIP_PATH_BYTES = 1_024;
 const BASE58_MAP = new Map([...BASE58_ALPHABET].map((character, index) => [character, index]));
 
@@ -67,8 +96,8 @@ function decodeBase58(value: string) {
   return Uint8Array.from(bytes.reverse());
 }
 
-function assertBounded(bytes: Uint8Array, label: string) {
-  if (bytes.byteLength > PUBLIC_QDN_ATTESTATION_MAX_BYTES + AES_GCM_NONCE_BYTES + AES_GCM_TAG_BYTES) {
+function assertBounded(bytes: Uint8Array, label: string, maximumBytes: number) {
+  if (bytes.byteLength > maximumBytes + AES_GCM_NONCE_BYTES + AES_GCM_TAG_BYTES) {
     throw new Error(`${label} exceeded Home's bounded public QDN attestation limit.`);
   }
 }
@@ -100,7 +129,7 @@ function normalizeCoreSourceZipPath(value: string) {
   }).join('/'));
 }
 
-function unzipFiles(bytes: Uint8Array, stripDataRoot: boolean, maxInflatedBytes: number = PUBLIC_QDN_ATTESTATION_MAX_BYTES) {
+function unzipFiles(bytes: Uint8Array, stripDataRoot: boolean, maxInflatedBytes: number = PUBLIC_QDN_ATTESTATION_MAX_SOURCE_BYTES) {
   let inflatedBytes = 0;
   let entryCount = 0;
   let entries: Record<string, Uint8Array>;
@@ -389,7 +418,7 @@ export async function attestPublicQdnPublish({
   source: QdnPublishAttestationSource;
   verify?: (input: QdnPublishVerificationInput) => Promise<void>;
 }) {
-  assertBounded(source.bytes, 'Approved QDN source');
+  assertBounded(source.bytes, 'Approved QDN source', PUBLIC_QDN_ATTESTATION_MAX_SOURCE_BYTES);
   if (details.dataType === 0 && details.data.length !== 32) {
     throw new Error('Public QDN builder returned an invalid content hash.');
   }
@@ -397,7 +426,7 @@ export async function attestPublicQdnPublish({
   // details.rawSize is a value the NODE claims about content it hasn't
   // handed over yet - trusting it unconditionally as the download cap
   // would let a hostile node force Home to download/decrypt/inflate up
-  // to PUBLIC_QDN_ATTESTATION_MAX_BYTES regardless of how small the
+  // to PUBLIC_QDN_ATTESTATION_MAX_SOURCE_BYTES regardless of how small the
   // approved publish actually was. Bound it against what the approved
   // source can actually justify instead. The margin must account for
   // more than encryption overhead: Core repacks a multi-file publish
@@ -414,9 +443,18 @@ export async function attestPublicQdnPublish({
   // even in the worst case: 10,000 * 2048 bytes (~20 MB) against a
   // 1 GiB ceiling is negligible, while comfortably covering the largest
   // measured real per-entry overhead with room to spare.
+  //
+  // Clamped to PUBLIC_QDN_ATTESTATION_MAX_PACKAGED_BYTES, which is exactly
+  // what verifyPublicQdnPublishArtifacts will accept: a bound that permits a
+  // download verification would then refuse is a bound that buys a hostile
+  // node a free gigabyte of Home's bandwidth.
   const structuralElementCount = source.unpackZip ? countZipStructuralElements(source.bytes) : 1;
-  const maxJustifiedCiphertextBytes =
-    Math.ceil(source.bytes.byteLength * 1.1) + 4096 + 2048 * structuralElementCount;
+  const maxJustifiedCiphertextBytes = Math.min(
+    Math.ceil(source.bytes.byteLength * ATTESTATION_MARGIN_RATIO) +
+      ATTESTATION_MARGIN_FLAT_BYTES +
+      ATTESTATION_MARGIN_PER_ELEMENT_BYTES * structuralElementCount,
+    PUBLIC_QDN_ATTESTATION_MAX_PACKAGED_BYTES,
+  );
   if (details.rawSize > maxJustifiedCiphertextBytes) {
     throw new Error('Public QDN builder claimed a content size inconsistent with the approved publish.');
   }
@@ -435,7 +473,7 @@ export async function verifyPublicQdnPublishArtifacts({
   metadataBytes,
   source,
 }: QdnPublishVerificationInput) {
-  assertBounded(ciphertext, 'Public QDN ciphertext');
+  assertBounded(ciphertext, 'Public QDN ciphertext', PUBLIC_QDN_ATTESTATION_MAX_PACKAGED_BYTES);
   if (details.rawSize !== ciphertext.byteLength) {
     throw new Error('Public QDN builder changed the encrypted content size.');
   }

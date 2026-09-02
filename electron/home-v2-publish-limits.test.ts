@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 
 import { getHomeV2PublishSizeCeiling, resetHomeV2PublishSizeCeilingCache } from './home-v2-publish-limits.js'
 import { HOME_V2_PUBLISH_SOURCE_MAX_BYTES } from './home-v2-publish-source-tokens.js'
-import { PUBLIC_QDN_ATTESTATION_MAX_BYTES } from './qdn-content-attestation.js'
+import { HOME_V2_PUBLISH_IN_MEMORY_MAX_BYTES } from './home-v2-publish-source-selection.js'
 
 function jsonResponse(body: unknown, status = 200) {
   return async () => new Response(JSON.stringify(body), { status })
@@ -14,12 +14,15 @@ resetHomeV2PublishSizeCeilingCache()
   const ceiling = await getHomeV2PublishSizeCeiling(
     'qortium',
     'https://node-a.example',
-    jsonResponse({ publicPublishMaxSize: 500 * 1024 * 1024 }),
+    jsonResponse({ publicPublishMaxSize: 200 * 1024 * 1024 }),
   )
-  assert.equal(ceiling, 500 * 1024 * 1024)
+  assert.equal(ceiling, 200 * 1024 * 1024)
 }
 
-// Node advertises an absurd limit: Home's own hard ceiling wins instead.
+// Node advertises an absurd limit: Home's own hard ceiling wins instead. That
+// ceiling is the RESIDENT-MEMORY one, not the attestation one: the publish
+// pipeline still materialises the source, so a node cannot talk Home into
+// holding more of it than Home budgets for.
 resetHomeV2PublishSizeCeilingCache()
 {
   const ceiling = await getHomeV2PublishSizeCeiling(
@@ -27,7 +30,18 @@ resetHomeV2PublishSizeCeilingCache()
     'https://node-b.example',
     jsonResponse({ publicPublishMaxSize: 999 * 1024 * 1024 * 1024 }),
   )
-  assert.equal(ceiling, PUBLIC_QDN_ATTESTATION_MAX_BYTES)
+  assert.equal(ceiling, HOME_V2_PUBLISH_IN_MEMORY_MAX_BYTES)
+}
+
+// A node between the two ceilings is clamped to the memory one as well.
+resetHomeV2PublishSizeCeilingCache()
+{
+  const ceiling = await getHomeV2PublishSizeCeiling(
+    'qortium',
+    'https://node-b2.example',
+    jsonResponse({ publicPublishMaxSize: 900 * 1024 * 1024 }),
+  )
+  assert.equal(ceiling, HOME_V2_PUBLISH_IN_MEMORY_MAX_BYTES)
 }
 
 // Endpoint missing / node too old: fall back to the conservative default.

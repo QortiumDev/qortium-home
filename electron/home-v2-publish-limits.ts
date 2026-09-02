@@ -1,7 +1,8 @@
 import { fetchBoundedBytes } from './bounded-response.js'
 import { nodeFetch } from './node-tls.js'
 import { HOME_V2_PUBLISH_SOURCE_MAX_BYTES } from './home-v2-publish-source-tokens.js'
-import { PUBLIC_QDN_ATTESTATION_MAX_BYTES } from './qdn-content-attestation.js'
+import { HOME_V2_PUBLISH_IN_MEMORY_MAX_BYTES } from './home-v2-publish-source-selection.js'
+import { PUBLIC_QDN_ATTESTATION_MAX_SOURCE_BYTES } from './qdn-content-attestation.js'
 
 const LIMITS_RESPONSE_MAX_BYTES = 64 * 1024
 const LIMITS_CACHE_TTL_MS = 5 * 60_000
@@ -54,7 +55,15 @@ export async function getHomeV2PublishSizeCeiling(
   } catch {
     discovered = HOME_V2_PUBLISH_SOURCE_MAX_BYTES
   }
-  const ceiling = Math.min(discovered, PUBLIC_QDN_ATTESTATION_MAX_BYTES)
+  // Two backstops, both of which a node can only shrink: what Home is willing
+  // to ATTEST (1 GiB) and what Home is willing to HOLD IN MEMORY while doing
+  // so (256 MiB). The second is the binding one today, and deliberately so —
+  // see HOME_V2_PUBLISH_IN_MEMORY_MAX_BYTES.
+  const ceiling = Math.min(
+    discovered,
+    PUBLIC_QDN_ATTESTATION_MAX_SOURCE_BYTES,
+    HOME_V2_PUBLISH_IN_MEMORY_MAX_BYTES,
+  )
   cache.set(cacheKey, { fetchedAt: now, value: ceiling })
   return ceiling
 }

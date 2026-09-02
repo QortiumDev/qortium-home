@@ -7,9 +7,20 @@ import { zipSync } from 'fflate';
 import { attestPublicQdnPublish } from '../dist-electron/qdn-content-attestation.js';
 import { assertPublicArbitraryTransaction } from '../dist-electron/public-transaction-validation.js';
 import { fetchBoundedBytes } from '../dist-electron/bounded-response.js';
-import { PUBLIC_QDN_ATTESTATION_MAX_BYTES } from '../dist-electron/qdn-content-attestation.js';
+import {
+  PUBLIC_QDN_ATTESTATION_MAX_PACKAGED_BYTES,
+  PUBLIC_QDN_ATTESTATION_MAX_SOURCE_BYTES,
+} from '../dist-electron/qdn-content-attestation.js';
 
-assert.equal(PUBLIC_QDN_ATTESTATION_MAX_BYTES, 1024 * 1024 * 1024);
+assert.equal(PUBLIC_QDN_ATTESTATION_MAX_SOURCE_BYTES, 1024 * 1024 * 1024);
+// The packaged ceiling is a DIFFERENT, larger number, and must be at least
+// what the pre-download bound can permit for a source at the ceiling - the
+// two disagreeing is what made a near-ceiling publish download and then fail.
+assert.ok(PUBLIC_QDN_ATTESTATION_MAX_PACKAGED_BYTES > PUBLIC_QDN_ATTESTATION_MAX_SOURCE_BYTES);
+assert.equal(
+  PUBLIC_QDN_ATTESTATION_MAX_PACKAGED_BYTES,
+  Math.ceil(PUBLIC_QDN_ATTESTATION_MAX_SOURCE_BYTES * 1.1) + 4096 + 2048 * 10_000,
+);
 
 const encoder = new TextEncoder();
 const BASE58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
@@ -510,7 +521,7 @@ await assert.rejects(attestPublicQdnPublish({
 
 // Before this fix, unzipFiles's inflation check inside
 // verifyPublicQdnPublishArtifacts was bounded by the GLOBAL
-// PUBLIC_QDN_ATTESTATION_MAX_BYTES (1 GiB) constant rather than by what the
+// PUBLIC_QDN_ATTESTATION_MAX_SOURCE_BYTES (1 GiB) constant rather than by what the
 // approved source's expected inflated total actually justifies. That left
 // a residual "zip bomb" gap: a ciphertext that passed the entry-count-aware
 // download-size margin (Fix 1) could still decompress to a much larger

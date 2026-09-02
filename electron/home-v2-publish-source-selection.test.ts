@@ -240,12 +240,12 @@ try {
 
   // -------------------------------------------------------------------------
   // Publishing must be untouched by any of this. A folder source exists only
-  // for previewing -- the publish and chat-attachment paths read BYTES, and a
-  // folder has none.
+  // for previewing or for PACKAGING (prepareHomeV2PublishArtifact) -- the
+  // raw-bytes path a chat attachment takes has none to read.
   // -------------------------------------------------------------------------
   await assert.rejects(
     readHomeV2DesktopPublishSource(directorySource),
-    /folder can only be previewed, not published/,
+    /folder cannot be sent as an attachment/,
   )
 
   const blobSource: HomeV2DesktopPublishSource = Object.freeze({

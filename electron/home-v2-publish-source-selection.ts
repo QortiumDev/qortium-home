@@ -5,11 +5,13 @@
 // decides what a source IS — file, folder, or staged blob — is unit-testable
 // the same way the token store and the blob normalizer are. Only the dialog
 // itself lives in home-v2-desktop-publish-source.ts.
-import { constants as fsConstants, createWriteStream } from 'node:fs'
+import { constants as fsConstants, createReadStream, createWriteStream } from 'node:fs'
 import { lstat, mkdir, mkdtemp, open, opendir, realpath, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import nodePath from 'node:path'
 import { pipeline } from 'node:stream/promises'
+
+import { HomeV2PublishZipWriter, sha256HexOfStream } from './home-v2-publish-zip.js'
 
 import {
   HOME_V2_PUBLISH_SOURCE_MAX_BYTES,
@@ -103,6 +105,10 @@ export const HOME_V2_PUBLISH_BATCH_MAX_TOTAL_BYTES = 512 * 1024 * 1024
 
 export type HomeV2PublishDirectoryLimits = Readonly<{
   maximumBytes: number
+  // Bounds how deep the walk recurses. Optional so the preview path keeps the
+  // behaviour it shipped with; the publish packager always sets it, because a
+  // deep tree is both a stack risk and a path-length one.
+  maximumDepth?: number
   maximumEntries: number
 }>
 
@@ -135,6 +141,12 @@ function byteLimitError(limits: HomeV2PublishDirectoryLimits) {
   )
 }
 
+function depthLimitError(limits: HomeV2PublishDirectoryLimits) {
+  return homeV2PublishSourceError(
+    `Selected folder nests more than ${(limits.maximumDepth ?? 0).toLocaleString()} levels deep. Choose a flatter folder.`,
+  )
+}
+
 const UNREADABLE_FOLDER = 'Selected folder is no longer readable. Select the folder again.'
 const UNREADABLE_ENTRY =
   'Selected folder contains something Home cannot read. Fix the permissions and select it again.'
@@ -157,9 +169,11 @@ export type HomeV2DesktopPublishSource = HomeV2PublishSourceDescriptor & (
       modifiedAtMs: bigint
       path: string
     }>
-  // PREVIEW_QDN_PUBLISH_SOURCE (kind: 'directory'): a folder staged as a
-  // WEBSITE. Preview-only — readHomeV2DesktopPublishSource refuses it, so the
-  // publish and chat-attachment paths cannot be handed one by accident.
+  // A folder (SELECT_QDN_PUBLISH_SOURCE kind: 'directory'). Retained as a
+  // DESCRIPTOR, never as bytes: previewing stages a copy of it and publishing
+  // streams it into a temp zip, both materialising it fresh with the rules
+  // re-enforced. readHomeV2DesktopPublishSource — the raw-bytes path a chat
+  // attachment takes — refuses it by name.
   | Readonly<{
       device: bigint
       inode: bigint
@@ -282,7 +296,11 @@ async function resolveContainedLink(root: string, entryPath: string) {
   return stats?.isFile() ? target : null
 }
 
-type WalkState = { entries: number; totalBytes: number }
+type WalkState = { entries: number; excluded: number; totalBytes: number }
+
+function newWalkState(): WalkState {
+  return { entries: 0, excluded: 0, totalBytes: 0 }
+}
 
 function countEntry(state: WalkState, limits: HomeV2PublishDirectoryLimits) {
   state.entries += 1
@@ -297,31 +315,80 @@ async function openDirectoryStream(directoryPath: string, unreadableMessage: str
   }
 }
 
-async function walkHomeV2PublishDirectory(
+/**
+ * What ONE walk of a selected folder does with what it finds.
+ *
+ * There is exactly one walker in this module, and these are the three things
+ * its three callers disagree about: measuring stats the files it finds and
+ * tolerates a device node, staging copies them and refuses one, packaging
+ * compresses them and refuses one. Every rule they AGREE on — the entry
+ * budget, the containment check on symbolic links, the depth bound, refusing
+ * to enumerate a folder it cannot read — lives in the walker, so a rule can
+ * only be fixed in one place.
+ */
+type HomeV2PublishTreeVisitor = Readonly<{
+  /** Called before descending. Relative paths are always '/'-separated. */
+  onDirectory?: (absolutePath: string, relativePath: string) => Promise<void>
+  onFile?: (absolutePath: string, relativePath: string) => Promise<void>
+  /**
+   * Whether a contained symbolic link's TARGET is handed to onFile. Measuring
+   * says 'skip', because the target is already measured through its real path;
+   * staging and packaging say 'follow', because the staged tree must hold no
+   * links at all (a link is what Core would follow).
+   */
+  onLinkTarget?: 'follow' | 'skip'
+  /**
+   * Names this walk drops entirely — the hidden-file policy. Dropped entries
+   * cost no entry budget and are counted in `state.excluded` so the approval
+   * prompt can say how many there were.
+   */
+  skipEntry?: (name: string, isDirectory: boolean) => boolean
+  /**
+   * Block/character devices, FIFOs and sockets. 'refuse' for anything that
+   * READS the tree (copying one would block or read a device, and silently
+   * dropping it would ship something other than what the user is looking at);
+   * 'skip' for the measuring pass, which only sums sizes.
+   */
+  specialEntry: 'refuse' | 'skip'
+}>
+
+async function walkHomeV2PublishTree(
   root: string,
   current: string,
+  relative: string,
+  depth: number,
   state: WalkState,
   limits: HomeV2PublishDirectoryLimits,
+  visitor: HomeV2PublishTreeVisitor,
 ) {
+  if (limits.maximumDepth !== undefined && depth > limits.maximumDepth) throw depthLimitError(limits)
   const directory = await openDirectoryStream(current, UNREADABLE_ENTRY)
   for await (const entry of directory) {
     const entryPath = nodePath.join(current, entry.name)
+    const relativePath = relative ? `${relative}/${entry.name}` : entry.name
+    if (visitor.skipEntry?.(entry.name, entry.isDirectory())) {
+      state.excluded += 1
+      continue
+    }
     countEntry(state, limits)
     if (entry.isSymbolicLink()) {
-      // A contained link is not counted again: its target is already measured
-      // through its real path, and following it would also risk a cycle.
-      await resolveContainedLink(root, entryPath)
+      // A contained link is resolved for its containment check either way.
+      // One that resolves to a directory is skipped rather than expanded,
+      // because a cycle is easier to create than to detect.
+      const target = await resolveContainedLink(root, entryPath)
+      if (target && visitor.onLinkTarget === 'follow') await visitor.onFile?.(target, relativePath)
       continue
     }
     if (entry.isDirectory()) {
-      await walkHomeV2PublishDirectory(root, entryPath, state, limits)
+      await visitor.onDirectory?.(entryPath, relativePath)
+      await walkHomeV2PublishTree(root, entryPath, relativePath, depth + 1, state, limits, visitor)
       continue
     }
-    if (!entry.isFile()) continue
-    const stats = await lstat(entryPath).catch(() => null)
-    if (!stats) continue
-    state.totalBytes += stats.size
-    if (state.totalBytes > limits.maximumBytes) throw byteLimitError(limits)
+    if (entry.isFile()) {
+      await visitor.onFile?.(entryPath, relativePath)
+      continue
+    }
+    if (visitor.specialEntry === 'refuse') throw homeV2PublishSourceError(SPECIAL_ENTRY)
   }
 }
 
@@ -332,8 +399,17 @@ export async function measureHomeV2PublishDirectoryBytes(
 ) {
   const root = await realpath(directoryPath).catch(() => null)
   if (!root) throw homeV2PublishSourceError(UNREADABLE_FOLDER)
-  const state: WalkState = { entries: 0, totalBytes: 0 }
-  await walkHomeV2PublishDirectory(root, root, state, limits)
+  const state = newWalkState()
+  await walkHomeV2PublishTree(root, root, '', 0, state, limits, {
+    onFile: async (absolutePath) => {
+      const stats = await lstat(absolutePath).catch(() => null)
+      if (!stats) return
+      state.totalBytes += stats.size
+      if (state.totalBytes > limits.maximumBytes) throw byteLimitError(limits)
+    },
+    onLinkTarget: 'skip',
+    specialEntry: 'skip',
+  })
   return state.totalBytes
 }
 
@@ -555,39 +631,24 @@ async function copyRegularFileForPreview(
 
 async function copyHomeV2PublishDirectoryForPreview(
   root: string,
-  current: string,
   destination: string,
   state: WalkState,
   limits: HomeV2PublishDirectoryLimits,
 ) {
   await mkdir(destination, { mode: 0o700, recursive: true })
-  const directory = await openDirectoryStream(current, UNREADABLE_ENTRY)
-  for await (const entry of directory) {
-    const entryPath = nodePath.join(current, entry.name)
-    const destinationPath = nodePath.join(destination, entry.name)
-    countEntry(state, limits)
-    if (entry.isSymbolicLink()) {
-      // Contained links are materialised as ordinary files so the staged tree
-      // holds no links at all — a link is what Core would follow. One that
-      // resolves to a directory is skipped rather than expanded, because a
-      // cycle is easier to create than to detect.
-      const target = await resolveContainedLink(root, entryPath)
-      if (target) await copyRegularFileForPreview(target, destinationPath, state, limits)
-      continue
-    }
-    if (entry.isDirectory()) {
-      await copyHomeV2PublishDirectoryForPreview(root, entryPath, destinationPath, state, limits)
-      continue
-    }
-    if (entry.isFile()) {
-      await copyRegularFileForPreview(entryPath, destinationPath, state, limits)
-      continue
-    }
-    // Block/character devices, FIFOs and sockets: refused rather than skipped.
-    // Copying one would block or read a device, and silently dropping it would
-    // preview something other than what the user is looking at.
-    throw homeV2PublishSourceError(SPECIAL_ENTRY)
-  }
+  // Contained links are materialised as ordinary files (onLinkTarget:
+  // 'follow') so the staged tree holds no links at all — a link is what Core
+  // would follow.
+  await walkHomeV2PublishTree(root, root, '', 0, state, limits, {
+    onDirectory: async (_absolutePath, relativePath) => {
+      await mkdir(nodePath.join(destination, relativePath), { mode: 0o700, recursive: true })
+    },
+    onFile: async (absolutePath, relativePath) => {
+      await copyRegularFileForPreview(absolutePath, nodePath.join(destination, relativePath), state, limits)
+    },
+    onLinkTarget: 'follow',
+    specialEntry: 'refuse',
+  })
 }
 
 /**
@@ -612,7 +673,7 @@ export async function stageHomeV2PublishSourceForPreview(
       // to choose the service (WEBSITE for .zip/.html, IMAGE/VIDEO/AUDIO
       // otherwise), so it must survive the copy.
       const previewPath = nodePath.join(stagingDir, stagedFileName(source.fileName))
-      const state: WalkState = { entries: 0, totalBytes: 0 }
+      const state = newWalkState()
       await copyRegularFileForPreview(source.path, previewPath, state, {
         maximumBytes: HOME_V2_PUBLISH_SOURCE_MAX_BYTES,
         maximumEntries: limits.maximumEntries,
@@ -630,8 +691,8 @@ export async function stageHomeV2PublishSourceForPreview(
   const stagingDir = await createHomeV2PublishPreviewStagingDir()
   try {
     const previewPath = nodePath.join(stagingDir, 'site')
-    const state: WalkState = { entries: 0, totalBytes: 0 }
-    await copyHomeV2PublishDirectoryForPreview(root, root, previewPath, state, limits)
+    const state = newWalkState()
+    await copyHomeV2PublishDirectoryForPreview(root, previewPath, state, limits)
     // Asserted on the COPY, not the original: this is the tree Core will
     // render, and it is the only one that can no longer change underneath.
     await assertHomeV2PublishDirectoryIndexFile(previewPath, limits)
@@ -652,12 +713,13 @@ export async function readHomeV2DesktopPublishSource(source: HomeV2DesktopPublis
     return Uint8Array.from(source.bytes)
   }
 
-  // A folder selection exists ONLY for previewing, where Home stages a copy and
-  // the node reads that. The publish and chat-attachment paths read bytes, and
-  // there are no bytes here — refusing by name keeps folder support from
-  // leaking into publishing as a half-working zip-less publish.
+  // A folder selection has no bytes: previewing stages a copy for the node to
+  // read, and publishing PACKAGES it (prepareHomeV2PublishArtifact). This
+  // function is the raw-bytes path, which now means the chat-attachment path
+  // alone — an attachment is one encrypted file, so a folder is refused by
+  // name rather than silently packaged into something a chat cannot show.
   if (source.kind === 'directory') {
-    throw homeV2PublishSourceError('A folder can only be previewed, not published. Select a file to publish.')
+    throw homeV2PublishSourceError('A folder cannot be sent as an attachment. Select a file.')
   }
 
   const noFollow = typeof fsConstants.O_NOFOLLOW === 'number' ? fsConstants.O_NOFOLLOW : 0
@@ -685,4 +747,368 @@ export async function readHomeV2DesktopPublishSource(source: HomeV2DesktopPublis
   } finally {
     await handle.close()
   }
+}
+
+// -----------------------------------------------------------------------------
+// Publish packaging.
+//
+// A folder is PUBLISHED as a zip (Core unpacks it when the upload carries
+// ?isZip=true). Nothing about that archive is built in memory: the walk streams
+// each file from an O_NOFOLLOW handle, through the crc/deflate pipeline, into a
+// Home-owned temp file, with every ceiling enforced AS BYTES ARE READ. What the
+// publish pipeline eventually loads is the finished archive, which is bounded
+// by HOME_V2_PUBLISH_IN_MEMORY_MAX_BYTES rather than by whatever the node said
+// it would accept.
+//
+// The identity re-checks are the same ones the preview path runs, for the same
+// reason: a token lives 30 minutes and an approval prompt sits in the middle of
+// that, so between the walk that measured the folder and the read that packages
+// it, an entry can be swapped for a symlink or grown. Every file is therefore
+// re-validated on the OPEN handle, and the byte budget is spent against what is
+// actually read rather than against a stat taken earlier.
+// -----------------------------------------------------------------------------
+
+/**
+ * Entry ceilings for a PUBLISH, which are tighter than the preview's.
+ *
+ * 10,000 is not a round number picked here: it is MAX_ZIP_ENTRIES in
+ * qdn-content-attestation, the point at which attestation refuses an archive.
+ * Enforcing it BEFORE zipping is the whole difference between "Home refuses a
+ * folder" and "Home uploads a folder, then refuses to attest what it just
+ * uploaded". MAX_ZIP_PATH_BYTES is matched for the same reason.
+ */
+export const HOME_V2_PUBLISH_ZIP_MAX_ENTRIES = 10_000
+export const HOME_V2_PUBLISH_ZIP_MAX_PATH_BYTES = 1_024
+export const HOME_V2_PUBLISH_ZIP_MAX_DEPTH = 32
+
+export const HOME_V2_PUBLISH_PACKAGING_STAGING_PREFIX = 'qortium-home-publish-'
+
+const UNSAFE_ENTRY_NAME =
+  'Selected folder contains a name that cannot be published safely. Rename it and select the folder again.'
+const COLLIDING_ENTRY_NAME =
+  'Selected folder contains two entries that would unpack to the same name. Rename one and select the folder again.'
+const EMPTY_FOLDER = 'Selected folder holds nothing that can be published.'
+const CHANGED_ENTRY = 'Selected folder changed while it was being packaged. Select the folder again.'
+const TOO_LARGE_FOR_MEMORY =
+  'Selected publish source is larger than Home will hold in memory to publish it.'
+
+export type HomeV2PublishPackagingLimits = HomeV2PublishDirectoryLimits &
+  Readonly<{
+    /** Ceiling on the FINISHED archive — the bytes Home will hold and upload. */
+    maximumPackagedBytes: number
+    maximumPathBytes: number
+  }>
+
+export function homeV2PublishPackagingLimits(
+  maximumPackagedBytes: number,
+  overrides: Partial<HomeV2PublishPackagingLimits> = {},
+): HomeV2PublishPackagingLimits {
+  return Object.freeze({
+    maximumBytes: HOME_V2_PUBLISH_DIRECTORY_MAX_BYTES,
+    maximumDepth: HOME_V2_PUBLISH_ZIP_MAX_DEPTH,
+    maximumEntries: HOME_V2_PUBLISH_ZIP_MAX_ENTRIES,
+    maximumPathBytes: HOME_V2_PUBLISH_ZIP_MAX_PATH_BYTES,
+    ...overrides,
+    maximumPackagedBytes: Math.min(
+      maximumPackagedBytes,
+      overrides.maximumPackagedBytes ?? maximumPackagedBytes,
+      HOME_V2_PUBLISH_IN_MEMORY_MAX_BYTES,
+    ),
+  })
+}
+
+/**
+ * The name an entry gets INSIDE the archive, or a refusal.
+ *
+ * Core protects itself against zip slip when it unpacks, and Home is not
+ * relying on that: a name is checked here, before it is written, so an archive
+ * Home produced can never be the thing that tests someone else's unpacker.
+ * Refused rather than rewritten — a sanitiser silently renaming a file is how
+ * two entries end up fighting over one name.
+ */
+export function canonicalHomeV2PublishEntryName(
+  relativePath: string,
+  limits: Pick<HomeV2PublishPackagingLimits, 'maximumPathBytes'>,
+  seen: Set<string>,
+) {
+  if (!relativePath || relativePath.startsWith('/')) throw homeV2PublishSourceError(UNSAFE_ENTRY_NAME)
+  if (new TextEncoder().encode(relativePath).byteLength > limits.maximumPathBytes) {
+    throw homeV2PublishSourceError(UNSAFE_ENTRY_NAME)
+  }
+  for (const segment of relativePath.split('/')) {
+    if (!segment || segment === '.' || segment === '..') throw homeV2PublishSourceError(UNSAFE_ENTRY_NAME)
+    // A backslash separates paths for a Windows unpacker and is a literal for a
+    // POSIX one, so a name holding one means two different trees; control
+    // characters and a drive-letter prefix are refused for the same reason.
+    if (/[\\\u0000-\u001f\u007f]/.test(segment)) throw homeV2PublishSourceError(UNSAFE_ENTRY_NAME)
+    if (/^[A-Za-z]:$/.test(segment)) throw homeV2PublishSourceError(UNSAFE_ENTRY_NAME)
+  }
+  // Case-insensitive AND unicode-normalised: the archive may be unpacked on a
+  // filesystem that folds either, and two entries landing on one name would
+  // publish content the user never approved the hash of.
+  const key = relativePath.normalize('NFC').toLowerCase()
+  if (seen.has(key)) throw homeV2PublishSourceError(COLLIDING_ENTRY_NAME)
+  seen.add(key)
+  return relativePath
+}
+
+/**
+ * Stream one entry's bytes, bounded as they are read.
+ *
+ * `expectedSize` comes from fstat on the handle that is being read, not from
+ * the earlier walk, so a file that grew after selection is refused rather than
+ * silently packaged at its new size.
+ */
+async function* boundedEntryChunks(
+  handle: Awaited<ReturnType<typeof open>>,
+  expectedSize: number,
+  state: WalkState,
+  limits: HomeV2PublishDirectoryLimits,
+) {
+  let read = 0
+  for await (const chunk of handle.createReadStream({ autoClose: false, start: 0 })) {
+    const bytes = chunk as Buffer
+    read += bytes.byteLength
+    state.totalBytes += bytes.byteLength
+    if (read > expectedSize) throw homeV2PublishSourceError(CHANGED_ENTRY)
+    if (state.totalBytes > limits.maximumBytes) throw byteLimitError(limits)
+    yield bytes
+  }
+  if (read !== expectedSize) throw homeV2PublishSourceError(CHANGED_ENTRY)
+}
+
+async function openContainedFile(sourcePath: string) {
+  const noFollow = typeof fsConstants.O_NOFOLLOW === 'number' ? fsConstants.O_NOFOLLOW : 0
+  try {
+    return await open(sourcePath, fsConstants.O_RDONLY | noFollow)
+  } catch {
+    throw homeV2PublishSourceError(UNREADABLE_ENTRY)
+  }
+}
+
+export async function createHomeV2PublishPackagingDir() {
+  const stagingDir = await mkdtemp(nodePath.join(tmpdir(), HOME_V2_PUBLISH_PACKAGING_STAGING_PREFIX))
+  await mkdir(stagingDir, { mode: 0o700, recursive: true })
+  return stagingDir
+}
+
+export type HomeV2PublishPackagedDirectory = Readonly<{
+  archivePath: string
+  byteLength: number
+  entryCount: number
+  excludedCount: number
+  stagingDir: string
+}>
+
+/**
+ * Package a folder selection into a Home-owned temp zip. The caller ALWAYS
+ * removes `stagingDir`.
+ */
+export async function packHomeV2PublishDirectory(
+  source: HomeV2DesktopPublishSource,
+  limits: HomeV2PublishPackagingLimits,
+  visitorOverrides: Pick<HomeV2PublishTreeVisitor, 'skipEntry'> = {},
+): Promise<HomeV2PublishPackagedDirectory> {
+  if (source.kind !== 'directory') {
+    throw homeV2PublishSourceError('Only a folder selection can be packaged for publishing.')
+  }
+  await assertHomeV2DesktopPublishDirectoryUnchanged(source)
+  const root = await realpath(source.path).catch(() => null)
+  if (!root) throw homeV2PublishSourceError(UNREADABLE_FOLDER)
+  const stagingDir = await createHomeV2PublishPackagingDir()
+  const archivePath = nodePath.join(stagingDir, 'source.zip')
+  try {
+    const archive = await open(archivePath, fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL, 0o600)
+    let byteLength = 0
+    const state = newWalkState()
+    const seen = new Set<string>()
+    try {
+      const writer = new HomeV2PublishZipWriter(archive, limits.maximumPackagedBytes)
+      await walkHomeV2PublishTree(root, root, '', 0, state, limits, {
+        ...visitorOverrides,
+        onFile: async (absolutePath, relativePath) => {
+          const name = canonicalHomeV2PublishEntryName(relativePath, limits, seen)
+          const handle = await openContainedFile(absolutePath)
+          try {
+            // fstat on the OPEN handle, so the size the budget is spent
+            // against is the file that is actually being read, not a name
+            // that may have been swapped since the walk.
+            const stats = await handle.stat()
+            if (!stats.isFile()) throw homeV2PublishSourceError(UNREADABLE_ENTRY)
+            await writer.addFile(name, boundedEntryChunks(handle, stats.size, state, limits))
+          } finally {
+            await handle.close().catch(() => undefined)
+          }
+        },
+        onLinkTarget: 'follow',
+        specialEntry: 'refuse',
+      })
+      if (writer.entryCount === 0) throw homeV2PublishSourceError(EMPTY_FOLDER)
+      byteLength = await writer.finish()
+    } finally {
+      await archive.close().catch(() => undefined)
+    }
+    return Object.freeze({
+      archivePath,
+      byteLength,
+      entryCount: state.entries,
+      excludedCount: state.excluded,
+      stagingDir,
+    })
+  } catch (error) {
+    await removeHomeV2PublishPreviewStagingDir(stagingDir)
+    throw error
+  }
+}
+
+/**
+ * What a publish reads, without the publish paths knowing which kind of
+ * selection produced it.
+ *
+ * `sha256()` streams; `read()` materialises. They are separate because the
+ * batch path hashes EVERY item before one approval prompt and then publishes
+ * them one at a time: hashing without materialising is what keeps a batch from
+ * holding every item's bytes at once. `read()` re-hashes what it loaded and
+ * refuses a mismatch, so what is published is what was approved even though
+ * the two happen minutes apart.
+ */
+export type HomeV2PublishArtifact = Readonly<{
+  byteLength: number
+  entryCount: number
+  excludedCount: number
+  isZip: boolean
+  dispose: () => Promise<void>
+  read: () => Promise<Uint8Array>
+  sha256: () => Promise<string>
+}>
+
+async function readAllBounded(
+  openStream: () => AsyncIterable<Uint8Array> | NodeJS.ReadableStream,
+  expectedBytes: number,
+) {
+  if (expectedBytes > HOME_V2_PUBLISH_IN_MEMORY_MAX_BYTES) {
+    throw homeV2PublishSourceError(TOO_LARGE_FOR_MEMORY)
+  }
+  const bytes = new Uint8Array(expectedBytes)
+  let offset = 0
+  for await (const chunk of openStream() as AsyncIterable<Uint8Array>) {
+    if (offset + chunk.byteLength > expectedBytes) throw homeV2PublishSourceError(CHANGED_ENTRY)
+    bytes.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  if (offset !== expectedBytes) throw homeV2PublishSourceError(CHANGED_ENTRY)
+  return bytes
+}
+
+async function* singleChunk(bytes: Uint8Array) {
+  yield bytes
+}
+
+export type HomeV2PublishArtifactOptions = Readonly<{
+  /** The ceiling this publish route discovered, already clamped by the caller. */
+  maximumBytes: number
+  packagingLimits?: HomeV2PublishPackagingLimits
+  skipEntry?: HomeV2PublishTreeVisitor['skipEntry']
+}>
+
+export async function prepareHomeV2PublishArtifact(
+  source: HomeV2DesktopPublishSource,
+  options: HomeV2PublishArtifactOptions,
+): Promise<HomeV2PublishArtifact> {
+  const maximumBytes = Math.min(options.maximumBytes, HOME_V2_PUBLISH_IN_MEMORY_MAX_BYTES)
+
+  if (source.kind === 'blob') {
+    if (source.bytes.byteLength !== source.size) {
+      throw homeV2PublishSourceError('Staged publish source changed after staging. Stage the bytes again.')
+    }
+    if (source.size > maximumBytes) throw homeV2PublishSourceError(TOO_LARGE_FOR_MEMORY)
+    const bytes = source.bytes
+    return Object.freeze({
+      byteLength: source.size,
+      dispose: async () => undefined,
+      entryCount: 1,
+      excludedCount: 0,
+      isZip: false,
+      // Copy on read: publish paths hash and post these bytes, and must never
+      // share a buffer with whatever else still references the staged source.
+      read: async () => Uint8Array.from(bytes),
+      sha256: async () => sha256HexOfStream(singleChunk(bytes)),
+    })
+  }
+
+  if (source.kind === 'directory') {
+    const limits = options.packagingLimits ?? homeV2PublishPackagingLimits(maximumBytes)
+    const packaged = await packHomeV2PublishDirectory(source, limits, { skipEntry: options.skipEntry })
+    let expectedHash: string | null = null
+    const rememberHash = (hash: string) => {
+      if (expectedHash !== null && hash !== expectedHash) throw homeV2PublishSourceError(CHANGED_ENTRY)
+      expectedHash = hash
+      return hash
+    }
+    const openArchive = () => createReadStream(packaged.archivePath)
+    return Object.freeze({
+      byteLength: packaged.byteLength,
+      dispose: async () => removeHomeV2PublishPreviewStagingDir(packaged.stagingDir),
+      entryCount: packaged.entryCount,
+      excludedCount: packaged.excludedCount,
+      isZip: true,
+      read: async () => {
+        const bytes = await readAllBounded(openArchive, packaged.byteLength)
+        rememberHash(await sha256HexOfStream(singleChunk(bytes)))
+        return bytes
+      },
+      sha256: async () => rememberHash(await sha256HexOfStream(openArchive())),
+    })
+  }
+
+  if (source.size > maximumBytes) throw homeV2PublishSourceError(TOO_LARGE_FOR_MEMORY)
+  const noFollow = typeof fsConstants.O_NOFOLLOW === 'number' ? fsConstants.O_NOFOLLOW : 0
+  let handle
+  try {
+    handle = await open(source.path, fsConstants.O_RDONLY | noFollow)
+  } catch {
+    throw homeV2PublishSourceError(UNREADABLE_FILE)
+  }
+  try {
+    const stats = await handle.stat({ bigint: true })
+    if (
+      !stats.isFile() ||
+      stats.dev !== source.device ||
+      stats.ino !== source.inode ||
+      Number(stats.size) !== source.size
+    ) {
+      throw homeV2PublishSourceError(CHANGED_FILE)
+    }
+  } catch (error) {
+    await handle.close().catch(() => undefined)
+    throw error
+  }
+  // The handle stays OPEN for the artifact's whole life. That is the
+  // anti-TOCTOU guarantee for a file source: the inode is pinned, so no rename
+  // or symlink swap at that path can change what is read, and every read below
+  // is a positional read from the same handle rather than a fresh open of a
+  // name. What a pinned inode cannot stop is an in-place rewrite, which is why
+  // read() re-hashes and refuses a value that moved since sha256().
+  let expectedFileHash: string | null = null
+  const rememberFileHash = (hash: string) => {
+    if (expectedFileHash !== null && hash !== expectedFileHash) throw homeV2PublishSourceError(CHANGED_FILE)
+    expectedFileHash = hash
+    return hash
+  }
+  const openFileStream = () => handle.createReadStream({ autoClose: false, start: 0 })
+  return Object.freeze({
+    byteLength: source.size,
+    dispose: async () => {
+      await handle.close().catch(() => undefined)
+    },
+    entryCount: 1,
+    excludedCount: 0,
+    isZip: false,
+    read: async () => {
+      const bytes = await readAllBounded(openFileStream, source.size)
+      rememberFileHash(await sha256HexOfStream(singleChunk(bytes)))
+      return bytes
+    },
+    sha256: async () => rememberFileHash(await sha256HexOfStream(openFileStream())),
+  })
 }
