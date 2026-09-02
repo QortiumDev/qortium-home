@@ -860,8 +860,14 @@ async function assertForeignSendDryRun(qdnClient, userDataDir) {
     accepted.some((pattern) => pattern.test(attempt.message)),
     `Unexpected foreign SEND_COIN dry-run refusal: ${attempt.message}`,
   );
+  // A capability that lies is the failure this smoke exists to catch: if
+  // discovery said Home can send, the route the send uses must exist.
+  assert(
+    !(expectsSend && /HTTP 404/i.test(attempt.message)),
+    'Discovery advertised foreign sending, but /crosschain/<coin>/wallet/public/spend-context answered 404.',
+  );
   if (/HTTP 404/i.test(attempt.message)) {
-    log('NOTE: this Core predates /crosschain/<coin>/wallet/public/spend-context.');
+    log('NOTE: this Core predates /crosschain/<coin>/wallet/public/spend-context; send is correctly not advertised.');
   }
   assert(
     !existsSync(journalPath),

@@ -43,6 +43,37 @@ local synced Previewnet Core at the time of each check; apps must use
   spend-context with the currently configured providers, the same blocker
   their reads hit; a Core-side fix (Electrum protocol cap 1.4 and refreshed
   server pins) is in flight separately.
+- Foreign **Send** additionally requires a Core that actually implements
+  `/crosschain/<coin>/wallet/public/spend-context`. Home probes that route
+  once per node/API-key revision before advertising `send`, so an older
+  trusted Core answers `send: false` rather than advertising a capability it
+  would then 404 on.
+- The two numbers Home takes from Core on trust — `recommendedFeePerByte` and
+  `minimumNonDustOutput` — are checked against per-coin absolute ceilings
+  (`electron/foreign-wallet-policy-bounds.ts`) before any plan is built, and
+  again on the post-approval re-read. A value above its ceiling is REFUSED,
+  never clamped. The ceilings are conservative sanity bounds set well above
+  anything these chains have plausibly reported, not a reproduction of each
+  chain's relay policy; the inflated-dust case matters most, because change
+  below the dust floor is absorbed into the fee rather than returned. The
+  finished plan is bounded too: its total fee must fit the per-coin ceiling
+  for its size, and a fixed-amount send may not pay more in fee than it sends
+  once the payment is large enough for that comparison to mean anything.
+- **Acceptance gate.** Enabling foreign send for real use is gated on a
+  packaged acceptance pass against a Core that carries the spend-context and
+  chain-bound broadcast routes. Until that pass exists there is no end-to-end
+  wired coverage: the evidence is deterministic vectors, dependency-injected
+  orchestrator tests and source-level pins. The wired integration harness is
+  PR 2's scope, and `smoke:desktop:qdn-foreign-send-dry-run:packaged` is the
+  bridge-level check available in the meantime.
+- A send whose outcome Home could not prove leaves a write-ahead entry that
+  blocks further sends for that wallet and coin. The NEXT send for the same
+  wallet reconciles it automatically: Home reads the wallet's own transaction
+  history from the trusted Core and clears the entry only if the exact
+  transaction id it signed appears there. If it does not, the send is refused
+  and names the transaction; nothing is ever retried or discarded on a guess.
+  Home's own Settings surface can list the retained entries read-only; no QDN
+  app can enumerate or remove them.
 - **Core trade engine** records Core/AT capability. Home currently exposes no
   mediated trade actions, so QDN apps cannot safely drive those trades yet.
 - **Live acceptance** becomes complete only after deterministic vectors and the

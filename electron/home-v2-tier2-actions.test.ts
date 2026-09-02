@@ -1176,10 +1176,12 @@ for (const required of [
 // it on the trusted-Core predicate AND a selected, unlocked account, because
 // the signing keys come from that account's seed.
 const sendGate = stripComments(
-  sliceAfter(bridgeSource, 'const foreignWalletSendAvailable =', 300, 'send capability gate'),
+  sliceAfter(bridgeSource, 'const foreignWalletDiscovery = action ===', 900, 'send capability gate'),
 )
-assert.ok(sendGate.includes('foreignWalletTrustedCoreAvailable &&'))
+assert.ok(sendGate.includes('resolved.trust.trusted'))
 assert.ok(sendGate.includes('isAccountUnlocked(context.accountId)'))
+assert.ok(sendGate.includes('probeHomeV2ForeignSendRouteSupported('))
+assert.ok(sendGate.includes('return { send: false, trusted: false }'), 'every failure path must answer send:false')
 
 const sendingRows = projectHomeV2CrosschainReadResult(
   'GET_CROSSCHAIN_BLOCKCHAINS',
@@ -1204,5 +1206,91 @@ for (const [trusted, sending] of [[false, false], [true, false], [false, true]] 
   assert.equal(rows[1].homeWallet.send, sending, `send must follow its own flag (trusted=${trusted})`)
   assert.equal(rows[1].homeWallet.sendMode, sending ? 'HOME_LOCAL' : 'NONE')
 }
+
+// The seed must never become a JS string. A hex or Base58 encoding of it is
+// immutable and unzeroable, so it outlives every `fill(0)` the code does.
+const foreignSendModule = stripComments(
+  readRepoSource('../electron/home-v2-foreign-send.ts', './home-v2-foreign-send.ts'),
+)
+for (const forbidden of ['bytesToHex(seed', 'base58Encode(seed', 'seed.toString', 'JSON.stringify(seed', 'String(seed']) {
+  assert.ok(!foreignSendModule.includes(forbidden), `the foreign send orchestrator must not stringify the seed: ${forbidden}`)
+}
+assert.ok(
+  foreignSendModule.includes('containsByteSequence(hexToBytes(built.rawTransactionHex), seed)'),
+  'the key-material check must compare bytes, not strings',
+)
+
+// The last checks before signing must come AFTER the post-approval re-read,
+// because that read is a round trip during which anything can change.
+const sendFlow = stripComments(
+  sliceAfter(foreignSendModule, 'assertPlanUnchanged(plan, planAfter)', 1_500, 'foreign send flow'),
+)
+const finalRoute = sendFlow.indexOf('const routeFinal = await deps.resolveRoute()')
+const finalValid = sendFlow.indexOf('if (!(await deps.isStillValid()))')
+const signing = sendFlow.indexOf('deps.withWalletSeed((seed, nonce, walletVersion) => {')
+assert.ok(finalRoute > -1 && finalValid > -1 && signing > -1)
+assert.ok(finalRoute < signing && finalValid < signing, 'the final route and validity checks precede signing')
+// Nothing may await between the last check and the signature: everything from
+// the freshness assertion through the write-ahead record and the broadcast
+// marker is synchronous, so no drift window can open inside it.
+const settled = sendFlow.lastIndexOf('assertForeignSendFresh()')
+assert.ok(settled > finalValid && settled < signing)
+assert.ok(!sendFlow.slice(settled, signing).includes('await '), 'no await may open a drift window before signing')
+const signToBroadcast = stripComments(
+  sliceAfter(foreignSendModule, 'const signed = deps.withWalletSeed(', 4_000, 'sign to broadcast'),
+)
+const broadcastAt = signToBroadcast.indexOf('await deps.postTrusted(')
+assert.ok(broadcastAt > -1)
+assert.ok(
+  !signToBroadcast.slice(0, broadcastAt).includes('await '),
+  'signing, the write-ahead record and the attempt marker must all be synchronous',
+)
+assert.ok(
+  signToBroadcast.indexOf('deps.journal.recordSigned(') < signToBroadcast.indexOf('deps.journal.recordBroadcastAttempt('),
+  'the write-ahead record precedes the broadcast marker',
+)
+assert.ok(
+  signToBroadcast.indexOf('deps.journal.recordBroadcastAttempt(') < broadcastAt,
+  'the broadcast marker precedes the one broadcast',
+)
+
+// One parse cache, created once and passed to planning, re-planning AND
+// signing, so no phase re-parses what another already did.
+assert.equal((foreignSendModule.match(/createForeignWalletPreviousTransactionCache\(\)/g) ?? []).length, 1)
+assert.equal((foreignSendModule.match(/cache: previousTransactions/g) ?? []).length, 3)
+
+// Reconciliation runs BEFORE state is read or the user is asked.
+const reconcileAt = foreignSendModule.indexOf('reconcileForeignWalletPendingTransactions(')
+const contextAt = foreignSendModule.indexOf('const context = await readSpendContext(')
+const approveAt = foreignSendModule.indexOf('await deps.approve(')
+assert.ok(reconcileAt > -1 && reconcileAt < contextAt && reconcileAt < approveAt)
+
+// Absolute bounds are applied on EVERY spend-context read, not just the first.
+assert.ok(foreignSendModule.includes('assertForeignWalletContextWithinPolicy('))
+assert.ok(
+  stripComments(sliceAfter(foreignSendModule, 'async function readSpendContext', 1_200, 'spend context read'))
+    .includes('assertForeignWalletContextWithinPolicy('),
+  'the bounds must live inside the shared read, so the post-approval read gets them too',
+)
+assert.ok(foreignSendModule.includes('assertForeignWalletPlanWithinPolicy('))
+
+// The retained-entry listing is shell-only: no QDN action names it.
+assert.ok(!getHomeV2AppActions('qdnRequest').some((action) => /FOREIGN.*PENDING|PENDING.*FOREIGN/i.test(action)))
+assert.ok(bridgeSource.includes("ipcMain.handle('home-v2-app:foreignWalletPendingTransactions'"))
+assert.ok(
+  !bridgeSource.includes("ipcMain.handle('home-v2-app:forgetForeignWalletPendingTransaction'"),
+  'there must be no path that drops a retained foreign transaction without proof',
+)
+
+// Android must keep answering send:false until it has its own signer: the
+// host passes five arguments, so the send flag stays at its safe default.
+const androidCrosschain = stripComments(sliceAfter(
+  readRepoSource('../src/home-v2-live/node-client.ts', './node-client.ts'),
+  'return projectHomeV2CrosschainReadResult(',
+  260,
+  'android crosschain projection',
+))
+assert.ok(!androidCrosschain.includes('foreignWalletSendAvailable'))
+assert.ok(!/foreignWalletTrustedCoreAvailable,\s*\n\s*\w/.test(androidCrosschain.replace(/\)[\s\S]*$/, ')')))
 
 console.log('Home v2 tier-2 action tests passed.')
