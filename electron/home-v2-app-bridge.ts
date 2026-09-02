@@ -2378,6 +2378,28 @@ const HOME_V2_PREVIEW_NODE_TOO_OLD =
  * sentences and pass through; everything else is logged in the main process
  * and replaced with one of the constants above.
  */
+/**
+ * The same rule for the PUBLISH path's source handling: this module's own
+ * refusals are fixed, path-free sentences and pass through, and anything else
+ * — a raw `ENOENT: ... /home/<user>/...` from a stat or an open that slipped
+ * past a local catch — is logged in the main process and replaced. Applied
+ * narrowly, around packaging and reading only: the token store's own messages
+ * ("Selected publish source expired.") are untagged, path-free and worth
+ * showing, and they are raised before this wraps anything.
+ */
+const HOME_V2_PUBLISH_SOURCE_UNREADABLE =
+  'Home could not read the selected publish source. Select it again.'
+
+async function withHomeV2PublishSourceErrors<T>(operation: () => Promise<T>): Promise<T> {
+  try {
+    return await operation()
+  } catch (error) {
+    if (isHomeV2PublishSourceError(error)) throw error
+    console.warn('[home-v2-app] QDN publish source could not be read:', error)
+    throw new Error(HOME_V2_PUBLISH_SOURCE_UNREADABLE)
+  }
+}
+
 function homeV2PreviewFailure(error: unknown, fallbackMessage: string) {
   if (isHomeV2PublishSourceError(error)) return error
   console.warn('[home-v2-app] QDN publish preview failed:', error)
@@ -2597,12 +2619,12 @@ async function publishHomeV2PublicPublishSource(
   // inode. Either way the bytes are not resident yet: the prompt below is
   // built from a STREAMED hash, and the archive is only loaded once the user
   // has approved that exact hash.
-  const artifact = await prepareHomeV2PublishArtifact(source, {
-    includeHidden: getRequestedHomeV2PublishIncludeHidden(requestValue),
-    maximumBytes,
-  })
+  const includeHidden = getRequestedHomeV2PublishIncludeHidden(requestValue)
+  const artifact = await withHomeV2PublishSourceErrors(
+    () => prepareHomeV2PublishArtifact(source, { includeHidden, maximumBytes }),
+  )
   try {
-    const contentHash = await artifact.sha256()
+    const contentHash = await withHomeV2PublishSourceErrors(() => artifact.sha256())
     // A packaged folder is uploaded (and named) as the archive it now is, so
     // the prompt names the same thing the transaction will carry.
     const publishFileName = artifact.isZip ? `${source.fileName.slice(0, 176)}.zip` : source.fileName
@@ -2674,7 +2696,7 @@ async function publishHomeV2PublicPublishSource(
       // Loaded HERE, after approval, and re-hashed against the value the user
       // saw: a mismatch means the source moved between the prompt and the
       // upload, and refuses rather than publishing something else.
-      sourceBytes: await artifact.read(),
+      sourceBytes: await withHomeV2PublishSourceErrors(() => artifact.read()),
     })
     if (result.accepted || result.outcome === 'unknown') {
       homeV2DesktopPublishSources.release(request.sourceToken)
@@ -2757,10 +2779,12 @@ async function publishHomeV2MultiplePublishSources(
     // item, and the bytes themselves are loaded one item at a time below.
     const includeHidden = getRequestedHomeV2PublishIncludeHidden(requestValue)
     for (const entry of resolved) {
-      const artifact = await prepareHomeV2PublishArtifact(entry.source, { includeHidden, maximumBytes })
+      const artifact = await withHomeV2PublishSourceErrors(
+        () => prepareHomeV2PublishArtifact(entry.source, { includeHidden, maximumBytes }),
+      )
       items.push({
         artifact,
-        contentHash: await artifact.sha256(),
+        contentHash: await withHomeV2PublishSourceErrors(() => artifact.sha256()),
         fileName: artifact.isZip ? `${entry.source.fileName.slice(0, 176)}.zip` : entry.source.fileName,
         item: entry.item,
         source: entry.source,
@@ -2885,7 +2909,7 @@ async function publishHomeV2MultiplePublishSources(
           resource: entry.item.resource,
           // One item's bytes at a time, re-hashed against the value this
           // batch's prompt disclosed for it.
-          sourceBytes: await entry.artifact.read(),
+          sourceBytes: await withHomeV2PublishSourceErrors(() => entry.artifact.read()),
           validateTarget: () => assertNameOwned(entry.item.resource.name, 'signing recheck'),
         })
         if (result.accepted) {

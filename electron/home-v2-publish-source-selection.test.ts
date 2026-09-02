@@ -869,6 +869,15 @@ try {
   )
   assert.ok(bridgeSource.includes('await artifact.dispose()'), 'the single publish disposes its artifact')
 
+  // Nothing untagged reaches an app from the packaging or reading steps: this
+  // module's own refusals are path-free sentences and pass through, and a raw
+  // errno error that slipped past a local catch is replaced with a constant.
+  assert.equal(
+    bridgeSource.split('withHomeV2PublishSourceErrors(').length - 1,
+    6,
+    'both publish paths wrap preparing, hashing and reading a source',
+  )
+
   // The chat-attachment path takes the RAW-BYTES reader, which refuses a
   // folder by name — an attachment is one encrypted file, and packaging one
   // into a zip would be a different action wearing this one's prompt.
