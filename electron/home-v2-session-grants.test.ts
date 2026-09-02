@@ -206,6 +206,8 @@ assert.equal(store.size(), 1)
     'BOOKMARKS_APPLY',
     'START_MINTING',
     'REMOVE_MINTING_ACCOUNT',
+    'RESTART_NODE',
+    'UPDATE_NODE_SETTINGS',
   ]
   for (const action of mustStillPrompt) {
     assert.equal(

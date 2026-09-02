@@ -972,16 +972,19 @@ errors; the implementation is ready for the chain's coin decision.
 ## Node administration trust (Home 2)
 
 Some families do not act on the chain — they administer a **node**: the QDN
-list family (node-local blocking/following state) and the minting family
-(the node's minting-accounts list), with node settings to follow. Those need
+list family (node-local blocking/following state), the minting family
+(the node's minting-accounts list), and the node-settings family (Core
+settings and restart). Those need
 the node's administrative API key, so Home has to decide which nodes it may
 administer.
 
 The rule is ownership, not locality: a node is administrable when it is the
 Core Home runs itself (loopback, key reconciled from that Core), **or** a
 custom node the user has attached their own API key to. Today that unlocks
-the list and minting families on desktop; the Android screens for both (and
-node settings on either platform) are still to be built. That second case is
+the list, minting, and node-settings families in the app bridge on desktop
+and Android alike (Android always through the attached-key case, since it
+has no managed local Core); Home's own Android Settings screens for lists
+and minting are still to be built. That second case is
 the self-hosted one — including a node reached through an `ssh -L` tunnel,
 which presents as plain HTTP to `127.0.0.1` and is explicitly allowed. Public
 and discovered nodes are refused: administering someone else's Core is not
@@ -1177,6 +1180,54 @@ too — 1.x checked it only on writes); `items` is a non-empty array of
 non-empty strings, each trimmed. One deliberate divergence: 1.x silently
 dropped blank and non-string entries and applied the survivors, reporting
 success for a half-applied batch. Home 2 refuses the whole request instead.
+
+## Node settings actions (Home 2)
+
+Home 2 exposes three node-settings actions on `qdnRequest` only:
+`GET_NODE_SETTINGS_METADATA`, `UPDATE_NODE_SETTINGS`, and `RESTART_NODE`.
+Qortium Home is the only host with a node-settings concept, and the
+administration trust rule refuses Qortal outright, so a `qortalRequest` copy
+could never be answered honestly. The family exists so the Node app can
+render and edit Core's settings while the raw admin write routes stay
+outside `normalizeHomeV2ReadPath`'s scope: `/admin/restart` and the
+key-gated `/admin/settings/{setting}` remain refused to the generic
+passthrough, pinned by tests.
+
+`GET_NODE_SETTINGS_METADATA` is a plain promptless read of
+`/admin/settings/metadata` — the same anonymous Core route the passthrough
+already allows — answered wherever ordinary reads are.
+
+The two writes follow the node administration trust rule above
+(`resolveHomeV2AdminNode`): Home's own managed Core, or a custom node the
+user attached their API key to — on desktop and Android alike.
+`SHOW_ACTIONS` advertises them only for an admin-trusted, reachable Qortium
+route, so the Node app's editor hides itself on a public node exactly as it
+did on 1.x.
+
+Every write prompts on every request (`node.settings.write`, never durable,
+never session-cached). An `UPDATE_NODE_SETTINGS` request is validated before
+any prompt is raised: the patch shapes 1.x accepted (`patch`, `settings`, or
+a record `payload`), at most 64 settings per request, key names at most 120
+characters, every key checked against the node's own writable declaration,
+and every displayed value at most 1,000 escaped characters — a batch too
+large to show in full is refused rather than approved unseen. The approval
+names the node and every setting with its current and proposed value; string
+values render quoted so Home's own annotations ("(not present)", "(empty)")
+cannot be forged by app-supplied values. After approval, trust is
+re-resolved and the write refuses a node or credential that changed while
+the prompt was open; then one keyed `PATCH /admin/settings` runs with
+redirects refused, and a failed keyed call answers a fixed operation/status
+message rather than the node's error body (which a hostile responder could
+stuff with received headers). The result is rebuilt from an allowlist (`saved`,
+`updated`, `removed`, `applied`, `restartRequired`); Core's `settingsPath` —
+the node's settings file location on disk — is deliberately dropped, because
+an app asked to change a setting, not to learn the node's filesystem layout.
+
+`RESTART_NODE` prompts with the pinned Impact row ("Restart the selected
+Core node"), re-resolves trust the same way, then issues one keyed
+`GET /admin/restart`. The restart is fire-and-forget, exactly like every
+existing caller of that route: Core relaunches its own JVM, and
+core-manager's process-scan fallback already tolerates the pid change.
 
 ## Poll actions (Home 2)
 

@@ -1508,4 +1508,42 @@ for (const action of [
   assert.equal(getHomeV2AppActions('qortalRequest').includes(action), false, `${action} is not implemented`)
 }
 
+// ---------------------------------------------------------------------------
+// Node-settings family: qdnRequest-only, writes never permissionless, one
+// grant per action, and the raw admin routes stay closed to the passthrough.
+// ---------------------------------------------------------------------------
+for (const action of ['GET_NODE_SETTINGS_METADATA', 'RESTART_NODE', 'UPDATE_NODE_SETTINGS']) {
+  assert.equal(qdnActions.includes(action), true, `qdnRequest must advertise ${action}.`)
+  // Qortium Home is the only host with a node-settings concept, and admin
+  // trust refuses network 'qortal' outright — advertising these on
+  // qortalRequest could never be answered honestly.
+  assert.equal(qortalActions.includes(action), false, `qortalRequest must not advertise ${action}.`)
+  assert.equal(getHomeV2AppNetwork('qdnRequest', action), 'qortium')
+}
+for (const action of ['RESTART_NODE', 'UPDATE_NODE_SETTINGS']) {
+  assert.equal(
+    (HOME_V2_PERMISSIONLESS_ACTIONS as readonly string[]).includes(action),
+    false,
+    `${action} must always prompt.`,
+  )
+  assert.equal(isHomeV2PermissionlessAction(action), false)
+  assert.equal(isHomeV2ChatSendAction(action), false, `${action} must not be a grantable chat send.`)
+  // Exact families: approving a settings change must never satisfy a restart.
+  assert.equal(homeV2PermissionGrantFamily(action), action)
+}
+assert.notEqual(
+  homeV2PermissionGrantFamily('RESTART_NODE'),
+  homeV2PermissionGrantFamily('UPDATE_NODE_SETTINGS'),
+)
+// The dedicated actions exist so the raw admin write/read-sensitive routes
+// stay outside the generic FETCH_NODE_API passthrough.
+assert.throws(
+  () => normalizeHomeV2ReadPath('/admin/restart'),
+  /outside Home v2 read-only scope/,
+)
+assert.throws(
+  () => normalizeHomeV2ReadPath('/admin/settings/apiKeyPath'),
+  /outside Home v2 read-only scope/,
+)
+
 console.log('Home v2 app action contract tests passed.')

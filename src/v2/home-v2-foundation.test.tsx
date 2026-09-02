@@ -2991,12 +2991,13 @@ function testGrantIdentityAndSendRateLimitHardening(): void {
     // (node-list, poll, name, group-mutation, publish-multiple, qdn-delete)
     // added their grant-target and single-request arms, and again when the
     // durable account.encrypt check landed between them, and again when the
-    // durable account.directChat (direct-message) check did. The ordering
+    // durable account.directChat (direct-message) check did, and again when
+    // the node-settings write kind added its arm. The ordering
     // property is what matters and is unchanged: the stale-resource check still
     // runs BEFORE any grant (session or durable) is honored -- and it is
     // asserted DIRECTLY below, so this budget is a secondary net against
     // reordering rather than the guarantee itself.
-    /liveResourceMatchesGrant\(context\)[\s\S]{0,10000}sessionAccountReadGrants\.has\(grantKey\)/,
+    /liveResourceMatchesGrant\(context\)[\s\S]{0,11000}sessionAccountReadGrants\.has\(grantKey\)/,
   )
   // The ordering asserted DIRECTLY, so it no longer depends on a character
   // budget that every new grant arm pushes against. The proximity match above
