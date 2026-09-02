@@ -297,12 +297,14 @@ import {
   attestUnsignedQortalPrivateGroupPublish,
   signAttestedQortalPrivateGroupPublish,
 } from './home-v2-qortal-private-group-publish.js'
+import { selectHomeV2DesktopPublishSource } from './home-v2-desktop-publish-source.js'
 import {
+  assertHomeV2DesktopPublishDirectoryUnchanged,
+  getRequestedHomeV2PublishSourceKind,
   homeV2DesktopPublishSources,
   stageHomeV2DesktopPublishBlob,
   readHomeV2DesktopPublishSource,
-  selectHomeV2DesktopPublishSource,
-} from './home-v2-desktop-publish-source.js'
+} from './home-v2-publish-source-selection.js'
 import { normalizeHomeV2PublishBlobRequest } from './home-v2-publish-blob-source.js'
 import {
   normalizeHomeV2PublicPublishRequest,
@@ -2375,9 +2377,12 @@ async function previewHomeV2PublishSource(
     protocol,
     routeRevision,
   }))
-  if (source.kind !== 'file') {
-    throw new Error('Previewing needs a file selected through the picker; staged bytes cannot be previewed.')
+  if (source.kind === 'blob') {
+    throw new Error('Previewing needs a file or folder selected through the picker; staged bytes cannot be previewed.')
   }
+  // A folder is handed to the node as a PATH, so re-assert it is still the
+  // same folder: a source token lives for 30 minutes.
+  if (source.kind === 'directory') await assertHomeV2DesktopPublishDirectoryUnchanged(source)
   const { previewPath, service } = await stageQdnPreviewSource(source.path)
   const rendered = await postHomeV2ChatText(
     node.nodeApiUrl,
@@ -2434,7 +2439,13 @@ async function selectHomeV2PublicPublishSource(
   protocol: HomeV2AppBridgeProtocol,
   network: HomeV2AppNetwork,
   routeRevision: string,
+  requestValue: Record<string, unknown>,
 ) {
+  // `kind` was dropped when this action was ported, so every app got a file
+  // picker no matter what it asked for. It is honoured again here (1.x
+  // getRequestedQdnPublishSourceKind), defaulting to 'file' so the publish
+  // flows behave exactly as before.
+  const kind = getRequestedHomeV2PublishSourceKind(requestValue)
   const node = await getHomeV2ReadableNode(network)
   return selectHomeV2DesktopPublishSource(context.windowId, homeV2PublishSourceBinding({
     context,
@@ -2442,7 +2453,7 @@ async function selectHomeV2PublicPublishSource(
     nodeApiUrl: node.nodeApiUrl,
     protocol,
     routeRevision,
-  }))
+  }), kind)
 }
 
 async function publishHomeV2PublicPublishSource(
@@ -10570,6 +10581,7 @@ async function handleRequestWithRuntime(
       protocol,
       network,
       hostInfo.route.revision,
+      requestValue,
     )
   }
   if (action === 'STAGE_QDN_PUBLISH_SOURCE') {

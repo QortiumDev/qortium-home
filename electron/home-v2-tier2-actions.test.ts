@@ -149,7 +149,27 @@ assert.ok(
 // as an app TAB, the one surface that can render a website. The resource
 // viewer still cannot, which is exactly why this is not wired to it.
 assert.ok(qdnActions.includes('PREVIEW_QDN_PUBLISH_SOURCE'))
-assert.ok(qortalActions.includes('PREVIEW_QDN_PUBLISH_SOURCE'))
+// qdnRequest-ONLY. Previewing does not touch a chain: it POSTs the chosen
+// source to a node that renders it, so it needs a LOCAL Core with a write key.
+// Home 2 has no local write key for the Qortal route
+// (getHomeV2SignedWriteApiKey returns '' for 'qortal'), so advertising it there
+// would advertise an action that can only ever refuse. Same treatment as the
+// other local-Core-only actions, which are qdnRequest-only for the same reason.
+assert.ok(
+  !qortalActions.includes('PREVIEW_QDN_PUBLISH_SOURCE'),
+  'PREVIEW_QDN_PUBLISH_SOURCE must NOT be advertised on qortalRequest: Home 2 holds no local write key for the Qortal route',
+)
+for (const action of ['RESTART_NODE', 'UPDATE_NODE_SETTINGS', 'GET_NODE_SETTINGS_METADATA']) {
+  assert.ok(
+    !qortalActions.includes(action),
+    `${action} is the precedent for that rule and must stay off qortalRequest`,
+  )
+}
+// Its picker siblings DO stay on qortalRequest: they feed PUBLISH_QDN_RESOURCE,
+// which Qortal has, and neither of them needs a node write key.
+assert.ok(qortalActions.includes('SELECT_QDN_PUBLISH_SOURCE'))
+assert.ok(qortalActions.includes('STAGE_QDN_PUBLISH_SOURCE'))
+assert.ok(qortalActions.includes('PUBLISH_QDN_RESOURCE'))
 
 // Foreign receive/read/server management is qdnRequest-only. The same Wallet
 // app may be published on either QDN because Home injects both bridge globals;

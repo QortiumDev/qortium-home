@@ -115,11 +115,21 @@ for (const action of [
     qortal: unreachableInfo.route,
     qortium: unreachableInfo.route,
   }).includes(action), false)
+}
+// ...on qdnRequest. PREVIEW is NOT a qortalRequest action: it POSTs the chosen
+// source to a node that renders it, so it needs a local Core with a write key,
+// and Home 2 holds none for the Qortal route. Its picker siblings stay, because
+// they feed PUBLISH_QDN_RESOURCE, which Qortal does have.
+for (const action of ['SELECT_QDN_PUBLISH_SOURCE', 'PUBLISH_QDN_RESOURCE']) {
   assert.equal(getHomeV2AvailableAppActions('qortalRequest', {
     qortal: publicInfo.route,
     qortium: unreachableInfo.route,
   }).includes(action), true)
 }
+assert.equal(getHomeV2AvailableAppActions('qortalRequest', {
+  qortal: publicInfo.route,
+  qortium: unreachableInfo.route,
+}).includes('PREVIEW_QDN_PUBLISH_SOURCE'), false)
 assert.notEqual(unreachableInfo.route.revision, publicInfo.route.revision)
 
 const androidLocalInfo = getHomeV2AppHostInfo({
@@ -675,21 +685,52 @@ const androidQortalActions = getHomeV2ContextualAppActions(getHomeV2AppActions('
 assert.equal(androidQortalActions.includes('TRANSFER_ASSET'), true, 'Qortal asset transfers must be available on Android')
 
 // DERIVED, not hand-listed: whatever the catalogue advertises to a desktop app
-// on a given protocol, Android advertises too. A hand-written list of families
-// can only assert what someone remembered to add; this asserts the property
-// the empty ANDROID_UNSUPPORTED_ACTIONS actually claims, so a future action
+// on a given protocol, Android advertises too, EXCEPT for the entries with a
+// stated platform reason. A hand-written list of families can only assert what
+// someone remembered to add; this asserts the property, so a future action
 // filtered from Android without a stated reason fails here.
 for (const protocol of ['qdnRequest', 'qortalRequest'] as const) {
   const desktopSurface = getHomeV2ContextualAppActions(getHomeV2AppActions(protocol), 'tab')
   const androidSurface = getHomeV2ContextualAppActions(getHomeV2AppActions(protocol), 'android')
   const withheld = desktopSurface.filter((entry) => !androidSurface.includes(entry))
   assert.deepEqual(
-    // OPEN_AS_WIDGET is the one documented difference and is not a capability:
-    // Android has no widget surface to open onto.
-    withheld.filter((entry) => entry !== 'OPEN_AS_WIDGET'),
+    withheld.filter((entry) => (
+      // OPEN_AS_WIDGET is not a capability: Android has no widget surface to
+      // open onto.
+      entry !== 'OPEN_AS_WIDGET' &&
+      // Previewing renders the chosen source on the user's OWN local Core.
+      // Home for Android runs none, so this is an absent capability rather
+      // than an unfinished port -- and offering the button where it can only
+      // fail is what the parity wave was against.
+      entry !== 'PREVIEW_QDN_PUBLISH_SOURCE'
+    )),
     [],
     `android must advertise everything the ${protocol} catalogue advertises to a tab`,
   )
+}
+
+// The one withheld action, asserted directly rather than only as an exception
+// above: it must be gone from the Android surface, still present on desktop,
+// and refused with its OWN reason -- the old single generic message claimed
+// transaction signing, which is not why this one is unavailable.
+{
+  const androidQdn = getHomeV2ContextualAppActions(getHomeV2AppActions('qdnRequest'), 'android')
+  assert.equal(androidQdn.includes('PREVIEW_QDN_PUBLISH_SOURCE'), false)
+  assert.equal(androidQdn.includes('SELECT_QDN_PUBLISH_SOURCE'), true)
+  assert.equal(androidQdn.includes('STAGE_QDN_PUBLISH_SOURCE'), true)
+  assert.equal(
+    getHomeV2ContextualAppActions(getHomeV2AppActions('qdnRequest'), 'tab')
+      .includes('PREVIEW_QDN_PUBLISH_SOURCE'),
+    true,
+  )
+  assert.equal(isHomeV2AndroidUnsupportedAction('PREVIEW_QDN_PUBLISH_SOURCE'), true)
+  const refusal = homeV2AndroidActionRefusal('PREVIEW_QDN_PUBLISH_SOURCE', 'qdnRequest')
+  assert.equal(refusal?.network, 'qortium')
+  assert.match(String(refusal?.message), /local Qortium Core/)
+  assert.doesNotMatch(String(refusal?.message), /transaction signing/)
+  // Not advertised on qortalRequest at all, so Android's own objection stands
+  // aside and the generic unsupported-protocol answer applies.
+  assert.equal(homeV2AndroidActionRefusal('PREVIEW_QDN_PUBLISH_SOURCE', 'qortalRequest'), null)
 }
 
 // And the withholding MECHANISM still works, even though nothing uses it: an

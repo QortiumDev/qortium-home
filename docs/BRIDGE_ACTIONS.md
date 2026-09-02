@@ -559,15 +559,16 @@ Apps can show the selected source in Home before publishing it with
 `PREVIEW_QDN_PUBLISH_SOURCE`. First request a source from Home, then pass back
 only the opaque `sourceToken`.
 
-> **Home 1.x only.** `PREVIEW_QDN_PUBLISH_SOURCE` is not implemented in the
-> Home 2 bridge and is not advertised on either global. Home 2 has no surface
-> that can display a website preview — its resource viewer refuses
-> `APP`/`WEBSITE`/`GAME` and contains no frame, and the shell's CSP is
-> `frame-src 'none'` — so a handler here would return `true` and show the user
-> nothing. `SELECT_QDN_PUBLISH_SOURCE` and `PUBLISH_QDN_RESOURCE` are both
-> implemented in Home 2; only the preview step is missing. See
-> [Home 2 bridge compatibility](HOME_V2_BRIDGE_COMPATIBILITY.md) for the full
-> reasoning and what a port would need.
+> **Home 2: `qdnRequest`, desktop, local Core only.** Home 2 implements this as
+> an app-tab preview (2026-08-30), and the picker accepts `kind: 'directory'`
+> again (2026-09-02), so a folder holding an `index.html` previews as a
+> `WEBSITE`. It is NOT advertised on `qortalRequest` and NOT on Android:
+> previewing POSTs the chosen source to a node that renders it, which needs the
+> user's own local Core with a write key — Home 2 holds none for the Qortal
+> route, and Home for Android runs no Core. `SELECT_QDN_PUBLISH_SOURCE`,
+> `STAGE_QDN_PUBLISH_SOURCE` and `PUBLISH_QDN_RESOURCE` are unaffected and stay
+> on both globals. A folder source is preview-only — it cannot be published.
+> See [Home 2 bridge compatibility](HOME_V2_BRIDGE_COMPATIBILITY.md).
 
 ```js
 const selected = await qdnRequest({

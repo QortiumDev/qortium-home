@@ -269,7 +269,7 @@ desktop, and Android fixtures pass:**
 
 | Family | Deferred actions | Notes |
 | --- | --- | --- |
-| ~~Publishing preview~~ | ~~`PREVIEW_QDN_PUBLISH_SOURCE`~~ | **No longer deferred (2026-08-30)** — implemented as an app-tab preview, local nodes only; see its subsection below |
+| ~~Publishing preview~~ | ~~`PREVIEW_QDN_PUBLISH_SOURCE`~~ | **No longer deferred (2026-08-30)** — implemented as an app-tab preview on `qdnRequest`, desktop only, local nodes only; folder sources added 2026-09-02; see its subsection below |
 | ~~Node settings and admin~~ | ~~`GET_NODE_SETTINGS_METADATA`, `UPDATE_NODE_SETTINGS`, `RESTART_NODE`~~ | **No longer deferred (2026-09-01)** — implemented on the node-administration trust rule (see the implemented table above and `docs/BRIDGE_ACTIONS.md` § Node settings actions) |
 | Background notification subscriptions | `NOTIFICATION_ADD`, `NOTIFICATION_GET`, `NOTIFICATION_REMOVE` | Distinct from the implemented `NOTIFICATION_HAS_PERMISSION`/`SHOW_NOTIFICATION` contract and the `NOTIFICATION_MANAGER_*` family |
 | App assignments | `GET_APP_ASSIGNMENTS`, `REQUEST_APP_ASSIGNMENT` | F4 is Settings-only; app-facing delegation remains deferred |
@@ -335,16 +335,49 @@ preview restored from an earlier session could otherwise point at a stale port.
 preview would count as the same tab as the app that requested it -- it borrows
 the app's id, identity, wallet, network and address -- and would replace it.
 
-**Still narrower than 1.x:** the v2 publish-source picker is `openFile`-only, so
-directory sources are not selectable. `.zip` and `.html` websites and single
-media files are covered. Extending the picker would change the publish flow too,
-so it stays a separate change.
+**Folder sources (2026-09-02).** The port dropped `SELECT_QDN_PUBLISH_SOURCE`'s
+`kind` field -- the bridge never read it -- so the picker was `openFile`-only
+and a website in a folder could not be previewed at all. `kind` is honoured
+again (`file` | `directory`, defaulting to `file`, and an unrecognised value is
+now refused rather than silently defaulted the way 1.x did). A folder selection:
 
-**Local nodes only.** Previewing sends the chosen file to a node to render, so on
-a public node its operator would see the file before the user chose to publish.
+- opens `openDirectory` instead of `openFile`;
+- must contain a top-level entry file (`index.html` and Core's five siblings --
+  the list is shared with the 1.x preview stager, not copied);
+- is measured with a stat-only walk, capped at 512 MiB and 20,000 entries, and
+  refused outright if it contains a symbolic link pointing outside the folder
+  (Core follows the path Home hands it, so an escaping link would preview a
+  file the user never chose);
+- is re-checked by device/inode immediately before the node is handed the path,
+  the folder equivalent of the file path's identity check;
+- is **preview-only**. `readHomeV2DesktopPublishSource` refuses a folder by
+  name, so nothing about publishing changed: `.zip` and `.html` websites and
+  single media files are still the only publishable website shapes.
+
+**Local nodes only, and therefore desktop-only and `qdnRequest`-only.**
+Previewing sends the chosen source to a node to render, so on a public node its
+operator would see it before the user chose to publish.
 `resolveHomeV2AdminNode` only yields a key for a trusted local Core; anything
 else refuses with a message saying why. No approval prompt is needed on a local
-Core because there is no third party.
+Core because there is no third party. Two consequences, both fixed on
+2026-09-02 after the action was found advertised where it could only refuse:
+
+- **Not on Android.** Home for Android runs no Core, so the action is in
+  `ANDROID_UNSUPPORTED_ACTIONS` (the first entry since the parity wave emptied
+  it) with its own stated reason -- the previous single generic refusal claimed
+  "requires transaction signing", which was never true of previewing. A future
+  Android arm would go through Core's
+  `POST /arbitrary/preview/{service}/upload?archive=&filename=`, which takes
+  bytes rather than a local path; that is what Home 1.x Android used. It still
+  needs a trusted node holding a write key, so it is a node-trust decision
+  before it is a client one.
+- **Not on `qortalRequest`.** `getHomeV2SignedWriteApiKey` returns `''` for the
+  Qortal network, so a preview on that protocol could only ever refuse.
+  `PREVIEW_QDN_PUBLISH_SOURCE` is therefore off the Qortal catalogue, exactly
+  like the other local-Core-only actions (`RESTART_NODE`,
+  `UPDATE_NODE_SETTINGS`, `GET_NODE_SETTINGS_METADATA`). `SELECT_` and
+  `STAGE_QDN_PUBLISH_SOURCE` stay on both protocols: they feed
+  `PUBLISH_QDN_RESOURCE`, which Qortal has, and neither needs a node key.
 
 ### No longer deferred: display settings, minting, lists, polls, names, group mutations, publishing extras, rating writes, the account avatar, and payments
 
@@ -407,9 +440,11 @@ on `qortalRequest`). **Both work on Android**, the batch holding its prompt to
 the same per-item structural validator desktop uses, and re-asserting
 publisher-name ownership per item at signing time. See
 [QDN bridge action notes](BRIDGE_ACTIONS.md).
-`PREVIEW_QDN_PUBLISH_SOURCE` stays deferred. The Hub-catalogue QDN-writes
-row above still covers legacy inline/path publishing, which stays refused in
-favor of source tokens.
+`PREVIEW_QDN_PUBLISH_SOURCE` is no longer deferred either — it is implemented
+on `qdnRequest`, on desktop, against a local Core only, and it accepts folder
+sources; see its section above for why it is on neither Android nor
+`qortalRequest`. The Hub-catalogue QDN-writes row above still covers legacy
+inline/path publishing, which stays refused in favor of source tokens.
 
 The rating writes are no longer deferred. `RATE_ACCOUNT` and `RATE_RESOURCE`
 are implemented on `qdnRequest` only (the rating system is a Qortium Core

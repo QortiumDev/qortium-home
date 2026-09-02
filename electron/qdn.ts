@@ -85,6 +85,7 @@ import {
   buildHomeBlockchainDiscovery,
   type HomeWalletCapability,
 } from './qdn-wallet-capabilities.js';
+import { HOME_V2_PUBLISH_PREVIEW_INDEX_FILES } from './home-v2-publish-source-selection.js';
 import {
   base58Decode,
   base58Encode,
@@ -300,14 +301,10 @@ const QDN_APP_QORTAL_DEFAULT_MAX_BYTES = 32 * 1024 * 1024;
 const QDN_APP_QORTAL_MAX_BYTES_LIMIT = 64 * 1024 * 1024;
 const NATIVE_ASSET_LABEL = 'Native Asset';
 // Must match the Core renderer's index file list and case-sensitive matching.
-const QDN_PREVIEW_INDEX_FILES = new Set([
-  'index.html',
-  'index.htm',
-  'default.html',
-  'default.htm',
-  'home.html',
-  'home.htm',
-]);
+// Shared with Home 2's picker, which asserts the same list before it even
+// issues a folder source token — two copies would drift the moment Core's
+// list changed.
+const QDN_PREVIEW_INDEX_FILES = HOME_V2_PUBLISH_PREVIEW_INDEX_FILES;
 const QDN_PREVIEW_EXTENSION_SERVICES = new Map([
   ['apng', 'IMAGE'],
   ['avif', 'IMAGE'],

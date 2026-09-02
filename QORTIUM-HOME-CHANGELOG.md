@@ -32,6 +32,33 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## fix(qdn): folder previews are back, and preview is only offered where it works
+
+Explore's "Preview local file" button lets you look at something before you
+publish it. Two things were wrong with it in Home 2.
+
+Folders could not be chosen at all. An app is allowed to ask Home for either a
+file or a folder, but the request to pick a folder was being thrown away
+somewhere between the app and the file dialog, so everyone got a file picker no
+matter what they asked for -- and a website that lives in a folder could not be
+previewed. Asking for a folder works again. Home checks that the folder really
+does contain a home page (`index.html` or one of the names Qortium Core also
+accepts), adds up its contents without opening any of them, and refuses a
+folder that is enormous or that contains a shortcut pointing somewhere outside
+itself, because previewing hands the folder to your node and your node would
+follow that shortcut to a file you never chose. A folder can only be previewed,
+never published -- publishing is untouched by this change.
+
+Preview was also being offered in two places it could never work. It renders
+your file on your OWN node, and Home only ever does that on a local Qortium
+Core you run yourself. Home for Android does not run one, and Home has no local
+key for the Qortal network, so in both cases the button was there and the answer
+was always no. It is no longer offered in either place, and where an app asks
+anyway it now gets a straight answer about local Cores instead of a message
+about transaction signing, which was never the reason. If Android gains this
+later it will use the upload form of Core's preview endpoint, which takes the
+file itself rather than a path on the phone.
+
 ## feat(qdn): Home can send foreign coins again, and signs them itself
 
 Qortium Home 2 could show a Bitcoin, Litecoin, Dogecoin, DigiByte, Ravencoin,
