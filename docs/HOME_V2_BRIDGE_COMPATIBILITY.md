@@ -348,11 +348,36 @@ now refused rather than silently defaulted the way 1.x did). A folder selection:
   refused outright if it contains a symbolic link pointing outside the folder
   (Core follows the path Home hands it, so an escaping link would preview a
   file the user never chose);
-- is re-checked by device/inode immediately before the node is handed the path,
-  the folder equivalent of the file path's identity check;
 - is **preview-only**. `readHomeV2DesktopPublishSource` refuses a folder by
   name, so nothing about publishing changed: `.zip` and `.html` websites and
   single media files are still the only publishable website shapes.
+
+**Core is never handed a path the user owns.** Validating a selection and then
+POSTing the live path is a check/use gap: between the walk and the render an
+escaping symlink can be added, a file can grow past the cap, or the whole path
+can be swapped, and Core follows what it is given. So the selection is copied
+into a Home-owned staging directory (`mkdtemp` under the OS temp dir, mode
+0700) with every rule re-enforced *during* the copy — regular files only,
+containment re-checked per link, device/FIFO/socket entries refused, byte and
+entry ceilings applied to the bytes actually copied — and the entry-file
+assertion is then made against the **copy**, which can no longer change. A file
+selection is re-checked by device/inode/size/**mtime** (stricter than the
+publish path, which does not compare mtime) and copied too. The staging
+directory is removed in a `finally` once the POST returns; Core has already
+built and cached the preview by hash by then, which `ArbitraryResource`'s own
+upload branch states. The prefix is shared with qdn.ts's 1.x staging so its
+startup orphan sweep collects anything a crash leaks, and the second temp
+directory that stager makes for a `.zip` or a bare `.html` — which nothing in
+Home 2 swept — is now recognised by that prefix and removed alongside.
+
+**No path reaches the app.** `fileName` (the basename) stays in the
+`SELECT_QDN_PUBLISH_SOURCE` response because Explore displays it and 1.x
+promised it, but every preview *failure* is one of four fixed sentences —
+staging failed, unsupported content, node too old, node failed — chosen by
+status, never by echoing a Core error body or a filesystem error. The detail is
+logged with `console.warn` in the main process only. Messages the publish-source module
+raises are tagged and pass through unchanged because each is already a
+path-free constant; anything untagged is replaced.
 
 **Local nodes only, and therefore desktop-only and `qdnRequest`-only.**
 Previewing sends the chosen source to a node to render, so on a public node its

@@ -49,6 +49,16 @@ itself, because previewing hands the folder to your node and your node would
 follow that shortcut to a file you never chose. A folder can only be previewed,
 never published -- publishing is untouched by this change.
 
+Home also no longer hands your node the folder itself. It takes its own private
+copy first, in a temporary place only Home can read, and checks every rule again
+while it copies -- so a shortcut or an extra gigabyte that appears in the folder
+in the seconds after you picked it is caught rather than followed. The copy is
+deleted as soon as your node has finished with it, and the same is now true of a
+single file, which is copied rather than pointed at. If a preview fails you get
+a short plain sentence about what went wrong; the technical detail, including
+any location on your disk, stays in Home's own log instead of being handed to
+the app that asked.
+
 Preview was also being offered in two places it could never work. It renders
 your file on your OWN node, and Home only ever does that on a local Qortium
 Core you run yourself. Home for Android does not run one, and Home has no local

@@ -299,10 +299,13 @@ import {
 } from './home-v2-qortal-private-group-publish.js'
 import { selectHomeV2DesktopPublishSource } from './home-v2-desktop-publish-source.js'
 import {
-  assertHomeV2DesktopPublishDirectoryUnchanged,
   getRequestedHomeV2PublishSourceKind,
   homeV2DesktopPublishSources,
+  homeV2PublishPreviewTempAncestor,
+  isHomeV2PublishSourceError,
+  removeHomeV2PublishPreviewStagingDir,
   stageHomeV2DesktopPublishBlob,
+  stageHomeV2PublishSourceForPreview,
   readHomeV2DesktopPublishSource,
 } from './home-v2-publish-source-selection.js'
 import { normalizeHomeV2PublishBlobRequest } from './home-v2-publish-blob-source.js'
@@ -2336,6 +2339,36 @@ function issueHomeV2ResourceStream(input: {
   })
 }
 
+const HOME_V2_PREVIEW_STAGING_FAILED =
+  'Home could not prepare the selected source for preview. Select it again.'
+const HOME_V2_PREVIEW_UNSUPPORTED_CONTENT =
+  'Unsupported preview content. Choose a folder or zip containing an index.html file, an HTML file, or an image, video, or audio file.'
+const HOME_V2_PREVIEW_NODE_FAILED = 'The node could not render the preview. Try again.'
+const HOME_V2_PREVIEW_NODE_TOO_OLD =
+  'The connected Qortium Core node does not support QDN previews yet. Update Qortium Core and try again.'
+
+/**
+ * Preview failures reach an APP, so they must never carry a filesystem path or
+ * a node error body: both name directories on the user's machine (the staged
+ * copy lives under the OS temp dir, and Core echoes the path it was given).
+ * Messages the publish-source module raises are already fixed, path-free
+ * sentences and pass through; everything else is logged in the main process
+ * and replaced with one of the constants above.
+ */
+function homeV2PreviewFailure(error: unknown, fallbackMessage: string) {
+  if (isHomeV2PublishSourceError(error)) return error
+  console.warn('[home-v2-app] QDN publish preview failed:', error)
+  return new Error(fallbackMessage)
+}
+
+function homeV2PreviewNodeMessage(error: unknown) {
+  const status = typeof (error as { status?: unknown } | null)?.status === 'number'
+    ? (error as { status: number }).status
+    : 0
+  // Nodes without the endpoint answer with a generic 404, or a 500 HTML page.
+  return status === 404 || status === 500 ? HOME_V2_PREVIEW_NODE_TOO_OLD : HOME_V2_PREVIEW_NODE_FAILED
+}
+
 /**
  * Render a chosen publish source so the user can look at it before publishing.
  *
@@ -2377,39 +2410,68 @@ async function previewHomeV2PublishSource(
     protocol,
     routeRevision,
   }))
-  if (source.kind === 'blob') {
-    throw new Error('Previewing needs a file or folder selected through the picker; staged bytes cannot be previewed.')
+  // Home never hands Core a path the user owns. The selection is copied into a
+  // Home-owned staging directory with every rule re-enforced during the copy,
+  // and Core is handed that copy: validating and then passing the live path
+  // would leave a window in which an escaping symlink could be added, a file
+  // could grow past the cap, or the whole path could be swapped.
+  const staged = await stageHomeV2PublishSourceForPreview(source)
+    .catch((error: unknown) => {
+      throw homeV2PreviewFailure(error, HOME_V2_PREVIEW_STAGING_FAILED)
+    })
+  // Core's own stager makes a second temp directory for a .zip or a bare .html
+  // (qdn.ts), and nothing in Home 2 sweeps those, so both are collected here.
+  const stagingDirs = new Set<string>([staged.stagingDir])
+  try {
+    let previewPath: string
+    let service: string
+    try {
+      ;({ previewPath, service } = await stageQdnPreviewSource(staged.previewPath))
+      const ancestor = homeV2PublishPreviewTempAncestor(previewPath)
+      if (ancestor) stagingDirs.add(ancestor)
+    } catch (error) {
+      throw homeV2PreviewFailure(error, HOME_V2_PREVIEW_UNSUPPORTED_CONTENT)
+    }
+    let renderPath: string
+    try {
+      const rendered = await postHomeV2ChatText(
+        node.nodeApiUrl,
+        `/arbitrary/preview/${encodeURIComponent(service)}`,
+        previewPath,
+        'text/plain',
+        'QDN preview request failed.',
+        apiKey,
+      )
+      renderPath = typeof rendered === 'string' ? rendered.trim() : ''
+    } catch (error) {
+      throw homeV2PreviewFailure(error, homeV2PreviewNodeMessage(error))
+    }
+    if (!renderPath.startsWith('/render/')) {
+      throw new Error('The node returned an unexpected preview URL.')
+    }
+    // Opened as an app TAB, not the resource viewer: the viewer renders images,
+    // audio and video and otherwise offers a download, so a WEBSITE preview --
+    // which is what a folder, a .zip or an .html stages as -- would have shown
+    // the user a download panel instead of their site. The app-tab view is the
+    // only surface that can render a site, which is exactly what
+    // docs/HOME_V2_BRIDGE_COMPATIBILITY.md said this action was waiting for.
+    hostWindow.webContents.send('home-v2-app:open-publish-preview', {
+      network,
+      previewUrl: `${node.nodeApiUrl.replace(/\/+$/, '')}${renderPath}`,
+      service,
+      sourceTabId: context.tabId,
+      // The BASENAME, which the app already received from the picker (1.x
+      // contract, and Explore displays it). Nothing else path-shaped leaves
+      // this handler.
+      title: source.fileName,
+    })
+    return true
+  } finally {
+    // Core has already built and cached the preview by hash by the time the
+    // POST returns (ArbitraryResource.previewUpload says so explicitly), so the
+    // staged copy of the user's unpublished content need not outlive the call.
+    await Promise.all([...stagingDirs].map(removeHomeV2PublishPreviewStagingDir))
   }
-  // A folder is handed to the node as a PATH, so re-assert it is still the
-  // same folder: a source token lives for 30 minutes.
-  if (source.kind === 'directory') await assertHomeV2DesktopPublishDirectoryUnchanged(source)
-  const { previewPath, service } = await stageQdnPreviewSource(source.path)
-  const rendered = await postHomeV2ChatText(
-    node.nodeApiUrl,
-    `/arbitrary/preview/${encodeURIComponent(service)}`,
-    previewPath,
-    'text/plain',
-    'QDN preview request failed.',
-    apiKey,
-  )
-  const renderPath = typeof rendered === 'string' ? rendered.trim() : ''
-  if (!renderPath.startsWith('/render/')) {
-    throw new Error('The node returned an unexpected preview URL.')
-  }
-  // Opened as an app TAB, not the resource viewer: the viewer renders images,
-  // audio and video and otherwise offers a download, so a WEBSITE preview --
-  // which is what a folder, a .zip or an .html stages as -- would have shown
-  // the user a download panel instead of their site. The app-tab view is the
-  // only surface that can render a site, which is exactly what
-  // docs/HOME_V2_BRIDGE_COMPATIBILITY.md said this action was waiting for.
-  hostWindow.webContents.send('home-v2-app:open-publish-preview', {
-    network,
-    previewUrl: `${node.nodeApiUrl.replace(/\/+$/, '')}${renderPath}`,
-    service,
-    sourceTabId: context.tabId,
-    title: source.fileName,
-  })
-  return true
 }
 
 // STAGE_QDN_PUBLISH_SOURCE (B1): the app supplies the bytes (paste/drop)

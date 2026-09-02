@@ -1,21 +1,74 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, mkdir, rm, symlink, truncate, writeFile } from 'node:fs/promises'
+import { execFileSync } from 'node:child_process'
+import { lstat, mkdtemp, mkdir, opendir, rm, symlink, truncate, utimes, writeFile } from 'node:fs/promises'
+import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import nodePath from 'node:path'
 
 import {
   HOME_V2_PUBLISH_DIRECTORY_MAX_BYTES,
+  HOME_V2_PUBLISH_PREVIEW_STAGING_PREFIX,
   HOME_V2_PUBLISH_PREVIEW_INDEX_FILES,
   assertHomeV2DesktopPublishDirectoryUnchanged,
   describeHomeV2PublishSourcePath,
   getRequestedHomeV2PublishSourceKind,
+  homeV2PublishPreviewTempAncestor,
   homeV2PublishSourceDialogProperties,
+  isHomeV2PublishSourceError,
   measureHomeV2PublishDirectoryBytes,
   readHomeV2DesktopPublishSource,
+  removeHomeV2PublishPreviewStagingDir,
+  stageHomeV2PublishSourceForPreview,
   type HomeV2DesktopPublishSource,
 } from './home-v2-publish-source-selection.js'
 
 const root = await mkdtemp(nodePath.join(tmpdir(), 'home-v2-publish-source-'))
+
+// Every message this module raises reaches an APP, so it must be a fixed
+// sentence with no filesystem path in it: the staged copy lives under the OS
+// temp dir and the original under the user's home, and neither is the app's
+// business. This collects each one as the tests trip it.
+const reportedMessages: string[] = []
+
+async function refusal(promise: Promise<unknown>, pattern: RegExp, label: string) {
+  let raised: unknown
+  await promise.then(
+    () => { throw new Error(`Missing expected refusal: ${label}`) },
+    (error: unknown) => { raised = error },
+  )
+  const message = String((raised as Error)?.message ?? '')
+  assert.match(message, pattern, label)
+  assert.ok(isHomeV2PublishSourceError(raised), `${label} must be tagged app-safe`)
+  reportedMessages.push(message)
+  return message
+}
+
+async function listPreviewStagingDirs() {
+  const names: string[] = []
+  const handle = await opendir(tmpdir())
+  for await (const entry of handle) {
+    if (entry.name.startsWith(HOME_V2_PUBLISH_PREVIEW_STAGING_PREFIX)) names.push(entry.name)
+  }
+  return names.sort()
+}
+
+async function listStagedEntries(directory: string, prefix = ''): Promise<string[]> {
+  const found: string[] = []
+  const handle = await opendir(directory)
+  for await (const entry of handle) {
+    const entryPath = nodePath.join(directory, entry.name)
+    const name = prefix ? `${prefix}/${entry.name}` : entry.name
+    const stats = await lstat(entryPath)
+    assert.equal(stats.isSymbolicLink(), false, `staged ${name} must not be a symbolic link`)
+    if (entry.isDirectory()) {
+      found.push(...await listStagedEntries(entryPath, name))
+      continue
+    }
+    assert.equal(stats.isFile(), true, `staged ${name} must be a regular file`)
+    found.push(name)
+  }
+  return found
+}
 
 try {
   // -------------------------------------------------------------------------
@@ -222,6 +275,187 @@ try {
     assertHomeV2DesktopPublishDirectoryUnchanged(swappedSource),
     /changed after selection/,
   )
+
+  // ---------------------------------------------------------------------------
+  // The entry ceiling must bound WORK, not just the answer. `readdir` would
+  // materialise the whole folder before anything could reject it, so the walk
+  // and the index scan stream entries and stop at the limit -- proven here with
+  // a limit of 5 rather than by building a folder with twenty thousand files.
+  // ---------------------------------------------------------------------------
+  const crowded = nodePath.join(root, 'crowded')
+  await mkdir(crowded, { recursive: true })
+  await writeFile(nodePath.join(crowded, 'index.html'), 'x')
+  for (let index = 0; index < 40; index += 1) {
+    await writeFile(nodePath.join(crowded, `file-${index}.txt`), 'y')
+  }
+  const smallLimits = { maximumBytes: HOME_V2_PUBLISH_DIRECTORY_MAX_BYTES, maximumEntries: 5 }
+  await refusal(
+    measureHomeV2PublishDirectoryBytes(crowded, smallLimits),
+    /holds more than 5 entries/,
+    'the walk stops at the entry limit',
+  )
+  await refusal(
+    describeHomeV2PublishSourcePath(crowded, 'directory', smallLimits),
+    /holds more than 5 entries/,
+    'selection stops at the entry limit',
+  )
+  // The same folder is fine once the limit is not the binding constraint, so
+  // the refusal above is the LIMIT talking and not a broken walk.
+  assert.equal(
+    (await describeHomeV2PublishSourcePath(crowded, 'directory', {
+      maximumBytes: HOME_V2_PUBLISH_DIRECTORY_MAX_BYTES,
+      maximumEntries: 100,
+    })).size,
+    41,
+  )
+  // A folder whose entry file is beyond the budget is refused as over-budget
+  // rather than scanned to the end looking for it.
+  const crowdedNoIndex = nodePath.join(root, 'crowded-no-index')
+  await mkdir(crowdedNoIndex, { recursive: true })
+  for (let index = 0; index < 40; index += 1) {
+    await writeFile(nodePath.join(crowdedNoIndex, `file-${index}.txt`), 'y')
+  }
+  await refusal(
+    describeHomeV2PublishSourcePath(crowdedNoIndex, 'directory', smallLimits),
+    /holds more than 5 entries/,
+    'the index scan stops at the entry limit',
+  )
+
+  // ---------------------------------------------------------------------------
+  // Preview staging. Core is never handed a path the user owns: validating and
+  // then passing the live path leaves a window in which the tree can change.
+  // ---------------------------------------------------------------------------
+  const staged = await stageHomeV2PublishSourceForPreview(directorySource)
+  assert.equal(
+    nodePath.basename(staged.stagingDir).startsWith(HOME_V2_PUBLISH_PREVIEW_STAGING_PREFIX),
+    true,
+    'the staging dir carries the prefix qdn.ts\'s orphan sweep collects',
+  )
+  assert.equal(staged.previewPath.startsWith(staged.stagingDir + nodePath.sep), true)
+  assert.deepEqual(
+    (await listStagedEntries(staged.previewPath)).sort(),
+    ['assets/app.js', 'index.html'],
+  )
+  // The staged copy is what Core reads, so it must survive the ORIGINAL going
+  // away -- that is the whole point of copying it.
+  await removeHomeV2PublishPreviewStagingDir(staged.stagingDir)
+  assert.equal(existsSync(staged.stagingDir), false, 'the staging dir is removed on the success path')
+
+  // A contained symbolic link is materialised as an ordinary file: the staged
+  // tree holds no links at all, because a link is what Core would follow.
+  const internalSource = await describeHomeV2PublishSourcePath(internal, 'directory')
+  const stagedInternal = await stageHomeV2PublishSourceForPreview(internalSource)
+  assert.deepEqual(
+    (await listStagedEntries(stagedInternal.previewPath)).sort(),
+    ['home.html', 'index.html'],
+  )
+  await removeHomeV2PublishPreviewStagingDir(stagedInternal.stagingDir)
+
+  // THE CHECK/USE GAP: a folder that validated cleanly at selection, then had
+  // an escaping link added before the preview, is refused at staging time.
+  const lateLink = nodePath.join(root, 'late-link')
+  await mkdir(lateLink, { recursive: true })
+  await writeFile(nodePath.join(lateLink, 'index.html'), 'x')
+  const lateLinkSource = await describeHomeV2PublishSourcePath(lateLink, 'directory')
+  await symlink(filePath, nodePath.join(lateLink, 'leaked.html'))
+  // Counted rather than asserted absolute: another Home process may legitimately
+  // hold a staging directory of its own while this suite runs.
+  const stagingDirsBefore = await listPreviewStagingDirs()
+  await refusal(
+    stageHomeV2PublishSourceForPreview(lateLinkSource),
+    /symbolic link pointing outside it/,
+    'a link added after selection is caught at staging',
+  )
+  // ...and the staging directory it had started is gone, not left holding a
+  // partial copy of the user's folder.
+  assert.deepEqual(
+    await listPreviewStagingDirs(),
+    stagingDirsBefore,
+    'a failed staging leaves no directory behind',
+  )
+
+  // A folder that grows past the cap between selection and preview is refused
+  // during the copy, not after it has already been written out.
+  const growing = nodePath.join(root, 'growing')
+  await mkdir(growing, { recursive: true })
+  await writeFile(nodePath.join(growing, 'index.html'), 'x')
+  const growingSource = await describeHomeV2PublishSourcePath(growing, 'directory')
+  const grown = nodePath.join(growing, 'grown.bin')
+  await writeFile(grown, '')
+  await truncate(grown, HOME_V2_PUBLISH_DIRECTORY_MAX_BYTES + 1)
+  await refusal(
+    stageHomeV2PublishSourceForPreview(growingSource),
+    /exceeds the .* byte preview limit/,
+    'the byte cap is re-enforced during the copy',
+  )
+
+  // Device, pipe and socket entries are refused rather than skipped: copying
+  // one would block on a device, and dropping it silently would preview
+  // something other than what the user is looking at.
+  const withFifo = nodePath.join(root, 'with-fifo')
+  await mkdir(withFifo, { recursive: true })
+  await writeFile(nodePath.join(withFifo, 'index.html'), 'x')
+  let fifoMade = false
+  try {
+    execFileSync('mkfifo', [nodePath.join(withFifo, 'pipe')], { stdio: 'ignore' })
+    fifoMade = true
+  } catch {
+    // mkfifo is unavailable on this platform; the rule is still enforced.
+  }
+  if (fifoMade) {
+    const fifoSource = await describeHomeV2PublishSourcePath(withFifo, 'directory')
+    await refusal(
+      stageHomeV2PublishSourceForPreview(fifoSource),
+      /device, pipe, or socket entry/,
+      'a FIFO in the tree is refused',
+    )
+  }
+
+  // A single file is copied too, so Core never stats or follows a path that
+  // could have been replaced -- and its extension survives, because that is
+  // what picks the preview service.
+  const stagedFile = await stageHomeV2PublishSourceForPreview(fileSource)
+  assert.equal(nodePath.basename(stagedFile.previewPath), 'page.html')
+  assert.deepEqual(await listStagedEntries(stagedFile.stagingDir), ['page.html'])
+  await removeHomeV2PublishPreviewStagingDir(stagedFile.stagingDir)
+
+  // The file re-check is stricter than the publish path's: mtime counts, so a
+  // same-size in-place rewrite between selection and preview is caught.
+  const touched = nodePath.join(root, 'touched.html')
+  await writeFile(touched, 'aaaaa')
+  const touchedSource = await describeHomeV2PublishSourcePath(touched)
+  await utimes(touched, new Date(), new Date(Date.now() + 60_000))
+  await refusal(
+    stageHomeV2PublishSourceForPreview(touchedSource),
+    /changed after selection/,
+    'a rewritten file is caught before it reaches the node',
+  )
+
+  await refusal(
+    stageHomeV2PublishSourceForPreview(blobSource),
+    /staged bytes cannot be previewed/,
+    'staged bytes have no path to hand a node',
+  )
+
+  // The second temp directory qdn.ts's stager makes for a .zip or a bare .html
+  // is recognised by prefix, so the preview path can clean up after both.
+  assert.equal(
+    homeV2PublishPreviewTempAncestor(
+      nodePath.join(tmpdir(), `${HOME_V2_PUBLISH_PREVIEW_STAGING_PREFIX}abc123`, 'site', 'index.html'),
+    ),
+    nodePath.join(tmpdir(), `${HOME_V2_PUBLISH_PREVIEW_STAGING_PREFIX}abc123`),
+  )
+  assert.equal(homeV2PublishPreviewTempAncestor(nodePath.join(tmpdir(), 'something-else', 'x')), null)
+  assert.equal(homeV2PublishPreviewTempAncestor('/etc/passwd'), null)
+  assert.equal(homeV2PublishPreviewTempAncestor(tmpdir()), null)
+
+  // ---------------------------------------------------------------------------
+  // Nothing the app sees names a directory on the user's machine.
+  // ---------------------------------------------------------------------------
+  assert.ok(reportedMessages.length >= 6, 'the path-free rule needs messages to check')
+  for (const message of reportedMessages) {
+    assert.doesNotMatch(message, /[\\/]/, `refusal message must carry no path: ${message}`)
+  }
 
   console.log('home-v2-publish-source-selection tests passed.')
 } finally {
