@@ -423,6 +423,13 @@ const READ_PREFIXES = [
   '/crosschain',
   '/groups',
   '/names',
+  // Core's peer inspection reads, restored for the Node app's dashboard
+  // (Home 1.x passed them through unrestricted). Every GET under /peers is
+  // anonymous on both forks except /peers/enginestats, which Core key-gates
+  // itself; this passthrough attaches no API key, so a keyed route answers
+  // 401 rather than widening anything. Peer WRITES are POST/DELETE and stay
+  // unreachable behind the GET/HEAD method allowlist.
+  '/peers',
   '/polls',
   // Core's public resource-rating reads, the resource-side twin of the
   // /account-ratings prefix above. Anonymous and read-only on both forks: the
@@ -673,6 +680,12 @@ export function normalizeHomeV2ReadPath(value: unknown) {
   const allowedAdminPath =
     pathname === '/admin/status' ||
     pathname === '/admin/info' ||
+    // The settings VALUES read next to the metadata read below: an anonymous
+    // GET on both forks that the Node app's dashboard renders (Home 1.x
+    // allowed it). Exact match only — /admin/settings/{setting} is a
+    // key-gated Core route and stays outside this scope, and the settings
+    // WRITE is a PATCH the GET/HEAD method allowlist never reaches.
+    pathname === '/admin/settings' ||
     pathname === '/admin/settings/metadata'
   if (
     !allowedAdminPath &&

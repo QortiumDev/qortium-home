@@ -755,6 +755,39 @@ assert.throws(
   /outside Home v2 read-only scope/,
 )
 
+// ---------------------------------------------------------------------------
+// Node app dashboard reads: /admin/settings (values) and the /peers family,
+// restored to the read scope for the qortium-node app. Exact-match rules keep
+// the key-gated per-setting route and the admin write routes closed.
+// ---------------------------------------------------------------------------
+assert.equal(normalizeHomeV2ReadPath('/admin/settings'), '/admin/settings')
+for (const path of [
+  '/peers',
+  '/peers/data',
+  '/peers/known/diagnostics',
+  '/peers/data/known/diagnostics',
+  '/peers/summary',
+]) {
+  assert.equal(normalizeHomeV2ReadPath(path), path)
+}
+// /admin/settings/{setting} is key-gated on Core and must stay refused.
+assert.throws(
+  () => normalizeHomeV2ReadPath('/admin/settings/apiKeyPath'),
+  /outside Home v2 read-only scope/,
+)
+// The prefix must not open neighbouring paths.
+assert.throws(
+  () => normalizeHomeV2ReadPath('/peersistence'),
+  /outside Home v2 read-only scope/,
+)
+// The admin write/lifecycle routes stay closed regardless of method checks.
+for (const path of ['/admin/restart', '/admin/stop', '/admin/apikey/generate']) {
+  assert.throws(
+    () => normalizeHomeV2ReadPath(path),
+    /outside Home v2 read-only scope/,
+  )
+}
+
 // OPEN_CURRENT_TAB ships on both protocols, next to OPEN_NEW_TAB.
 for (const action of ['OPEN_CURRENT_TAB', 'OPEN_NEW_TAB']) {
   assert.equal(qdnActions.includes(action), true, `qdnRequest must advertise ${action}.`)

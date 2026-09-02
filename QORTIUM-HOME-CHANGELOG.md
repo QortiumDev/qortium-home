@@ -32,6 +32,20 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## fix(qdn): restore the Node app's settings and peers reads
+
+The Node app's dashboard came back empty under Home 2: the Core settings
+panel showed no values and the peer lists showed no peers, silently. Home 2
+checks every plain node read an app asks for against a fixed list of allowed
+paths, and that list was missing two things the Node app has always read —
+the node's current settings and the peer lists (including their
+diagnostics). Both are answers the node already gives anyone who asks it
+directly, Home 1.x passed them through, and reads stay reads: Home still
+refuses anything but GET/HEAD here, never attaches the node's API key, and
+the routes that change a node (settings writes, restart, peer management)
+remain closed. Editing settings and restarting the node from the Node app is
+a separate capability that is still on its way back.
+
 ## fix(qdn): honor "always allow" for private group chat reads on any node
 
 Answering "Always allow" to the private-group chat read prompt silently did
