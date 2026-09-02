@@ -5,6 +5,7 @@ import {
   addSignedForeignWalletPendingTransaction,
   clearReconciledForeignWalletPendingTransaction,
   confirmForeignWalletBroadcastSuccess,
+  releaseNeverBroadcastForeignWalletPendingTransaction,
   createEmptyForeignWalletTransactionJournal,
   findForeignWalletPendingTransactionConflict,
   FOREIGN_WALLET_TRANSACTION_JOURNAL_MAX_ENTRIES,
@@ -255,6 +256,65 @@ assert.throws(() => sanitizeForeignWalletTransactionJournal({
     }).length,
     0,
   )
+}
+
+// --- releasing what was never broadcast ------------------------------------
+//
+// Stage 'signed' means the broadcast-attempt mark never reached disk, and that
+// mark is fsynced BEFORE the single POST — so the bytes never left. Both the
+// stage rule and the age guard are enforced here, so no caller can release a
+// transaction that was attempted, or one young enough to be in flight.
+
+{
+  const AGE = 10 * 60_000
+  const signedEntry = entry({ createdAt: 1_000_000 })
+  const journal = addSignedForeignWalletPendingTransaction(
+    createEmptyForeignWalletTransactionJournal(),
+    signedEntry,
+  )
+  const key = {
+    chainId: signedEntry.chainId,
+    coin: signedEntry.coin,
+    txId: signedEntry.txId,
+    walletFingerprint: signedEntry.walletFingerprint,
+  }
+
+  // Exactly at the window: released.
+  assert.equal(
+    releaseNeverBroadcastForeignWalletPendingTransaction(journal, key, signedEntry.createdAt + AGE, AGE).entries.length,
+    0,
+  )
+  // One millisecond short of it: refused, because a send elsewhere could still
+  // be holding this transaction.
+  assert.throws(
+    () => releaseNeverBroadcastForeignWalletPendingTransaction(journal, key, signedEntry.createdAt + AGE - 1, AGE),
+    /too recent to release/,
+  )
+
+  // Age never releases a transaction whose bytes left: proof is the only way.
+  const attempted = markForeignWalletBroadcastAttempted(journal, key, signedEntry.createdAt + 1)
+  assert.throws(
+    () => releaseNeverBroadcastForeignWalletPendingTransaction(attempted, key, signedEntry.createdAt + AGE * 10, AGE),
+    /already attempted and needs its outcome proved/,
+  )
+
+  assert.throws(
+    () => releaseNeverBroadcastForeignWalletPendingTransaction(
+      createEmptyForeignWalletTransactionJournal(),
+      key,
+      signedEntry.createdAt + AGE,
+      AGE,
+    ),
+    /was not found/,
+  )
+  // A caller cannot disable the guard by asking for a zero or nonsense window.
+  for (const badAge of [0, -1, 1.5, Number.NaN]) {
+    assert.throws(
+      () => releaseNeverBroadcastForeignWalletPendingTransaction(journal, key, signedEntry.createdAt + AGE, badAge),
+      /release age is invalid/,
+      `age ${badAge}`,
+    )
+  }
 }
 
 console.log('Foreign wallet transaction journal contract tests passed.')

@@ -9,6 +9,7 @@ import {
   FOREIGN_WALLET_TRANSACTION_JOURNAL_MAX_BYTES,
   markForeignWalletBroadcastAttempted,
   normalizeConfirmedForeignWalletTransactionId,
+  releaseNeverBroadcastForeignWalletPendingTransaction,
   sanitizeForeignWalletTransactionJournal,
   selectForeignWalletPendingTransactions,
   type ForeignWalletPendingTransaction,
@@ -147,6 +148,18 @@ export function createForeignWalletTransactionJournalStore(
     )
   }
 
+  function releaseNeverBroadcast(
+    userData: string,
+    input: Pick<ForeignWalletPendingTransaction, 'chainId' | 'coin' | 'txId' | 'walletFingerprint'>,
+    now: number,
+    minimumAgeMs: number,
+  ) {
+    return write(
+      userData,
+      releaseNeverBroadcastForeignWalletPendingTransaction(read(userData), input, now, minimumAgeMs),
+    )
+  }
+
   function listPending(
     userData: string,
     input?: Pick<ForeignWalletPendingTransaction, 'chainId' | 'coin' | 'walletFingerprint'>,
@@ -168,6 +181,7 @@ export function createForeignWalletTransactionJournalStore(
     findConflict,
     listPending,
     read,
+    releaseNeverBroadcast,
     recordBroadcastAttempt,
     recordSigned,
   })
@@ -182,3 +196,4 @@ export const confirmStoredForeignWalletBroadcastSuccess = DEFAULT_STORE.confirmB
 export const findStoredForeignWalletPendingTransactionConflict = DEFAULT_STORE.findConflict
 export const clearReconciledStoredForeignWalletPendingTransaction = DEFAULT_STORE.clearReconciled
 export const listStoredForeignWalletPendingTransactions = DEFAULT_STORE.listPending
+export const releaseNeverBroadcastStoredForeignWalletPendingTransaction = DEFAULT_STORE.releaseNeverBroadcast

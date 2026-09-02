@@ -12,6 +12,7 @@ import { createHash } from 'node:crypto'
 import {
   addSignedForeignWalletPendingTransaction,
   clearReconciledForeignWalletPendingTransaction,
+  releaseNeverBroadcastForeignWalletPendingTransaction,
   confirmForeignWalletBroadcastSuccess,
   createEmptyForeignWalletTransactionJournal,
   findForeignWalletPendingTransactionConflict,
@@ -30,6 +31,7 @@ import {
 import {
   deriveForeignWalletLeafPublicData,
   deriveForeignWalletPublicRuntime,
+  fingerprintForeignWalletPublicRuntime,
   type ForeignWalletCrypto,
 } from './foreign-wallets.js'
 import {
@@ -38,6 +40,7 @@ import {
 } from './home-v2-foreign-send.js'
 import {
   foreignWalletHistoryContainsTransaction,
+  FOREIGN_WALLET_SEND_FRESHNESS_MS,
   HomeV2ForeignSendReconciliationPendingError,
 } from './foreign-wallet-reconciliation.js'
 import { createHomeV2PendingTransactionFromResult } from './home-v2-transaction-journal.js'
@@ -64,6 +67,30 @@ const walletRuntime = deriveForeignWalletPublicRuntime({
   walletVersion: WALLET_VERSION,
 })
 const RECIPIENT = leaf(90).address
+const WALLET_FINGERPRINT = fingerprintForeignWalletPublicRuntime({
+  coin: COIN,
+  crypto: cryptoAdapter,
+  xpub58: walletRuntime.xpub58,
+})
+const CLOCK_START = 1_700_000_000_000
+
+/** A write-ahead entry as the orchestrator itself would have written one. */
+function signedJournalEntry(txId: string, createdAt: number): ForeignWalletPendingTransaction {
+  return Object.freeze({
+    appIdentity: 'qortium://APP/Wallet',
+    chainId: CHAIN_ID,
+    coin: COIN,
+    createdAt,
+    outpoints: Object.freeze([{ outputIndex: 3, txHash: '77'.repeat(32) }]),
+    stage: 'signed' as const,
+    txId,
+    walletFingerprint: WALLET_FINGERPRINT,
+  })
+}
+
+function journalWith(entry: ForeignWalletPendingTransaction) {
+  return addSignedForeignWalletPendingTransaction(createEmptyForeignWalletTransactionJournal(), entry)
+}
 
 // --- fixture builders -------------------------------------------------------
 
@@ -279,6 +306,15 @@ function createHarness(options: HarnessOptions = {}) {
       recordSigned: (entry) => {
         if (options.recordSignedThrows) throw new Error('journal write failed')
         journal = addSignedForeignWalletPendingTransaction(journal, entry)
+        return journal
+      },
+      releaseNeverBroadcast: (key, releasedAt) => {
+        journal = releaseNeverBroadcastForeignWalletPendingTransaction(
+          journal,
+          key,
+          releasedAt,
+          FOREIGN_WALLET_SEND_FRESHNESS_MS,
+        )
         return journal
       },
     },
@@ -725,6 +761,67 @@ for (const failure of [
   const clean = createHarness({ broadcast: () => null })
   await executeHomeV2ForeignSend(FIXED_SEND, clean.deps)
   assert.equal(clean.historyReadCount(), 0)
+}
+
+// ---------------------------------------------------------------------------
+// A transaction that was signed but never broadcast.
+//
+// The broadcast-attempt mark is fsynced BEFORE the single POST, so an entry
+// still at stage 'signed' proves the bytes never left this process and were
+// never persisted. Past the freshness window — the same window that would
+// have refused the send anyway — such an entry is released instead of
+// blocking the wallet forever. Inside the window it still blocks, because a
+// second Home instance could be mid-send right now.
+
+const STALE_TX_ID = 'ee'.repeat(32)
+
+{
+  // Fresh by one millisecond: still blocks, and is not discarded.
+  const fresh = journalWith(signedJournalEntry(STALE_TX_ID, CLOCK_START - FOREIGN_WALLET_SEND_FRESHNESS_MS + 1))
+  const harness = createHarness({ startingJournal: fresh, walletHistory: () => [] })
+  const error = await rejection(executeHomeV2ForeignSend(FIXED_SEND, harness.deps))
+  assert.ok(error instanceof HomeV2ForeignSendReconciliationPendingError)
+  assert.ok(error.message.includes(STALE_TX_ID))
+  assert.equal(harness.entries().length, 1, 'an in-flight send elsewhere is never released out from under')
+  assert.equal(harness.approvals.length, 0)
+  assert.equal(broadcastPosts(harness.posts).length, 0)
+}
+
+{
+  // Stale: released, and the send proceeds. No history read is needed,
+  // because nothing is left that requires proving.
+  const stale = journalWith(signedJournalEntry(STALE_TX_ID, CLOCK_START - FOREIGN_WALLET_SEND_FRESHNESS_MS))
+  const harness = createHarness({
+    broadcast: () => null,
+    startingJournal: stale,
+    walletHistory: () => { throw new Error('the history must not be read for a never-broadcast entry') },
+  })
+  const result = await executeHomeV2ForeignSend(FIXED_SEND, harness.deps)
+  assert.equal(harness.approvals.length, 1, 'a released wallet may be used again')
+  assert.equal(harness.historyReadCount(), 0)
+  // The released entry is gone; only the new send's own entry remains.
+  assert.equal(harness.entries().length, 1)
+  assert.equal(harness.entries()[0].txId, result.txId)
+  assert.notEqual(harness.entries()[0].txId, STALE_TX_ID)
+}
+
+{
+  // Equally old, but its bytes DID leave: age alone settles nothing, and
+  // without the exact id in the history it still blocks.
+  const signed = signedJournalEntry(STALE_TX_ID, CLOCK_START - FOREIGN_WALLET_SEND_FRESHNESS_MS)
+  const attempted = markForeignWalletBroadcastAttempted(
+    journalWith(signed),
+    { chainId: signed.chainId, coin: signed.coin, txId: signed.txId, walletFingerprint: signed.walletFingerprint },
+    signed.createdAt + 1,
+  )
+  const harness = createHarness({ startingJournal: attempted, walletHistory: () => [] })
+  const error = await rejection(executeHomeV2ForeignSend(FIXED_SEND, harness.deps))
+  assert.ok(error instanceof HomeV2ForeignSendReconciliationPendingError)
+  assert.ok(error.message.includes(STALE_TX_ID))
+  assert.equal(harness.entries().length, 1)
+  assert.equal(harness.entries()[0].stage, 'broadcast-attempted')
+  assert.equal(harness.historyReadCount(), 1, 'a broadcast-attempted entry always costs the proof read')
+  assert.equal(harness.approvals.length, 0)
 }
 
 // ---------------------------------------------------------------------------

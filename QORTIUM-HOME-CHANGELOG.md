@@ -83,6 +83,15 @@ and tells you which transaction is unresolved. Nothing is ever assumed, retried
 or thrown away on a guess, and Home's own settings can show you what is
 outstanding. No app can see or clear that list.
 
+There is one case Home can settle without asking anyone, because it already
+knows the answer. Home writes down that it is about to send before it sends,
+and writes down the attempt itself before making it. A record that never
+reached the second step is a transaction that was never sent at all — its bytes
+were never even kept. After ten minutes, long enough that any send it could
+have belonged to would have expired anyway, Home releases that record and notes
+it in the log. Anything that did reach the second step still needs the proof
+above.
+
 Sending is offered only when your node is one Home administratively trusts, an
 account is unlocked, and that node is actually new enough to support it — Home
 checks for the feature rather than assuming it, so an older node says sending

@@ -20,6 +20,14 @@ import type { ForeignWalletPendingTransaction } from './foreign-wallet-transacti
 
 const MAX_HISTORY_ENTRIES = 10_000
 
+/**
+ * How old a never-broadcast entry must be before it is released, and the same
+ * window a send's own approval must stay inside. Defined once so the two can
+ * never drift: the release rule is only sound because a send older than this
+ * would have been refused as stale anyway.
+ */
+export const FOREIGN_WALLET_SEND_FRESHNESS_MS = 10 * 60_000
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
 }
@@ -51,15 +59,42 @@ export function foreignWalletHistoryContainsTransaction(history: unknown, txId: 
   return rows.some((row) => isRecord(row) && canonicalTxId(row.txHash) === wanted)
 }
 
+export type ForeignWalletReleasedPendingTransaction = Readonly<{
+  reason: 'signed-never-attempted'
+  txId: string
+}>
+
 export type ForeignWalletReconciliationOutcome = Readonly<{
   cleared: readonly string[]
+  released: readonly ForeignWalletReleasedPendingTransaction[]
   retained: readonly string[]
 }>
 
 export type ForeignWalletReconciliationDeps = Readonly<{
   clear(entry: ForeignWalletPendingTransaction, observedTxId: string): void
+  now: number
   readHistory(): Promise<unknown>
+  release(entry: ForeignWalletPendingTransaction): void
 }>
+
+/**
+ * An entry still at stage 'signed' is one the broadcast-attempt mark never
+ * reached disk for, and that mark is fsynced BEFORE the single broadcast POST
+ * is issued. So the bytes were never sent, and they were never persisted
+ * either — there is nothing that could turn up on the network later.
+ *
+ * The age guard is the whole safety of it: a second Home instance could be
+ * mid-send right now, having recorded 'signed' and not yet marked the attempt.
+ * Past the freshness window that send would have been refused as stale anyway,
+ * so nothing live can be released out from under it.
+ *
+ * A 'broadcast-attempted' entry gets none of this. Its bytes DID leave, so the
+ * only thing that settles it is finding that exact transaction in the wallet's
+ * history.
+ */
+function isNeverBroadcast(entry: ForeignWalletPendingTransaction, now: number) {
+  return entry.stage === 'signed' && now - entry.createdAt >= FOREIGN_WALLET_SEND_FRESHNESS_MS
+}
 
 export class HomeV2ForeignSendReconciliationPendingError extends Error {
   readonly code = 'FOREIGN_SEND_RECONCILIATION_REQUIRED'
@@ -76,11 +111,30 @@ export async function reconcileForeignWalletPendingTransactions(
   pending: readonly ForeignWalletPendingTransaction[],
   deps: ForeignWalletReconciliationDeps,
 ): Promise<ForeignWalletReconciliationOutcome> {
-  if (pending.length === 0) return Object.freeze({ cleared: Object.freeze([]), retained: Object.freeze([]) })
+  const released: ForeignWalletReleasedPendingTransaction[] = []
+  const needsProof: ForeignWalletPendingTransaction[] = []
+  for (const entry of pending) {
+    if (isNeverBroadcast(entry, deps.now)) {
+      deps.release(entry)
+      released.push(Object.freeze({ reason: 'signed-never-attempted' as const, txId: entry.txId }))
+    } else {
+      needsProof.push(entry)
+    }
+  }
+  // The history is read ONCE for the whole set, and only when something
+  // actually needs proving: a wallet whose only entries were never broadcast
+  // must not pay for an authenticated round trip to learn nothing.
+  if (needsProof.length === 0) {
+    return Object.freeze({
+      cleared: Object.freeze([]),
+      released: Object.freeze(released),
+      retained: Object.freeze([]),
+    })
+  }
   const history = await deps.readHistory()
   const cleared: string[] = []
   const retained: string[] = []
-  for (const entry of pending) {
+  for (const entry of needsProof) {
     if (foreignWalletHistoryContainsTransaction(history, entry.txId)) {
       deps.clear(entry, entry.txId)
       cleared.push(entry.txId)
@@ -88,7 +142,11 @@ export async function reconcileForeignWalletPendingTransactions(
       retained.push(entry.txId)
     }
   }
-  return Object.freeze({ cleared: Object.freeze(cleared), retained: Object.freeze(retained) })
+  return Object.freeze({
+    cleared: Object.freeze(cleared),
+    released: Object.freeze(released),
+    retained: Object.freeze(retained),
+  })
 }
 
 export function foreignWalletReconciliationRefusal(coin: string, retained: readonly string[]) {

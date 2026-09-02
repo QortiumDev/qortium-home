@@ -68,12 +68,23 @@ local synced Previewnet Core at the time of each check; apps must use
   bridge-level check available in the meantime.
 - A send whose outcome Home could not prove leaves a write-ahead entry that
   blocks further sends for that wallet and coin. The NEXT send for the same
-  wallet reconciles it automatically: Home reads the wallet's own transaction
-  history from the trusted Core and clears the entry only if the exact
-  transaction id it signed appears there. If it does not, the send is refused
-  and names the transaction; nothing is ever retried or discarded on a guess.
+  wallet reconciles it automatically, in two ways and no others:
+  - An entry that reached `broadcast-attempted` had its bytes leave the
+    process. Home reads the wallet's own transaction history from the trusted
+    Core and clears the entry only if the exact transaction id it signed
+    appears there. If it does not, the send is refused and names the
+    transaction; nothing is ever retried or discarded on a guess.
+  - An entry still at `signed` proves the opposite: the broadcast-attempt mark
+    is written and fsynced BEFORE the single broadcast request, so a missing
+    mark means the request was never made and the signed bytes were never
+    persisted. Once such an entry is older than the send freshness window
+    (ten minutes — the same constant that would have refused that send as
+    stale), it is released as `signed-never-attempted` and logged. The age
+    guard is what makes this safe: a younger entry may belong to a send in
+    flight in another Home instance, so it still blocks.
+
   Home's own Settings surface can list the retained entries read-only; no QDN
-  app can enumerate or remove them.
+  app can enumerate them, and no app- or shell-facing channel removes one.
 - **Core trade engine** records Core/AT capability. Home currently exposes no
   mediated trade actions, so QDN apps cannot safely drive those trades yet.
 - **Live acceptance** becomes complete only after deterministic vectors and the

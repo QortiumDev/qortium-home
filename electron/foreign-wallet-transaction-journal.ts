@@ -298,6 +298,50 @@ export function clearReconciledForeignWalletPendingTransaction(
 }
 
 /**
+ * Release an entry that was signed but never broadcast.
+ *
+ * Stage 'signed' is a proof, not a guess. The broadcast-attempt mark is
+ * written and fsynced BEFORE the single broadcast POST is issued, so an entry
+ * still at 'signed' means that mark never reached disk, which means the POST
+ * was never made and the signed bytes never left the process. They were never
+ * persisted either, so there is nothing that could be rebroadcast later.
+ *
+ * The one ambiguity is timing: another Home instance could be mid-send right
+ * now, having recorded 'signed' and not yet marked the attempt. The age guard
+ * closes that — an entry younger than the send's own freshness window is never
+ * released, and past that window the send it belonged to would have been
+ * refused as stale anyway.
+ *
+ * Both conditions are enforced here rather than at the call site, so no caller
+ * can release a broadcast-attempted entry or a fresh one.
+ */
+export function releaseNeverBroadcastForeignWalletPendingTransaction(
+  journal: ForeignWalletTransactionJournal,
+  input: Pick<ForeignWalletPendingTransaction, 'chainId' | 'coin' | 'txId' | 'walletFingerprint'>,
+  now: number,
+  minimumAgeMs: number,
+): ForeignWalletTransactionJournal {
+  const current = sanitizeForeignWalletTransactionJournal(journal)
+  const wanted = transactionKeyFromInput(input)
+  const at = safeTimestamp(now, 'Pending foreign transaction release time')
+  if (!Number.isSafeInteger(minimumAgeMs) || minimumAgeMs <= 0) {
+    throw new Error('Pending foreign transaction release age is invalid.')
+  }
+  const entry = current.entries.find((candidate) => transactionKey(candidate) === wanted)
+  if (!entry) throw new Error('Pending foreign transaction was not found.')
+  if (entry.stage !== 'signed') {
+    throw new Error('Pending foreign transaction was already attempted and needs its outcome proved.')
+  }
+  if (at - entry.createdAt < minimumAgeMs) {
+    throw new Error('Pending foreign transaction is too recent to release.')
+  }
+  return sanitizeForeignWalletTransactionJournal({
+    entries: current.entries.filter((candidate) => transactionKey(candidate) !== wanted),
+    version: 1,
+  })
+}
+
+/**
  * Every entry retained for one wallet and coin, oldest first. Read-only: the
  * caller decides what to do about them, and nothing here removes anything.
  */

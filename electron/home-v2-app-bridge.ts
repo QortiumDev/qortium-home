@@ -490,7 +490,9 @@ import {
   listStoredForeignWalletPendingTransactions,
   recordForeignWalletBroadcastAttempt,
   recordSignedForeignWalletPendingTransaction,
+  releaseNeverBroadcastStoredForeignWalletPendingTransaction,
 } from './foreign-wallet-transaction-journal-store.js'
+import { FOREIGN_WALLET_SEND_FRESHNESS_MS } from './foreign-wallet-reconciliation.js'
 import { buildForeignWalletReadRequest } from './foreign-wallet-read-contract.js'
 import { createHomeV2SendRateLimiter } from './home-v2-send-rate-limiter.js'
 import { assertHomeV2UnlockCompleted } from './home-v2-unlock-contract.js'
@@ -8023,6 +8025,20 @@ async function handleHomeV2ForeignSendAction(
         listPending: (input) => listStoredForeignWalletPendingTransactions(userData, input),
         recordBroadcastAttempt: (key, now) => recordForeignWalletBroadcastAttempt(userData, key, now),
         recordSigned: (entry) => recordSignedForeignWalletPendingTransaction(userData, entry),
+        releaseNeverBroadcast: (key, now) => {
+          // Worth a line in the log: a signed transaction that was never put
+          // on a network is being forgotten, and that should be visible even
+          // though it is provably safe.
+          console.warn(
+            `[home-v2-app] Releasing a ${key.coin} transaction that was signed but never broadcast: ${key.txId}`,
+          )
+          return releaseNeverBroadcastStoredForeignWalletPendingTransaction(
+            userData,
+            key,
+            now,
+            FOREIGN_WALLET_SEND_FRESHNESS_MS,
+          )
+        },
       },
       now: () => Date.now(),
       readWalletHistory: async (wallet) => {

@@ -13,6 +13,7 @@ import {
 import {
   foreignWalletReconciliationRefusal,
   reconcileForeignWalletPendingTransactions,
+  FOREIGN_WALLET_SEND_FRESHNESS_MS,
   HomeV2ForeignSendReconciliationPendingError,
 } from './foreign-wallet-reconciliation.js'
 import { runForeignWalletOperationExclusive } from './foreign-wallet-operation-lock.js'
@@ -96,7 +97,10 @@ import {
  */
 
 const BROADCAST_RESPONSE_MAX_BYTES = 8 * 1024
-const APPROVAL_FRESHNESS_MS = 10 * 60_000
+// The same window on purpose. Releasing a never-broadcast entry is only sound
+// because a send older than this would have been refused as stale anyway, so
+// the two numbers must never drift apart.
+const APPROVAL_FRESHNESS_MS = FOREIGN_WALLET_SEND_FRESHNESS_MS
 
 export type HomeV2ForeignSendApprovalMeta = Readonly<{
   chainId: string
@@ -132,6 +136,7 @@ export type HomeV2ForeignSendDeps = Readonly<{
       returnedTxId: unknown,
     ): { readonly cleanupError?: string; readonly journalCleared: boolean }
     clearReconciled(key: HomeV2ForeignSendJournalKey, observedTxId: string): unknown
+    releaseNeverBroadcast(key: HomeV2ForeignSendJournalKey, now: number): unknown
     findConflict(input: Pick<
       ForeignWalletPendingTransaction,
       'chainId' | 'coin' | 'outpoints' | 'walletFingerprint'
@@ -393,7 +398,12 @@ export async function executeHomeV2ForeignSend(
           { chainId, coin, txId: entry.txId, walletFingerprint },
           observedTxId,
         ),
+        now: deps.now(),
         readHistory: () => deps.readWalletHistory(wallet),
+        release: (entry) => deps.journal.releaseNeverBroadcast(
+          { chainId, coin, txId: entry.txId, walletFingerprint },
+          deps.now(),
+        ),
       })
       if (outcome.retained.length > 0) throw foreignWalletReconciliationRefusal(coin, outcome.retained)
     }

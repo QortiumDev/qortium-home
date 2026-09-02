@@ -1128,7 +1128,7 @@ assert.ok(dispatcherJournal.includes('context.accountId && !foreignSend'))
 // account's ed25519 signing key: a foreign transaction is signed with a
 // secp256k1 leaf key that never leaves foreign-wallets.ts.
 const foreignSendHandler = stripComments(
-  sliceAfter(bridgeSource, 'async function handleHomeV2ForeignSendAction', 4_500, 'foreign send handler'),
+  sliceAfter(bridgeSource, 'async function handleHomeV2ForeignSendAction', 6_500, 'foreign send handler'),
 )
 for (const required of [
   'assertHomeV2TrustedForeignWalletNode',
@@ -1279,7 +1279,26 @@ assert.ok(!getHomeV2AppActions('qdnRequest').some((action) => /FOREIGN.*PENDING|
 assert.ok(bridgeSource.includes("ipcMain.handle('home-v2-app:foreignWalletPendingTransactions'"))
 assert.ok(
   !bridgeSource.includes("ipcMain.handle('home-v2-app:forgetForeignWalletPendingTransaction'"),
-  'there must be no path that drops a retained foreign transaction without proof',
+  'no app or shell channel may drop a retained foreign transaction',
+)
+// The ONE automatic removal that is not an exact-txid proof is the
+// never-broadcast release, and it is gated on the stage AND the age inside the
+// journal itself, so no caller can widen it.
+const journalSource = stripComments(readRepoSource(
+  '../electron/foreign-wallet-transaction-journal.ts',
+  './foreign-wallet-transaction-journal.ts',
+))
+const releaseSource = stripComments(sliceAfter(
+  journalSource,
+  'export function releaseNeverBroadcastForeignWalletPendingTransaction',
+  1_400,
+  'never-broadcast release',
+))
+assert.ok(releaseSource.includes("entry.stage !== 'signed'"))
+assert.ok(releaseSource.includes('at - entry.createdAt < minimumAgeMs'))
+assert.ok(
+  foreignSendModule.includes('const APPROVAL_FRESHNESS_MS = FOREIGN_WALLET_SEND_FRESHNESS_MS'),
+  'the release window and the send freshness window must be one constant',
 )
 
 // Android must keep answering send:false until it has its own signer: the
