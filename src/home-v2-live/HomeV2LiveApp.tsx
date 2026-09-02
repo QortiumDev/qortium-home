@@ -382,6 +382,7 @@ import {
   buildAppResourceLocation,
   parseAppResourceLocation,
 } from '../v2/resource-location'
+import { resolveHomeV2PublishPreviewOpen } from './publish-preview-tab'
 import { resolveLaunchIdentifier } from '../v2/shell/render-path-identity'
 import { base58Decode, base58Encode } from '../../electron/base58'
 import {
@@ -1108,6 +1109,10 @@ function initialSnapshot(): Omit<HomeV2Snapshot, 'nodes'> {
         },
       },
     },
+    // Fixture-only. The live shell has no app catalogue: every app tab is
+    // opened from an address, with its descriptor built on the spot (see
+    // openAddress), so nothing fills this and nothing may read it expecting to
+    // find an open tab's app -- that mistake silently broke publish previews.
     apps: [],
     recentItems: [],
     reticulum: {
@@ -2307,10 +2312,6 @@ export function HomeV2LiveApp() {
   // client's generation compare-and-set.
   // ---------------------------------------------------------------------
   const appearanceRef = useRef(snapshotState.appearance)
-  // Read at call time by the publish-preview subscription, which needs the
-  // requesting app's descriptor and must not re-subscribe on every change.
-  const appsRef = useRef(snapshotState.apps)
-  appsRef.current = snapshotState.apps
   appearanceRef.current = snapshotState.appearance
   const homeSettingsResponder = useMemo(
     () => createHomeV2HomeSettingsResponder({
@@ -3591,27 +3592,25 @@ export function HomeV2LiveApp() {
     const bridge = window.homeV2Apps
     if (!bridge?.onOpenPublishPreview) return
     return bridge.onOpenPublishPreview((value) => {
-      if (!isRecord(value)) return
-      const previewUrl = typeof value.previewUrl === 'string' ? value.previewUrl : ''
-      const sourceTabId = typeof value.sourceTabId === 'string' ? value.sourceTabId : ''
-      if (!previewUrl || !sourceTabId) return
-      const source = productStateRef.current.tabs.find((tab) => tab.id === sourceTabId)
-      if (!source) return
-      const app = appsRef.current.find((entry) => entry.id === source.context.appId)
-      if (!app) return
       tabSequence.current += 1
       const tabId = brand<TabId>(
         `home-v2:tab:${Date.now().toString(36)}:${tabSequence.current}`,
       )
+      // The requesting app is rebuilt from ITS OWN TAB, not looked up in
+      // `snapshot.apps`: that field is never populated in the live shell, so
+      // the lookup this handler used to do found nothing and dropped every
+      // preview in silence -- while the app had already been told it opened.
+      const opened = resolveHomeV2PublishPreviewOpen(
+        value,
+        productStateRef.current.tabs,
+        tabId,
+      )
+      if (!opened) return
       dispatchProduct({
         type: 'open-app',
-        app,
+        app: opened.app,
         tabId,
-        context: {
-          ...source.context,
-          previewUrl,
-          tabId,
-        },
+        context: opened.context,
       })
     })
   }, [])

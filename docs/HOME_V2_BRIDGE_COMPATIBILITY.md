@@ -335,6 +335,29 @@ preview restored from an earlier session could otherwise point at a stale port.
 preview would count as the same tab as the app that requested it -- it borrows
 the app's id, identity, wallet, network and address -- and would replace it.
 
+**The preview must be observed to OPEN (2026-09-02).** As shipped, it did not.
+The bridge returns `true` the moment it has sent `open-publish-preview`, so no
+layer downstream can report a preview that never appears -- the app has already
+been told it did. The shell's handler resolved the requesting app out of
+`HomeV2Snapshot.apps`, a field only the design fixture ever fills: the live
+shell builds each app descriptor from the address it opened and leaves that list
+empty, so the lookup always missed and every payload was dropped in silence.
+Both existing layers were green throughout -- the bridge did its job, and the
+tier-2 tests run against the fixture shell, where the list is populated.
+
+The handler now rebuilds the descriptor from the requesting TAB
+(`src/home-v2-live/publish-preview-tab.ts`), which is also the tighter rule: a
+preview can only ever borrow the identity and address of the tab that asked for
+it, which is exactly what the reducer's `assertAppTabTarget` then re-checks. The
+payload's `title` -- the picked file's basename, which the handler used to
+ignore -- names the tab, so a preview is distinguishable from the app beside it.
+Because "returns true" and "opened" cannot be told apart from inside the bridge,
+the guard is an end-to-end one: `npm run smoke:desktop:qdn-publish-preview`
+picks a file, previews it, and fails unless a preview tab opens and renders. It
+runs unpackaged, because the picker's smoke hook is development-only on purpose
+(a native dialog cannot be driven over CDP, and a shipped Home must never take
+that branch).
+
 **Folder sources (2026-09-02).** The port dropped `SELECT_QDN_PUBLISH_SOURCE`'s
 `kind` field -- the bridge never read it -- so the picker was `openFile`-only
 and a website in a folder could not be previewed at all. `kind` is honoured
