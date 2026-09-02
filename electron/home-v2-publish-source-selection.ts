@@ -156,6 +156,9 @@ const UNREADABLE_ENTRY =
   'Selected folder contains something Home cannot read. Fix the permissions and select it again.'
 const ESCAPING_LINK =
   'Selected folder contains a symbolic link pointing outside it. Remove the link and select the folder again.'
+const LINKED_ENTRY =
+  'This folder contains links, which cannot be published; publish a folder with regular files and folders only.'
+const CHANGED_ENTRY = 'Selected folder changed while Home was reading it. Select the folder again.'
 const SPECIAL_ENTRY =
   'Selected folder contains a device, pipe, or socket entry, which cannot be previewed. Remove it and select the folder again.'
 const CHANGED_FOLDER = 'Selected publish source changed after selection. Select the folder again.'
@@ -284,20 +287,91 @@ function isWithinDirectory(root: string, candidate: string) {
 }
 
 /**
+ * What an entry WAS when the walk classified it.
+ *
+ * Recorded from an `lstat` during the walk and compared against the `fstat` of
+ * the handle that is eventually opened. O_NOFOLLOW protects only the FINAL
+ * path component, so a directory anywhere above a file can be swapped between
+ * the walk and the open and the open would still succeed — on a different
+ * file. Comparing (device, inode, size) on the open handle is what turns that
+ * into a refusal, because a swapped component necessarily yields a different
+ * inode: reusing one takes an unlink and a create, and a created inode is a
+ * new number.
+ */
+export type HomeV2PublishEntryIdentity = Readonly<{
+  device: bigint
+  inode: bigint
+  size: number
+}>
+
+function identityOf(stats: { dev: bigint; ino: bigint; size: bigint }): HomeV2PublishEntryIdentity {
+  return { device: stats.dev, inode: stats.ino, size: Number(stats.size) }
+}
+
+/**
+ * Whether an fstat is still the entry a walk recorded. Exported because it is
+ * the whole anti-TOCTOU rule in one line, and a rule that cannot be tested
+ * directly is a rule that quietly stops holding.
+ */
+export function matchesHomeV2PublishEntryIdentity(
+  stats: { dev: bigint; ino: bigint; size: bigint },
+  identity: HomeV2PublishEntryIdentity,
+) {
+  return stats.dev === identity.device && stats.ino === identity.inode && Number(stats.size) === identity.size
+}
+
+/**
+ * Open a DIRECTORY without following a link at its final component, confirm it
+ * is one, and confirm it is the same directory the walk classified.
+ *
+ * Node cannot enumerate a directory from a file descriptor (there is no
+ * `fdopendir` binding), so the listing below still goes through the path. The
+ * residual is therefore a swap in the window between this fstat and that
+ * `opendir` — which per-entry identity then catches anyway, because every file
+ * under a swapped directory has a different inode.
+ */
+async function assertHomeV2PublishDirectoryIdentity(
+  directoryPath: string,
+  expected: HomeV2PublishEntryIdentity | null,
+) {
+  const noFollow = typeof fsConstants.O_NOFOLLOW === 'number' ? fsConstants.O_NOFOLLOW : 0
+  const directoryOnly = typeof fsConstants.O_DIRECTORY === 'number' ? fsConstants.O_DIRECTORY : 0
+  let handle
+  try {
+    handle = await open(directoryPath, fsConstants.O_RDONLY | directoryOnly | noFollow)
+  } catch {
+    throw homeV2PublishSourceError(expected ? CHANGED_ENTRY : UNREADABLE_ENTRY)
+  }
+  try {
+    const stats = await handle.stat({ bigint: true })
+    // O_DIRECTORY is absent on Windows, so the type check is made here as well
+    // as asked for in the open flags.
+    if (!stats.isDirectory()) throw homeV2PublishSourceError(CHANGED_ENTRY)
+    if (expected && (stats.dev !== expected.device || stats.ino !== expected.inode)) {
+      throw homeV2PublishSourceError(CHANGED_ENTRY)
+    }
+  } finally {
+    await handle.close().catch(() => undefined)
+  }
+}
+
+/**
  * Resolve a symbolic link found inside a folder.
  *
  * Refuses anything resolving outside the folder: Home hands Core a PATH and
  * Core follows links, so an escaping link would preview a file the user never
- * chose. Returns the contained target, or null when it resolves to something
- * that is neither a regular file nor a directory (skipped rather than copied).
+ * chose. Returns the contained target with its identity, or null when it
+ * resolves to something that is not a regular file (skipped rather than
+ * copied). PUBLISHING never gets here — it refuses links outright.
  */
 async function resolveContainedLink(root: string, entryPath: string) {
   const target = await realpath(entryPath).catch(() => null)
   if (!target || !isWithinDirectory(root, target)) {
     throw homeV2PublishSourceError(ESCAPING_LINK)
   }
-  const stats = await lstat(target).catch(() => null)
-  return stats?.isFile() ? target : null
+  const stats = await lstat(target, { bigint: true }).catch(() => null)
+  if (!stats || !stats.isFile()) return null
+  return { identity: identityOf(stats), path: target }
 }
 
 type WalkState = { entries: number; excluded: number; totalBytes: number }
@@ -333,14 +407,32 @@ async function openDirectoryStream(directoryPath: string, unreadableMessage: str
 type HomeV2PublishTreeVisitor = Readonly<{
   /** Called before descending. Relative paths are always '/'-separated. */
   onDirectory?: (absolutePath: string, relativePath: string) => Promise<void>
-  onFile?: (absolutePath: string, relativePath: string) => Promise<void>
   /**
-   * Whether a contained symbolic link's TARGET is handed to onFile. Measuring
-   * says 'skip', because the target is already measured through its real path;
-   * staging and packaging say 'follow', because the staged tree must hold no
-   * links at all (a link is what Core would follow).
+   * `identity` is what the walk saw for this entry. Every caller that opens
+   * the file must compare it against the fstat of the handle it opened; the
+   * walker cannot do that itself, because it does not do the opening.
    */
-  onLinkTarget?: 'follow' | 'skip'
+  onFile?: (
+    absolutePath: string,
+    relativePath: string,
+    identity: HomeV2PublishEntryIdentity,
+  ) => Promise<void>
+  /**
+   * What a symbolic link anywhere in the tree means.
+   *
+   * PUBLISHING says 'refuse', and that is the strongest of the three: a link
+   * is the one entry whose meaning depends on a path resolved later, and
+   * following one is also how a `config -> .env` link would smuggle an
+   * excluded name past the hidden-file policy under an innocent name. A
+   * published folder is regular files and folders, full stop.
+   *
+   * MEASURING says 'measure-contained': the link is checked for containment
+   * and then ignored, because its target is already measured through its real
+   * path. STAGING a preview says 'materialise-contained': the target is copied
+   * in as an ordinary file, so the staged tree holds no links at all — a link
+   * is what Core would follow.
+   */
+  symbolicLinks: 'materialise-contained' | 'measure-contained' | 'refuse'
   /**
    * Names this walk drops entirely — the hidden-file policy. Dropped entries
    * cost no entry budget and are counted in `state.excluded` so the approval
@@ -364,8 +456,12 @@ async function walkHomeV2PublishTree(
   state: WalkState,
   limits: HomeV2PublishDirectoryLimits,
   visitor: HomeV2PublishTreeVisitor,
+  currentIdentity: HomeV2PublishEntryIdentity | null,
 ) {
   if (limits.maximumDepth !== undefined && depth > limits.maximumDepth) throw depthLimitError(limits)
+  // Immediately before listing it, and against the identity the caller (or the
+  // parent iteration) recorded for it.
+  await assertHomeV2PublishDirectoryIdentity(current, currentIdentity)
   const directory = await openDirectoryStream(current, UNREADABLE_ENTRY)
   for await (const entry of directory) {
     const entryPath = nodePath.join(current, entry.name)
@@ -376,20 +472,48 @@ async function walkHomeV2PublishTree(
     }
     countEntry(state, limits)
     if (entry.isSymbolicLink()) {
+      if (visitor.symbolicLinks === 'refuse') throw homeV2PublishSourceError(LINKED_ENTRY)
       // A contained link is resolved for its containment check either way.
       // One that resolves to a directory is skipped rather than expanded,
       // because a cycle is easier to create than to detect.
       const target = await resolveContainedLink(root, entryPath)
-      if (target && visitor.onLinkTarget === 'follow') await visitor.onFile?.(target, relativePath)
+      if (target && visitor.symbolicLinks === 'materialise-contained') {
+        await visitor.onFile?.(target.path, relativePath, target.identity)
+      }
       continue
     }
-    if (entry.isDirectory()) {
+    // The dirent's type came from the directory listing; lstat is the closer,
+    // authoritative reading, and it is also where this entry's identity is
+    // recorded for whoever opens it next.
+    const stats = await lstat(entryPath, { bigint: true }).catch(() => null)
+    if (!stats) {
+      // An entry that vanished mid-walk. The measuring pass tolerates it (it
+      // is summing sizes); anything that READS the tree refuses, because it
+      // would otherwise ship a tree missing a file the user is looking at.
+      if (visitor.specialEntry === 'skip') continue
+      throw homeV2PublishSourceError(UNREADABLE_ENTRY)
+    }
+    if (stats.isSymbolicLink()) {
+      // Became a link between the listing and the lstat.
+      if (visitor.symbolicLinks === 'refuse') throw homeV2PublishSourceError(LINKED_ENTRY)
+      throw homeV2PublishSourceError(CHANGED_ENTRY)
+    }
+    if (stats.isDirectory()) {
       await visitor.onDirectory?.(entryPath, relativePath)
-      await walkHomeV2PublishTree(root, entryPath, relativePath, depth + 1, state, limits, visitor)
+      await walkHomeV2PublishTree(
+        root,
+        entryPath,
+        relativePath,
+        depth + 1,
+        state,
+        limits,
+        visitor,
+        identityOf(stats),
+      )
       continue
     }
-    if (entry.isFile()) {
-      await visitor.onFile?.(entryPath, relativePath)
+    if (stats.isFile()) {
+      await visitor.onFile?.(entryPath, relativePath, identityOf(stats))
       continue
     }
     if (visitor.specialEntry === 'refuse') throw homeV2PublishSourceError(SPECIAL_ENTRY)
@@ -405,15 +529,13 @@ export async function measureHomeV2PublishDirectoryBytes(
   if (!root) throw homeV2PublishSourceError(UNREADABLE_FOLDER)
   const state = newWalkState()
   await walkHomeV2PublishTree(root, root, '', 0, state, limits, {
-    onFile: async (absolutePath) => {
-      const stats = await lstat(absolutePath).catch(() => null)
-      if (!stats) return
-      state.totalBytes += stats.size
+    onFile: async (_absolutePath, _relativePath, identity) => {
+      state.totalBytes += identity.size
       if (state.totalBytes > limits.maximumBytes) throw byteLimitError(limits)
     },
-    onLinkTarget: 'skip',
     specialEntry: 'skip',
-  })
+    symbolicLinks: 'measure-contained',
+  }, null)
   return state.totalBytes
 }
 
@@ -611,6 +733,7 @@ function stagedFileName(fileName: string) {
 async function copyRegularFileForPreview(
   sourcePath: string,
   destinationPath: string,
+  identity: HomeV2PublishEntryIdentity,
   state: WalkState,
   limits: HomeV2PublishDirectoryLimits,
 ) {
@@ -622,12 +745,14 @@ async function copyRegularFileForPreview(
     throw homeV2PublishSourceError(UNREADABLE_ENTRY)
   }
   try {
-    // Stat the OPEN handle, not the path: this is the byte count that will
-    // actually be copied, so the cap is enforced against reality rather than
-    // against a name that may have been swapped since the walk.
-    const stats = await handle.stat()
+    // Stat the OPEN handle, not the path, and require it to be the entry the
+    // walk classified: O_NOFOLLOW guards only the final component, so a
+    // directory swapped ABOVE this file would open a different file
+    // successfully. A different file is a different inode.
+    const stats = await handle.stat({ bigint: true })
     if (!stats.isFile()) throw homeV2PublishSourceError(UNREADABLE_ENTRY)
-    state.totalBytes += stats.size
+    if (!matchesHomeV2PublishEntryIdentity(stats, identity)) throw homeV2PublishSourceError(CHANGED_ENTRY)
+    state.totalBytes += identity.size
     if (state.totalBytes > limits.maximumBytes) throw byteLimitError(limits)
     await pipeline(
       handle.createReadStream({ autoClose: false }),
@@ -640,24 +765,30 @@ async function copyRegularFileForPreview(
 
 async function copyHomeV2PublishDirectoryForPreview(
   root: string,
+  rootIdentity: HomeV2PublishEntryIdentity | null,
   destination: string,
   state: WalkState,
   limits: HomeV2PublishDirectoryLimits,
 ) {
   await mkdir(destination, { mode: 0o700, recursive: true })
-  // Contained links are materialised as ordinary files (onLinkTarget:
-  // 'follow') so the staged tree holds no links at all — a link is what Core
-  // would follow.
+  // Contained links are materialised as ordinary files so the staged tree
+  // holds no links at all — a link is what Core would follow.
   await walkHomeV2PublishTree(root, root, '', 0, state, limits, {
     onDirectory: async (_absolutePath, relativePath) => {
       await mkdir(nodePath.join(destination, relativePath), { mode: 0o700, recursive: true })
     },
-    onFile: async (absolutePath, relativePath) => {
-      await copyRegularFileForPreview(absolutePath, nodePath.join(destination, relativePath), state, limits)
+    onFile: async (absolutePath, relativePath, identity) => {
+      await copyRegularFileForPreview(
+        absolutePath,
+        nodePath.join(destination, relativePath),
+        identity,
+        state,
+        limits,
+      )
     },
-    onLinkTarget: 'follow',
     specialEntry: 'refuse',
-  })
+    symbolicLinks: 'materialise-contained',
+  }, rootIdentity)
 }
 
 /**
@@ -683,10 +814,13 @@ export async function stageHomeV2PublishSourceForPreview(
       // otherwise), so it must survive the copy.
       const previewPath = nodePath.join(stagingDir, stagedFileName(source.fileName))
       const state = newWalkState()
-      await copyRegularFileForPreview(source.path, previewPath, state, {
-        maximumBytes: HOME_V2_PUBLISH_SOURCE_MAX_BYTES,
-        maximumEntries: limits.maximumEntries,
-      })
+      await copyRegularFileForPreview(
+        source.path,
+        previewPath,
+        { device: source.device, inode: source.inode, size: source.size },
+        state,
+        { maximumBytes: HOME_V2_PUBLISH_SOURCE_MAX_BYTES, maximumEntries: limits.maximumEntries },
+      )
       return { previewPath, stagingDir }
     } catch (error) {
       await removeHomeV2PublishPreviewStagingDir(stagingDir)
@@ -701,7 +835,13 @@ export async function stageHomeV2PublishSourceForPreview(
   try {
     const previewPath = nodePath.join(stagingDir, 'site')
     const state = newWalkState()
-    await copyHomeV2PublishDirectoryForPreview(root, previewPath, state, limits)
+    await copyHomeV2PublishDirectoryForPreview(
+      root,
+      { device: source.device, inode: source.inode, size: 0 },
+      previewPath,
+      state,
+      limits,
+    )
     // Asserted on the COPY, not the original: this is the tree Core will
     // render, and it is the only one that can no longer change underneath.
     await assertHomeV2PublishDirectoryIndexFile(previewPath, limits)
@@ -892,7 +1032,6 @@ const COLLIDING_ENTRY_NAME =
 const EMPTY_FOLDER = 'Selected folder holds nothing that can be published.'
 const MISSING_PUBLISH_INDEX =
   'This folder has no index file, which a website or app publish requires.'
-const CHANGED_ENTRY = 'Selected folder changed while it was being packaged. Select the folder again.'
 const TOO_LARGE_FOR_MEMORY =
   'Selected publish source is larger than Home will hold in memory to publish it.'
 const PACKAGED_TOO_LARGE = 'Selected folder is larger than this publish route accepts once packaged.'
@@ -942,16 +1081,25 @@ export function canonicalHomeV2PublishEntryName(
   }
   for (const segment of relativePath.split('/')) {
     if (!segment || segment === '.' || segment === '..') throw homeV2PublishSourceError(UNSAFE_ENTRY_NAME)
-    // A backslash separates paths for a Windows unpacker and is a literal for a
-    // POSIX one, so a name holding one means two different trees; control
-    // characters and a drive-letter prefix are refused for the same reason.
-    if (/[\\\u0000-\u001f\u007f]/.test(segment)) throw homeV2PublishSourceError(UNSAFE_ENTRY_NAME)
+    // The characters Core's ZipUtils sanitizer STRIPS from an entry name
+    // (`sanitizeZipEntrySegment`: < > : " / \ | ? *), plus control
+    // characters. Home refuses them instead of stripping them, because
+    // stripping is how two entries end up fighting over one unpacked name —
+    // and it would be Core doing the renaming, after the upload, to bytes the
+    // user already approved a hash of.
+    if (/[<>:"\\|?*\u0000-\u001f\u007f]/.test(segment)) throw homeV2PublishSourceError(UNSAFE_ENTRY_NAME)
+    // Core also trims leading and trailing whitespace from every segment, so
+    // "report .txt" and "report.txt " are the same file to it.
+    if (segment !== segment.trim()) throw homeV2PublishSourceError(UNSAFE_ENTRY_NAME)
     if (/^[A-Za-z]:$/.test(segment)) throw homeV2PublishSourceError(UNSAFE_ENTRY_NAME)
   }
-  // Case-insensitive AND unicode-normalised: the archive may be unpacked on a
-  // filesystem that folds either, and two entries landing on one name would
-  // publish content the user never approved the hash of.
-  const key = relativePath.normalize('NFC').toLowerCase()
+  // Case-folded and compatibility-normalised, which is what a collision means
+  // in practice: the archive may be unpacked on a filesystem that folds case
+  // or normalises unicode, and two entries landing on one name would publish
+  // content the user never approved the hash of. NFKC rather than NFC because
+  // Core's own comparison happens after its sanitizer has already collapsed
+  // compatibility forms out of the segment.
+  const key = relativePath.normalize('NFKC').toLocaleLowerCase('en')
   if (seen.has(key)) throw homeV2PublishSourceError(COLLIDING_ENTRY_NAME)
   seen.add(key)
   return relativePath
@@ -1031,6 +1179,16 @@ export async function packHomeV2PublishDirectory(
   await assertHomeV2DesktopPublishDirectoryUnchanged(source)
   const root = await realpath(source.path).catch(() => null)
   if (!root) throw homeV2PublishSourceError(UNREADABLE_FOLDER)
+  // The raw budget is what the SELECTION measured, not just the route's
+  // ceiling. A batch's aggregate check is made against selection-time sizes
+  // before anything is opened, so a folder that grew afterwards would spend
+  // bytes the batch never budgeted for; holding each folder to its own
+  // measured size is what keeps that check honest. Excluded names only ever
+  // make the packaged total smaller, never larger.
+  const packLimits: HomeV2PublishPackagingLimits = Object.freeze({
+    ...limits,
+    maximumBytes: Math.min(limits.maximumBytes, source.size),
+  })
   const stagingDir = await createHomeV2PublishPackagingDir()
   const archivePath = nodePath.join(stagingDir, 'source.zip')
   try {
@@ -1041,30 +1199,33 @@ export async function packHomeV2PublishDirectory(
     const counts: HomeV2PublishHiddenCounts = { excluded: 0, hidden: 0 }
     let hasIndexFile = false
     try {
-      const writer = new HomeV2PublishZipWriter(archive, limits.maximumPackagedBytes)
-      await walkHomeV2PublishTree(root, root, '', 0, state, limits, {
+      const writer = new HomeV2PublishZipWriter(archive, packLimits.maximumPackagedBytes)
+      await walkHomeV2PublishTree(root, root, '', 0, state, packLimits, {
         skipEntry: homeV2PublishHiddenFilter(options.includeHidden === true, counts),
-        onFile: async (absolutePath, relativePath) => {
-          const name = canonicalHomeV2PublishEntryName(relativePath, limits, seen)
+        onFile: async (absolutePath, relativePath, identity) => {
+          const name = canonicalHomeV2PublishEntryName(relativePath, packLimits, seen)
           // Recorded from the name that actually goes INTO the archive, so an
           // index dropped by the hidden-file policy or refused for its name
           // cannot satisfy the requirement it is no longer part of.
           if (!name.includes('/') && HOME_V2_PUBLISH_PREVIEW_INDEX_FILES.has(name)) hasIndexFile = true
           const handle = await openContainedFile(absolutePath)
           try {
-            // fstat on the OPEN handle, so the size the budget is spent
-            // against is the file that is actually being read, not a name
-            // that may have been swapped since the walk.
-            const stats = await handle.stat()
+            // fstat on the OPEN handle, and it must be the entry the walk
+            // classified: O_NOFOLLOW guards only the final component, so a
+            // directory swapped ABOVE this file would open a different file
+            // successfully, and a grown file would spend bytes the selection
+            // never measured. Both show up as an identity mismatch.
+            const stats = await handle.stat({ bigint: true })
             if (!stats.isFile()) throw homeV2PublishSourceError(UNREADABLE_ENTRY)
-            await writer.addFile(name, boundedEntryChunks(handle, stats.size, state, limits))
+            if (!matchesHomeV2PublishEntryIdentity(stats, identity)) throw homeV2PublishSourceError(CHANGED_ENTRY)
+            await writer.addFile(name, boundedEntryChunks(handle, identity.size, state, packLimits))
           } finally {
             await handle.close().catch(() => undefined)
           }
         },
-        onLinkTarget: 'follow',
         specialEntry: 'refuse',
-      })
+        symbolicLinks: 'refuse',
+      }, { device: source.device, inode: source.inode, size: 0 })
       if (writer.entryCount === 0) throw homeV2PublishSourceError(EMPTY_FOLDER)
       if (options.requireIndexFile === true && !hasIndexFile) {
         throw homeV2PublishSourceError(MISSING_PUBLISH_INDEX)
@@ -1148,6 +1309,25 @@ export type HomeV2PublishArtifactOptions = Readonly<{
    */
   requireIndexFile?: boolean
 }>
+
+/**
+ * Prepare an artifact, REGISTERING it for disposal before it is returned.
+ *
+ * A batch prepares every item and then hashes it, and the hash can throw — a
+ * source that moved between the walk and the read. If the artifact only joined
+ * the caller's cleanup list after its hash succeeded, that throw would leak the
+ * open handle or the temp archive it already owns. Handing the list in is what
+ * makes "prepared" and "tracked" the same instant.
+ */
+export async function prepareTrackedHomeV2PublishArtifact(
+  tracked: HomeV2PublishArtifact[],
+  source: HomeV2DesktopPublishSource,
+  options: HomeV2PublishArtifactOptions,
+) {
+  const artifact = await prepareHomeV2PublishArtifact(source, options)
+  tracked.push(artifact)
+  return artifact
+}
 
 export async function prepareHomeV2PublishArtifact(
   source: HomeV2DesktopPublishSource,

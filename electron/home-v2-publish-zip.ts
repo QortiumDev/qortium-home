@@ -168,7 +168,13 @@ export class HomeV2PublishZipWriter {
     patch.writeUInt32LE(crc, 0)
     patch.writeUInt32LE(compressedSize, 4)
     patch.writeUInt32LE(uncompressedSize, 8)
-    await this.handle.write(patch, 0, patch.byteLength, offset + 14)
+    // Checked like every other write here: a short write would leave the local
+    // header claiming a zero crc or a zero size, which is a corrupt archive
+    // that only fails at whoever unpacks it.
+    const patched = await this.handle.write(patch, 0, patch.byteLength, offset + 14)
+    if (patched.bytesWritten !== patch.byteLength) {
+      throw new Error('Short write while packaging the publish source.')
+    }
 
     this.#entries.push({ compressedSize, crc, nameBytes, offset, uncompressedSize })
     return Object.freeze({ compressedSize, uncompressedSize }) as HomeV2ZipEntryResult

@@ -374,7 +374,11 @@ now refused rather than silently defaulted the way 1.x did). A folder selection:
 - is measured with a stat-only walk, capped at 512 MiB and 20,000 entries, and
   refused outright if it contains a symbolic link pointing outside the folder
   (Core follows the path Home hands it, so an escaping link would preview a
-  file the user never chose);
+  file the user never chose). PUBLISHING is stricter still and refuses EVERY
+  link, contained or not: a link is the one entry whose meaning depends on a
+  path resolved later, and a contained `config -> .env` would otherwise carry
+  an excluded file into the archive under a name the hidden-file policy never
+  sees;
 - can be PREVIEWED and, since 2026-09-02, PUBLISHED — on Qortium desktop only.
   A publish streams the folder into a Home-owned temp zip and uploads it with
   `isZip=true`; the ceilings, the entry-name rules and the hidden-file policy

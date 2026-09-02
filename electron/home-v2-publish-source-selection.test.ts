@@ -26,13 +26,16 @@ import {
   homeV2PublishSourceDialogProperties,
   isHomeV2PublishAlwaysExcludedName,
   isHomeV2PublishSourceError,
+  matchesHomeV2PublishEntryIdentity,
   measureHomeV2PublishDirectoryBytes,
   packHomeV2PublishDirectory,
   prepareHomeV2PublishArtifact,
+  prepareTrackedHomeV2PublishArtifact,
   readHomeV2DesktopPublishSource,
   removeHomeV2PublishPreviewStagingDir,
   stageHomeV2PublishSourceForPreview,
   type HomeV2DesktopPublishSource,
+  type HomeV2PublishArtifact,
 } from './home-v2-publish-source-selection.js'
 
 const root = await mkdtemp(nodePath.join(tmpdir(), 'home-v2-publish-source-'))
@@ -635,8 +638,63 @@ try {
     await symlink(outside, nodePath.join(swapRoot, 'data.bin'))
     await refusal(
       packHomeV2PublishDirectory(swapSource, homeV2PublishPackagingLimits(1024 * 1024)),
-      /symbolic link pointing outside/,
-      'a file swapped for an escaping link after selection is refused at packaging',
+      /contains links, which cannot be published/,
+      'a file swapped for a link after selection is refused at packaging',
+    )
+  }
+
+  // ---------------------------------------------------------------------------
+  // Publishing refuses EVERY link, contained or not.
+  //
+  // Containment is the preview's rule, and it is the wrong rule here: a link
+  // named `config` pointing at `.env` is contained, and following it would put
+  // the excluded file into the archive under a name the hidden-file policy
+  // never sees. A published folder is regular files and folders.
+  // ---------------------------------------------------------------------------
+  {
+    const linkRoot = nodePath.join(root, 'pack-linked')
+    await mkdir(linkRoot)
+    await writeFile(nodePath.join(linkRoot, 'index.html'), 'x')
+    await writeFile(nodePath.join(linkRoot, '.env'), 'SECRET=1')
+    await symlink(nodePath.join(linkRoot, '.env'), nodePath.join(linkRoot, 'config'))
+    const linkedSource = await describeHomeV2PublishSourcePath(linkRoot, 'directory')
+    await refusal(
+      packHomeV2PublishDirectory(linkedSource, homeV2PublishPackagingLimits(1024 * 1024)),
+      /contains links, which cannot be published/,
+      'a contained link to an excluded file is refused rather than followed',
+    )
+
+    // The same folder WITHOUT the link packages, and .env is not in it — so
+    // the refusal above is the link talking, and the exclusion still holds.
+    await rm(nodePath.join(linkRoot, 'config'))
+    const unlinkedSource = await describeHomeV2PublishSourcePath(linkRoot, 'directory')
+    const packedWithoutLink = await packHomeV2PublishDirectory(
+      unlinkedSource,
+      homeV2PublishPackagingLimits(1024 * 1024),
+    )
+    try {
+      assert.deepEqual(
+        Object.keys(unzipSync(new Uint8Array(await readFile(packedWithoutLink.archivePath)))),
+        ['index.html'],
+      )
+      assert.equal(packedWithoutLink.excludedCount, 1)
+    } finally {
+      await removeHomeV2PublishPreviewStagingDir(packedWithoutLink.stagingDir)
+    }
+
+    // A directory link is refused too, not just a file one: O_NOFOLLOW guards
+    // the final component only, so a link in the middle of a path is exactly
+    // the component this rule exists to keep out.
+    const nestedLinkRoot = nodePath.join(root, 'pack-linked-dir')
+    await mkdir(nodePath.join(nestedLinkRoot, 'real'), { recursive: true })
+    await writeFile(nodePath.join(nestedLinkRoot, 'index.html'), 'x')
+    await writeFile(nodePath.join(nestedLinkRoot, 'real', 'page.html'), 'x')
+    await symlink(nodePath.join(nestedLinkRoot, 'real'), nodePath.join(nestedLinkRoot, 'alias'))
+    const nestedLinkSource = await describeHomeV2PublishSourcePath(nestedLinkRoot, 'directory')
+    await refusal(
+      packHomeV2PublishDirectory(nestedLinkSource, homeV2PublishPackagingLimits(1024 * 1024)),
+      /contains links, which cannot be published/,
+      'a contained directory link is refused',
     )
   }
 
@@ -651,13 +709,27 @@ try {
     const growSource = await describeHomeV2PublishSourcePath(growRoot, 'directory')
     assert.equal(growSource.size, 64)
     await writeFile(nodePath.join(growRoot, 'index.html'), 'a'.repeat(4096))
+    // No limit override: packaging spends the budget the SELECTION measured,
+    // which is what makes a batch's aggregate check against selection-time
+    // sizes honest. The grown file is refused as an identity mismatch (its
+    // size moved) before the budget is even reached.
     await refusal(
-      packHomeV2PublishDirectory(
-        growSource,
-        homeV2PublishPackagingLimits(1024 * 1024, { maximumBytes: growSource.size }),
-      ),
-      /exceeds the .* byte limit/,
+      packHomeV2PublishDirectory(growSource, homeV2PublishPackagingLimits(1024 * 1024)),
+      /changed while Home was reading it|exceeds the .* byte limit/,
       'a file grown after selection is refused against the measured budget',
+    )
+
+    // A file ADDED after selection spends bytes the selection never measured,
+    // so it trips the budget rather than an identity check.
+    const addedRoot = nodePath.join(root, 'pack-added')
+    await mkdir(addedRoot)
+    await writeFile(nodePath.join(addedRoot, 'index.html'), 'a'.repeat(64))
+    const addedSource = await describeHomeV2PublishSourcePath(addedRoot, 'directory')
+    await writeFile(nodePath.join(addedRoot, 'extra.bin'), 'b'.repeat(4096))
+    await refusal(
+      packHomeV2PublishDirectory(addedSource, homeV2PublishPackagingLimits(1024 * 1024)),
+      /exceeds the .* byte limit/,
+      'a file added after selection is refused against the measured budget',
     )
   }
 
@@ -904,6 +976,150 @@ try {
     )
   }
 
+  // ---------------------------------------------------------------------------
+  // A swapped DIRECTORY component.
+  //
+  // O_NOFOLLOW protects the final component of a path and nothing above it, so
+  // a subdirectory replaced between the walk and the read would open a
+  // different file under the same name, successfully. The walk records what
+  // each entry WAS, and the open has to still be it.
+  // ---------------------------------------------------------------------------
+  {
+    const swapDirRoot = nodePath.join(root, 'pack-dir-swap')
+    await mkdir(nodePath.join(swapDirRoot, 'assets'), { recursive: true })
+    await writeFile(nodePath.join(swapDirRoot, 'index.html'), 'x')
+    // Same LENGTH as the substitute below, so this scenario exercises the
+    // identity rule rather than the selection-time byte budget (which refuses
+    // a grown tree on its own, and is proven separately above).
+    await writeFile(nodePath.join(swapDirRoot, 'assets', 'app.js'), 'genuine!')
+    const swapDirSource = await describeHomeV2PublishSourcePath(swapDirRoot, 'directory')
+
+    // The identity check is what would catch the swap at packaging time. It is
+    // asserted directly here, because the swap has to land in the window
+    // between the walk's lstat and the open, which a test cannot schedule.
+    const genuine = await lstat(nodePath.join(swapDirRoot, 'assets'), { bigint: true })
+    const impostorRoot = nodePath.join(root, 'pack-dir-swap-impostor')
+    await mkdir(impostorRoot)
+    await writeFile(nodePath.join(impostorRoot, 'app.js'), 'imposter')
+    const impostor = await lstat(impostorRoot, { bigint: true })
+    assert.notEqual(genuine.ino, impostor.ino, 'the impostor must be a different inode')
+
+    // Replacing the directory wholesale is what an attacker can do, and it is
+    // exactly what changes the inode: reusing one takes an unlink and a
+    // create, and a created inode is a new number.
+    await rm(nodePath.join(swapDirRoot, 'assets'), { force: true, recursive: true })
+    await rename(impostorRoot, nodePath.join(swapDirRoot, 'assets'))
+    const swapped = await lstat(nodePath.join(swapDirRoot, 'assets'), { bigint: true })
+    assert.notEqual(swapped.ino, genuine.ino)
+
+    // The folder's own descriptor is unchanged (the ROOT was not touched), so
+    // nothing but the per-entry identity could notice — and a fresh walk is
+    // consistent with itself, so the packaged result is the substituted tree
+    // rather than a stale one. The property that matters is that no file is
+    // ever read through a component the walk did not see: proven by the
+    // packaged bytes matching what is on disk NOW.
+    await assertHomeV2DesktopPublishDirectoryUnchanged(swapDirSource)
+    const repacked = await packHomeV2PublishDirectory(
+      swapDirSource,
+      homeV2PublishPackagingLimits(1024 * 1024),
+    )
+    try {
+      const files = unzipSync(new Uint8Array(await readFile(repacked.archivePath)))
+      assert.equal(new TextDecoder().decode(files['assets/app.js']), 'imposter')
+    } finally {
+      await removeHomeV2PublishPreviewStagingDir(repacked.stagingDir)
+    }
+
+    // And the mismatch itself refuses: a handle opened on the OLD inode is not
+    // the entry a walk of the current tree records.
+    const staleIdentity = { device: genuine.dev, inode: genuine.ino, size: Number(genuine.size) }
+    const currentIdentity = { device: swapped.dev, inode: swapped.ino, size: Number(swapped.size) }
+    assert.equal(matchesHomeV2PublishEntryIdentity(swapped, currentIdentity), true)
+    assert.equal(matchesHomeV2PublishEntryIdentity(swapped, staleIdentity), false)
+  }
+
+  // ---------------------------------------------------------------------------
+  // Entry names Core's own sanitizer would rewrite.
+  //
+  // ZipUtils.sanitizeZipEntrySegment STRIPS < > : " / \ | ? * and trims
+  // whitespace off both ends of every segment. Home refuses those names before
+  // the upload instead, because Core rewriting a name after the fact renames
+  // content the user already approved a hash of -- and two names that sanitize
+  // to one are how an entry silently overwrites another.
+  // ---------------------------------------------------------------------------
+  {
+    const nameLimits = { maximumPathBytes: 1024 }
+    for (const bad of [
+      'why?.txt',
+      'star*.txt',
+      'pipe|.txt',
+      'quote".txt',
+      'less<.txt',
+      'greater>.txt',
+      'colon:.txt',
+      ' leading.txt',
+      'trailing.txt ',
+      'dir /file.txt',
+      'dir/ file.txt',
+    ]) {
+      assert.throws(
+        () => canonicalHomeV2PublishEntryName(bad, nameLimits, new Set()),
+        /cannot be published safely/,
+        `entry name ${JSON.stringify(bad)} must be refused before upload`,
+      )
+    }
+    // A name Core would sanitize to something it already holds is a collision,
+    // and it is refused as one rather than discovered by attestation after the
+    // upload.
+    const seen = new Set<string>()
+    canonicalHomeV2PublishEntryName('report.txt', nameLimits, seen)
+    assert.throws(
+      () => canonicalHomeV2PublishEntryName('REPORT.txt', nameLimits, seen),
+      /unpack to the same name/,
+    )
+    // Compatibility forms fold too: U+FF32 FULLWIDTH R normalises to R.
+    const wide = new Set<string>()
+    canonicalHomeV2PublishEntryName('report.txt', nameLimits, wide)
+    assert.throws(
+      () => canonicalHomeV2PublishEntryName('Ｒeport.txt', nameLimits, wide),
+      /unpack to the same name/,
+    )
+  }
+
+  // ---------------------------------------------------------------------------
+  // An artifact that is prepared and then fails is still disposed.
+  //
+  // A batch prepares every item and then hashes it. The hash can throw, and an
+  // artifact owns its open handle or its temp archive from the moment it is
+  // prepared -- so preparation and registration have to be the same instant.
+  // ---------------------------------------------------------------------------
+  {
+    const stagingBefore = (await listPublishStagingDirs()).length
+    const tracked: HomeV2PublishArtifact[] = []
+    let injected: unknown
+    try {
+      const artifact = await prepareTrackedHomeV2PublishArtifact(tracked, packSource, {
+        maximumBytes: 1024 * 1024,
+      })
+      assert.equal(tracked.length, 1)
+      assert.equal(tracked[0], artifact, 'the artifact is registered before it is returned')
+      assert.equal((await listPublishStagingDirs()).length, stagingBefore + 1)
+      // Stands in for artifact.sha256() throwing, which is the real case: a
+      // source that moved between the walk and the read.
+      throw new Error('injected sha256 failure')
+    } catch (error) {
+      injected = error
+    } finally {
+      for (const artifact of tracked) await artifact.dispose()
+    }
+    assert.match(String((injected as Error).message), /injected sha256 failure/)
+    assert.equal(
+      (await listPublishStagingDirs()).length,
+      stagingBefore,
+      'a failure after preparation still releases the temp archive',
+    )
+  }
+
   // ===========================================================================
   // SOURCE PINS — how the bridge wires this module.
   //
@@ -937,11 +1153,17 @@ try {
   const batchSource = bridgeSource.slice(bridgeSource.indexOf('async function publishHomeV2MultiplePublishSources'))
   assert.ok(
     batchSource.indexOf('HOME_V2_PUBLISH_BATCH_MAX_TOTAL_BYTES') <
-      batchSource.indexOf('prepareHomeV2PublishArtifact'),
+      batchSource.indexOf('prepareTrackedHomeV2PublishArtifact'),
     'the batch byte cap must be enforced before the first artifact is prepared',
   )
+  // Disposal follows what was PREPARED, not what was recorded: an artifact
+  // whose hash throws never reaches `items`, and it owns a handle regardless.
   assert.ok(
-    batchSource.includes('await entry.artifact.dispose()'),
+    batchSource.includes('prepareTrackedHomeV2PublishArtifact(prepared,'),
+    'the batch registers each artifact for disposal as it is prepared',
+  )
+  assert.ok(
+    batchSource.includes('for (const artifact of prepared) await artifact.dispose()'),
     'the batch disposes every prepared artifact',
   )
   assert.ok(bridgeSource.includes('await artifact.dispose()'), 'the single publish disposes its artifact')

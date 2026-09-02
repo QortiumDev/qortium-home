@@ -57,14 +57,18 @@ folder picker no longer asks for a home page at all, because at that point Home
 does not yet know which of the two you are doing.
 
 The folder is checked twice, not once. It is checked when you pick it, and
-checked again while it is being read, because minutes can pass in between --
-long enough for a file to grow or to be swapped for a shortcut pointing
-somewhere else on your disk. Anything that changed is refused rather than
-published.
+every file and folder inside it is checked again as it is read, because minutes
+can pass in between -- long enough for a file to grow, or for a folder in the
+middle of the path to be swapped for another one. A file that is no longer the
+file Home measured, or a folder that has gained content since you chose it, is
+refused rather than published. Shortcuts (symbolic links) are refused outright:
+a published folder is ordinary files and folders, which is also what stops a
+shortcut from carrying one of the never-published files in under an innocent
+name.
 
 Two kinds of file are treated specially. Version-control folders, .env files,
-credential directories and editor leftovers are never published, and the
-approval prompt tells you how many were left out. Any other hidden file stops
+credential directories and editor leftovers are never packaged, whatever the
+app asks for, and the approval prompt tells you how many were left out. Any other hidden file stops
 the publish entirely until the app asks for hidden files by name -- Home cannot
 tell a wanted .htaccess from a private .bash_history, so it asks you instead of
 guessing. The approval prompt for a folder now also shows how many entries the

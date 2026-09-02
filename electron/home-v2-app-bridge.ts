@@ -305,6 +305,8 @@ import {
   getRequestedHomeV2PublishSourceKind,
   homeV2DesktopPublishSources,
   prepareHomeV2PublishArtifact,
+  prepareTrackedHomeV2PublishArtifact,
+  type HomeV2PublishArtifact,
   homeV2PublishPreviewTempAncestor,
   isHomeV2PublishSourceError,
   removeHomeV2PublishPreviewStagingDir,
@@ -2775,12 +2777,16 @@ async function publishHomeV2MultiplePublishSources(
     ? await getHomeV2PublishSizeCeiling(network, node.nodeApiUrl)
     : HOME_V2_PUBLISH_SOURCE_MAX_BYTES
   const items = [] as {
-    readonly artifact: Awaited<ReturnType<typeof prepareHomeV2PublishArtifact>>
+    readonly artifact: HomeV2PublishArtifact
     readonly contentHash: string
     readonly fileName: string
     readonly item: (typeof request.items)[number]
     readonly source: ReturnType<typeof homeV2DesktopPublishSources.resolve>
   }[]
+  // Disposal is tracked SEPARATELY from `items`, because an artifact exists —
+  // holding an open handle or a temp archive — from the moment it is prepared,
+  // which is before its hash is known and therefore before it can join `items`.
+  const prepared: HomeV2PublishArtifact[] = []
   try {
     // Hashed from a STREAM, not from a retained buffer: what a batch keeps
     // alive across the prompt is one open handle (or one temp archive) per
@@ -2790,7 +2796,7 @@ async function publishHomeV2MultiplePublishSources(
       // Per ITEM: one batch can mix a WEBSITE folder with a VIDEO bundle, and
       // the index rule follows each item's own service.
       const artifact = await withHomeV2PublishSourceErrors(
-        () => prepareHomeV2PublishArtifact(entry.source, {
+        () => prepareTrackedHomeV2PublishArtifact(prepared, entry.source, {
           includeHidden,
           maximumBytes,
           requireIndexFile: isQdnBrowserArchiveService(entry.item.resource.service),
@@ -2970,9 +2976,10 @@ async function publishHomeV2MultiplePublishSources(
       published: Object.freeze(published),
     })
   } finally {
-    // Always, including the aggregate refusals above: every prepared artifact
-    // owns either an open handle or a temp archive.
-    for (const entry of items) await entry.artifact.dispose()
+    // Always, including the aggregate refusals above and a hash that threw
+    // between preparing an artifact and recording it: every artifact that was
+    // ever prepared owns either an open handle or a temp archive.
+    for (const artifact of prepared) await artifact.dispose()
   }
 }
 

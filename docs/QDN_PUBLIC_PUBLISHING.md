@@ -68,9 +68,26 @@ a token bound exactly like a file token. It does NOT hold the folder's bytes:
 what is retained is a descriptor (path plus device/inode), and the folder is
 materialised fresh for whichever operation redeems the token —
 `PREVIEW_QDN_PUBLISH_SOURCE` stages a copy for the local node, and
-`PUBLISH_QDN_RESOURCE` packages a zip. Both re-check the folder's identity and
-re-enforce every rule while they read it, so a folder that changed between
-selection and use is refused rather than used.
+`PUBLISH_QDN_RESOURCE` packages a zip.
+
+What "re-checked" means precisely, because it is not "the folder is frozen":
+
+- **The folder itself** is re-checked by device and inode before it is listed,
+  and every subdirectory is opened `O_NOFOLLOW` and checked the same way
+  immediately before its contents are listed.
+- **Every file** is opened `O_NOFOLLOW` and must still be the entry the walk
+  classified — same device, same inode, same size — or the publish refuses. A
+  file that grew, or a path component swapped underneath, is a different inode.
+- **Bytes** are counted as they are read, against the size the SELECTION
+  measured for that folder, so a folder that gained content afterwards is
+  refused rather than published.
+- **A batch** additionally re-checks the total of the packaged archives after
+  packaging, having already refused the aggregate of the selection-time sizes
+  before opening anything.
+
+What is NOT covered: a change made before Home's walk sees it is simply what
+Home packages — the walk and the read agree with each other, and the approval
+prompt shows the hash of exactly those bytes.
 
 Whether the folder needs a top-level index file (`index.html`, `index.htm`,
 `default.html`, `default.htm`, `home.html` or `home.htm`) depends on what it is
@@ -103,11 +120,23 @@ built in memory, and it is bounded by:
 
 The entry and path bounds are the values Home's publish attestation refuses at,
 enforced here so a folder is refused BEFORE it is uploaded rather than after.
-Entry names are checked, not rewritten: an empty, `.`, `..`, absolute,
-backslash-bearing, control-character-bearing or drive-letter-prefixed segment
-is refused, and so are two entries that would unpack to the same name.
-Symbolic links pointing outside the folder are refused; contained ones are
-materialised as ordinary files. Devices, FIFOs and sockets are refused.
+
+Entry names are checked, not rewritten. Core's own unpacker sanitizes a name by
+stripping `< > : " / \ | ? *` and trimming whitespace off each segment; Home
+refuses those names instead, because a name Core rewrites after the upload is a
+rename of content the user already approved a hash of, and two names that
+sanitize to one is how an entry silently overwrites another. Empty, `.`, `..`,
+absolute, control-character-bearing and drive-letter-prefixed segments are
+refused for the same reason, and so are two entries that would unpack to the
+same name once case and unicode compatibility forms are folded.
+
+**Links are refused outright** — anywhere in the folder, pointing anywhere, to
+a file or to a directory. A published folder is regular files and folders. This
+is stricter than previewing (which materialises a contained link as an ordinary
+file in its staged copy) for two reasons: a link is the one entry whose meaning
+depends on a path resolved later, and a link named `config` pointing at `.env`
+would otherwise carry an excluded file into the archive under a name the
+hidden-file policy never sees. Devices, FIFOs and sockets are refused too.
 
 `PUBLISH_QDN_RESOURCE` then uploads the archive with `isZip=true`, so Core
 unpacks it into a multi-file resource. The app passes the same `sourceToken` it
@@ -118,8 +147,10 @@ would for a file and does nothing else differently.
 Version-control stores, `.env` files, credential directories and editor/OS
 metadata (`.git`, `.hg`, `.svn`, `.env*`, `.DS_Store`, `Thumbs.db`, `.idea`,
 `.vscode`, `.ssh`, `.gnupg`, `.aws`, `.npmrc`, `.netrc`, vim swap files, `~`
-backups) are dropped from the archive ALWAYS, and the approval prompt reports
-how many were dropped.
+backups) are never packaged, whatever the request asks for, and the approval
+prompt reports how many were left out. Nothing can reach the archive under a
+different name either: links are refused outright, which is what closes the
+`config -> .env` route into it.
 
 Any OTHER dotfile stops the publish. Home cannot tell `.htaccess` (wanted) from
 `.bash_history` (catastrophic), so the app must ask for them explicitly:
