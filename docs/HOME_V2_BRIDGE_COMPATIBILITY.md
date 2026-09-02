@@ -361,8 +361,23 @@ into a Home-owned staging directory (`mkdtemp` under the OS temp dir, mode
 containment re-checked per link, device/FIFO/socket entries refused, byte and
 entry ceilings applied to the bytes actually copied — and the entry-file
 assertion is then made against the **copy**, which can no longer change. A file
-selection is re-checked by device/inode/size/**mtime** (stricter than the
-publish path, which does not compare mtime) and copied too. The staging
+selection is re-checked by device/inode/size/**mtime**/**ctime** (stricter than
+the publish path, which compares neither timestamp) and copied too. Both
+timestamps, because `utimes` lets a writer put mtime back where it found it
+while ctime — the metadata-change time — is advanced by that very call and
+cannot be set backwards from userland. What remains undetectable is a same-size
+rewrite completed inside one timestamp tick on a coarse-granularity filesystem;
+that residual gap is why the bytes are copied from the O_NOFOLLOW handle rather
+than the path being handed on.
+
+The **folder** re-check is deliberately only device/inode, and is a cheap
+sanity check rather than a guarantee: inode numbers are recycled, so a folder
+deleted and recreated at the same path can pass it (CI demonstrated exactly
+that against an early version of this test). Timestamps are not compared for a
+folder either — a folder's mtime and ctime move whenever a top-level entry is
+added or removed, so comparing them would refuse the ordinary case of the user
+saving one more file into the folder they just picked, and would do it by
+shadowing the copy-time checks that actually decide the outcome. The staging
 directory is removed in a `finally` once the POST returns; Core has already
 built and cached the preview by hash by then, which `ArbitraryResource`'s own
 upload branch states. The prefix is shared with qdn.ts's 1.x staging so its

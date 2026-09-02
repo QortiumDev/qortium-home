@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { lstat, mkdtemp, mkdir, opendir, rm, symlink, truncate, utimes, writeFile } from 'node:fs/promises'
+import { lstat, mkdtemp, mkdir, opendir, rename, rm, symlink, truncate, utimes, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import nodePath from 'node:path'
@@ -10,6 +10,7 @@ import {
   HOME_V2_PUBLISH_PREVIEW_STAGING_PREFIX,
   HOME_V2_PUBLISH_PREVIEW_INDEX_FILES,
   assertHomeV2DesktopPublishDirectoryUnchanged,
+  assertHomeV2DesktopPublishFileUnchanged,
   describeHomeV2PublishSourcePath,
   getRequestedHomeV2PublishSourceKind,
   homeV2PublishPreviewTempAncestor,
@@ -265,16 +266,34 @@ try {
     assertHomeV2DesktopPublishDirectoryUnchanged(fileSource),
     /Only a folder selection can be re-checked as a folder/,
   )
+  // DELIBERATELY a rename, not delete-and-recreate. CI caught the earlier
+  // version of this test: `rm -rf` followed by `mkdir` at the same path let the
+  // filesystem RECYCLE the inode, so the "replacement" folder had the same
+  // (dev, ino) as the original and the check correctly saw no change. Two
+  // folders that exist AT THE SAME MOMENT cannot share an inode number, so
+  // renaming one over the other is a guaranteed identity change on every
+  // filesystem, with no dependence on allocator behaviour or timestamps.
   const swapped = nodePath.join(root, 'swapped')
+  const swappedReplacement = nodePath.join(root, 'swapped-replacement')
   await mkdir(swapped, { recursive: true })
+  await mkdir(swappedReplacement, { recursive: true })
   await writeFile(nodePath.join(swapped, 'index.html'), 'x')
+  await writeFile(nodePath.join(swappedReplacement, 'index.html'), 'x')
   const swappedSource = await describeHomeV2PublishSourcePath(swapped, 'directory')
+  assert.notEqual(
+    (await lstat(swappedReplacement, { bigint: true })).ino,
+    swappedSource.kind === 'directory' ? swappedSource.inode : 0n,
+    'the two folders must have distinct inodes for this to prove anything',
+  )
   await rm(swapped, { force: true, recursive: true })
-  await mkdir(swapped, { recursive: true })
+  await rename(swappedReplacement, swapped)
   await assert.rejects(
     assertHomeV2DesktopPublishDirectoryUnchanged(swappedSource),
     /changed after selection/,
   )
+  // The unchanged folder still passes, so the check above is the SWAP talking
+  // and not a check that refuses everything.
+  await assertHomeV2DesktopPublishDirectoryUnchanged(directorySource)
 
   // ---------------------------------------------------------------------------
   // The entry ceiling must bound WORK, not just the answer. `readdir` would
@@ -338,6 +357,9 @@ try {
   )
   // The staged copy is what Core reads, so it must survive the ORIGINAL going
   // away -- that is the whole point of copying it.
+  // Awaited, so this is a sequenced fact and not a race: the bridge removes the
+  // staging directory in a `finally` after the POST returns, and this asserts
+  // the removal that call performs.
   await removeHomeV2PublishPreviewStagingDir(staged.stagingDir)
   assert.equal(existsSync(staged.stagingDir), false, 'the staging dir is removed on the success path')
 
@@ -358,8 +380,9 @@ try {
   await writeFile(nodePath.join(lateLink, 'index.html'), 'x')
   const lateLinkSource = await describeHomeV2PublishSourcePath(lateLink, 'directory')
   await symlink(filePath, nodePath.join(lateLink, 'leaked.html'))
-  // Counted rather than asserted absolute: another Home process may legitimately
-  // hold a staging directory of its own while this suite runs.
+  // A DELTA, never an absolute count: an earlier suite or another Home process
+  // may legitimately hold a staging directory with the same prefix, and both
+  // snapshots see it, so the comparison stays true either way.
   const stagingDirsBefore = await listPreviewStagingDirs()
   await refusal(
     stageHomeV2PublishSourceForPreview(lateLinkSource),
@@ -419,17 +442,88 @@ try {
   assert.deepEqual(await listStagedEntries(stagedFile.stagingDir), ['page.html'])
   await removeHomeV2PublishPreviewStagingDir(stagedFile.stagingDir)
 
-  // The file re-check is stricter than the publish path's: mtime counts, so a
-  // same-size in-place rewrite between selection and preview is caught.
+  // The file re-check is stricter than the publish path's. Three cases, each
+  // made to differ by construction rather than by hoping the clock moved --
+  // the folder swap above failed in CI for exactly that kind of assumption.
+
+  // A fixed point in the past, years away from any file this test writes, so
+  // no assertion below depends on the wall clock or on timestamp granularity.
+  const FIXED_TIME_SECONDS = 1_600_000_000
+
+  // (a) mtime, set explicitly to that fixed point.
   const touched = nodePath.join(root, 'touched.html')
   await writeFile(touched, 'aaaaa')
   const touchedSource = await describeHomeV2PublishSourcePath(touched)
-  await utimes(touched, new Date(), new Date(Date.now() + 60_000))
+  await utimes(touched, FIXED_TIME_SECONDS, FIXED_TIME_SECONDS)
   await refusal(
     stageHomeV2PublishSourceForPreview(touchedSource),
     /changed after selection/,
-    'a rewritten file is caught before it reaches the node',
+    'a file whose mtime moved is caught before it reaches the node',
   )
+
+  // (b) size, changed by appending -- independent of every timestamp.
+  const grownFile = nodePath.join(root, 'grown.html')
+  await writeFile(grownFile, 'aaaaa')
+  const grownFileSource = await describeHomeV2PublishSourcePath(grownFile)
+  await writeFile(grownFile, 'aaaaaaaaaa')
+  await refusal(
+    stageHomeV2PublishSourceForPreview(grownFileSource),
+    /changed after selection/,
+    'a file that changed size is caught',
+  )
+
+  // (c) the hard case: SAME size, and mtime put back exactly where it was, so
+  // only the inode (and ctime) gives it away. Built by renaming a sibling over
+  // it, so the two files provably held different inodes at the same moment.
+  //
+  // Both timestamps are set from a FIXED epoch second rather than copied from
+  // the original's `Date`: a Date carries whole milliseconds while the stat
+  // holds nanoseconds, so round-tripping one lands up to a millisecond off and
+  // the case would sometimes be caught by mtime instead of by inode. (The
+  // five-run loop caught that; it is the same class of assumption as the
+  // inode-reuse one CI caught.)
+  const restored = nodePath.join(root, 'restored.html')
+  const restoredReplacement = nodePath.join(root, 'restored-replacement.html')
+  await writeFile(restored, 'aaaaa')
+  await utimes(restored, FIXED_TIME_SECONDS, FIXED_TIME_SECONDS)
+  const restoredSource = await describeHomeV2PublishSourcePath(restored)
+  assert.equal(restoredSource.kind, 'file')
+  await writeFile(restoredReplacement, 'bbbbb')
+  await utimes(restoredReplacement, FIXED_TIME_SECONDS, FIXED_TIME_SECONDS)
+  const restoredStats = await lstat(restored, { bigint: true })
+  await rename(restoredReplacement, restored)
+  const afterSwap = await lstat(restored, { bigint: true })
+  assert.equal(afterSwap.size, restoredStats.size, 'the replacement must be the same size')
+  assert.equal(afterSwap.mtimeMs, restoredStats.mtimeMs, 'the replacement must carry the same mtime')
+  assert.notEqual(afterSwap.ino, restoredStats.ino, 'the replacement must be a different inode')
+  await refusal(
+    stageHomeV2PublishSourceForPreview(restoredSource),
+    /changed after selection/,
+    'a same-size, same-mtime replacement is caught',
+  )
+
+  // (d) ctime participates in the comparison at all. Proven against a
+  // SYNTHETIC descriptor rather than against the filesystem: ctime cannot be
+  // set by userland, and its granularity varies by filesystem, so a test that
+  // waited for it to move would be exactly the kind of timing assumption that
+  // failed in CI. This asserts the property directly instead.
+  if (fileSource.kind !== 'file') throw new Error('the file descriptor is needed for the probes below')
+  // Control: the untouched descriptor passes, so the probes below fail because
+  // of the field they change and not because the check refuses everything.
+  await assertHomeV2DesktopPublishFileUnchanged(fileSource)
+  for (const [field, probe] of [
+    ['changedAtMs', { ...fileSource, changedAtMs: fileSource.changedAtMs + 1n }],
+    ['modifiedAtMs', { ...fileSource, modifiedAtMs: fileSource.modifiedAtMs + 1n }],
+    ['inode', { ...fileSource, inode: fileSource.inode + 1n }],
+    ['device', { ...fileSource, device: fileSource.device + 1n }],
+    ['size', { ...fileSource, size: fileSource.size + 1 }],
+  ] as const) {
+    await refusal(
+      assertHomeV2DesktopPublishFileUnchanged(Object.freeze(probe)),
+      /changed after selection/,
+      `the file re-check compares ${field}`,
+    )
+  }
 
   await refusal(
     stageHomeV2PublishSourceForPreview(blobSource),

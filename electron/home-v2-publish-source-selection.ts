@@ -116,6 +116,7 @@ const MISSING_INDEX =
 
 export type HomeV2DesktopPublishSource = HomeV2PublishSourceDescriptor & (
   | Readonly<{
+      changedAtMs: bigint
       device: bigint
       inode: bigint
       kind: 'file'
@@ -343,6 +344,7 @@ export async function describeHomeV2PublishSourcePath(
     throw homeV2PublishSourceError('Publish source must be between 1 byte and 100 MiB.')
   }
   return Object.freeze({
+    changedAtMs: stats.ctimeMs,
     device: stats.dev,
     fileName,
     inode: stats.ino,
@@ -358,6 +360,19 @@ export async function describeHomeV2PublishSourcePath(
  * Folder equivalent of the identity re-check readHomeV2DesktopPublishSource
  * runs on a file: a token lives for 30 minutes, so the folder the user picked
  * may not be the folder still sitting at that path.
+ *
+ * A CHEAP check, and only that. Inode numbers are recycled, so a folder deleted
+ * and recreated at the same path can land on the same (dev, ino) pair and pass
+ * — CI demonstrated exactly that. Timestamps are deliberately NOT compared
+ * either: a folder's mtime/ctime move whenever a top-level entry is added or
+ * removed, so comparing them would refuse the ordinary case of the user saving
+ * one more file into the folder they just picked, and would do it by shadowing
+ * the checks that actually matter.
+ *
+ * The guarantee is downstream: the tree is COPIED into a Home-owned directory
+ * with containment, entry kinds and both ceilings re-enforced during the copy,
+ * and the entry-file assertion then runs against that copy. Whatever this
+ * function misses, the copy still refuses.
  */
 export async function assertHomeV2DesktopPublishDirectoryUnchanged(source: HomeV2DesktopPublishSource) {
   if (source.kind !== 'directory') {
@@ -377,8 +392,24 @@ export async function assertHomeV2DesktopPublishDirectoryUnchanged(source: HomeV
 
 /**
  * File identity re-check for the PREVIEW path, which is stricter than the
- * publish path's: mtime is compared too, so a same-size in-place rewrite
+ * publish path's: mtime and ctime are compared too, so an in-place rewrite
  * between selection and preview is caught rather than rendered.
+ *
+ * Why both timestamps. mtime alone is forgeable: `utimes` lets any process that
+ * can write the file put the modification time back where it found it, leaving
+ * a same-size rewrite indistinguishable. ctime is the metadata-change time; it
+ * is set to "now" by every write AND by `utimes` itself, and userland cannot
+ * set it to an older value, so restoring mtime advances ctime instead of hiding
+ * the change.
+ *
+ * What this still cannot see: a same-size rewrite completed inside a single
+ * timestamp tick on a filesystem with coarse granularity (HFS+ and some network
+ * filesystems keep whole seconds) leaves mtime, ctime and size all identical,
+ * and only a changed inode would give it away. That residual gap is why the
+ * bytes are then COPIED from the O_NOFOLLOW handle this function's caller
+ * opens: whatever the file is at copy time is what Core renders, so the worst
+ * case is a stale-but-consistent preview rather than a path Core follows
+ * somewhere else.
  */
 export async function assertHomeV2DesktopPublishFileUnchanged(source: HomeV2DesktopPublishSource) {
   if (source.kind !== 'file') {
@@ -392,7 +423,8 @@ export async function assertHomeV2DesktopPublishFileUnchanged(source: HomeV2Desk
     stats.dev !== source.device ||
     stats.ino !== source.inode ||
     Number(stats.size) !== source.size ||
-    stats.mtimeMs !== source.modifiedAtMs
+    stats.mtimeMs !== source.modifiedAtMs ||
+    stats.ctimeMs !== source.changedAtMs
   ) {
     throw homeV2PublishSourceError(CHANGED_FILE)
   }
