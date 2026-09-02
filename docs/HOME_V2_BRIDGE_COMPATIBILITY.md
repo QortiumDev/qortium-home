@@ -91,6 +91,9 @@ request `notifications.manage`, and the assigned app gets no head start.
 | `GET_PENDING_TRANSACTIONS` | both | This app/account/chain's opaque unknown-outcome entries without Home-internal account or app keys; an automatic QPGC setup entry may include `stage: "key-announcement"` | Route-independent scoped `transactions.pending.read` approval; message and key material are never stored | yes | yes |
 | `FORGET_PENDING_TRANSACTION` | both | `{ forgotten, network, signature }` | Route-independent single-request `transactions.pending.forget` approval after app reconciliation | yes | yes |
 | `GET_NODE_INFO`, `GET_NODE_STATUS` | both | Bare Core JSON | Protocol selects Qortium or Qortal | yes | yes |
+| `GET_NODE_SETTINGS_METADATA` | `qdnRequest` | Bare Core JSON (`/admin/settings/metadata`, the same anonymous route the passthrough allows) | No prompt; ordinary route availability | yes | yes |
+| `UPDATE_NODE_SETTINGS` | `qdnRequest` | Allowlisted `{ saved, updated, removed, applied, restartRequired }` — Core's `settingsPath` is deliberately dropped | Admin-trusted Qortium route only (managed local Core or attached-key custom node), advertised accordingly by `SHOW_ACTIONS`; validated BEFORE prompting (1.x patch shapes, ≤64 settings, keys ≤120 chars, node-declared writable keys only, values display-bounded); **single-request** `node.settings.write` approval naming every current/proposed value; trust re-resolved after the prompt; keyed `PATCH` refuses redirects | yes | yes |
+| `RESTART_NODE` | `qdnRequest` | `{ accepted: true }` | Same admin-trust rule and **single-request** `node.settings.write` approval with the pinned Impact row; keyed `GET /admin/restart`, fire-and-forget as every existing caller of that route | yes | yes |
 | `IS_USING_PUBLIC_NODE` | both | Boolean for the configured route | Protocol selects network; remains callable while the route is unavailable | yes | yes |
 | `FETCH_NODE_API` | both | Bounded response envelope | GET/HEAD allowlist; protocol selects network | yes | yes |
 | `FETCH_QORTAL_NODE_API` | `qdnRequest` | Bounded response envelope | Explicit Qortal GET/HEAD allowlist | yes | yes |
@@ -260,14 +263,14 @@ replacement is shipped:
 | `SEARCH_QORTAL_TRANSACTIONS` | `SEARCH_TRANSACTIONS` |
 | `SEND_QORTAL_GROUP_CHAT` | `SEND_CHAT_MESSAGE` |
 
-**Deferred (18) — planned by family, unadvertised until each family's
+**Deferred (15) — planned by family, unadvertised until each family's
 request/result/error, permission, denial, stale-context, malformed-input,
 desktop, and Android fixtures pass:**
 
 | Family | Deferred actions | Notes |
 | --- | --- | --- |
-| ~~Publishing preview~~ | ~~`PREVIEW_QDN_PUBLISH_SOURCE`~~ | **No longer deferred (2026-08-30)** — implemented as an app-tab preview, local nodes only; see its subsection below |
-| Node settings and admin | `GET_NODE_SETTINGS_METADATA`, `UPDATE_NODE_SETTINGS`, `RESTART_NODE` | Node settings stay deferred; Home's own DISPLAY settings are implemented (see below) |
+| ~~Publishing preview~~ | ~~`PREVIEW_QDN_PUBLISH_SOURCE`~~ | **No longer deferred (2026-08-30)** — implemented as an app-tab preview on `qdnRequest`, desktop only, local nodes only; folder sources added 2026-09-02; see its subsection below |
+| ~~Node settings and admin~~ | ~~`GET_NODE_SETTINGS_METADATA`, `UPDATE_NODE_SETTINGS`, `RESTART_NODE`~~ | **No longer deferred (2026-09-01)** — implemented on the node-administration trust rule (see the implemented table above and `docs/BRIDGE_ACTIONS.md` § Node settings actions) |
 | Background notification subscriptions | `NOTIFICATION_ADD`, `NOTIFICATION_GET`, `NOTIFICATION_REMOVE` | Distinct from the implemented `NOTIFICATION_HAS_PERMISSION`/`SHOW_NOTIFICATION` contract and the `NOTIFICATION_MANAGER_*` family |
 | App assignments | `GET_APP_ASSIGNMENTS`, `REQUEST_APP_ASSIGNMENT` | F4 is Settings-only; app-facing delegation remains deferred |
 
@@ -332,16 +335,112 @@ preview restored from an earlier session could otherwise point at a stale port.
 preview would count as the same tab as the app that requested it -- it borrows
 the app's id, identity, wallet, network and address -- and would replace it.
 
-**Still narrower than 1.x:** the v2 publish-source picker is `openFile`-only, so
-directory sources are not selectable. `.zip` and `.html` websites and single
-media files are covered. Extending the picker would change the publish flow too,
-so it stays a separate change.
+**The preview must be observed to OPEN (2026-09-02).** As shipped, it did not.
+The bridge returns `true` the moment it has sent `open-publish-preview`, so no
+layer downstream can report a preview that never appears -- the app has already
+been told it did. The shell's handler resolved the requesting app out of
+`HomeV2Snapshot.apps`, a field only the design fixture ever fills: the live
+shell builds each app descriptor from the address it opened and leaves that list
+empty, so the lookup always missed and every payload was dropped in silence.
+Both existing layers were green throughout -- the bridge did its job, and the
+tier-2 tests run against the fixture shell, where the list is populated.
 
-**Local nodes only.** Previewing sends the chosen file to a node to render, so on
-a public node its operator would see the file before the user chose to publish.
+The handler now rebuilds the descriptor from the requesting TAB
+(`src/home-v2-live/publish-preview-tab.ts`), which is also the tighter rule: a
+preview can only ever borrow the identity and address of the tab that asked for
+it, which is exactly what the reducer's `assertAppTabTarget` then re-checks. The
+payload's `title` -- the picked file's basename, which the handler used to
+ignore -- names the tab, so a preview is distinguishable from the app beside it.
+Because "returns true" and "opened" cannot be told apart from inside the bridge,
+the guard is an end-to-end one: `npm run smoke:desktop:qdn-publish-preview`
+picks a file, previews it, and fails unless a preview tab opens and renders. It
+runs unpackaged, because the picker's smoke hook is development-only on purpose
+(a native dialog cannot be driven over CDP, and a shipped Home must never take
+that branch).
+
+**Folder sources (2026-09-02).** The port dropped `SELECT_QDN_PUBLISH_SOURCE`'s
+`kind` field -- the bridge never read it -- so the picker was `openFile`-only
+and a website in a folder could not be previewed at all. `kind` is honoured
+again (`file` | `directory`, defaulting to `file`, and an unrecognised value is
+now refused rather than silently defaulted the way 1.x did). A folder selection:
+
+- opens `openDirectory` instead of `openFile`;
+- must contain a top-level entry file (`index.html` and Core's five siblings --
+  the list is shared with the 1.x preview stager, not copied);
+- is measured with a stat-only walk, capped at 512 MiB and 20,000 entries, and
+  refused outright if it contains a symbolic link pointing outside the folder
+  (Core follows the path Home hands it, so an escaping link would preview a
+  file the user never chose);
+- is **preview-only**. `readHomeV2DesktopPublishSource` refuses a folder by
+  name, so nothing about publishing changed: `.zip` and `.html` websites and
+  single media files are still the only publishable website shapes.
+
+**Core is never handed a path the user owns.** Validating a selection and then
+POSTing the live path is a check/use gap: between the walk and the render an
+escaping symlink can be added, a file can grow past the cap, or the whole path
+can be swapped, and Core follows what it is given. So the selection is copied
+into a Home-owned staging directory (`mkdtemp` under the OS temp dir, mode
+0700) with every rule re-enforced *during* the copy — regular files only,
+containment re-checked per link, device/FIFO/socket entries refused, byte and
+entry ceilings applied to the bytes actually copied — and the entry-file
+assertion is then made against the **copy**, which can no longer change. A file
+selection is re-checked by device/inode/size/**mtime**/**ctime** (stricter than
+the publish path, which compares neither timestamp) and copied too. Both
+timestamps, because `utimes` lets a writer put mtime back where it found it
+while ctime — the metadata-change time — is advanced by that very call and
+cannot be set backwards from userland. What remains undetectable is a same-size
+rewrite completed inside one timestamp tick on a coarse-granularity filesystem;
+that residual gap is why the bytes are copied from the O_NOFOLLOW handle rather
+than the path being handed on.
+
+The **folder** re-check is deliberately only device/inode, and is a cheap
+sanity check rather than a guarantee: inode numbers are recycled, so a folder
+deleted and recreated at the same path can pass it (CI demonstrated exactly
+that against an early version of this test). Timestamps are not compared for a
+folder either — a folder's mtime and ctime move whenever a top-level entry is
+added or removed, so comparing them would refuse the ordinary case of the user
+saving one more file into the folder they just picked, and would do it by
+shadowing the copy-time checks that actually decide the outcome. The staging
+directory is removed in a `finally` once the POST returns; Core has already
+built and cached the preview by hash by then, which `ArbitraryResource`'s own
+upload branch states. The prefix is shared with qdn.ts's 1.x staging so its
+startup orphan sweep collects anything a crash leaks, and the second temp
+directory that stager makes for a `.zip` or a bare `.html` — which nothing in
+Home 2 swept — is now recognised by that prefix and removed alongside.
+
+**No path reaches the app.** `fileName` (the basename) stays in the
+`SELECT_QDN_PUBLISH_SOURCE` response because Explore displays it and 1.x
+promised it, but every preview *failure* is one of four fixed sentences —
+staging failed, unsupported content, node too old, node failed — chosen by
+status, never by echoing a Core error body or a filesystem error. The detail is
+logged with `console.warn` in the main process only. Messages the publish-source module
+raises are tagged and pass through unchanged because each is already a
+path-free constant; anything untagged is replaced.
+
+**Local nodes only, and therefore desktop-only and `qdnRequest`-only.**
+Previewing sends the chosen source to a node to render, so on a public node its
+operator would see it before the user chose to publish.
 `resolveHomeV2AdminNode` only yields a key for a trusted local Core; anything
 else refuses with a message saying why. No approval prompt is needed on a local
-Core because there is no third party.
+Core because there is no third party. Two consequences, both fixed on
+2026-09-02 after the action was found advertised where it could only refuse:
+
+- **Not on Android.** Home for Android runs no Core, so the action is in
+  `ANDROID_UNSUPPORTED_ACTIONS` (the first entry since the parity wave emptied
+  it) with its own stated reason -- the previous single generic refusal claimed
+  "requires transaction signing", which was never true of previewing. A future
+  Android arm would go through Core's
+  `POST /arbitrary/preview/{service}/upload?archive=&filename=`, which takes
+  bytes rather than a local path; that is what Home 1.x Android used. It still
+  needs a trusted node holding a write key, so it is a node-trust decision
+  before it is a client one.
+- **Not on `qortalRequest`.** `getHomeV2SignedWriteApiKey` returns `''` for the
+  Qortal network, so a preview on that protocol could only ever refuse.
+  `PREVIEW_QDN_PUBLISH_SOURCE` is therefore off the Qortal catalogue, exactly
+  like the other local-Core-only actions (`RESTART_NODE`,
+  `UPDATE_NODE_SETTINGS`, `GET_NODE_SETTINGS_METADATA`). `SELECT_` and
+  `STAGE_QDN_PUBLISH_SOURCE` stay on both protocols: they feed
+  `PUBLISH_QDN_RESOURCE`, which Qortal has, and neither needs a node key.
 
 ### No longer deferred: display settings, minting, lists, polls, names, group mutations, publishing extras, rating writes, the account avatar, and payments
 
@@ -404,9 +503,11 @@ on `qortalRequest`). **Both work on Android**, the batch holding its prompt to
 the same per-item structural validator desktop uses, and re-asserting
 publisher-name ownership per item at signing time. See
 [QDN bridge action notes](BRIDGE_ACTIONS.md).
-`PREVIEW_QDN_PUBLISH_SOURCE` stays deferred. The Hub-catalogue QDN-writes
-row above still covers legacy inline/path publishing, which stays refused in
-favor of source tokens.
+`PREVIEW_QDN_PUBLISH_SOURCE` is no longer deferred either — it is implemented
+on `qdnRequest`, on desktop, against a local Core only, and it accepts folder
+sources; see its section above for why it is on neither Android nor
+`qortalRequest`. The Hub-catalogue QDN-writes row above still covers legacy
+inline/path publishing, which stays refused in favor of source tokens.
 
 The rating writes are no longer deferred. `RATE_ACCOUNT` and `RATE_RESOURCE`
 are implemented on `qdnRequest` only (the rating system is a Qortium Core

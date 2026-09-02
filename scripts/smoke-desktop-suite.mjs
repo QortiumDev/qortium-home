@@ -92,8 +92,13 @@ const SMOKES = [
   { script: 'smoke:desktop:qdn-permissions', needs: 'core', note: 'needs QDN fixtures' },
   { script: 'smoke:desktop:qdn-api', needs: 'core' },
   { script: 'smoke:desktop:qdn-api:packaged', needs: 'core' },
+  // Unpackaged on purpose: the picker's smoke hook is development-only, so a
+  // packaged run would sit on a native dialog nobody can answer.
+  { script: 'smoke:desktop:qdn-publish-preview', needs: 'core' },
   { script: 'smoke:desktop:qdn-wallet-read:packaged', needs: 'network',
     note: 'needs a local Qortium Core and a reachable public Qortal node' },
+  { script: 'smoke:desktop:qdn-foreign-send-dry-run:packaged', needs: 'core',
+    note: 'never signs or funds anything; skips itself when the Core is untrusted, and reports when the Core predates the spend-context route' },
   { script: 'smoke:desktop:qdn-game', needs: 'core' },
   { script: 'smoke:desktop:qdn-write', needs: 'core' },
   { script: 'smoke:desktop:qdn-media-seek', needs: 'core' },

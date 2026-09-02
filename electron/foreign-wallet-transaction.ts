@@ -67,6 +67,38 @@ const MAX_UINT32 = 0xffffffff;
 const MAX_WATCH_INPUTS = 1_000;
 const MAX_PREVIOUS_TRANSACTION_BYTES = 1_000_000;
 const MAX_TOTAL_PREVIOUS_TRANSACTION_BYTES = 8_000_000;
+/**
+ * Legacy SIGHASH_ALL re-serializes the WHOLE transaction once per input, so
+ * signing cost grows with inputs x transaction size. The 1,000-input cap
+ * bounds that at roughly 150 MB of byte-pushing for ordinary P2PKH inputs;
+ * this cap bounds the pathological shapes it does not (many very large output
+ * scripts), and refuses them by name rather than stalling the main process.
+ */
+const MAX_SIGNING_WORK_BYTES = 256 * 1024 * 1024;
+
+/**
+ * One parse of each DISTINCT funding transaction, reused across planning,
+ * re-planning and signing.
+ *
+ * Without this, a wallet holding 1,000 outputs of the same 1 MiB funding
+ * transaction re-parses that megabyte 1,000 times per phase. The cache is
+ * keyed by the declared transaction hash AND checked against the exact raw
+ * hex, so a caller that supplies two different bodies under one hash gets a
+ * real re-parse (and the mismatch refusal that follows), never a reused one.
+ */
+export type ForeignWalletPreviousTransactionCache = {
+  entries: Map<string, { parsed: ParsedPreviousTransaction; rawHex: string }>;
+  parses: number;
+};
+
+type ParsedPreviousTransaction = {
+  outputs: Array<{ scriptPubKey: Uint8Array; value: bigint }>;
+  txId: string;
+};
+
+export function createForeignWalletPreviousTransactionCache(): ForeignWalletPreviousTransactionCache {
+  return { entries: new Map(), parses: 0 };
+}
 
 const ADDRESS_FORMATS: Record<ForeignWalletCoin, AddressFormat> = {
   BTC: {
@@ -128,6 +160,7 @@ export function validateForeignWalletRecipient(input: {
 }
 
 export function buildForeignWalletSignedTransaction(input: {
+  cache?: ForeignWalletPreviousTransactionCache;
   coin: ForeignWalletCoin;
   crypto: ForeignWalletCrypto;
   inputs: readonly ForeignWalletWatchInput[];
@@ -153,6 +186,7 @@ export function buildForeignWalletSignedTransaction(input: {
   const seenOutpoints = new Set<string>();
   const preparedInputs = input.inputs.map((watchInput) => {
     const prepared = attestWatchInput({
+      cache: input.cache,
       coin: input.coin,
       crypto: input.crypto,
       nonce: input.nonce,
@@ -190,6 +224,11 @@ export function buildForeignWalletSignedTransaction(input: {
   if (outputAmount > inputAmount) {
     throw new Error('Foreign wallet outputs exceed inputs.');
   }
+
+  assertForeignWalletSigningWorkBounds(
+    preparedInputs.length,
+    preparedOutputs.map((output) => output.scriptPubKey.byteLength),
+  );
 
   const scripts = preparedInputs.map((preparedInput, inputIndex) => {
     const signaturePreimage = serializeTransaction({
@@ -243,6 +282,7 @@ export function buildForeignWalletSignedTransaction(input: {
 }
 
 export function attestForeignWalletWatchInput(input: {
+  cache?: ForeignWalletPreviousTransactionCache;
   coin: ForeignWalletCoin;
   crypto: ForeignWalletCrypto;
   nonce?: number;
@@ -251,6 +291,34 @@ export function attestForeignWalletWatchInput(input: {
   watchInput: ForeignWalletWatchInput;
 }): void {
   attestWatchInput(input);
+}
+
+/**
+ * Refuse a shape whose signing cost is unreasonable BEFORE any of it is done,
+ * with a message that says which limit was hit.
+ */
+export function assertForeignWalletSigningWorkBounds(
+  inputCount: number,
+  outputScriptLengths: readonly number[],
+): void {
+  if (!Number.isSafeInteger(inputCount) || inputCount <= 0) {
+    throw new Error('Invalid foreign wallet input count.');
+  }
+  let transactionSize = 4 + 9 + inputCount * 149 + 9 + 4;
+  for (const scriptLength of outputScriptLengths) {
+    if (!Number.isSafeInteger(scriptLength) || scriptLength < 0) {
+      throw new Error('Invalid foreign wallet output script length.');
+    }
+    transactionSize += 8 + 9 + scriptLength;
+  }
+  const work = transactionSize * inputCount;
+  if (!Number.isSafeInteger(work) || work > MAX_SIGNING_WORK_BYTES) {
+    throw new Error(
+      `Foreign wallet transaction is too expensive to sign: ${inputCount} inputs over roughly `
+      + `${transactionSize} bytes exceeds this wallet's signing work limit. Send a smaller amount so `
+      + 'fewer outputs are spent at once.',
+    );
+  }
 }
 
 export function assertForeignWalletWatchInputBounds(inputs: readonly ForeignWalletWatchInput[]): void {
@@ -280,6 +348,7 @@ export function assertForeignWalletWatchInputBounds(inputs: readonly ForeignWall
 }
 
 function attestWatchInput(input: {
+  cache?: ForeignWalletPreviousTransactionCache;
   coin: ForeignWalletCoin;
   crypto: ForeignWalletCrypto;
   nonce?: number;
@@ -298,7 +367,12 @@ function attestWatchInput(input: {
   const txHash = hexToBytes(watchInput.txHash, 32, 'input transaction hash');
   const scriptPubKey = hexToBytes(watchInput.scriptPubKey, 25, 'input script');
   const path = parseWalletPath(watchInput.path);
-  const previousTransaction = parsePreviousTransaction(watchInput.previousTransactionHex, input.crypto);
+  const previousTransaction = parseCachedPreviousTransaction(
+    watchInput.previousTransactionHex,
+    watchInput.txHash,
+    input.crypto,
+    input.cache,
+  );
 
   if (previousTransaction.txId !== watchInput.txHash.trim().toLowerCase()) {
     throw new Error('Foreign wallet input transaction hash does not match its raw transaction.');
@@ -463,7 +537,29 @@ function serializeTransaction(input: {
   return Uint8Array.from(bytes);
 }
 
-function parsePreviousTransaction(rawHex: string, crypto: ForeignWalletCrypto) {
+/**
+ * The memoized door. The cache key is the DECLARED hash, which is only a hint:
+ * the cached body must be byte-identical to the one being attested, and the
+ * parse itself still proves the hash, so a reused entry can never launder a
+ * mismatched transaction past the check below.
+ */
+function parseCachedPreviousTransaction(
+  rawHex: string,
+  declaredTxHash: string,
+  crypto: ForeignWalletCrypto,
+  cache?: ForeignWalletPreviousTransactionCache,
+): ParsedPreviousTransaction {
+  if (!cache) return parsePreviousTransaction(rawHex, crypto);
+  const key = declaredTxHash.trim().toLowerCase();
+  const cached = cache.entries.get(key);
+  if (cached && cached.rawHex === rawHex) return cached.parsed;
+  const parsed = parsePreviousTransaction(rawHex, crypto);
+  cache.parses += 1;
+  if (!cached) cache.entries.set(key, { parsed, rawHex });
+  return parsed;
+}
+
+function parsePreviousTransaction(rawHex: string, crypto: ForeignWalletCrypto): ParsedPreviousTransaction {
   const normalized = rawHex.trim().toLowerCase();
 
   if (normalized.length > MAX_PREVIOUS_TRANSACTION_BYTES * 2

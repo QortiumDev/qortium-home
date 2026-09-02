@@ -2,13 +2,16 @@ import * as fs from 'node:fs'
 import path from 'node:path'
 import {
   addSignedForeignWalletPendingTransaction,
+  clearReconciledForeignWalletPendingTransaction,
   confirmForeignWalletBroadcastSuccess,
   createEmptyForeignWalletTransactionJournal,
   findForeignWalletPendingTransactionConflict,
   FOREIGN_WALLET_TRANSACTION_JOURNAL_MAX_BYTES,
   markForeignWalletBroadcastAttempted,
   normalizeConfirmedForeignWalletTransactionId,
+  releaseNeverBroadcastForeignWalletPendingTransaction,
   sanitizeForeignWalletTransactionJournal,
+  selectForeignWalletPendingTransactions,
   type ForeignWalletPendingTransaction,
 } from './foreign-wallet-transaction-journal.js'
 
@@ -134,6 +137,37 @@ export function createForeignWalletTransactionJournalStore(
     }
   }
 
+  function clearReconciled(
+    userData: string,
+    input: Pick<ForeignWalletPendingTransaction, 'chainId' | 'coin' | 'txId' | 'walletFingerprint'>,
+    observedTxId: unknown,
+  ) {
+    return write(
+      userData,
+      clearReconciledForeignWalletPendingTransaction(read(userData), input, observedTxId),
+    )
+  }
+
+  function releaseNeverBroadcast(
+    userData: string,
+    input: Pick<ForeignWalletPendingTransaction, 'chainId' | 'coin' | 'txId' | 'walletFingerprint'>,
+    now: number,
+    minimumAgeMs: number,
+  ) {
+    return write(
+      userData,
+      releaseNeverBroadcastForeignWalletPendingTransaction(read(userData), input, now, minimumAgeMs),
+    )
+  }
+
+  function listPending(
+    userData: string,
+    input?: Pick<ForeignWalletPendingTransaction, 'chainId' | 'coin' | 'walletFingerprint'>,
+  ) {
+    const journal = read(userData)
+    return input ? selectForeignWalletPendingTransactions(journal, input) : journal.entries
+  }
+
   function findConflict(
     userData: string,
     input: Pick<ForeignWalletPendingTransaction, 'chainId' | 'coin' | 'outpoints' | 'walletFingerprint'>,
@@ -142,9 +176,12 @@ export function createForeignWalletTransactionJournalStore(
   }
 
   return Object.freeze({
+    clearReconciled,
     confirmBroadcastSuccess,
     findConflict,
+    listPending,
     read,
+    releaseNeverBroadcast,
     recordBroadcastAttempt,
     recordSigned,
   })
@@ -157,3 +194,6 @@ export const recordSignedForeignWalletPendingTransaction = DEFAULT_STORE.recordS
 export const recordForeignWalletBroadcastAttempt = DEFAULT_STORE.recordBroadcastAttempt
 export const confirmStoredForeignWalletBroadcastSuccess = DEFAULT_STORE.confirmBroadcastSuccess
 export const findStoredForeignWalletPendingTransactionConflict = DEFAULT_STORE.findConflict
+export const clearReconciledStoredForeignWalletPendingTransaction = DEFAULT_STORE.clearReconciled
+export const listStoredForeignWalletPendingTransactions = DEFAULT_STORE.listPending
+export const releaseNeverBroadcastStoredForeignWalletPendingTransaction = DEFAULT_STORE.releaseNeverBroadcast

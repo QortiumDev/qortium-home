@@ -3,13 +3,16 @@ import { createHash } from 'node:crypto'
 
 import {
   addSignedForeignWalletPendingTransaction,
+  clearReconciledForeignWalletPendingTransaction,
   confirmForeignWalletBroadcastSuccess,
+  releaseNeverBroadcastForeignWalletPendingTransaction,
   createEmptyForeignWalletTransactionJournal,
   findForeignWalletPendingTransactionConflict,
   FOREIGN_WALLET_TRANSACTION_JOURNAL_MAX_ENTRIES,
   markForeignWalletBroadcastAttempted,
   sanitizeForeignWalletPendingTransaction,
   sanitizeForeignWalletTransactionJournal,
+  selectForeignWalletPendingTransactions,
   type ForeignWalletPendingTransaction,
 } from './foreign-wallet-transaction-journal.js'
 import { getForeignWalletMainnetChainId } from './foreign-wallet-spend-context.js'
@@ -176,5 +179,142 @@ assert.throws(() => sanitizeForeignWalletTransactionJournal({
   entries: [entry(), entry({ txId: 'aa'.repeat(32) })],
   version: 1,
 }), /conflicting outpoint/)
+
+// --- reconciliation -------------------------------------------------------
+//
+// Clearing an entry on the strength of the wallet's own history takes exactly
+// the proof a broadcast reply takes: the byte-exact transaction id. What it
+// adds is the ability to settle a 'signed' entry, which is what a crash
+// between the write-ahead record and the broadcast attempt leaves behind.
+
+{
+  const signedEntry = entry()
+  const journal = addSignedForeignWalletPendingTransaction(
+    createEmptyForeignWalletTransactionJournal(),
+    signedEntry,
+  )
+  const key = {
+    chainId: signedEntry.chainId,
+    coin: signedEntry.coin,
+    txId: signedEntry.txId,
+    walletFingerprint: signedEntry.walletFingerprint,
+  }
+  // A 'signed' entry can be settled; confirmBroadcastSuccess cannot do that.
+  assert.throws(
+    () => confirmForeignWalletBroadcastSuccess(journal, key, signedEntry.txId),
+    /not marked as broadcast attempted/,
+  )
+  assert.equal(clearReconciledForeignWalletPendingTransaction(journal, key, signedEntry.txId).entries.length, 0)
+
+  // ...and so can a broadcast-attempted one.
+  const attempted = markForeignWalletBroadcastAttempted(journal, key, signedEntry.createdAt + 1)
+  assert.equal(clearReconciledForeignWalletPendingTransaction(attempted, key, signedEntry.txId).entries.length, 0)
+
+  // But only against the EXACT id. No prefix, no case trick, no absence.
+  for (const wrong of [
+    'ab'.repeat(32),
+    `${signedEntry.txId.slice(0, 62)}00`,
+    signedEntry.txId.slice(0, 62),
+    '',
+    null,
+    undefined,
+  ]) {
+    assert.throws(
+      () => clearReconciledForeignWalletPendingTransaction(journal, key, wrong),
+      /Broadcast foreign transaction ID|is invalid/,
+      `a mismatched id must never clear an entry: ${String(wrong)}`,
+    )
+  }
+  // An entry that is not there cannot be "cleared" into existence either.
+  assert.throws(
+    () => clearReconciledForeignWalletPendingTransaction(
+      createEmptyForeignWalletTransactionJournal(),
+      key,
+      signedEntry.txId,
+    ),
+    /was not found/,
+  )
+
+  // The read-only selector: this wallet and coin only, oldest first.
+  const second = entry({
+    createdAt: signedEntry.createdAt + 5,
+    outpoints: [{ outputIndex: 7, txHash: 'bc'.repeat(32) }],
+    txId: 'bd'.repeat(32),
+  })
+  const both = addSignedForeignWalletPendingTransaction(journal, second)
+  const selected = selectForeignWalletPendingTransactions(both, {
+    chainId: signedEntry.chainId,
+    coin: signedEntry.coin,
+    walletFingerprint: signedEntry.walletFingerprint,
+  })
+  assert.deepEqual(selected.map((candidate) => candidate.txId), [signedEntry.txId, second.txId])
+  assert.equal(
+    selectForeignWalletPendingTransactions(both, {
+      chainId: getForeignWalletMainnetChainId('LTC'),
+      coin: 'LTC',
+      walletFingerprint: signedEntry.walletFingerprint,
+    }).length,
+    0,
+  )
+}
+
+// --- releasing what was never broadcast ------------------------------------
+//
+// Stage 'signed' means the broadcast-attempt mark never reached disk, and that
+// mark is fsynced BEFORE the single POST — so the bytes never left. Both the
+// stage rule and the age guard are enforced here, so no caller can release a
+// transaction that was attempted, or one young enough to be in flight.
+
+{
+  const AGE = 10 * 60_000
+  const signedEntry = entry({ createdAt: 1_000_000 })
+  const journal = addSignedForeignWalletPendingTransaction(
+    createEmptyForeignWalletTransactionJournal(),
+    signedEntry,
+  )
+  const key = {
+    chainId: signedEntry.chainId,
+    coin: signedEntry.coin,
+    txId: signedEntry.txId,
+    walletFingerprint: signedEntry.walletFingerprint,
+  }
+
+  // Exactly at the window: released.
+  assert.equal(
+    releaseNeverBroadcastForeignWalletPendingTransaction(journal, key, signedEntry.createdAt + AGE, AGE).entries.length,
+    0,
+  )
+  // One millisecond short of it: refused, because a send elsewhere could still
+  // be holding this transaction.
+  assert.throws(
+    () => releaseNeverBroadcastForeignWalletPendingTransaction(journal, key, signedEntry.createdAt + AGE - 1, AGE),
+    /too recent to release/,
+  )
+
+  // Age never releases a transaction whose bytes left: proof is the only way.
+  const attempted = markForeignWalletBroadcastAttempted(journal, key, signedEntry.createdAt + 1)
+  assert.throws(
+    () => releaseNeverBroadcastForeignWalletPendingTransaction(attempted, key, signedEntry.createdAt + AGE * 10, AGE),
+    /already attempted and needs its outcome proved/,
+  )
+
+  assert.throws(
+    () => releaseNeverBroadcastForeignWalletPendingTransaction(
+      createEmptyForeignWalletTransactionJournal(),
+      key,
+      signedEntry.createdAt + AGE,
+      AGE,
+    ),
+    /was not found/,
+  )
+  // A caller cannot disable the guard by asking for a zero or nonsense window.
+  for (const badAge of [0, -1, 1.5, Number.NaN]) {
+    assert.throws(
+      () => releaseNeverBroadcastForeignWalletPendingTransaction(journal, key, signedEntry.createdAt + AGE, badAge),
+      /release age is invalid/,
+      `age ${badAge}`,
+    )
+  }
+}
 
 console.log('Foreign wallet transaction journal contract tests passed.')

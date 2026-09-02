@@ -1,8 +1,10 @@
 import {
+  assertForeignWalletSigningWorkBounds,
   assertForeignWalletWatchInputBounds,
   attestForeignWalletWatchInput,
   validateForeignWalletRecipient,
   type ForeignWalletPaymentOutput,
+  type ForeignWalletPreviousTransactionCache,
   type ForeignWalletWatchInput,
 } from './foreign-wallet-transaction.js';
 import type { ForeignWalletCoin, ForeignWalletCrypto } from './foreign-wallets.js';
@@ -24,6 +26,7 @@ export type ForeignWalletSpendPlan = {
 
 export function planForeignWalletSpend(input: {
   amount?: bigint;
+  cache?: ForeignWalletPreviousTransactionCache;
   coin: ForeignWalletCoin;
   crypto: ForeignWalletCrypto;
   feePerByte: bigint;
@@ -64,6 +67,7 @@ export function planForeignWalletSpend(input: {
     seenOutpoints.add(outpoint);
 
     attestForeignWalletWatchInput({
+      cache: input.cache,
       coin: input.coin,
       crypto: input.crypto,
       nonce: input.nonce,
@@ -77,6 +81,11 @@ export function planForeignWalletSpend(input: {
   if (candidates.length === 0) {
     throw new Error('Foreign wallet has no confirmed spendable inputs.');
   }
+
+  // The worst case this plan could reach: every candidate selected, with a
+  // change output. Refused here so an unspendable shape is named before any
+  // signing work starts rather than after it.
+  assertForeignWalletSigningWorkBounds(candidates.length, [recipient.scriptPubKey.byteLength, 25]);
 
   if (sendMax) {
     const inputAmount = sumAtomic(candidates.map((entry) => entry.value));

@@ -37,6 +37,12 @@ import {
   normalizeHomeV2ResponseMaxBytes,
   withHomeV2SelectedAddress,
 } from '../../electron/home-v2-app-actions'
+import {
+  buildHomeV2NodeSettingsApprovalRows,
+  createHomeV2NodeSettingsUpdateResult,
+  homeV2WritableSettingKeys,
+  normalizeHomeV2NodeSettingsPatch,
+} from '../../electron/home-v2-node-settings'
 import { isHomeV2GroupMutationAction } from '../../electron/home-v2-group-mutation-actions'
 import { isHomeV2RatingAction } from '../../electron/home-v2-rating-actions'
 import { isHomeV2PaymentAction } from '../../electron/home-v2-payment-actions'
@@ -196,6 +202,16 @@ export interface HomeV2NodeClient {
     server: HomeV2ForeignServerRequest,
     approvedRevision: string,
   ): Promise<unknown>
+  nodeSettingsApproval?(request: Record<string, unknown>): Promise<{
+    readonly origin: string
+    readonly revision: string
+    readonly rows: readonly { readonly label: string; readonly value: string }[]
+  }>
+  nodeSettingsWrite?(
+    request: Record<string, unknown>,
+    approvedRevision: string,
+  ): Promise<unknown>
+  nodeRestart?(approvedRevision: string): Promise<unknown>
 }
 
 export interface HomeV2CoreOnChainUpdateStatus {
@@ -252,8 +268,9 @@ export interface PortableNodeClientDependencies {
   requestJson(
     url: string,
     // DELETE carries a body for REMOVE_FROM_LIST — Core takes the item batch
-    // as a bodied DELETE, exactly as it does on desktop.
-    method?: 'DELETE' | 'GET' | 'HEAD' | 'POST',
+    // as a bodied DELETE, exactly as it does on desktop. PATCH carries the
+    // node-settings patch for UPDATE_NODE_SETTINGS.
+    method?: 'DELETE' | 'GET' | 'HEAD' | 'PATCH' | 'POST',
     timeoutMs?: number,
     headers?: Readonly<Record<string, string>>,
     disableRedirects?: boolean,
@@ -1348,6 +1365,91 @@ export function createPortableNodeClient(
         apiKey,
       )
     },
+    /**
+     * The approval PLAN for UPDATE_NODE_SETTINGS: validates the patch,
+     * resolves admin trust, checks every key against the node's own writable
+     * declaration, and derives the current/proposed rows — all BEFORE any
+     * prompt is raised. The key never leaves the client; the React layer
+     * gets rows, the origin for the Node row, and the trust revision that
+     * binds the approval to this node and credential.
+     */
+    async nodeSettingsApproval(request) {
+      const patch = normalizeHomeV2NodeSettingsPatch(request)
+      const { nodeApiUrl, revision } = await requireAdminNode('Updating node settings')
+      const metadataResponse = await dependencies.requestJson(
+        `${nodeApiUrl}/admin/settings/metadata`,
+        'GET',
+        LIST_REQUEST_TIMEOUT_MS,
+        undefined,
+        true,
+      )
+      if (!metadataResponse.ok) {
+        throw new Error(`Node settings metadata lookup returned HTTP ${metadataResponse.status}.`)
+      }
+      const settingsResponse = await dependencies.requestJson(
+        `${nodeApiUrl}/admin/settings`,
+        'GET',
+        LIST_REQUEST_TIMEOUT_MS,
+        undefined,
+        true,
+      )
+      if (!settingsResponse.ok) {
+        throw new Error(`Node settings lookup returned HTTP ${settingsResponse.status}.`)
+      }
+      const writableKeys = homeV2WritableSettingKeys(metadataResponse.data)
+      for (const key of Object.keys(patch)) {
+        if (!writableKeys.has(key)) throw new Error(`Node setting ${key} is not writable.`)
+      }
+      return {
+        origin: nodeApiUrl,
+        revision,
+        rows: buildHomeV2NodeSettingsApprovalRows(settingsResponse.data, patch),
+      }
+    },
+    async nodeSettingsWrite(request, approvedRevision) {
+      const patch = normalizeHomeV2NodeSettingsPatch(request)
+      const { apiKey, nodeApiUrl, revision } = await requireAdminNode('Updating node settings')
+      // The approval named one node and one credential; a key rotated or an
+      // address changed while the prompt was open must not inherit it.
+      if (revision !== approvedRevision) {
+        throw new Error('The selected Qortium node or its API key changed before the write could start.')
+      }
+      const response = await dependencies.requestJson(
+        `${nodeApiUrl}/admin/settings`,
+        'PATCH',
+        LIST_REQUEST_TIMEOUT_MS,
+        { 'Content-Type': 'application/json', 'X-API-KEY': apiKey },
+        true,
+        JSON.stringify(patch),
+      )
+      if (!response.ok) {
+        throw Object.assign(new Error(`Node settings update failed with HTTP ${response.status}.`), {
+          status: response.status,
+        })
+      }
+      // Core's result is rebuilt from an allowlist; the node's settings file
+      // path never reaches the app (see home-v2-node-settings.ts).
+      return createHomeV2NodeSettingsUpdateResult(response.data)
+    },
+    async nodeRestart(approvedRevision) {
+      const { apiKey, nodeApiUrl, revision } = await requireAdminNode('Restarting the node')
+      if (revision !== approvedRevision) {
+        throw new Error('The selected Qortium node or its API key changed before the write could start.')
+      }
+      const response = await dependencies.requestJson(
+        `${nodeApiUrl}/admin/restart`,
+        'GET',
+        LIST_REQUEST_TIMEOUT_MS,
+        { 'X-API-KEY': apiKey },
+        true,
+      )
+      if (!response.ok) {
+        throw Object.assign(new Error(`Node restart request failed with HTTP ${response.status}.`), {
+          status: response.status,
+        })
+      }
+      return { accepted: true }
+    },
     async foreignWalletRead(action, wallet, approvedRevision) {
       const endpoint: ForeignWalletReadEndpoint = action === 'GET_WALLET_BALANCE'
         ? 'walletbalance'
@@ -1742,6 +1844,10 @@ export function createPortableNodeClient(
             : null
           const foreignWalletTrustedCoreAvailable = !!qortiumSummary?.nodeApiUrl &&
             qortiumSummary.capabilities.read && qortiumSummary.adminTrusted === true
+          // The send flag is deliberately NOT passed: Android has no
+          // Home-local foreign signer yet, so discovery must keep answering
+          // send:false/NONE here until that lands (PR 2). Reading it off the
+          // trust flag would advertise a capability this host does not have.
           return projectHomeV2CrosschainReadResult(
             action,
             chainReadRequest,
@@ -1897,6 +2003,8 @@ export function createPortableNodeClient(
           ? '/admin/status'
           : action === 'GET_NODE_INFO'
             ? '/admin/info'
+            : action === 'GET_NODE_SETTINGS_METADATA'
+              ? '/admin/settings/metadata'
             : action === 'FETCH_NODE_API' || action === 'FETCH_QORTAL_NODE_API'
               ? normalizeHomeV2ReadPath(request.path)
               : null
@@ -1913,7 +2021,7 @@ export function createPortableNodeClient(
       if (bodyLength > normalizeHomeV2ResponseMaxBytes(request.maxBytes)) {
         throw new Error('Node API response exceeded the requested size limit.')
       }
-      if (action === 'GET_NODE_STATUS' || action === 'GET_NODE_INFO') {
+      if (action === 'GET_NODE_STATUS' || action === 'GET_NODE_INFO' || action === 'GET_NODE_SETTINGS_METADATA') {
         if (!response.ok) throw new Error(`Node request returned HTTP ${response.status}.`)
         return response.data
       }

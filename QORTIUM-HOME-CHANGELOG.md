@@ -32,6 +32,170 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## fix(qdn): the publish preview actually opens
+
+Explore's "Preview local file" said "Preview opened in Home." and then nothing
+appeared. The file really was sent to your own Core, and Core really did build
+the preview -- the last step, opening it in a tab, was the one that silently did
+nothing.
+
+Home 2 keeps a list of apps in its shell state that was only ever filled in by
+the design fixture, never by the real application: every app tab you open is
+built from the address you opened, on the spot. The preview looked the
+requesting app up in that empty list, found nothing, and gave up without a
+word. Because Home tells the app the preview opened as soon as it has handed it
+over, the app had already congratulated you.
+
+The preview tab is now rebuilt from the tab that asked for it, which is both
+correct and stricter: a preview can only ever borrow the identity and address of
+the app that requested it. The tab is also named after the file you picked, so a
+preview is easy to tell apart from the app beside it. The empty list is now
+labelled as fixture-only so nothing reads it that way again.
+
+Two new guards come with it, because neither layer alone could see this failure:
+a unit test for the shell's decision, and a headless end-to-end run
+(`npm run smoke:desktop:qdn-publish-preview`) that picks a file, previews it,
+and fails unless a real preview tab opens and renders.
+
+## fix(qdn): folder previews are back, and preview is only offered where it works
+
+Explore's "Preview local file" button lets you look at something before you
+publish it. Two things were wrong with it in Home 2.
+
+Folders could not be chosen at all. An app is allowed to ask Home for either a
+file or a folder, but the request to pick a folder was being thrown away
+somewhere between the app and the file dialog, so everyone got a file picker no
+matter what they asked for -- and a website that lives in a folder could not be
+previewed. Asking for a folder works again. Home checks that the folder really
+does contain a home page (`index.html` or one of the names Qortium Core also
+accepts), adds up its contents without opening any of them, and refuses a
+folder that is enormous or that contains a shortcut pointing somewhere outside
+itself, because previewing hands the folder to your node and your node would
+follow that shortcut to a file you never chose. A folder can only be previewed,
+never published -- publishing is untouched by this change.
+
+Home also no longer hands your node the folder itself. It takes its own private
+copy first, in a temporary place only Home can read, and checks every rule again
+while it copies -- so a shortcut or an extra gigabyte that appears in the folder
+in the seconds after you picked it is caught rather than followed. The copy is
+deleted as soon as your node has finished with it, and the same is now true of a
+single file, which is copied rather than pointed at. If a preview fails you get
+a short plain sentence about what went wrong; the technical detail, including
+any location on your disk, stays in Home's own log instead of being handed to
+the app that asked.
+
+Preview was also being offered in two places it could never work. It renders
+your file on your OWN node, and Home only ever does that on a local Qortium
+Core you run yourself. Home for Android does not run one, and Home has no local
+key for the Qortal network, so in both cases the button was there and the answer
+was always no. It is no longer offered in either place, and where an app asks
+anyway it now gets a straight answer about local Cores instead of a message
+about transaction signing, which was never the reason. If Android gains this
+later it will use the upload form of Core's preview endpoint, which takes the
+file itself rather than a path on the phone.
+
+## feat(qdn): Home can send foreign coins again, and signs them itself
+
+Qortium Home 2 could show a Bitcoin, Litecoin, Dogecoin, DigiByte, Ravencoin,
+Dash, Namecoin or Firo balance and hand out a receive address, but it could not
+spend any of it. Sending is back, on Home 2's terms rather than by reviving the
+old code.
+
+Home 1 sent a foreign coin by deriving that wallet's master PRIVATE key from
+your account and posting it to your node, which built, signed and broadcast the
+transaction for you. Home 2 never does that. It asks your node only what your
+wallet already owns, then builds the transaction, signs it and works out its
+identity entirely on your own device, and asks the node to do one thing: pass
+the finished bytes to the coin's network. Your seed, your private keys and your
+extended private key stay in Home.
+
+The approval is its own prompt, deliberately separate from a Qortium payment.
+It names the coin and the chain, shows the amount both as a decimal and as the
+exact whole units being signed, names the recipient, shows the network fee and
+its rate, and says where change goes — back to an address the wallet is already
+spending from. It also states, in Home's own words rather than the app's, that
+no seed or private key is shared. Approving covers that one send and nothing
+else: there is no "always allow" for spending, and one approval can never
+satisfy another.
+
+Each send is written down before it is broadcast, and broadcast exactly once.
+If the answer is ambiguous — a timeout, a dropped connection, a node that
+acknowledges a different transaction — Home does not try again, because a
+failure to hear back is not proof the network never saw it. The record is kept
+instead, the outputs it spends are held back from any further send, and Home
+tells you which transaction to reconcile. A send is only forgotten once the
+node returns the exact transaction identity Home computed itself.
+
+Two numbers come from your node rather than from you: the fee rate it
+recommends, and the smallest output the coin's network will carry. Both move
+money without appearing in the amount you typed — and the second one matters
+more than it looks, because change too small to be worth returning is added to
+the fee instead. Home now holds both to a fixed ceiling for each coin, taken
+from the values Qortium Core itself declares for that chain rather than guessed,
+with generous room above them. That distinction is not academic: a Dogecoin's
+smallest usable output is a whole coin, hundreds of thousands of times
+Bitcoin's, so a ceiling picked by eye would have refused every honest Dogecoin
+send. A node reporting something beyond the ceiling is refused outright rather
+than quietly obeyed, and the finished transaction is checked again: it cannot
+pay a fee out of proportion to its size, and it can never pay more in fee than
+it sends — if that is really what you want, Home points you at sending the
+whole balance instead. The approval shows the rate you are actually paying,
+which is not always the rate quoted.
+
+One thing worth stating plainly: when Home checks a wallet's history to settle
+an unresolved send, it takes your trusted node's word for what it finds. That
+is a deliberate choice rather than an oversight. The same node already tells
+Home which coins the wallet holds, what the fee should be, and carries the
+finished transaction to the network, so it is the thing being trusted either
+way. The list of unresolved sends stays visible in Home's own settings for
+anyone who would rather check for themselves.
+
+If a send's outcome could not be established, the record Home keeps of it now
+has a way out. The next time you send from the same wallet, Home asks your node
+for that wallet's own transaction history and closes the record if — and only
+if — the exact transaction it signed is there. If it is not, the new send stops
+and tells you which transaction is unresolved. Nothing is ever assumed, retried
+or thrown away on a guess, and Home's own settings can show you what is
+outstanding. No app can see or clear that list.
+
+There is one case Home can settle without asking anyone, because it already
+knows the answer. Home writes down that it is about to send before it sends,
+and writes down the attempt itself before making it. A record that never
+reached the second step is a transaction that was never sent at all — its bytes
+were never even kept. After ten minutes, long enough that any send it could
+have belonged to would have expired anyway, Home releases that record and notes
+it in the log. Anything that did reach the second step still needs the proof
+above.
+
+Sending is offered only when your node is one Home administratively trusts, an
+account is unlocked, and that node is actually new enough to support it — Home
+checks for the feature rather than assuming it, so an older node says sending
+is unavailable instead of failing at the last moment. That check only counts as
+a yes when the node answers affirmatively; if it cannot be reached, or answers
+in a way that settles nothing, Home says sending is unavailable and tries again
+shortly rather than assuming the best. On a public node apps are
+told plainly that sending is unavailable rather than being allowed to try. It
+is available for the eight chains above only. This release adds the capability
+and its tests; no funded send has been made yet, and DigiByte, Namecoin and
+Firo still hit the same node-side server problem their balance reads do.
+
+## feat(qdn): apps can manage your node's settings again
+
+The Node app could show your node under Home 2 but no longer change it: the
+three bridge actions it uses to edit Core settings and restart the node were
+still on the not-yet-carried list. They are now implemented, on Home 2's
+terms rather than by reviving old code. Editing settings and restarting are
+offered only for a node you actually administer — the Core Home runs itself,
+or a custom node you attached your own API key to, on desktop and Android
+alike — and never for a public node. Every change asks you first, every
+time, listing each setting with its current value and the proposed one, and
+a restart request says plainly what it will do. Home checks the request
+against what your node itself declares changeable before you are ever asked,
+refuses anything too large to show in full, and re-checks that the node and
+key have not changed while the dialog was open. What the app learns back is
+only whether the change saved and which settings want a restart — details
+like where your node keeps its files stay on the node.
+
 ## fix(qdn): restore the Node app's settings and peers reads
 
 The Node app's dashboard came back empty under Home 2: the Core settings
