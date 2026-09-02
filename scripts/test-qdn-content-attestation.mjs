@@ -627,4 +627,105 @@ await assert.rejects(attestPublicQdnPublish({
   source: { bytes: nestedSource, filename: 'docs-site.zip', unpackZip: true },
 }), /MARKER: reached fetchArtifact/);
 
+// countZipStructuralElements itself must now enforce the same
+// MAX_ZIP_ENTRIES bound unzipFiles enforces - and enforce it from INSIDE
+// the size-margin gate, before attestPublicQdnPublish ever calls
+// fetchArtifact. Before this fix, the margin gate did not count-cap at
+// all, so an over-the-limit entry count would happily compute a
+// (still-bounded-looking, but wrongly generous) margin and let a tiny
+// claimed rawSize sail through to fetchArtifact. Reuse the existing
+// 10,001-entry flood fixture and prove fetchArtifact is never reached -
+// if it were, the marker error below would surface instead of the
+// entry-count rejection.
+await assert.rejects(attestPublicQdnPublish({
+  details: {
+    compression: 0,
+    data: randomBytes(32),
+    dataType: 0,
+    metadataHash: new Uint8Array(0),
+    rawSize: 1024,
+    secret: randomBytes(32),
+  },
+  expectedMetadata: noMetadata,
+  fetchArtifact: async () => {
+    throw new Error('MARKER: reached fetchArtifact despite an over-the-limit entry count');
+  },
+  source: { bytes: floodSource, filename: 'flood.zip', unpackZip: true },
+}), /entry-count limit/);
+
+// Same property for the MAX_ZIP_PATH_BYTES bound - reuse the existing
+// oversized-path fixture and prove the margin gate rejects it itself,
+// before ever calling fetchArtifact.
+await assert.rejects(attestPublicQdnPublish({
+  details: {
+    compression: 0,
+    data: randomBytes(32),
+    dataType: 0,
+    metadataHash: new Uint8Array(0),
+    rawSize: 1024,
+    secret: randomBytes(32),
+  },
+  expectedMetadata: noMetadata,
+  fetchArtifact: async () => {
+    throw new Error('MARKER: reached fetchArtifact despite an oversized path');
+  },
+  source: { bytes: longPathSource, filename: 'long.zip', unpackZip: true },
+}), /oversized path/);
+
+// Performance bound: a pathological but limit-compliant zip - many entries,
+// each with a maximally deep, near-MAX_ZIP_PATH_BYTES, uniquely-prefixed
+// path - so the implied directory count vastly outnumbers MAX_ZIP_ENTRIES
+// if fully derived (this is the exact shape the adversarial review used to
+// measure multi-second, multi-GB cost from the unbounded version: entries
+// within the count limit, paths within the path-length limit, but shaped to
+// maximize derived-directory blowup). After the fix, the running total
+// (files counted so far + directories found so far) is capped at
+// MAX_ZIP_ENTRIES and prefix derivation stops the instant that cap is
+// reached, so this must complete quickly regardless of how deep/wide the
+// pathological shape is.
+const perfEntries = {};
+const PERF_ENTRY_COUNT = 4_000;
+for (let index = 0; index < PERF_ENTRY_COUNT; index += 1) {
+  const segments = [];
+  let pathBytes = 0;
+  let segmentIndex = 0;
+  for (;;) {
+    const segment = `e${index}s${segmentIndex}`;
+    const nextBytes = pathBytes + segment.length + 1;
+    if (nextBytes > 1000) break;
+    segments.push(segment);
+    pathBytes = nextBytes;
+    segmentIndex += 1;
+  }
+  perfEntries[`${segments.join('/')}/f.txt`] = Uint8Array.of(0);
+}
+const perfSource = zipSync(perfEntries, { level: 0 });
+const perfStart = Date.now();
+await assert.rejects(attestPublicQdnPublish({
+  details: {
+    compression: 0,
+    data: randomBytes(32),
+    dataType: 0,
+    metadataHash: new Uint8Array(0),
+    // Tiny relative to any margin countZipStructuralElements could compute
+    // (even its maximum possible margin, MAX_ZIP_ENTRIES structural
+    // elements, is on the order of tens of MB) - stays comfortably within
+    // the margin so the gate passes and execution reaches fetchArtifact,
+    // meaning the timed interval below is dominated by
+    // countZipStructuralElements's own cost, not by an early rejection.
+    rawSize: 1024,
+    secret: randomBytes(32),
+  },
+  expectedMetadata: noMetadata,
+  fetchArtifact: async () => {
+    throw new Error('MARKER: reached fetchArtifact after the margin gate');
+  },
+  source: { bytes: perfSource, filename: 'perf.zip', unpackZip: true },
+}), /MARKER: reached fetchArtifact/);
+const perfElapsedMs = Date.now() - perfStart;
+assert.ok(
+  perfElapsedMs < 5_000,
+  `bounded structural-element counting must complete quickly even for a pathological (deep, near-path-limit, many-entry) zip; took ${perfElapsedMs}ms`,
+);
+
 console.log('Public QDN content attestation tests passed.');

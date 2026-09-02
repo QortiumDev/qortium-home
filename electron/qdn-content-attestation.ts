@@ -151,27 +151,53 @@ function unzipFiles(bytes: Uint8Array, stripDataRoot: boolean, maxInflatedBytes:
  * needs a count, so its filter always returns false, meaning fflate's
  * unzipSync never inflates anything - it only reads entry metadata
  * (name, sizes) from the zip's local/central headers.
+ *
+ * Enforces the SAME MAX_ZIP_ENTRIES and MAX_ZIP_PATH_BYTES bounds
+ * unzipFiles enforces, and stops deriving directory prefixes once the
+ * running total reaches MAX_ZIP_ENTRIES - directories are DERIVED from
+ * file paths (every path segment implies a parent directory), so an
+ * entry-count cap alone would not bound the derived directory count;
+ * capping the combined running total while deriving is what actually
+ * bounds both this function's own cost and the caller's resulting size
+ * margin.
  */
 function countZipStructuralElements(bytes: Uint8Array): number {
   const paths: string[] = [];
+  let entryCount = 0;
   try {
     unzipSync(bytes, {
       filter(file) {
+        entryCount += 1;
+        if (entryCount > MAX_ZIP_ENTRIES) {
+          throw new Error('QDN ZIP content exceeded Home\'s entry-count limit.');
+        }
+        if (new TextEncoder().encode(file.name).byteLength > MAX_ZIP_PATH_BYTES) {
+          throw new Error('QDN ZIP content contained an oversized path.');
+        }
         if (!file.name.endsWith('/')) paths.push(file.name);
         return false;
       },
     });
-  } catch {
-    throw new Error('QDN content attestation could not decode the packaged approved source ZIP.');
+  } catch (error) {
+    throw error instanceof Error && (error.message.includes('entry-count limit') || error.message.includes('oversized path'))
+      ? error
+      : new Error('QDN content attestation could not decode the packaged approved source ZIP.');
   }
   const directories = new Set<string>();
-  for (const path of paths) {
+  let total = paths.length;
+  outer: for (const path of paths) {
     const parts = path.split('/');
-    for (let index = 1; index < parts.length; index += 1) {
-      directories.add(parts.slice(0, index).join('/'));
+    let prefix = '';
+    for (let index = 0; index < parts.length - 1; index += 1) {
+      prefix = index === 0 ? parts[0] : `${prefix}/${parts[index]}`;
+      if (!directories.has(prefix)) {
+        directories.add(prefix);
+        total += 1;
+        if (total > MAX_ZIP_ENTRIES) break outer;
+      }
     }
   }
-  return paths.length + directories.size;
+  return Math.min(total, MAX_ZIP_ENTRIES);
 }
 
 function expectedFiles(source: QdnPublishAttestationSource) {
