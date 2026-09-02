@@ -375,6 +375,8 @@ import {
   normalizeHomeV2EncryptDataRequest,
 } from './home-v2-encryption-actions.js'
 import type { HomeV2PublishSourceBinding } from './home-v2-publish-source-tokens.js'
+import { normalizeHomeV2PublishSourceKind } from './home-v2-publish-source-tokens.js'
+import { getHomeV2PublishSizeCeiling } from './home-v2-publish-limits.js'
 import {
   appendHomeV2GroupMembershipSignature,
   buildUnsignedQortalGroupMembershipTransactionBytes,
@@ -2349,15 +2351,18 @@ async function selectHomeV2PublicPublishSource(
   protocol: HomeV2AppBridgeProtocol,
   network: HomeV2AppNetwork,
   routeRevision: string,
+  requestValue: Record<string, unknown>,
 ) {
   const node = await getHomeV2ReadableNode(network)
+  const kind = normalizeHomeV2PublishSourceKind(requestValue.kind)
+  const ceilingBytes = await getHomeV2PublishSizeCeiling(network, node.nodeApiUrl)
   return selectHomeV2DesktopPublishSource(context.windowId, homeV2PublishSourceBinding({
     context,
     network,
     nodeApiUrl: node.nodeApiUrl,
     protocol,
     routeRevision,
-  }))
+  }), kind, ceilingBytes)
 }
 
 async function publishHomeV2PublicPublishSource(
@@ -2439,6 +2444,7 @@ async function publishHomeV2PublicPublishSource(
     ...(network === 'qortal' ? { expectedFeeAtomic: feeAtomic } : {}),
     fileName: source.fileName,
     isStillValid,
+    isZip: source.kind === 'directory',
     network,
     nodeApiUrl: node.nodeApiUrl,
     resource: request.resource,
@@ -2598,6 +2604,7 @@ async function publishHomeV2MultiplePublishSources(
         ...(network === 'qortal' ? { expectedFeeAtomic: feeAtomic } : {}),
         fileName: entry.source.fileName,
         isStillValid,
+        isZip: entry.source.kind === 'directory',
         network,
         nodeApiUrl: node.nodeApiUrl,
         resource: entry.item.resource,
@@ -10064,6 +10071,7 @@ async function handleRequestWithRuntime(
       protocol,
       network,
       hostInfo.route.revision,
+      requestValue,
     )
   }
   if (action === 'STAGE_QDN_PUBLISH_SOURCE') {
