@@ -11,9 +11,9 @@ local synced Previewnet Core at the time of each check; apps must use
 | Rail | Core implementation | Previewnet enabled | Home wallet | Balance | Receive | Send | Core trade engine | Live acceptance | Main restriction |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | QORT | Qortal, not Qortium Core | n/a | yes | yes | yes | yes | no Home trade path | packaged balance pass; send source-tested | Home signs locally; public Qortal node receives signed bytes only |
-| BTC, LTC | yes | yes | yes | yes | yes | no | local-asset and foreign/foreign | live reads pass; send deferred | Home derives receive/watch data locally; Core sees xpub only for reads |
-| DOGE, RVN, DASH | yes | yes | yes | yes | yes | no | local-asset | live reads pass; send deferred | Home derives receive/watch data locally; Core sees xpub only for reads |
-| DGB, NMC, FIRO | yes | yes | yes | yes | yes | no | local-asset | read backend blocked; send deferred | Current configured providers return Core error 1201; Home returns an explicit unavailable error |
+| BTC, LTC | yes | yes | yes | yes | yes | yes (Home-signed, trusted Core) | local-asset and foreign/foreign | live reads pass; send source-tested; no funded send | Home derives receive/watch data locally and signs sends itself; Core sees an xpub for reads and finished bytes for a send, never a key |
+| DOGE, RVN, DASH | yes | yes | yes | yes | yes | yes (Home-signed, trusted Core) | local-asset | live reads pass; send source-tested; no funded send | Home derives receive/watch data locally and signs sends itself; Core sees an xpub for reads and finished bytes for a send, never a key |
+| DGB, NMC, FIRO | yes | yes | yes | yes | yes | yes (Home-signed, trusted Core) | local-asset | read backend blocked; send source-tested; no funded send | Current configured providers return Core error 1201 for reads AND for the send spend-context, so sending refuses as backend-unavailable until that is fixed |
 | BCH, PPC, KMD, VRSC, ZEC, LBC, XVG | yes | no | no | no | no | no | local-asset | not started | Core adapter exists; Home derivation and wallet actions do not |
 | ARRR | yes, separate JNI path | no | no | no | no | no | local-asset | not production-ready | Native runtime, ownership model, lifecycle, fees, and restore/send acceptance remain |
 | Qortium asset `0` | generic asset support | absent by design | contract yes | yes when present | selected Qortium address | yes when present | arbitrary local asset | synthetic-chain only | Previewnet has no asset `0`; explicit reads correctly return invalid asset ID |
@@ -31,6 +31,18 @@ local synced Previewnet Core at the time of each check; apps must use
   `homeWallet.implemented`.
 - **Balance / Receive / Send** record Home bridge implementation, not a promise
   that a runtime node, server, fee estimate, or funded wallet is available.
+- Foreign **Send** is Home-local signing: Home reads the wallet's confirmed
+  spendable state from an administratively trusted Core, plans and signs the
+  transaction in its own process, writes it ahead, and asks Core only to relay
+  the finished bytes. It is advertised (`homeWallet.sendMode === 'HOME_LOCAL'`)
+  only when that trusted Core is present AND an account is selected and
+  unlocked; a public or untrusted route always answers `send: false`.
+  No funded send has been performed on any of the eight chains: the evidence
+  so far is deterministic vectors and source-level tests only.
+  DGB, NMC and FIRO additionally return Core error 1201 on the send
+  spend-context with the currently configured providers, the same blocker
+  their reads hit; a Core-side fix (Electrum protocol cap 1.4 and refreshed
+  server pins) is in flight separately.
 - **Core trade engine** records Core/AT capability. Home currently exposes no
   mediated trade actions, so QDN apps cannot safely drive those trades yet.
 - **Live acceptance** becomes complete only after deterministic vectors and the

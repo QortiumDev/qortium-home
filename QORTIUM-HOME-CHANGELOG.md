@@ -32,6 +32,45 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## feat(qdn): Home can send foreign coins again, and signs them itself
+
+Qortium Home 2 could show a Bitcoin, Litecoin, Dogecoin, DigiByte, Ravencoin,
+Dash, Namecoin or Firo balance and hand out a receive address, but it could not
+spend any of it. Sending is back, on Home 2's terms rather than by reviving the
+old code.
+
+Home 1 sent a foreign coin by deriving that wallet's master PRIVATE key from
+your account and posting it to your node, which built, signed and broadcast the
+transaction for you. Home 2 never does that. It asks your node only what your
+wallet already owns, then builds the transaction, signs it and works out its
+identity entirely on your own device, and asks the node to do one thing: pass
+the finished bytes to the coin's network. Your seed, your private keys and your
+extended private key stay in Home.
+
+The approval is its own prompt, deliberately separate from a Qortium payment.
+It names the coin and the chain, shows the amount both as a decimal and as the
+exact whole units being signed, names the recipient, shows the network fee and
+its rate, and says where change goes — back to an address the wallet is already
+spending from. It also states, in Home's own words rather than the app's, that
+no seed or private key is shared. Approving covers that one send and nothing
+else: there is no "always allow" for spending, and one approval can never
+satisfy another.
+
+Each send is written down before it is broadcast, and broadcast exactly once.
+If the answer is ambiguous — a timeout, a dropped connection, a node that
+acknowledges a different transaction — Home does not try again, because a
+failure to hear back is not proof the network never saw it. The record is kept
+instead, the outputs it spends are held back from any further send, and Home
+tells you which transaction to reconcile. A send is only forgotten once the
+node returns the exact transaction identity Home computed itself.
+
+Sending is offered only when your node is one Home administratively trusts and
+an account is unlocked; on a public node apps are told plainly that sending is
+unavailable rather than being allowed to try. It is available for the eight
+chains above only. This release adds the capability and its tests; no funded
+send has been made yet, and DigiByte, Namecoin and Firo still hit the same
+node-side server problem their balance reads do.
+
 ## feat(qdn): apps can manage your node's settings again
 
 The Node app could show your node under Home 2 but no longer change it: the

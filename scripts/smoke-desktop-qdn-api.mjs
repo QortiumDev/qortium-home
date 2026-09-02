@@ -473,6 +473,21 @@ async function runQdnRequest(qdnClient, request) {
   return result.result;
 }
 
+async function tryQdnRequest(qdnClient, request) {
+  return evaluate(
+    qdnClient,
+    `
+      window.qdnRequest(${JSON.stringify(request)})
+        .then((result) => ({ ok: true, result }))
+        .catch((error) => ({
+          ok: false,
+          code: (error && error.code) || null,
+          message: String(error && error.message || error),
+        }))
+    `,
+  );
+}
+
 async function runQortalRequest(qdnClient, request) {
   const result = await evaluate(
     qdnClient,
@@ -785,6 +800,76 @@ async function assertWalletBridgeContract(qdnClient, includeQortalBalances = fal
   assert(qortBalance === qortDirect?.data, 'qortalRequest QORT balance did not match the explicit Qortal endpoint.');
 }
 
+/**
+ * The foreign-send dry run. It never funds anything, never unlocks anything
+ * and must never reach an approval prompt: it proves only that the packaged
+ * build advertises foreign sending truthfully and that a foreign SEND_COIN
+ * stops at a named refusal well before a signature could exist.
+ */
+async function assertForeignSendDryRun(qdnClient, userDataDir) {
+  const journalPath = path.join(userDataDir, 'home-v2-pending-foreign-transactions.json');
+  const blockchains = await runQdnRequest(qdnClient, { action: 'GET_CROSSCHAIN_BLOCKCHAINS' });
+  assert(Array.isArray(blockchains), 'GET_CROSSCHAIN_BLOCKCHAINS did not return an array.');
+  const btc = blockchains.find((row) => row?.currencyCode === 'BTC');
+  assert(btc?.homeWallet?.implemented === true, 'BTC does not advertise a Home wallet.');
+
+  if (btc.homeWallet.read !== true || btc.homeWallet.readMode !== 'TRUSTED_CORE') {
+    log('SKIP: this Core is not administratively trusted, so foreign sending is correctly not advertised.');
+    assert(
+      btc.homeWallet.send === false && btc.homeWallet.sendMode === 'NONE',
+      'An untrusted Core must never advertise foreign sending.',
+    );
+    return;
+  }
+
+  // Sending additionally needs a selected, UNLOCKED account, which this smoke
+  // deliberately does not have: the truthful answer here is send:false.
+  const expectsSend = btc.homeWallet.send === true;
+  assert(
+    expectsSend
+      ? btc.homeWallet.sendMode === 'HOME_LOCAL'
+      : btc.homeWallet.sendMode === 'NONE',
+    `BTC advertised send=${btc.homeWallet.send} with sendMode=${btc.homeWallet.sendMode}.`,
+  );
+  for (const row of blockchains.filter((entry) => entry?.currencyCode !== 'QORT')) {
+    assert(
+      row?.homeWallet?.send !== true || row.homeWallet.sendMode === 'HOME_LOCAL',
+      `${row?.currencyCode} advertised sending through something other than the Home-local signer.`,
+    );
+  }
+
+  const attempt = await tryQdnRequest(qdnClient, {
+    action: 'SEND_COIN',
+    coin: 'BTC',
+    amount: '0.00010000',
+    recipient: '1BoatSLRHtKNngkdXEeobR76b53LETtpyT',
+  });
+  assert(attempt?.ok === false, 'A foreign SEND_COIN dry run must not succeed in this smoke.');
+  // Every accepted answer is a refusal reached BEFORE planning could select an
+  // input: a locked or unselected account, a Core with no wallet backend, or a
+  // Core predating the spend-context route.
+  const accepted = [
+    /locked/i,
+    /No account is selected/i,
+    /wallet backend is unavailable/i,
+    /no confirmed spendable inputs/i,
+    /HTTP 404/i,
+    /HTTP 500/i,
+  ];
+  assert(
+    accepted.some((pattern) => pattern.test(attempt.message)),
+    `Unexpected foreign SEND_COIN dry-run refusal: ${attempt.message}`,
+  );
+  if (/HTTP 404/i.test(attempt.message)) {
+    log('NOTE: this Core predates /crosschain/<coin>/wallet/public/spend-context.');
+  }
+  assert(
+    !existsSync(journalPath),
+    'A foreign send write-ahead journal was created during a dry run that never signed anything.',
+  );
+  log(`Foreign send dry run stopped as expected: ${attempt.message}`);
+}
+
 async function runBridgeAssertions(qdnClient) {
   const bridgeState = await evaluate(qdnClient, 'typeof window.qdnRequest');
   assert(bridgeState === 'function', `Expected qdnRequest to be injected, found ${bridgeState}.`);
@@ -1067,7 +1152,11 @@ async function runSmoke({ appImagePath, electronBin, mode, viteBin }) {
   let electronProcess = null;
 
   const cdpPort = await getFreePort();
-  const walletOnly = hasArgument('--wallet-only') || process.env.QORTIUM_HOME_WALLET_READ_ONLY === '1';
+  const foreignSendDryRun = hasArgument('--foreign-send-dry-run')
+    || process.env.QORTIUM_HOME_FOREIGN_SEND_DRY_RUN === '1';
+  const walletOnly = hasArgument('--wallet-only')
+    || foreignSendDryRun
+    || process.env.QORTIUM_HOME_WALLET_READ_ONLY === '1';
   if (walletOnly) {
     mkdirSync(userDataDir, { recursive: true });
     writeFileSync(
@@ -1158,7 +1247,11 @@ async function runSmoke({ appImagePath, electronBin, mode, viteBin }) {
 
       try {
         await qdnClient.send('Runtime.enable');
-        if (walletOnly) {
+        if (foreignSendDryRun) {
+          log(`Running foreign send dry run in ${qdnTarget.url}.`);
+          assert(await evaluate(qdnClient, 'typeof window.qdnRequest') === 'function', 'qdnRequest was not injected.');
+          await assertForeignSendDryRun(qdnClient, userDataDir);
+        } else if (walletOnly) {
           log(`Running wallet bridge assertions in ${qdnTarget.url}.`);
           assert(await evaluate(qdnClient, 'typeof window.qdnRequest') === 'function', 'qdnRequest was not injected.');
           assert(await evaluate(qdnClient, 'typeof window.qortalRequest') === 'function', 'qortalRequest was not injected.');

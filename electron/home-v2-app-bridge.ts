@@ -10895,12 +10895,21 @@ async function handleRequestWithRuntime(
       const foreignWalletTrustedCoreAvailable = action === 'GET_CROSSCHAIN_BLOCKCHAINS'
         ? await resolveHomeV2AdminNode('qortium').then(({ trust }) => trust.trusted, () => false)
         : false
+      // Sending is advertised only when Home could actually do it right now:
+      // the same trusted-Core predicate as reading, PLUS a selected account
+      // that is unlocked, because the send derives its signing keys from that
+      // account's seed. Never on a public or untrusted route. An app that sees
+      // send:false must not be able to make it true by asking.
+      const foreignWalletSendAvailable = foreignWalletTrustedCoreAvailable &&
+        !!context.accountId &&
+        isAccountUnlocked(context.accountId)
       return projectHomeV2CrosschainReadResult(
         action,
         chainReadRequest,
         responseDataOrThrow(result, `${action} request`),
         true,
         foreignWalletTrustedCoreAvailable,
+        foreignWalletSendAvailable,
       )
     }
     // Both cores answer a valid-but-absent AT with an empty 2xx body (Qortal

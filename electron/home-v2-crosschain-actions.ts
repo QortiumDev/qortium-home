@@ -218,6 +218,7 @@ export function projectHomeV2CrosschainReadResult(
   data: unknown,
   foreignWalletLocalAvailable = false,
   foreignWalletTrustedCoreAvailable = foreignWalletLocalAvailable,
+  foreignWalletSendAvailable = false,
 ) {
   if (action === 'GET_CROSSCHAIN_BLOCKCHAINS') {
     // 1.x qdn.ts:3077-3082.
@@ -226,6 +227,7 @@ export function projectHomeV2CrosschainReadResult(
       HOME_V2_QORTAL_PUBLIC_NODE_BLOCKCHAIN_INFO as unknown as Record<string, unknown>,
       foreignWalletLocalAvailable,
       foreignWalletTrustedCoreAvailable,
+      foreignWalletSendAvailable,
     )
   }
   if (action === 'GET_CROSSCHAIN_SERVER_INFO') {

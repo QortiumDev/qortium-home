@@ -67,6 +67,7 @@
     "smoke:desktop:qdn-api": "node scripts/smoke-desktop-qdn-api.mjs",
     "smoke:desktop:qdn-game": "node scripts/smoke-desktop-qdn-game.mjs",
     "smoke:desktop:qdn-api:packaged": "node scripts/smoke-desktop-qdn-api.mjs --packaged",
+    "smoke:desktop:qdn-foreign-send-dry-run:packaged": "node scripts/smoke-desktop-qdn-api.mjs --packaged --foreign-send-dry-run",
     "smoke:desktop:qdn-wallet-read:packaged": "node scripts/smoke-desktop-qdn-api.mjs --packaged --wallet-only",
     "smoke:desktop:home-v2-collections-migration": "node scripts/smoke-home-v2-collections-migration.mjs",
     "smoke:desktop:home-v2-app-zoom": "node scripts/smoke-home-v2-app-zoom.mjs",

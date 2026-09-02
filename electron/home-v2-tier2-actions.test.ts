@@ -1172,4 +1172,37 @@ for (const required of [
   assert.ok(liveAppSource.includes(required), `HomeV2LiveApp must contain ${required}`)
 }
 
+// Discovery must not advertise a send Home cannot perform. The bridge gates
+// it on the trusted-Core predicate AND a selected, unlocked account, because
+// the signing keys come from that account's seed.
+const sendGate = stripComments(
+  sliceAfter(bridgeSource, 'const foreignWalletSendAvailable =', 300, 'send capability gate'),
+)
+assert.ok(sendGate.includes('foreignWalletTrustedCoreAvailable &&'))
+assert.ok(sendGate.includes('isAccountUnlocked(context.accountId)'))
+
+const sendingRows = projectHomeV2CrosschainReadResult(
+  'GET_CROSSCHAIN_BLOCKCHAINS',
+  {},
+  [{ currencyCode: 'BTC' }, { currencyCode: 'BCH' }],
+  true,
+  true,
+  true,
+) as Array<Record<string, { send: boolean; sendMode: string }>>
+assert.equal(sendingRows[1].homeWallet.send, true)
+assert.equal(sendingRows[1].homeWallet.sendMode, 'HOME_LOCAL')
+assert.equal(sendingRows[2].homeWallet.send, false)
+for (const [trusted, sending] of [[false, false], [true, false], [false, true]] as const) {
+  const rows = projectHomeV2CrosschainReadResult(
+    'GET_CROSSCHAIN_BLOCKCHAINS',
+    {},
+    [{ currencyCode: 'BTC' }],
+    true,
+    trusted,
+    sending,
+  ) as Array<Record<string, { send: boolean; sendMode: string }>>
+  assert.equal(rows[1].homeWallet.send, sending, `send must follow its own flag (trusted=${trusted})`)
+  assert.equal(rows[1].homeWallet.sendMode, sending ? 'HOME_LOCAL' : 'NONE')
+}
+
 console.log('Home v2 tier-2 action tests passed.')

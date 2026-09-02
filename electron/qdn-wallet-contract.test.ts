@@ -109,11 +109,34 @@ const receiveOnlyForeignCapability: HomeWalletCapability = {
   serverManagement: false,
   serverManagementMode: 'NONE',
 };
+// Sending is HOME_LOCAL: Home plans, signs and hashes the transaction, and
+// the node only relays finished bytes.
+const sendingForeignCapability: HomeWalletCapability = {
+  ...trustedForeignCapability,
+  send: true,
+  sendMode: 'HOME_LOCAL',
+};
 assert.deepEqual(getHomeWalletCapability('QORT'), qortCapability);
 for (const coin of expectedForeignWalletCoins) {
   assert.deepEqual(getHomeWalletCapability(coin), unavailableCapability);
   assert.deepEqual(getHomeWalletCapability(coin, true, false), receiveOnlyForeignCapability);
   assert.deepEqual(getHomeWalletCapability(coin, true), trustedForeignCapability);
+  assert.deepEqual(getHomeWalletCapability(coin, true, true, true), sendingForeignCapability);
+  // Send never rides in on another flag: an untrusted route cannot advertise
+  // sending even when the caller asks for it, and a trusted route that has
+  // not been told sending is possible keeps saying so.
+  assert.deepEqual(getHomeWalletCapability(coin, true, false, true), {
+    ...receiveOnlyForeignCapability,
+    send: true,
+    sendMode: 'HOME_LOCAL',
+  });
+  assert.equal(getHomeWalletCapability(coin, true, true).send, false);
+  assert.equal(getHomeWalletCapability(coin, true, true).sendMode, 'NONE');
+}
+// A coin Home cannot derive at all never advertises sending, however the
+// flags are set.
+for (const coin of ['BCH', 'ARRR', 'ZEC']) {
+  assert.deepEqual(getHomeWalletCapability(coin, true, true, true), unavailableCapability);
 }
 for (const coin of ['BCH', 'PPC', 'KMD', 'VRSC', 'ZEC', 'LBC', 'XVG', 'ARRR', 'UNKNOWN', '', null]) {
   assert.deepEqual(getHomeWalletCapability(coin), unavailableCapability);
@@ -161,6 +184,17 @@ assert.deepEqual(trustedProjected[1], {
   homeWallet: trustedForeignCapability,
 });
 assert.deepEqual(trustedProjected[2], { ...coreRows[1], homeWallet: unavailableCapability });
+
+const sendingProjected = buildHomeBlockchainDiscovery(coreRows, qortalInfo, true, true, true);
+assert.ok(Array.isArray(sendingProjected));
+assert.deepEqual(sendingProjected[1], {
+  ...coreRows[0],
+  homeWallet: sendingForeignCapability,
+});
+// The QORT row keeps its own send mode: the foreign flag must not leak into
+// it, and it must not be downgraded when foreign sending is off.
+assert.deepEqual(sendingProjected[0], { ...qortalInfo, homeWallet: qortCapability });
+assert.deepEqual(trustedProjected[0], { ...qortalInfo, homeWallet: qortCapability });
 
 const unexpectedResponse = { status: 204 };
 assert.equal(buildHomeBlockchainDiscovery(unexpectedResponse, qortalInfo), unexpectedResponse);

@@ -4444,8 +4444,11 @@ export function HomeV2LiveApp() {
               // above before anything is rendered.
               ...(value.foreignSendDetails as readonly { label: string; value: string }[])
                 .map((detail) => ({ label: detail.label, value: detail.value })),
-              { label: 'Route', value: String(value.writeRouteLabel) },
-              { label: 'Qortium node', value: String(value.writeTargetChainLabel) },
+              // The rows above already name the coin and its chain. The row
+              // here is the QORTIUM node that will relay the finished bytes —
+              // a second 'Chain' row would read as a contradiction, so the
+              // route label carries it alone.
+              { label: 'Relayed by', value: String(value.writeRouteLabel) },
               // The shell's own copy, not a bridge row: what is NOT shared
               // must not be forgeable by the thing asking for the send.
               { label: 'Not shared', value: 'Wallet seed, private key, or extended private key (xprv)' },
