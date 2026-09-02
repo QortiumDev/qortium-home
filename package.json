@@ -127,6 +127,7 @@
     "test:home-v2-qortal-private-group-actions": "npm run build:electron && node dist-electron/home-v2-qortal-private-group-actions.test.js",
     "test:home-v2-qortal-private-group-publish": "npm run build:electron && node dist-electron/home-v2-qortal-private-group-publish.test.js",
     "test:home-v2-qortal-private-group-key-store": "npm run build:electron && node dist-electron/home-v2-qortal-private-group-key-store.test.js",
+    "test:home-v2-publish-limits": "npm run build:electron && node scripts/run-electron-test.mjs dist-electron/home-v2-publish-limits.test.js",
     "test:home-v2-publish-source-tokens": "npm run build:electron && node dist-electron/home-v2-publish-source-tokens.test.js",
     "test:home-v2-public-publish-contract": "npm run build:electron && node dist-electron/home-v2-public-publish-contract.test.js",
     "test:home-v2-resource-stream-capability": "npm run build:electron && node dist-electron/home-v2-resource-stream-capability.test.js",
