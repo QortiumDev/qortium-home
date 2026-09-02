@@ -147,3 +147,9 @@ export function normalizeHomeV2PublishSourceToken(value: unknown) {
   }
   return value
 }
+
+export function normalizeHomeV2PublishSourceKind(value: unknown): 'file' | 'directory' {
+  if (value === undefined || value === null || value === '') return 'file'
+  if (value === 'file' || value === 'directory') return value
+  throw new Error('SELECT_QDN_PUBLISH_SOURCE kind must be "file" or "directory".')
+}
