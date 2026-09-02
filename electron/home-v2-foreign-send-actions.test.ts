@@ -166,7 +166,7 @@ assert.equal(homeV2ForeignAtomicToDecimal(0n), '0.00000000')
 assert.equal(homeV2ForeignAtomicToDecimal(1n), '0.00000001')
 assert.equal(homeV2ForeignAtomicToDecimal(100_000_000n), '1.00000000')
 assert.equal(homeV2ForeignAtomicToDecimal(123_456_789n), '1.23456789')
-assert.equal(homeV2ForeignAmountText(50_000n, 'BTC'), '0.00050000 BTC (50000 satoshis)')
+assert.equal(homeV2ForeignAmountText(50_000n, 'BTC'), '0.00050000 BTC (50000 atomic units)')
 // Every money string carries a decimal point, so a downstream renderer can
 // never mistake it for a bare atomic integer and divide it again.
 for (const atomic of [0n, 1n, 546n, 100_000_000n]) {
@@ -242,7 +242,7 @@ assert.deepEqual(withChange.map((row) => row.label), [
   'Inputs spent',
   'Total debited',
 ])
-assert.equal(withChange[0].value, '0.00100000 BTC (100000 satoshis)')
+assert.equal(withChange[0].value, '0.00100000 BTC (100000 atomic units)')
 assert.equal(withChange[1].value, RECIPIENT)
 assert.equal(withChange[3].value, chainId)
 assert.ok(withChange[6].value.includes(CHANGE_ADDRESS))
@@ -250,9 +250,9 @@ assert.ok(withChange[6].value.includes(CHANGE_ADDRESS))
 // prompt says so rather than leaving the user to infer it.
 assert.ok(withChange[6].value.includes('already spending from'))
 assert.ok(withChange[7].value.startsWith('2 confirmed outputs'))
-assert.equal(withChange[8].value, '0.00104512 BTC (104512 satoshis)')
+assert.equal(withChange[8].value, '0.00104512 BTC (104512 atomic units)')
 // 4512 / 376 = 12 exactly: nothing was absorbed, so only the quoted rate shows.
-assert.equal(withChange[5].value, '12 satoshis per byte across the 376-byte transaction')
+assert.equal(withChange[5].value, '12 atomic units per byte across the 376-byte estimated maximum size')
 
 // When dust change IS absorbed, the prompt must show the rate actually paid.
 const absorbed = buildHomeV2ForeignSendApprovalRows({
@@ -270,7 +270,7 @@ const absorbed = buildHomeV2ForeignSendApprovalRows({
 assert.ok(isSequencedDetailRows(FOREIGN_SEND_DETAIL_SEQUENCE, absorbed))
 const absorbedRate = absorbed.find((row) => row.label === 'Fee rate')
 assert.ok(absorbedRate)
-assert.match(absorbedRate.value, /^12 satoshis per byte quoted, 13 effective/)
+assert.match(absorbedRate.value, /^12 atomic units per byte quoted, 13 effective/)
 const heavilyAbsorbed = buildHomeV2ForeignSendApprovalRows({
   amount: 97_000n,
   change: 0n,
@@ -285,7 +285,7 @@ const heavilyAbsorbed = buildHomeV2ForeignSendApprovalRows({
 }, { chainId, coin: 'BTC' })
 const heavyRate = heavilyAbsorbed.find((row) => row.label === 'Fee rate')
 assert.ok(heavyRate)
-assert.match(heavyRate.value, /^12 satoshis per byte quoted, 16 effective across the 193-byte transaction \(change too small to return was added to the fee\)$/)
+assert.match(heavyRate.value, /^12 atomic units per byte quoted, 16 effective across the 193-byte estimated maximum size \(change too small to return was added to the fee\)$/)
 
 const maxRows = buildHomeV2ForeignSendApprovalRows({
   amount: 344_108n,
@@ -311,12 +311,12 @@ assert.deepEqual(maxRows.map((row) => row.label), [
   'Inputs spent',
   'Total debited',
 ])
-assert.equal(maxRows[8].value, '0.00350000 BTC (350000 satoshis)')
+assert.equal(maxRows[8].value, '0.00350000 BTC (350000 atomic units)')
 
 // Every row carries both the decimal AND the atomic count for money values.
 for (const row of [...withChange, ...maxRows]) {
   if (['You send', 'Network fee', 'Total debited'].includes(row.label)) {
-    assert.match(row.value, /^\d+\.\d{8} BTC \(\d+ satoshis\)$/, row.label)
+    assert.match(row.value, /^\d+\.\d{8} BTC \(\d+ atomic units\)$/, row.label)
   }
 }
 

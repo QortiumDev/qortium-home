@@ -35,6 +35,7 @@ import {
   type ForeignWalletCrypto,
 } from './foreign-wallets.js'
 import {
+  evaluateHomeV2ForeignSendValidity,
   executeHomeV2ForeignSend,
   type HomeV2ForeignSendDeps,
 } from './home-v2-foreign-send.js'
@@ -440,7 +441,7 @@ for (const field of ['amount', 'fee', 'feePerByte', 'inputAmount', 'outputAmount
 
 // The approval prompt described the same plan the signature commits to.
 const approvalRows = success.harness.approvals[0].rows
-assert.equal(approvalRows[0].value, '0.00100000 BTC (100000 satoshis)')
+assert.equal(approvalRows[0].value, '0.00100000 BTC (100000 atomic units)')
 assert.equal(approvalRows[1].value, RECIPIENT)
 assert.deepEqual(success.harness.approvals[0].meta, {
   chainId: CHAIN_ID,
@@ -639,7 +640,7 @@ for (const seed of success.harness.seedCopies) {
   assert.equal(maxPrepared.inputCount, 3)
   assert.equal(maxPrepared.outputCount, 1)
   assert.equal(maxPrepared.inputAmount, '0.00350000')
-  // 3 inputs + 1 P2PKH output = 491 bytes at 12 satoshis per byte.
+  // 3 inputs + 1 P2PKH output = 491 bytes at 12 atomic units per byte.
   assert.equal(maxPrepared.fee, '0.00005892')
   assert.equal(maxPrepared.amount, '0.00344108')
   assert.equal(maxPrepared.outputAmount, '0.00344108')
@@ -1008,8 +1009,11 @@ for (const [overrides, pattern] of [
   const funded = fixtureUtxo(4, 10_000_000n, 50)
   const busy = spendContext([funded], { recommendedFeePerByte: '2000', minimumNonDustOutput: '10000' })
   const harness = createHarness({ broadcast: () => null, spendContexts: [busy, busy] })
+  // The amount must exceed the fee: a transfer that costs more than it moves
+  // is refused at every size (owner decision), and at 2000 atomic units per
+  // byte the fee alone is hundreds of thousands.
   const result = await executeHomeV2ForeignSend(
-    { amount: '0.00100000', coin: 'BTC', feePerByte: '2000', recipient: RECIPIENT },
+    { amount: '0.05000000', coin: 'BTC', feePerByte: '2000', recipient: RECIPIENT },
     harness.deps,
   )
   assert.equal(harness.approvals.length, 1)
@@ -1161,5 +1165,100 @@ assert.equal(foreignWalletHistoryContainsTransaction([{ txid: 'ab'.repeat(32) }]
 assert.equal(foreignWalletHistoryContainsTransaction([{ txHash: `${'ab'.repeat(32)}ff` }], 'ab'.repeat(32)), false)
 assert.throws(() => foreignWalletHistoryContainsTransaction('nope', 'ab'.repeat(32)), /unusable shape/)
 assert.throws(() => foreignWalletHistoryContainsTransaction([], 'not-hex'), /transaction ID is invalid/)
+
+// ---------------------------------------------------------------------------
+// The live-context guard reads state AFTER its own await, not before.
+//
+// A guard that snapshots the view, the account and the unlock state and THEN
+// awaits the node resolution answers about a world that no longer exists: an
+// app can navigate, an account can lock, and a view can be replaced while that
+// await is outstanding. These tests mutate exactly that state from inside the
+// await and require the guard to notice.
+
+{
+  let live = true
+  let unlocked = true
+  const guard = () => evaluateHomeV2ForeignSendValidity({
+    pinnedRoute: 'local|http://127.0.0.1:24891',
+    readAccountUnlocked: () => unlocked,
+    readLiveContextMatches: () => live,
+    resolveRoute: async () => 'local|http://127.0.0.1:24891',
+  })
+  assert.equal(await guard(), true)
+
+  // The app navigates while the node is being resolved.
+  live = true
+  const navigating = evaluateHomeV2ForeignSendValidity({
+    pinnedRoute: 'local|http://127.0.0.1:24891',
+    readAccountUnlocked: () => unlocked,
+    readLiveContextMatches: () => live,
+    resolveRoute: async () => {
+      live = false
+      return 'local|http://127.0.0.1:24891'
+    },
+  })
+  assert.equal(await navigating, false, 'a view replaced during the await must be seen')
+
+  // The account locks while the node is being resolved.
+  live = true
+  unlocked = true
+  const locking = evaluateHomeV2ForeignSendValidity({
+    pinnedRoute: 'local|http://127.0.0.1:24891',
+    readAccountUnlocked: () => unlocked,
+    readLiveContextMatches: () => live,
+    resolveRoute: async () => {
+      unlocked = false
+      return 'local|http://127.0.0.1:24891'
+    },
+  })
+  assert.equal(await locking, false, 'an account locked during the await must be seen')
+
+  // Route drift and an unresolvable node are both refusals, and neither is
+  // reported as an error the caller has to interpret.
+  assert.equal(await evaluateHomeV2ForeignSendValidity({
+    pinnedRoute: 'local|http://127.0.0.1:24891',
+    readAccountUnlocked: () => true,
+    readLiveContextMatches: () => true,
+    resolveRoute: async () => 'public|https://example.invalid',
+  }), false)
+  assert.equal(await evaluateHomeV2ForeignSendValidity({
+    pinnedRoute: 'local|http://127.0.0.1:24891',
+    readAccountUnlocked: () => true,
+    readLiveContextMatches: () => true,
+    resolveRoute: async () => null,
+  }), false)
+  assert.equal(await evaluateHomeV2ForeignSendValidity({
+    pinnedRoute: 'local|http://127.0.0.1:24891',
+    readAccountUnlocked: () => true,
+    readLiveContextMatches: () => true,
+    resolveRoute: async () => { throw new Error('node unreachable') },
+  }), false)
+}
+
+{
+  // ...and end to end: the REAL guard, wired as the orchestrator's
+  // isStillValid, with the account locking during its internal await. Nothing
+  // may be written ahead or broadcast.
+  let unlocked = true
+  const harness = createHarness({ broadcast: () => null })
+  const guarded: HomeV2ForeignSendDeps = {
+    ...harness.deps,
+    isStillValid: () => evaluateHomeV2ForeignSendValidity({
+      pinnedRoute: 'local|http://127.0.0.1:24891',
+      readAccountUnlocked: () => unlocked,
+      readLiveContextMatches: () => true,
+      resolveRoute: async () => {
+        // The lock lands while the node is being resolved — after any guard
+        // that read its inputs up front would already have decided.
+        unlocked = false
+        return 'local|http://127.0.0.1:24891'
+      },
+    }),
+  }
+  const error = await rejection(executeHomeV2ForeignSend(FIXED_SEND, guarded))
+  assert.match(error.message, /changed before the foreign send was staged/)
+  assert.equal(harness.entries().length, 0, 'nothing is written ahead when the guard refuses')
+  assert.equal(broadcastPosts(harness.posts).length, 0)
+}
 
 console.log('home-v2-foreign-send tests passed.')

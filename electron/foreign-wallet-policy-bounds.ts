@@ -17,15 +17,20 @@ import type { ForeignWalletCoin } from './foreign-wallets.js'
  * it measures an app's requested rate against the node's recommendation, so a
  * node that inflates the recommendation moves the clamp with it.
  *
- * These are deliberately SANITY ceilings, not a reproduction of each chain's
- * relay policy. They are set roughly an order of magnitude above the highest
- * value each chain has plausibly seen, so a legitimate Core is never refused,
- * and far below a wallet-draining one. Real reference values, for scale:
- * Bitcoin's P2PKH dust is 546 satoshis (dustRelayFee 3000 sat/kvB) and its
- * fee rate has peaked in the hundreds of sat/vB; Litecoin, DigiByte, Dash,
- * Namecoin and Firo use Bitcoin-derived dust rules at their own relay fees;
- * Dogecoin and Ravencoin carry much larger nominal units, with Dogecoin's
- * dust at 0.01 DOGE (1,000,000 koinu) and its relay minimum at 0.01 DOGE/kB.
+ * These are SANITY ceilings, and they are derived from Core's own numbers
+ * rather than guessed. Qortium Core declares each chain's dust floor and
+ * default fee rate in
+ * `src/main/java/org/qortium/crosschain/BitcoinyChainSpecs.java`
+ * (`minNonDustOutput(...)` per chain, defaulting to 546 via
+ * `StaticBitcoinyParams.DEFAULT_MIN_NON_DUST_OUTPUT`, and the `defaultFeePerKb`
+ * passed to each `spec(...)`; `Bitcoiny.java` derives a per-byte rate from it
+ * as `max(1, feePerKb / 1000)`). Every dust ceiling below is at least TEN
+ * TIMES Core's declared floor for that chain, and every fee-rate ceiling is at
+ * least a hundred times Core's default rate, so an honest Core is never
+ * refused — while a node inventing a floor or rate far outside its chain's
+ * reality still is. The Core values are pinned as literals in
+ * foreign-wallet-policy-bounds.test.ts so this file cannot drift from them
+ * silently.
  *
  * A value ABOVE its ceiling is refused rather than clamped: Home cannot tell
  * an unusual chain moment from a lying node, and quietly using a smaller
@@ -42,17 +47,48 @@ export type ForeignWalletPolicyBounds = Readonly<{
 }>
 
 const BOUNDS: Readonly<Record<ForeignWalletCoin, ForeignWalletPolicyBounds>> = Object.freeze({
-  // 546 dust, peaks in the hundreds of sat/vB.
+  // Core: minNonDustOutput 546, defaultFeePerKb 5,000 (5 per byte).
   BTC: Object.freeze({ maximumDustThreshold: 10_000n, maximumFee: 1_000_000n, maximumFeePerByte: 2_000n }),
-  // 5,460 dust at a much lower relay fee than Bitcoin's.
-  LTC: Object.freeze({ maximumDustThreshold: 100_000n, maximumFee: 10_000_000n, maximumFeePerByte: 20_000n }),
-  // 1,000,000 koinu dust; 1,000 koinu/byte relay minimum.
-  DOGE: Object.freeze({ maximumDustThreshold: 10_000_000n, maximumFee: 2_000_000_000n, maximumFeePerByte: 200_000n }),
-  DGB: Object.freeze({ maximumDustThreshold: 10_000_000n, maximumFee: 2_000_000_000n, maximumFeePerByte: 200_000n }),
-  RVN: Object.freeze({ maximumDustThreshold: 10_000_000n, maximumFee: 2_000_000_000n, maximumFeePerByte: 200_000n }),
-  DASH: Object.freeze({ maximumDustThreshold: 100_000n, maximumFee: 10_000_000n, maximumFeePerByte: 20_000n }),
-  NMC: Object.freeze({ maximumDustThreshold: 10_000_000n, maximumFee: 200_000_000n, maximumFeePerByte: 200_000n }),
-  FIRO: Object.freeze({ maximumDustThreshold: 100_000n, maximumFee: 10_000_000n, maximumFeePerByte: 20_000n }),
+  // Core: minNonDustOutput 100,000, defaultFeePerKb 10,000 (10 per byte).
+  LTC: Object.freeze({ maximumDustThreshold: 2_000_000n, maximumFee: 20_000_000n, maximumFeePerByte: 20_000n }),
+  // Core: minNonDustOutput Coin.COIN = 100,000,000, defaultFeePerKb 1,000,000
+  // (1,000 per byte). Dogecoin's dust floor is a WHOLE COIN; a ceiling set
+  // from Bitcoin intuition would refuse every honest Dogecoin send.
+  DOGE: Object.freeze({
+    maximumDustThreshold: 2_000_000_000n,
+    maximumFee: 20_000_000_000n,
+    maximumFeePerByte: 200_000n,
+  }),
+  // Core: minNonDustOutput 546, defaultFeePerKb 100,000 (100 per byte).
+  DGB: Object.freeze({ maximumDustThreshold: 10_000n, maximumFee: 100_000_000n, maximumFeePerByte: 200_000n }),
+  // Core: minNonDustOutput 2,730, defaultFeePerKb 1,125,000 (1,125 per byte).
+  RVN: Object.freeze({ maximumDustThreshold: 50_000n, maximumFee: 100_000_000n, maximumFeePerByte: 200_000n }),
+  // Core: no per-chain minNonDustOutput, so the 546 default; defaultFeePerKb
+  // 10,000 (10 per byte).
+  DASH: Object.freeze({ maximumDustThreshold: 10_000n, maximumFee: 10_000_000n, maximumFeePerByte: 20_000n }),
+  // Core: minNonDustOutput 546, defaultFeePerKb 100,000 (100 per byte).
+  NMC: Object.freeze({ maximumDustThreshold: 10_000n, maximumFee: 100_000_000n, maximumFeePerByte: 200_000n }),
+  // Core: minNonDustOutput 1,000, defaultFeePerKb 10,000 (10 per byte).
+  FIRO: Object.freeze({ maximumDustThreshold: 20_000n, maximumFee: 10_000_000n, maximumFeePerByte: 20_000n }),
+})
+
+/**
+ * Core's declared values, mirrored here ONLY so the ceilings above can be
+ * checked against them in one place. Source:
+ * qortium-core `src/main/java/org/qortium/crosschain/BitcoinyChainSpecs.java`.
+ */
+export const CORE_FOREIGN_WALLET_CHAIN_VALUES: Readonly<Record<ForeignWalletCoin, Readonly<{
+  defaultFeePerByte: bigint
+  minimumNonDustOutput: bigint
+}>>> = Object.freeze({
+  BTC: Object.freeze({ defaultFeePerByte: 5n, minimumNonDustOutput: 546n }),
+  LTC: Object.freeze({ defaultFeePerByte: 10n, minimumNonDustOutput: 100_000n }),
+  DOGE: Object.freeze({ defaultFeePerByte: 1_000n, minimumNonDustOutput: 100_000_000n }),
+  DGB: Object.freeze({ defaultFeePerByte: 100n, minimumNonDustOutput: 546n }),
+  RVN: Object.freeze({ defaultFeePerByte: 1_125n, minimumNonDustOutput: 2_730n }),
+  DASH: Object.freeze({ defaultFeePerByte: 10n, minimumNonDustOutput: 546n }),
+  NMC: Object.freeze({ defaultFeePerByte: 100n, minimumNonDustOutput: 546n }),
+  FIRO: Object.freeze({ defaultFeePerByte: 10n, minimumNonDustOutput: 1_000n }),
 })
 
 export function getForeignWalletPolicyBounds(coin: ForeignWalletCoin): ForeignWalletPolicyBounds {
@@ -110,15 +146,16 @@ export function assertForeignWalletPlanWithinPolicy(input: Readonly<{
       + 'wallet will pay for a transaction of that size. The send was refused.',
     )
   }
-  // A fee larger than the payment itself, once the payment is large enough for
-  // that comparison to mean anything. Below the floor it is noise: sending a
-  // chain's own dust minimum legitimately costs several times its value in
-  // fee, on every one of these chains. Send-max is exempt by definition — its
-  // whole purpose is to pay the fee out of the amount.
-  if (!input.sendMax && input.amount > bounds.maximumFee && input.fee > input.amount) {
+  // OWNER DECISION: a fixed-amount send may never pay more in fee than it
+  // sends, at ANY size. A transfer that costs more than it moves is almost
+  // always a mistake, and the two legitimate ways to express the intent behind
+  // it — sweep the wallet, or send more — are both named in the refusal.
+  // Send-max is exempt by definition: paying the fee out of the amount is the
+  // whole point of it.
+  if (!input.sendMax && input.fee > input.amount) {
     throw new Error(
       `This ${input.coin} send would pay more in fee (${input.fee} atomic units) than it sends `
-      + `(${input.amount}). The send was refused; use send-max if that is genuinely intended.`,
+      + `(${input.amount}). Send a larger amount, or use send-max to sweep the wallet.`,
     )
   }
 }

@@ -5,21 +5,68 @@ import {
   assertForeignWalletPlanWithinPolicy,
   foreignWalletEffectiveFeePerByte,
   getForeignWalletPolicyBounds,
+  CORE_FOREIGN_WALLET_CHAIN_VALUES,
 } from './foreign-wallet-policy-bounds.js'
 import { getForeignWalletCoins } from './foreign-wallets.js'
 
-// Every supported coin has bounds, and every bound is a positive bigint. A
-// coin that reached the send path without one would have no ceiling at all.
+// Core's OWN declared values for each chain, transcribed from
+// qortium-core `src/main/java/org/qortium/crosschain/BitcoinyChainSpecs.java`:
+// the per-chain `minNonDustOutput(...)` (defaulting to 546 through
+// `StaticBitcoinyParams.DEFAULT_MIN_NON_DUST_OUTPUT` where a chain sets none,
+// which is DASH's case) and the `defaultFeePerKb` passed to each `spec(...)`,
+// converted per byte the way `Bitcoiny.java` does it: max(1, feePerKb / 1000).
+//
+// Dogecoin is the one that matters most here: its dust floor is Coin.COIN, a
+// WHOLE COIN — 100,000,000 atomic units — so a ceiling chosen from Bitcoin
+// intuition sits below Core's honest value and refuses every real send.
+const CORE_VALUES = {
+  BTC: { defaultFeePerByte: 5n, minimumNonDustOutput: 546n },
+  LTC: { defaultFeePerByte: 10n, minimumNonDustOutput: 100_000n },
+  DOGE: { defaultFeePerByte: 1_000n, minimumNonDustOutput: 100_000_000n },
+  DGB: { defaultFeePerByte: 100n, minimumNonDustOutput: 546n },
+  RVN: { defaultFeePerByte: 1_125n, minimumNonDustOutput: 2_730n },
+  DASH: { defaultFeePerByte: 10n, minimumNonDustOutput: 546n },
+  NMC: { defaultFeePerByte: 100n, minimumNonDustOutput: 546n },
+  FIRO: { defaultFeePerByte: 10n, minimumNonDustOutput: 1_000n },
+} as const
+
+// The module's own mirror of those values must match this transcription, so a
+// future edit to one without the other fails here rather than in production.
+assert.deepEqual(
+  Object.fromEntries(Object.entries(CORE_FOREIGN_WALLET_CHAIN_VALUES).map(([coin, value]) => [coin, { ...value }])),
+  Object.fromEntries(Object.entries(CORE_VALUES).map(([coin, value]) => [coin, { ...value }])),
+)
+
+// Every supported coin has bounds, every bound is a positive bigint, and every
+// ceiling clears Core's real value by the margin an honest node needs.
 for (const coin of getForeignWalletCoins()) {
   const bounds = getForeignWalletPolicyBounds(coin)
+  const core = CORE_VALUES[coin]
+  assert.ok(core, `${coin} has no transcribed Core value`)
   for (const [name, value] of Object.entries(bounds)) {
     assert.equal(typeof value, 'bigint', `${coin}.${name}`)
     assert.ok((value as bigint) > 0n, `${coin}.${name}`)
   }
-  // Real values on every one of these chains are orders of magnitude below the
-  // ceilings, so an honest node is never refused by them.
-  assert.ok(bounds.maximumDustThreshold >= 546n, coin)
-  assert.ok(bounds.maximumFeePerByte >= 1_000n, coin)
+  assert.ok(
+    bounds.maximumDustThreshold >= core.minimumNonDustOutput * 10n,
+    `${coin} dust ceiling ${bounds.maximumDustThreshold} must be at least 10x Core's ${core.minimumNonDustOutput}`,
+  )
+  assert.ok(
+    bounds.maximumFeePerByte >= core.defaultFeePerByte * 100n,
+    `${coin} fee-rate ceiling ${bounds.maximumFeePerByte} must be well above Core's default ${core.defaultFeePerByte}`,
+  )
+  // The absolute fee cap has to leave room for a fee that absorbed dust change
+  // right up to the dust ceiling, or the two bounds would contradict.
+  assert.ok(
+    bounds.maximumFee > bounds.maximumDustThreshold,
+    `${coin} fee cap must exceed its own dust ceiling`,
+  )
+  // Core's honest values are accepted, on every chain.
+  assert.doesNotThrow(() => assertForeignWalletContextWithinPolicy({
+    coin,
+    minimumNonDustOutput: core.minimumNonDustOutput,
+    recommendedFeePerByte: core.defaultFeePerByte,
+  }), coin)
 }
 
 // --- the node-reported half -------------------------------------------------
@@ -49,11 +96,17 @@ assert.throws(() => assertForeignWalletContextWithinPolicy({
   recommendedFeePerByte: 12n,
 }), /minimum output of 100000000 atomic units/)
 // The bounds are per coin, not one global number: a value that is absurd on
-// Bitcoin is ordinary on Dogecoin.
+// Bitcoin is Core's OWN honest floor on Dogecoin.
 assert.doesNotThrow(() => assertForeignWalletContextWithinPolicy({
   coin: 'DOGE',
-  minimumNonDustOutput: 1_000_000n,
+  minimumNonDustOutput: 100_000_000n,
   recommendedFeePerByte: 1_000n,
+}))
+// ...and Litecoin's real floor, which an earlier ceiling sat exactly on.
+assert.doesNotThrow(() => assertForeignWalletContextWithinPolicy({
+  coin: 'LTC',
+  minimumNonDustOutput: 100_000n,
+  recommendedFeePerByte: 10n,
 }))
 assert.throws(() => assertForeignWalletContextWithinPolicy({
   coin: 'BTC',
@@ -95,19 +148,19 @@ assert.throws(() => assertForeignWalletPlanWithinPolicy({
   fee: 200_000_001n,
 }), /would pay a fee of 200000001 atomic units/)
 
-// A fee larger than the payment, once the payment is large enough for the
-// comparison to mean anything.
-assert.throws(() => assertForeignWalletPlanWithinPolicy({
-  ...ordinary,
-  amount: 1_000_001n,
-  estimatedMaximumSize: 100_000,
-  fee: 1_000_002n,
-}), /more in fee/)
-// Below that floor the comparison is noise: a dust-minimum payment legitimately
-// costs several times its own value in fee.
+// A fee larger than the payment is refused at EVERY size (owner decision), and
+// the refusal names both ways to express the intent behind it.
+for (const [amount, fee] of [[100n, 200n], [546n, 4_512n], [2n, 3n]] as const) {
+  assert.throws(
+    () => assertForeignWalletPlanWithinPolicy({ ...ordinary, amount, fee }),
+    /Send a larger amount, or use send-max to sweep the wallet/,
+    `amount ${amount} fee ${fee}`,
+  )
+}
+// Equal is still allowed: it is spending exactly half on fee, not more.
 assert.doesNotThrow(() => assertForeignWalletPlanWithinPolicy({
   ...ordinary,
-  amount: 546n,
+  amount: 4_512n,
   fee: 4_512n,
 }))
 // Send-max is exempt by definition: paying the fee out of the amount is the

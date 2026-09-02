@@ -40,7 +40,7 @@ import {
  *  - `xprv58` — ALWAYS a hard refusal. Home signs; Core never gets a key.
  *
  * INTERNALLY everything is a bigint of atomic units. The approval prompt
- * shows both forms ("0.05000000 BTC (5000000 satoshis)") so that a scaling
+ * shows both forms ("0.05000000 BTC (5000000 atomic units)") so a scaling
  * mistake is impossible to miss, exactly as the native payment prompt does.
  */
 export const HOME_V2_FOREIGN_SEND_ACTION = 'SEND_COIN'
@@ -234,7 +234,7 @@ export function homeV2ForeignAtomicToDecimal(atomic: bigint) {
  * what a person reads, the atomic count is what is actually signed.
  */
 export function homeV2ForeignAmountText(atomic: bigint, coin: string) {
-  return `${homeV2ForeignAtomicToDecimal(atomic)} ${coin} (${atomic} satoshis)`
+  return `${homeV2ForeignAtomicToDecimal(atomic)} ${coin} (${atomic} atomic units)`
 }
 
 export const FOREIGN_SEND_DETAIL_SEQUENCE = Object.freeze([
@@ -292,9 +292,11 @@ export function buildHomeV2ForeignSendApprovalRows(
     {
       label: 'Fee rate',
       value: effective > plan.feePerByte
-        ? `${plan.feePerByte} satoshis per byte quoted, ${effective} effective across the `
-          + `${plan.estimatedMaximumSize}-byte transaction (change too small to return was added to the fee)`
-        : `${plan.feePerByte} satoshis per byte across the ${plan.estimatedMaximumSize}-byte transaction`,
+        ? `${plan.feePerByte} atomic units per byte quoted, ${effective} effective across the `
+          + `${plan.estimatedMaximumSize}-byte estimated maximum size `
+          + '(change too small to return was added to the fee)'
+        : `${plan.feePerByte} atomic units per byte across the `
+          + `${plan.estimatedMaximumSize}-byte estimated maximum size`,
     },
     ...(plan.changeAddress
       ? [{
