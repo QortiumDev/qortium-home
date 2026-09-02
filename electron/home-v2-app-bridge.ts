@@ -613,6 +613,15 @@ const CHAT_SIGNING_RESPONSE_MAX_BYTES = 256 * 1024
 const DIRECT_CHAT_READ_RESPONSE_MAX_BYTES = 1024 * 1024
 const PRIVATE_GROUP_CHAT_READ_RESPONSE_MAX_BYTES = 2 * 1024 * 1024
 
+// Every encryption path this action can reach (direct/group chat, Qortal
+// hub-compatible IMAGE) enforces a 1 MiB ciphertext cap
+// (PRIVATE_CHAT_ATTACHMENT_MAX_ENVELOPE_BYTES /
+// QORTAL_PRIVATE_GROUP_MAX_ATTACHMENT_CIPHERTEXT_BYTES) - this exists to
+// fail fast before the expensive hash/encrypt work below, with modest
+// headroom over that real cap for encryption/framing overhead, not to
+// duplicate Core's own precise validation, which still applies afterward.
+const PRIVATE_ATTACHMENT_SOURCE_MAX_BYTES = 1536 * 1024
+
 type AccountReadAction =
   // Uses the account key but reads no account data and signs nothing: it
   // returns ciphertext. Named here only because every promptable action passes
@@ -3813,6 +3822,12 @@ async function publishHomeV2PrivateAttachmentSource(
     routeRevision,
   })
   const source = homeV2DesktopPublishSources.resolve(request.sourceToken, binding)
+  if (source.kind === 'directory') {
+    throw new Error('PUBLISH_CHAT_ATTACHMENT does not support a directory-bundled publish source.')
+  }
+  if (source.size > PRIVATE_ATTACHMENT_SOURCE_MAX_BYTES) {
+    throw new Error('Selected attachment exceeds the size this action will accept.')
+  }
   const sourceBytes = await readHomeV2DesktopPublishSource(source)
   const sourceHash = await sha256Hex(sourceBytes)
   const profile = await getAccountProfile(accountId)
