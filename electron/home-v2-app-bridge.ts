@@ -479,9 +479,14 @@ import {
 } from './home-v2-foreign-wallet-actions.js'
 import { isHomeV2ForeignSendRequest } from './home-v2-foreign-send-actions.js'
 import {
+  evaluateHomeV2ForeignSendValidity,
   executeHomeV2ForeignSend,
   HomeV2ForeignSendReconciliationError,
 } from './home-v2-foreign-send.js'
+import {
+  classifyForeignWalletRouteProbe,
+  createForeignWalletRouteProbeCache,
+} from './foreign-wallet-route-probe.js'
 import { HomeV2ForeignSendReconciliationPendingError } from './foreign-wallet-reconciliation.js'
 import {
   clearReconciledStoredForeignWalletPendingTransaction,
@@ -7934,8 +7939,7 @@ async function postHomeV2TrustedForeignWallet(
  * every other outcome, including a transport failure, is treated as supported
  * so a momentary blip cannot silently withdraw a real capability.
  */
-const homeV2ForeignSendRouteProbes = new Map<string, { checkedAt: number; supported: boolean }>()
-const FOREIGN_SEND_ROUTE_PROBE_TTL_MS = 5 * 60_000
+const homeV2ForeignSendRouteProbes = createForeignWalletRouteProbeCache()
 
 async function probeHomeV2ForeignSendRouteSupported(
   nodeApiUrl: string,
@@ -7943,10 +7947,10 @@ async function probeHomeV2ForeignSendRouteSupported(
   revision: string,
 ) {
   const key = `${nodeApiUrl}|${revision}`
-  const cached = homeV2ForeignSendRouteProbes.get(key)
   const now = Date.now()
-  if (cached && now - cached.checkedAt < FOREIGN_SEND_ROUTE_PROBE_TTL_MS) return cached.supported
-  let supported = true
+  const cached = homeV2ForeignSendRouteProbes.read(key, now)
+  if (cached) return cached === 'supported'
+  let outcome: ReturnType<typeof classifyForeignWalletRouteProbe>
   try {
     await postHomeV2TrustedForeignWallet(
       nodeApiUrl,
@@ -7956,18 +7960,14 @@ async function probeHomeV2ForeignSendRouteSupported(
       'application/json',
       64 * 1024,
     )
+    // The route should have rejected that body. A success answer is not
+    // evidence it exists; something else replied.
+    outcome = classifyForeignWalletRouteProbe({ ok: true, status: 200 })
   } catch (error) {
-    const status = (error as { status?: unknown }).status
-    if (status === 404 || status === 405) supported = false
+    outcome = classifyForeignWalletRouteProbe({ ok: false, status: (error as { status?: unknown }).status })
   }
-  homeV2ForeignSendRouteProbes.set(key, { checkedAt: now, supported })
-  // Bounded: one entry per route revision seen, and revisions change rarely.
-  if (homeV2ForeignSendRouteProbes.size > 32) {
-    for (const [candidate, entry] of homeV2ForeignSendRouteProbes) {
-      if (now - entry.checkedAt >= FOREIGN_SEND_ROUTE_PROBE_TTL_MS) homeV2ForeignSendRouteProbes.delete(candidate)
-    }
-  }
-  return supported
+  homeV2ForeignSendRouteProbes.write(key, outcome, now)
+  return outcome === 'supported'
 }
 
 async function handleHomeV2ForeignSendAction(
@@ -8007,15 +8007,21 @@ async function handleHomeV2ForeignSendAction(
         })
       },
       crypto: foreignWalletCrypto(),
-      isStillValid: async () => {
-        const fresh = getQdnViewContextForWebContents(sender)
-        if (!fresh || !sameViewContext(context, fresh) || !liveResourceMatchesGrant(fresh)
-          || !isAccountUnlocked(accountId)) {
-          return false
-        }
-        const current = await getHomeV2ReadableNode('qortium').catch(() => null)
-        return !!current && `${current.mode}|${current.nodeApiUrl}` === nodeRoute
-      },
+      // Every mutable input is read AFTER the node resolution and returned
+      // without another await, so this answer describes the moment it is
+      // given rather than the moment the guard was entered.
+      isStillValid: () => evaluateHomeV2ForeignSendValidity({
+        pinnedRoute: nodeRoute,
+        readAccountUnlocked: () => isAccountUnlocked(accountId),
+        readLiveContextMatches: () => {
+          const fresh = getQdnViewContextForWebContents(sender)
+          return !!fresh && sameViewContext(context, fresh) && liveResourceMatchesGrant(fresh)
+        },
+        resolveRoute: async () => {
+          const current = await getHomeV2ReadableNode('qortium').catch(() => null)
+          return current ? `${current.mode}|${current.nodeApiUrl}` : null
+        },
+      }),
       journal: {
         clearReconciled: (key, observedTxId) =>
           clearReconciledStoredForeignWalletPendingTransaction(userData, key, observedTxId),

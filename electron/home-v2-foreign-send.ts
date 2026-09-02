@@ -163,6 +163,31 @@ export type HomeV2ForeignSendDeps = Readonly<{
   withWalletSeed<T>(use: (seed: Uint8Array, nonce: number, walletVersion: number) => T): T
 }>
 
+/**
+ * The live-context guard, with its ordering made explicit and testable.
+ *
+ * The obvious way to write this guard reads the view, the account and the
+ * unlock state, THEN awaits the node resolution and returns. That answer
+ * describes the world as it was before the await: an app that navigates, an
+ * account that locks, or a view that is replaced while the node is being
+ * resolved all slip through, and the caller signs on the strength of a
+ * snapshot the guard itself invalidated.
+ *
+ * So the await comes FIRST, and every mutable input is re-read after it and
+ * returned with no further await. The answer then describes the moment it is
+ * given, which is the only moment the caller can act on.
+ */
+export async function evaluateHomeV2ForeignSendValidity(input: Readonly<{
+  pinnedRoute: string
+  readAccountUnlocked: () => boolean
+  readLiveContextMatches: () => boolean
+  resolveRoute: () => Promise<string | null>
+}>): Promise<boolean> {
+  const route = await input.resolveRoute().catch(() => null)
+  if (route === null || route !== input.pinnedRoute) return false
+  return input.readLiveContextMatches() && input.readAccountUnlocked()
+}
+
 export class HomeV2ForeignSendReconciliationError extends Error {
   readonly code = 'FOREIGN_SEND_RECONCILIATION_REQUIRED'
 }
