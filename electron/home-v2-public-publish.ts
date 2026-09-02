@@ -6,6 +6,7 @@ import nacl from 'tweetnacl'
 import { arbitraryRawToSigningBytes } from './arbitrary-tx.js'
 import { getAccountSecretKey, stampTransactionNonce } from './accounts.js'
 import { base58Decode, base58Encode } from './base58.js'
+import { fetchBoundedBytes } from './bounded-response.js'
 import { computeHomeV2ChatNonce } from './home-v2-chat-pow.js'
 import {
   attestUnsignedQortalArbitraryPublish,
@@ -165,21 +166,16 @@ function verifyQdnPublishInWorker(input: QdnPublishVerificationInput) {
 async function fetchQdnArtifact(nodeApiUrl: string, hash: Uint8Array, maxBytes: number) {
   if (hash.byteLength !== 32) throw new Error('QDN builder returned an invalid artifact hash.')
   const url = `${nodeApiUrl}/arbitrary/public/data/${encodeURIComponent(base58Encode(hash))}`
-  const response = await nodeFetch(
-    url,
-    { method: 'GET', redirect: 'error', signal: AbortSignal.timeout(120_000) },
+  const { bytes, response } = await fetchBoundedBytes(
+    (signal) => nodeFetch(url, { method: 'GET', redirect: 'error', signal }),
+    maxBytes,
+    120_000,
   )
   if (response.url && new URL(response.url).toString() !== new URL(url).toString()) {
     throw new Error('QDN content attestation changed the approved node URL.')
   }
-  const declared = Number(response.headers.get('content-length'))
-  if (Number.isFinite(declared) && declared > maxBytes) {
-    await response.body?.cancel()
-    throw new Error('QDN attestation artifact exceeded the approved size.')
-  }
-  const bytes = new Uint8Array(await response.arrayBuffer())
   if (!response.ok) throw new Error(`QDN content attestation returned HTTP ${response.status}.`)
-  if (!bytes.byteLength || bytes.byteLength > maxBytes) throw new Error('QDN attestation artifact has an invalid size.')
+  if (!bytes.byteLength) throw new Error('QDN attestation artifact has an invalid size.')
   return bytes
 }
 
