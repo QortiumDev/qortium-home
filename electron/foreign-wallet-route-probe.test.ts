@@ -42,8 +42,9 @@ assert.equal(classifyForeignWalletRouteProbe({ ok: false, status: 302 }), 'incon
 
 // --- time to live -----------------------------------------------------------
 //
-// A settled answer is kept for minutes; an inconclusive one only briefly, so a
-// blip does not hide a working Core for long. It is never kept as supported.
+// A settled answer (supported or unsupported) is kept for minutes; an
+// inconclusive one only briefly, so a blip does not hide a working Core for
+// long. An inconclusive answer is never recorded as supported.
 
 assert.equal(foreignWalletRouteProbeTtlMs('supported'), FOREIGN_WALLET_ROUTE_PROBE_TTL_MS)
 assert.equal(foreignWalletRouteProbeTtlMs('unsupported'), FOREIGN_WALLET_ROUTE_PROBE_TTL_MS)

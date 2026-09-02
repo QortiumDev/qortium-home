@@ -15,9 +15,10 @@
  *    an auth failure, or a 2xx that an invalid body should never have earned.
  *
  * Inconclusive advertises `send: false`, because a capability Home cannot
- * demonstrate must not be offered. It is cached only briefly so a blip
- * recovers on the next read rather than hiding a real Core for minutes, and
- * it is NEVER cached as supported.
+ * demonstrate must not be offered. An inconclusive answer is cached only
+ * briefly so a blip recovers on the next read rather than hiding a real Core
+ * for minutes; a settled `supported`/`unsupported` answer is cached for the
+ * full TTL. An inconclusive outcome is never upgraded to `supported`.
  */
 
 export type ForeignWalletRouteProbeOutcome = 'supported' | 'unsupported' | 'inconclusive'

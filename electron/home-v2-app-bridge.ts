@@ -7935,9 +7935,11 @@ async function postHomeV2TrustedForeignWallet(
  *
  * The probe posts a deliberately INVALID body: a Core that has the route
  * rejects it with a validation error, a Core that lacks it answers 404. Only
- * 404 (or 405, the same absence reported differently) counts as unsupported —
- * every other outcome, including a transport failure, is treated as supported
- * so a momentary blip cannot silently withdraw a real capability.
+ * 404 (or 405, the same absence reported differently) counts as unsupported;
+ * only an affirmative validation-style 4xx counts as supported; everything
+ * else (transport failure, 5xx, auth/rate-limit statuses, an unexpected 2xx)
+ * is inconclusive: send is NOT advertised and the answer is cached only
+ * briefly so a momentary blip recovers on the next read.
  */
 const homeV2ForeignSendRouteProbes = createForeignWalletRouteProbeCache()
 
