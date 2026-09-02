@@ -1,7 +1,10 @@
 import { BrowserWindow, dialog } from 'electron'
 import { constants as fsConstants } from 'node:fs'
 import { lstat, open } from 'node:fs/promises'
+import { lstat as lstatPromise, readFile, readdir } from 'node:fs/promises'
 import nodePath from 'node:path'
+
+import { zipSync } from 'fflate'
 
 import {
   HOME_V2_PUBLISH_SOURCE_MAX_BYTES,
@@ -54,6 +57,68 @@ export function stageHomeV2DesktopPublishBlob(
     size: source.size,
     sourceToken: homeV2DesktopPublishSources.issue(binding, source),
   }
+}
+
+type HomeV2DirectoryZipEntry = { absolutePath: string; relativePath: string; size: number }
+
+/**
+ * Stat-walks a directory (refusing symlinks and anything that isn't a
+ * plain file or subdirectory), then reads every file and zips them in
+ * memory. Pure - no Electron imports - so it's independently testable
+ * with real temp directories. `ceilingBytes` is checked twice: against
+ * the summed original file sizes (fails fast before reading any file
+ * content) and again against the final zipped size.
+ *
+ * Note: files are lstat-checked for symlinks during the walk, then read
+ * in a separate later pass. Unlike readHomeV2DesktopPublishSource's
+ * read-time re-validation (which defends against a much longer gap - up
+ * to a 30-minute token TTL spanning an explicit user-approval step),
+ * this function has no equivalent re-check, because the walk-to-read
+ * window here is entirely internal to one synchronous call.
+ */
+export async function buildHomeV2DirectoryPublishZip(directoryPath: string, ceilingBytes: number) {
+  const entries: HomeV2DirectoryZipEntry[] = []
+  let totalBytes = 0
+
+  async function walk(currentPath: string, relativePrefix: string): Promise<void> {
+    const directoryEntries = await readdir(currentPath, { withFileTypes: true })
+    for (const directoryEntry of directoryEntries) {
+      const absolutePath = nodePath.join(currentPath, directoryEntry.name)
+      const relativePath = relativePrefix ? `${relativePrefix}/${directoryEntry.name}` : directoryEntry.name
+      const stats = await lstatPromise(absolutePath)
+      if (stats.isSymbolicLink()) {
+        throw new Error(`Publish source directory contains a symbolic link at "${relativePath}", which is not allowed.`)
+      }
+      if (stats.isDirectory()) {
+        await walk(absolutePath, relativePath)
+        continue
+      }
+      if (!stats.isFile()) {
+        throw new Error(`Publish source directory contains an unsupported entry at "${relativePath}".`)
+      }
+      totalBytes += stats.size
+      if (totalBytes > ceilingBytes) {
+        throw new Error('Publish source directory exceeds the size this node will accept.')
+      }
+      entries.push({ absolutePath, relativePath, size: stats.size })
+    }
+  }
+
+  await walk(directoryPath, '')
+  if (entries.length === 0) {
+    throw new Error('Publish source directory is empty.')
+  }
+
+  const files: Record<string, Uint8Array> = {}
+  for (const entry of entries) {
+    files[entry.relativePath] = await readFile(entry.absolutePath)
+  }
+
+  const zipped = zipSync(files, { level: 6 })
+  if (zipped.byteLength > ceilingBytes) {
+    throw new Error('Publish source directory exceeds the size this node will accept once packaged.')
+  }
+  return { bytes: zipped, size: zipped.byteLength }
 }
 
 export async function selectHomeV2DesktopPublishSource(

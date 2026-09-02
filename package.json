@@ -97,6 +97,7 @@
     "test:i18n": "esbuild src/i18n.test.tsx --bundle --platform=node --format=esm --packages=external --outfile=dist-electron/i18n.test.js && node dist-electron/i18n.test.js",
     "test:home-v2-core-readiness": "node scripts/ensure-electron-build.mjs && node dist-electron/home-v2-core-readiness.test.js",
     "test:home-v2-context-menu": "npm run build:electron && node dist-electron/home-v2-context-menu.test.js && esbuild src/v2/shell/HomeV2ContextMenu.test.tsx --bundle --platform=node --format=esm --packages=external --loader:.css=empty --outfile=dist-electron/home-v2-context-menu-ui.test.js && node scripts/run-home-v2-context-menu-test.mjs",
+    "test:home-v2-desktop-publish-source": "npm run build:electron && node scripts/run-electron-test.mjs dist-electron/home-v2-desktop-publish-source.test.js",
     "test:home-v2-node-client": "esbuild src/home-v2-live/node-client.test.ts --bundle --platform=node --format=esm --outfile=dist-electron/home-v2-node-client.test.js && node dist-electron/home-v2-node-client.test.js",
     "test:home-v2-node-core-controller": "esbuild src/home-v2-live/node-core-controller.test.ts --bundle --platform=node --format=esm --packages=external --outfile=dist-electron/home-v2-node-core-controller.test.js && node dist-electron/home-v2-node-core-controller.test.js",
     "test:home-v2-i2p-health": "esbuild src/v2/i2p-health.test.ts --bundle --platform=node --format=esm --packages=external --outfile=dist-electron/home-v2-i2p-health.test.js && node dist-electron/home-v2-i2p-health.test.js",
