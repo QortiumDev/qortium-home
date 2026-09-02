@@ -7,7 +7,7 @@ import type { PublicArbitraryTransactionDetails } from './public-transaction-val
 const AES_GCM_NONCE_BYTES = 12;
 const AES_GCM_TAG_BYTES = 16;
 const ARBITRARY_CHUNK_BYTES = 512 * 1024;
-export const PUBLIC_QDN_ATTESTATION_MAX_BYTES = 4 * 1024 * 1024 * 1024;
+export const PUBLIC_QDN_ATTESTATION_MAX_BYTES = 1024 * 1024 * 1024;
 const MAX_METADATA_BYTES = 4 * 1024 * 1024;
 const MAX_ZIP_ENTRIES = 10_000;
 const MAX_ZIP_PATH_BYTES = 1_024;
