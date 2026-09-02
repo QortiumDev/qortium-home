@@ -337,6 +337,21 @@ export async function attestPublicQdnPublish({
     throw new Error('Public QDN builder returned an invalid content hash.');
   }
 
+  // details.rawSize is a value the NODE claims about content it hasn't
+  // handed over yet - trusting it unconditionally as the download cap
+  // would let a hostile node force Home to download/decrypt/inflate up
+  // to PUBLIC_QDN_ATTESTATION_MAX_BYTES regardless of how small the
+  // APPROVED publish actually was. Bound it against what the approved
+  // source can actually justify instead: encryption adds a small fixed
+  // overhead (AES-GCM nonce + tag), and compression's worst case is a
+  // small, bounded expansion - a 10% margin plus 4 KiB of headroom is
+  // generous for any real compressor while still closing off an
+  // arbitrarily-inflated claim.
+  const maxJustifiedCiphertextBytes = Math.max(Math.ceil(source.bytes.byteLength * 1.1) + 4096, 1024);
+  if (details.rawSize > maxJustifiedCiphertextBytes) {
+    throw new Error('Public QDN builder claimed a content size inconsistent with the approved publish.');
+  }
+
   const ciphertext = details.dataType === 1 ? details.data : await fetchArtifact(details.data, details.rawSize);
   const metadataBytes = details.metadataHash.length === 32
     ? await fetchArtifact(details.metadataHash, MAX_METADATA_BYTES)

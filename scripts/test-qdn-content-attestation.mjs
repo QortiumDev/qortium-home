@@ -432,4 +432,26 @@ await assert.rejects(attestPublicQdnPublish({
   source: { bytes: sourceZip, filename: 'app.zip', unpackZip: true },
 }), /does not match the signed metadata hash/);
 
+// A hostile node could claim an arbitrarily large details.rawSize for a
+// tiny approved publish, forcing Home to download/decrypt/inflate far more
+// than the approved source could ever justify. Assert the check rejects
+// before fetchArtifact is ever called - fetchArtifact throws a different
+// message if invoked, so this also proves the guard runs first.
+const disproportionateSource = encoder.encode('tiny approved payload');
+await assert.rejects(attestPublicQdnPublish({
+  details: {
+    compression: 0,
+    data: randomBytes(32),
+    dataType: 0,
+    metadataHash: new Uint8Array(0),
+    rawSize: 500 * 1024 * 1024,
+    secret: randomBytes(32),
+  },
+  expectedMetadata: noMetadata,
+  fetchArtifact: async () => {
+    throw new Error('fetchArtifact should not be called for a disproportionate rawSize claim');
+  },
+  source: { bytes: disproportionateSource, filename: 'tiny.txt', unpackZip: false },
+}), /inconsistent with the approved publish/);
+
 console.log('Public QDN content attestation tests passed.');
