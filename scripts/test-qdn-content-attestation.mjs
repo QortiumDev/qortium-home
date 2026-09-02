@@ -508,4 +508,43 @@ await assert.rejects(attestPublicQdnPublish({
 // exists above and still runs against the new formula - entry-count
 // headroom for a single tiny file is negligible next to a 500 MiB claim.
 
+// Before this fix, unzipFiles's inflation check inside
+// verifyPublicQdnPublishArtifacts was bounded by the GLOBAL
+// PUBLIC_QDN_ATTESTATION_MAX_BYTES (1 GiB) constant rather than by what the
+// approved source's expected inflated total actually justifies. That left
+// a residual "zip bomb" gap: a ciphertext that passed the entry-count-aware
+// download-size margin (Fix 1) could still decompress to a much larger
+// plaintext, as long as it stayed under the 1 GiB ceiling. Prove the bound
+// is now source-relative and tighter than 1 GiB by using a classic zip-bomb
+// shape - a single file of highly-compressible zero bytes, so its
+// COMPRESSED (ciphertext) size stays tiny and passes Fix 1's margin, but
+// its DECOMPRESSED size modestly exceeds the tiny approved source's
+// inflation bound while remaining nowhere near the 1 GiB global constant.
+const zipBombApprovedFiles = {
+  'a.txt': randomBytes(100),
+  'b.txt': randomBytes(100),
+  'c.txt': randomBytes(100),
+};
+const zipBombSource = zipSync(zipBombApprovedFiles, { level: 0 });
+// expected inflation bound: ceil(300*1.1) + 4096 + 256*3 = 330+4096+768 = 5194
+const zipBombPlaintext = zipSync({ 'data/big.bin': new Uint8Array(6_000) });
+const zipBombEncrypted = encrypt(zipBombPlaintext);
+assert.ok(
+  zipBombEncrypted.bytes.length < 5_194,
+  'zip-bomb fixture ciphertext must stay under the entry-count-aware download margin to reach the inflation check',
+);
+await assert.rejects(attestPublicQdnPublish({
+  details: {
+    compression: 1,
+    data: zipBombEncrypted.bytes,
+    dataType: 1,
+    metadataHash: new Uint8Array(0),
+    rawSize: zipBombEncrypted.bytes.length,
+    secret: zipBombEncrypted.key,
+  },
+  expectedMetadata: noMetadata,
+  fetchArtifact: fetchFrom(new Map()),
+  source: { bytes: zipBombSource, filename: 'zip-bomb.zip', unpackZip: true },
+}), /bounded attestation limit/);
+
 console.log('Public QDN content attestation tests passed.');

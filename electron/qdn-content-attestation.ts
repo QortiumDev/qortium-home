@@ -100,7 +100,7 @@ function normalizeCoreSourceZipPath(value: string) {
   }).join('/'));
 }
 
-function unzipFiles(bytes: Uint8Array, stripDataRoot: boolean) {
+function unzipFiles(bytes: Uint8Array, stripDataRoot: boolean, maxInflatedBytes: number = PUBLIC_QDN_ATTESTATION_MAX_BYTES) {
   let inflatedBytes = 0;
   let entryCount = 0;
   let entries: Record<string, Uint8Array>;
@@ -116,7 +116,7 @@ function unzipFiles(bytes: Uint8Array, stripDataRoot: boolean) {
         }
         if (file.name.endsWith('/')) return false;
         inflatedBytes += file.originalSize;
-        if (inflatedBytes > PUBLIC_QDN_ATTESTATION_MAX_BYTES) {
+        if (inflatedBytes > maxInflatedBytes) {
           throw new Error('QDN ZIP content exceeded Home\'s bounded attestation limit.');
         }
         return true;
@@ -391,7 +391,15 @@ export async function verifyPublicQdnPublishArtifacts({
       throw new Error('Public QDN builder changed the approved resource content.');
     }
   } else {
-    assertFileMapsEqual(unzipFiles(plaintext, true), files);
+    // The zip-content-inflation check inside unzipFiles must be bounded by
+    // what THIS approved source actually justifies, not the global 1 GiB
+    // ceiling - otherwise a ciphertext just under the (now correctly
+    // entry-count-aware) bounded download size could still inflate up to
+    // the full ceiling regardless of how small the real approved publish
+    // was. The exact expected inflated total is already known from files.
+    const expectedInflatedBytes = [...files.values()].reduce((total, value) => total + value.byteLength, 0);
+    const maxInflatedBytes = Math.ceil(expectedInflatedBytes * 1.1) + 4096 + 256 * files.size;
+    assertFileMapsEqual(unzipFiles(plaintext, true, maxInflatedBytes), files);
   }
 
   if (details.metadataHash.length === 0) {
