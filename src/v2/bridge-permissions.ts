@@ -104,6 +104,13 @@ export type PermissionCapability =
   // account. Never durable, never session, never reachable through any
   // other grant: single-request prompt only, every time.
   | 'payment.send'
+  // Sending a FOREIGN coin (BTC, LTC, DOGE, DGB, RVN, DASH, NMC, FIRO) that
+  // Home itself plans, signs and hashes before handing Core finished bytes.
+  // Its own capability, never merged with 'payment.send': a different chain,
+  // a different signer and a different disclosure, and the debit is
+  // irreversible on a network Qortium cannot reconcile. Never durable, never
+  // session: single-request prompt only, every time.
+  | 'payment.foreign-send'
   // Signing one zero-fee, zero-payment chain MESSAGE to an AT (SEND_MESSAGE).
   // Deliberately NOT 'account.read' and not any 'chat.*' capability: durable
   // grants unify on the capability string, so a signing action must never be

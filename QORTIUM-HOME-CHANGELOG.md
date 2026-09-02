@@ -32,6 +32,91 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## feat(qdn): Home can send foreign coins again, and signs them itself
+
+Qortium Home 2 could show a Bitcoin, Litecoin, Dogecoin, DigiByte, Ravencoin,
+Dash, Namecoin or Firo balance and hand out a receive address, but it could not
+spend any of it. Sending is back, on Home 2's terms rather than by reviving the
+old code.
+
+Home 1 sent a foreign coin by deriving that wallet's master PRIVATE key from
+your account and posting it to your node, which built, signed and broadcast the
+transaction for you. Home 2 never does that. It asks your node only what your
+wallet already owns, then builds the transaction, signs it and works out its
+identity entirely on your own device, and asks the node to do one thing: pass
+the finished bytes to the coin's network. Your seed, your private keys and your
+extended private key stay in Home.
+
+The approval is its own prompt, deliberately separate from a Qortium payment.
+It names the coin and the chain, shows the amount both as a decimal and as the
+exact whole units being signed, names the recipient, shows the network fee and
+its rate, and says where change goes — back to an address the wallet is already
+spending from. It also states, in Home's own words rather than the app's, that
+no seed or private key is shared. Approving covers that one send and nothing
+else: there is no "always allow" for spending, and one approval can never
+satisfy another.
+
+Each send is written down before it is broadcast, and broadcast exactly once.
+If the answer is ambiguous — a timeout, a dropped connection, a node that
+acknowledges a different transaction — Home does not try again, because a
+failure to hear back is not proof the network never saw it. The record is kept
+instead, the outputs it spends are held back from any further send, and Home
+tells you which transaction to reconcile. A send is only forgotten once the
+node returns the exact transaction identity Home computed itself.
+
+Two numbers come from your node rather than from you: the fee rate it
+recommends, and the smallest output the coin's network will carry. Both move
+money without appearing in the amount you typed — and the second one matters
+more than it looks, because change too small to be worth returning is added to
+the fee instead. Home now holds both to a fixed ceiling for each coin, taken
+from the values Qortium Core itself declares for that chain rather than guessed,
+with generous room above them. That distinction is not academic: a Dogecoin's
+smallest usable output is a whole coin, hundreds of thousands of times
+Bitcoin's, so a ceiling picked by eye would have refused every honest Dogecoin
+send. A node reporting something beyond the ceiling is refused outright rather
+than quietly obeyed, and the finished transaction is checked again: it cannot
+pay a fee out of proportion to its size, and it can never pay more in fee than
+it sends — if that is really what you want, Home points you at sending the
+whole balance instead. The approval shows the rate you are actually paying,
+which is not always the rate quoted.
+
+One thing worth stating plainly: when Home checks a wallet's history to settle
+an unresolved send, it takes your trusted node's word for what it finds. That
+is a deliberate choice rather than an oversight. The same node already tells
+Home which coins the wallet holds, what the fee should be, and carries the
+finished transaction to the network, so it is the thing being trusted either
+way. The list of unresolved sends stays visible in Home's own settings for
+anyone who would rather check for themselves.
+
+If a send's outcome could not be established, the record Home keeps of it now
+has a way out. The next time you send from the same wallet, Home asks your node
+for that wallet's own transaction history and closes the record if — and only
+if — the exact transaction it signed is there. If it is not, the new send stops
+and tells you which transaction is unresolved. Nothing is ever assumed, retried
+or thrown away on a guess, and Home's own settings can show you what is
+outstanding. No app can see or clear that list.
+
+There is one case Home can settle without asking anyone, because it already
+knows the answer. Home writes down that it is about to send before it sends,
+and writes down the attempt itself before making it. A record that never
+reached the second step is a transaction that was never sent at all — its bytes
+were never even kept. After ten minutes, long enough that any send it could
+have belonged to would have expired anyway, Home releases that record and notes
+it in the log. Anything that did reach the second step still needs the proof
+above.
+
+Sending is offered only when your node is one Home administratively trusts, an
+account is unlocked, and that node is actually new enough to support it — Home
+checks for the feature rather than assuming it, so an older node says sending
+is unavailable instead of failing at the last moment. That check only counts as
+a yes when the node answers affirmatively; if it cannot be reached, or answers
+in a way that settles nothing, Home says sending is unavailable and tries again
+shortly rather than assuming the best. On a public node apps are
+told plainly that sending is unavailable rather than being allowed to try. It
+is available for the eight chains above only. This release adds the capability
+and its tests; no funded send has been made yet, and DigiByte, Namecoin and
+Firo still hit the same node-side server problem their balance reads do.
+
 ## feat(qdn): apps can manage your node's settings again
 
 The Node app could show your node under Home 2 but no longer change it: the

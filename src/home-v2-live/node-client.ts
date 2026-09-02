@@ -1844,6 +1844,10 @@ export function createPortableNodeClient(
             : null
           const foreignWalletTrustedCoreAvailable = !!qortiumSummary?.nodeApiUrl &&
             qortiumSummary.capabilities.read && qortiumSummary.adminTrusted === true
+          // The send flag is deliberately NOT passed: Android has no
+          // Home-local foreign signer yet, so discovery must keep answering
+          // send:false/NONE here until that lands (PR 2). Reading it off the
+          // trust flag would advertise a capability this host does not have.
           return projectHomeV2CrosschainReadResult(
             action,
             chainReadRequest,

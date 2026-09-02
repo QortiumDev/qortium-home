@@ -33,10 +33,19 @@ function getCurrencyCode(value: unknown) {
   return typeof value === 'string' ? value.trim().toUpperCase() : '';
 }
 
+/**
+ * `foreignWalletSendAvailable` is deliberately NOT derived from the other two
+ * flags and defaults to false. Reading a foreign wallet needs a trusted Core;
+ * SENDING additionally needs a selected, unlocked account and a host that
+ * implements the Home-local signer. A host that has not been taught to send
+ * must keep advertising `send: false` rather than inheriting a read
+ * capability, so every caller states the send answer explicitly.
+ */
 export function getHomeWalletCapability(
   currencyCode: unknown,
   foreignWalletLocalAvailable = false,
   foreignWalletTrustedCoreAvailable = foreignWalletLocalAvailable,
+  foreignWalletSendAvailable = false,
 ): HomeWalletCapability {
   const normalizedCurrencyCode = getCurrencyCode(currencyCode);
   const isQort = normalizedCurrencyCode === QORT_CURRENCY_CODE;
@@ -68,8 +77,11 @@ export function getHomeWalletCapability(
       receive: true,
       receiveMode: 'HOME_LOCAL',
       requiresUnlockedAccount: true,
-      send: false,
-      sendMode: 'NONE',
+      // HOME_LOCAL, not TRUSTED_CORE: Home plans, signs and hashes the
+      // transaction itself and hands the node finished bytes. The node is a
+      // relay for the send, exactly as it is for a QORT send.
+      send: foreignWalletSendAvailable,
+      sendMode: foreignWalletSendAvailable ? 'HOME_LOCAL' : 'NONE',
       serverManagement: foreignWalletTrustedCoreAvailable,
       serverManagementMode: foreignWalletTrustedCoreAvailable ? 'TRUSTED_CORE' : 'NONE',
     };
@@ -95,6 +107,7 @@ export function addHomeWalletCapability(
   blockchain: unknown,
   foreignWalletLocalAvailable = false,
   foreignWalletTrustedCoreAvailable = foreignWalletLocalAvailable,
+  foreignWalletSendAvailable = false,
 ) {
   if (!isRecord(blockchain)) {
     return blockchain;
@@ -106,6 +119,7 @@ export function addHomeWalletCapability(
       blockchain.currencyCode,
       foreignWalletLocalAvailable,
       foreignWalletTrustedCoreAvailable,
+      foreignWalletSendAvailable,
     ),
   };
 }
@@ -115,6 +129,7 @@ export function buildHomeBlockchainDiscovery(
   qortalPublicNodeBlockchainInfo: Record<string, unknown>,
   foreignWalletLocalAvailable = false,
   foreignWalletTrustedCoreAvailable = foreignWalletLocalAvailable,
+  foreignWalletSendAvailable = false,
 ) {
   const addQortAndCapabilities = (rows: unknown[]) =>
     [qortalPublicNodeBlockchainInfo, ...rows].map((row) =>
@@ -122,6 +137,7 @@ export function buildHomeBlockchainDiscovery(
         row,
         foreignWalletLocalAvailable,
         foreignWalletTrustedCoreAvailable,
+        foreignWalletSendAvailable,
       ));
 
   if (Array.isArray(blockchains)) {

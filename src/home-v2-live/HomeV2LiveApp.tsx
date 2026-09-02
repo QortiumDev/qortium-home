@@ -295,6 +295,11 @@ import { homeV2RatingOperationLabel, isHomeV2RatingAction } from '../../electron
 import { homeV2AccountAvatarOperationLabel } from '../../electron/home-v2-account-avatar-actions'
 import { homeV2PaymentOperationLabel, isHomeV2PaymentAction } from '../../electron/home-v2-payment-actions'
 import {
+  homeV2ForeignSendOperationLabel,
+  FOREIGN_SEND_DETAIL_SEQUENCE,
+} from '../../electron/home-v2-foreign-send-actions'
+import { getForeignWalletCoins } from '../../electron/foreign-wallets'
+import {
   homeV2NotificationChainLabel,
   homeV2NotificationSourceKey,
   normalizeHomeV2NotificationRequest,
@@ -682,6 +687,12 @@ const PAYMENT_DETAIL_SEQUENCES: Record<string, readonly { label: string; optiona
   ],
 }
 PAYMENT_DETAIL_SEQUENCES.SEND_COIN = PAYMENT_DETAIL_SEQUENCES.PAYMENT
+
+// SEND_COIN's OTHER grammar. A foreign-coin send reuses the action name
+// but discloses a completely different transaction, so it gets its own
+// sequence rather than an optional tail on the native one: a prompt whose
+// rows do not match the grammar its writeKind claims is thrown away.
+const FOREIGN_SEND_COINS = new Set<string>(getForeignWalletCoins())
 
 function isSequencedDetailRows(
   sequence: readonly { label: string; optional?: true }[] | undefined,
@@ -3863,7 +3874,25 @@ export function HomeV2LiveApp() {
         // Qortium sends on qdnRequest, SEND_QORT on qortalRequest, and asset
         // transfers on either correctly paired protocol), with the
         // exact payment-grade row sequence.
-        || (isHomeV2PaymentAction(value.action) &&
+        // Foreign-coin sending: the same action name, a different chain, a
+        // different signer and its own row grammar. Qortium-pinned (the
+        // approval is a Qortium-account operation even though the funds move
+        // on another chain), coin-pinned, caption-pinned to the coin, and
+        // single-request without exception.
+        || (isHomeV2PaymentAction(value.action) && value.writeKind === 'foreign-send' &&
+          (value.action !== 'SEND_COIN' ||
+            value.protocol !== 'qdnRequest' ||
+            value.targetNetwork !== 'qortium' ||
+            value.writeTargetChainLabel !== 'Qortium' ||
+            typeof value.foreignSendCoin !== 'string' ||
+            !FOREIGN_SEND_COINS.has(value.foreignSendCoin) ||
+            typeof value.foreignSendChainId !== 'string' ||
+            !/^bip122:[0-9a-f]{32}$/.test(value.foreignSendChainId) ||
+            !isSequencedDetailRows(FOREIGN_SEND_DETAIL_SEQUENCE, value.foreignSendDetails) ||
+            value.writeOperationLabel !== homeV2ForeignSendOperationLabel(value.foreignSendCoin) ||
+            typeof value.writeRouteLabel !== 'string' ||
+            value.writeSingleRequestOnly !== true))
+        || (isHomeV2PaymentAction(value.action) && value.writeKind !== 'foreign-send' &&
           (value.writeKind !== 'payment' ||
             (value.action === 'SEND_QORT'
               ? value.protocol !== 'qortalRequest' || value.targetNetwork !== 'qortal' || value.writeTargetChainLabel !== 'Qortal'
@@ -4067,7 +4096,10 @@ export function HomeV2LiveApp() {
       const isQdnDelete = value.action === 'DELETE_QDN_RESOURCE'
       const isRatingWrite = isHomeV2RatingAction(value.action)
       const isAccountAvatar = value.action === 'SET_ACCOUNT_AVATAR'
-      const isPaymentSend = isHomeV2PaymentAction(value.action)
+      // SEND_COIN is BOTH families' action name, so the write kind — already
+      // re-validated above — is what separates them here.
+      const isForeignSend = isHomeV2PaymentAction(value.action) && value.writeKind === 'foreign-send'
+      const isPaymentSend = isHomeV2PaymentAction(value.action) && !isForeignSend
       const isForeignWalletRead = isHomeV2ForeignWalletPermissionAction(value.action)
       const isForeignServerWrite = value.action === 'SET_CURRENT_FOREIGN_SERVER'
       // A zero-fee chain MESSAGE to an AT. Its own prompt kind: it signs, so it
@@ -4087,7 +4119,7 @@ export function HomeV2LiveApp() {
       const isDecrypt = value.action === 'DECRYPT_DATA'
       const accountReadPromptKind = homeV2AccountReadPromptKind(value.action)
       const isGenericAccountRead = accountReadPromptKind === 'account'
-      const operationLabel = isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment || isNotification || isBookmarkManager || isNotificationManager || isHomeSettingsUpdate || isJournalForget || isMintingWrite || isListWrite || isPollWrite || isNameWrite || isGroupMutation || isPublishMultiple || isQdnDelete || isRatingWrite || isAccountAvatar || isPaymentSend || isForeignWalletRead || isForeignServerWrite || isAtMessage || isEncrypt || isDecrypt || isNodeSettingsWrite
+      const operationLabel = isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment || isNotification || isBookmarkManager || isNotificationManager || isHomeSettingsUpdate || isJournalForget || isMintingWrite || isListWrite || isPollWrite || isNameWrite || isGroupMutation || isPublishMultiple || isQdnDelete || isRatingWrite || isAccountAvatar || isPaymentSend || isForeignSend || isForeignWalletRead || isForeignServerWrite || isAtMessage || isEncrypt || isDecrypt || isNodeSettingsWrite
         ? String(value.writeOperationLabel)
         : ''
       const prompt = createPermissionPrompt({
@@ -4180,6 +4212,11 @@ export function HomeV2LiveApp() {
               // reachable through any other grant.
               : isPaymentSend
                 ? 'payment.send'
+              // MOVES FUNDS on ANOTHER chain, irreversibly and outside
+              // Qortium's reconciliation. Its own capability so it can never
+              // be reached through the native payment one.
+              : isForeignSend
+                ? 'payment.foreign-send'
               // Its own capability, never 'account.read': that string is what
               // bridge-permissions.ts unifies durable grants on, and a signing
               // action must not be reachable through a read grant.
@@ -4231,7 +4268,7 @@ export function HomeV2LiveApp() {
             ? value.action === 'RESTART_NODE'
               ? 'Restart your node?'
               : 'Change node settings?'
-          : isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment || isMintingWrite || isListWrite || isPollWrite || isNameWrite || isGroupMutation || isPublishMultiple || isQdnDelete || isRatingWrite || isAccountAvatar || isPaymentSend
+          : isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment || isMintingWrite || isListWrite || isPollWrite || isNameWrite || isGroupMutation || isPublishMultiple || isQdnDelete || isRatingWrite || isAccountAvatar || isPaymentSend || isForeignSend
           ? `Allow ${operationLabel.toLowerCase()}?`
           : 'Allow account access?',
         summary: isWidgetPrompt
@@ -4266,6 +4303,8 @@ export function HomeV2LiveApp() {
             : `${appTitle} wants to sign and broadcast the QDN publish transactions listed below from the selected account — one per resource. They cost no fee — Home pays for each with proof-of-work on this device. Every resource, file, size and content hash is listed exactly as it will be signed; this approval covers exactly these listed transactions.`
           : isQdnDelete
           ? `${appTitle} wants to sign and broadcast one QDN deletion transaction from the selected account. Approving marks the resource below DELETED on the Qortium chain for EVERY peer — this deletes the published resource itself, not just a local copy, and only publishing it again would replace it. It costs no fee — Home pays for it with proof-of-work on this device.`
+          : isForeignSend
+          ? `${appTitle} wants to SEND ${String(value.foreignSendCoin)} from the wallet Home derives for the selected account. Home builds and signs this transaction itself \u2014 your node relays finished bytes and never receives a seed, a private key, or an extended private key. The amount, the recipient, the network fee and where any change goes are listed exactly as they will be signed. Once broadcast it cannot be recalled, and this approval covers this one send only.`
           : isPaymentSend
           ? `${appTitle} wants to PAY from the selected account. Approving signs and broadcasts one transaction that moves the funds shown below out of this account \u2014 the amount, the recipient, and the chain fee are all listed exactly as they will be signed, and this approval covers this one payment only. Nothing about this approval can be remembered or reused.`
           : isAccountAvatar
@@ -4396,6 +4435,24 @@ export function HomeV2LiveApp() {
               { label: 'Route', value: String(value.writeRouteLabel) },
               { label: 'Chain', value: String(value.writeTargetChainLabel) },
               { label: 'Scope', value: 'This one transaction only' },
+            ]
+          : isForeignSend
+          ? [
+              { label: 'Account', value: account?.label ?? accountId },
+              { label: 'Operation', value: operationLabel },
+              // The foreign-send rows, re-checked against the exact sequence
+              // above before anything is rendered.
+              ...(value.foreignSendDetails as readonly { label: string; value: string }[])
+                .map((detail) => ({ label: detail.label, value: detail.value })),
+              // The rows above already name the coin and its chain. The row
+              // here is the QORTIUM node that will relay the finished bytes —
+              // a second 'Chain' row would read as a contradiction, so the
+              // route label carries it alone.
+              { label: 'Relayed by', value: String(value.writeRouteLabel) },
+              // The shell's own copy, not a bridge row: what is NOT shared
+              // must not be forgeable by the thing asking for the send.
+              { label: 'Not shared', value: 'Wallet seed, private key, or extended private key (xprv)' },
+              { label: 'Scope', value: 'This one foreign-coin send only' },
             ]
           : isPaymentSend
           ? [
@@ -4798,7 +4855,10 @@ export function HomeV2LiveApp() {
         prompt.context.identityId,
         prompt.context.targetNetwork,
         tabId,
-        homeV2PermissionGrantFamily(prompt.action),
+        homeV2PermissionGrantFamily(
+          prompt.action,
+          prompt.capability === 'payment.foreign-send' ? 'foreign-send' : undefined,
+        ),
         prompt.details,
       ])
       if (Array.from(pendingMeta.values()).some((meta) => meta.semanticKey === semanticKey)) {
