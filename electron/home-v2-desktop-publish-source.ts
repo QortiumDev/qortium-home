@@ -1,7 +1,6 @@
 import { BrowserWindow, dialog } from 'electron'
 import { constants as fsConstants } from 'node:fs'
-import { lstat, open } from 'node:fs/promises'
-import { lstat as lstatPromise, readFile, readdir } from 'node:fs/promises'
+import { lstat, open, readFile, readdir } from 'node:fs/promises'
 import nodePath from 'node:path'
 
 import { zipSync } from 'fflate'
@@ -98,6 +97,14 @@ type HomeV2DirectoryZipEntry = { absolutePath: string; relativePath: string; siz
  * window here is entirely internal to one synchronous call.
  */
 export async function buildHomeV2DirectoryPublishZip(directoryPath: string, ceilingBytes: number) {
+  const rootStats = await lstat(directoryPath)
+  if (rootStats.isSymbolicLink()) {
+    throw new Error('Publish source directory is a symbolic link, which is not allowed.')
+  }
+  if (!rootStats.isDirectory()) {
+    throw new Error('Publish source directory is not a directory.')
+  }
+
   const entries: HomeV2DirectoryZipEntry[] = []
   let totalBytes = 0
 
@@ -106,7 +113,7 @@ export async function buildHomeV2DirectoryPublishZip(directoryPath: string, ceil
     for (const directoryEntry of directoryEntries) {
       const absolutePath = nodePath.join(currentPath, directoryEntry.name)
       const relativePath = relativePrefix ? `${relativePrefix}/${directoryEntry.name}` : directoryEntry.name
-      const stats = await lstatPromise(absolutePath)
+      const stats = await lstat(absolutePath)
       if (stats.isSymbolicLink()) {
         throw new Error(`Publish source directory contains a symbolic link at "${relativePath}", which is not allowed.`)
       }

@@ -22,17 +22,29 @@ try {
   assert.equal(Buffer.from(unzipped['nested/poster.txt']).toString(), 'pretend poster bytes')
   assert.equal(result.size, result.bytes.byteLength)
 
-  // A symlink anywhere in the tree is refused. Symlink creation requires a
-  // privilege this process may not hold (e.g. an unelevated account on
-  // Windows without Developer Mode) - when that's the case, skip just this
-  // scenario rather than failing the whole file. Wrapped in an IIFE so the
-  // early `return` on EPERM exits only this scenario, not the module.
+  // A symlink anywhere in the tree is refused. Windows directory junctions
+  // (created via fs.symlink(target, path, 'junction')) work without an
+  // elevated privilege, unlike ordinary symlinks - and lstat().isSymbolicLink()
+  // reports true for a junction just as it does for a real symlink, so this
+  // exercises the same check buildHomeV2DirectoryPublishZip uses in
+  // production. Junctions only target directories, so the target here is a
+  // subdirectory, not a file. The 'junction' type argument is Windows-specific
+  // and is ignored (a no-op) on Linux/macOS, where an ordinary unprivileged
+  // symlink already works fine. Still wrapped in a try/catch on EPERM in case
+  // some exotic environment restricts even junctions - any other error is
+  // rethrown, not swallowed. Wrapped in an IIFE so the early `return` on
+  // EPERM exits only this scenario, not the module.
   await (async () => {
     const symlinkDirectory = await mkdtemp(path.join(tmpdir(), 'home-v2-publish-dir-symlink-'))
     try {
-      await writeFile(path.join(symlinkDirectory, 'real.txt'), Buffer.from('x'))
+      await mkdir(path.join(symlinkDirectory, 'real-dir'))
+      await writeFile(path.join(symlinkDirectory, 'real-dir', 'inner.txt'), Buffer.from('x'))
       try {
-        await symlink(path.join(symlinkDirectory, 'real.txt'), path.join(symlinkDirectory, 'link.txt'))
+        await symlink(
+          path.join(symlinkDirectory, 'real-dir'),
+          path.join(symlinkDirectory, 'link-dir'),
+          'junction',
+        )
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code === 'EPERM') {
           return
@@ -45,6 +57,33 @@ try {
       )
     } finally {
       await rm(symlinkDirectory, { recursive: true, force: true })
+    }
+  })()
+
+  // The selected directory itself being a symlink/junction (not just
+  // containing one) is refused too - the root-level check added alongside
+  // this test.
+  await (async () => {
+    const rootSymlinkDirectory = await mkdtemp(path.join(tmpdir(), 'home-v2-publish-dir-root-symlink-'))
+    try {
+      const realDirectory = path.join(rootSymlinkDirectory, 'real-dir')
+      await mkdir(realDirectory)
+      await writeFile(path.join(realDirectory, 'inner.txt'), Buffer.from('x'))
+      const junctionPath = path.join(rootSymlinkDirectory, 'link-dir')
+      try {
+        await symlink(realDirectory, junctionPath, 'junction')
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'EPERM') {
+          return
+        }
+        throw error
+      }
+      await assert.rejects(
+        buildHomeV2DirectoryPublishZip(junctionPath, 10 * 1024 * 1024),
+        /symbolic link/,
+      )
+    } finally {
+      await rm(rootSymlinkDirectory, { recursive: true, force: true })
     }
   })()
 
