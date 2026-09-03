@@ -12,7 +12,7 @@ import {
   type WebContents,
 } from 'electron'
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
-import { writeFile } from 'node:fs/promises'
+import { readFile, stat, writeFile } from 'node:fs/promises'
 import nodePath from 'node:path'
 import nacl from 'tweetnacl'
 import { assertAuthorizedHomeV2Sender } from './home-v2-authorized-senders.js'
@@ -302,6 +302,7 @@ import {
   getRequestedHomeV2PublishSourceKind,
   homeV2DesktopPublishSources,
   homeV2PublishPreviewTempAncestor,
+  homeV2PublishSourceError,
   isHomeV2PublishSourceError,
   removeHomeV2PublishPreviewStagingDir,
   stageHomeV2DesktopPublishBlob,
@@ -309,6 +310,16 @@ import {
   readHomeV2DesktopPublishSource,
 } from './home-v2-publish-source-selection.js'
 import { normalizeHomeV2PublishBlobRequest } from './home-v2-publish-blob-source.js'
+import { zipHomeV2PreviewDirectory } from './home-v2-preview-archive.js'
+import {
+  HOME_V2_PREVIEW_TOO_LARGE,
+  HOME_V2_PREVIEW_UNEXPECTED_URL,
+  HOME_V2_PREVIEW_UNSUPPORTED_CONTENT,
+  HOME_V2_PREVIEW_UPLOAD_MAX_BYTES,
+  homeV2PreviewUploadPath,
+  isHomeV2PreviewRenderPath,
+  type HomeV2PreviewUploadTarget,
+} from './home-v2-preview-upload.js'
 import {
   normalizeHomeV2PublicPublishRequest,
   sha256Hex,
@@ -2341,8 +2352,6 @@ function issueHomeV2ResourceStream(input: {
 
 const HOME_V2_PREVIEW_STAGING_FAILED =
   'Home could not prepare the selected source for preview. Select it again.'
-const HOME_V2_PREVIEW_UNSUPPORTED_CONTENT =
-  'Unsupported preview content. Choose a folder or zip containing an index.html file, an HTML file, or an image, video, or audio file.'
 const HOME_V2_PREVIEW_NODE_FAILED = 'The node could not render the preview. Try again.'
 const HOME_V2_PREVIEW_NODE_TOO_OLD =
   'The connected Qortium Core node does not support QDN previews yet. Update Qortium Core and try again.'
@@ -2369,18 +2378,102 @@ function homeV2PreviewNodeMessage(error: unknown) {
   return status === 404 || status === 500 ? HOME_V2_PREVIEW_NODE_TOO_OLD : HOME_V2_PREVIEW_NODE_FAILED
 }
 
+// A preview upload is up to HOME_V2_PREVIEW_UPLOAD_MAX_BYTES of base64 over a
+// link that may be the user's home connection to their own VPS, so it gets its
+// own timeout rather than the 30s chat-write one.
+const HOME_V2_PREVIEW_UPLOAD_TIMEOUT_MS = 180_000
+
+async function postHomeV2PreviewUpload(
+  nodeApiUrl: string,
+  path: string,
+  base64: string,
+  apiKey: string,
+) {
+  const response = await nodeFetch(`${nodeApiUrl}${path}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'text/plain',
+      'X-API-KEY': apiKey,
+    },
+    body: base64,
+    // Same rule as postHomeV2ChatText: this call carries the administrative
+    // API key and the user's unpublished bytes, and 307/308 would re-send both
+    // to a host nothing vetted.
+    redirect: 'error',
+    signal: AbortSignal.timeout(HOME_V2_PREVIEW_UPLOAD_TIMEOUT_MS),
+  })
+  // Bounded exactly as the old path-based call was: Core's whole answer is one
+  // short /render/hash path.
+  const result = await readBoundedResponse(response, 'GET', CHAT_SIGNING_RESPONSE_MAX_BYTES)
+  if (!result.ok) {
+    throw Object.assign(new Error(`QDN preview request failed. HTTP ${result.status}.`), {
+      status: result.status,
+    })
+  }
+  return result.body.trim()
+}
+
+/**
+ * The staged tree as an upload body: a directory becomes a zip, a file goes up
+ * as itself.
+ *
+ * Everything here is already a Home-owned staging copy — the user's own path is
+ * never sent, and never was — so the only new obligation is the wire bound.
+ */
+async function readHomeV2PreviewUploadBody(
+  previewPath: string,
+  service: string,
+): Promise<{ base64: string; target: HomeV2PreviewUploadTarget }> {
+  const stats = await stat(previewPath)
+  if (stats.isDirectory()) {
+    const bytes = await zipHomeV2PreviewDirectory(previewPath, HOME_V2_PREVIEW_UPLOAD_MAX_BYTES)
+    return {
+      base64: Buffer.from(bytes).toString('base64'),
+      // Core only reads `filename` for the single-file case; the archive flag
+      // is what routes this to its unzip-and-render branch.
+      target: Object.freeze({ archive: true, filename: 'preview.zip', service }),
+    }
+  }
+  if (!stats.isFile()) throw homeV2PublishSourceError(HOME_V2_PREVIEW_UNSUPPORTED_CONTENT)
+  if (stats.size < 1 || stats.size > HOME_V2_PREVIEW_UPLOAD_MAX_BYTES) {
+    throw homeV2PublishSourceError(HOME_V2_PREVIEW_TOO_LARGE)
+  }
+  const bytes = await readFile(previewPath)
+  if (bytes.byteLength < 1 || bytes.byteLength > HOME_V2_PREVIEW_UPLOAD_MAX_BYTES) {
+    throw homeV2PublishSourceError(HOME_V2_PREVIEW_TOO_LARGE)
+  }
+  return {
+    base64: bytes.toString('base64'),
+    target: Object.freeze({
+      archive: false,
+      // The BASENAME of the staged copy, which carries the extension Core needs
+      // to keep (and nothing else path-shaped).
+      filename: nodePath.basename(previewPath).slice(0, 180) || 'preview',
+      service,
+    }),
+  }
+}
+
 /**
  * Render a chosen publish source so the user can look at it before publishing.
  *
- * Gated to a LOCAL node, deliberately. Previewing sends the selected bytes to
- * the node, which renders them -- so on someone else's node the operator would
- * see the file before the user had decided to publish it. qdn.ts flags the same
- * hazard on the 1.x path. On a local managed Core there is no third party, so
- * no approval prompt is needed either; on anything else this refuses.
+ * Gated on ADMIN TRUST, not on the node being loopback (owner decision,
+ * 2026-09-02). Previewing sends the selected bytes to a node that renders them,
+ * so the node must be one the user administers with their own API key — their
+ * managed local Core, or their own VPS Core reached over HTTPS (or an SSH
+ * tunnel). That is precisely `resolveHomeV2AdminNode`, and it is the only gate:
+ * a public/discovered node is somebody else's Core and still refuses, which is
+ * the hazard the old `mode === 'local'` rule was reaching for.
+ *
+ * The transport is Core's BYTE-UPLOAD preview route. The path route it used
+ * before could only ever work when Home and the node shared a filesystem, which
+ * is what made the feature look local-only in the first place. See
+ * home-v2-preview-upload.ts for why the path variant is not kept as a loopback
+ * optimisation.
  *
  * The render URL is never returned to the app: Home opens the preview itself,
- * through the resource viewer, so the app cannot read the staged bytes back out
- * of a URL it was handed.
+ * in its own app tab, so the app cannot read the staged bytes back out of a URL
+ * it was handed.
  */
 async function previewHomeV2PublishSource(
   context: QdnViewContext,
@@ -2393,12 +2486,15 @@ async function previewHomeV2PublishSource(
   if (!sourceToken) {
     throw new Error('Select a QDN publish source before previewing it.')
   }
-  const { apiKey, node } = await resolveHomeV2AdminNode(network)
-  if (node.mode !== 'local' || !apiKey) {
-    throw new Error(
-      'Previewing sends the selected file to the node, so it is only available on your own local Core.',
-    )
+  const admin = await resolveHomeV2AdminNode(network)
+  if (!admin.trust.trusted) {
+    throw new Error(homeV2AdminTrustMessage(admin.trust.reason, 'Previewing a publish source'))
   }
+  const { apiKey, node } = admin
+  // The credential+origin this preview is bound to. Re-checked after the upload
+  // so a node or key that moved while the bytes were in flight cannot have the
+  // resulting render URL opened against it.
+  const approvedRevision = admin.trust.revision
   const hostWindow = getContextWindow(context)
   if (!hostWindow || hostWindow.isDestroyed()) {
     throw new Error('The preview request does not belong to an active Home window.')
@@ -2432,22 +2528,35 @@ async function previewHomeV2PublishSource(
     } catch (error) {
       throw homeV2PreviewFailure(error, HOME_V2_PREVIEW_UNSUPPORTED_CONTENT)
     }
+    let upload: { base64: string; target: HomeV2PreviewUploadTarget }
+    try {
+      upload = await readHomeV2PreviewUploadBody(previewPath, service)
+    } catch (error) {
+      throw homeV2PreviewFailure(error, HOME_V2_PREVIEW_STAGING_FAILED)
+    }
     let renderPath: string
     try {
-      const rendered = await postHomeV2ChatText(
+      renderPath = await postHomeV2PreviewUpload(
         node.nodeApiUrl,
-        `/arbitrary/preview/${encodeURIComponent(service)}`,
-        previewPath,
-        'text/plain',
-        'QDN preview request failed.',
+        homeV2PreviewUploadPath(upload.target),
+        upload.base64,
         apiKey,
       )
-      renderPath = typeof rendered === 'string' ? rendered.trim() : ''
     } catch (error) {
       throw homeV2PreviewFailure(error, homeV2PreviewNodeMessage(error))
     }
-    if (!renderPath.startsWith('/render/')) {
-      throw new Error('The node returned an unexpected preview URL.')
+    if (!isHomeV2PreviewRenderPath(renderPath)) {
+      throw new Error(HOME_V2_PREVIEW_UNEXPECTED_URL)
+    }
+    // The upload can take minutes on a remote node. Re-resolve trust before the
+    // preview is opened: if the user switched nodes or re-attached a different
+    // key meanwhile, this render URL names a node they are no longer approved
+    // on, and opening it would be Home acting on a stale approval.
+    const after = await resolveHomeV2AdminNode(network)
+    if (!after.trust.trusted || after.trust.revision !== approvedRevision) {
+      throw new Error(
+        'The selected Qortium node or its API key changed while the preview was being built.',
+      )
     }
     // Opened as an app TAB, not the resource viewer: the viewer renders images,
     // audio and video and otherwise offers a download, so a WEBSITE preview --
@@ -2457,6 +2566,10 @@ async function previewHomeV2PublishSource(
     // docs/HOME_V2_BRIDGE_COMPATIBILITY.md said this action was waiting for.
     hostWindow.webContents.send('home-v2-app:open-publish-preview', {
       network,
+      // Carried so a preview tab restored in a LATER session can be bound to
+      // the same credential+origin it was built against, not merely to a
+      // loopback shape (see src/v2/product-model.ts).
+      previewTrustRevision: approvedRevision,
       previewUrl: `${node.nodeApiUrl.replace(/\/+$/, '')}${renderPath}`,
       service,
       sourceTabId: context.tabId,
@@ -7903,7 +8016,7 @@ async function deleteHomeV2MintingKey(
  * derived from `getHomeV2SignedWriteApiKey`, whose callers are ordinary
  * signed writes that must never inherit administrative authority.
  */
-async function resolveHomeV2AdminNode(network: HomeV2AppNetwork) {
+export async function resolveHomeV2AdminNode(network: HomeV2AppNetwork) {
   const node = await getHomeV2ReadableNode(network)
   const managedApiKey = node.mode === 'local'
     ? await getHomeV2SignedWriteApiKey(network, node.nodeApiUrl)
@@ -11379,6 +11492,28 @@ async function handleRequest(
 }
 
 export function registerHomeV2AppBridgeIpcHandlers() {
+  // The shell's read-only view of node administration: whether the selected
+  // Qortium node is one the user administers, its origin, and the trust
+  // revision. The KEY never crosses this boundary -- the renderer learns only
+  // what it needs to bind a restored publish preview to the node it was built
+  // on. Mirrors HomeV2NodeClient.adminTrust(), which the Android client
+  // already implements.
+  ipcMain.handle('home-v2-nodes:adminTrust', async (event) => {
+    assertAuthorizedHomeV2Sender(event)
+    const resolved = await resolveHomeV2AdminNode('qortium')
+    return resolved.trust.trusted
+      ? {
+          origin: resolved.trust.origin,
+          revision: resolved.trust.revision,
+          trusted: true as const,
+        }
+      : {
+          origin: '',
+          reason: homeV2AdminTrustMessage(resolved.trust.reason, 'Administering this node'),
+          revision: '',
+          trusted: false as const,
+        }
+  })
   // An app view that navigates replaces the document that asked, so its pending
   // Home-settings prompts are dropped rather than left to expire. Registered
   // here, not imported the other way round, to keep qdn-views free of a cycle.

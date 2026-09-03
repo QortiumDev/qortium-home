@@ -228,6 +228,12 @@ const dependencies: PortableNodeClientDependencies = {
     lastRequestedBody = body
     lastRequestedTimeoutMs = timeoutMs
     lastBoundedMaxBytes = maxBytes
+    if (url.includes('/arbitrary/preview/')) {
+      // The seam that lets a test move the node or the key WHILE the upload is
+      // in flight, which is the only way to exercise the post-upload recheck.
+      await onPreviewUpload?.()
+      return { data: previewUploadResponse, latencyMs: 1, ok: previewUploadOk, status: previewUploadStatus }
+    }
     if (url.endsWith('/walletbalance')) {
       return { data: '123456789', latencyMs: 1, ok: true, status: 200 }
     }
@@ -267,6 +273,11 @@ const dependencies: PortableNodeClientDependencies = {
   },
   now: () => currentNow,
 }
+
+let onPreviewUpload: (() => Promise<void>) | null = null
+let previewUploadResponse: unknown = '/render/hash/abc123def456'
+let previewUploadOk = true
+let previewUploadStatus = 200
 
 const client = createPortableNodeClient(dependencies)
 assert.equal(typeof client.checkCoreUpdate, 'function')
@@ -1211,6 +1222,106 @@ assert.equal(lastRequestedBody, JSON.stringify({
 }))
 assert.equal(lastBoundedMaxBytes, 64 * 1024)
 
+// --- PREVIEW_QDN_PUBLISH_SOURCE, Android ----------------------------------
+// Android was refused previews on the stated ground that it "runs no local
+// Core". That was never the action's requirement -- it was the desktop
+// TRANSPORT's (a filesystem path only a co-located node can read). Core's
+// byte-upload route takes the bytes, so the capability is the same one desktop
+// has, gated on the same admin trust and reached over the same authenticated,
+// redirect-refusing, bounded POST.
+assert.equal(typeof client.previewPublishSource, 'function')
+const previewBase64 = btoa('<h1>preview</h1>')
+const previewed = await client.previewPublishSource!({
+  dataBase64: previewBase64,
+  fileName: 'site.zip',
+})
+assert.deepEqual(previewed, {
+  previewUrl: 'https://qortium-admin.example/render/hash/abc123def456',
+  revision: foreignTrust.revision,
+  service: 'WEBSITE',
+})
+// The REQUEST SHAPE: base64 in the body, the archive flag and the filename in
+// the query, the admin key on the header, redirects refused, response bounded.
+assert.equal(
+  lastRequestedUrl,
+  'https://qortium-admin.example/arbitrary/preview/WEBSITE/upload?archive=true&filename=site.zip',
+)
+assert.equal(lastRequestedMethod, 'POST')
+assert.equal(lastRequestedHeaders?.['Content-Type'], 'text/plain')
+assert.equal(lastRequestedHeaders?.['X-API-KEY'], 'private-test-api-key')
+assert.equal(lastDisableRedirects, true)
+assert.equal(lastRequestedBody, previewBase64)
+assert.equal(lastBoundedMaxBytes, 64 * 1024)
+assert.equal(lastRequestedTimeoutMs, 180_000)
+
+// A single file is NOT an archive, and its extension picks the service.
+await client.previewPublishSource!({ dataBase64: previewBase64, fileName: 'clip.mp4' })
+assert.equal(
+  lastRequestedUrl,
+  'https://qortium-admin.example/arbitrary/preview/VIDEO/upload?archive=false&filename=clip.mp4',
+)
+// A standalone page uploads as a file: Core wraps an HTML upload to WEBSITE as
+// index.html itself.
+await client.previewPublishSource!({ dataBase64: previewBase64, fileName: 'page.html' })
+assert.equal(
+  lastRequestedUrl,
+  'https://qortium-admin.example/arbitrary/preview/WEBSITE/upload?archive=false&filename=page.html',
+)
+
+// An extension Core has no preview service for is refused BEFORE the bytes go
+// anywhere.
+{
+  const before = boundedRequestCount
+  await assert.rejects(
+    () => client.previewPublishSource!({ dataBase64: previewBase64, fileName: 'notes.docx' }),
+    /Unsupported preview content/,
+  )
+  assert.equal(boundedRequestCount, before, 'an unsupported source must not be uploaded')
+}
+
+// A node that answers with something other than a bare /render/ path is
+// refused: that answer becomes a tab URL.
+{
+  previewUploadResponse = 'https://evil.example/render/hash/abc'
+  await assert.rejects(
+    () => client.previewPublishSource!({ dataBase64: previewBase64, fileName: 'site.zip' }),
+    /unexpected preview URL/,
+  )
+  previewUploadResponse = '//evil.example/render/hash/abc'
+  await assert.rejects(
+    () => client.previewPublishSource!({ dataBase64: previewBase64, fileName: 'site.zip' }),
+    /unexpected preview URL/,
+  )
+  previewUploadResponse = '/render/hash/abc123def456'
+}
+
+// A node without the endpoint answers 404/500; say so rather than "try again".
+{
+  previewUploadOk = false
+  previewUploadStatus = 404
+  await assert.rejects(
+    () => client.previewPublishSource!({ dataBase64: previewBase64, fileName: 'site.zip' }),
+    /does not support QDN previews yet/,
+  )
+  previewUploadOk = true
+  previewUploadStatus = 200
+}
+
+// REVISION DRIFT AFTER THE UPLOAD. The upload can run for minutes; a node or
+// key that moved while it did means the returned render URL belongs to a node
+// the user is no longer approved on, so the preview must not open.
+{
+  onPreviewUpload = async () => {
+    await client.setCustomUrl('qortium', 'https://qortium-admin.example', 'rotated-mid-upload-key')
+  }
+  await assert.rejects(
+    () => client.previewPublishSource!({ dataBase64: previewBase64, fileName: 'site.zip' }),
+    /API key changed while the preview was being built/,
+  )
+  onPreviewUpload = null
+  await client.setCustomUrl('qortium', 'https://qortium-admin.example', 'private-test-api-key')
+}
+
 const boundedBeforeCredentialChange = boundedRequestCount
 await client.setCustomUrl('qortium', 'https://qortium-admin.example', 'rotated-test-api-key')
 await assert.rejects(
@@ -1369,5 +1480,37 @@ await assert.rejects(
     /must be approved through Home/.test(error.message) &&
     !/only available in Qortium Home desktop|read-only mode/i.test(error.message),
 )
+
+// --- Preview is gated on TRUST, never on the node being local -------------
+// Run last so the mode changes disturb nothing above. A public node is
+// somebody else's Core, and a plain-HTTP remote host would put the API key on
+// the wire in the clear; both refuse, and neither uploads a byte. The
+// authenticated HTTPS custom node above is the ACCEPT case, and it is not
+// loopback -- which is the whole point of the 2026-09-02 rule.
+{
+  const before = boundedRequestCount
+  await client.setMode('qortium', 'public')
+  await assert.rejects(
+    () => client.previewPublishSource!({ dataBase64: btoa('x'), fileName: 'site.zip' }),
+    // A discovered public node has no attached key and no origin the portable
+    // client will administer, so the refusal names the fix (a secure route to
+    // a node of your own) rather than the platform.
+    /Previewing a publish source needs a secure route to the node/,
+  )
+  await client.setMode('qortium', 'custom')
+  // The transport rule is unchanged and enforced one layer earlier: a remote
+  // custom node cannot even be SAVED over plain HTTP, so an API key never
+  // reaches a preview upload in the clear.
+  await assert.rejects(
+    () => client.setCustomUrl('qortium', 'http://remote.example:24891', 'private-test-api-key'),
+    /must use HTTPS/,
+  )
+  await client.setCustomUrl('qortium', 'https://qortium-admin.example')
+  await assert.rejects(
+    () => client.previewPublishSource!({ dataBase64: btoa('x'), fileName: 'site.zip' }),
+    /needs your node's API key/,
+  )
+  assert.equal(boundedRequestCount, before, 'an untrusted node must never receive preview bytes')
+}
 
 console.log('Home v2 portable node client tests passed.')

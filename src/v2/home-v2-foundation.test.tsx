@@ -300,6 +300,98 @@ function testProductModelKeepsSourceQualifiedTabs(): void {
     restored.tabs.map((tab) => tab.context.resourceLocation),
     withBothSources.tabs.map((tab) => tab.context.resourceLocation),
   )
+  // --- Publish-preview restore is bound to the TRUSTED NODE ---------------
+  // A preview URL names a host outright (it is /render/hash/..., which no
+  // resource address can produce), so it is restored only against the node the
+  // user is admin-trusted on right now, and only when the stored trust
+  // revision still matches. The old rule was "loopback host", which looked
+  // like a security check but was an artefact of the old transport: since
+  // previews are uploaded, a user's own remote Core produces
+  // https://core.example/render/... and the loopback rule silently threw that
+  // away on every restart (owner decision 2026-09-02).
+  {
+    const previewTrust = { origin: 'https://core.example', revision: 'rev-1' }
+    const source = withBothSources.tabs[0]
+    const withPreview = {
+      ...JSON.parse(JSON.stringify(withBothSources)),
+      entries: JSON.parse(JSON.stringify(withBothSources)).entries.map((entry: {
+        kind: string
+        context?: Record<string, unknown>
+      }) => (entry.kind === 'app' && entry.context?.tabId === source.id
+        ? {
+            ...entry,
+            context: {
+              ...entry.context,
+              previewTrustRevision: 'rev-1',
+              previewUrl: 'https://core.example/render/hash/abc123',
+            },
+          }
+        : entry)),
+    }
+    const kept = restoreProductState(withPreview, { previewTrust })
+    assert.equal(
+      kept.tabs.find((tab) => tab.id === source.id)?.context.previewUrl,
+      'https://core.example/render/hash/abc123',
+      'a preview on the currently trusted node must survive a restart',
+    )
+
+    // A different node, a rotated key, or no resolved trust at all: dropped.
+    // The tab still comes back -- as its ordinary app address.
+    for (const [label, options] of [
+      ['a different node', { previewTrust: { origin: 'https://other.example', revision: 'rev-1' } }],
+      ['a rotated key', { previewTrust: { origin: 'https://core.example', revision: 'rev-2' } }],
+      ['no resolved trust', {}],
+      ['an untrusted node', { previewTrust: null }],
+    ] as const) {
+      const dropped = restoreProductState(withPreview, options)
+      assert.equal(
+        dropped.tabs.find((tab) => tab.id === source.id)?.context.previewUrl,
+        null,
+        `a preview must be dropped for ${label}`,
+      )
+      assert.equal(dropped.tabs.length, withBothSources.tabs.length, 'the tab itself survives')
+    }
+
+    // A stored preview with no revision at all -- a profile written before the
+    // binding existed -- is dropped rather than trusted on its URL shape.
+    const legacyPreview = {
+      ...withPreview,
+      entries: withPreview.entries.map((entry: { kind: string; context?: Record<string, unknown> }) => (
+        entry.kind === 'app' && entry.context?.previewUrl
+          ? { ...entry, context: { ...entry.context, previewTrustRevision: undefined } }
+          : entry
+      )),
+    }
+    assert.equal(
+      restoreProductState(legacyPreview, { previewTrust }).tabs
+        .find((tab) => tab.id === source.id)?.context.previewUrl,
+      null,
+    )
+
+    // Shape still matters on top of the origin: a non-/render/ path, or one
+    // carrying credentials, is refused even on the trusted origin.
+    for (const previewUrl of [
+      'https://core.example/admin/stop',
+      'https://user:pass@core.example/render/hash/abc123',
+      'file:///etc/passwd',
+    ]) {
+      const shaped = {
+        ...withPreview,
+        entries: withPreview.entries.map((entry: { kind: string; context?: Record<string, unknown> }) => (
+          entry.kind === 'app' && entry.context?.previewUrl
+            ? { ...entry, context: { ...entry.context, previewUrl } }
+            : entry
+        )),
+      }
+      assert.equal(
+        restoreProductState(shaped, { previewTrust }).tabs
+          .find((tab) => tab.id === source.id)?.context.previewUrl,
+        null,
+        `${previewUrl} must not restore`,
+      )
+    }
+  }
+
   // Unsafe or unparseable tabs restore to the default single dashboard tab.
   // Compared structurally rather than by deepEqual: every internal tab now
   // carries its own generated id, so two independently created states are
@@ -2715,6 +2807,24 @@ function testProductionHomeV2EntryIsCapabilityScoped(): void {
     /Capacitor\.isNativePlatform\(\)[\s\S]{0,100}Capacitor\.getPlatform\(\) === 'android'/,
     'Home 2 QDN settings may use Preferences only in the native Android host',
   )
+  // PREVIEW_QDN_PUBLISH_SOURCE on Android: the bytes go to the node client
+  // (which holds the key and the trust decision), and the returned render URL
+  // is opened by Home through the SAME opener the desktop IPC uses -- never
+  // returned to the requesting app, which is the whole point of Home doing the
+  // opening. (2026-09-02: Android is no longer refused this action.)
+  {
+    const start = homeV2LiveApp.indexOf("if (action === 'PREVIEW_QDN_PUBLISH_SOURCE') {")
+    assert.notEqual(start, -1, 'the Android host must handle PREVIEW_QDN_PUBLISH_SOURCE')
+    const body = homeV2LiveApp.slice(start, start + 2_000)
+    assert.match(body, /nodeClient\.previewPublishSource\(\{/)
+    assert.match(body, /openHomeV2PublishPreview\(\{/)
+    assert.match(body, /previewTrustRevision: preview\.revision/)
+    assert.doesNotMatch(
+      body,
+      /return\s+\{[^}]*previewUrl/,
+      'the render URL must never be returned to the requesting app',
+    )
+  }
   assert.equal(packageJson.main, 'dist-electron/home-v2-main.js')
   assert.equal(packageJson.scripts['dist:linux:x64:v2-live'], undefined)
   const androidV2VaultStart = platform.indexOf('// Home v2 public CHAT writes')
@@ -3771,7 +3881,14 @@ testIdentityAndImageCachingKeepsChromeStable()
 // preload with no handler behind it -- compiles perfectly and fails at runtime.
 {
   const preload = readFileSync('electron/home-v2-live-preload.cts', 'utf8')
-  const bridge = readFileSync('electron/home-v2-node-bridge.ts', 'utf8')
+  // Both registries, because one home-v2-nodes channel cannot live in the node
+  // bridge: `home-v2-nodes:adminTrust` answers from the admin-trust resolver,
+  // which lives in the app bridge -- and the app bridge already imports the
+  // node bridge, so registering it there would close an import cycle.
+  const bridge = [
+    readFileSync('electron/home-v2-node-bridge.ts', 'utf8'),
+    readFileSync('electron/home-v2-app-bridge.ts', 'utf8'),
+  ].join('\n')
   const channels = [
     ...new Set(
       [...preload.matchAll(/ipcRenderer\.invoke\('(home-v2-nodes:[^']+)'/g)].map(

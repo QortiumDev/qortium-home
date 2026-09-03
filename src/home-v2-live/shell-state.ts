@@ -8,6 +8,7 @@ import {
   createProductState,
   restoreProductState,
   type ProductState,
+  type RestoreProductStateOptions,
 } from '../v2/product-model'
 import {
   DEFAULT_NEW_TAB_PREFERENCE,
@@ -68,6 +69,11 @@ export function parseHomeV2ShellState(
   value: unknown,
   systemTheme: HomeV2ResolvedTheme,
   systemLanguage: HomeV2ResolvedLanguage,
+  // Which node the caller is currently admin-trusted on, so a persisted publish
+  // preview can be restored against THAT node instead of being kept on a
+  // loopback shape check. Omitted (the shell's own default before the trust
+  // resolver has answered) drops every stored preview.
+  options: RestoreProductStateOptions = {},
 ): HomeV2ShellState {
   const fallback = createHomeV2ShellState(systemTheme, systemLanguage)
   if (
@@ -116,7 +122,7 @@ export function parseHomeV2ShellState(
         : createHomeV2OnboardingState('skipped', 'finish'),
     selectedAccountId,
     selectedAddressId,
-    product: restoreProductState(value.product),
+    product: restoreProductState(value.product, options),
   })
 }
 

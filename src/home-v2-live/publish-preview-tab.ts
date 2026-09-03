@@ -90,6 +90,14 @@ export function resolveHomeV2PublishPreviewOpen(
     app,
     context: {
       ...source.context,
+      // The admin-trust revision the preview was built against, carried onto
+      // the tab so a LATER session can re-bind it to the same node and
+      // credential rather than to a URL shape (src/v2/product-model.ts). Both
+      // hosts supply it; a payload without one restores as no preview at all.
+      previewTrustRevision:
+        typeof value.previewTrustRevision === 'string' && value.previewTrustRevision
+          ? value.previewTrustRevision
+          : null,
       previewUrl,
       tabId,
     },

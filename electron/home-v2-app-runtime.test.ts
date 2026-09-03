@@ -219,6 +219,29 @@ const localInfo = getHomeV2AppHostInfo({
   protocol: 'qdnRequest',
 })
 
+// PREVIEW_QDN_PUBLISH_SOURCE is now an ADMIN-TRUSTED route action: it uploads
+// the chosen bytes to a node that renders them with the user's own API key, so
+// SHOW_ACTIONS must advertise it exactly where that key exists -- the managed
+// local Core, or a custom node with an attached key -- and nowhere else. A
+// reachable PUBLIC node is somebody else's Core; advertising it there would
+// offer a button whose only possible outcome is a refusal.
+for (const route of [authenticatedCustomInfo.route, localInfo.route]) {
+  assert.equal(
+    getHomeV2AvailableAppActions('qdnRequest', { qortal: route, qortium: route })
+      .includes('PREVIEW_QDN_PUBLISH_SOURCE'),
+    true,
+    'an admin-trusted route must advertise PREVIEW_QDN_PUBLISH_SOURCE',
+  )
+}
+for (const route of [publicInfo.route, unauthenticatedCustomInfo.route]) {
+  assert.equal(
+    getHomeV2AvailableAppActions('qdnRequest', { qortal: route, qortium: route })
+      .includes('PREVIEW_QDN_PUBLISH_SOURCE'),
+    false,
+    'an untrusted route must NOT advertise PREVIEW_QDN_PUBLISH_SOURCE',
+  )
+}
+
 const foreignWalletActions = [
   'GET_WALLET_BALANCE',
   'GET_USER_WALLET_INFO',
@@ -697,25 +720,22 @@ for (const protocol of ['qdnRequest', 'qortalRequest'] as const) {
     withheld.filter((entry) => (
       // OPEN_AS_WIDGET is not a capability: Android has no widget surface to
       // open onto.
-      entry !== 'OPEN_AS_WIDGET' &&
-      // Previewing renders the chosen source on the user's OWN local Core.
-      // Home for Android runs none, so this is an absent capability rather
-      // than an unfinished port -- and offering the button where it can only
-      // fail is what the parity wave was against.
-      entry !== 'PREVIEW_QDN_PUBLISH_SOURCE'
+      entry !== 'OPEN_AS_WIDGET'
     )),
     [],
     `android must advertise everything the ${protocol} catalogue advertises to a tab`,
   )
 }
 
-// The one withheld action, asserted directly rather than only as an exception
-// above: it must be gone from the Android surface, still present on desktop,
-// and refused with its OWN reason -- the old single generic message claimed
-// transaction signing, which is not why this one is unavailable.
+// PREVIEW_QDN_PUBLISH_SOURCE was the ONE action Android withheld, on the
+// stated ground that it "renders the chosen source on your own local Qortium
+// Core, which Android does not run". That described the desktop TRANSPORT -- a
+// filesystem path only a co-located node can read -- not the action. Both
+// hosts now upload the bytes to a trusted node, so Android advertises it and
+// raises no objection of its own (2026-09-02).
 {
   const androidQdn = getHomeV2ContextualAppActions(getHomeV2AppActions('qdnRequest'), 'android')
-  assert.equal(androidQdn.includes('PREVIEW_QDN_PUBLISH_SOURCE'), false)
+  assert.equal(androidQdn.includes('PREVIEW_QDN_PUBLISH_SOURCE'), true)
   assert.equal(androidQdn.includes('SELECT_QDN_PUBLISH_SOURCE'), true)
   assert.equal(androidQdn.includes('STAGE_QDN_PUBLISH_SOURCE'), true)
   assert.equal(
@@ -723,13 +743,11 @@ for (const protocol of ['qdnRequest', 'qortalRequest'] as const) {
       .includes('PREVIEW_QDN_PUBLISH_SOURCE'),
     true,
   )
-  assert.equal(isHomeV2AndroidUnsupportedAction('PREVIEW_QDN_PUBLISH_SOURCE'), true)
-  const refusal = homeV2AndroidActionRefusal('PREVIEW_QDN_PUBLISH_SOURCE', 'qdnRequest')
-  assert.equal(refusal?.network, 'qortium')
-  assert.match(String(refusal?.message), /local Qortium Core/)
-  assert.doesNotMatch(String(refusal?.message), /transaction signing/)
-  // Not advertised on qortalRequest at all, so Android's own objection stands
-  // aside and the generic unsupported-protocol answer applies.
+  assert.equal(isHomeV2AndroidUnsupportedAction('PREVIEW_QDN_PUBLISH_SOURCE'), false)
+  // No Android objection on either protocol: on qdnRequest because the action
+  // now runs there, on qortalRequest because it is not advertised at all and
+  // the generic unsupported-protocol answer applies.
+  assert.equal(homeV2AndroidActionRefusal('PREVIEW_QDN_PUBLISH_SOURCE', 'qdnRequest'), null)
   assert.equal(homeV2AndroidActionRefusal('PREVIEW_QDN_PUBLISH_SOURCE', 'qortalRequest'), null)
 }
 

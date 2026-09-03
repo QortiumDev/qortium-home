@@ -112,8 +112,19 @@ const HOME_V2_REACHABLE_ROUTE_ACTIONS = new Set<string>([
   'SAVE_CHAT_ATTACHMENT',
   'PUBLISH_QDN_RESOURCE',
   'SELECT_QDN_PUBLISH_SOURCE',
-  // Previewing sends the file to the node to be rendered, so an unreachable
-  // route cannot serve it -- same gate as its publish-source siblings.
+])
+
+/**
+ * Actions advertised only on a route the user ADMINISTERS.
+ *
+ * Previewing uploads the chosen bytes to a node that renders them with the
+ * user's own API key, so it is an administrative capability in exactly the
+ * sense the node-settings writes are — and since the 2026-09-02 owner
+ * decision it is gated on that trust rather than on the node being loopback,
+ * which means SHOW_ACTIONS has to describe trust too. Advertising it on a
+ * public node would offer a button whose only possible outcome is a refusal.
+ */
+const HOME_V2_ADMIN_TRUSTED_ROUTE_ACTIONS = new Set<string>([
   'PREVIEW_QDN_PUBLISH_SOURCE',
 ])
 
@@ -196,6 +207,9 @@ export function getHomeV2AvailableAppActions(
     // Core, or a custom node with their attached key). The metadata READ is
     // not gated — it is the same anonymous Core route FETCH_NODE_API allows.
     if (protocol === 'qdnRequest' && isHomeV2NodeSettingsWriteAction(action)) {
+      return route.reachable && route.adminTrusted
+    }
+    if (HOME_V2_ADMIN_TRUSTED_ROUTE_ACTIONS.has(action)) {
       return route.reachable && route.adminTrusted
     }
     return HOME_V2_REACHABLE_ROUTE_ACTIONS.has(action) ? route.reachable : route.available
@@ -300,23 +314,13 @@ export function homeV2WidgetWithholdsSelfSubject(action: string) {
  * drift away from it — the single generic "requires transaction signing"
  * message this used to emit was already wrong for the first entry added.
  */
-const ANDROID_UNSUPPORTED_ACTION_REASONS = new Map<string, string>([
-  [
-    // Not a porting gap of Home's: previewing POSTs the chosen source to a
-    // node that renders it, and the desktop handler is gated to a LOCAL Core
-    // for exactly that reason. Home for Android runs no Core, so the honest
-    // answer is that the capability is absent, not that the button is missing.
-    //
-    // Future Android path, when there is one: Core's
-    // POST /arbitrary/preview/{service}/upload?archive=&filename= takes the
-    // BYTES rather than a local path, which is what Home 1.x Android used
-    // (src/platform.ts, the PREVIEW_QDN_PUBLISH_SOURCE branch). It still needs
-    // a trusted node with a write key, so it is a node-trust decision before
-    // it is a client one.
-    'PREVIEW_QDN_PUBLISH_SOURCE',
-    'PREVIEW_QDN_PUBLISH_SOURCE renders the chosen source on your own local Qortium Core, which Qortium Home for Android does not run.',
-  ],
-])
+// PREVIEW_QDN_PUBLISH_SOURCE used to sit here, with "renders it on your own
+// local Core, which Android does not run" as its reason. That reason described
+// the desktop TRANSPORT (a filesystem path only a co-located node can read),
+// not the action: Core's byte-upload preview route takes the bytes, and
+// Android has had bytes all along. Both hosts now use that route and gate on
+// admin trust, so Android runs the action like any other (2026-09-02).
+const ANDROID_UNSUPPORTED_ACTION_REASONS = new Map<string, string>([])
 
 const ANDROID_UNSUPPORTED_ACTIONS: ReadonlySet<string> = new Set(ANDROID_UNSUPPORTED_ACTION_REASONS.keys())
 

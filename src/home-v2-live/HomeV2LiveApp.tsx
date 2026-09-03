@@ -2085,10 +2085,24 @@ export function HomeV2LiveApp() {
         }
         if (cancelled) return
         setFreshShellProfile(isFreshShell)
+        // A stored publish preview names a node origin outright, so it is
+        // restored only against the node the user is admin-trusted on RIGHT
+        // NOW -- their managed local Core or their own remote one. A refusal,
+        // a client without the resolver, or a node that has since changed all
+        // land the same way: the preview is dropped and the tab comes back as
+        // its ordinary app address.
+        const previewTrust = await nodeClient
+          .adminTrust?.()
+          .then((trust) => (trust.trusted && trust.origin && trust.revision
+            ? { origin: trust.origin, revision: trust.revision }
+            : null))
+          .catch(() => null) ?? null
+        if (cancelled) return
         const restored = parseHomeV2ShellState(
           rawState,
           currentSystemTheme(),
           currentSystemLanguage(),
+          { previewTrust },
         )
         setSnapshot((current) => ({
           ...current,
@@ -3588,32 +3602,42 @@ export function HomeV2LiveApp() {
   // identity and address but carrying the node-built preview URL. It is a
   // separate tab from the app itself: previewUrl participates in tab identity,
   // so this never replaces the app that asked for it.
+  //
+  // Shared by both hosts: desktop delivers the payload over IPC from the main
+  // process, Android builds the same payload in-process after its own upload.
+  // One opener means the Android preview cannot drift into a second, subtly
+  // different tab shape.
+  const openHomeV2PublishPreview = useCallback((value: unknown) => {
+    tabSequence.current += 1
+    const tabId = brand<TabId>(
+      `home-v2:tab:${Date.now().toString(36)}:${tabSequence.current}`,
+    )
+    // The requesting app is rebuilt from ITS OWN TAB, not looked up in
+    // `snapshot.apps`: that field is never populated in the live shell, so
+    // the lookup this handler used to do found nothing and dropped every
+    // preview in silence -- while the app had already been told it opened.
+    const opened = resolveHomeV2PublishPreviewOpen(
+      value,
+      productStateRef.current.tabs,
+      tabId,
+    )
+    if (!opened) return false
+    dispatchProduct({
+      type: 'open-app',
+      app: opened.app,
+      tabId,
+      context: opened.context,
+    })
+    return true
+  }, [])
+
   useEffect(() => {
     const bridge = window.homeV2Apps
     if (!bridge?.onOpenPublishPreview) return
     return bridge.onOpenPublishPreview((value) => {
-      tabSequence.current += 1
-      const tabId = brand<TabId>(
-        `home-v2:tab:${Date.now().toString(36)}:${tabSequence.current}`,
-      )
-      // The requesting app is rebuilt from ITS OWN TAB, not looked up in
-      // `snapshot.apps`: that field is never populated in the live shell, so
-      // the lookup this handler used to do found nothing and dropped every
-      // preview in silence -- while the app had already been told it opened.
-      const opened = resolveHomeV2PublishPreviewOpen(
-        value,
-        productStateRef.current.tabs,
-        tabId,
-      )
-      if (!opened) return
-      dispatchProduct({
-        type: 'open-app',
-        app: opened.app,
-        tabId,
-        context: opened.context,
-      })
+      openHomeV2PublishPreview(value)
     })
-  }, [])
+  }, [openHomeV2PublishPreview])
 
   useEffect(() => {
     const bridge = window.homeV2Apps
@@ -7846,7 +7870,7 @@ export function HomeV2LiveApp() {
           validateTarget: assertNameOwned,
         }))
       }
-      if (isAndroidHost && (action === 'SELECT_QDN_PUBLISH_SOURCE' || action === 'STAGE_QDN_PUBLISH_SOURCE' || action === 'PUBLISH_QDN_RESOURCE')) {
+      if (isAndroidHost && (action === 'SELECT_QDN_PUBLISH_SOURCE' || action === 'STAGE_QDN_PUBLISH_SOURCE' || action === 'PREVIEW_QDN_PUBLISH_SOURCE' || action === 'PUBLISH_QDN_RESOURCE')) {
         if (!context.selectedAccountId) throw new Error('No account is selected for this tab.')
         const accountId = context.selectedAccountId
         const account = accountCatalogueRef.current.accounts.find((candidate) => candidate.id === accountId)
@@ -7874,6 +7898,41 @@ export function HomeV2LiveApp() {
         }
         if (action === 'STAGE_QDN_PUBLISH_SOURCE') {
           return stageHomeV2AndroidPublishBlob(binding, isRecord(requestValue) ? requestValue : {})
+        }
+        // PREVIEW: the bytes are already here (Android's picker returns base64),
+        // so the node client uploads them to the trusted node's byte-upload
+        // preview route and hands back the render URL. No account signature is
+        // involved -- nothing is published -- so this runs before the unlock
+        // check the publish path makes below.
+        if (action === 'PREVIEW_QDN_PUBLISH_SOURCE') {
+          if (!nodeClient.previewPublishSource) {
+            throw new Error('Previewing a publish source is unavailable on this platform.')
+          }
+          const requested = isRecord(requestValue) ? requestValue : {}
+          const sourceToken = typeof requested.sourceToken === 'string' ? requested.sourceToken : ''
+          if (!sourceToken) {
+            throw new Error('Select a QDN publish source before previewing it.')
+          }
+          const previewSource = homeV2AndroidPublishSources.resolve(sourceToken, binding)
+          const preview = await nodeClient.previewPublishSource({
+            dataBase64: previewSource.dataBase64,
+            fileName: previewSource.fileName,
+          })
+          // Opened exactly as the desktop preview is, through the one shared
+          // opener: the render URL never reaches the requesting app, which is
+          // the whole point of Home doing the opening.
+          const openedPreview = openHomeV2PublishPreview({
+            network: targetNetwork,
+            previewTrustRevision: preview.revision,
+            previewUrl: preview.previewUrl,
+            service: preview.service,
+            sourceTabId: context.tabId,
+            title: previewSource.fileName,
+          })
+          if (!openedPreview) {
+            throw new Error('The preview could not be opened for this tab.')
+          }
+          return true
         }
         if (!account.isUnlocked) throw new Error('The selected account is locked.')
         if (!vaultClient?.publishPublicResource) {

@@ -124,8 +124,19 @@ import {
   normalizeHomeV2ListItems,
   normalizeHomeV2ListName,
 } from '../../electron/home-v2-app-actions'
+import {
+  HOME_V2_PREVIEW_TOO_LARGE,
+  HOME_V2_PREVIEW_UNEXPECTED_URL,
+  HOME_V2_PREVIEW_UPLOAD_MAX_BASE64_LENGTH,
+  homeV2PreviewUploadPath,
+  isHomeV2PreviewRenderPath,
+  resolveHomeV2PreviewUploadForFile,
+} from '../../electron/home-v2-preview-upload'
 
 const LIST_REQUEST_TIMEOUT_MS = 15_000
+// A preview upload is up to 100 MiB of base64 to a node that may be the user's
+// own remote VPS, so it does not share the list timeout.
+const PREVIEW_UPLOAD_TIMEOUT_MS = 180_000
 
 export interface HomeV2NodeClient {
   getSnapshot(): Promise<unknown>
@@ -212,6 +223,28 @@ export interface HomeV2NodeClient {
     approvedRevision: string,
   ): Promise<unknown>
   nodeRestart?(approvedRevision: string): Promise<unknown>
+  /**
+   * PREVIEW_QDN_PUBLISH_SOURCE, Android side.
+   *
+   * The renderer holds the picked bytes (Capacitor's picker hands them over as
+   * base64), so it passes them in; the KEY and the trust decision stay here,
+   * as they do for every other administered call. Home was never barred from
+   * previewing on Android for a reason of its own: the desktop route posted a
+   * filesystem PATH, which only a co-located node can read. Core's byte-upload
+   * route removes that, so this is the same capability the desktop host has,
+   * gated the same way.
+   *
+   * Returns the render URL rather than opening anything: the tab is the
+   * renderer's to open, exactly as it is when desktop sends the IPC.
+   */
+  previewPublishSource?(request: {
+    readonly dataBase64: string
+    readonly fileName: string
+  }): Promise<{
+    readonly previewUrl: string
+    readonly revision: string
+    readonly service: string
+  }>
 }
 
 export interface HomeV2CoreOnChainUpdateStatus {
@@ -1449,6 +1482,59 @@ export function createPortableNodeClient(
         })
       }
       return { accepted: true }
+    },
+    async previewPublishSource(request) {
+      // Service and archive flag come from the file NAME, before anything is
+      // sent: an extension Core has no preview service for is refused here
+      // rather than uploading the bytes to find out.
+      const target = resolveHomeV2PreviewUploadForFile(request.fileName)
+      if (
+        !request.dataBase64 ||
+        request.dataBase64.length > HOME_V2_PREVIEW_UPLOAD_MAX_BASE64_LENGTH
+      ) {
+        throw new Error(HOME_V2_PREVIEW_TOO_LARGE)
+      }
+      const { apiKey, nodeApiUrl, revision } = await requireAdminNode('Previewing a publish source')
+      const requestBoundedJson = dependencies.requestBoundedJson
+      if (!requestBoundedJson) {
+        throw new Error('Bounded authenticated node requests are unavailable on this platform.')
+      }
+      const response = await requestBoundedJson(
+        `${nodeApiUrl}${homeV2PreviewUploadPath(target)}`,
+        PREVIEW_UPLOAD_TIMEOUT_MS,
+        { 'Content-Type': 'text/plain', 'X-API-KEY': apiKey },
+        request.dataBase64,
+        // Core's whole answer is one short /render/hash path.
+        64 * 1024,
+      )
+      if (!response.ok) {
+        throw Object.assign(
+          new Error(
+            response.status === 404 || response.status === 500
+              ? 'The connected Qortium Core node does not support QDN previews yet. Update Qortium Core and try again.'
+              : `QDN preview request failed with HTTP ${response.status}.`,
+          ),
+          { status: response.status },
+        )
+      }
+      const renderPath = typeof response.data === 'string' ? response.data.trim() : ''
+      if (!isHomeV2PreviewRenderPath(renderPath)) {
+        throw new Error(HOME_V2_PREVIEW_UNEXPECTED_URL)
+      }
+      // Same recheck the desktop bridge makes: the upload can run for minutes,
+      // and a node or key changed meanwhile means this render URL belongs to a
+      // node the user is no longer approved on.
+      const after = await requireAdminNode('Previewing a publish source')
+      if (after.revision !== revision) {
+        throw new Error(
+          'The selected Qortium node or its API key changed while the preview was being built.',
+        )
+      }
+      return {
+        previewUrl: `${nodeApiUrl.replace(/\/+$/, '')}${renderPath}`,
+        revision,
+        service: target.service,
+      }
     },
     async foreignWalletRead(action, wallet, approvedRevision) {
       const endpoint: ForeignWalletReadEndpoint = action === 'GET_WALLET_BALANCE'
