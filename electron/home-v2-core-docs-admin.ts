@@ -73,14 +73,26 @@ function nodeFailure(what: string, status: number) {
   return new Error(`${what} failed: the node answered HTTP ${status}.`)
 }
 
-/** Whether Core reports the documentation as already enabled. */
-function readsAsEnabled(text: string) {
+/**
+ * What Core reports the documentation setting as, or 'unknown'.
+ *
+ * Three states, not two. An unreadable answer -- the node unreachable, a
+ * non-2xx, a body over the bridge's 4 KiB bound (which arrives as an empty
+ * string), or JSON without the field -- is NOT evidence the setting was off.
+ * Collapsing it to `false` would let a later failure switch off a setting the
+ * user had already enabled, which is precisely the state the undo exists to
+ * avoid creating (review round 3).
+ */
+type DocumentationPreState = boolean | 'unknown'
+
+function readDocumentationEnabled(text: string): DocumentationPreState {
   try {
     const parsed: unknown = JSON.parse(text)
-    return !!parsed && typeof parsed === 'object' &&
-      (parsed as Record<string, unknown>).apiDocumentationEnabled === true
+    if (!parsed || typeof parsed !== 'object') return 'unknown'
+    const value = (parsed as Record<string, unknown>).apiDocumentationEnabled
+    return typeof value === 'boolean' ? value : 'unknown'
   } catch {
-    return false
+    return 'unknown'
   }
 }
 
@@ -115,7 +127,9 @@ export async function enableHomeV2CoreApiDocs(
     nodeApiUrl: node.nodeApiUrl,
     path: '/admin/settings',
   }).catch(() => null)
-  const previouslyEnabled = !!before?.ok && readsAsEnabled(before.text)
+  const previously: DocumentationPreState = before?.ok
+    ? readDocumentationEnabled(before.text)
+    : 'unknown'
 
   const settings = await patchDocumentationEnabled(dependencies, node, true)
   if (!settings.ok) throw nodeFailure('Enabling the Core API documentation', settings.status)
@@ -133,8 +147,18 @@ export async function enableHomeV2CoreApiDocs(
   // restarted. Undo it where we can, and say which of the two happened —
   // "it failed" alone would leave the user with a node in a state Home chose
   // and did not mention (security review, 2026-09-02).
-  const undo = async (reason: string) => {
-    if (previouslyEnabled) throw new Error(`${reason} The setting was already enabled, so nothing was changed back.`)
+  const undo = async (reason: string): Promise<never> => {
+    if (previously === true) {
+      throw new Error(`${reason} The setting was already enabled, so nothing was changed back.`)
+    }
+    if (previously === 'unknown') {
+      // Writing `false` here would be a GUESS about the user's node, and the
+      // one thing worse than leaving a setting on is turning off one they had
+      // deliberately enabled. Say so instead of acting.
+      throw new Error(
+        `${reason} Home could not confirm what the setting was before, so it has been left as it is — check apiDocumentationEnabled in the node's settings.`,
+      )
+    }
     const rolledBack = await patchDocumentationEnabled(dependencies, node, false)
       .then((result) => result.ok)
       .catch(() => false)

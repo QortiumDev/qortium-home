@@ -226,6 +226,71 @@ for (const [reason, pattern] of [
   assert.equal(patches(calls).length, 2)
 }
 
+// --- An UNCONFIRMABLE pre-state is never guessed at ------------------------
+// Three states, not two. The GET can fail, answer non-2xx, come back empty
+// because the bridge's 4 KiB bound cut it off, or simply not carry the field.
+// None of those is evidence the setting was off, and writing `false` on the
+// strength of one could switch off a setting the user had deliberately
+// enabled -- the exact state the undo exists to avoid (review round 3).
+for (const before of [
+  null,
+  { ok: false, status: 500, text: '' } as Answer,
+  { ok: true, status: 200, text: '' } as Answer,
+  { ok: true, status: 200, text: 'not json at all' } as Answer,
+  { ok: true, status: 200, text: '{"someOtherSetting":true}' } as Answer,
+  { ok: true, status: 200, text: '{"apiDocumentationEnabled":"yes"}' } as Answer,
+]) {
+  const node = trustedNode('https://core.example', 'user-key')
+  const answers: Partial<Record<string, Answer>> = {
+    'GET /admin/restart': { ok: false, status: 500, text: '' },
+  }
+  if (before) answers['GET /admin/settings'] = before
+  const calls: Call[] = []
+  let resolved = 0
+  const dependencies: HomeV2CoreDocsAdminDependencies = {
+    async resolveAdminNode() {
+      resolved += 1
+      return node
+    },
+    async request(input) {
+      // `null` models the GET itself throwing, which the caller catches.
+      if (!before && input.method === 'GET' && input.path === '/admin/settings') {
+        throw new Error('unreachable')
+      }
+      calls.push(input)
+      return answers[`${input.method} ${input.path}`] ?? ok
+    },
+  }
+  await assert.rejects(
+    () => enableHomeV2CoreApiDocs('qortium', dependencies),
+    (error: Error) =>
+      /could not confirm what the setting was before/.test(error.message) &&
+      /left as it is/.test(error.message),
+    `an unconfirmable pre-state (${before ? before.text || `HTTP ${before.status}` : 'throw'}) must not be guessed`,
+  )
+  assert.equal(resolved > 0, true)
+  assert.deepEqual(
+    patches(calls),
+    [JSON.stringify({ apiDocumentationEnabled: true })],
+    'an unconfirmable pre-state must never be written back as false',
+  )
+}
+
+// A pre-state that IS readable and false still rolls back, so the tri-state has
+// not simply disabled the undo.
+{
+  const node = trustedNode('https://core.example', 'user-key')
+  const { calls, dependencies } = harness([node, node], {
+    'GET /admin/settings': disabledBefore,
+    'GET /admin/restart': { ok: false, status: 500, text: '' },
+  })
+  await assert.rejects(
+    () => enableHomeV2CoreApiDocs('qortium', dependencies),
+    /changed back, so the node is as it was/,
+  )
+  assert.equal(patches(calls).length, 2)
+}
+
 // --- Already enabled before Home touched it: nothing to change back -------
 // The docs probe 404ing is not proof the setting was off, so the previous
 // value is READ. When it was already on, a failure must not turn it off.

@@ -125,6 +125,7 @@ let coreUpdatePostCount = 0
 let coreUpdateResponse: unknown = { updateAvailable: true }
 let onCoreUpdateGet: (() => void | Promise<void>) | null = null
 let savedResource: { fileName: string; mimeType: string; size: number } | null = null
+let secretWrites = 0
 
 const dependencies: PortableNodeClientDependencies = {
   async getPreference(key) {
@@ -140,6 +141,10 @@ const dependencies: PortableNodeClientDependencies = {
     preferences.set(key, value)
   },
   async setSecret(key, value) {
+    secretWrites += 1
+    // A real secure store is not instantaneous. The delay is what lets a
+    // single-flight test have two readers overlap at all.
+    await Promise.resolve()
     secrets.set(key, value)
   },
   async requestJson(url, method, timeoutMs, headers, disableRedirects, body) {
@@ -1531,6 +1536,77 @@ await assert.rejects(
     /needs your node's API key/,
   )
   assert.equal(boundedRequestCount, before, 'an untrusted node must never receive preview bytes')
+}
+
+// --- The binding id is minted once, and only when the credential moves -----
+// Both halves come from review round 3.
+{
+  const SECRET_KEY = 'home-v2-qortium-node-api-key-v1'
+  const ORIGIN = 'https://qortium-admin.example'
+  // The block above deliberately leaves the node keyless; re-attach one.
+  await client.setCustomUrl('qortium', ORIGIN, 'private-test-api-key')
+  const currentTrust = await client.adminTrust!()
+  assert.equal(currentTrust.trusted, true)
+
+  // (b) A settings write that touches NEITHER the key nor the origin keeps the
+  // id. Re-minting on a mode change would invalidate every approval token and
+  // every open preview tab for a change that touched no credential.
+  await client.setMode('qortium', 'custom')
+  const afterModeChange = await client.adminTrust!()
+  assert.equal(afterModeChange.trusted, true)
+  assert.equal(
+    afterModeChange.revision,
+    currentTrust.revision,
+    'a mode change must not re-mint the binding id',
+  )
+  // Re-saving the SAME key against the SAME node is equally benign.
+  await client.setCustomUrl('qortium', ORIGIN, 'private-test-api-key')
+  assert.equal(
+    (await client.adminTrust!()).revision,
+    currentTrust.revision,
+    'saving the same key on the same node must not re-mint the binding id',
+  )
+
+  // ...but a different key does re-mint, and so does a different origin.
+  await client.setCustomUrl('qortium', ORIGIN, 'another-test-api-key')
+  const afterKeyChange = await client.adminTrust!()
+  assert.equal(afterKeyChange.trusted, true)
+  assert.notEqual(afterKeyChange.revision, currentTrust.revision)
+  await client.setCustomUrl('qortium', 'https://moved.example', 'another-test-api-key')
+  const afterMove = await client.adminTrust!()
+  assert.equal(afterMove.trusted, true)
+  assert.notEqual(afterMove.revision, afterKeyChange.revision)
+
+  // (a) The lazy upgrade for a record written before binding ids existed is
+  // SINGLE-FLIGHT. Two concurrent readers used to mint independently and the
+  // last write won, leaving the earlier caller holding an id the store no
+  // longer had.
+  await client.setCustomUrl('qortium', ORIGIN, 'private-test-api-key')
+  secrets.set(SECRET_KEY, JSON.stringify({
+    apiKey: 'private-test-api-key',
+    nodeApiUrl: ORIGIN,
+    version: 1,
+  }))
+  const writesBefore = secretWrites
+  const [first, second, third] = await Promise.all([
+    client.adminTrust!(),
+    client.adminTrust!(),
+    client.adminTrust!(),
+  ])
+  assert.equal(first.trusted && second.trusted && third.trusted, true)
+  assert.match(first.revision, /^[0-9a-f]{32}$/)
+  assert.equal(second.revision, first.revision, 'concurrent readers must share one mint')
+  assert.equal(third.revision, first.revision)
+  assert.equal(secretWrites - writesBefore, 1, 'the lazy upgrade must write exactly once')
+  // And the id that was handed out is the one that is actually stored.
+  assert.equal(
+    (JSON.parse(secrets.get(SECRET_KEY) ?? '{}') as { bindingId?: string }).bindingId,
+    first.revision,
+  )
+  // A later read finds it and does not mint again.
+  const writesAfter = secretWrites
+  assert.equal((await client.adminTrust!()).revision, first.revision)
+  assert.equal(secretWrites, writesAfter, 'a record that already has an id must not be rewritten')
 }
 
 console.log('Home v2 portable node client tests passed.')

@@ -1,5 +1,5 @@
 import { createReadStream, createWriteStream } from 'node:fs'
-import { opendir } from 'node:fs/promises'
+import { opendir, rm } from 'node:fs/promises'
 import nodePath from 'node:path'
 import { Zip, ZipDeflate } from 'fflate'
 
@@ -92,6 +92,14 @@ export async function spoolHomeV2PreviewArchive(
     done = true
     settle?.()
   }
+  // A write stream reports a full disk, a revoked temp directory or an EIO as
+  // an 'error' EVENT. With no listener Node re-raises it as an uncaught
+  // exception and takes the main process down; with one, the spool simply
+  // fails and the caller shows the ordinary staging refusal (review round 3).
+  sink.on('error', (error: unknown) => {
+    failure ??= error instanceof Error ? error : new Error(String(error))
+    finish()
+  })
 
   const zip = new Zip((error, data, final) => {
     if (error) {
@@ -159,9 +167,17 @@ export async function spoolHomeV2PreviewArchive(
         // Already ended.
       }
     }
-    await new Promise<void>((resolve) => sink.end(resolve))
+    // `end` never rejects here: the 'error' listener above has already
+    // recorded anything the sink reported.
+    await new Promise<void>((resolve) => sink.end(() => resolve()))
   }
 
-  if (failure) throw failure
+  if (failure) {
+    // Nothing may upload a partial archive, and the caller's staging sweep is
+    // not the only path out of here (a spool into an unrelated directory would
+    // leak it), so the half-written file goes now.
+    await rm(archivePath, { force: true }).catch(() => undefined)
+    throw failure
+  }
   return total
 }

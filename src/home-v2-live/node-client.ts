@@ -962,6 +962,63 @@ export function createPortableNodeClient(
     Record<NetworkId, { nodeApiUrl: string; status: unknown; verifiedAt: number }>
   > = {}
   let coreUpdateInstallInFlight: Promise<HomeV2CoreOnChainUpdateStatus> | null = null
+  // One in-flight lazy mint at a time. Two concurrent reads of a pre-binding-id
+  // record used to mint independently, and the LAST write won -- so a caller
+  // could go on to use an id that no longer matched the store, and its approval
+  // token would be refused for no reason the user could see (review round 3).
+  let bindingIdUpgrade: Promise<string> | null = null
+
+  /** The protected admin record for `customUrl`, or null. */
+  async function readAdminKeyRecord(customUrl: string) {
+    const protectedValue = await dependencies.getSecret(QORTIUM_CORE_API_KEY_SECRET)
+    if (!protectedValue) return null
+    try {
+      const parsed: unknown = JSON.parse(protectedValue)
+      if (
+        !isRecord(parsed) ||
+        parsed.version !== 1 ||
+        parsed.nodeApiUrl !== customUrl
+      ) return null
+      return {
+        apiKey: normalizePortableNodeApiKey(parsed.apiKey),
+        bindingId: isBindingId(parsed.bindingId) ? parsed.bindingId : '',
+      }
+    } catch {
+      return null
+    }
+  }
+
+  /**
+   * Mints the binding id for a record written before binding ids existed, once,
+   * however many callers ask at the same time.
+   */
+  function upgradeAdminBindingId(apiKey: string, customUrl: string) {
+    if (bindingIdUpgrade) return bindingIdUpgrade
+    const flight = (async () => {
+      // Re-read INSIDE the flight: a write may have landed while callers
+      // queued, and its id is the one now in the store.
+      const current = await readAdminKeyRecord(customUrl)
+      if (current && current.apiKey === apiKey && current.bindingId) return current.bindingId
+      const bindingId = createHomeV2AdminBindingId()
+      await dependencies.setSecret(QORTIUM_CORE_API_KEY_SECRET, JSON.stringify({
+        apiKey,
+        bindingId,
+        nodeApiUrl: customUrl,
+        version: 1,
+      }))
+      return bindingId
+    })()
+    bindingIdUpgrade = flight
+    // Cleared on settle so a failed mint is retried rather than cached; by then
+    // a successful one is in the store, so the next read finds it and never
+    // reaches here.
+    void flight
+      .catch(() => undefined)
+      .finally(() => {
+        if (bindingIdUpgrade === flight) bindingIdUpgrade = null
+      })
+    return flight
+  }
 
   async function readSettings(network: NetworkId) {
     const settings = parseSettings(
@@ -969,35 +1026,24 @@ export function createPortableNodeClient(
       network,
     )
     if (network !== 'qortium' || !settings.customUrl) return settings
-    const protectedValue = await dependencies.getSecret(QORTIUM_CORE_API_KEY_SECRET)
-    if (!protectedValue) return settings
-    try {
-      const parsed: unknown = JSON.parse(protectedValue)
-      if (
-        !isRecord(parsed) ||
-        parsed.version !== 1 ||
-        parsed.nodeApiUrl !== settings.customUrl
-      ) return settings
-      const apiKey = normalizePortableNodeApiKey(parsed.apiKey)
-      let bindingId = isBindingId(parsed.bindingId) ? parsed.bindingId : ''
-      if (apiKey && !bindingId) {
-        // A record written before binding ids existed. Mint one now, once, and
-        // persist it so trust does not fail closed for an existing user.
-        bindingId = createHomeV2AdminBindingId()
-        await dependencies.setSecret(QORTIUM_CORE_API_KEY_SECRET, JSON.stringify({
-          apiKey,
-          bindingId,
-          nodeApiUrl: settings.customUrl,
-          version: 1,
-        }))
-      }
-      return { ...settings, apiKey, bindingId }
-    } catch {
-      return settings
+    const record = await readAdminKeyRecord(settings.customUrl)
+    if (!record) return settings
+    const { apiKey } = record
+    let bindingId = record.bindingId
+    if (apiKey && !bindingId) {
+      // A record written before binding ids existed. Mint one and persist it so
+      // trust does not fail closed for an existing user.
+      bindingId = await upgradeAdminBindingId(apiKey, settings.customUrl).catch(() => '')
     }
+    return { ...settings, apiKey, bindingId }
   }
 
   async function writeSettings(network: NetworkId, settings: PortableNodeSettings) {
+    // Read BEFORE the removal below, which is what makes "did the credential
+    // actually change?" answerable at all.
+    const existing = network === 'qortium' && settings.apiKey && settings.customUrl
+      ? await readAdminKeyRecord(settings.customUrl)
+      : null
     if (network === 'qortium') {
       // Remove first so an interrupted host/key change fails closed. The
       // protected record is bound to its origin and is never put in Preferences.
@@ -1009,11 +1055,19 @@ export function createPortableNodeClient(
       mode: settings.mode,
     }))
     if (network === 'qortium' && settings.apiKey && settings.customUrl) {
+      // Re-minted ONLY when the credential or the origin actually moves --
+      // `readAdminKeyRecord` already refuses a record bound to another origin,
+      // so a node move lands here with `existing` null. Every other settings
+      // write (a mode change, an enable/disable) keeps the same key on the same
+      // node and must KEEP the id: re-minting on one of those would invalidate
+      // every approval token and every open preview tab for a change that
+      // touched no credential (review round 3).
+      const bindingId = existing && existing.apiKey === settings.apiKey && existing.bindingId
+        ? existing.bindingId
+        : createHomeV2AdminBindingId()
       await dependencies.setSecret(QORTIUM_CORE_API_KEY_SECRET, JSON.stringify({
         apiKey: settings.apiKey,
-        // A NEW id for every write: replacing a key must invalidate every
-        // approval token handed out for the old one.
-        bindingId: createHomeV2AdminBindingId(),
+        bindingId,
         nodeApiUrl: settings.customUrl,
         version: 1,
       }))

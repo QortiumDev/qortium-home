@@ -53,8 +53,24 @@ try {
     (error: Error) =>
       /too large to preview/.test(error.message) && !error.message.includes(root),
   )
-  // Abandoned rather than left half-written past the cap.
-  assert.ok((await stat(nodePath.join(out, 'capped.zip'))).size <= 64 + 4096)
+  // The partial archive is REMOVED, not merely abandoned: nothing may go on to
+  // upload half of one, and a spool outside the caller's staging sweep would
+  // otherwise leak it.
+  await assert.rejects(() => stat(nodePath.join(out, 'capped.zip')), /ENOENT/)
+
+  // A sink that cannot be written REJECTS rather than raising an unhandled
+  // 'error' event -- which, with no listener, Node re-raises as an uncaught
+  // exception and takes the whole main process down with it (review round 3).
+  // A directory in place of the archive path is the portable way to make the
+  // write stream fail (EISDIR).
+  {
+    const blocked = nodePath.join(out, 'blocked-archive.zip')
+    await mkdir(blocked, { recursive: true })
+    await assert.rejects(
+      () => spoolHomeV2PreviewArchive(root, blocked),
+      (error: Error) => error instanceof Error && !/too large to preview/.test(error.message),
+    )
+  }
 
   // An empty selection has nothing to render and is refused rather than
   // producing a zero-entry archive Core would fail on later.
