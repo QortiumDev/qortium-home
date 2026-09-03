@@ -32,6 +32,41 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## fix(home2): security review follow-ups for the trusted-node work
+
+A review of the change above found eight things worth fixing; all are done.
+
+Previewing a large folder no longer loads the whole thing into memory. Home
+packs it into a file next to the copy it already made and streams that to your
+node as it reads it, instead of building the archive, a copy of it, and an
+encoded copy of that before sending anything. On Android the limit is now told
+to you honestly: 48 MiB, which is what the phone can actually hold, rather than
+letting you pick a 100 MiB file and refusing it after the wait.
+
+Home also stops handing the browser side of itself anything derived from your
+node's API key. It used to identify "which key is this" with a short fingerprint
+computed from the key, which is fine inside Home's core but not fine in a
+saved profile, where someone reading it could use it to check a guess at your
+key. Every such handle is now a random label made when you attach the key and
+replaced whenever you change it. Preview tabs are re-checked against that label
+each time they are drawn, so one belonging to a node or key you have since
+changed does not quietly reopen.
+
+An upload from the phone now has a real deadline covering the sending, not only
+the connecting and the waiting, so a node that accepts the connection and then
+stops listening can no longer leave it stuck forever.
+
+Turning on Core's API documentation is tidier in three ways: the button is only
+offered on desktop, where it works; the node's own error text is never shown to
+you, only what went wrong; and if the restart cannot happen after Home changed
+the setting, Home changes it back and says so, rather than leaving your node
+altered.
+
+One gap is recorded rather than closed: on Android the API key still passes
+through the app's JavaScript on its way to your node, as it has for every
+authenticated feature since they shipped. Moving that into the native layer is
+tracked as follow-up work.
+
 ## fix(home2): features that need your node's API key follow trust, not "is it local"
 
 If you run your own Qortium Core on a VPS and attach its API key in Home,

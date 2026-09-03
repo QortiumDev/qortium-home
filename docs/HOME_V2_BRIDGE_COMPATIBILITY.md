@@ -836,3 +836,49 @@ Two consequences worth stating:
   revision first, so a node switched or a key re-attached mid-flight cannot
   inherit an approval made about a different one. A restored publish-preview
   tab is bound the same way: same origin, same revision, or it is dropped.
+
+### Known architecture gap: the Android admin key transits WebView JS
+
+On Android every authenticated node call — QDN lists, node settings and
+restart, minting, foreign-wallet reads and server selection, and now the
+publish preview — unwraps the API key out of the Keystore-backed secret store
+**into JavaScript** (`HomeV2SecureStorage.unwrap` → `readSettings()` in
+`src/home-v2-live/node-client.ts`) and passes it back across the Capacitor
+bridge as a request header. The key is therefore resident in WebView memory for
+the duration of each call.
+
+This is the shape the Android host has had since the authenticated families
+landed; the preview path follows it rather than widening it. Recorded here
+because it is a real gap and not a decision: the follow-up is a native
+trust-bound request method — the Java side unwraps the key itself, applies it,
+and returns only the result — after which no authenticated path needs the key
+in JS at all. (Security review, 2026-09-02.)
+
+Two things that are NOT part of the gap, and are already closed:
+
+- The key never reaches a **QDN app**, on either host. Apps get results.
+- The token that crosses into React and is written into the user's profile is a
+  random **binding id** minted with the key, not a digest of it. A short digest
+  of `origin||apiKey` would be an offline verifier for a weak key; the binding
+  id is independent of the credential and is re-minted whenever it changes.
+
+### Android source size limit
+
+Android's picker returns Base64 through the Capacitor bridge, so every retained
+selection is a copy in WebView memory. The publish-source store is therefore
+budgeted in Base64 characters (64 MiB), which is **48 MiB of file**. That is
+the real limit for both publishing and previewing on Android, and it is what
+the picker is now asked for — previously it was asked for the desktop's 100 MiB
+and a larger file was read, encoded, passed across the bridge and only then
+refused.
+
+Desktop keeps the 100 MiB `HOME_V2_PUBLISH_SOURCE_MAX_BYTES` ceiling and never
+holds the upload in memory: the archive is spooled to the Home-owned staging
+directory and streamed to the node as chunked Base64.
+
+### Core API documentation: desktop only, for now
+
+Enabling Core's API documentation page (and the restart that applies it) is
+gated on admin trust **and** on the desktop transport. Android has no native
+path behind `enableHomeV2CoreDocs`, so the control is not offered there rather
+than being offered and refused. Reading the documentation works on both.
