@@ -1235,6 +1235,7 @@ assert.deepEqual(normalizeHomeV2ListReadResult(200, ['a']), ['a'])
 // without the refusal. (List-family security review, 2026-08-26.)
 for (const helper of [
   'async function postHomeV2ChatText(',
+  'async function postHomeV2PreviewUpload(',
   'async function readHomeV2ChatJson(',
   'async function deleteHomeV2MintingKey(',
   'async function requestHomeV2ListText(',
@@ -1248,6 +1249,42 @@ for (const helper of [
     body.includes("redirect: 'error'"),
     true,
     `${helper} sends X-API-KEY and must refuse redirects`,
+  )
+}
+
+// ---- PREVIEW_QDN_PUBLISH_SOURCE: gated on TRUST, uploaded as BYTES -------
+// The desktop handler lives in the Electron bridge, so its shape is pinned
+// from source (the behaviour it implements is proved by
+// home-v2-preview-upload.test.ts, home-v2-preview-archive.test.ts and the
+// desktop smoke). Owner decision 2026-09-02: any feature needing the node's
+// API key is gated on trust, never on the node being loopback.
+{
+  const start = openTabBridgeSource.indexOf('async function previewHomeV2PublishSource(')
+  assert.notEqual(start, -1, 'previewHomeV2PublishSource must exist')
+  const body = openTabBridgeSource.slice(
+    start,
+    openTabBridgeSource.indexOf('\nasync function', start + 1),
+  )
+  assert.match(body, /resolveHomeV2AdminNode\(network\)/)
+  assert.match(body, /!admin\.trust\.trusted/)
+  assert.doesNotMatch(
+    body,
+    /node\.mode !== 'local'|node\.mode === 'local'/,
+    'previewing must not be gated on the node being local',
+  )
+  // The BYTE-upload route, not the path route: a remote node cannot read
+  // Home's disk, which is what made this look local-only in the first place.
+  assert.match(body, /homeV2PreviewUploadPath\(upload\.target\)/)
+  assert.doesNotMatch(
+    body,
+    /`\/arbitrary\/preview\/\$\{encodeURIComponent\(service\)\}`/,
+    'the path-based preview route must not be used: a remote node cannot read a local path',
+  )
+  // Trust re-checked AFTER the upload and BEFORE the preview is opened.
+  assert.ok(
+    body.indexOf('after.trust.revision !== approvedRevision') <
+      body.indexOf("'home-v2-app:open-publish-preview'"),
+    'the trust revision must be re-checked before the preview tab is opened',
   )
 }
 

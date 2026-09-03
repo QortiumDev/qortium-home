@@ -233,18 +233,53 @@ const restorableTabPages: ReadonlySet<string> = new Set<TabPageId>([
   'settings',
 ])
 
-function parseAppEntry(candidate: unknown): ShellEntry | null {
+/**
+ * The node a restored preview must belong to: the origin of the currently
+ * admin-trusted node, and the trust revision (origin + credential) that
+ * approved it.
+ */
+export interface HomeV2RestorePreviewTrust {
+  readonly origin: string
+  readonly revision: string
+}
+
+export interface RestoreProductStateOptions {
+  /**
+   * Null (the default) drops every persisted preview. That is the honest
+   * answer when the caller cannot say which node is trusted right now:
+   * a preview URL names a host Home would navigate to with no address to
+   * derive it from, so it is restored only against a node the user is
+   * currently trusted on.
+   */
+  readonly previewTrust?: HomeV2RestorePreviewTrust | null
+}
+
 /**
  * A rehydrated preview URL, or null.
  *
- * STRUCTURAL checks only: loopback host, `/render/` path, no credentials, no
- * port trickery. It cannot check the URL belongs to the CURRENT node, because
- * nothing here knows which node that is -- that binding is enforced where the
- * URL is used and the node origin is known. A preview that survives a restart
- * pointing at a stale port must still be refused there, not merely here.
+ * Bound to the node the preview was BUILT on: same origin as the currently
+ * resolved admin-trusted node, and the same trust revision, plus the `/render/`
+ * shape. It used to require a loopback host, which looked like a security rule
+ * but was really an artefact of the old transport — the path-based preview
+ * route could only ever work against a co-located node, so every preview URL
+ * happened to be loopback. Since previews are uploaded (2026-09-02), a user
+ * running their own Core on a VPS gets `https://core.example/render/hash/...`,
+ * which is exactly as legitimate and which the loopback rule silently threw
+ * away on every restart.
+ *
+ * A preview whose origin or revision no longer matches is dropped: the tab
+ * comes back as its ordinary app address instead of pointing at a host that is
+ * no longer the user's node. AppTabStage re-checks the origin at render time
+ * too, because the trusted node can change while the shell is running.
  */
-function parseAppTabPreviewUrl(value: unknown): string | null {
+function parseAppTabPreviewUrl(
+  value: unknown,
+  trust: HomeV2RestorePreviewTrust | null,
+  revisionValue: unknown,
+): string | null {
+  if (!trust || !trust.origin || !trust.revision) return null
   if (typeof value !== 'string' || !value.trim() || value.length > 2_000) return null
+  if (typeof revisionValue !== 'string' || revisionValue !== trust.revision) return null
   let parsed: URL
   try {
     parsed = new URL(value.trim())
@@ -253,14 +288,15 @@ function parseAppTabPreviewUrl(value: unknown): string | null {
   }
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null
   if (parsed.username || parsed.password) return null
-  const host = parsed.hostname
-  if (host !== '127.0.0.1' && host !== 'localhost' && host !== '::1' && host !== '[::1]') {
-    return null
-  }
+  if (parsed.origin !== trust.origin) return null
   if (!parsed.pathname.startsWith('/render/')) return null
   return parsed.toString()
 }
 
+function parseAppEntry(
+  candidate: unknown,
+  previewTrust: HomeV2RestorePreviewTrust | null,
+): ShellEntry | null {
   if (!isRecord(candidate) || !isRecord(candidate.context)) return null
   const id = typeof candidate.id === 'string' ? candidate.id.trim() : ''
   const appId = typeof candidate.appId === 'string' ? candidate.appId.trim() : ''
@@ -288,6 +324,11 @@ function parseAppTabPreviewUrl(value: unknown): string | null {
   } catch {
     return null
   }
+  const previewUrl = parseAppTabPreviewUrl(
+    context.previewUrl,
+    previewTrust,
+    context.previewTrustRevision,
+  )
   return {
     kind: 'app',
     id: id as TabId,
@@ -299,7 +340,8 @@ function parseAppTabPreviewUrl(value: unknown): string | null {
         typeof context.identityId === 'string'
           ? (context.identityId as AppTabContext['identityId'])
           : ('home-v2:identity:none' as AppTabContext['identityId']),
-      previewUrl: parseAppTabPreviewUrl(context.previewUrl),
+      previewTrustRevision: previewUrl ? (context.previewTrustRevision as string) : null,
+      previewUrl,
       resourceLocation: resourceLocation as AppTabContext['resourceLocation'],
       sourceNetwork: context.sourceNetwork,
       tabId: id as TabId,
@@ -311,7 +353,11 @@ function parseAppTabPreviewUrl(value: unknown): string | null {
   }
 }
 
-export function restoreProductState(value: unknown): ProductState {
+export function restoreProductState(
+  value: unknown,
+  options: RestoreProductStateOptions = {},
+): ProductState {
+  const previewTrust = options.previewTrust ?? null
   if (!isRecord(value)) return createProductState()
   const entries: ShellEntry[] = []
   const seenIds = new Set<string>()
@@ -331,7 +377,7 @@ export function restoreProductState(value: unknown): ProductState {
         if (!restorableTabPages.has(page) || !id || id.length > 80) continue
         pushEntry({ kind: 'internal', id: id as TabId, page: page as TabPageId })
       } else {
-        pushEntry(parseAppEntry(candidate))
+        pushEntry(parseAppEntry(candidate, previewTrust))
       }
     }
   } else {
@@ -348,7 +394,7 @@ export function restoreProductState(value: unknown): ProductState {
     }
     if (Array.isArray(value.tabs)) {
       for (const candidate of value.tabs.slice(0, 12)) {
-        pushEntry(parseAppEntry(candidate))
+        pushEntry(parseAppEntry(candidate, previewTrust))
       }
     }
     if (!entries.some((entry) => entry.kind === 'internal')) {

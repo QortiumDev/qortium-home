@@ -81,7 +81,14 @@ export function resolveHomeV2PublishPreviewOpen(
   if (!isRecord(value)) return null
   const previewUrl = typeof value.previewUrl === 'string' ? value.previewUrl : ''
   const sourceTabId = typeof value.sourceTabId === 'string' ? value.sourceTabId : ''
-  if (!previewUrl || !sourceTabId) return null
+  // The binding id is REQUIRED, not optional. A payload without one names no
+  // credential, so nothing downstream could ever re-check it -- and a tab
+  // opened that way would persist as a preview that restore has to guess
+  // about. Refusing here is the only place that guess can be avoided
+  // (security review, 2026-09-02).
+  const previewTrustRevision =
+    typeof value.previewTrustRevision === 'string' ? value.previewTrustRevision : ''
+  if (!previewUrl || !sourceTabId || !previewTrustRevision) return null
   const source = tabs.find((tab) => tab.id === sourceTabId)
   if (!source) return null
   const app = appDescriptorForOpenTab(source, value.title)
@@ -90,6 +97,12 @@ export function resolveHomeV2PublishPreviewOpen(
     app,
     context: {
       ...source.context,
+      // The binding id of the credential the preview was built against,
+      // carried onto the tab so a LATER session can re-bind it to the same
+      // node and credential rather than to a URL shape
+      // (src/v2/product-model.ts), and so AppTabStage can re-check it on every
+      // render. Both hosts supply it; a payload without one was refused above.
+      previewTrustRevision,
       previewUrl,
       tabId,
     },
