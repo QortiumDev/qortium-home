@@ -12,7 +12,8 @@ import {
   type WebContents,
 } from 'electron'
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
-import { readFile, stat, writeFile } from 'node:fs/promises'
+import { createReadStream } from 'node:fs'
+import { stat, writeFile } from 'node:fs/promises'
 import nodePath from 'node:path'
 import nacl from 'tweetnacl'
 import { assertAuthorizedHomeV2Sender } from './home-v2-authorized-senders.js'
@@ -310,7 +311,7 @@ import {
   readHomeV2DesktopPublishSource,
 } from './home-v2-publish-source-selection.js'
 import { normalizeHomeV2PublishBlobRequest } from './home-v2-publish-blob-source.js'
-import { zipHomeV2PreviewDirectory } from './home-v2-preview-archive.js'
+import { spoolHomeV2PreviewArchive } from './home-v2-preview-archive.js'
 import {
   HOME_V2_PREVIEW_TOO_LARGE,
   HOME_V2_PREVIEW_UNEXPECTED_URL,
@@ -523,9 +524,13 @@ import { deriveHomeV2RewardSharePrivateKey } from './home-v2-reward-share-key.js
 import {
   evaluateHomeV2AdminTrust,
   homeV2AdminTrustMessage,
+  homeV2NodeOrigin,
   type HomeV2AdminTrust,
 } from './home-v2-admin-trust.js'
-import { getHomeV2NodeAdminKey } from './home-v2-node-admin-key.js'
+import {
+  getHomeV2ManagedAdminBindingId,
+  getHomeV2NodeAdminKey,
+} from './home-v2-node-admin-key.js'
 import { readableNodeErrorMessage } from './node-error-body.js'
 import { getNodeConnection } from './node-settings.js'
 import {
@@ -2383,10 +2388,55 @@ function homeV2PreviewNodeMessage(error: unknown) {
 // own timeout rather than the 30s chat-write one.
 const HOME_V2_PREVIEW_UPLOAD_TIMEOUT_MS = 180_000
 
+/**
+ * The staged file as a stream of base64 TEXT, never as one string.
+ *
+ * Base64 is a 3-bytes-to-4-characters transform, so each chunk is cut to a
+ * multiple of three and the remainder (at most two bytes) is carried into the
+ * next one; the tail is padded once at the end. Encoding the whole file at
+ * once instead would have cost ~133 MiB of string for a 100 MiB preview, on
+ * top of the archive itself (security review, 2026-09-02).
+ */
+function homeV2PreviewUploadBody(sourcePath: string) {
+  const reader = createReadStream(sourcePath, { highWaterMark: 3 * 64 * 1024 })
+  const iterator = reader[Symbol.asyncIterator]()
+  const encoder = new TextEncoder()
+  let carry = Buffer.alloc(0)
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const { done, value } = await iterator.next()
+        if (done) {
+          // The final group is the only one allowed to be short, which is what
+          // produces base64's padding.
+          if (carry.length > 0) controller.enqueue(encoder.encode(carry.toString('base64')))
+          carry = Buffer.alloc(0)
+          controller.close()
+          return
+        }
+        const chunk = typeof value === 'string' ? Buffer.from(value) : (value as Buffer)
+        const buffer = carry.length > 0 ? Buffer.concat([carry, chunk]) : chunk
+        const usable = buffer.length - (buffer.length % 3)
+        // Copied, not sliced: subarray shares memory with a stream buffer the
+        // reader is free to reuse before the next pull.
+        carry = Buffer.from(buffer.subarray(usable))
+        if (usable > 0) {
+          controller.enqueue(encoder.encode(buffer.subarray(0, usable).toString('base64')))
+        }
+      } catch (error) {
+        controller.error(error)
+      }
+    },
+    cancel() {
+      reader.destroy()
+    },
+  })
+}
+
 async function postHomeV2PreviewUpload(
   nodeApiUrl: string,
   path: string,
-  base64: string,
+  sourcePath: string,
   apiKey: string,
 ) {
   const response = await nodeFetch(`${nodeApiUrl}${path}`, {
@@ -2395,7 +2445,11 @@ async function postHomeV2PreviewUpload(
       'Content-Type': 'text/plain',
       'X-API-KEY': apiKey,
     },
-    body: base64,
+    // Streamed, so neither the archive nor its base64 is ever resident whole.
+    // `duplex: 'half'` is what a stream body requires; Core reads the chunked
+    // body as the request's text parameter exactly as it reads a buffered one.
+    body: homeV2PreviewUploadBody(sourcePath),
+    duplex: 'half',
     // Same rule as postHomeV2ChatText: this call carries the administrative
     // API key and the user's unpublished bytes, and 307/308 would re-send both
     // to a host nothing vetted.
@@ -2414,21 +2468,24 @@ async function postHomeV2PreviewUpload(
 }
 
 /**
- * The staged tree as an upload body: a directory becomes a zip, a file goes up
- * as itself.
+ * The FILE to upload for a staged preview: a directory is spooled to a zip
+ * beside it, a single file is already what goes up.
  *
- * Everything here is already a Home-owned staging copy — the user's own path is
- * never sent, and never was — so the only new obligation is the wire bound.
+ * Everything here is already a Home-owned staging copy - the user's own path is
+ * never sent, and never was - so the only new obligations are the wire bound
+ * and keeping the bytes on disk rather than in memory.
  */
-async function readHomeV2PreviewUploadBody(
+async function prepareHomeV2PreviewUpload(
   previewPath: string,
   service: string,
-): Promise<{ base64: string; target: HomeV2PreviewUploadTarget }> {
+  stagingDir: string,
+): Promise<{ sourcePath: string; target: HomeV2PreviewUploadTarget }> {
   const stats = await stat(previewPath)
   if (stats.isDirectory()) {
-    const bytes = await zipHomeV2PreviewDirectory(previewPath, HOME_V2_PREVIEW_UPLOAD_MAX_BYTES)
+    const archivePath = nodePath.join(stagingDir, 'preview-upload.zip')
+    await spoolHomeV2PreviewArchive(previewPath, archivePath, HOME_V2_PREVIEW_UPLOAD_MAX_BYTES)
     return {
-      base64: Buffer.from(bytes).toString('base64'),
+      sourcePath: archivePath,
       // Core only reads `filename` for the single-file case; the archive flag
       // is what routes this to its unzip-and-render branch.
       target: Object.freeze({ archive: true, filename: 'preview.zip', service }),
@@ -2438,12 +2495,8 @@ async function readHomeV2PreviewUploadBody(
   if (stats.size < 1 || stats.size > HOME_V2_PREVIEW_UPLOAD_MAX_BYTES) {
     throw homeV2PublishSourceError(HOME_V2_PREVIEW_TOO_LARGE)
   }
-  const bytes = await readFile(previewPath)
-  if (bytes.byteLength < 1 || bytes.byteLength > HOME_V2_PREVIEW_UPLOAD_MAX_BYTES) {
-    throw homeV2PublishSourceError(HOME_V2_PREVIEW_TOO_LARGE)
-  }
   return {
-    base64: bytes.toString('base64'),
+    sourcePath: previewPath,
     target: Object.freeze({
       archive: false,
       // The BASENAME of the staged copy, which carries the extension Core needs
@@ -2453,7 +2506,6 @@ async function readHomeV2PreviewUploadBody(
     }),
   }
 }
-
 /**
  * Render a chosen publish source so the user can look at it before publishing.
  *
@@ -2528,9 +2580,11 @@ async function previewHomeV2PublishSource(
     } catch (error) {
       throw homeV2PreviewFailure(error, HOME_V2_PREVIEW_UNSUPPORTED_CONTENT)
     }
-    let upload: { base64: string; target: HomeV2PreviewUploadTarget }
+    let upload: { sourcePath: string; target: HomeV2PreviewUploadTarget }
     try {
-      upload = await readHomeV2PreviewUploadBody(previewPath, service)
+      // Spooled into the SAME staging directory the finally block removes, so
+      // the archive never outlives the call.
+      upload = await prepareHomeV2PreviewUpload(previewPath, service, staged.stagingDir)
     } catch (error) {
       throw homeV2PreviewFailure(error, HOME_V2_PREVIEW_STAGING_FAILED)
     }
@@ -2539,7 +2593,7 @@ async function previewHomeV2PublishSource(
       renderPath = await postHomeV2PreviewUpload(
         node.nodeApiUrl,
         homeV2PreviewUploadPath(upload.target),
-        upload.base64,
+        upload.sourcePath,
         apiKey,
       )
     } catch (error) {
@@ -2568,8 +2622,10 @@ async function previewHomeV2PublishSource(
       network,
       // Carried so a preview tab restored in a LATER session can be bound to
       // the same credential+origin it was built against, not merely to a
-      // loopback shape (see src/v2/product-model.ts).
-      previewTrustRevision: approvedRevision,
+      // loopback shape (see src/v2/product-model.ts). The BINDING ID: this
+      // value is written into the user's profile, where a key digest must
+      // never appear.
+      previewTrustRevision: admin.trust.bindingId,
       previewUrl: `${node.nodeApiUrl.replace(/\/+$/, '')}${renderPath}`,
       service,
       sourceTabId: context.tabId,
@@ -8024,6 +8080,9 @@ export async function resolveHomeV2AdminNode(network: HomeV2AppNetwork) {
   const trust = evaluateHomeV2AdminTrust({
     attached: network === 'qortium' ? getHomeV2NodeAdminKey(network) : null,
     managedApiKey,
+    managedBindingId: managedApiKey
+      ? getHomeV2ManagedAdminBindingId(network, homeV2NodeOrigin(node.nodeApiUrl), managedApiKey)
+      : '',
     mode: node.mode,
     network,
     nodeApiUrl: node.nodeApiUrl,
@@ -11504,7 +11563,11 @@ export function registerHomeV2AppBridgeIpcHandlers() {
     return resolved.trust.trusted
       ? {
           origin: resolved.trust.origin,
-          revision: resolved.trust.revision,
+          // The BINDING ID, never `trust.revision`: that one is a digest of
+          // the API key, and handing it to a renderer (or letting it be
+          // persisted in a profile) would give anyone who read it an offline
+          // check for a guessed key. Security review, 2026-09-02.
+          revision: resolved.trust.bindingId,
           trusted: true as const,
         }
       : {

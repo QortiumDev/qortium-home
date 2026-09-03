@@ -13,6 +13,7 @@ import {
   type PortableNodeClientDependencies,
 } from './node-client'
 import { parseHomeV2AccountCatalogueStore } from './account-catalogue'
+import { homeV2AdminTrustRevision } from '../../electron/home-v2-admin-trust'
 import { validateVisibleAvatarPayload } from '../v2/shell/VisibleIdentityAvatar'
 import { getHomeV2AppActions } from '../../electron/home-v2-app-actions'
 import { getHomeV2ContextualAppActions } from '../../electron/home-v2-app-runtime'
@@ -1185,6 +1186,17 @@ assert.equal(typeof client.foreignWalletRead, 'function')
 assert.equal(typeof client.setForeignServer, 'function')
 const foreignTrust = await client.adminTrust!()
 assert.equal(foreignTrust.trusted, true)
+// The token React holds is the BINDING ID -- random, minted with the key --
+// and never `homeV2AdminTrustRevision`, which is a truncated digest of
+// origin||apiKey and so an offline verifier for a weak key (security review,
+// 2026-09-02). Asserted here because this is the value that crosses into the
+// React layer, is passed back as `approvedRevision`, and is written into the
+// user's profile on a preview tab.
+assert.match(foreignTrust.revision, /^[0-9a-f]{32}$/)
+assert.notEqual(
+  foreignTrust.revision,
+  homeV2AdminTrustRevision('https://qortium-admin.example', 'private-test-api-key'),
+)
 if (!foreignTrust.trusted) throw new Error('Expected authenticated foreign-wallet node.')
 assert.equal(await client.foreignWalletRead!('GET_WALLET_BALANCE', foreignWallet, foreignTrust.revision), '123456789')
 assert.equal(lastRequestedUrl, 'https://qortium-admin.example/crosschain/dgb/walletbalance')
@@ -1324,6 +1336,14 @@ assert.equal(
 
 const boundedBeforeCredentialChange = boundedRequestCount
 await client.setCustomUrl('qortium', 'https://qortium-admin.example', 'rotated-test-api-key')
+{
+  // Re-minted on rotation: an approval token issued for the old key must not
+  // authorise a write against the new one.
+  const rotatedTrust = await client.adminTrust!()
+  assert.equal(rotatedTrust.trusted, true)
+  assert.match(rotatedTrust.revision, /^[0-9a-f]{32}$/)
+  assert.notEqual(rotatedTrust.revision, foreignTrust.revision)
+}
 await assert.rejects(
   () => client.foreignWalletRead!('GET_WALLET_BALANCE', foreignWallet, foreignTrust.revision),
   /API key changed/,

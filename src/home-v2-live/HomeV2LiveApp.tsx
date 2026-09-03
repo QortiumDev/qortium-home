@@ -1409,6 +1409,10 @@ export function HomeV2LiveApp() {
   // a tab closed mid-PoW stays invisible to the recheck (FIX #2, review 2).
   const productStateRef = useRef(productState)
   productStateRef.current = productState
+  // Same reason, for the node client: the publish-preview opener is a stable
+  // callback that must reach whichever client is current, and on Android the
+  // client is installed asynchronously after the first render.
+  const nodeClientRef = useRef<HomeV2NodeClient | null>(null)
   const androidLastNotificationAt = useRef(new Map<string, number>())
   const androidNextNotificationId = useRef((Date.now() % 2_000_000_000) + 1)
   const [snapshotState, setSnapshot] = useState(initialSnapshot)
@@ -1467,6 +1471,7 @@ export function HomeV2LiveApp() {
   const [nodeClient, setNodeClient] = useState<HomeV2NodeClient | null>(
     () => window.homeV2Nodes ?? null,
   )
+  nodeClientRef.current = nodeClient
   // Populated once the maintenance controllers below exist. They are built
   // AFTER the node-core controller, so a start/stop cannot call them directly;
   // this ref is the seam that lets a lifecycle action invalidate everything
@@ -3607,7 +3612,7 @@ export function HomeV2LiveApp() {
   // process, Android builds the same payload in-process after its own upload.
   // One opener means the Android preview cannot drift into a second, subtly
   // different tab shape.
-  const openHomeV2PublishPreview = useCallback((value: unknown) => {
+  const openHomeV2PublishPreview = useCallback(async (value: unknown) => {
     tabSequence.current += 1
     const tabId = brand<TabId>(
       `home-v2:tab:${Date.now().toString(36)}:${tabSequence.current}`,
@@ -3622,6 +3627,21 @@ export function HomeV2LiveApp() {
       tabId,
     )
     if (!opened) return false
+    // The binding id the preview was built against, re-checked against trust
+    // resolved RIGHT NOW, at the moment the tab would open. The upload half
+    // already re-checked before handing the URL over, but time passes between
+    // the two and the node can be re-pointed or its key re-attached in it; a
+    // tab is a durable thing to open on a stale authorisation
+    // (security review, 2026-09-02).
+    const client = nodeClientRef.current
+    const current = await client?.adminTrust?.().catch(() => null) ?? null
+    if (
+      !current?.trusted ||
+      !current.revision ||
+      current.revision !== opened.context.previewTrustRevision
+    ) {
+      return false
+    }
     dispatchProduct({
       type: 'open-app',
       app: opened.app,
@@ -3635,7 +3655,7 @@ export function HomeV2LiveApp() {
     const bridge = window.homeV2Apps
     if (!bridge?.onOpenPublishPreview) return
     return bridge.onOpenPublishPreview((value) => {
-      openHomeV2PublishPreview(value)
+      void openHomeV2PublishPreview(value)
     })
   }, [openHomeV2PublishPreview])
 
@@ -7921,7 +7941,7 @@ export function HomeV2LiveApp() {
           // Opened exactly as the desktop preview is, through the one shared
           // opener: the render URL never reaches the requesting app, which is
           // the whole point of Home doing the opening.
-          const openedPreview = openHomeV2PublishPreview({
+          const openedPreview = await openHomeV2PublishPreview({
             network: targetNetwork,
             previewTrustRevision: preview.revision,
             previewUrl: preview.previewUrl,

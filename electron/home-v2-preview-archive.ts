@@ -1,4 +1,4 @@
-import { createReadStream } from 'node:fs'
+import { createReadStream, createWriteStream } from 'node:fs'
 import { opendir } from 'node:fs/promises'
 import nodePath from 'node:path'
 import { Zip, ZipDeflate } from 'fflate'
@@ -16,7 +16,7 @@ import { homeV2PublishSourceError } from './home-v2-publish-source-selection.js'
 const tooLarge = () => homeV2PublishSourceError(HOME_V2_PREVIEW_TOO_LARGE)
 
 /**
- * Pack an already-STAGED preview tree into a zip for Core's byte-upload
+ * Pack an already-STAGED preview tree into a zip FILE for Core's byte-upload
  * preview route.
  *
  * The input is always a Home-owned staging directory built by
@@ -24,9 +24,16 @@ const tooLarge = () => homeV2PublishSourceError(HOME_V2_PREVIEW_TOO_LARGE)
  * wrapper), so every entry has already been walked with the directory caps,
  * symlinks have already been materialised or refused, and nothing here has to
  * re-litigate what is safe to read. What this adds is the WIRE bound: the zip
- * is produced incrementally and abandoned the moment it passes
+ * is written incrementally and abandoned the moment it passes
  * HOME_V2_PREVIEW_UPLOAD_MAX_BYTES, so a large staged tree is refused with a
  * fixed, path-free sentence instead of being buffered whole.
+ *
+ * The archive goes to DISK, not to an array of chunks. Holding it in memory
+ * meant a 100 MiB preview cost the compressed archive, a concatenated copy of
+ * it, a Buffer copy, and then a ~133 MiB base64 string of the whole thing —
+ * roughly a third of a gigabyte resident in the main process for one preview
+ * (security review, 2026-09-02). The caller streams the file instead, and the
+ * staging directory it lives in is removed on the way out either way.
  *
  * Deflate runs SYNCHRONOUSLY, one read-stream chunk at a time. fflate's async
  * variant compresses on a worker thread, which sounds better here and is not:
@@ -57,10 +64,11 @@ async function* walkPreviewTree(root: string, current: string): AsyncGenerator<{
   }
 }
 
-export async function zipHomeV2PreviewDirectory(
+export async function spoolHomeV2PreviewArchive(
   root: string,
+  archivePath: string,
   maximumBytes: number = HOME_V2_PREVIEW_UPLOAD_MAX_BYTES,
-): Promise<Uint8Array> {
+): Promise<number> {
   const entries: { absolute: string; relative: string }[] = []
   for await (const entry of walkPreviewTree(root, root)) entries.push(entry)
   // Nothing to render. Refused here rather than uploading a zero-entry archive
@@ -70,7 +78,7 @@ export async function zipHomeV2PreviewDirectory(
   // so the preview hash Core returns is stable across runs.
   entries.sort((left, right) => (left.relative < right.relative ? -1 : left.relative > right.relative ? 1 : 0))
 
-  const chunks: Uint8Array[] = []
+  const sink = createWriteStream(archivePath, { mode: 0o600 })
   let total = 0
   let overflow = false
   let failure: Error | null = null
@@ -99,7 +107,10 @@ export async function zipHomeV2PreviewDirectory(
       finish()
       return
     }
-    chunks.push(data)
+    // Back-pressure is deliberately not applied to fflate (its Zip stream has
+    // no pause), but a chunk is at most one deflate block and the sink is a
+    // local file, so the queue stays short.
+    sink.write(Buffer.from(data))
     if (final) finish()
   })
 
@@ -148,14 +159,9 @@ export async function zipHomeV2PreviewDirectory(
         // Already ended.
       }
     }
+    await new Promise<void>((resolve) => sink.end(resolve))
   }
 
   if (failure) throw failure
-  const packed = new Uint8Array(total)
-  let offset = 0
-  for (const chunk of chunks) {
-    packed.set(chunk, offset)
-    offset += chunk.length
-  }
-  return packed
+  return total
 }

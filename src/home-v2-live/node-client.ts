@@ -287,9 +287,28 @@ export interface HomeV2IdentityReadResponse {
 
 interface PortableNodeSettings {
   apiKey: string
+  /**
+   * The renderer-facing handle for the attached credential: random, minted
+   * with the key, re-minted whenever it changes. Everything that crosses into
+   * React or is persisted names the credential by THIS, never by
+   * `homeV2AdminTrustRevision`, which is a digest of the key and so an offline
+   * verifier for a weak one (security review, 2026-09-02).
+   */
+  bindingId: string
   customUrl: string
   lastEnabledMode: Exclude<NodeConnectionMode, 'disabled'>
   mode: NodeConnectionMode
+}
+
+/** 16 random bytes, hex. Matches the desktop store's format. */
+export function createHomeV2AdminBindingId() {
+  const bytes = new Uint8Array(16)
+  crypto.getRandomValues(bytes)
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')
+}
+
+function isBindingId(value: unknown): value is string {
+  return typeof value === 'string' && /^[0-9a-f]{32}$/.test(value)
 }
 
 export interface PortableNodeClientDependencies {
@@ -733,6 +752,7 @@ function normalizePortableNodeApiKey(value: unknown) {
 function defaultPortableSettings(network: NetworkId): PortableNodeSettings {
   return {
     apiKey: '',
+    bindingId: '',
     customUrl: '',
     lastEnabledMode: 'public',
     mode: network === 'qortium' ? 'public' : 'disabled',
@@ -766,6 +786,9 @@ function parseSettings(
           : 'public'
       return {
         apiKey: '',
+        // Never in plaintext Preferences: it travels with the key, in the
+        // protected record readSettings() reads.
+        bindingId: '',
         customUrl,
         lastEnabledMode: mode === 'disabled' ? storedLastEnabledMode :
           mode === 'local' ? 'public' : mode,
@@ -898,6 +921,7 @@ function emptySummary(
     customAuthenticated:
       network === 'qortium' && settings.mode === 'custom' && !!settings.apiKey,
     adminTrusted: false,
+    adminBindingId: null,
     customConfigured: !!settings.customUrl,
     customUrl: settings.customUrl || null,
     localCoreState: 'unsupported',
@@ -954,7 +978,20 @@ export function createPortableNodeClient(
         parsed.version !== 1 ||
         parsed.nodeApiUrl !== settings.customUrl
       ) return settings
-      return { ...settings, apiKey: normalizePortableNodeApiKey(parsed.apiKey) }
+      const apiKey = normalizePortableNodeApiKey(parsed.apiKey)
+      let bindingId = isBindingId(parsed.bindingId) ? parsed.bindingId : ''
+      if (apiKey && !bindingId) {
+        // A record written before binding ids existed. Mint one now, once, and
+        // persist it so trust does not fail closed for an existing user.
+        bindingId = createHomeV2AdminBindingId()
+        await dependencies.setSecret(QORTIUM_CORE_API_KEY_SECRET, JSON.stringify({
+          apiKey,
+          bindingId,
+          nodeApiUrl: settings.customUrl,
+          version: 1,
+        }))
+      }
+      return { ...settings, apiKey, bindingId }
     } catch {
       return settings
     }
@@ -974,6 +1011,9 @@ export function createPortableNodeClient(
     if (network === 'qortium' && settings.apiKey && settings.customUrl) {
       await dependencies.setSecret(QORTIUM_CORE_API_KEY_SECRET, JSON.stringify({
         apiKey: settings.apiKey,
+        // A NEW id for every write: replacing a key must invalidate every
+        // approval token handed out for the old one.
+        bindingId: createHomeV2AdminBindingId(),
         nodeApiUrl: settings.customUrl,
         version: 1,
       }))
@@ -1067,7 +1107,9 @@ export function createPortableNodeClient(
     const status = result.status
     const adminTrust = network === 'qortium'
       ? evaluateHomeV2AdminTrust({
-          attached: settings.apiKey ? { apiKey: settings.apiKey, origin: settings.customUrl } : null,
+          attached: settings.apiKey
+            ? { apiKey: settings.apiKey, bindingId: settings.bindingId, origin: settings.customUrl }
+            : null,
           managedApiKey: '',
           mode: settings.mode,
           network,
@@ -1081,6 +1123,10 @@ export function createPortableNodeClient(
       statusText: 'Online',
       nodeApiUrl: result.nodeApiUrl,
       adminTrusted: adminTrust?.trusted === true,
+      // The binding id, so a restored preview tab can be re-bound at the point
+      // it is rendered (AppTabStage) without another round trip. Never the
+      // key-derived revision.
+      adminBindingId: adminTrust?.trusted ? adminTrust.bindingId : null,
       height: numberField(status, 'height'),
       peerCount:
         numberField(status, 'numberOfConnections') ??
@@ -1171,15 +1217,24 @@ export function createPortableNodeClient(
     const settings = await readSettings('qortium')
     const nodeApiUrl = settings.mode === 'custom' ? settings.customUrl : ''
     const trust = evaluateHomeV2AdminTrust({
-      attached: settings.apiKey ? { apiKey: settings.apiKey, origin: settings.customUrl } : null,
+      attached: settings.apiKey
+        ? { apiKey: settings.apiKey, bindingId: settings.bindingId, origin: settings.customUrl }
+        : null,
       managedApiKey: '',
       mode: settings.mode,
       network: 'qortium',
       nodeApiUrl,
     })
     return trust.trusted
-      ? { apiKey: trust.apiKey, nodeApiUrl: trust.origin, origin: trust.origin, revision: trust.revision, trusted: true as const }
+      ? {
+          apiKey: trust.apiKey,
+          bindingId: trust.bindingId,
+          nodeApiUrl: trust.origin,
+          origin: trust.origin,
+          trusted: true as const,
+        }
       : {
+          bindingId: '',
           origin: '',
           reason: homeV2AdminTrustMessage(trust.reason, operation),
           revision: '',
@@ -1190,7 +1245,10 @@ export function createPortableNodeClient(
   async function requireAdminNode(operation: string) {
     const trust = await resolveAdminTrust(operation)
     if (!trust.trusted) throw new Error(trust.reason)
-    return { apiKey: trust.apiKey, nodeApiUrl: trust.nodeApiUrl, revision: trust.revision }
+    // `bindingId`, not `homeV2AdminTrustRevision`. Approval tokens round-trip
+    // through React on this host, so the token a caller hands back must not be
+    // a digest of the API key (security review, 2026-09-02).
+    return { apiKey: trust.apiKey, bindingId: trust.bindingId, nodeApiUrl: trust.nodeApiUrl }
   }
 
   async function requestAdminJson(nodeApiUrl: string, path: string, apiKey: string) {
@@ -1362,8 +1420,10 @@ export function createPortableNodeClient(
     async adminTrust() {
       const trust = await resolveAdminTrust('Using administrative Qortium features')
       return trust.trusted
-        ? { origin: trust.origin, revision: trust.revision, trusted: true as const }
-        : trust
+        // The field is still called `revision` on the wire so every existing
+        // caller keeps working; its VALUE is the binding id.
+        ? { origin: trust.origin, revision: trust.bindingId, trusted: true as const }
+        : { origin: '', reason: trust.reason, revision: '', trusted: false as const }
     },
     async listRead(action, request) {
       const { apiKey, nodeApiUrl } = await requireAdminNode('Using QDN lists')
@@ -1384,10 +1444,10 @@ export function createPortableNodeClient(
     async listWrite(action, request, approvedRevision) {
       const listName = normalizeHomeV2ListName(request)
       const items = normalizeHomeV2ListItems(request)
-      const { apiKey, nodeApiUrl, revision } = await requireAdminNode('Using QDN lists')
+      const { apiKey, bindingId, nodeApiUrl } = await requireAdminNode('Using QDN lists')
       // The approval named one node and one credential; a key rotated or an
       // address changed while the prompt was open must not inherit it.
-      if (revision !== approvedRevision) {
+      if (bindingId !== approvedRevision) {
         throw new Error('The selected Qortium node or its API key changed before the write could start.')
       }
       return requestAdminText(
@@ -1408,7 +1468,7 @@ export function createPortableNodeClient(
      */
     async nodeSettingsApproval(request) {
       const patch = normalizeHomeV2NodeSettingsPatch(request)
-      const { nodeApiUrl, revision } = await requireAdminNode('Updating node settings')
+      const { bindingId, nodeApiUrl } = await requireAdminNode('Updating node settings')
       const metadataResponse = await dependencies.requestJson(
         `${nodeApiUrl}/admin/settings/metadata`,
         'GET',
@@ -1435,16 +1495,17 @@ export function createPortableNodeClient(
       }
       return {
         origin: nodeApiUrl,
-        revision,
+        // Named `revision` on the wire, carrying the binding id.
+        revision: bindingId,
         rows: buildHomeV2NodeSettingsApprovalRows(settingsResponse.data, patch),
       }
     },
     async nodeSettingsWrite(request, approvedRevision) {
       const patch = normalizeHomeV2NodeSettingsPatch(request)
-      const { apiKey, nodeApiUrl, revision } = await requireAdminNode('Updating node settings')
+      const { apiKey, bindingId, nodeApiUrl } = await requireAdminNode('Updating node settings')
       // The approval named one node and one credential; a key rotated or an
       // address changed while the prompt was open must not inherit it.
-      if (revision !== approvedRevision) {
+      if (bindingId !== approvedRevision) {
         throw new Error('The selected Qortium node or its API key changed before the write could start.')
       }
       const response = await dependencies.requestJson(
@@ -1465,8 +1526,8 @@ export function createPortableNodeClient(
       return createHomeV2NodeSettingsUpdateResult(response.data)
     },
     async nodeRestart(approvedRevision) {
-      const { apiKey, nodeApiUrl, revision } = await requireAdminNode('Restarting the node')
-      if (revision !== approvedRevision) {
+      const { apiKey, bindingId, nodeApiUrl } = await requireAdminNode('Restarting the node')
+      if (bindingId !== approvedRevision) {
         throw new Error('The selected Qortium node or its API key changed before the write could start.')
       }
       const response = await dependencies.requestJson(
@@ -1494,7 +1555,7 @@ export function createPortableNodeClient(
       ) {
         throw new Error(HOME_V2_PREVIEW_TOO_LARGE)
       }
-      const { apiKey, nodeApiUrl, revision } = await requireAdminNode('Previewing a publish source')
+      const { apiKey, bindingId, nodeApiUrl } = await requireAdminNode('Previewing a publish source')
       const requestBoundedJson = dependencies.requestBoundedJson
       if (!requestBoundedJson) {
         throw new Error('Bounded authenticated node requests are unavailable on this platform.')
@@ -1525,14 +1586,14 @@ export function createPortableNodeClient(
       // and a node or key changed meanwhile means this render URL belongs to a
       // node the user is no longer approved on.
       const after = await requireAdminNode('Previewing a publish source')
-      if (after.revision !== revision) {
+      if (after.bindingId !== bindingId) {
         throw new Error(
           'The selected Qortium node or its API key changed while the preview was being built.',
         )
       }
       return {
         previewUrl: `${nodeApiUrl.replace(/\/+$/, '')}${renderPath}`,
-        revision,
+        revision: bindingId,
         service: target.service,
       }
     },
@@ -1542,8 +1603,8 @@ export function createPortableNodeClient(
         : action === 'GET_USER_WALLET_INFO'
           ? 'addressinfos'
           : 'wallettransactions'
-      const { apiKey, nodeApiUrl, revision } = await requireAdminNode('Using a foreign wallet')
-      if (revision !== approvedRevision) {
+      const { apiKey, bindingId, nodeApiUrl } = await requireAdminNode('Using a foreign wallet')
+      if (bindingId !== approvedRevision) {
         throw new Error('The selected Qortium node or its API key changed before the wallet read could start.')
       }
       const requestBoundedJson = dependencies.requestBoundedJson
@@ -1571,8 +1632,8 @@ export function createPortableNodeClient(
       })
     },
     async setForeignServer(coin, server, approvedRevision) {
-      const { apiKey, nodeApiUrl, revision } = await requireAdminNode('Changing a foreign-chain server')
-      if (revision !== approvedRevision) {
+      const { apiKey, bindingId, nodeApiUrl } = await requireAdminNode('Changing a foreign-chain server')
+      if (bindingId !== approvedRevision) {
         throw new Error('The selected Qortium node or its API key changed before the server change could start.')
       }
       const requestBoundedJson = dependencies.requestBoundedJson

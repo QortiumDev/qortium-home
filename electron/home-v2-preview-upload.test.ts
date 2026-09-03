@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict'
 
 import { evaluateHomeV2AdminTrust } from './home-v2-admin-trust.js'
+
+// A binding id as the key store would mint it: random, credential-independent.
+const BINDING = 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6'
 import {
   HOME_V2_PREVIEW_UPLOAD_MAX_BASE64_LENGTH,
   HOME_V2_PREVIEW_UPLOAD_MAX_BYTES,
@@ -17,7 +20,7 @@ import { HOME_V2_PUBLISH_SOURCE_MAX_BYTES } from './home-v2-publish-source-token
 // gate refused outright.
 {
   const remote = evaluateHomeV2AdminTrust({
-    attached: { apiKey: 'user-key', origin: 'https://core.example' },
+    attached: { apiKey: 'user-key', bindingId: BINDING, origin: 'https://core.example' },
     mode: 'custom',
     network: 'qortium',
     nodeApiUrl: 'https://core.example',
@@ -31,6 +34,7 @@ import { HOME_V2_PUBLISH_SOURCE_MAX_BYTES } from './home-v2-publish-source-token
   // that does.
   const managed = evaluateHomeV2AdminTrust({
     managedApiKey: 'managed-key',
+    managedBindingId: BINDING,
     mode: 'local',
     network: 'qortium',
     nodeApiUrl: 'http://127.0.0.1:24891',
@@ -60,7 +64,7 @@ import { HOME_V2_PUBLISH_SOURCE_MAX_BYTES } from './home-v2-publish-source-token
   // Plain HTTP to a remote host would put the key on the wire in the clear.
   assert.deepEqual(
     evaluateHomeV2AdminTrust({
-      attached: { apiKey: 'user-key', origin: 'http://core.example:24891' },
+      attached: { apiKey: 'user-key', bindingId: BINDING, origin: 'http://core.example:24891' },
       mode: 'custom',
       network: 'qortium',
       nodeApiUrl: 'http://core.example:24891',
@@ -70,7 +74,7 @@ import { HOME_V2_PUBLISH_SOURCE_MAX_BYTES } from './home-v2-publish-source-token
   // ...but an SSH tunnel, which presents as plain HTTP to loopback, does not.
   assert.equal(
     evaluateHomeV2AdminTrust({
-      attached: { apiKey: 'user-key', origin: 'http://127.0.0.1:24891' },
+      attached: { apiKey: 'user-key', bindingId: BINDING, origin: 'http://127.0.0.1:24891' },
       mode: 'custom',
       network: 'qortium',
       nodeApiUrl: 'http://127.0.0.1:24891',
@@ -80,7 +84,7 @@ import { HOME_V2_PUBLISH_SOURCE_MAX_BYTES } from './home-v2-publish-source-token
   // The key is bound to the origin it was attached to; a moved node discards it.
   assert.deepEqual(
     evaluateHomeV2AdminTrust({
-      attached: { apiKey: 'user-key', origin: 'https://old.example' },
+      attached: { apiKey: 'user-key', bindingId: BINDING, origin: 'https://old.example' },
       mode: 'custom',
       network: 'qortium',
       nodeApiUrl: 'https://core.example',

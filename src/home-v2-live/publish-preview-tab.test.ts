@@ -59,8 +59,14 @@ function openedShell(): ProductState {
   })
 }
 
+const BINDING = 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6'
+
 const payload = {
   network: 'qortium',
+  // The credential's binding id. REQUIRED since the 2026-09-02 security
+  // review: a payload without one names no credential, so nothing downstream
+  // could ever re-check it.
+  previewTrustRevision: BINDING,
   previewUrl: PREVIEW_URL,
   service: 'WEBSITE',
   sourceTabId: SOURCE_TAB,
@@ -248,13 +254,18 @@ const payload = {
     'https://core.example/render/hash/2TZX8MTjxbNaQRovthrPxcs1A3Qgas',
   )
 
-  for (const value of [undefined, '', 42]) {
-    const without = resolveHomeV2PublishPreviewOpen(
-      { previewTrustRevision: value, previewUrl: PREVIEW_URL, sourceTabId: SOURCE_TAB },
-      state.tabs,
-      PREVIEW_TAB,
+  // ...and a payload WITHOUT one is refused outright rather than opening a tab
+  // whose provenance cannot be checked again later.
+  for (const value of [undefined, '', 42, null]) {
+    assert.equal(
+      resolveHomeV2PublishPreviewOpen(
+        { previewTrustRevision: value, previewUrl: PREVIEW_URL, sourceTabId: SOURCE_TAB },
+        state.tabs,
+        PREVIEW_TAB,
+      ),
+      null,
+      `a preview payload with previewTrustRevision=${String(value)} must not open`,
     )
-    assert.equal(without?.context.previewTrustRevision, null)
   }
 }
 

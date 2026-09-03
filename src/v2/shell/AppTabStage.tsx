@@ -75,7 +75,8 @@ function resolveRender(productState: ProductState, snapshot: HomeV2Snapshot) {
   // tab's node here: the rehydrate parser can only check the URL's shape,
   // because nothing at that layer knows which node the tab belongs to, so a
   // preview restored from an earlier session could otherwise point at a stale
-  // port. Same origin, same /render/ prefix, or it is refused outright.
+  // port. Same origin, same /render/ prefix, same CREDENTIAL, or it is refused
+  // outright.
   if (tab.context.previewUrl) {
     let preview: URL
     try {
@@ -85,6 +86,18 @@ function resolveRender(productState: ProductState, snapshot: HomeV2Snapshot) {
     }
     if (preview.origin !== new URL(node.nodeApiUrl).origin ||
       !preview.pathname.startsWith('/render/')) {
+      throw new Error(t('home2.app.previewUnavailable'))
+    }
+    // The binding id is re-checked on EVERY render, not only at restore: the
+    // node this tab belongs to can be re-pointed, or its key re-attached,
+    // while the shell is running, and an origin that happens to match again is
+    // not the same authorisation. A tab that reached this point without an id
+    // is refused too -- the opener requires one, so its absence means the tab
+    // predates the binding or was tampered with (security review 2026-09-02).
+    if (
+      !tab.context.previewTrustRevision ||
+      tab.context.previewTrustRevision !== node.adminBindingId
+    ) {
       throw new Error(t('home2.app.previewUnavailable'))
     }
     const previewQuery = new URLSearchParams(preview.search)

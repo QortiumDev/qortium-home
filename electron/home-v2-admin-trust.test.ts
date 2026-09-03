@@ -12,9 +12,11 @@ const TUNNEL = 'http://localhost:24891'
 const REMOTE_HTTPS = 'https://node.example.com'
 const REMOTE_HTTP = 'http://node.example.com'
 const KEY = 'A'.repeat(24)
+const BINDING = 'b'.repeat(32)
+const OTHER_BINDING = 'c'.repeat(32)
 
 const trust = (over: Partial<Parameters<typeof evaluateHomeV2AdminTrust>[0]> = {}) =>
-  evaluateHomeV2AdminTrust({ mode: 'local', network: 'qortium', nodeApiUrl: LOCAL, managedApiKey: KEY, ...over })
+  evaluateHomeV2AdminTrust({ mode: 'local', network: 'qortium', nodeApiUrl: LOCAL, managedApiKey: KEY, managedBindingId: BINDING, ...over })
 
 // --- managed local Core ---
 {
@@ -25,7 +27,11 @@ const trust = (over: Partial<Parameters<typeof evaluateHomeV2AdminTrust>[0]> = {
   assert.equal(result.origin, 'http://127.0.0.1:24891')
   assert.equal(result.apiKey, KEY)
   assert.match(result.revision, /^[0-9a-f]{32}$/)
+  assert.equal(result.bindingId, BINDING)
 }
+// Fails CLOSED with no binding id: a trusted answer that fell back to the
+// key-derived revision would put an offline verifier back on the wire.
+assert.deepEqual(trust({ managedBindingId: '' }), { trusted: false, reason: 'key-missing' })
 // A local route that is not loopback is a mis-set or tampered route.
 assert.deepEqual(trust({ nodeApiUrl: REMOTE_HTTP }), { trusted: false, reason: 'transport-unsafe' })
 assert.deepEqual(trust({ nodeApiUrl: 'http://localhost.evil.com' }), { trusted: false, reason: 'transport-unsafe' })
@@ -37,14 +43,14 @@ assert.deepEqual(trust({ mode: 'disabled' }), { trusted: false, reason: 'node-di
 assert.deepEqual(trust({ network: 'qortal' }), { trusted: false, reason: 'unsupported-network' })
 // A public node with an attached key still refuses: it is someone else's Core.
 assert.deepEqual(
-  trust({ mode: 'network', attached: { apiKey: KEY, origin: REMOTE_HTTPS } }),
+  trust({ mode: 'network', attached: { apiKey: KEY, bindingId: BINDING, origin: REMOTE_HTTPS } }),
   { trusted: false, reason: 'public-node' },
 )
 
 // --- custom node with an attached key ---
 const custom = (nodeApiUrl: string, attachedOrigin = nodeApiUrl, apiKey = KEY) =>
   evaluateHomeV2AdminTrust({
-    attached: { apiKey, origin: attachedOrigin },
+    attached: { apiKey, bindingId: BINDING, origin: attachedOrigin },
     mode: 'custom',
     network: 'qortium',
     nodeApiUrl,
@@ -89,6 +95,41 @@ assert.deepEqual(custom(LOCAL, TUNNEL), { trusted: false, reason: 'origin-mismat
   assert.notEqual(a, homeV2AdminTrustRevision('https://other.example.com', KEY))
   // The raw key must not be recoverable from, or present in, the revision.
   assert.equal(a.includes(KEY), false)
+}
+
+// --- the binding id is what leaves the main process ---
+// `revision` is a truncated digest of origin||apiKey. That is fine for
+// comparisons INSIDE the main process and unacceptable anywhere a renderer, a
+// persisted profile or a QDN app can read it: a short digest of a weak key is
+// an offline verifier for it. Every crossing carries `bindingId`, which is
+// random and independent of the credential (security review, 2026-09-02).
+{
+  const attached = (apiKey: string, bindingId: string) => evaluateHomeV2AdminTrust({
+    attached: { apiKey, bindingId, origin: REMOTE_HTTPS },
+    mode: 'custom',
+    network: 'qortium',
+    nodeApiUrl: REMOTE_HTTPS,
+  })
+  const first = attached(KEY, BINDING)
+  assert.equal(first.trusted, true)
+  if (!first.trusted) throw new Error('unreachable')
+  // NOT derivable from origin + key: the same credential with a different
+  // stored id yields a different binding id, and the digest of origin||key is
+  // not it.
+  assert.notEqual(first.bindingId, first.revision)
+  assert.notEqual(first.bindingId, homeV2AdminTrustRevision(REMOTE_HTTPS, KEY))
+  const relabelled = attached(KEY, OTHER_BINDING)
+  assert.equal(relabelled.trusted && relabelled.bindingId, OTHER_BINDING)
+  assert.equal(relabelled.trusted && relabelled.revision, first.revision)
+  // Rotating the key re-mints the id at the store, so a trusted answer for a
+  // new key never carries the old id.
+  const rotated = attached(`${KEY}B`, OTHER_BINDING)
+  assert.equal(rotated.trusted, true)
+  if (!rotated.trusted) throw new Error('unreachable')
+  assert.notEqual(rotated.bindingId, first.bindingId)
+  assert.equal(rotated.bindingId.includes(KEY), false)
+  // An attachment with no id fails closed rather than falling back.
+  assert.deepEqual(attached(KEY, ''), { trusted: false, reason: 'key-missing' })
 }
 
 // --- origin helper ---

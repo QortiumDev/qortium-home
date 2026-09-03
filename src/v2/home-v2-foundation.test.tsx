@@ -3894,6 +3894,22 @@ testIdentityAndImageCachingKeepsChromeStable()
 // preload with no handler behind it -- compiles perfectly and fails at runtime.
 {
   const preload = readFileSync('electron/home-v2-live-preload.cts', 'utf8')
+  // What the adminTrust channel answers with is the random BINDING ID, never
+  // `trust.revision` -- a truncated digest of origin||apiKey, which would be an
+  // offline verifier for a weak key once a renderer (or a saved profile) held
+  // it. Pinned from source because the field is called `revision` on the wire
+  // for compatibility, so the mistake would be invisible at the call sites.
+  // (Security review, 2026-09-02.)
+  {
+    const appBridge = readFileSync('electron/home-v2-app-bridge.ts', 'utf8')
+    const start = appBridge.indexOf("ipcMain.handle('home-v2-nodes:adminTrust'")
+    assert.notEqual(start, -1, 'the adminTrust channel must exist')
+    const handler = appBridge.slice(start, appBridge.indexOf('\n  ipcMain.handle(', start + 1))
+    assert.match(handler, /revision: resolved\.trust\.bindingId/)
+    assert.doesNotMatch(handler, /resolved\.trust\.revision/)
+    // Same rule for the value written into the profile on a preview tab.
+    assert.match(appBridge, /previewTrustRevision: admin\.trust\.bindingId/)
+  }
   // Both registries, because one home-v2-nodes channel cannot live in the node
   // bridge: `home-v2-nodes:adminTrust` answers from the admin-trust resolver,
   // which lives in the app bridge -- and the app bridge already imports the

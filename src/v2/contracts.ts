@@ -243,6 +243,12 @@ export interface NodeSummary {
   readonly customAuthenticated: boolean
   /** Authoritative admin-route trust, including the current credential. */
   readonly adminTrusted?: boolean
+  /**
+   * The random binding id of the credential that trust rests on, so a surface
+   * holding a token minted earlier (a restored publish-preview tab) can check
+   * it still names the same one. Never a digest of the key.
+   */
+  readonly adminBindingId?: string | null
   readonly customConfigured: boolean
   readonly customUrl: string | null
   readonly localCoreState: LocalCoreState
