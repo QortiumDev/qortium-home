@@ -14,6 +14,15 @@ interface HomeV2BoundedHttpPlugin {
     body: string
     contentType: string
     maxBytes: number
+    /**
+     * The deadline for the WHOLE call, sending included. HttpURLConnection's
+     * connect and read timeouts do not cover OutputStream.write(), so before
+     * this existed a node that accepted the connection and stopped draining
+     * left a publish-preview upload stuck with nothing to end it (security
+     * review, 2026-09-02). The plugin holds it to its own 180s ceiling and
+     * keeps the socket-level timeouts short on its side.
+     */
+    overallTimeoutMs: number
     timeoutMs: number
     url: string
   }): Promise<{ body: string; contentType?: string | null; status: number }>
@@ -77,6 +86,9 @@ export function createAndroidHomeV2NodeClient() {
         body,
         contentType: headers['Content-Type'] ?? 'application/json',
         maxBytes,
+        // For a bounded POST the caller's timeout means the whole exchange --
+        // a preview upload asks for minutes because the SENDING can take them.
+        overallTimeoutMs: timeoutMs,
         timeoutMs,
         url,
       })

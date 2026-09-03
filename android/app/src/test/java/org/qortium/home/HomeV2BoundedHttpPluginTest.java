@@ -5,7 +5,9 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThrows;
 
 import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import org.junit.Test;
 
 public class HomeV2BoundedHttpPluginTest {
@@ -42,6 +44,91 @@ public class HomeV2BoundedHttpPluginTest {
                 Exception.class,
                 () -> HomeV2BoundedHttpPlugin.requireValidMaxBytes(
                         HomeV2BoundedHttpPlugin.MAX_RESPONSE_BYTES + 1));
+    }
+
+    @Test
+    public void timeoutsAreClampedPerPhase() {
+        // A caller asking for the preview upload's 180s gets it for the WHOLE
+        // call, while the socket-level ceilings stay short: one quiet read
+        // still has no business taking minutes.
+        assertEquals(180_000, HomeV2BoundedHttpPlugin.MAX_OVERALL_TIMEOUT_MS);
+        assertEquals(
+                180_000,
+                HomeV2BoundedHttpPlugin.clampTimeout(
+                        180_000, HomeV2BoundedHttpPlugin.MAX_OVERALL_TIMEOUT_MS));
+        assertEquals(
+                HomeV2BoundedHttpPlugin.MAX_OVERALL_TIMEOUT_MS,
+                HomeV2BoundedHttpPlugin.clampTimeout(
+                        10 * 60_000, HomeV2BoundedHttpPlugin.MAX_OVERALL_TIMEOUT_MS));
+        assertEquals(
+                HomeV2BoundedHttpPlugin.MAX_CONNECT_TIMEOUT_MS,
+                HomeV2BoundedHttpPlugin.clampTimeout(
+                        180_000, HomeV2BoundedHttpPlugin.MAX_CONNECT_TIMEOUT_MS));
+        assertEquals(
+                HomeV2BoundedHttpPlugin.MAX_READ_TIMEOUT_MS,
+                HomeV2BoundedHttpPlugin.clampTimeout(
+                        180_000, HomeV2BoundedHttpPlugin.MAX_READ_TIMEOUT_MS));
+        // Nonsense falls back to the ceiling rather than to "no timeout".
+        assertEquals(
+                HomeV2BoundedHttpPlugin.MAX_OVERALL_TIMEOUT_MS,
+                HomeV2BoundedHttpPlugin.clampTimeout(
+                        0, HomeV2BoundedHttpPlugin.MAX_OVERALL_TIMEOUT_MS));
+        assertEquals(
+                HomeV2BoundedHttpPlugin.MAX_OVERALL_TIMEOUT_MS,
+                HomeV2BoundedHttpPlugin.clampTimeout(
+                        -1, HomeV2BoundedHttpPlugin.MAX_OVERALL_TIMEOUT_MS));
+    }
+
+    @Test
+    public void bodyWriteStopsAtTheOverallDeadline() throws Exception {
+        // The gap connect/read timeouts leave: HttpURLConnection does not time
+        // OutputStream.write() at all, so a slow upload had nothing ending it.
+        byte[] body = new byte[HomeV2BoundedHttpPlugin.WRITE_CHUNK_BYTES * 4];
+        CountingOutputStream sink = new CountingOutputStream();
+
+        Exception error = assertThrows(
+                Exception.class,
+                () -> HomeV2BoundedHttpPlugin.writeWithDeadline(
+                        sink, body, System.currentTimeMillis() - 1));
+
+        assertEquals("Authenticated node request timed out.", error.getMessage());
+        assertEquals(0, sink.written);
+    }
+
+    @Test
+    public void bodyWriteCompletesInChunksBeforeTheDeadline() throws Exception {
+        byte[] body = new byte[HomeV2BoundedHttpPlugin.WRITE_CHUNK_BYTES * 2 + 7];
+        CountingOutputStream sink = new CountingOutputStream();
+
+        HomeV2BoundedHttpPlugin.writeWithDeadline(
+                sink, body, System.currentTimeMillis() + 60_000);
+
+        assertEquals(body.length, sink.written);
+        assertEquals(3, sink.writes);
+        assertEquals(1, sink.flushes);
+    }
+
+    private static final class CountingOutputStream extends OutputStream {
+        private int written;
+        private int writes;
+        private int flushes;
+
+        @Override
+        public void write(int value) {
+            written += 1;
+            writes += 1;
+        }
+
+        @Override
+        public void write(byte[] buffer, int offset, int length) {
+            written += length;
+            writes += 1;
+        }
+
+        @Override
+        public void flush() throws IOException {
+            flushes += 1;
+        }
     }
 
     @Test

@@ -41,9 +41,54 @@ const coreDocsAdmin: HomeV2CoreDocsAdminDependencies = {
     return {
       ok: response.ok,
       status: response.status,
-      text: (await response.text()).slice(0, 4_096),
+      text: await readBoundedCoreDocsText(response),
     }
   },
+}
+
+/**
+ * At most CORE_DOCS_RESPONSE_MAX_BYTES of the node's answer.
+ *
+ * `response.text()` reads to completion first and only then truncates, so a
+ * node answering /admin/settings with an unbounded stream had to be read whole
+ * before Home could react. The body is also never shown to anyone: the caller
+ * parses it for Core's own `saved`/`apiDocumentationEnabled` flags and reports
+ * failures by STATUS, so a node cannot choose the text a renderer displays
+ * (security review, 2026-09-02).
+ */
+const CORE_DOCS_RESPONSE_MAX_BYTES = 4 * 1024
+
+async function readBoundedCoreDocsText(response: Response) {
+  const declared = Number(response.headers.get('content-length'))
+  if (Number.isFinite(declared) && declared > CORE_DOCS_RESPONSE_MAX_BYTES) {
+    await response.body?.cancel()
+    return ''
+  }
+  if (!response.body) return ''
+  const reader = response.body.getReader()
+  const chunks: Uint8Array[] = []
+  let length = 0
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      length += value.byteLength
+      if (length > CORE_DOCS_RESPONSE_MAX_BYTES) {
+        await reader.cancel()
+        return ''
+      }
+      chunks.push(value)
+    }
+  } catch {
+    return ''
+  }
+  const bytes = new Uint8Array(length)
+  let offset = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return new TextDecoder().decode(bytes)
 }
 
 function normalizeNetwork(value: unknown) {

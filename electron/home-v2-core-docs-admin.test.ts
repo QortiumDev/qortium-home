@@ -9,10 +9,11 @@ import {
 
 type Call = { apiKey: string; body?: string; method: string; nodeApiUrl: string; path: string }
 
-function trustedNode(origin: string, apiKey: string): HomeV2CoreDocsAdminNode {
+function trustedNode(origin: string, apiKey: string, bindingId = 'f'.repeat(32)): HomeV2CoreDocsAdminNode {
   const trust: HomeV2AdminTrust = {
     trusted: true,
     apiKey,
+    bindingId,
     origin,
     revision: homeV2AdminTrustRevision(origin, apiKey),
     source: 'attached',
@@ -20,27 +21,50 @@ function trustedNode(origin: string, apiKey: string): HomeV2CoreDocsAdminNode {
   return { apiKey, nodeApiUrl: origin, trust }
 }
 
-function harness(nodes: HomeV2CoreDocsAdminNode[], answers: { ok: boolean; status: number; text: string }[]) {
+type Answer = { ok: boolean; status: number; text: string }
+
+/**
+ * `answers` is keyed by "METHOD path" so a test states what each call returns
+ * without depending on how many calls the implementation makes -- the GET that
+ * captures the previous value, the PATCH, the restart and any rollback PATCH
+ * are all separate. `patchAnswers` is consumed in order, so the enable PATCH
+ * and the rollback PATCH can differ.
+ */
+function harness(
+  nodes: HomeV2CoreDocsAdminNode[],
+  answers: Partial<Record<string, Answer>> = {},
+  patchAnswers: Answer[] = [],
+) {
   const calls: Call[] = []
   let resolved = 0
-  let answered = 0
+  let patched = 0
   const dependencies: HomeV2CoreDocsAdminDependencies = {
     async resolveAdminNode() {
       const node = nodes[Math.min(resolved, nodes.length - 1)]
       resolved += 1
+      if (!node) throw new Error('no node')
       return node
     },
     async request(input) {
       calls.push(input)
-      const answer = answers[Math.min(answered, answers.length - 1)]
-      answered += 1
-      return answer
+      if (input.method === 'PATCH' && patchAnswers.length > 0) {
+        const answer = patchAnswers[Math.min(patched, patchAnswers.length - 1)]
+        patched += 1
+        return answer
+      }
+      return answers[`${input.method} ${input.path}`] ?? ok
     },
   }
   return { calls, dependencies }
 }
 
-const ok = { ok: true, status: 200, text: '{"saved":true}' }
+const ok: Answer = { ok: true, status: 200, text: '{"saved":true}' }
+const disabledBefore: Answer = { ok: true, status: 200, text: '{"apiDocumentationEnabled":false}' }
+const enabledBefore: Answer = { ok: true, status: 200, text: '{"apiDocumentationEnabled":true}' }
+
+/** The PATCHes only, in order, so rollback assertions read plainly. */
+const patches = (calls: Call[]) => calls.filter((call) => call.method === 'PATCH').map((call) => call.body)
+const restarts = (calls: Call[]) => calls.filter((call) => call.path === '/admin/restart')
 
 // --- The happy path: a REMOTE node the user administers -------------------
 // The point of the change. Before 2026-09-02 this refused with "Only the
@@ -48,22 +72,15 @@ const ok = { ok: true, status: 200, text: '{"saved":true}' }
 // node's API key and is plainly entitled to enable its docs.
 {
   const node = trustedNode('https://core.example', 'user-key')
-  const { calls, dependencies } = harness([node, node], [ok, { ok: true, status: 200, text: '' }])
+  const { calls, dependencies } = harness([node, node], {
+    'GET /admin/settings': disabledBefore,
+    'GET /admin/restart': { ok: true, status: 200, text: '' },
+  })
   assert.deepEqual(await enableHomeV2CoreApiDocs('qortium', dependencies), { accepted: true })
-  assert.equal(calls.length, 2)
-  assert.deepEqual(calls[0], {
-    apiKey: 'user-key',
-    body: JSON.stringify({ apiDocumentationEnabled: true }),
-    method: 'PATCH',
-    nodeApiUrl: 'https://core.example',
-    path: '/admin/settings',
-  })
-  assert.deepEqual(calls[1], {
-    apiKey: 'user-key',
-    method: 'GET',
-    nodeApiUrl: 'https://core.example',
-    path: '/admin/restart',
-  })
+  assert.deepEqual(patches(calls), [JSON.stringify({ apiDocumentationEnabled: true })])
+  assert.equal(restarts(calls).length, 1)
+  assert.equal(calls.every((call) => call.apiKey === 'user-key'), true)
+  assert.equal(calls.every((call) => call.nodeApiUrl === 'https://core.example'), true)
 }
 
 // --- Untrusted nodes refuse, and nothing is written -----------------------
@@ -75,7 +92,6 @@ for (const [reason, pattern] of [
 ] as const) {
   const { calls, dependencies } = harness(
     [{ apiKey: '', nodeApiUrl: 'https://core.example', trust: { trusted: false, reason } }],
-    [ok],
   )
   await assert.rejects(() => enableHomeV2CoreApiDocs('qortium', dependencies), pattern)
   assert.equal(calls.length, 0, `${reason} must not reach the node`)
@@ -85,59 +101,145 @@ for (const [reason, pattern] of [
 // unauthenticated PATCH that Core would reject with a confusing 403.
 {
   const node = trustedNode('https://core.example', 'user-key')
-  const { calls, dependencies } = harness([{ ...node, apiKey: '' }], [ok])
+  const { calls, dependencies } = harness([{ ...node, apiKey: '' }])
   await assert.rejects(() => enableHomeV2CoreApiDocs('qortium', dependencies), /needs your node's API key/)
   assert.equal(calls.length, 0)
+}
+
+// --- The node's own words never reach the caller --------------------------
+// Failures are reported by STATUS. The body is written by the node, can be an
+// HTML page or a stack trace, and reaches a renderer (security review).
+{
+  const node = trustedNode('https://core.example', 'user-key')
+  const hostile = '<script>alert(1)</script> /home/user/.config/qortium-core'
+  const { calls, dependencies } = harness([node, node], {
+    'GET /admin/settings': disabledBefore,
+  }, [{ ok: false, status: 403, text: hostile }])
+  await assert.rejects(
+    () => enableHomeV2CoreApiDocs('qortium', dependencies),
+    (error: Error) =>
+      /refused by the node/.test(error.message) &&
+      !error.message.includes('<script>') &&
+      !error.message.includes('/home/user'),
+  )
+  assert.equal(restarts(calls).length, 0, 'a failed settings write must not restart the node')
+}
+{
+  const node = trustedNode('https://core.example', 'user-key')
+  const { calls, dependencies } = harness([node, node], {
+    'GET /admin/settings': disabledBefore,
+  }, [{ ok: false, status: 404, text: '' }])
+  await assert.rejects(() => enableHomeV2CoreApiDocs('qortium', dependencies), /not supported by this node/)
+  assert.equal(restarts(calls).length, 0)
 }
 
 // --- The node declining the settings write stops before the restart -------
 {
   const node = trustedNode('https://core.example', 'user-key')
-  const { calls, dependencies } = harness([node, node], [{ ok: true, status: 200, text: '{"saved":false}' }])
+  const { calls, dependencies } = harness([node, node], {
+    'GET /admin/settings': disabledBefore,
+  }, [{ ok: true, status: 200, text: '{"saved":false}' }])
   await assert.rejects(() => enableHomeV2CoreApiDocs('qortium', dependencies), /declined the settings update/)
-  assert.equal(calls.length, 1, 'a declined settings write must not restart the node')
-}
-{
-  const node = trustedNode('https://core.example', 'user-key')
-  const { calls, dependencies } = harness([node, node], [{ ok: false, status: 403, text: 'no' }])
-  await assert.rejects(() => enableHomeV2CoreApiDocs('qortium', dependencies), /no/)
-  assert.equal(calls.length, 1)
+  assert.equal(restarts(calls).length, 0)
 }
 
-// --- REVISION RECHECK immediately before /admin/restart -------------------
+// --- REVISION RECHECK immediately before /admin/restart, and the UNDO -----
 // The restart is the destructive half. A node switched, or a key re-attached,
 // between the settings write and the restart must not inherit the decision
-// that was made about the first node.
+// made about the first one -- and the write has already landed by then, so
+// the setting is put back rather than left on behind the user's back.
 {
   const before = trustedNode('https://core.example', 'user-key')
   const rotated = trustedNode('https://core.example', 'rotated-key')
-  const { calls, dependencies } = harness([before, rotated], [ok, { ok: true, status: 200, text: '' }])
+  const { calls, dependencies } = harness([before, rotated], {
+    'GET /admin/settings': disabledBefore,
+  })
   await assert.rejects(
     () => enableHomeV2CoreApiDocs('qortium', dependencies),
-    /changed before the restart/,
+    (error: Error) =>
+      /changed before the restart/.test(error.message) &&
+      /changed back, so the node is as it was/.test(error.message),
   )
-  assert.equal(calls.length, 1, 'only the settings write may have happened')
-  assert.equal(calls[0].path, '/admin/settings')
+  assert.deepEqual(patches(calls), [
+    JSON.stringify({ apiDocumentationEnabled: true }),
+    JSON.stringify({ apiDocumentationEnabled: false }),
+  ], 'the enable must be rolled back')
+  assert.equal(restarts(calls).length, 0)
 }
 {
   const before = trustedNode('https://core.example', 'user-key')
   const moved = trustedNode('https://other.example', 'user-key')
-  const { calls, dependencies } = harness([before, moved], [ok, { ok: true, status: 200, text: '' }])
-  await assert.rejects(
-    () => enableHomeV2CoreApiDocs('qortium', dependencies),
-    /changed before the restart/,
-  )
-  assert.equal(calls.length, 1)
+  const { calls, dependencies } = harness([before, moved], {
+    'GET /admin/settings': disabledBefore,
+  })
+  await assert.rejects(() => enableHomeV2CoreApiDocs('qortium', dependencies), /changed before the restart/)
+  assert.equal(patches(calls).length, 2)
 }
-// Trust lost outright between the two halves refuses with the trust wording.
+// Trust lost outright between the two halves: same undo, its own wording.
 {
   const before = trustedNode('https://core.example', 'user-key')
   const { calls, dependencies } = harness(
     [before, { apiKey: '', nodeApiUrl: '', trust: { trusted: false, reason: 'key-missing' } }],
-    [ok, { ok: true, status: 200, text: '' }],
+    { 'GET /admin/settings': disabledBefore },
   )
-  await assert.rejects(() => enableHomeV2CoreApiDocs('qortium', dependencies), /Restarting the node/)
-  assert.equal(calls.length, 1)
+  await assert.rejects(
+    () => enableHomeV2CoreApiDocs('qortium', dependencies),
+    /stopped being one Home can administer/,
+  )
+  assert.equal(patches(calls).length, 2)
+  assert.equal(restarts(calls).length, 0)
+}
+
+// --- A failing RESTART also undoes the write ------------------------------
+{
+  const node = trustedNode('https://core.example', 'user-key')
+  const { calls, dependencies } = harness([node, node], {
+    'GET /admin/settings': disabledBefore,
+    'GET /admin/restart': { ok: false, status: 500, text: 'boom' },
+  })
+  await assert.rejects(
+    () => enableHomeV2CoreApiDocs('qortium', dependencies),
+    (error: Error) =>
+      /Restarting the node failed: it answered HTTP 500/.test(error.message) &&
+      /changed back, so the node is as it was/.test(error.message) &&
+      !error.message.includes('boom'),
+  )
+  assert.deepEqual(patches(calls), [
+    JSON.stringify({ apiDocumentationEnabled: true }),
+    JSON.stringify({ apiDocumentationEnabled: false }),
+  ])
+}
+
+// --- When the undo ITSELF fails, say so plainly ---------------------------
+// Distinct from "rolled back": the node is left with the documentation on and
+// not restarted, which is a state the user has to know about.
+{
+  const node = trustedNode('https://core.example', 'user-key')
+  const { calls, dependencies } = harness([node, node], {
+    'GET /admin/settings': disabledBefore,
+    'GET /admin/restart': { ok: false, status: 500, text: '' },
+  }, [ok, { ok: false, status: 500, text: '' }])
+  await assert.rejects(
+    () => enableHomeV2CoreApiDocs('qortium', dependencies),
+    /still enabled and Home could not change it back/,
+  )
+  assert.equal(patches(calls).length, 2)
+}
+
+// --- Already enabled before Home touched it: nothing to change back -------
+// The docs probe 404ing is not proof the setting was off, so the previous
+// value is READ. When it was already on, a failure must not turn it off.
+{
+  const node = trustedNode('https://core.example', 'user-key')
+  const { calls, dependencies } = harness([node, node], {
+    'GET /admin/settings': enabledBefore,
+    'GET /admin/restart': { ok: false, status: 500, text: '' },
+  })
+  await assert.rejects(
+    () => enableHomeV2CoreApiDocs('qortium', dependencies),
+    /already enabled, so nothing was changed back/,
+  )
+  assert.deepEqual(patches(calls), [JSON.stringify({ apiDocumentationEnabled: true })])
 }
 
 console.log('Home v2 Core API docs admin tests passed.')

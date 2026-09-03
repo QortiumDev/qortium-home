@@ -97,7 +97,13 @@ export function HomeV2CoreApiDocsPage({
   // administers it exactly as they administer a local one. Qortal never carries
   // admin trust -- Home holds no key for a Qortal node -- so the control stays
   // hidden there, which is what `mode === 'local'` used to achieve by accident.
-  const canEnable = !!enable && node.adminTrusted === true
+  //
+  // Desktop only for now, and checked HERE rather than left to the click:
+  // `enableHomeV2CoreDocs` throws "can only be changed on desktop" on Android
+  // because there is no native transport behind it, so offering the button
+  // there would advertise a capability whose only outcome is that refusal
+  // (security review, 2026-09-02).
+  const canEnable = transport === 'desktop' && !!enable && node.adminTrusted === true
 
   const enableAndRestart = async () => {
     if (!canEnable) return

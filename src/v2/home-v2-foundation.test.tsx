@@ -2918,8 +2918,15 @@ function testProductionHomeV2EntryIsCapabilityScoped(): void {
   assert.doesNotMatch(coreDocsBridge, /node\.mode !== 'local'/)
   assert.doesNotMatch(coreDocsBridge, /readRunningLocalCoreApiKeyFor/)
   assert.match(coreDocsBridge, /redirect: 'error'/)
+  // The node's answer is read BOUNDED and never echoed: it is written by the
+  // node, can be an HTML page or a stack trace, and reaches a renderer.
+  assert.match(coreDocsBridge, /CORE_DOCS_RESPONSE_MAX_BYTES/)
+  assert.doesNotMatch(coreDocsBridge, /await response\.text\(\)/)
   const coreDocsAdmin = readFileSync('electron/home-v2-core-docs-admin.ts', 'utf8')
   assert.match(coreDocsAdmin, /\/admin\/settings/)
+  // The PATCH and the restart are two calls; a failure after the first leaves
+  // the node changed, so there is an undo.
+  assert.match(coreDocsAdmin, /patchDocumentationEnabled\(dependencies, node, false\)/)
   assert.match(coreDocsAdmin, /\/admin\/restart/)
   // The revision recheck sits BETWEEN the settings write and the restart.
   assert.ok(
