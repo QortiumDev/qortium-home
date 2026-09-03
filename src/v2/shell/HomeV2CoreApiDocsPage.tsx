@@ -91,8 +91,16 @@ export function HomeV2CoreApiDocsPage({
     }
   }, [frameUrl, network, node.capabilities.read, node.error, node.mode, node.nodeApiUrl, probe, retry])
 
+  // Enabling the docs PATCHes Core's settings and restarts it, so the control
+  // follows ADMIN TRUST, not the node being local (owner decision 2026-09-02):
+  // a user running their own Core on a VPS with its API key attached in Home
+  // administers it exactly as they administer a local one. Qortal never carries
+  // admin trust -- Home holds no key for a Qortal node -- so the control stays
+  // hidden there, which is what `mode === 'local'` used to achieve by accident.
+  const canEnable = !!enable && node.adminTrusted === true
+
   const enableAndRestart = async () => {
-    if (!enable || node.mode !== 'local') return
+    if (!canEnable) return
     const operation = Date.now()
     operationRef.current = operation
     setState({ phase: 'enabling' })
@@ -178,12 +186,12 @@ export function HomeV2CoreApiDocsPage({
                   : t('api.loadFailed')}
           </p>
           {state.phase === 'disabled' ? (
-            node.mode === 'local' && enable
+            canEnable
               ? <p>{t('coreApi.enableHint')}</p>
               : <p>{t('coreApi.networkMode')}</p>
           ) : null}
           <div>
-            {state.phase === 'disabled' && node.mode === 'local' && enable ? (
+            {state.phase === 'disabled' && canEnable ? (
               <button className="home-v2-primary-button" type="button" onClick={() => void enableAndRestart()}>
                 <Power aria-hidden="true" size={17} /> {t('coreApi.enableButton')}
               </button>

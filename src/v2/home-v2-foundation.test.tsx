@@ -2910,10 +2910,23 @@ function testProductionHomeV2EntryIsCapabilityScoped(): void {
   assert.match(coreManagerBridge, /assertAuthorizedHomeV2Sender/)
   assert.match(coreDocsBridge, /home-v2-core-docs:enable/)
   assert.match(coreDocsBridge, /assertAuthorizedHomeV2Sender\(event\)/)
-  assert.match(coreDocsBridge, /node\.mode !== 'local'/)
-  assert.match(coreDocsBridge, /readRunningLocalCoreApiKeyFor/)
-  assert.match(coreDocsBridge, /\/admin\/settings/)
-  assert.match(coreDocsBridge, /\/admin\/restart/)
+  // Gated on ADMIN TRUST, not on the node being local, and the key comes from
+  // the trust resolver rather than being read out of the managed Core's
+  // apikey.txt -- so a user administering their own remote Core can enable the
+  // docs there (owner decision 2026-09-02). The pins moved with the rule.
+  assert.match(coreDocsBridge, /resolveHomeV2AdminNode/)
+  assert.doesNotMatch(coreDocsBridge, /node\.mode !== 'local'/)
+  assert.doesNotMatch(coreDocsBridge, /readRunningLocalCoreApiKeyFor/)
+  assert.match(coreDocsBridge, /redirect: 'error'/)
+  const coreDocsAdmin = readFileSync('electron/home-v2-core-docs-admin.ts', 'utf8')
+  assert.match(coreDocsAdmin, /\/admin\/settings/)
+  assert.match(coreDocsAdmin, /\/admin\/restart/)
+  // The revision recheck sits BETWEEN the settings write and the restart.
+  assert.ok(
+    coreDocsAdmin.indexOf('revision !== trust.revision') <
+      coreDocsAdmin.indexOf("path: '/admin/restart'"),
+    'the core-docs restart must re-check the trust revision before it restarts anything',
+  )
   assert.match(retainedViewerBridge, /home-v2-retained-viewer:saveBytes/)
   assert.match(retainedViewerBridge, /assertAuthorizedHomeV2Sender\(event\)/)
   assert.match(retainedViewerBridge, /value\.bytes instanceof Uint8Array/)
