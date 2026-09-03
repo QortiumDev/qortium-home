@@ -10,6 +10,21 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import org.junit.Test;
 
+/**
+ * Unit tests for the plugin's pure helpers.
+ *
+ * NOT COVERED, deliberately and knowingly: the watchdog thread in
+ * {@code executePost} that calls {@code disconnect()} once the overall deadline
+ * passes. Exercising it needs a server that accepts a connection and then stops
+ * draining the request body, and this suite is plain JVM unit tests with no
+ * socket fixture to build one from. What IS covered is the half that decides
+ * when the deadline has passed ({@link HomeV2BoundedHttpPlugin#clampTimeout})
+ * and the half that stops sending because of it
+ * ({@link HomeV2BoundedHttpPlugin#writeWithDeadline}); the watchdog exists only
+ * to break a write that has blocked inside a single {@code write()} call, which
+ * the chunk loop cannot interrupt on its own. Accepted at the 2026-09-02
+ * security review; see docs/HOME_V2_BRIDGE_COMPATIBILITY.md.
+ */
 public class HomeV2BoundedHttpPluginTest {
     private static final int SERVER_RESPONSE_LIMIT = 64 * 1024;
 

@@ -876,6 +876,17 @@ Desktop keeps the 100 MiB `HOME_V2_PUBLISH_SOURCE_MAX_BYTES` ceiling and never
 holds the upload in memory: the archive is spooled to the Home-owned staging
 directory and streamed to the node as chunked Base64.
 
+Android still makes several transient copies of a selection on its way out
+(native bytes → Base64 across the Capacitor bridge → `atob` → `Uint8Array` →
+the Java request body as UTF-8); that is accepted under the 48 MiB cap rather
+than restructured, since the cap is what bounds it.
+
+Two accepted gaps in the Android transport, recorded so they are not
+rediscovered as findings: the plugin's deadline watchdog — the thread that
+closes a connection whose upload has blocked inside a single `write()` — has no
+test, because the JVM unit suite has no socket fixture that can hold a request
+body open; and the API key still transits WebView JS, as described above.
+
 ### Core API documentation: desktop only, for now
 
 Enabling Core's API documentation page (and the restart that applies it) is

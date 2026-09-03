@@ -32,6 +32,32 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## fix(home2): closure fixes from the security review
+
+Four last things from the review, all small but each one a real hole.
+
+A preview tab already on screen now stops rendering the moment the key behind
+it changes, even when the node address stays the same. It was being checked,
+but only when something else about the node happened to change too, so a
+rotated key could leave a preview from the old one on screen.
+
+When Home turns on Core's API documentation and then cannot restart your node,
+it puts the setting back. It now only does that when it actually knows what the
+setting was before: if your node did not answer that question clearly, Home
+leaves the setting alone and tells you it could not confirm it, rather than
+guessing "off" and possibly switching off something you had turned on
+deliberately.
+
+On Android, the label Home uses to remember which key is which is created once
+even when several things ask for it at the same moment, and is only replaced
+when the key or the node address really changes. Before, an ordinary settings
+change could replace it and quietly invalidate approvals and open previews for
+no reason.
+
+And if the disk fills up or the temporary folder disappears while Home is
+packing a folder for preview, the preview fails with a normal message and the
+half-written file is cleaned up, instead of taking Home down with it.
+
 ## fix(home2): security review follow-ups for the trusted-node work
 
 A review of the change above found eight things worth fixing; all are done.
