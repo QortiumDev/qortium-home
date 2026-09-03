@@ -559,16 +559,22 @@ Apps can show the selected source in Home before publishing it with
 `PREVIEW_QDN_PUBLISH_SOURCE`. First request a source from Home, then pass back
 only the opaque `sourceToken`.
 
-> **Home 2: `qdnRequest`, desktop, local Core only.** Home 2 implements this as
-> an app-tab preview (2026-08-30), and the picker accepts `kind: 'directory'`
-> again (2026-09-02), so a folder holding an `index.html` previews as a
-> `WEBSITE`. It is NOT advertised on `qortalRequest` and NOT on Android:
-> previewing POSTs the chosen source to a node that renders it, which needs the
-> user's own local Core with a write key — Home 2 holds none for the Qortal
-> route, and Home for Android runs no Core. `SELECT_QDN_PUBLISH_SOURCE`,
+> **Home 2: `qdnRequest`, desktop and Android, on any admin-trusted node.**
+> Home 2 implements this as an app-tab preview (2026-08-30); the picker accepts
+> `kind: 'directory'` again (2026-09-02), so a folder holding an `index.html`
+> previews as a `WEBSITE` on desktop. Since 2026-09-02 it uploads the CONTENT
+> to Core's `POST /arbitrary/preview/{service}/upload` rather than handing over
+> a local path, so it works on **any node the user is admin-trusted on** — the
+> managed local Core, or their own remote Core with its API key attached (HTTPS
+> or an SSH tunnel) — and it works on **Android**, where the selection is
+> already bytes. It is still NOT advertised on `qortalRequest`: Home 2 holds no
+> administrative key for the Qortal route. It is also not advertised on an
+> untrusted route (a public node is somebody else's Core), so `SHOW_ACTIONS`
+> only offers it where it can work. `SELECT_QDN_PUBLISH_SOURCE`,
 > `STAGE_QDN_PUBLISH_SOURCE` and `PUBLISH_QDN_RESOURCE` are unaffected and stay
 > on both globals. A folder source is preview-only — it cannot be published.
-> See [Home 2 bridge compatibility](HOME_V2_BRIDGE_COMPATIBILITY.md).
+> See [Home 2 bridge compatibility](HOME_V2_BRIDGE_COMPATIBILITY.md) §
+> Remote trusted nodes.
 
 ```js
 const selected = await qdnRequest({
@@ -588,7 +594,7 @@ Preview returns `true` once Home opens its own display-only preview. The app
 never receives the selected path, source bytes, or Core render URL. Tokens are
 opaque, bound to the originating app tab, expire after inactivity, and preview
 does not consume them, so a later `PUBLISH_QDN_RESOURCE` may reuse the same
-token. Preview requires Home and its local Core preview flow; standalone-browser
+token. Preview requires Home and a node the user administers; standalone-browser
 fallbacks must present it as unavailable rather than attempting a local file
 upload. Apps must not send a path, raw bytes, or any field other than the token
 to `PREVIEW_QDN_PUBLISH_SOURCE`.

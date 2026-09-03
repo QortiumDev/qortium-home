@@ -32,6 +32,40 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## fix(home2): features that need your node's API key follow trust, not "is it local"
+
+If you run your own Qortium Core on a VPS and attach its API key in Home,
+Home now treats it as your node everywhere -- because it is. Four things were
+written as "only the Core running on this computer", and refused people who
+were plainly entitled to use them.
+
+Previewing a file or folder before publishing works on any node you hold the
+key for, and works on Android for the first time. The old desktop preview sent
+your Core a file PATH, which only worked because Home and Core happened to be
+on the same machine; a node on another machine cannot read your disk, so the
+feature looked local-only when really only its plumbing was. Home now sends the
+content itself -- a single file as-is, a folder or zip packed into a compressed
+archive -- so the same preview works over the network. Nothing about what Home
+sends changed: it is still a copy Home makes and controls, never a path of
+yours, the preview address never reaches the app that asked for it, and
+previews are capped at 100 MiB with a plain refusal above that.
+
+Turning on Core's API documentation page, and the restart that applies it, also
+follow the key rather than the address. Home re-checks, right before it
+restarts anything, that the node and key are still the ones you approved.
+
+A preview tab you leave open now comes back after a restart when it belongs to
+the node you are still connected and trusted on, instead of only when that node
+happened to be on this computer. A preview belonging to a node you have since
+changed -- or whose key you have re-attached -- is dropped rather than
+reopened against a machine that is no longer yours.
+
+The security rule that has not changed, and will not: a node somewhere else
+must be reached over HTTPS, or through an SSH tunnel to this computer. Home
+refuses to send your API key in the clear over the network, and a shared public
+node is still nobody's to administer. Apps are only offered these features on a
+node where they can actually work.
+
 ## fix(qdn): the publish preview actually opens
 
 Explore's "Preview local file" said "Preview opened in Home." and then nothing
