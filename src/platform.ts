@@ -283,6 +283,17 @@ import {
   getForeignWalletPublicResponse,
   type ForeignWalletReadEndpoint,
 } from '../electron/foreign-wallet-read-contract';
+import { executeHomeV2ForeignSend } from '../electron/home-v2-foreign-send';
+import { FOREIGN_WALLET_SEND_FRESHNESS_MS } from '../electron/foreign-wallet-reconciliation';
+import {
+  clearReconciledAndroidForeignWalletPendingTransaction,
+  confirmAndroidForeignWalletBroadcastSuccess,
+  findAndroidForeignWalletPendingTransactionConflict,
+  listAndroidForeignWalletPendingTransactions,
+  recordAndroidForeignWalletBroadcastAttempt,
+  recordAndroidSignedForeignWalletPendingTransaction,
+  releaseNeverBroadcastAndroidForeignWalletPendingTransaction,
+} from './home-v2-live/foreign-wallet-transaction-journal-store';
 import {
   buildCoinGeckoSimplePricePath,
   buildMarketPriceResponse,
@@ -16509,6 +16520,38 @@ export function createAndroidHomeV2VaultClient(): HomeV2VaultClient {
     }
   };
   return {
+    async sendForeignCoin(request) {
+      const seed = await getAccountForeignWalletSeed(request.accountId)
+      try {
+        return await executeHomeV2ForeignSend(request.request, {
+          appIdentity: request.appIdentity,
+          approve: request.approve,
+          crypto: getForeignWalletCrypto(),
+          isStillValid: request.isStillValid,
+          journal: {
+            clearReconciled: clearReconciledAndroidForeignWalletPendingTransaction,
+            confirmBroadcastSuccess: confirmAndroidForeignWalletBroadcastSuccess,
+            findConflict: findAndroidForeignWalletPendingTransactionConflict,
+            listPending: listAndroidForeignWalletPendingTransactions,
+            recordBroadcastAttempt: recordAndroidForeignWalletBroadcastAttempt,
+            recordSigned: recordAndroidSignedForeignWalletPendingTransaction,
+            releaseNeverBroadcast: (key, now) =>
+              releaseNeverBroadcastAndroidForeignWalletPendingTransaction(
+                key,
+                now,
+                FOREIGN_WALLET_SEND_FRESHNESS_MS,
+              ),
+          },
+          now: () => Date.now(),
+          postTrusted: request.postTrusted,
+          readWalletHistory: request.readWalletHistory,
+          resolveRoute: request.resolveRoute,
+          withWalletSeed: (use) => use(seed.seed, seed.addressIndex, seed.walletVersion),
+        })
+      } finally {
+        seed.seed.fill(0)
+      }
+    },
     async getForeignWalletPublicData(accountId, coin) {
       const seed = await getAccountForeignWalletSeed(accountId)
       try {

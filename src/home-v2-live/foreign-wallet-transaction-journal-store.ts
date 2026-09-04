@@ -1,13 +1,16 @@
 import { registerPlugin } from '@capacitor/core'
 import {
   addSignedForeignWalletPendingTransaction,
+  clearReconciledForeignWalletPendingTransaction,
   confirmForeignWalletBroadcastSuccess,
   createEmptyForeignWalletTransactionJournal,
   findForeignWalletPendingTransactionConflict,
   FOREIGN_WALLET_TRANSACTION_JOURNAL_MAX_BYTES,
   markForeignWalletBroadcastAttempted,
   normalizeConfirmedForeignWalletTransactionId,
+  releaseNeverBroadcastForeignWalletPendingTransaction,
   sanitizeForeignWalletTransactionJournal,
+  selectForeignWalletPendingTransactions,
   type ForeignWalletPendingTransaction,
   type ForeignWalletTransactionJournal,
 } from '../../electron/foreign-wallet-transaction-journal'
@@ -125,10 +128,44 @@ export function createAndroidForeignWalletTransactionJournalStore(
     return findForeignWalletPendingTransactionConflict(await readRaw(), input)
   }
 
+  async function listPending(
+    input: Pick<ForeignWalletPendingTransaction, 'chainId' | 'coin' | 'walletFingerprint'>,
+  ) {
+    await writeChain
+    return selectForeignWalletPendingTransactions(await readRaw(), input)
+  }
+
+  function clearReconciled(
+    input: Pick<ForeignWalletPendingTransaction, 'chainId' | 'coin' | 'txId' | 'walletFingerprint'>,
+    observedTxId: string,
+  ) {
+    return mutate((journal) => clearReconciledForeignWalletPendingTransaction(
+      journal,
+      input,
+      observedTxId,
+    ))
+  }
+
+  function releaseNeverBroadcast(
+    input: Pick<ForeignWalletPendingTransaction, 'chainId' | 'coin' | 'txId' | 'walletFingerprint'>,
+    now: number,
+    minimumAgeMs: number,
+  ) {
+    return mutate((journal) => releaseNeverBroadcastForeignWalletPendingTransaction(
+      journal,
+      input,
+      now,
+      minimumAgeMs,
+    ))
+  }
+
   return Object.freeze({
+    clearReconciled,
     confirmBroadcastSuccess,
     findConflict,
+    listPending,
     read,
+    releaseNeverBroadcast,
     recordBroadcastAttempt,
     recordSigned,
   })
@@ -141,3 +178,6 @@ export const recordAndroidSignedForeignWalletPendingTransaction = DEFAULT_STORE.
 export const recordAndroidForeignWalletBroadcastAttempt = DEFAULT_STORE.recordBroadcastAttempt
 export const confirmAndroidForeignWalletBroadcastSuccess = DEFAULT_STORE.confirmBroadcastSuccess
 export const findAndroidForeignWalletPendingTransactionConflict = DEFAULT_STORE.findConflict
+export const clearReconciledAndroidForeignWalletPendingTransaction = DEFAULT_STORE.clearReconciled
+export const listAndroidForeignWalletPendingTransactions = DEFAULT_STORE.listPending
+export const releaseNeverBroadcastAndroidForeignWalletPendingTransaction = DEFAULT_STORE.releaseNeverBroadcast

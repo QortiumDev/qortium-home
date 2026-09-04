@@ -200,6 +200,10 @@ public class HomeV2BoundedHttpPlugin extends Plugin {
                 + "(walletbalance|addressinfos|wallettransactions|setcurrentserver)$")) {
             return "POST".equals(method);
         }
+        if (path.matches("^/crosschain/(btc|ltc|doge|dgb|rvn|dash|nmc|firo)/"
+                + "(wallet/public/spend-context|send/broadcast)$")) {
+            return "POST".equals(method);
+        }
         return false;
     }
 

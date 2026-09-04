@@ -66,6 +66,25 @@ async function main() {
 
   await store.recordSigned({ ...entry, createdAt: 1, txId: '55'.repeat(32) })
   assert.equal((await store.read()).entries[0].createdAt, 1)
+  assert.equal((await store.listPending(entry))[0].txId, '55'.repeat(32))
+  await assert.rejects(
+    store.releaseNeverBroadcast(
+      { ...entry, txId: '55'.repeat(32) },
+      1 + 60_000,
+      10 * 60_000,
+    ),
+    /too recent/,
+  )
+  await store.releaseNeverBroadcast(
+    { ...entry, txId: '55'.repeat(32) },
+    1 + 10 * 60_000,
+    10 * 60_000,
+  )
+  assert.equal((await store.listPending(entry)).length, 0)
+
+  await store.recordSigned({ ...entry, txId: '66'.repeat(32) })
+  await store.clearReconciled({ ...entry, txId: '66'.repeat(32) }, '66'.repeat(32))
+  assert.equal((await store.read()).entries.length, 0)
   stored = '{not-json'
   await assert.rejects(store.read(), /unreadable/)
 

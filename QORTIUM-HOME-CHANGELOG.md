@@ -32,6 +32,24 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## feat(android): add Home-signed foreign coin sends
+
+Android now uses the same locally planned and signed BTC, LTC, DOGE, DGB, RVN,
+DASH, NMC, and FIRO send flow as desktop. A send is advertised only with an
+unlocked account, an authenticated trusted Qortium Core, and a positive check
+that the Core supports the spend-context route. The user approves the exact
+amount, recipient, chain, fee, inputs, change, and total before Home re-reads
+the spend state and signs anything.
+
+The existing native `AtomicFile` journal is now the Android write-ahead gate:
+Home waits for the signed entry and broadcast-attempt marker to reach native
+storage before it makes the one broadcast request. Unknown or mismatched
+outcomes remain retained and non-retryable until the exact transaction appears
+in wallet history. The node API key stays in the native transport, and Core
+receives only the public watch key for spend discovery and the final signed
+transaction bytes for relay. Device crash/restart and funded-send acceptance
+remain separate release gates.
+
 ## fix(android): keep the node API key in native storage and transport
 
 Android no longer unwraps a saved Qortium node API key into WebView
