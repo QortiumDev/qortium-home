@@ -74,6 +74,26 @@ function buildHttpCaUrl(url: URL, pathname: string) {
   return caUrl.toString();
 }
 
+/**
+ * A refusal is permanent for a given host: a remote https node will never
+ * become eligible for a plaintext authority bootstrap, so re-reporting it
+ * teaches the reader nothing. Home probes every configured public node on a
+ * 15-second status poll, which turned one correct security decision into a
+ * console flood that buried everything else — including the router diagnostics
+ * a tester was asked to capture. Report each host once per session; the first
+ * report is the useful one, because it is actionable for a custom node.
+ */
+const reportedNodeCaRefusals = new Set<string>();
+
+export function shouldReportNodeCaRefusal(hostKey: string) {
+  if (reportedNodeCaRefusals.has(hostKey)) {
+    return false;
+  }
+
+  reportedNodeCaRefusals.add(hostKey);
+  return true;
+}
+
 export function planNodeCaBootstrap(url: URL): NodeCaBootstrapPlan {
   // A plain http node is not verified against a pinned authority at all, so
   // there is nothing to bootstrap.
