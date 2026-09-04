@@ -807,6 +807,7 @@ export const et: Record<TranslationKey, string> = {
   "home2.accountDialog.useRememberedUnlock": "Kasuta seadme kaitstud meeldejäetud lukustuse avamist",
   "home2.app.checkingNetwork": "Kontrollitakse võrku {network}…",
   "home2.app.frameTitle": "QDN-i rakendus",
+  "home2.app.fullscreenNotice": "{app} on täisekraanil - väljumiseks vajuta Esc",
   "home2.app.networkUnavailable": "{network} pole saadaval.",
   "home2.app.previewUnavailable": "See eelvaade pole enam saadaval. Vali fail uuesti.",
   "home2.app.unableToLoad": "Seda rakendust ei saa laadida.",

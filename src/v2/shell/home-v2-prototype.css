@@ -38,7 +38,10 @@ body,
   --v2-type-base: calc(16px * var(--v2-type-scale));
   --v2-type-heading: calc(21px * var(--v2-type-scale));
   color-scheme: light;
+  box-sizing: border-box;
   min-height: 100%;
+  /* Page content must be able to scroll clear of the system navigation bar. */
+  padding-bottom: env(safe-area-inset-bottom, 0px);
   color: var(--v2-ink);
   background: var(--v2-bg);
   font-size: var(--v2-type-base);
@@ -48,10 +51,13 @@ body,
 
 .home-v2-app-stage.home-v2-app-stage--live {
   position: relative;
+  box-sizing: border-box;
   width: 100%;
   height: 100%;
   min-height: 0;
-  padding: 0;
+  /* A hosted app fills the stage, so it cannot scroll clear of the navigation
+     bar the way page content can — the stage itself has to end above it. */
+  padding: 0 0 env(safe-area-inset-bottom, 0px);
   overflow: hidden;
 }
 
@@ -73,6 +79,49 @@ body,
   height: 100%;
   object-fit: fill;
   pointer-events: none;
+}
+
+/* Fullscreen spoofing cue. Fixed to the top of the WINDOW, not to the app
+   stage: while an app is fullscreen its native view covers the whole window,
+   and main deliberately holds a 36px strip back at the top (see
+   QDN_VIEW_FULLSCREEN_CUE_HEIGHT in electron/qdn-view-fullscreen.ts) for this
+   banner to occupy. The height here must match that constant. Non-interactive
+   on purpose - it is a statement by Home, not a control. */
+.home-v2-app-fullscreen-cue {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 2147483000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  height: 36px;
+  padding: 0 1rem;
+  overflow: hidden;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--v2-accent-ink);
+  background: var(--v2-accent);
+  pointer-events: none;
+  animation: home-v2-app-fullscreen-cue-fade 2.9s ease-in forwards;
+}
+
+@keyframes home-v2-app-fullscreen-cue-fade {
+  0% { opacity: 0; }
+  6% { opacity: 1; }
+  80% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .home-v2-app-fullscreen-cue {
+    animation: none;
+    opacity: 1;
+  }
 }
 
 .home-v2-app-stage__error,
@@ -382,10 +431,16 @@ body,
   color: inherit;
 }
 
+/* Android runs edge-to-edge (targetSdk 36 enforces it; MainActivity opts in so
+   real insets are reported, and v2-live.html sets viewport-fit=cover so these
+   env() values are non-zero). Without this padding the system status bar sits
+   directly on top of the tab strip and the tabs are close to untappable. Every
+   inset below resolves to 0 on desktop, so the desktop shell is unchanged. */
 .home-v2-browser-chrome {
   position: sticky;
   z-index: 20;
   top: 0;
+  padding-top: env(safe-area-inset-top, 0px);
   border-bottom: 1px solid var(--v2-line-strong);
   background: var(--v2-chrome);
   box-shadow: 0 2px 12px rgb(47 35 27 / 14%);
@@ -396,7 +451,8 @@ body,
   min-height: 42px;
   align-items: end;
   gap: 8px;
-  padding: 7px 10px 0;
+  padding: 7px calc(10px + env(safe-area-inset-right, 0px)) 0
+    calc(10px + env(safe-area-inset-left, 0px));
   background: var(--v2-chrome-deep);
 }
 
@@ -544,7 +600,8 @@ body,
   grid-template-columns: auto minmax(220px, 1fr) auto;
   align-items: center;
   gap: 10px;
-  padding: 8px 12px;
+  padding: 8px calc(12px + env(safe-area-inset-right, 0px)) 8px
+    calc(12px + env(safe-area-inset-left, 0px));
 }
 
 .home-v2-bookmark-toolbar {
@@ -3052,9 +3109,14 @@ body,
   }
 }
 
+/* The phone layout is what Android actually renders (HomeV2LiveApp picks it
+   whenever the desktop bridge is absent), so it must not demand more height
+   than the device has: an 820px floor on a ~747px usable viewport forced the
+   whole shell to scroll and pushed content under the navigation bar. The fixed
+   height belongs to the desktop preview frame, which sets it in
+   fixture-preview.css. */
 .home-v2-shell[data-layout='phone'] {
   width: min(430px, 100%);
-  min-height: 820px;
   margin: 0 auto;
 }
 

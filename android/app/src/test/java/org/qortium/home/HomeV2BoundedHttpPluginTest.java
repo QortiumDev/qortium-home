@@ -8,6 +8,7 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.URL;
 import org.junit.Test;
 
 /**
@@ -121,6 +122,88 @@ public class HomeV2BoundedHttpPluginTest {
         assertEquals(body.length, sink.written);
         assertEquals(3, sink.writes);
         assertEquals(1, sink.flushes);
+    }
+
+    @Test
+    public void authenticatedRouteIsBoundToOriginBindingAndAllowlist() throws Exception {
+        String binding = "d".repeat(32);
+        HomeV2BoundedHttpPlugin.assertAllowedAuthenticatedRequest(
+                new URL("https://node.example/lists/followedNames"),
+                "https://node.example",
+                "POST",
+                "application/json",
+                12,
+                binding,
+                binding,
+                "private-key");
+        HomeV2BoundedHttpPlugin.assertAllowedAuthenticatedRequest(
+                new URL("http://127.0.0.1:24891/arbitrary/preview/WEBSITE/upload?filename=index.html"),
+                "http://127.0.0.1:24891",
+                "POST",
+                "text/plain",
+                HomeV2BoundedHttpPlugin.MAX_REQUEST_BYTES,
+                binding,
+                binding,
+                "private-key");
+
+        assertThrows(
+                Exception.class,
+                () -> HomeV2BoundedHttpPlugin.assertAllowedAuthenticatedRequest(
+                        new URL("https://other.example/lists"), "https://node.example", "GET",
+                        "application/json", 0, binding, binding, "private-key"));
+        assertThrows(
+                Exception.class,
+                () -> HomeV2BoundedHttpPlugin.assertAllowedAuthenticatedRequest(
+                        new URL("https://node.example/admin/stop"), "https://node.example", "GET",
+                        "application/json", 0, binding, binding, "private-key"));
+        assertThrows(
+                Exception.class,
+                () -> HomeV2BoundedHttpPlugin.assertAllowedAuthenticatedRequest(
+                        new URL("https://node.example/lists"), "https://node.example", "GET",
+                        "application/json", 0, binding, "e".repeat(32), "private-key"));
+        assertThrows(
+                Exception.class,
+                () -> HomeV2BoundedHttpPlugin.assertAllowedAuthenticatedRequest(
+                        new URL("http://node.example/lists"), "http://node.example", "GET",
+                        "application/json", 0, binding, binding, "private-key"));
+        assertThrows(
+                Exception.class,
+                () -> HomeV2BoundedHttpPlugin.assertAllowedAuthenticatedRequest(
+                        new URL("https://node.example/lists"), "https://node.example", "PUT",
+                        "application/json", 0, binding, binding, "private-key"));
+        assertThrows(
+                Exception.class,
+                () -> HomeV2BoundedHttpPlugin.assertAllowedAuthenticatedRequest(
+                        new URL("https://node.example/lists"), "https://node.example", "POST",
+                        "application/json", 2 * 1024 * 1024 + 1, binding, binding, "private-key"));
+    }
+
+    @Test
+    public void foreignWalletAllowlistIsLimitedToSupportedChainsAndOperations() {
+        assertEquals(
+                true,
+                HomeV2BoundedHttpPlugin.isAllowedPathAndMethod(
+                        "/crosschain/dgb/walletbalance", "POST"));
+        assertEquals(
+                true,
+                HomeV2BoundedHttpPlugin.isAllowedPathAndMethod(
+                        "/crosschain/btc/wallet/public/spend-context", "POST"));
+        assertEquals(
+                true,
+                HomeV2BoundedHttpPlugin.isAllowedPathAndMethod(
+                        "/crosschain/firo/send/broadcast", "POST"));
+        assertEquals(
+                false,
+                HomeV2BoundedHttpPlugin.isAllowedPathAndMethod(
+                        "/crosschain/piratechain/walletbalance", "POST"));
+        assertEquals(
+                false,
+                HomeV2BoundedHttpPlugin.isAllowedPathAndMethod(
+                        "/crosschain/bitcoin/send", "POST"));
+        assertEquals(
+                false,
+                HomeV2BoundedHttpPlugin.isAllowedPathAndMethod(
+                        "/crosschain/btc/send/broadcast", "GET"));
     }
 
     private static final class CountingOutputStream extends OutputStream {

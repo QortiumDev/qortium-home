@@ -33,6 +33,17 @@ import {
 } from './qdn-manager-events.js';
 import { sanitizeQdnManagerAppKey } from './qdn-manager-permissions.js';
 import { canReuseQdnViewEntry, getQdnViewPartition } from './qdn-view-security-context.js';
+import {
+  IDLE_QDN_VIEW_FULLSCREEN_STATE,
+  QDN_VIEW_FULLSCREEN_CUE_DURATION_MS,
+  enterQdnViewFullscreen,
+  isQdnViewPermissionAllowed,
+  leaveQdnViewFullscreen,
+  releaseQdnViewFullscreenCue,
+  resolveQdnViewBounds,
+  resolveQdnViewFullscreenTeardown,
+  type QdnViewFullscreenState,
+} from './qdn-view-fullscreen.js';
 import { isWidgetTabId } from './widget-registry.js';
 import { resetZoom, zoomIn, zoomOut } from './zoom.js';
 import {
@@ -142,6 +153,11 @@ type QdnViewEntry = {
   deliveredManagerRevisions: QdnManagerRevisions | undefined;
   displaySettings: QdnDisplaySettings;
   hostCssBounds: Rectangle | null;
+  // HTML-fullscreen bookkeeping for this view. See qdn-view-fullscreen.ts for
+  // the rules; `fullscreenCueTimer` is the live handle for the strip the cue
+  // is drawn in, held here so hiding, leaving and destroying can all cancel it.
+  fullscreen: QdnViewFullscreenState;
+  fullscreenCueTimer: NodeJS.Timeout | null;
   isPageReady: boolean;
   nodeOrigin: string;
   pendingAppTargetMessage: unknown | undefined;
@@ -811,10 +827,52 @@ function watchWindow(window: BrowserWindow) {
   }
 
   watchedWindowIds.add(windowId);
+  window.on('enter-full-screen', () => {
+    windowFullScreenEnteredAt.set(windowId, Date.now());
+  });
+  // A fullscreen app view is sized from the WINDOW, not from anything the host
+  // renderer sends, and the resize that actually makes the window fullscreen
+  // arrives after `enter-html-full-screen`. Without this the view would keep
+  // the pre-fullscreen size it was given at enter time. Non-fullscreen views
+  // are untouched here: their size still comes from the host's own relayout.
+  window.on('resize', () => {
+    const windowViews = qdnViewsByWindow.get(windowId);
+
+    if (!windowViews) {
+      return;
+    }
+
+    for (const entry of windowViews.values()) {
+      if (entry.fullscreen.active) {
+        applyQdnViewBounds(entry);
+      }
+    }
+  });
   window.once('closed', () => {
     watchedWindowIds.delete(windowId);
+    windowFullScreenEnteredAt.delete(windowId);
     destroyWindowViews(windowId);
   });
+}
+
+// When each window last went OS-fullscreen. Electron takes the window
+// fullscreen for the app BEFORE the view's `enter-html-full-screen` fires
+// (measured on Electron 39.8.10: the window's own 'enter-full-screen' arrives
+// first and window.isFullScreen() already reads true inside our handler), so
+// "was the window already fullscreen when the app asked" cannot be read off the
+// window at that point. It has to be inferred from whether the window's own
+// transition had only just happened.
+const windowFullScreenEnteredAt = new Map<number, number>();
+const APP_DRIVEN_WINDOW_FULLSCREEN_MS = 1_000;
+
+function wasWindowFullScreenBeforeApp(window: BrowserWindow, windowId: number) {
+  if (!window.isFullScreen()) {
+    return false;
+  }
+
+  const enteredAt = windowFullScreenEnteredAt.get(windowId);
+
+  return enteredAt === undefined || Date.now() - enteredAt > APP_DRIVEN_WINDOW_FULLSCREEN_MS;
 }
 
 // Moved to qdn-view-security-context.ts so the reuse decision below and the
@@ -1401,40 +1459,62 @@ function applyViewGuards(entry: QdnViewEntry) {
 
   const isolatedSession = entry.view.webContents.session;
 
-  // Every permission is denied by default - hosted Q-App code is untrusted.
-  // 'fullscreen' is special-cased below because it has no side-channel risk
-  // (it only lets the page resize its own view, gated by the same guards as
-  // everything else) and hosted apps have no other way to offer a fullscreen
-  // toggle, unlike camera/mic/clipboard/etc which stay denied.
-  isolatedSession.setPermissionCheckHandler((_wc, permission) => permission === 'fullscreen');
+  // Every permission is denied - hosted Q-App code is untrusted - except
+  // 'fullscreen'. See isQdnViewPermissionAllowed in qdn-view-fullscreen.ts for
+  // why that one is safe and what stays denied.
+  isolatedSession.setPermissionCheckHandler((_wc, permission) =>
+    isQdnViewPermissionAllowed(permission));
   isolatedSession.setPermissionRequestHandler((_webContents, permission, callback) => {
-    callback(permission === 'fullscreen');
+    callback(isQdnViewPermissionAllowed(permission));
   });
 
   // Permission alone only lets the page's DOM enter the fullscreen state;
   // Chromium still expects the embedder to actually resize the WebContentsView
   // to fill the window, since there's no <iframe>/allowfullscreen path here.
+  //
+  // The view is deliberately left WITHOUT `disableHtmlFullscreenWindowResize`,
+  // so Electron also takes the owner window OS-fullscreen. That is what a user
+  // asking a video for fullscreen means; disabling it would give them a
+  // "fullscreen" that still only fills a windowed Home. The two things that
+  // makes harder - a stale flag when something else ends the session, and a
+  // window left OS-fullscreen after the app is gone - are handled by
+  // exitHtmlFullscreen (a synthetic Escape, which produces a real leave event)
+  // and by the teardown in destroyEntry.
   entry.view.webContents.on('enter-html-full-screen', () => {
-    if (entry.window.isDestroyed()) {
-      return;
-    }
-
-    // setBounds is relative to the window's content area (0,0 top-left),
-    // unlike getContentBounds()'s absolute screen coordinates - only the
-    // size is needed here, not the window's on-screen position.
-    const { width, height } = entry.window.getContentBounds();
-
-    entry.view.setBounds({ x: 0, y: 0, width, height });
-  });
-
-  entry.view.webContents.on('leave-html-full-screen', () => {
     if (entry.window.isDestroyed() || entry.view.webContents.isDestroyed()) {
       return;
     }
 
-    if (entry.hostCssBounds) {
-      applyHostViewBounds(entry, entry.hostCssBounds);
+    clearFullscreenCueTimer(entry);
+    entry.fullscreen = enterQdnViewFullscreen(
+      wasWindowFullScreenBeforeApp(entry.window, entry.window.webContents.id),
+    );
+    entry.fullscreenCueTimer = setTimeout(() => {
+      entry.fullscreenCueTimer = null;
+      entry.fullscreen = releaseQdnViewFullscreenCue(entry.fullscreen);
+      applyQdnViewBounds(entry);
+    }, QDN_VIEW_FULLSCREEN_CUE_DURATION_MS);
+
+    // The window content size read here is still the PRE-fullscreen one
+    // (Electron 39: the resize lands after this event), which is why the
+    // window `resize` listener in watchWindow re-applies rather than this
+    // being a one-shot setBounds.
+    applyQdnViewBounds(entry);
+    sendQdnViewFullscreenState(entry, true);
+  });
+
+  entry.view.webContents.on('leave-html-full-screen', () => {
+    clearFullscreenCueTimer(entry);
+    entry.fullscreen = leaveQdnViewFullscreen();
+    sendQdnViewFullscreenState(entry, false);
+
+    if (entry.window.isDestroyed() || entry.view.webContents.isDestroyed()) {
+      return;
     }
+
+    // Back to whatever slot the host last asked for, which applyHostViewBounds
+    // kept recording throughout the fullscreen session.
+    applyQdnViewBounds(entry);
   });
 
   if (process.env.QORTIUM_HOME_V2 === '1') {
@@ -1694,6 +1774,8 @@ function createViewEntry(
     deliveredManagerRevisions: undefined,
     displaySettings,
     hostCssBounds: null,
+    fullscreen: IDLE_QDN_VIEW_FULLSCREEN_STATE,
+    fullscreenCueTimer: null,
     isPageReady: false,
     managerRevisions: undefined,
     nodeOrigin,
@@ -1758,18 +1840,36 @@ function getHostZoomLevel(window: BrowserWindow) {
   }
 }
 
-function scaleBoundsForHostZoom(bounds: Rectangle, zoomFactor: number): Rectangle {
-  return {
-    x: Math.round(bounds.x * zoomFactor),
-    y: Math.round(bounds.y * zoomFactor),
-    width: Math.max(1, Math.round(bounds.width * zoomFactor)),
-    height: Math.max(1, Math.round(bounds.height * zoomFactor)),
-  };
+// The one place a view's bounds are computed and pushed. Every relayout path
+// (host `show`/`setBounds`, host zoom, window resize, entering and leaving
+// fullscreen) funnels through here, so an app in HTML fullscreen cannot be
+// snapped back into its tab slot by a relayout that did not know about it.
+function applyQdnViewBounds(entry: QdnViewEntry) {
+  if (entry.window.isDestroyed() || entry.view.webContents.isDestroyed()) {
+    return;
+  }
+
+  const contentBounds = entry.window.getContentBounds();
+  const bounds = resolveQdnViewBounds({
+    fullscreen: entry.fullscreen,
+    hostCssBounds: entry.hostCssBounds,
+    windowContentSize: { height: contentBounds.height, width: contentBounds.width },
+    zoomFactor: getHostZoomFactor(entry.window),
+  });
+
+  if (bounds) {
+    entry.view.setBounds(bounds);
+  }
 }
 
 function applyHostViewBounds(entry: QdnViewEntry, bounds: Rectangle) {
+  // Recorded even while fullscreen - the host renderer keeps streaming its
+  // tab-slot bounds on every window resize and ResizeObserver tick, and taking
+  // an OS-fullscreen window through that path is exactly when the freshest
+  // slot has to be remembered for the restore. applyQdnViewBounds decides
+  // whether it is also what gets applied.
   entry.hostCssBounds = bounds;
-  entry.view.setBounds(scaleBoundsForHostZoom(bounds, getHostZoomFactor(entry.window)));
+  applyQdnViewBounds(entry);
 }
 
 function applyHostZoomToEntry(entry: QdnViewEntry) {
@@ -1783,9 +1883,61 @@ function applyHostZoomToEntry(entry: QdnViewEntry) {
     entry.view.webContents.setZoomLevel(zoomLevel);
   }
 
-  if (entry.hostCssBounds) {
-    entry.view.setBounds(scaleBoundsForHostZoom(entry.hostCssBounds, getHostZoomFactor(entry.window)));
+  applyQdnViewBounds(entry);
+}
+
+function clearFullscreenCueTimer(entry: QdnViewEntry) {
+  if (entry.fullscreenCueTimer) {
+    clearTimeout(entry.fullscreenCueTimer);
+    entry.fullscreenCueTimer = null;
   }
+}
+
+// Tell the shell whether this tab's app is currently painting over all of
+// Home's chrome, so it can say so. Hosted apps are untrusted and a fullscreen
+// one owns every pixel; without a host-drawn cue nothing on screen is
+// distinguishable from Home itself.
+function sendQdnViewFullscreenState(entry: QdnViewEntry, fullscreen: boolean) {
+  if (entry.window.isDestroyed()) {
+    return;
+  }
+
+  entry.window.webContents.send('qdn-views:app-fullscreen-changed', {
+    fullscreen,
+    tabId: entry.tabId,
+  });
+}
+
+// Force an app out of HTML fullscreen from the main process.
+//
+// Electron exposes no webContents-level "leave fullscreen", and the obvious
+// substitutes do not work (both verified on Electron 39.8.10):
+// `window.setFullScreen(false)` leaves the PAGE still believing it is
+// fullscreen - `document.fullscreenElement` stays set and
+// `leave-html-full-screen` never fires, so the flag here would go stale - and
+// `view.setVisible(false)` does not end it either. Running
+// `document.exitFullscreen()` through executeJavaScript is not acceptable
+// against untrusted app content, and a page can redefine it anyway.
+//
+// A synthetic Escape is what Chromium itself treats as "leave fullscreen". It
+// is handled above the page (verified against a page that preventDefaults and
+// stops every keydown in the capture phase), needs no focus transfer, and
+// produces a real `leave-html-full-screen`, so the ordinary restore path below
+// runs instead of a second, divergent one.
+function exitHtmlFullscreen(entry: QdnViewEntry) {
+  if (!entry.fullscreen.active) {
+    return;
+  }
+
+  if (entry.view.webContents.isDestroyed()) {
+    clearFullscreenCueTimer(entry);
+    entry.fullscreen = leaveQdnViewFullscreen();
+    sendQdnViewFullscreenState(entry, false);
+    return;
+  }
+
+  entry.view.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
+  entry.view.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' });
 }
 
 export function syncQdnViewsForWindowZoom(window: BrowserWindow) {
@@ -1801,7 +1953,25 @@ export function syncQdnViewsForWindowZoom(window: BrowserWindow) {
 }
 
 function destroyEntry(entry: QdnViewEntry) {
+  clearFullscreenCueTimer(entry);
+
+  // A view destroyed mid-fullscreen has no page left to send an Escape to, so
+  // the OS fullscreen it caused would outlive it and leave Home chromeless and
+  // empty across the whole screen. Drop it directly - but not when the user
+  // had put the window in fullscreen themselves before the app asked.
+  const teardown = resolveQdnViewFullscreenTeardown(entry.fullscreen);
+  const wasFullscreen = entry.fullscreen.active;
+  entry.fullscreen = teardown.state;
+
   if (!entry.window.isDestroyed()) {
+    if (wasFullscreen) {
+      sendQdnViewFullscreenState(entry, false);
+    }
+
+    if (teardown.restoreWindow && entry.window.isFullScreen()) {
+      entry.window.setFullScreen(false);
+    }
+
     entry.window.contentView.removeChildView(entry.view);
   }
 
@@ -2027,6 +2197,18 @@ export function registerQdnViewIpcHandlers() {
     const window = getSenderWindow(event);
     const tabId = sanitizeTabRequest(rawRequest);
     const entry = qdnViewsByWindow.get(window.webContents.id)?.get(tabId);
+
+    // Hiding is how the shell both switches tabs and clears the stage for a
+    // trusted prompt (see the suspend branch of AppTabStage's effect). Neither
+    // may leave the app in fullscreen: merely hiding the view does NOT end an
+    // HTML fullscreen session (verified on Electron 39 - the page keeps
+    // document.fullscreenElement and the window stays OS-fullscreen), so the
+    // prompt would be drawn into a fullscreen window the app still believes it
+    // owns, and a later re-show would restore a full-window app view over
+    // Home's chrome. Escape it first; the leave handler restores the bounds.
+    if (entry) {
+      exitHtmlFullscreen(entry);
+    }
 
     entry?.view.setVisible(false);
 

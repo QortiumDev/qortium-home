@@ -25,6 +25,14 @@ import org.json.JSONObject;
  * shared contract. This layer adds atomic replacement, file and directory
  * flushes, bounded reads, and read-back verification before JavaScript may
  * proceed toward a broadcast.
+ *
+ * The desktop store guards the same file with a cross-process lockfile because
+ * two Electron instances can share one userData directory. Android does not
+ * need one: the journal is in this app's private files directory and the app
+ * runs in a single process, so FILE_LOCK below is enough to keep read and
+ * write indivisible. A second app process (a separate service process, or a
+ * cloned profile sharing this data directory) would invalidate that and would
+ * require a lockfile here first.
  */
 @CapacitorPlugin(name = "HomeV2ForeignWalletJournal")
 public class HomeV2ForeignWalletJournalPlugin extends Plugin {

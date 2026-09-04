@@ -807,6 +807,7 @@ export const ro: Record<TranslationKey, string> = {
   "home2.accountDialog.useRememberedUnlock": "Utilizați deblocarea memorată protejată de dispozitiv",
   "home2.app.checkingNetwork": "Se verifică {network}…",
   "home2.app.frameTitle": "Aplicația QDN",
+  "home2.app.fullscreenNotice": "{app} este pe ecran complet - apasă Esc pentru a ieși",
   "home2.app.networkUnavailable": "{network} nu este disponibil.",
   "home2.app.previewUnavailable": "Această previzualizare nu mai este disponibilă. Selectați din nou fișierul.",
   "home2.app.unableToLoad": "Imposibil de încărcat această aplicație.",
