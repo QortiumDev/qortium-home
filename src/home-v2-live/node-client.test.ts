@@ -1609,4 +1609,49 @@ await assert.rejects(
   assert.equal(secretWrites, writesAfter, 'a record that already has an id must not be rewritten')
 }
 
+// A native host can return an opaque credential handle instead of decrypting
+// the API key into JavaScript. Ordinary mode/same-origin settings writes must
+// preserve that protected value rather than overwriting it with the handle.
+{
+  const origin = 'https://native-admin.example'
+  const bindingId = 'd'.repeat(32)
+  const handle = `native-admin:${bindingId}`
+  const nativePreferences = new Map<string, string>([
+    ['home-v2-live-node:qortium', JSON.stringify({ customUrl: origin, mode: 'custom' })],
+  ])
+  let removals = 0
+  let writes = 0
+  const nativeClient = createPortableNodeClient({
+    ...dependencies,
+    async getPreference(key) {
+      return nativePreferences.get(key) ?? null
+    },
+    async getSecret(key) {
+      return key === 'home-v2-qortium-node-api-key-v1'
+        ? JSON.stringify({ apiKey: handle, bindingId, nodeApiUrl: origin, version: 1 })
+        : null
+    },
+    isSecretHandle(key, value) {
+      return key === 'home-v2-qortium-node-api-key-v1' && value.startsWith('native-admin:')
+    },
+    async removeSecret() {
+      removals += 1
+    },
+    async setPreference(key, value) {
+      nativePreferences.set(key, value)
+    },
+    async setSecret() {
+      writes += 1
+    },
+  })
+  await nativeClient.setMode('qortium', 'custom')
+  await nativeClient.setCustomUrl('qortium', origin)
+  assert.equal(removals, 0)
+  assert.equal(writes, 0)
+
+  await nativeClient.setCustomUrl('qortium', origin, 'replacement-key')
+  assert.equal(removals, 1)
+  assert.equal(writes, 1)
+}
+
 console.log('Home v2 portable node client tests passed.')

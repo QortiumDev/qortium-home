@@ -314,6 +314,8 @@ function isBindingId(value: unknown): value is string {
 export interface PortableNodeClientDependencies {
   getPreference(key: string): Promise<string | null>
   getSecret(key: string): Promise<string | null>
+  /** True only for a native opaque credential handle, never for secret text. */
+  isSecretHandle?(key: string, value: string): boolean
   removeSecret(key: string): Promise<void>
   setPreference(key: string, value: string): Promise<void>
   setSecret(key: string, value: string): Promise<void>
@@ -1044,7 +1046,13 @@ export function createPortableNodeClient(
     const existing = network === 'qortium' && settings.apiKey && settings.customUrl
       ? await readAdminKeyRecord(settings.customUrl)
       : null
-    if (network === 'qortium') {
+    const preserveNativeCredential = Boolean(
+      network === 'qortium' &&
+      existing &&
+      existing.apiKey === settings.apiKey &&
+      dependencies.isSecretHandle?.(QORTIUM_CORE_API_KEY_SECRET, settings.apiKey),
+    )
+    if (network === 'qortium' && !preserveNativeCredential) {
       // Remove first so an interrupted host/key change fails closed. The
       // protected record is bound to its origin and is never put in Preferences.
       await dependencies.removeSecret(QORTIUM_CORE_API_KEY_SECRET)
@@ -1054,7 +1062,7 @@ export function createPortableNodeClient(
       lastEnabledMode: settings.lastEnabledMode,
       mode: settings.mode,
     }))
-    if (network === 'qortium' && settings.apiKey && settings.customUrl) {
+    if (network === 'qortium' && settings.apiKey && settings.customUrl && !preserveNativeCredential) {
       // Re-minted ONLY when the credential or the origin actually moves --
       // `readAdminKeyRecord` already refuses a record bound to another origin,
       // so a node move lands here with `existing` null. Every other settings

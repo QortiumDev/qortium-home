@@ -837,24 +837,24 @@ Two consequences worth stating:
   inherit an approval made about a different one. A restored publish-preview
   tab is bound the same way: same origin, same revision, or it is dropped.
 
-### Known architecture gap: the Android admin key transits WebView JS
+### Android administrative-key custody
 
-On Android every authenticated node call — QDN lists, node settings and
-restart, minting, foreign-wallet reads and server selection, and now the
-publish preview — unwraps the API key out of the Keystore-backed secret store
-**into JavaScript** (`HomeV2SecureStorage.unwrap` → `readSettings()` in
-`src/home-v2-live/node-client.ts`) and passes it back across the Capacitor
-bridge as a request header. The key is therefore resident in WebView memory for
-the duration of each call.
+On Android the saved administrative API key remains inside the
+Keystore-backed native store. JavaScript receives only the bound node origin
+and random binding id. When Home makes an authenticated request, the native
+transport decrypts and applies the key itself, verifies that the requested URL
+has the saved origin and a safe transport, compares the expected binding id,
+refuses redirects, and enforces a fixed endpoint/method allowlist plus body and
+response ceilings. `HomeV2SecureStorage.unwrap` explicitly refuses the
+administrative record, so the generic remembered-unlock method cannot be used
+to extract it.
 
-This is the shape the Android host has had since the authenticated families
-landed; the preview path follows it rather than widening it. Recorded here
-because it is a real gap and not a decision: the follow-up is a native
-trust-bound request method — the Java side unwraps the key itself, applies it,
-and returns only the result — after which no authenticated path needs the key
-in JS at all. (Security review, 2026-09-02.)
+The key necessarily exists briefly in the settings form while the user first
+enters or replaces it; after it is stored, ordinary reads, mode changes,
+previews, list and settings operations, and foreign-wallet operations use only
+the opaque binding id in WebView JavaScript.
 
-Two things that are NOT part of the gap, and are already closed:
+Two related boundaries remain:
 
 - The key never reaches a **QDN app**, on either host. Apps get results.
 - The token that crosses into React and is written into the user's profile is a
@@ -881,11 +881,11 @@ Android still makes several transient copies of a selection on its way out
 the Java request body as UTF-8); that is accepted under the 48 MiB cap rather
 than restructured, since the cap is what bounds it.
 
-Two accepted gaps in the Android transport, recorded so they are not
-rediscovered as findings: the plugin's deadline watchdog — the thread that
+One accepted test gap in the Android transport is recorded so it is not
+rediscovered as a finding: the plugin's deadline watchdog — the thread that
 closes a connection whose upload has blocked inside a single `write()` — has no
-test, because the JVM unit suite has no socket fixture that can hold a request
-body open; and the API key still transits WebView JS, as described above.
+socket-level test, because the JVM unit suite has no fixture that can hold a
+request body open. The deadline calculation and chunk-loop refusal are covered.
 
 ### Core API documentation: desktop only, for now
 

@@ -32,6 +32,23 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## fix(android): keep the node API key in native storage and transport
+
+Android no longer unwraps a saved Qortium node API key into WebView
+JavaScript for lists, node settings and restart, Core updates, previews, or
+foreign-wallet reads and server selection. JavaScript receives an opaque
+random binding id; the native transport decrypts the key, checks the exact
+saved origin and binding again, applies the key itself, refuses redirects, and
+allows only the specific administrative endpoint and method families Home
+uses. Request and response ceilings remain native-enforced.
+
+The generic secure-storage unwrap method now explicitly refuses the
+administrative record. Existing protected records are compatible, including a
+native-only binding-id upgrade for records saved before binding ids existed.
+Changing modes or re-saving the same origin preserves the protected key;
+replacing or clearing the key and moving the node retain the existing
+fail-closed behavior.
+
 ## feat(home2): stream larger QDN publishes through a trusted node
 
 Desktop Home 2 now uses Core's authenticated QDN builder when the selected
