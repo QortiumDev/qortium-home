@@ -281,6 +281,68 @@ async function ensureLayout(paths: I2pdManagedInstallPaths) {
       throw new I2pdManagedInstallError('record-invalid', 'A managed i2pd directory escaped its private base.')
     }
   }
+  await sweepInterruptedArtifacts(paths)
+}
+
+/**
+ * A process killed mid-install never runs its `finally`, so partial archives
+ * and staging trees survive with a fresh random token on every retry. They are
+ * disposable by construction: sweep them whenever the layout is ensured.
+ */
+async function sweepInterruptedArtifacts(paths: I2pdManagedInstallPaths) {
+  for (const [directory, isDisposable] of [
+    [paths.downloadsPath, (name: string) => name.startsWith('.') && name.endsWith('.part')],
+    [paths.versionsPath, (name: string) => name.startsWith('.staging-')],
+  ] as const) {
+    let entries: string[]
+    try {
+      entries = await readdir(directory)
+    } catch {
+      continue
+    }
+    for (const name of entries) {
+      if (!isDisposable(name)) continue
+      await rm(path.join(directory, name), { force: true, recursive: true }).catch(() => undefined)
+    }
+  }
+}
+
+/**
+ * Every installed generation that still validates against Home's trusted
+ * catalogue, newest-pinned first. The current record is the only pointer to an
+ * install, so without this scan a dangling pointer hides a perfectly good
+ * router that is sitting on disk.
+ */
+async function listValidTrustedGenerations(
+  paths: I2pdManagedInstallPaths,
+  target: I2pdReleaseTarget,
+  trustedReleases: readonly I2pdPinnedRelease[],
+): Promise<readonly I2pdManagedInstall[]> {
+  let entries: string[]
+  try {
+    entries = await readdir(paths.versionsPath)
+  } catch {
+    return []
+  }
+  const found: { install: I2pdManagedInstall; rank: number }[] = []
+  for (const name of entries) {
+    if (name.startsWith('.')) continue
+    let record: I2pdManagedInstallRecordV1
+    try {
+      record = await readGenerationRecord(path.join(paths.versionsPath, name), target)
+    } catch {
+      continue
+    }
+    if (record.generation !== name) continue
+    const rank = trustedReleases.findIndex((release) => recordMatchesRelease(record, release))
+    if (rank < 0) continue
+    try {
+      found.push({ install: await validateGeneration(paths, target, record), rank })
+    } catch {
+      continue
+    }
+  }
+  return Object.freeze(found.sort((left, right) => left.rank - right.rank).map((entry) => entry.install))
 }
 
 async function validateExistingLayout(paths: I2pdManagedInstallPaths) {
@@ -291,7 +353,16 @@ async function validateExistingLayout(paths: I2pdManagedInstallPaths) {
     throw error
   }
   for (const child of [paths.downloadsPath, paths.versionsPath, paths.runtimePath]) {
-    await validatePrivateDirectory(child, false)
+    try {
+      await validatePrivateDirectory(child, false)
+    } catch (error) {
+      // A subdirectory deleted by hand means "not laid out yet", exactly like a
+      // missing base path. Throwing here used to brick the maintenance panel:
+      // the only code that recreates these directories is ensureLayout, which
+      // is reachable only through an install the broken state disabled.
+      if (errorCode(error) === 'ENOENT') return false
+      throw error
+    }
   }
   return true
 }
@@ -756,11 +827,19 @@ async function readI2pdManagedInstallForRelease(input: Readonly<{
     if (error instanceof I2pdManagedInstallError) throw error
     throw new I2pdManagedInstallError('record-invalid', 'The managed i2pd current record was unreadable.', { cause: error })
   }
-  const generationRecord = await readGenerationRecord(path.join(paths.versionsPath, record.generation), target)
-  if (JSON.stringify(generationRecord) !== JSON.stringify(record)) {
-    throw new I2pdManagedInstallError('record-invalid', 'The current and generation i2pd records did not match.')
+  // A current record whose generation is missing, incomplete or no longer
+  // self-consistent is a stale pointer, not a catastrophe. Reporting "nothing
+  // installed" lets the maintenance panel offer Install again; throwing here
+  // left the user with a status message and no action at all, and made every
+  // reinstall attempt fail before it could download.
+  try {
+    const generationRecord = await readGenerationRecord(path.join(paths.versionsPath, record.generation), target)
+    if (JSON.stringify(generationRecord) !== JSON.stringify(record)) return null
+    return await validateGeneration(paths, target, record)
+  } catch (error) {
+    if (errorCode(error) === 'ENOENT' || error instanceof I2pdManagedInstallError) return null
+    throw error
   }
-  return await validateGeneration(paths, target, record)
 }
 
 export async function readI2pdManagedInstall(input: Readonly<{
@@ -823,6 +902,45 @@ export async function activateTrustedI2pdGeneration(
   return validated
 }
 
+async function discardOwnGeneration(generationPath: string) {
+  await rm(generationPath, { force: true, recursive: true })
+}
+
+/** Sentinel: the caller's ENOENT handler resumes the normal download path. */
+function incompleteGenerationDiscarded() {
+  return Object.assign(new Error('Discarded an incomplete managed i2pd generation.'), { code: 'ENOENT' })
+}
+
+/**
+ * Repairs a stale current record by re-pointing it at the newest trusted
+ * generation already on disk. Performs no download, so it is the recovery a
+ * user can run while offline, and it is what makes an existing older install
+ * usable again after a failed update.
+ */
+export async function activateNewestTrustedI2pdGeneration(input: Readonly<{
+  arch: string
+  basePath: string
+  platform: string
+}>, dependencies: Pick<I2pdManagedInstallDependencies, 'randomToken'> = {}): Promise<I2pdManagedInstall | null> {
+  const target = resolveI2pdReleaseTarget(input.platform, input.arch)
+  if (!target) throw new I2pdManagedInstallError('target-unsupported', 'Managed i2pd is unsupported on this target.')
+  const paths = resolveI2pdManagedInstallPaths(input.basePath)
+  if (!(await validateExistingLayout(paths))) return null
+  // The catalogue is not ordered newest-first, so put the pinned release at the
+  // head: a repair should prefer the version Home would install today.
+  const releases = getTrustedI2pdReleases(input.platform, input.arch)
+  const pinned = getPinnedI2pdRelease(input.platform, input.arch)
+  const [newest] = await listValidTrustedGenerations(
+    paths,
+    target,
+    pinned ? [pinned, ...releases.filter((candidate) => candidate.version !== pinned.version)] : releases,
+  )
+  if (!newest) return null
+  const token = safeToken((dependencies.randomToken ?? defaultToken)())
+  await writeAtomicPrivateJson(paths.currentRecordPath, newest.record, token)
+  return newest
+}
+
 export async function installPinnedI2pd(
   input: Readonly<{ arch: string; basePath: string; platform: string }>,
   dependencies: I2pdManagedInstallDependencies = {},
@@ -872,23 +990,44 @@ export async function installPinnedI2pd(
     if (!existingGeneration.isDirectory() || existingGeneration.isSymbolicLink()) {
       throw new I2pdManagedInstallError('record-invalid', 'The immutable i2pd generation path was unsafe.')
     }
-    let generationRecord: I2pdManagedInstallRecordV1
+    // An interrupted install can leave the generation directory behind in a
+    // state that used to refuse every later reinstall for good. Two shapes are
+    // provably Home's own disposable work and are discarded so the install can
+    // proceed: a directory that is completely empty, and one whose record
+    // matches this exact release but whose tree no longer validates. Anything
+    // else — unknown files, a record naming a different release — is still
+    // refused rather than deleted, because Home cannot prove it owns it.
+    let generationRecord: I2pdManagedInstallRecordV1 | null = null
+    let recordError: unknown = null
     try {
       generationRecord = await readGenerationRecord(generationPath, release.target)
     } catch (error) {
-      if (errorCode(error) === 'ENOENT') {
-        throw new I2pdManagedInstallError('record-invalid', 'The immutable i2pd generation was incomplete.')
+      if (errorCode(error) !== 'ENOENT' && !(error instanceof I2pdManagedInstallError)) throw error
+      recordError = error
+    }
+    const ownsGeneration = !!generationRecord && generationRecord.archiveSha256 === release.sha256 &&
+      generationRecord.archiveSize === release.size && generationRecord.assetName === release.assetName
+    if (generationRecord && ownsGeneration) {
+      let install: I2pdManagedInstall
+      try {
+        install = await validateGeneration(paths, release.target, generationRecord)
+      } catch {
+        await discardOwnGeneration(generationPath)
+        throw incompleteGenerationDiscarded()
       }
-      throw error
+      await dependencies.beforeActivate?.(generationRecord)
+      await writeAtomicPrivateJson(paths.currentRecordPath, generationRecord, token)
+      return Object.freeze({ install, kind: legacy ? 'migrated-legacy' : 'reused-generation' })
     }
-    if (generationRecord.archiveSha256 !== release.sha256 || generationRecord.archiveSize !== release.size ||
-      generationRecord.assetName !== release.assetName) {
-      throw new I2pdManagedInstallError('record-invalid', 'The immutable i2pd generation did not match the pinned release.')
+    if (!generationRecord && (await readdir(generationPath)).length === 0) {
+      await discardOwnGeneration(generationPath)
+      throw incompleteGenerationDiscarded()
     }
-    const install = await validateGeneration(paths, release.target, generationRecord)
-    await dependencies.beforeActivate?.(generationRecord)
-    await writeAtomicPrivateJson(paths.currentRecordPath, generationRecord, token)
-    return Object.freeze({ install, kind: legacy ? 'migrated-legacy' : 'reused-generation' })
+    if (recordError && errorCode(recordError) === 'ENOENT') {
+      throw new I2pdManagedInstallError('record-invalid', 'The immutable i2pd generation was incomplete.')
+    }
+    if (recordError) throw recordError
+    throw new I2pdManagedInstallError('record-invalid', 'The immutable i2pd generation did not match the pinned release.')
   } catch (error) {
     if (errorCode(error) !== 'ENOENT') throw error
   }
