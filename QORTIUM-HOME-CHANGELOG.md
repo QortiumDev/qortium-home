@@ -32,6 +32,33 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## fix(i2p): stop a shared PID file from disabling the router controls
+
+A tester could not turn on I2P at all. Settings offered "Direct only" and
+nothing else: the two I2P transport choices were greyed out, no button was
+offered to install, start or update the router, and it made no difference
+whether Qortium Core was running. His router was in fact perfectly healthy and
+fully installed.
+
+When the router runs, it writes a small file recording its process number so
+Home can find it again after a restart. That file is written by the router
+itself, so its permissions come from the settings of the account that launched
+it, and on his machine it ended up readable by more than just him. Home treats
+a file like that as untrustworthy, which is right, but it then reported that it
+could not tell whether a router was running at all — and that single uncertain
+answer travelled all the way to the settings page and switched off every
+control, including the one that would have started the router and rewritten the
+file. There was no way out from inside Home.
+
+Home now repairs the file instead. It is Home's own file, so Home tightens its
+permissions and reads it, exactly as it already does for its own folders, and
+the repair only ever removes access. If a file still cannot be trusted, or its
+contents make no sense, Home simply declines to reuse whatever it names and
+carries on offering to start the router. That is the cautious choice as well as
+the useful one: before Home ever reuses a running router it separately checks
+the account it belongs to, the exact program it is running and the exact
+options it was given, and none of that changes.
+
 ## fix(home2): keep the phone layout clear of the system bars
 
 On a phone, Home was drawing underneath both the status bar at the top and the
