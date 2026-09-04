@@ -222,6 +222,7 @@
     "test:qdn-group-avatar-input": "node scripts/ensure-electron-build.mjs && node dist-electron/qdn-group-avatar-input.test.js",
     "test:qdn-host-contract": "node scripts/ensure-electron-build.mjs && node dist-electron/qdn-host-contract.test.js",
     "test:qdn-identity-avatar": "node scripts/ensure-electron-build.mjs && node dist-electron/qdn-identity-avatar.test.js",
+    "test:qdn-view-fullscreen": "node scripts/ensure-electron-build.mjs && node dist-electron/qdn-view-fullscreen.test.js",
     "test:qdn-poll-options-input": "node scripts/ensure-electron-build.mjs && node dist-electron/qdn-poll-options-input.test.js",
     "test:qdn-poll-vote-input": "node scripts/ensure-electron-build.mjs && node dist-electron/qdn-poll-vote-input.test.js",
     "test:qdn-publish-routing": "node scripts/ensure-electron-build.mjs && node dist-electron/qdn-publish-routing.test.js",
