@@ -92,6 +92,24 @@ memory each time, which an app could otherwise have driven in a loop. And the
 single check that decides whether something is inside the folder you chose is
 now the one Home already used elsewhere, rather than a second copy of it.
 
+## fix(home2): accept Core-written private-group key announcements
+
+Members of a private Qortium group were seeing every message as "Encrypted
+message" in Home 2, even in groups they belong to. To read a private group,
+Home fetches the group's key announcements from the node and unwraps the copy
+addressed to the member. The node had the right announcement, wrapped for
+everyone including the affected member, but Home refused to look at it: Home
+insisted the announcement's transaction be flagged as "text", and Core writes
+every such control record with that flag off — which is also what Core's own
+interop fixture, the one Home's tests are meant to reproduce, says it should
+be. Home now only requires the record to be encrypted and accepts either text
+flag, so keys announced by Home 1.x users (whose sends go through Core) are
+usable straight away with no re-keying. The check that reads a page of
+announcements also no longer throws the whole page away because one record
+failed to verify; bad records are skipped and counted instead. A regression
+test now runs the fixture's real announcement transaction through the
+verifier, which is the case that had never been exercised.
+
 ## fix(home2): lock and harden the pending transaction journals
 
 Three follow-ups from the review of the foreign send work.
