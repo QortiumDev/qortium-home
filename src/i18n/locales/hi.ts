@@ -808,6 +808,7 @@ export const hi: Record<TranslationKey, string> = {
   "home2.accountDialog.useRememberedUnlock": "डिवाइस-सुरक्षित याद रखा गया अनलॉक उपयोग करें",
   "home2.app.checkingNetwork": "{network} की जाँच हो रही है…",
   "home2.app.frameTitle": "QDN ऐप",
+  "home2.app.fullscreenNotice": "{app} पूर्ण स्क्रीन में है - बाहर निकलने के लिए Esc दबाएँ",
   "home2.app.networkUnavailable": "{network} उपलब्ध नहीं है।",
   "home2.app.previewUnavailable": "यह प्रीव्यू अब उपलब्ध नहीं है। फ़ाइल दोबारा चुनें।",
   "home2.app.unableToLoad": "यह ऐप लोड नहीं किया जा सका।",

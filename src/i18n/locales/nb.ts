@@ -808,6 +808,7 @@ export const nb: Record<TranslationKey, string> = {
   "home2.accountDialog.useRememberedUnlock": "Bruk enhetsbeskyttet husket opplåsing",
   "home2.app.checkingNetwork": "Sjekker {network}…",
   "home2.app.frameTitle": "QDN-applikasjon",
+  "home2.app.fullscreenNotice": "{app} er i fullskjerm - trykk Esc for å avslutte",
   "home2.app.networkUnavailable": "{network} er utilgjengelig.",
   "home2.app.previewUnavailable": "Denne forhåndsvisningen er ikke lenger tilgjengelig. Velg filen på nytt.",
   "home2.app.unableToLoad": "Kan ikke laste denne appen.",

@@ -807,6 +807,7 @@ export const nl: Record<TranslationKey, string> = {
   "home2.accountDialog.useRememberedUnlock": "Gebruik apparaatbeveiligde onthouden ontgrendeling",
   "home2.app.checkingNetwork": "{network} controleren…",
   "home2.app.frameTitle": "QDN-app",
+  "home2.app.fullscreenNotice": "{app} is schermvullend - druk op Esc om te sluiten",
   "home2.app.networkUnavailable": "{network} is niet beschikbaar.",
   "home2.app.previewUnavailable": "Dit voorbeeld is niet meer beschikbaar. Selecteer het bestand opnieuw.",
   "home2.app.unableToLoad": "Kan deze app niet laden.",

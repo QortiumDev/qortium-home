@@ -219,6 +219,24 @@ function useResolvedRender(
   }, homeV2AppStageRenderInputs(productState, snapshot, translationVersion))
 }
 
+// How long the fullscreen cue stays on screen. Main reserves a strip at the top
+// of the window for QDN_VIEW_FULLSCREEN_CUE_DURATION_MS
+// (electron/qdn-view-fullscreen.ts) and hands it back to the app after that;
+// the banner is pulled slightly earlier so it is gone before the native view
+// grows over the strip rather than being clipped mid-fade.
+export const HOME_V2_APP_FULLSCREEN_CUE_MS = 2900
+
+// Reads a `qdn-views:app-fullscreen-changed` payload for one tab. Exported so
+// the filtering is testable without a main process: an event for a DIFFERENT
+// tab must never move this stage's cue, and a malformed payload must be
+// ignored rather than treated as "fullscreen ended".
+export function readHomeV2AppFullscreenEvent(event: unknown, tabId: string): boolean | null {
+  if (!isRecord(event)) return null
+  if (typeof event.tabId !== 'string' || event.tabId !== tabId) return null
+  if (typeof event.fullscreen !== 'boolean') return null
+  return event.fullscreen
+}
+
 function DesktopAppStage(props: AppTabStageProps) {
   const hostRef = useRef<HTMLDivElement>(null)
   const suspendedRef = useRef(props.suspended === true)
@@ -230,6 +248,7 @@ function DesktopAppStage(props: AppTabStageProps) {
   managerRevisionsRef.current = props.managerRevisions
   const [runtimeError, setRuntimeError] = useState<string | null>(null)
   const [snapshotUrl, setSnapshotUrl] = useState('')
+  const [fullscreenCue, setFullscreenCue] = useState(false)
   const resolution = useResolvedRender(
     props.productState,
     props.snapshot,
@@ -256,6 +275,38 @@ function DesktopAppStage(props: AppTabStageProps) {
       tabId: resolved.tab.id,
     })
   }, [props.snapshot.nodes, resolved])
+
+  // Spoofing cue. A fullscreen app view covers every piece of Home chrome, and
+  // the app is untrusted, so Home says so itself for the first few seconds:
+  // main leaves a strip at the top of the window uncovered (a WebContentsView
+  // is a native view and paints over the DOM, so an overlay alone would be
+  // invisible) and this banner is what goes in it.
+  useEffect(() => {
+    const bridge = window.homeV2Apps
+    if (!bridge?.onFullscreenChanged || !resolved) return
+    const tabId = String(resolved.tab.id)
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const stop = bridge.onFullscreenChanged((event: unknown) => {
+      const fullscreen = readHomeV2AppFullscreenEvent(event, tabId)
+      if (fullscreen === null) return
+      if (timer) {
+        clearTimeout(timer)
+        timer = null
+      }
+      setFullscreenCue(fullscreen)
+      if (fullscreen) {
+        timer = setTimeout(() => {
+          timer = null
+          setFullscreenCue(false)
+        }, HOME_V2_APP_FULLSCREEN_CUE_MS)
+      }
+    })
+    return () => {
+      if (timer) clearTimeout(timer)
+      stop()
+      setFullscreenCue(false)
+    }
+  }, [resolved])
 
   useEffect(() => {
     const host = hostRef.current
@@ -360,6 +411,11 @@ function DesktopAppStage(props: AppTabStageProps) {
 
   return <section className="home-v2-app-stage home-v2-app-stage--live" tabIndex={-1}>
     <div ref={hostRef} className="home-v2-app-view-host" />
+    {fullscreenCue && resolved ? <div
+      className="home-v2-app-fullscreen-cue"
+      role="status"
+      aria-live="polite"
+    >{t('home2.app.fullscreenNotice', { app: resolved.tab.title })}</div> : null}
     {snapshotUrl ? <img className="home-v2-app-stage__snapshot" src={snapshotUrl} alt="" /> : null}
     {resolution.status ? <div className="home-v2-app-stage__status" role="status">{resolution.status}</div> : null}
     {resolution.error || runtimeError ? <div className="home-v2-app-stage__error">{resolution.error ?? runtimeError}</div> : null}
@@ -827,6 +883,8 @@ function AndroidAppStage(props: AppTabStageProps) {
       className="home-v2-app-frame"
       src={source}
       title={t('home2.app.frameTitle')}
+      allow="fullscreen"
+      allowFullScreen
     /> : null}
     {resolution.status ? <div className="home-v2-app-stage__status" role="status">{resolution.status}</div> : null}
     {resolution.error || runtimeError ? <div className="home-v2-app-stage__error">{resolution.error ?? runtimeError}</div> : null}
@@ -992,6 +1050,9 @@ declare global {
       onPermissionRequest(listener: (event: unknown) => void): () => void
       onPermissionTimeout(listener: (event: unknown) => void): () => void
       onNavigationChanged(listener: (event: unknown) => void): () => void
+      // Optional for the same reason as updateManagerRevisions above: a
+      // partially stubbed bridge (tests, the widget host) must stay assignable.
+      onFullscreenChanged?(listener: (event: unknown) => void): () => void
     }
   }
 }

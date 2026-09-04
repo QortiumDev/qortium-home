@@ -807,6 +807,7 @@ export const he: Record<TranslationKey, string> = {
   "home2.accountDialog.useRememberedUnlock": "שימוש בביטול נעילה שמור ומוגן במכשיר",
   "home2.app.checkingNetwork": "מתבצעת בדיקה של {network}…",
   "home2.app.frameTitle": "יישום QDN",
+  "home2.app.fullscreenNotice": "{app} במסך מלא - הקש Esc ליציאה",
   "home2.app.networkUnavailable": "{network} אינה זמינה.",
   "home2.app.previewUnavailable": "התצוגה המקדימה הזו אינה זמינה עוד. בחר את הקובץ שוב.",
   "home2.app.unableToLoad": "לא ניתן לטעון את היישום הזה.",

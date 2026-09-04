@@ -807,6 +807,7 @@ export const zhCN: Record<TranslationKey, string> = {
   "home2.accountDialog.useRememberedUnlock": "使用受设备保护的记忆解锁",
   "home2.app.checkingNetwork": "正在检查 {network}…",
   "home2.app.frameTitle": "QDN应用程序",
+  "home2.app.fullscreenNotice": "{app} 已进入全屏 - 按 Esc 退出",
   "home2.app.networkUnavailable": "{network} 不可用。",
   "home2.app.previewUnavailable": "此预览已不可用。请重新选择文件。",
   "home2.app.unableToLoad": "无法加载此应用程序。",

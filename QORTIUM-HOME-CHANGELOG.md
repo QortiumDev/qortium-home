@@ -32,6 +32,38 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## fix(home2): apps can go fullscreen, and Home says so while they are
+
+Apps opened in Home could not go fullscreen. A video player, a game or a
+presentation would ask for the whole screen and simply be refused, because the
+isolated area each app runs in denies every browser permission by default and
+fullscreen was caught by that same blanket refusal.
+
+Fullscreen is now allowed, and nothing else is. Everything with a way to reach
+the machine or your data - camera, microphone, clipboard, location, notifications,
+USB, serial and the rest - is still refused, and there is now a test that names
+each of them so a future addition cannot quietly slip through.
+
+Allowing it was only half the job. Home draws each app as its own native panel
+sized to its tab, and the shell keeps re-sending that size whenever the window
+changes shape. Going fullscreen changes the window shape, so the app was being
+snapped straight back into its tab slot inside a window that had lost all of its
+chrome. Home now remembers where the tab slot is without applying it while the
+app is fullscreen, keeps the app filling the window as the window resizes, and
+puts it back exactly where it belongs on the way out. Switching tabs, opening a
+prompt that needs your approval, and closing the app all end fullscreen cleanly
+rather than leaving Home stranded with no chrome and nothing in it.
+
+Because a fullscreen app covers every part of Home, there is now a cue that the
+app cannot draw over or suppress: for the first few seconds Home keeps a strip
+at the top of the screen for itself and says which app you are looking at and
+that Esc will get you out. That matters here more than in a browser - apps come
+from the network and are not trusted, and a fullscreen one would otherwise own
+every pixel with nothing to distinguish it from Home itself.
+
+On Android, where apps render in a frame rather than a native panel, the frame
+is now allowed to go fullscreen too.
+
 ## feat(qdn): publish a whole folder, and let the node say how big a publish may be
 
 Publishing from an app used to mean choosing one file, no larger than 100 MiB.
