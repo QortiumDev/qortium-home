@@ -23,6 +23,12 @@ import {
 export type HomeV2AppBridgeProtocol = 'qdnRequest' | 'qortalRequest'
 export type HomeV2AppNetwork = 'qortal' | 'qortium'
 
+// These are compatibility and memory-safety bounds, not Core protocol limits.
+// Home 1.x used the same values and clamped an app's requested maximum instead
+// of rejecting the request. Keep that behavior: hosted apps often provide a
+// generous maxBytes budget even when the actual response is small. Larger QDN
+// payloads can use GET_QDN_RESOURCE_URL or SAVE_FILE, which stream content
+// instead of materializing it as an app-bridge response.
 const RESPONSE_DEFAULT_MAX_BYTES = 2 * 1024 * 1024
 const RESPONSE_MAX_BYTES = 5 * 1024 * 1024
 const AVATAR_MAX_BYTES = 500 * 1024
@@ -784,10 +790,13 @@ function appendQueryValue(query: URLSearchParams, key: string, value: unknown) {
 export function normalizeHomeV2ResponseMaxBytes(value: unknown) {
   if (value === undefined || value === null || value === '') return RESPONSE_DEFAULT_MAX_BYTES
   const parsed = typeof value === 'number' ? value : Number(value)
-  if (!Number.isSafeInteger(parsed) || parsed < 1 || parsed > RESPONSE_MAX_BYTES) {
-    throw new Error('maxBytes must be between 1 byte and 5 MiB.')
-  }
-  return parsed
+  if (!Number.isFinite(parsed)) return RESPONSE_DEFAULT_MAX_BYTES
+  const requested = Math.floor(parsed)
+  // Home 1.x allowed zero to become an unbounded read. Treat non-positive and
+  // unusable values as "no preference" instead so compatibility never removes
+  // the bounded-read protection.
+  if (requested < 1 || !Number.isSafeInteger(requested)) return RESPONSE_DEFAULT_MAX_BYTES
+  return Math.min(requested, RESPONSE_MAX_BYTES)
 }
 
 export function normalizeHomeV2AvatarMaxBytes(value: unknown) {

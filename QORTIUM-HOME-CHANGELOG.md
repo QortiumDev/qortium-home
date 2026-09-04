@@ -32,6 +32,21 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## fix(home2): clamp hosted-app read budgets instead of refusing them
+
+Home 2 refused a hosted app's read before contacting Core whenever the app
+asked for a response budget above 5 MiB. Home 1.x accepted the same request by
+clamping its budget to 5 MiB and then checking the response as it arrived. This
+made the Network app work in Home 1.x but fall back to its bundled sample data
+in Home 2, even though its current live snapshot is under 100 KiB.
+
+Home 2 now restores the earlier behavior: an oversized requested budget is
+clamped to the established bounded-read limit instead of becoming an error.
+Invalid or non-positive budgets use the safe 2 MiB default rather than creating
+an unbounded read. The actual response is still stopped if it exceeds the
+effective limit, and the separate avatar, private-chat, signing, list, saved
+resource and streamed-resource safeguards are unchanged.
+
 ## fix(nodes): stop repeating one certificate warning forever
 
 Home checks on its network connections every fifteen seconds, and each check
