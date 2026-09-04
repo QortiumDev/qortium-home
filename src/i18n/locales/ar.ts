@@ -807,6 +807,7 @@ export const ar: Record<TranslationKey, string> = {
   "home2.accountDialog.useRememberedUnlock": "استخدام إلغاء القفل المحفوظ والمحمي بالجهاز",
   "home2.app.checkingNetwork": "جارٍ التحقق من {network}…",
   "home2.app.frameTitle": "تطبيق QDN",
+  "home2.app.fullscreenNotice": "{app} في وضع ملء الشاشة - اضغط Esc للخروج",
   "home2.app.networkUnavailable": "{network} غير متاحة.",
   "home2.app.previewUnavailable": "لم تعد هذه المعاينة متاحة. اختر الملف مرة أخرى.",
   "home2.app.unableToLoad": "تعذر تحميل هذا التطبيق.",

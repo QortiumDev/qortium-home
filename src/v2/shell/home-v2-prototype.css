@@ -75,6 +75,49 @@ body,
   pointer-events: none;
 }
 
+/* Fullscreen spoofing cue. Fixed to the top of the WINDOW, not to the app
+   stage: while an app is fullscreen its native view covers the whole window,
+   and main deliberately holds a 36px strip back at the top (see
+   QDN_VIEW_FULLSCREEN_CUE_HEIGHT in electron/qdn-view-fullscreen.ts) for this
+   banner to occupy. The height here must match that constant. Non-interactive
+   on purpose - it is a statement by Home, not a control. */
+.home-v2-app-fullscreen-cue {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 2147483000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  height: 36px;
+  padding: 0 1rem;
+  overflow: hidden;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--v2-accent-ink);
+  background: var(--v2-accent);
+  pointer-events: none;
+  animation: home-v2-app-fullscreen-cue-fade 2.9s ease-in forwards;
+}
+
+@keyframes home-v2-app-fullscreen-cue-fade {
+  0% { opacity: 0; }
+  6% { opacity: 1; }
+  80% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .home-v2-app-fullscreen-cue {
+    animation: none;
+    opacity: 1;
+  }
+}
+
 .home-v2-app-stage__error,
 .home-v2-app-stage__status {
   position: absolute;

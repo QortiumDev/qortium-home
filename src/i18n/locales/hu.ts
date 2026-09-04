@@ -807,6 +807,7 @@ export const hu: Record<TranslationKey, string> = {
   "home2.accountDialog.useRememberedUnlock": "Eszköz által védett megjegyzett feloldás használata",
   "home2.app.checkingNetwork": "A(z) {network} ellenőrzése…",
   "home2.app.frameTitle": "QDN-alkalmazás",
+  "home2.app.fullscreenNotice": "A(z) {app} teljes képernyős - kilépéshez nyomd meg az Esc billentyűt",
   "home2.app.networkUnavailable": "A(z) {network} nem érhető el.",
   "home2.app.previewUnavailable": "Ez az előnézet már nem érhető el. Válassza ki újra a fájlt.",
   "home2.app.unableToLoad": "Ez az alkalmazás nem tölthető be.",

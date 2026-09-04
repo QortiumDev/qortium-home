@@ -807,6 +807,7 @@ export const fi: Record<TranslationKey, string> = {
   "home2.accountDialog.useRememberedUnlock": "Käytä laitteen suojaamaa muistettua lukituksen avausta",
   "home2.app.checkingNetwork": "Tarkistetaan verkkoa {network}…",
   "home2.app.frameTitle": "QDN-sovellus",
+  "home2.app.fullscreenNotice": "{app} on koko näytön tilassa - poistu painamalla Esc",
   "home2.app.networkUnavailable": "{network} ei ole käytettävissä.",
   "home2.app.previewUnavailable": "Tämä esikatselu ei ole enää käytettävissä. Valitse tiedosto uudelleen.",
   "home2.app.unableToLoad": "Tätä sovellusta ei voi ladata.",

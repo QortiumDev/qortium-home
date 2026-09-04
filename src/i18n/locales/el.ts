@@ -808,6 +808,7 @@ export const el: Record<TranslationKey, string> = {
   "home2.accountDialog.useRememberedUnlock": "Χρήση απομνημονευμένου ξεκλειδώματος με προστασία συσκευής",
   "home2.app.checkingNetwork": "Έλεγχος του {network}…",
   "home2.app.frameTitle": "Εφαρμογή QDN",
+  "home2.app.fullscreenNotice": "Το {app} είναι σε πλήρη οθόνη - πατήστε Esc για έξοδο",
   "home2.app.networkUnavailable": "Το {network} δεν είναι διαθέσιμο.",
   "home2.app.previewUnavailable": "Αυτή η προεπισκόπηση δεν είναι πλέον διαθέσιμη. Επιλέξτε ξανά το αρχείο.",
   "home2.app.unableToLoad": "Δεν είναι δυνατή η φόρτωση αυτής της εφαρμογής.",

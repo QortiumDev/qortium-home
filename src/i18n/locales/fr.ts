@@ -807,6 +807,7 @@ export const fr: Record<TranslationKey, string> = {
   "home2.accountDialog.useRememberedUnlock": "Utiliser le déverrouillage mémorisé protégé par l'appareil",
   "home2.app.checkingNetwork": "Vérification de {network}…",
   "home2.app.frameTitle": "Application QDN",
+  "home2.app.fullscreenNotice": "{app} est en plein écran - appuyez sur Échap pour quitter",
   "home2.app.networkUnavailable": "{network} est indisponible.",
   "home2.app.previewUnavailable": "Cet aperçu n'est plus disponible. Sélectionnez à nouveau le fichier.",
   "home2.app.unableToLoad": "Impossible de charger cette application.",

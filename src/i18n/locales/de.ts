@@ -807,6 +807,7 @@ export const de: Record<TranslationKey, string> = {
   "home2.accountDialog.useRememberedUnlock": "Gerätegeschütztes gespeichertes Entsperren verwenden",
   "home2.app.checkingNetwork": "{network} wird geprüft…",
   "home2.app.frameTitle": "QDN-App",
+  "home2.app.fullscreenNotice": "{app} ist im Vollbild - zum Beenden Esc drücken",
   "home2.app.networkUnavailable": "{network} ist nicht verfügbar.",
   "home2.app.previewUnavailable": "Diese Vorschau ist nicht mehr verfügbar. Wählen Sie die Datei erneut aus.",
   "home2.app.unableToLoad": "Diese App kann nicht geladen werden.",

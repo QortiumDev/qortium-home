@@ -807,6 +807,7 @@ export const ru: Record<TranslationKey, string> = {
   "home2.accountDialog.useRememberedUnlock": "Используйте запоминаемую разблокировку, защищенную устройством",
   "home2.app.checkingNetwork": "Проверяем {network}…",
   "home2.app.frameTitle": "Приложение QDN",
+  "home2.app.fullscreenNotice": "{app} в полноэкранном режиме - нажмите Esc для выхода",
   "home2.app.networkUnavailable": "{network} недоступен.",
   "home2.app.previewUnavailable": "Этот предпросмотр больше недоступен. Выберите файл заново.",
   "home2.app.unableToLoad": "Невозможно загрузить это приложение.",

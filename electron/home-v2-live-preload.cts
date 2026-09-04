@@ -638,4 +638,13 @@ contextBridge.exposeInMainWorld('homeV2Apps', {
     ipcRenderer.on('qdn-views:app-navigation-changed', handler)
     return () => ipcRenderer.removeListener('qdn-views:app-navigation-changed', handler)
   },
+  // Whether the app in a tab has taken the whole window with HTML fullscreen.
+  // The shell needs this to draw its own cue: a fullscreen app view paints over
+  // every piece of Home chrome, so nothing on screen would otherwise tell the
+  // user that what they are looking at is an untrusted app rather than Home.
+  onFullscreenChanged: (listener: (event: unknown) => void) => {
+    const handler = (_event: unknown, payload: unknown) => listener(payload)
+    ipcRenderer.on('qdn-views:app-fullscreen-changed', handler)
+    return () => ipcRenderer.removeListener('qdn-views:app-fullscreen-changed', handler)
+  },
 })

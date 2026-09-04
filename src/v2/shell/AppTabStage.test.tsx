@@ -17,7 +17,13 @@ import {
   setTranslationLanguage,
   subscribeTranslationChange,
 } from '../../i18n'
-import { AppTabStage, androidAppStageKey, homeV2AppStageRenderInputs } from './AppTabStage'
+import {
+  AppTabStage,
+  HOME_V2_APP_FULLSCREEN_CUE_MS,
+  androidAppStageKey,
+  homeV2AppStageRenderInputs,
+  readHomeV2AppFullscreenEvent,
+} from './AppTabStage'
 import { createProductState, reduceProductState } from '../product-model'
 import type { ProductState } from '../product-model'
 import { buildAppResourceLocation } from '../resource-location'
@@ -793,7 +799,29 @@ async function testDesktopTelemetryRefreshDoesNotHideOrReshowTheApp(): Promise<v
   globalThis.ResizeObserver = priorResizeObserver
 }
 
+// The fullscreen cue is drawn per app stage but the event arrives on one
+// window-wide channel, so the filtering has to be exact: a fullscreen event for
+// another tab must never make THIS tab claim to be fullscreen, and a malformed
+// payload must be ignored rather than read as "fullscreen ended" (which would
+// pull the cue while the app still owns the screen).
+function testFullscreenCueEventFiltering(): void {
+  assert.equal(readHomeV2AppFullscreenEvent({ fullscreen: true, tabId: 'a' }, 'a'), true)
+  assert.equal(readHomeV2AppFullscreenEvent({ fullscreen: false, tabId: 'a' }, 'a'), false)
+  assert.equal(readHomeV2AppFullscreenEvent({ fullscreen: true, tabId: 'b' }, 'a'), null)
+  assert.equal(readHomeV2AppFullscreenEvent({ fullscreen: true }, 'a'), null)
+  assert.equal(readHomeV2AppFullscreenEvent({ fullscreen: 'true', tabId: 'a' }, 'a'), null)
+  assert.equal(readHomeV2AppFullscreenEvent({ tabId: 'a' }, 'a'), null)
+  assert.equal(readHomeV2AppFullscreenEvent(null, 'a'), null)
+  assert.equal(readHomeV2AppFullscreenEvent('fullscreen', 'a'), null)
+  assert.equal(readHomeV2AppFullscreenEvent([{ fullscreen: true, tabId: 'a' }], 'a'), null)
+  // The banner must not outlive the strip main reserves for it, or it would be
+  // clipped by the native view growing over it.
+  assert.ok(HOME_V2_APP_FULLSCREEN_CUE_MS > 0)
+  assert.ok(HOME_V2_APP_FULLSCREEN_CUE_MS < 3200)
+}
+
 async function main(): Promise<void> {
+  testFullscreenCueEventFiltering()
   testAndroidAppStageKeyChangesExactlyOnTabIdentityChange()
   await testTabSwitchNeverRendersAStaleIframeUnderTheNewTabsContext()
   await testAndroidIframeSrcIncludesInitialHashWhileAuthorizationDropsIt()

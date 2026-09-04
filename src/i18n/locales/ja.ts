@@ -807,6 +807,7 @@ export const ja: Record<TranslationKey, string> = {
   "home2.accountDialog.useRememberedUnlock": "デバイスで保護された記憶されたロック解除を使用する",
   "home2.app.checkingNetwork": "{network} をチェック中…",
   "home2.app.frameTitle": "QDNアプリ",
+  "home2.app.fullscreenNotice": "{app} は全画面表示です - 終了するには Esc キーを押してください",
   "home2.app.networkUnavailable": "{network} は使用できません。",
   "home2.app.previewUnavailable": "このプレビューは利用できなくなりました。ファイルを選び直してください。",
   "home2.app.unableToLoad": "このアプリを読み込めません。",
