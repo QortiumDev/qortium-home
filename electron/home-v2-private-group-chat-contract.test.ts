@@ -299,3 +299,67 @@ for (const source of [desktopBridgeSource, androidVaultSource]) {
 }
 
 console.log('Home v2 private-group chat contract tests passed')
+
+// Core's committed fixture is the protocol authority (docs/HOME_CHAT_INTEROP_
+// VECTORS.md). Its relayed key announcement is a real Core-shaped control
+// CHAT: encrypted, isText=false, outer sender bob relaying alice's
+// announcement. Home must accept it — this is the exact record shape Core
+// serves from /chat/private/group/control for keys announced by Home 1.x /
+// Core-backed senders, which Home rejected before this test existed.
+{
+  const relayed = fixture.chatTransactions.relayedKeyAnnouncement
+  assert.equal(relayed.isText, false, 'fixture control CHAT is not text')
+  assert.equal(relayed.isEncrypted, true, 'fixture control CHAT is encrypted')
+  const signedBytes = hex(relayed.signed)
+  const fixtureRecord = {
+    chatReference: null,
+    epochId: base58Encode(hex(qpgc.epochId)),
+    keyId: base58Encode(hex(qpgc.keyId)),
+    sender: relayed.sender,
+    signature: base58Encode(signedBytes.subarray(signedBytes.length - 64)),
+    signedTransaction: base58Encode(signedBytes),
+    timestamp: relayed.timestamp,
+    txGroupId: relayed.txGroupId,
+    type: 'KEY_ANNOUNCEMENT',
+  }
+  assert.equal(
+    verifyHomeV2QpgcControlRecord(fixtureRecord, state).envelope.type,
+    'KEY_ANNOUNCEMENT',
+    'a Core-written (isText=false) key announcement verifies with state',
+  )
+  assert.equal(
+    verifyHomeV2QpgcControlRecord(fixtureRecord).envelope.type,
+    'KEY_ANNOUNCEMENT',
+    'a Core-written (isText=false) key announcement verifies without state',
+  )
+
+  // The synthesized announcement above (isText=1) still verifies, so both
+  // producers' flags are accepted; an unencrypted control CHAT is still refused.
+  const plaintextTransaction = Uint8Array.from(transaction)
+  plaintextTransaction[16 + 32 + 4 + 1 + 4 + envelope.length] = 0
+  const plaintextSignature = nacl.sign.detached(plaintextTransaction, aliceKeyPair.secretKey)
+  assert.throws(
+    () => verifyHomeV2QpgcControlRecord({
+      ...controlRecord,
+      signature: base58Encode(plaintextSignature),
+      signedTransaction: base58Encode(concat(plaintextTransaction, plaintextSignature)),
+    }, state),
+    /must be encrypted/,
+  )
+
+  // One bad record no longer blanks the page: the good ones still come back,
+  // and the rejection is counted rather than thrown.
+  const page = normalizeHomeV2QpgcControlPage({
+    controls: [
+      { ...controlRecord, signedTransaction: base58Encode(concat(transaction, new Uint8Array(64))) },
+      fixtureRecord,
+      controlRecord,
+    ],
+    hasMore: false,
+    nextCursor: null,
+    txGroupId: 12,
+  }, 12, state)
+  assert.equal(page.controls.length, 2)
+  assert.equal(page.rejectedRecords, 1)
+  assert.deepEqual(page.controls[1], verified)
+}
