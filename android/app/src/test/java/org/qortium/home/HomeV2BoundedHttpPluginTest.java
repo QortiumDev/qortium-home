@@ -179,11 +179,19 @@ public class HomeV2BoundedHttpPluginTest {
     }
 
     @Test
-    public void foreignWalletAllowlistIsLimitedToSupportedChainsAndReads() {
+    public void foreignWalletAllowlistIsLimitedToSupportedChainsAndOperations() {
         assertEquals(
                 true,
                 HomeV2BoundedHttpPlugin.isAllowedPathAndMethod(
                         "/crosschain/dgb/walletbalance", "POST"));
+        assertEquals(
+                true,
+                HomeV2BoundedHttpPlugin.isAllowedPathAndMethod(
+                        "/crosschain/btc/wallet/public/spend-context", "POST"));
+        assertEquals(
+                true,
+                HomeV2BoundedHttpPlugin.isAllowedPathAndMethod(
+                        "/crosschain/firo/send/broadcast", "POST"));
         assertEquals(
                 false,
                 HomeV2BoundedHttpPlugin.isAllowedPathAndMethod(
@@ -192,6 +200,10 @@ public class HomeV2BoundedHttpPluginTest {
                 false,
                 HomeV2BoundedHttpPlugin.isAllowedPathAndMethod(
                         "/crosschain/bitcoin/send", "POST"));
+        assertEquals(
+                false,
+                HomeV2BoundedHttpPlugin.isAllowedPathAndMethod(
+                        "/crosschain/btc/send/broadcast", "GET"));
     }
 
     private static final class CountingOutputStream extends OutputStream {

@@ -66,6 +66,10 @@ import {
 import type { ForeignWalletPublicRuntime } from '../../electron/foreign-wallets'
 import type { HomeV2ForeignServerRequest } from '../../electron/home-v2-foreign-wallet-actions'
 import {
+  classifyForeignWalletRouteProbe,
+  createForeignWalletRouteProbeCache,
+} from '../../electron/foreign-wallet-route-probe'
+import {
   HomeV2MarketPriceCache,
   HOME_V2_MARKET_PRICE_MAX_BYTES,
   HOME_V2_MARKET_PRICE_TIMEOUT_MS,
@@ -208,6 +212,13 @@ export interface HomeV2NodeClient {
     wallet: ForeignWalletPublicRuntime,
     approvedRevision: string,
   ): Promise<unknown>
+  foreignWalletPost?(
+    pathname: string,
+    body: string,
+    contentType: 'application/json' | 'text/plain',
+    maxBytes: number,
+    approvedRevision: string,
+  ): Promise<unknown>
   setForeignServer?(
     coin: ForeignWalletPublicRuntime['coin'],
     server: HomeV2ForeignServerRequest,
@@ -275,6 +286,8 @@ export type HomeV2AppBridgeProtocol = 'qdnRequest' | 'qortalRequest'
 export interface HomeV2AppRequestContext {
   readonly resourceLocation: string
   readonly selectedAccountId: string | null
+  /** Trusted host state; app-supplied request data never populates this. */
+  readonly selectedAccountUnlocked?: boolean
   readonly tabId: string
 }
 
@@ -969,6 +982,7 @@ export function createPortableNodeClient(
   // could go on to use an id that no longer matched the store, and its approval
   // token would be refused for no reason the user could see (review round 3).
   let bindingIdUpgrade: Promise<string> | null = null
+  const foreignSendRouteProbes = createForeignWalletRouteProbeCache()
 
   /** The protected admin record for `customUrl`, or null. */
   async function readAdminKeyRecord(customUrl: string) {
@@ -1311,6 +1325,68 @@ export function createPortableNodeClient(
     // through React on this host, so the token a caller hands back must not be
     // a digest of the API key (security review, 2026-09-02).
     return { apiKey: trust.apiKey, bindingId: trust.bindingId, nodeApiUrl: trust.nodeApiUrl }
+  }
+
+  async function postForeignWalletTrusted(
+    pathname: string,
+    body: string,
+    contentType: 'application/json' | 'text/plain',
+    maxBytes: number,
+    approvedRevision: string,
+  ) {
+    const { apiKey, bindingId, nodeApiUrl } = await requireAdminNode('Using a foreign wallet')
+    if (bindingId !== approvedRevision) {
+      throw new Error('The selected Qortium node or its API key changed during the foreign wallet request.')
+    }
+    const requestBoundedJson = dependencies.requestBoundedJson
+    if (!requestBoundedJson) {
+      throw new Error('Bounded authenticated node requests are unavailable on this platform.')
+    }
+    const response = await requestBoundedJson(
+      `${nodeApiUrl}${pathname}`,
+      20_000,
+      { 'Content-Type': contentType, 'X-API-KEY': apiKey },
+      body,
+      maxBytes,
+    )
+    if (!response.ok) {
+      const coreError = isRecord(response.data) && typeof response.data.error === 'number'
+        ? { error: response.data.error }
+        : null
+      throw Object.assign(
+        new Error(coreError
+          ? JSON.stringify(coreError)
+          : `Foreign wallet request failed with HTTP ${response.status}.`),
+        { status: response.status },
+      )
+    }
+    return response.data
+  }
+
+  async function probeForeignSendRoute() {
+    const trust = await requireAdminNode('Using a foreign wallet')
+    const cacheKey = `${trust.nodeApiUrl}|${trust.bindingId}`
+    const now = dependencies.now()
+    const cached = foreignSendRouteProbes.read(cacheKey, now)
+    if (cached) return cached === 'supported'
+    let outcome: ReturnType<typeof classifyForeignWalletRouteProbe>
+    try {
+      await postForeignWalletTrusted(
+        '/crosschain/btc/wallet/public/spend-context',
+        JSON.stringify({ expectedChainId: '', xpub58: '' }),
+        'application/json',
+        64 * 1024,
+        trust.bindingId,
+      )
+      outcome = classifyForeignWalletRouteProbe({ ok: true, status: 200 })
+    } catch (error) {
+      outcome = classifyForeignWalletRouteProbe({
+        ok: false,
+        status: (error as { status?: unknown }).status,
+      })
+    }
+    foreignSendRouteProbes.write(cacheKey, outcome, now)
+    return outcome === 'supported'
   }
 
   async function requestAdminJson(nodeApiUrl: string, path: string, apiKey: string) {
@@ -1693,6 +1769,7 @@ export function createPortableNodeClient(
         return response.data
       })
     },
+    foreignWalletPost: postForeignWalletTrusted,
     async setForeignServer(coin, server, approvedRevision) {
       const { apiKey, bindingId, nodeApiUrl } = await requireAdminNode('Changing a foreign-chain server')
       if (bindingId !== approvedRevision) {
@@ -2053,16 +2130,16 @@ export function createPortableNodeClient(
             : null
           const foreignWalletTrustedCoreAvailable = !!qortiumSummary?.nodeApiUrl &&
             qortiumSummary.capabilities.read && qortiumSummary.adminTrusted === true
-          // The send flag is deliberately NOT passed: Android has no
-          // Home-local foreign signer yet, so discovery must keep answering
-          // send:false/NONE here until that lands (PR 2). Reading it off the
-          // trust flag would advertise a capability this host does not have.
+          const foreignWalletSendAvailable = foreignWalletTrustedCoreAvailable &&
+            context?.selectedAccountUnlocked === true &&
+            await probeForeignSendRoute().catch(() => false)
           return projectHomeV2CrosschainReadResult(
             action,
             chainReadRequest,
             data,
             true,
             foreignWalletTrustedCoreAvailable,
+            foreignWalletSendAvailable,
           )
         }
         // Both cores answer a valid-but-absent AT with an empty 2xx body;

@@ -254,6 +254,15 @@ const dependencies: PortableNodeClientDependencies = {
         status: 200,
       }
     }
+    if (url.endsWith('/wallet/public/spend-context')) {
+      if (body === JSON.stringify({ expectedChainId: '', xpub58: '' })) {
+        return { data: { message: 'invalid request' }, latencyMs: 1, ok: false, status: 400 }
+      }
+      return { data: { chainId: 'spend-context-test' }, latencyMs: 1, ok: true, status: 200 }
+    }
+    if (url.endsWith('/send/broadcast')) {
+      return { data: '11'.repeat(32), latencyMs: 1, ok: true, status: 200 }
+    }
     return { data: [{ txHash: 'public-history' }], latencyMs: 1, ok: true, status: 200 }
   },
   async requestBinary(url, timeoutMs) {
@@ -1181,6 +1190,20 @@ assert.equal(authenticatedQortalBtc?.homeWallet?.receive, true)
 assert.equal(authenticatedQortalBtc?.homeWallet?.read, true)
 assert.equal(authenticatedQortalBtc?.homeWallet?.serverManagement, true)
 
+const authenticatedAndroidDiscovery = await client.requestApp('qdnRequest', {
+  action: 'GET_CROSSCHAIN_BLOCKCHAINS',
+}, {
+  resourceLocation: 'qdn://APP/Wallet/Wallet',
+  selectedAccountId: 'wallet:one:2',
+  selectedAccountUnlocked: true,
+  tabId: 'wallet-tab',
+}) as Array<{ currencyCode?: string; homeWallet?: Record<string, unknown> }>
+const authenticatedAndroidBtc = authenticatedAndroidDiscovery.find((row) => row.currencyCode === 'BTC')
+assert.equal(authenticatedAndroidBtc?.homeWallet?.send, true)
+assert.equal(authenticatedAndroidBtc?.homeWallet?.sendMode, 'HOME_LOCAL')
+assert.equal(lastRequestedUrl, 'https://qortium-admin.example/crosschain/btc/wallet/public/spend-context')
+assert.equal(lastBoundedMaxBytes, 64 * 1024)
+
 const foreignWallet = {
   address: 'DPublicReceiveAddress',
   coin: 'DGB' as const,
@@ -1188,6 +1211,7 @@ const foreignWallet = {
   xpub58: 'xpub-public-wallet',
 }
 assert.equal(typeof client.foreignWalletRead, 'function')
+assert.equal(typeof client.foreignWalletPost, 'function')
 assert.equal(typeof client.setForeignServer, 'function')
 const foreignTrust = await client.adminTrust!()
 assert.equal(foreignTrust.trusted, true)
@@ -1238,6 +1262,22 @@ assert.equal(lastRequestedBody, JSON.stringify({
   port: 50002,
 }))
 assert.equal(lastBoundedMaxBytes, 64 * 1024)
+assert.deepEqual(await client.foreignWalletPost!(
+  '/crosschain/dgb/wallet/public/spend-context',
+  JSON.stringify({ expectedChainId: 'bip122:test', xpub58: foreignWallet.xpub58 }),
+  'application/json',
+  20 * 1024 * 1024,
+  foreignTrust.revision,
+), { chainId: 'spend-context-test' })
+assert.equal(lastBoundedMaxBytes, 20 * 1024 * 1024)
+assert.equal(lastRequestedHeaders?.['X-API-KEY'], 'private-test-api-key')
+assert.equal(await client.foreignWalletPost!(
+  '/crosschain/dgb/send/broadcast',
+  JSON.stringify({ expectedChainId: 'bip122:test', rawTransactionHex: '00' }),
+  'application/json',
+  8 * 1024,
+  foreignTrust.revision,
+), '11'.repeat(32))
 
 // --- PREVIEW_QDN_PUBLISH_SOURCE, Android ----------------------------------
 // Android was refused previews on the stated ground that it "runs no local

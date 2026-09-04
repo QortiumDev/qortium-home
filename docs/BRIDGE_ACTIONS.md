@@ -424,11 +424,11 @@ projection to each row:
     "implemented": true,
     "read": true,
     "receive": true,
-    "send": false,
+    "send": true,
     "requiresUnlockedAccount": true,
     "readMode": "TRUSTED_CORE",
     "receiveMode": "HOME_LOCAL",
-    "sendMode": "NONE",
+    "sendMode": "HOME_LOCAL",
     "serverManagement": true,
     "serverManagementMode": "TRUSTED_CORE"
   }
@@ -442,10 +442,12 @@ Home itself:
 
 - QORT uses `HOME_SIGNED_PUBLIC_NODE`: Home signs locally and submits only
   signed bytes to a Qortal public node.
-- BTC, LTC, DOGE, DGB, RVN, DASH, NMC, and FIRO use `HOME_LOCAL` receive and
-  `TRUSTED_CORE` read/server-management modes. Foreign send is deliberately
-  unadvertised (`send: false`, `sendMode: "NONE"`) until Home-local signing,
-  approval, journaling, and final-raw-transaction broadcast are wired.
+- BTC, LTC, DOGE, DGB, RVN, DASH, NMC, and FIRO use `HOME_LOCAL` receive/send
+  and `TRUSTED_CORE` read/server-management modes. On desktop and Android,
+  foreign send is advertised only while the selected account is unlocked and
+  the authenticated Core positively proves the spend-context route exists.
+  Home plans and signs locally, durably journals before the one broadcast, and
+  sends Core only the final raw transaction.
 - Other and unknown currency codes fail closed with all operation flags false
   and `sendMode: "NONE"`.
 
@@ -454,6 +456,10 @@ override runtime node-mode checks, wallet lock state, Core enablement, funds,
 fees, or server availability. Apps must handle those operation-time failures.
 See [Coin support matrix](COIN_SUPPORT_MATRIX.md) for the tracked implementation
 and acceptance status.
+
+The JSON above illustrates the runtime-ready case. Without the unlocked account,
+authenticated Core, or positive route probe, the same projection returns
+`send: false` and `sendMode: "NONE"`.
 
 The current Bitcoin-family read actions accept `coin` (or the compatibility
 alias `blockchain`) for BTC, LTC, DOGE, DGB, RVN, DASH, NMC, and FIRO:

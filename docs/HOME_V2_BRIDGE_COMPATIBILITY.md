@@ -216,7 +216,7 @@ and Android fixtures pass.
 | Names, groups, polls | `BUY_NAME`, `CANCEL_SELL_NAME`, `CREATE_GROUP`, `CREATE_POLL`, `REGISTER_NAME`, `SELL_NAME`, `UPDATE_GROUP`, `UPDATE_NAME`, `VOTE_ON_POLL` (the two poll actions have the `qdnRequest` family implemented — see the table above — but these v3 forms stay deferred: Hub's poll contract is a different legacy transaction — pollName target, zero-based index, paid fee and last reference — and must not be mechanically translated) |
 | QDN writes | Deletion and legacy inline/path publishing; Home 2 single-resource `PUBLISH_QDN_RESOURCE` — and now `PUBLISH_MULTIPLE_QDN_RESOURCES` as a bounded batch of it — are implemented through the separate H5B source-token contract (Hub's inline `data64`/`encrypt` multi-publish fields stay refused) |
 | Encryption and group keys | `DECRYPT_AESGCM`, `DECRYPT_DATA`, `DECRYPT_DATA_WITH_SHARING_KEY`, `DECRYPT_QORTAL_GROUP_DATA`, `ENCRYPT_DATA_WITH_SHARING_KEY`, `ENCRYPT_QORTAL_GROUP_DATA`, `REENCRYPT_GROUP_KEYS` (`ENCRYPT_DATA` is now implemented on both protocols — see below. `ENCRYPT_QORTAL_GROUP_DATA` is NOT the same mechanism despite the shared `qortalGroupEncryptedData` marker: it takes a `groupId` and a shared symmetric key fetched from a `DOCUMENT_PRIVATE` resource published by group admins, and needs the read side of private-group keys, which Home does not have yet) |
-| Wallets, payments, signing | `MULTI_ASSET_PAYMENT_WITH_PRIVATE_DATA`, foreign `SEND_COIN`, `SIGN_FOREIGN_FEES`, `SIGN_TRANSACTION` (`GET_USER_WALLET`, the three foreign wallet reads, QORT send, and protocol-bound `TRANSFER_ASSET` are implemented — see the wallet-family note below) |
+| Wallets, payments, signing | `MULTI_ASSET_PAYMENT_WITH_PRIVATE_DATA`, `SIGN_FOREIGN_FEES`, `SIGN_TRANSACTION` (`GET_USER_WALLET`, the three foreign wallet reads, foreign `SEND_COIN`, QORT send, and protocol-bound `TRANSFER_ASSET` are implemented — see the wallet-family note below) |
 | Foreign chain and trading | `ADD_FOREIGN_SERVER`, `CANCEL_TRADE_SELL_ORDER`, `CREATE_TRADE_BUY_ORDER`, `CREATE_TRADE_SELL_ORDER`, `GET_ARRR_SYNC_STATUS`, `REMOVE_FOREIGN_SERVER`, `START_CROSSCHAIN_SERVER`, `UPDATE_FOREIGN_FEE` (the four zero-key `/crosschain` reads and `SET_CURRENT_FOREIGN_SERVER` are implemented) |
 | AT/admin and other host UI | `ADMIN_ACTION`, `CREATE_AND_COPY_EMBED_LINK`, `DEPLOY_AT`, `OPEN_USER_LOOKUP` |
 
@@ -553,11 +553,15 @@ PAYMENT compatibility action on `qortalRequest` (the existing local Qortal
 serializer). All four sign locally — the 1.x Qortium paths sent the account
 private key to the node — pay the Home-quoted pinned chain fee (these types
 have NO MemoryPoW alternative), and journal unknown outcomes under the
-exact spend intent with a fail-closed guard. `SEND_COIN`'s 1.x foreign-coin
-arm refuses loudly (`FOREIGN_SEND_UNAVAILABLE`) — foreign sending remains
-deferred. On today's Qortium Previewnet, which deliberately has
+exact spend intent with a fail-closed guard. `SEND_COIN`'s foreign-coin arm is
+also wired on desktop and Android for BTC/LTC/DOGE/DGB/RVN/DASH/NMC/FIRO: it
+uses a separate one-shot approval, re-reads and re-plans after approval, signs
+locally, writes the foreign AtomicFile/file journal ahead, and broadcasts the
+finished bytes exactly once through an authenticated trusted Core. On today's
+Qortium Previewnet, which deliberately has
 no native asset yet, the Qortium arms refuse honestly at the balance and
-asset pre-checks. **All four work on Android**, on the same terms: every
+asset pre-checks. **All native four and foreign `SEND_COIN` work on Android**,
+on the same terms: every
 number the prompt disclosed travels with the request and the vault refuses if
 its own re-derivation disagrees; the timestamp the fee was quoted for is the
 timestamp signed; a ten-minute freshness bound is asserted as the last act
