@@ -106,7 +106,7 @@ export const HOME_V2_PUBLISH_DIRECTORY_MAX_DEPTH = 32
  * that advertises a 1 GiB publish ceiling must therefore NOT become a 1 GiB
  * heap budget in Electron's main process: whatever the node allows, Home
  * refuses a single source larger than this. Raising it is a change to Home's
- * memory profile, not a policy tweak — it belongs with a streaming
+ * memory profile, not a policy tweak - it belongs with a streaming
  * attestation path, not with a bigger number here.
  */
 export const HOME_V2_PUBLISH_IN_MEMORY_MAX_BYTES = 256 * 1024 * 1024
@@ -215,8 +215,8 @@ export type HomeV2DesktopPublishSource = HomeV2PublishSourceDescriptor & (
   // A folder (SELECT_QDN_PUBLISH_SOURCE kind: 'directory'). Retained as a
   // DESCRIPTOR, never as bytes: previewing stages a copy of it and publishing
   // streams it into a temp zip, both materialising it fresh with the rules
-  // re-enforced. readHomeV2DesktopPublishSource — the raw-bytes path a chat
-  // attachment takes — refuses it by name.
+  // re-enforced. readHomeV2DesktopPublishSource - the raw-bytes path a chat
+  // attachment takes - refuses it by name.
   | Readonly<{
       device: bigint
       inode: bigint
@@ -324,7 +324,7 @@ export async function assertHomeV2PublishDirectoryIndexFile(
  * Recorded from an `lstat` during the walk and compared against the `fstat` of
  * the handle that is eventually opened. O_NOFOLLOW protects only the FINAL
  * path component, so a directory anywhere above a file can be swapped between
- * the walk and the open and the open would still succeed — on a different
+ * the walk and the open and the open would still succeed - on a different
  * file. Comparing (device, inode, size) on the open handle is what turns that
  * into a refusal, because a swapped component necessarily yields a different
  * inode: reusing one takes an unlink and a create, and a created inode is a
@@ -358,8 +358,8 @@ export function matchesHomeV2PublishEntryIdentity(
  *
  * Node cannot enumerate a directory from a file descriptor (there is no
  * `fdopendir` binding), so the caller's listing still goes through the path.
- * The window between this fstat and that `opendir` is an ACCEPTED residual —
- * see the note at the `opendir` call — narrowed but not closed by per-entry
+ * The window between this fstat and that `opendir` is an ACCEPTED residual -
+ * see the note at the `opendir` call - narrowed but not closed by per-entry
  * identity, because a file under a swapped directory has a different inode.
  */
 async function assertHomeV2PublishDirectoryIdentity(
@@ -394,7 +394,7 @@ async function assertHomeV2PublishDirectoryIdentity(
  * Core follows links, so an escaping link would preview a file the user never
  * chose. Returns the contained target with its identity, or null when it
  * resolves to something that is not a regular file (skipped rather than
- * copied). PUBLISHING never gets here — it refuses links outright.
+ * copied). PUBLISHING never gets here - it refuses links outright.
  */
 async function resolveContainedLink(root: string, entryPath: string) {
   // `root` is already the realpath of the chosen folder and `target` the
@@ -436,9 +436,9 @@ async function openDirectoryStream(directoryPath: string, unreadableMessage: str
  * There is exactly one walker in this module, and these are the three things
  * its three callers disagree about: measuring stats the files it finds and
  * tolerates a device node, staging copies them and refuses one, packaging
- * compresses them and refuses one. Every rule they AGREE on — the entry
+ * compresses them and refuses one. Every rule they AGREE on - the entry
  * budget, the containment check on symbolic links, the depth bound, refusing
- * to enumerate a folder it cannot read — lives in the walker, so a rule can
+ * to enumerate a folder it cannot read - lives in the walker, so a rule can
  * only be fixed in one place.
  */
 type HomeV2PublishTreeVisitor = Readonly<{
@@ -466,12 +466,12 @@ type HomeV2PublishTreeVisitor = Readonly<{
    * MEASURING says 'measure-contained': the link is checked for containment
    * and then ignored, because its target is already measured through its real
    * path. STAGING a preview says 'materialise-contained': the target is copied
-   * in as an ordinary file, so the staged tree holds no links at all — a link
+   * in as an ordinary file, so the staged tree holds no links at all - a link
    * is what Core would follow.
    */
   symbolicLinks: 'materialise-contained' | 'measure-contained' | 'refuse'
   /**
-   * Names this walk drops entirely — the hidden-file policy. Dropped entries
+   * Names this walk drops entirely - the hidden-file policy. Dropped entries
    * cost no entry budget and are counted in `state.excluded` so the approval
    * prompt can say how many there were.
    */
@@ -502,11 +502,11 @@ async function walkHomeV2PublishTree(
   // ACCEPTED RESIDUAL (decision recorded on PR #504): the verified directory
   // handle is closed above and the listing below re-resolves the same PATH, so
   // a swap landing in that interval is not detected here. Node exposes no
-  // `fdopendir`, and the platform-specific way to close it — re-entering
-  // through /proc/self/fd — is not something Home will carry. What bounds it:
+  // `fdopendir`, and the platform-specific way to close it - re-entering
+  // through /proc/self/fd - is not something Home will carry. What bounds it:
   // the only actor who can win that race is a local process already running as
   // this user, and what such a process could smuggle in is still limited by
-  // the checks that do not depend on the path — every file is re-identified by
+  // the checks that do not depend on the path - every file is re-identified by
   // (device, inode, size) on its own open handle before a byte is read, and
   // the total is bounded by the size the selection measured.
   const directory = await openDirectoryStream(current, UNREADABLE_ENTRY)
@@ -828,7 +828,7 @@ async function copyHomeV2PublishDirectoryForPreview(
 ) {
   await mkdir(destination, { mode: 0o700, recursive: true })
   // Contained links are materialised as ordinary files so the staged tree
-  // holds no links at all — a link is what Core would follow.
+  // holds no links at all - a link is what Core would follow.
   await walkHomeV2PublishTree(root, root, '', 0, state, limits, {
     onDirectory: async (_absolutePath, relativePath) => {
       await mkdir(nodePath.join(destination, relativePath), { mode: 0o700, recursive: true })
@@ -921,7 +921,7 @@ export async function readHomeV2DesktopPublishSource(source: HomeV2DesktopPublis
   // A folder selection has no bytes: previewing stages a copy for the node to
   // read, and publishing PACKAGES it (prepareHomeV2PublishArtifact). This
   // function is the raw-bytes path, which now means the chat-attachment path
-  // alone — an attachment is one encrypted file, so a folder is refused by
+  // alone - an attachment is one encrypted file, so a folder is refused by
   // name rather than silently packaged into something a chat cannot show.
   if (source.kind === 'directory') {
     throw homeV2PublishSourceError('A folder cannot be sent as an attachment. Select a file.')
@@ -992,7 +992,7 @@ const HOME_V2_PUBLISH_ALWAYS_EXCLUDED_NAMES: ReadonlySet<string> = new Set([
 export function isHomeV2PublishAlwaysExcludedName(name: string) {
   const lower = name.toLowerCase()
   if (HOME_V2_PUBLISH_ALWAYS_EXCLUDED_NAMES.has(lower)) return true
-  // .env, .env.local, .env.production.local — the whole family.
+  // .env, .env.local, .env.production.local - the whole family.
   if (lower === '.env' || lower.startsWith('.env.')) return true
   // Editor leftovers: vim swap files and the ~ backups several editors write.
   if (/^\..*\.sw[a-p]$/.test(lower)) return true
@@ -1030,7 +1030,7 @@ export function homeV2PublishHiddenFilter(includeHidden: boolean, counts: HomeV2
 /**
  * `includeHidden` as an app may send it on a publish request.
  *
- * Absent means false — the fail-closed direction — and anything that is not a
+ * Absent means false - the fail-closed direction - and anything that is not a
  * boolean is refused rather than coerced, because `includeHidden: 'false'`
  * coercing to true is precisely the mistake this flag must not make.
  */
@@ -1096,7 +1096,7 @@ const PACKAGED_TOO_LARGE = 'Selected folder is larger than this publish route ac
 
 export type HomeV2PublishPackagingLimits = HomeV2PublishDirectoryLimits &
   Readonly<{
-    /** Ceiling on the FINISHED archive — the bytes Home will hold and upload. */
+    /** Ceiling on the FINISHED archive - the bytes Home will hold and upload. */
     maximumPackagedBytes: number
     maximumPathBytes: number
   }>
@@ -1125,7 +1125,7 @@ export function homeV2PublishPackagingLimits(
  * Core protects itself against zip slip when it unpacks, and Home is not
  * relying on that: a name is checked here, before it is written, so an archive
  * Home produced can never be the thing that tests someone else's unpacker.
- * Refused rather than rewritten — a sanitiser silently renaming a file is how
+ * Refused rather than rewritten - a sanitiser silently renaming a file is how
  * two entries end up fighting over one name.
  */
 export function canonicalHomeV2PublishEntryName(
@@ -1142,7 +1142,7 @@ export function canonicalHomeV2PublishEntryName(
     // The characters Core's ZipUtils sanitizer STRIPS from an entry name
     // (`sanitizeZipEntrySegment`: < > : " / \ | ? *), plus control
     // characters. Home refuses them instead of stripping them, because
-    // stripping is how two entries end up fighting over one unpacked name —
+    // stripping is how two entries end up fighting over one unpacked name -
     // and it would be Core doing the renaming, after the upload, to bytes the
     // user already approved a hash of.
     if (/[<>:"\\|?*\u0000-\u001f\u007f]/.test(segment)) throw homeV2PublishSourceError(UNSAFE_ENTRY_NAME)
@@ -1371,7 +1371,7 @@ export type HomeV2PublishArtifactOptions = Readonly<{
 /**
  * Prepare an artifact, REGISTERING it for disposal before it is returned.
  *
- * A batch prepares every item and then hashes it, and the hash can throw — a
+ * A batch prepares every item and then hashes it, and the hash can throw - a
  * source that moved between the walk and the read. If the artifact only joined
  * the caller's cleanup list after its hash succeeded, that throw would leak the
  * open handle or the temp archive it already owns. Handing the list in is what

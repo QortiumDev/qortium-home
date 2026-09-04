@@ -27,7 +27,7 @@ own, so a node can only ever shrink the effective limit and never grow it:
 | Ceiling | Value | Why |
 | --- | --- | --- |
 | Attestation | 1 GiB | The largest approved source Home will attest at all. |
-| Resident memory | 256 MiB | The publish pipeline still hands attestation a byte array and holds several derivatives of it, so this — not what Core accepts — is what Home is willing to keep in the main process. It is the binding one today. |
+| Resident memory | 256 MiB | The publish pipeline still hands attestation a byte array and holds several derivatives of it, so this - not what Core accepts - is what Home is willing to keep in the main process. It is the binding one today. |
 
 If the node does not support that endpoint or answers something unusable, Home
 falls back to a conservative 100 MiB instead. For Qortal, and on Android for
@@ -35,7 +35,7 @@ either network, the ceiling stays a fixed 100 MiB, unchanged.
 
 The token is bound to the requesting app, tab, selected account, invoked
 network, exact node route, and route revision. It expires after 30 minutes.
-Android retains SEVERAL pending selections — a batch publish needs them — but
+Android retains SEVERAL pending selections - a batch publish needs them - but
 under a total budget of 64 MiB of Base64 (roughly 48 MiB of raw bytes), because
 Capacitor's picker returns Base64 through the JS bridge and every retained
 selection is a copy in WebView memory. A new selection evicts the
@@ -66,21 +66,21 @@ if (!selected.canceled) {
 Home opens a native folder picker, walks the folder to measure it, and returns
 a token bound exactly like a file token. It does NOT hold the folder's bytes:
 what is retained is a descriptor (path plus device/inode), and the folder is
-materialised fresh for whichever operation redeems the token —
+materialised fresh for whichever operation redeems the token -
 `PREVIEW_QDN_PUBLISH_SOURCE` stages a copy for the local node, and
 `PUBLISH_QDN_RESOURCE` packages a zip.
 
 Home does not freeze the folder, and it does not re-verify everything. These
 are the checks it actually makes, and the gaps they leave:
 
-- **Directories.** Each one — the folder itself and every subdirectory — is
+- **Directories.** Each one - the folder itself and every subdirectory - is
   opened `O_RDONLY|O_DIRECTORY|O_NOFOLLOW` and its device and inode compared
   against what the walk recorded, immediately before its contents are listed.
   The listing itself then re-resolves the same path, because Node cannot
   enumerate a directory from a file descriptor. **A swap landing in the
   interval between that check and that listing is not detected.**
 - **Files.** Each one is opened `O_NOFOLLOW` and must still be the entry the
-  walk classified — regular file, same device, same inode, same size — before
+  walk classified - regular file, same device, same inode, same size - before
   a byte is read. This is what does not depend on the path, so it holds even
   for a directory swapped above the file: a different file is a different
   inode.
@@ -95,8 +95,8 @@ are the checks it actually makes, and the gaps they leave:
   after packaging.
 
 What is NOT guaranteed: that the folder is what it was when you picked it. A
-change made before Home's walk sees it is simply what Home packages — the walk
-and the read agree with each other — and the approval prompt then shows the
+change made before Home's walk sees it is simply what Home packages - the walk
+and the read agree with each other - and the approval prompt then shows the
 hash of exactly those bytes. The one race above is an accepted residual: only a
 local process already running as your user can reach it, and what it could
 substitute is still bounded by the per-file identity check and the
@@ -109,11 +109,11 @@ being published AS, so the check happens at publish time and not in the picker:
 | Target | Rule |
 | --- | --- |
 | `WEBSITE`, `APP`, `GAME` | A top-level index file is required. These are the services Home renders through an HTML entry point, and `WEBSITE` is the one Core validates an index for; without one the resource cannot be opened. |
-| Everything else | Only that the folder holds at least one file. A `VIDEO`, `AUDIO` or `DOCUMENT` bundle — a media file with its poster and captions — has no index to offer and is not asked for one. |
+| Everything else | Only that the folder holds at least one file. A `VIDEO`, `AUDIO` or `DOCUMENT` bundle - a media file with its poster and captions - has no index to offer and is not asked for one. |
 | `PREVIEW_QDN_PUBLISH_SOURCE` | Always requires one, whatever the eventual service: a preview renders the folder as a `WEBSITE`, and one with no entry point would show you nothing. |
 
 An index that the hidden-file policy drops, or one nested in a subfolder, does
-not satisfy the rule — what counts is a top-level name that actually went into
+not satisfy the rule - what counts is a top-level name that actually went into
 the archive.
 
 Home does not otherwise second-guess the service: a folder publish only makes
@@ -143,7 +143,7 @@ absolute, control-character-bearing and drive-letter-prefixed segments are
 refused for the same reason, and so are two entries that would unpack to the
 same name once case and unicode compatibility forms are folded.
 
-**Links are refused outright** — anywhere in the folder, pointing anywhere, to
+**Links are refused outright** - anywhere in the folder, pointing anywhere, to
 a file or to a directory. A published folder is regular files and folders. This
 is stricter than previewing (which materialises a contained link as an ordinary
 file in its staged copy) for two reasons: a link is the one entry whose meaning

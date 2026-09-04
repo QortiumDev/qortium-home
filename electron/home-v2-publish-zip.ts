@@ -17,7 +17,7 @@
 // qdn-content-attestation runs over the very archive this writes) and Core's
 // unpacker both read it. Sizes are unknown until an entry has been compressed,
 // so the local header is written with placeholders and patched in place
-// afterwards through a positional write — possible here, and not in a pipe,
+// afterwards through a positional write - possible here, and not in a pipe,
 // because the destination is a Home-owned temp FILE.
 import { createHash } from 'node:crypto'
 import type { FileHandle } from 'node:fs/promises'

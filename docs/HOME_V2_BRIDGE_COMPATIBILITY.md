@@ -269,7 +269,7 @@ desktop, and Android fixtures pass:**
 
 | Family | Deferred actions | Notes |
 | --- | --- | --- |
-| ~~Publishing preview~~ | ~~`PREVIEW_QDN_PUBLISH_SOURCE`~~ | **No longer deferred (2026-08-30)** — implemented as an app-tab preview on `qdnRequest`; folder sources added 2026-09-02, and folder PUBLISHING with them (Qortium desktop only); **desktop and Android, on any admin-trusted node** since 2026-09-02 (see § Remote trusted nodes and its subsection below) |
+| ~~Publishing preview~~ | ~~`PREVIEW_QDN_PUBLISH_SOURCE`~~ | **No longer deferred (2026-08-30)** - implemented as an app-tab preview on `qdnRequest`; folder sources added 2026-09-02, and folder PUBLISHING with them (Qortium desktop only); **desktop and Android, on any admin-trusted node** since 2026-09-02 (see § Remote trusted nodes and its subsection below) |
 | ~~Node settings and admin~~ | ~~`GET_NODE_SETTINGS_METADATA`, `UPDATE_NODE_SETTINGS`, `RESTART_NODE`~~ | **No longer deferred (2026-09-01)** — implemented on the node-administration trust rule (see the implemented table above and `docs/BRIDGE_ACTIONS.md` § Node settings actions) |
 | Background notification subscriptions | `NOTIFICATION_ADD`, `NOTIFICATION_GET`, `NOTIFICATION_REMOVE` | Distinct from the implemented `NOTIFICATION_HAS_PERMISSION`/`SHOW_NOTIFICATION` contract and the `NOTIFICATION_MANAGER_*` family |
 | App assignments | `GET_APP_ASSIGNMENTS`, `REQUEST_APP_ASSIGNMENT` | F4 is Settings-only; app-facing delegation remains deferred |
@@ -379,18 +379,18 @@ now refused rather than silently defaulted the way 1.x did). A folder selection:
   path resolved later, and a contained `config -> .env` would otherwise carry
   an excluded file into the archive under a name the hidden-file policy never
   sees;
-- can be PREVIEWED and, since 2026-09-02, PUBLISHED — on Qortium desktop only.
+- can be PREVIEWED and, since 2026-09-02, PUBLISHED - on Qortium desktop only.
   A publish streams the folder into a Home-owned temp zip and uploads it with
   `isZip=true`; the ceilings, the entry-name rules and the hidden-file policy
   that publish applies are in
   [Home 2 public QDN publishing](QDN_PUBLIC_PUBLISHING.md) § Folder sources. A
   folder is refused on `qortalRequest` at both the picker and the publish, and
-  `readHomeV2DesktopPublishSource` — the raw-bytes reader the chat-attachment
-  path uses — still refuses one by name.
+  `readHomeV2DesktopPublishSource` - the raw-bytes reader the chat-attachment
+  path uses - still refuses one by name.
 
 **What a publish re-checks, exactly.** Every directory is opened
 `O_RDONLY|O_DIRECTORY|O_NOFOLLOW` and compared by device/inode against the
-identity the walk recorded, immediately before its contents are listed — and
+identity the walk recorded, immediately before its contents are listed - and
 the listing then re-resolves the path, because Node has no `fdopendir`, so a
 swap inside that interval is NOT detected. That residual is accepted (only a
 local process running as the user can reach it) rather than closed with a
@@ -401,7 +401,7 @@ read are bounded by the size the SELECTION measured (so growth refuses, while
 selection-time bytes belonging to later-excluded names leave that much slack);
 links are refused outright; and a batch checks its aggregate both before
 opening anything and after packaging. What is not claimed: that the folder is
-unchanged since the picker — a change Home has not yet walked is simply what it
+unchanged since the picker - a change Home has not yet walked is simply what it
 packages, under the hash the prompt disclosed.
 
 **Core is never handed a path the user owns.** Validating a selection and then

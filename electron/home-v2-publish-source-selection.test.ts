@@ -778,7 +778,7 @@ try {
       'a contained link to an excluded file is refused rather than followed',
     )
 
-    // The same folder WITHOUT the link packages, and .env is not in it — so
+    // The same folder WITHOUT the link packages, and .env is not in it - so
     // the refusal above is the link talking, and the exclusion still holds.
     await rm(nodePath.join(linkRoot, 'config'))
     const unlinkedSource = await describeHomeV2PublishSourcePath(linkRoot, 'directory')
@@ -1143,7 +1143,7 @@ try {
     assert.notEqual(swapped.ino, genuine.ino)
 
     // The folder's own descriptor is unchanged (the ROOT was not touched), so
-    // nothing but the per-entry identity could notice — and a fresh walk is
+    // nothing but the per-entry identity could notice - and a fresh walk is
     // consistent with itself, so the packaged result is the substituted tree
     // rather than a stale one. The property that matters is that no file is
     // ever read through a component the walk did not see: proven by the
@@ -1251,7 +1251,7 @@ try {
   }
 
   // ===========================================================================
-  // SOURCE PINS — how the bridge wires this module.
+  // SOURCE PINS - how the bridge wires this module.
   //
   // The publish handlers need an account, a window and a node to run, so the
   // properties below are asserted against the CODE. Each one is a rule whose
@@ -1320,7 +1320,7 @@ try {
   )
 
   // The chat-attachment path takes the RAW-BYTES reader, which refuses a
-  // folder by name — an attachment is one encrypted file, and packaging one
+  // folder by name - an attachment is one encrypted file, and packaging one
   // into a zip would be a different action wearing this one's prompt.
   const attachmentSource = bridgeSource.slice(bridgeSource.indexOf('async function publishHomeV2PrivateAttachmentSource'))
   assert.ok(attachmentSource.includes('readHomeV2DesktopPublishSource'))

@@ -2407,8 +2407,8 @@ const HOME_V2_PREVIEW_NODE_TOO_OLD =
 /**
  * The same rule for the PUBLISH path's source handling: this module's own
  * refusals are fixed, path-free sentences and pass through, and anything else
- * — a raw `ENOENT: ... /home/<user>/...` from a stat or an open that slipped
- * past a local catch — is logged in the main process and replaced. Applied
+ * - a raw `ENOENT: ... /home/<user>/...` from a stat or an open that slipped
+ * past a local catch - is logged in the main process and replaced. Applied
  * narrowly, around packaging and reading only: the token store's own messages
  * ("Selected publish source expired.") are untagged, path-free and worth
  * showing, and they are raised before this wraps anything.
@@ -2803,8 +2803,8 @@ async function publishHomeV2PublicPublishSource(
   const maximumBytes = network === 'qortium'
     ? await getHomeV2PublishSizeCeiling(network, node.nodeApiUrl)
     : HOME_V2_PUBLISH_SOURCE_MAX_BYTES
-  // A folder is PACKAGED here — streamed into a Home-owned temp zip with every
-  // ceiling enforced as bytes are read — and a file is pinned open on its
+  // A folder is PACKAGED here - streamed into a Home-owned temp zip with every
+  // ceiling enforced as bytes are read - and a file is pinned open on its
   // inode. Either way the bytes are not resident yet: the prompt below is
   // built from a STREAMED hash, and the archive is only loaded once the user
   // has approved that exact hash.
@@ -2812,8 +2812,8 @@ async function publishHomeV2PublicPublishSource(
   // Only a SITE needs an index file. The browser-archive services are the ones
   // Home renders through an HTML entry point (and WEBSITE is the one Core
   // validates an index for), so a folder published as one of those must hold
-  // one; a VIDEO, AUDIO or DOCUMENT bundle — a media file with its poster and
-  // captions — must not be made to invent one. The service is known here and
+  // one; a VIDEO, AUDIO or DOCUMENT bundle - a media file with its poster and
+  // captions - must not be made to invent one. The service is known here and
   // nowhere earlier, which is why the picker does not ask.
   const requireIndexFile = isQdnBrowserArchiveService(request.resource.service)
   const artifact = await withHomeV2PublishSourceErrors(
@@ -2938,7 +2938,7 @@ async function publishHomeV2MultiplePublishSources(
     routeRevision,
   })
   // Resolve EVERY selected source before the prompt, so the rows describe the
-  // exact bytes each transaction will attest — the token store's
+  // exact bytes each transaction will attest - the token store's
   // device/inode/size recheck makes a swapped file refuse here.
   const resolved = request.items.map((item) => ({
     item,
@@ -2969,8 +2969,8 @@ async function publishHomeV2MultiplePublishSources(
     readonly item: (typeof request.items)[number]
     readonly source: ReturnType<typeof homeV2DesktopPublishSources.resolve>
   }[]
-  // Disposal is tracked SEPARATELY from `items`, because an artifact exists —
-  // holding an open handle or a temp archive — from the moment it is prepared,
+  // Disposal is tracked SEPARATELY from `items`, because an artifact exists -
+  // holding an open handle or a temp archive - from the moment it is prepared,
   // which is before its hash is known and therefore before it can join `items`.
   const prepared: HomeV2PublishArtifact[] = []
   try {
@@ -3003,7 +3003,7 @@ async function publishHomeV2MultiplePublishSources(
       )
     }
     const profile = await getAccountProfile(accountId)
-    // Every DISTINCT publisher name must be owned by the selected account —
+    // Every DISTINCT publisher name must be owned by the selected account -
     // checked before the prompt and again per item at signing time. (1.x read
     // only the first item's context and never checked ownership per target.)
     const assertNameOwned = async (name: string, label: string) => {
@@ -3042,7 +3042,7 @@ async function publishHomeV2MultiplePublishSources(
         rows.push({ label: `Excluded ${position}`, value: String(entry.artifact.excludedCount) })
         rows.push({ label: `Hidden files ${position}`, value: String(entry.artifact.hiddenCount) })
       }
-      // The mutable-metadata values signed alongside the bytes (Qortium only —
+      // The mutable-metadata values signed alongside the bytes (Qortium only -
       // the item normalizer refuses metadata on Qortal). A row appears exactly
       // when that field is being published; an omitted row means nothing is.
       const metadata = entry.item.resource
@@ -3086,7 +3086,7 @@ async function publishHomeV2MultiplePublishSources(
         // Per ITEM, not once for the batch. The dispatcher's gate ran against the
         // batch request before any of this, so it cannot see a coordinate an
         // EARLIER ITEM of this same batch has just retained an unknown outcome
-        // for — and nothing stops a batch listing one coordinate twice. (Ported
+        // for - and nothing stops a batch listing one coordinate twice. (Ported
         // from the Android arm, publishing-extras review 2026-08-27.)
         const pendingItem = findStoredHomeV2PendingTransactionConflict(app.getPath('userData'), {
           accountId,

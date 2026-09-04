@@ -57,7 +57,7 @@ export async function getHomeV2PublishSizeCeiling(
   }
   // Two backstops, both of which a node can only shrink: what Home is willing
   // to ATTEST (1 GiB) and what Home is willing to HOLD IN MEMORY while doing
-  // so (256 MiB). The second is the binding one today, and deliberately so —
+  // so (256 MiB). The second is the binding one today, and deliberately so -
   // see HOME_V2_PUBLISH_IN_MEMORY_MAX_BYTES.
   const ceiling = Math.min(
     discovered,

@@ -8,7 +8,7 @@ const AES_GCM_NONCE_BYTES = 12;
 const AES_GCM_TAG_BYTES = 16;
 const ARBITRARY_CHUNK_BYTES = 512 * 1024;
 /**
- * The largest APPROVED SOURCE Home will attest — the bytes the user saw a hash
+ * The largest APPROVED SOURCE Home will attest - the bytes the user saw a hash
  * of and approved, and therefore the ceiling a publish route may discover from
  * a node (home-v2-publish-limits.ts clamps to this).
  */
@@ -31,7 +31,7 @@ const ATTESTATION_MARGIN_PER_ELEMENT_BYTES = 2048;
  * asymmetrically: the pre-download bound below allows the source plus its
  * repack margin, while assertBounded refused anything over the source ceiling,
  * so a source close to the ceiling could pass the bound, be downloaded in
- * full, and only then be refused — a hostile node's free way to make Home
+ * full, and only then be refused - a hostile node's free way to make Home
  * fetch a gigabyte. The two limits are now derived from each other, so
  * everything the pre-download bound permits is something verification accepts.
  */
