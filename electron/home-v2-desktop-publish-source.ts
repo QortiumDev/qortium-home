@@ -8,7 +8,9 @@ import {
   type HomeV2PublishSourceLimits,
   type HomeV2PublishSourcePickKind,
 } from './home-v2-publish-source-selection.js'
-import type { HomeV2PublishSourceBinding } from './home-v2-publish-source-tokens.js'
+import {
+  type HomeV2PublishSourceBinding,
+} from './home-v2-publish-source-tokens.js'
 
 /**
  * The path a smoke run picks instead of opening the native dialog, or null.

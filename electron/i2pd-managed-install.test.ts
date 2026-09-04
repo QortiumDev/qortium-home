@@ -5,6 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import {
   I2pdManagedInstallError,
+  activateNewestTrustedI2pdGeneration,
   activateTrustedI2pdGeneration,
   installPinnedI2pd,
   readI2pdLegacyManagedInstall,
@@ -500,5 +501,162 @@ await expectCode(
   installPinnedI2pd({ arch: 'arm', basePath: path.join(os.tmpdir(), 'unsupported-i2pd'), platform: 'linux' }, dependencies()),
   'target-unsupported',
 )
+
+
+// Recovery from a half-finished update. Reported 2026-09-04: a download failed
+// partway, and afterwards Home reported "could not safely compare the installed
+// i2pd version", offered no action at all, and refused to reinstall — deleting
+// the pointer or the folder by hand each left a different dead end.
+{
+  // A current record naming a generation that is no longer on disk is a stale
+  // pointer, not a catastrophe: report "nothing installed" so the panel offers
+  // Install, and let that install download normally.
+  const { basePath, root } = await temporaryBase('dangling-pointer')
+  try {
+    await writeTrustedGeneration(basePath, RELEASE, 'verified executable fixture')
+    const paths = resolveI2pdManagedInstallPaths(basePath)
+    const generation = `${RELEASE.version}-${RELEASE.target}-${RELEASE.sha256}`
+    await rm(path.join(paths.versionsPath, generation), { force: true, recursive: true })
+    assert.equal(await readI2pdManagedInstall({ ...INPUT, basePath }), null)
+    assert.equal(await readTrustedI2pdManagedInstall({ ...INPUT, basePath }), null)
+    const reinstalled = await installPinnedI2pd({ ...INPUT, basePath }, dependencies())
+    assert.equal(reinstalled.kind, 'installed')
+    await noTemporaryEntries(basePath)
+  } finally {
+    await rm(root, { force: true, recursive: true })
+  }
+}
+
+{
+  // The exact reported shape: the new generation directory is present but
+  // empty, so nothing can validate it and every reinstall used to be refused
+  // before it could download.
+  const { basePath, root } = await temporaryBase('empty-generation')
+  try {
+    const paths = resolveI2pdManagedInstallPaths(basePath)
+    await mkdir(paths.downloadsPath, { mode: 0o700, recursive: true })
+    await mkdir(paths.runtimePath, { mode: 0o700 })
+    await mkdir(paths.versionsPath, { mode: 0o700 })
+    const generationPath = path.join(
+      paths.versionsPath,
+      `${RELEASE.version}-${RELEASE.target}-${RELEASE.sha256}`,
+    )
+    await mkdir(generationPath, { mode: 0o700 })
+    const installed = await installPinnedI2pd({ ...INPUT, basePath }, dependencies())
+    assert.equal(installed.kind, 'installed')
+    assert.equal((await readI2pdManagedInstall({ ...INPUT, basePath }))?.record.version, RELEASE.version)
+    await noTemporaryEntries(basePath)
+  } finally {
+    await rm(root, { force: true, recursive: true })
+  }
+}
+
+{
+  // Same directory, but it still holds this release's own record with the
+  // binary gone. That is provably Home's own broken work, so it is discarded
+  // and reinstalled rather than refused forever.
+  const { basePath, root } = await temporaryBase('broken-own-generation')
+  try {
+    await writeTrustedGeneration(basePath, RELEASE, 'verified executable fixture')
+    const paths = resolveI2pdManagedInstallPaths(basePath)
+    const generationPath = path.join(
+      paths.versionsPath,
+      `${RELEASE.version}-${RELEASE.target}-${RELEASE.sha256}`,
+    )
+    await rm(path.join(generationPath, 'bin'), { force: true, recursive: true })
+    assert.equal(await readI2pdManagedInstall({ ...INPUT, basePath }), null)
+    const installed = await installPinnedI2pd({ ...INPUT, basePath }, dependencies())
+    assert.equal(installed.kind, 'installed')
+    await noTemporaryEntries(basePath)
+  } finally {
+    await rm(root, { force: true, recursive: true })
+  }
+}
+
+{
+  // Deleting a layout subdirectory by hand used to throw out of every read and
+  // leave the maintenance panel with no action to recreate it.
+  for (const child of ['versions', 'downloads', 'runtime'] as const) {
+    const { basePath, root } = await temporaryBase(`layout-${child}`)
+    try {
+      await writeTrustedGeneration(basePath, RELEASE, 'verified executable fixture')
+      await rm(path.join(basePath, child), { force: true, recursive: true })
+      assert.equal(await readI2pdManagedInstall({ ...INPUT, basePath }), null, child)
+      const installed = await installPinnedI2pd({ ...INPUT, basePath }, dependencies())
+      // Removing versions/ loses the generation, so it is downloaded again;
+      // removing downloads/ or runtime/ only needs the layout recreated.
+      assert.equal(installed.kind, child === 'versions' ? 'installed' : 'already-current', child)
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  }
+}
+
+{
+  // Offline repair: re-point a stale current record at a trusted generation
+  // that is already installed, with no download at all.
+  const { basePath, root } = await temporaryBase('repair-offline')
+  try {
+    // Repair only ever adopts a generation that matches Home's real trusted
+    // catalogue, so this uses a genuine release rather than the fixture.
+    const legacyRelease = getTrustedI2pdRelease(I2PD_LEGACY_VERSION, INPUT.platform, INPUT.arch)
+    assert(legacyRelease)
+    await writeTrustedGeneration(basePath, legacyRelease, 'old trusted binary')
+    const paths = resolveI2pdManagedInstallPaths(basePath)
+    await rm(paths.currentRecordPath, { force: true })
+    assert.equal(await readI2pdManagedInstall({ ...INPUT, basePath }), null)
+    const repaired = await activateNewestTrustedI2pdGeneration({ ...INPUT, basePath })
+    assert.equal(repaired?.record.version, I2PD_LEGACY_VERSION)
+    assert.equal(
+      (await readTrustedI2pdManagedInstall({ ...INPUT, basePath }))?.record.version,
+      I2PD_LEGACY_VERSION,
+    )
+    // With both installed, repair prefers the newest pinned generation.
+    const pinnedRelease = getTrustedI2pdRelease(I2PD_PINNED_VERSION, INPUT.platform, INPUT.arch)
+    assert(pinnedRelease)
+    await writeTrustedGeneration(basePath, pinnedRelease, 'new trusted binary')
+    await rm(paths.currentRecordPath, { force: true })
+    assert.equal(
+      (await activateNewestTrustedI2pdGeneration({ ...INPUT, basePath }))?.record.version,
+      I2PD_PINNED_VERSION,
+    )
+  } finally {
+    await rm(root, { force: true, recursive: true })
+  }
+}
+
+{
+  // Nothing trusted on disk: repair reports that honestly instead of guessing.
+  const { basePath, root } = await temporaryBase('repair-nothing')
+  try {
+    const paths = resolveI2pdManagedInstallPaths(basePath)
+    await mkdir(paths.downloadsPath, { mode: 0o700, recursive: true })
+    await mkdir(paths.runtimePath, { mode: 0o700 })
+    await mkdir(paths.versionsPath, { mode: 0o700 })
+    assert.equal(await activateNewestTrustedI2pdGeneration({ ...INPUT, basePath }), null)
+  } finally {
+    await rm(root, { force: true, recursive: true })
+  }
+}
+
+{
+  // A process killed mid-install leaves a partial archive and a staging tree
+  // behind, with a fresh random token on every retry. Ensuring the layout
+  // sweeps them.
+  const { basePath, root } = await temporaryBase('sweep-leftovers')
+  try {
+    const paths = resolveI2pdManagedInstallPaths(basePath)
+    await mkdir(paths.downloadsPath, { mode: 0o700, recursive: true })
+    await mkdir(paths.runtimePath, { mode: 0o700 })
+    await mkdir(paths.versionsPath, { mode: 0o700 })
+    await writeFile(path.join(paths.downloadsPath, `.${RELEASE.assetName}.deadbeef.part`), 'partial')
+    await mkdir(path.join(paths.versionsPath, '.staging-abandoned-deadbeef'), { mode: 0o700 })
+    const installed = await installPinnedI2pd({ ...INPUT, basePath }, dependencies())
+    assert.equal(installed.kind, 'installed')
+    await noTemporaryEntries(basePath)
+  } finally {
+    await rm(root, { force: true, recursive: true })
+  }
+}
 
 console.log('i2pd managed install checks passed.')

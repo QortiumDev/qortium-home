@@ -96,19 +96,7 @@ export const HOME_V2_PUBLISH_DIRECTORY_MAX_ENTRIES = 20_000
  */
 export const HOME_V2_PUBLISH_DIRECTORY_MAX_DEPTH = 32
 
-/**
- * Home's own resident-memory ceiling for ONE publish source, which is a
- * different thing from what the node will accept.
- *
- * The publish pipeline hands qdn-content-attestation a Uint8Array and then
- * holds, transiently, several derivatives of it (the posted body, the
- * downloaded ciphertext, its plaintext, and the unzipped file map). A node
- * that advertises a 1 GiB publish ceiling must therefore NOT become a 1 GiB
- * heap budget in Electron's main process: whatever the node allows, Home
- * refuses a single source larger than this. Raising it is a change to Home's
- * memory profile, not a policy tweak - it belongs with a streaming
- * attestation path, not with a bigger number here.
- */
+/** Maximum source Home will materialise for the public keyless route. */
 export const HOME_V2_PUBLISH_IN_MEMORY_MAX_BYTES = 256 * 1024 * 1024
 
 /**
@@ -637,17 +625,16 @@ export async function describeHomeV2PublishSourcePath(
     throw homeV2PublishSourceError('Publish source must be a regular file, not a directory or symbolic link.')
   }
   const size = Number(stats.size)
-  // The upper bound is what the CALLER discovered (node ceiling, clamped by
-  // Home) and never more than Home's own resident-memory ceiling: the publish
-  // pipeline still hands attestation a Uint8Array, so a node advertising a
-  // gigabyte does not get to make that Home's heap budget.
-  const maximumFileBytes = Math.min(
-    limits.maximumFileBytes ?? HOME_V2_PUBLISH_SOURCE_MAX_BYTES,
-    HOME_V2_PUBLISH_IN_MEMORY_MAX_BYTES,
-  )
+  // The caller supplies the route-aware ceiling. Authenticated trusted-node
+  // files are staged and attested as streams, so they are not constrained by
+  // the public route's resident-memory boundary.
+  const maximumFileBytes = limits.maximumFileBytes ?? HOME_V2_PUBLISH_SOURCE_MAX_BYTES
+  if (!Number.isSafeInteger(maximumFileBytes) || maximumFileBytes < 1) {
+    throw new Error('Publish source selection requires a positive safe byte limit.')
+  }
   if (!Number.isSafeInteger(size) || size < 1 || size > maximumFileBytes) {
     throw homeV2PublishSourceError(
-      `Publish source must be between 1 byte and ${maximumFileBytes.toLocaleString()} bytes.`,
+      `Publish source must be between 1 byte and ${maximumFileBytes.toLocaleString()} bytes for the selected node route.`,
     )
   }
   return Object.freeze({

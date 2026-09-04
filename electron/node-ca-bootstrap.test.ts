@@ -7,6 +7,7 @@ import {
   isExactNodeCaResponseUrl,
   isLoopbackHostname,
   planNodeCaBootstrap,
+  shouldReportNodeCaRefusal,
 } from './node-ca-bootstrap.js';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -157,6 +158,23 @@ assert.equal(
   nodeTlsSource.match(/redirect: 'error'/g)?.length,
   2,
   'Both localhost CA endpoints must refuse redirects.',
+);
+
+// A refused bootstrap is permanent for that host. Home probes every public
+// node on a 15-second status poll, so re-reporting it flooded the console and
+// buried unrelated diagnostics; report each host once, and never lose the
+// first (actionable) report.
+assert.equal(shouldReportNodeCaRefusal('ext-node.qortal.link:443'), true);
+assert.equal(shouldReportNodeCaRefusal('ext-node.qortal.link:443'), false);
+assert.equal(shouldReportNodeCaRefusal('ext-node.qortal.link:443'), false);
+assert.equal(shouldReportNodeCaRefusal('api.qortal.org:443'), true);
+assert.equal(shouldReportNodeCaRefusal('api.qortal.org:443'), false);
+// Host and port together identify the node, so a different port still reports.
+assert.equal(shouldReportNodeCaRefusal('ext-node.qortal.link:8443'), true);
+
+assert(
+  nodeTlsSource.includes('shouldReportNodeCaRefusal(getNodeCaKey(url))'),
+  'The refused branch must de-duplicate its warning the way the other branches cache.',
 );
 
 console.log('Node CA bootstrap tests passed.');

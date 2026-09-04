@@ -216,7 +216,7 @@ and Android fixtures pass.
 | Names, groups, polls | `BUY_NAME`, `CANCEL_SELL_NAME`, `CREATE_GROUP`, `CREATE_POLL`, `REGISTER_NAME`, `SELL_NAME`, `UPDATE_GROUP`, `UPDATE_NAME`, `VOTE_ON_POLL` (the two poll actions have the `qdnRequest` family implemented — see the table above — but these v3 forms stay deferred: Hub's poll contract is a different legacy transaction — pollName target, zero-based index, paid fee and last reference — and must not be mechanically translated) |
 | QDN writes | Deletion and legacy inline/path publishing; Home 2 single-resource `PUBLISH_QDN_RESOURCE` — and now `PUBLISH_MULTIPLE_QDN_RESOURCES` as a bounded batch of it — are implemented through the separate H5B source-token contract (Hub's inline `data64`/`encrypt` multi-publish fields stay refused) |
 | Encryption and group keys | `DECRYPT_AESGCM`, `DECRYPT_DATA`, `DECRYPT_DATA_WITH_SHARING_KEY`, `DECRYPT_QORTAL_GROUP_DATA`, `ENCRYPT_DATA_WITH_SHARING_KEY`, `ENCRYPT_QORTAL_GROUP_DATA`, `REENCRYPT_GROUP_KEYS` (`ENCRYPT_DATA` is now implemented on both protocols — see below. `ENCRYPT_QORTAL_GROUP_DATA` is NOT the same mechanism despite the shared `qortalGroupEncryptedData` marker: it takes a `groupId` and a shared symmetric key fetched from a `DOCUMENT_PRIVATE` resource published by group admins, and needs the read side of private-group keys, which Home does not have yet) |
-| Wallets, payments, signing | `MULTI_ASSET_PAYMENT_WITH_PRIVATE_DATA`, foreign `SEND_COIN`, `SIGN_FOREIGN_FEES`, `SIGN_TRANSACTION` (`GET_USER_WALLET`, the three foreign wallet reads, QORT send, and protocol-bound `TRANSFER_ASSET` are implemented — see the wallet-family note below) |
+| Wallets, payments, signing | `MULTI_ASSET_PAYMENT_WITH_PRIVATE_DATA`, `SIGN_FOREIGN_FEES`, `SIGN_TRANSACTION` (`GET_USER_WALLET`, the three foreign wallet reads, foreign `SEND_COIN`, QORT send, and protocol-bound `TRANSFER_ASSET` are implemented — see the wallet-family note below) |
 | Foreign chain and trading | `ADD_FOREIGN_SERVER`, `CANCEL_TRADE_SELL_ORDER`, `CREATE_TRADE_BUY_ORDER`, `CREATE_TRADE_SELL_ORDER`, `GET_ARRR_SYNC_STATUS`, `REMOVE_FOREIGN_SERVER`, `START_CROSSCHAIN_SERVER`, `UPDATE_FOREIGN_FEE` (the four zero-key `/crosschain` reads and `SET_CURRENT_FOREIGN_SERVER` are implemented) |
 | AT/admin and other host UI | `ADMIN_ACTION`, `CREATE_AND_COPY_EMBED_LINK`, `DEPLOY_AT`, `OPEN_USER_LOOKUP` |
 
@@ -582,11 +582,15 @@ PAYMENT compatibility action on `qortalRequest` (the existing local Qortal
 serializer). All four sign locally — the 1.x Qortium paths sent the account
 private key to the node — pay the Home-quoted pinned chain fee (these types
 have NO MemoryPoW alternative), and journal unknown outcomes under the
-exact spend intent with a fail-closed guard. `SEND_COIN`'s 1.x foreign-coin
-arm refuses loudly (`FOREIGN_SEND_UNAVAILABLE`) — foreign sending remains
-deferred. On today's Qortium Previewnet, which deliberately has
+exact spend intent with a fail-closed guard. `SEND_COIN`'s foreign-coin arm is
+also wired on desktop and Android for BTC/LTC/DOGE/DGB/RVN/DASH/NMC/FIRO: it
+uses a separate one-shot approval, re-reads and re-plans after approval, signs
+locally, writes the foreign AtomicFile/file journal ahead, and broadcasts the
+finished bytes exactly once through an authenticated trusted Core. On today's
+Qortium Previewnet, which deliberately has
 no native asset yet, the Qortium arms refuse honestly at the balance and
-asset pre-checks. **All four work on Android**, on the same terms: every
+asset pre-checks. **All native four and foreign `SEND_COIN` work on Android**,
+on the same terms: every
 number the prompt disclosed travels with the request and the vault refuses if
 its own re-derivation disagrees; the timestamp the fee was quoted for is the
 timestamp signed; a ten-minute freshness bound is asserted as the last act
@@ -866,24 +870,24 @@ Two consequences worth stating:
   inherit an approval made about a different one. A restored publish-preview
   tab is bound the same way: same origin, same revision, or it is dropped.
 
-### Known architecture gap: the Android admin key transits WebView JS
+### Android administrative-key custody
 
-On Android every authenticated node call — QDN lists, node settings and
-restart, minting, foreign-wallet reads and server selection, and now the
-publish preview — unwraps the API key out of the Keystore-backed secret store
-**into JavaScript** (`HomeV2SecureStorage.unwrap` → `readSettings()` in
-`src/home-v2-live/node-client.ts`) and passes it back across the Capacitor
-bridge as a request header. The key is therefore resident in WebView memory for
-the duration of each call.
+On Android the saved administrative API key remains inside the
+Keystore-backed native store. JavaScript receives only the bound node origin
+and random binding id. When Home makes an authenticated request, the native
+transport decrypts and applies the key itself, verifies that the requested URL
+has the saved origin and a safe transport, compares the expected binding id,
+refuses redirects, and enforces a fixed endpoint/method allowlist plus body and
+response ceilings. `HomeV2SecureStorage.unwrap` explicitly refuses the
+administrative record, so the generic remembered-unlock method cannot be used
+to extract it.
 
-This is the shape the Android host has had since the authenticated families
-landed; the preview path follows it rather than widening it. Recorded here
-because it is a real gap and not a decision: the follow-up is a native
-trust-bound request method — the Java side unwraps the key itself, applies it,
-and returns only the result — after which no authenticated path needs the key
-in JS at all. (Security review, 2026-09-02.)
+The key necessarily exists briefly in the settings form while the user first
+enters or replaces it; after it is stored, ordinary reads, mode changes,
+previews, list and settings operations, and foreign-wallet operations use only
+the opaque binding id in WebView JavaScript.
 
-Two things that are NOT part of the gap, and are already closed:
+Two related boundaries remain:
 
 - The key never reaches a **QDN app**, on either host. Apps get results.
 - The token that crosses into React and is written into the user's profile is a
@@ -910,11 +914,11 @@ Android still makes several transient copies of a selection on its way out
 the Java request body as UTF-8); that is accepted under the 48 MiB cap rather
 than restructured, since the cap is what bounds it.
 
-Two accepted gaps in the Android transport, recorded so they are not
-rediscovered as findings: the plugin's deadline watchdog — the thread that
+One accepted test gap in the Android transport is recorded so it is not
+rediscovered as a finding: the plugin's deadline watchdog — the thread that
 closes a connection whose upload has blocked inside a single `write()` — has no
-test, because the JVM unit suite has no socket fixture that can hold a request
-body open; and the API key still transits WebView JS, as described above.
+socket-level test, because the JVM unit suite has no fixture that can hold a
+request body open. The deadline calculation and chunk-loop refusal are covered.
 
 ### Core API documentation: desktop only, for now
 

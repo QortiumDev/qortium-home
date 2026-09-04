@@ -104,10 +104,27 @@ const DEFAULT_OPERATIONS: I2pdManagedProcessOperations = {
       constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0),
     );
     try {
-      const metadata = await handle.stat();
+      let metadata = await handle.stat();
       if (!metadata.isFile() || metadata.uid !== expectedUserId ||
-        metadata.size < 1 || metadata.size > MAX_PID_FILE_BYTES ||
-        (metadata.mode & 0o077) !== 0) {
+        metadata.size < 1 || metadata.size > MAX_PID_FILE_BYTES) {
+        throw Object.assign(new Error('The managed i2pd PID file is not private.'), {
+          code: 'EPERM',
+        });
+      }
+      // i2pd writes this file itself, so its permissions come from whatever
+      // umask the router was launched under, and copying a profile between
+      // machines can widen them further. On a umask of 0002 it lands group- and
+      // world-readable, which used to make Home distrust it and report that it
+      // could not tell whether a router was running — disabling every transport
+      // control. Home owns this file, so tighten it and re-check, the same
+      // repair-then-verify the managed install does for its directories. Only a
+      // file we already own is repaired, and the repair only ever removes
+      // permissions.
+      if ((metadata.mode & 0o077) !== 0) {
+        await handle.chmod(0o600);
+        metadata = await handle.stat();
+      }
+      if (metadata.uid !== expectedUserId || (metadata.mode & 0o077) !== 0) {
         throw Object.assign(new Error('The managed i2pd PID file is not private.'), {
           code: 'EPERM',
         });
@@ -159,13 +176,18 @@ export async function observeManagedI2pdProcess(
     pidContents = await operations.readSecurePidFile(options.pidPath, currentUserId);
   } catch (error) {
     if (processDisappeared(error)) return { kind: 'absent' };
-    return {
-      kind: 'unknown',
-      reason: `The managed i2pd PID file could not be trusted: ${error instanceof Error ? error.message : String(error)}`,
-    };
+    // A PID file Home cannot trust names no process Home may adopt, which is
+    // the same practical answer as having no PID file: do not adopt. Reporting
+    // 'unknown' instead used to travel all the way to the transport panel and
+    // disable every control, including starting the router that would have
+    // rewritten this file — a dead end the user could not escape from inside
+    // Home. Declining to adopt is the conservative direction: adoption still
+    // has to match the process user, canonical executable and exact argv
+    // below, and Home never signals a process it did not verify.
+    return { kind: 'absent' };
   }
   const pid = parsePositiveInteger(pidContents.trim());
-  if (!pid) return { kind: 'unknown', reason: 'The managed i2pd PID file is invalid.' };
+  if (!pid) return { kind: 'absent' };
 
   let bootId: string;
   let canonicalBinaryPath: string;

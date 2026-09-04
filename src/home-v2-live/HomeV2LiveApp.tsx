@@ -228,7 +228,10 @@ import {
   normalizeHomeV2ForeignServerRequest,
   normalizeHomeV2ForeignWalletCoin,
 } from '../../electron/home-v2-foreign-wallet-actions'
-import { getForeignWalletPublicResponse } from '../../electron/foreign-wallet-read-contract'
+import {
+  buildForeignWalletReadRequest,
+  getForeignWalletPublicResponse,
+} from '../../electron/foreign-wallet-read-contract'
 import { isHomeV2NativeWalletRequest } from '../../electron/home-v2-wallet-actions'
 import { unwrapAndroidNodeRecord } from './android-node-envelope'
 import {
@@ -297,7 +300,13 @@ import { homeV2PaymentOperationLabel, isHomeV2PaymentAction } from '../../electr
 import {
   homeV2ForeignSendOperationLabel,
   FOREIGN_SEND_DETAIL_SEQUENCE,
+  isHomeV2ForeignSendRequest,
 } from '../../electron/home-v2-foreign-send-actions'
+import {
+  evaluateHomeV2ForeignSendValidity,
+  HomeV2ForeignSendReconciliationError,
+} from '../../electron/home-v2-foreign-send'
+import { HomeV2ForeignSendReconciliationPendingError } from '../../electron/foreign-wallet-reconciliation'
 import { getForeignWalletCoins } from '../../electron/foreign-wallets'
 import {
   homeV2NotificationChainLabel,
@@ -1540,6 +1549,8 @@ export function HomeV2LiveApp() {
   const [accountCatalogueReady, setAccountCatalogueReady] = useState(false)
   const accountCatalogueRef = useRef<HomeV2AccountCatalogue>(emptyAccountCatalogue)
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null)
+  const selectedAccountIdRef = useRef<string | null>(null)
+  selectedAccountIdRef.current = selectedAccountId
   const [restoredAccountId, setRestoredAccountId] = useState<
     string | null | undefined
   >(undefined)
@@ -7180,6 +7191,150 @@ export function HomeV2LiveApp() {
       // debit. The amount, asset, recipient, fee and timestamp travel with the
       // request and the vault refuses if its own re-derivation of any of them
       // disagrees; the total debit follows from the amount and the fee.
+      if (
+        isAndroidHost &&
+        protocol === 'qdnRequest' &&
+        action === 'SEND_COIN' &&
+        isHomeV2ForeignSendRequest(action, requestValue)
+      ) {
+        if (!context.selectedAccountId) throw new Error('No account is selected for this tab.')
+        const accountId = context.selectedAccountId
+        const account = accountCatalogueRef.current.accounts.find(
+          (candidate) => candidate.id === accountId,
+        )
+        if (!account) throw new Error('The selected account is no longer available.')
+        if (!account.isUnlocked) throw new Error('The selected account is locked.')
+        if (!vaultClient?.sendForeignCoin || !nodeClient.foreignWalletPost) {
+          throw new Error('Foreign sending is unavailable on this platform.')
+        }
+        const trust = await nodeClient.adminTrust?.()
+        const routeBefore = parseHomeV2NodesSnapshot(await nodeClient.getSnapshot()).qortium
+        if (
+          !trust?.trusted ||
+          !routeBefore.nodeApiUrl ||
+          routeBefore.nodeApiUrl !== trust.origin ||
+          !routeBefore.capabilities.read ||
+          routeBefore.adminTrusted !== true
+        ) {
+          throw new Error(trust?.reason ?? 'Foreign sending requires a reachable authenticated Qortium node.')
+        }
+        const pinnedRoute = `${trust.revision}|${trust.origin}`
+        const routeLabel = `Authenticated · ${trust.origin}`
+        const parsedApp = resolveAppIdentity()
+        const appId = brand<AppId>(`home-v2:permission-app:${parsedApp.identityKey}`)
+        const resolveRoute = async () => {
+          const currentTrust = await nodeClient.adminTrust?.()
+          if (
+            !currentTrust?.trusted ||
+            currentTrust.revision !== trust.revision ||
+            currentTrust.origin !== trust.origin
+          ) {
+            throw new Error('The selected Qortium node or its API key changed during the foreign send.')
+          }
+          return {
+            nodeApiUrl: currentTrust.origin,
+            revision: currentTrust.revision,
+            routeLabel,
+          }
+        }
+        const isStillValid = () => evaluateHomeV2ForeignSendValidity({
+          pinnedRoute,
+          readAccountUnlocked: () => accountCatalogueRef.current.accounts.some(
+            (candidate) => candidate.id === accountId && candidate.isUnlocked,
+          ),
+          readLiveContextMatches: () => {
+            const freshTab = productStateRef.current.tabs.find((tab) => tab.id === context.tabId)
+            return selectedAccountIdRef.current === accountId &&
+              !!freshTab &&
+              freshTab.context.resourceLocation === context.resourceLocation
+          },
+          resolveRoute: async () => {
+            const current = await nodeClient.adminTrust?.().catch(() => null) ?? null
+            return current?.trusted ? `${current.revision}|${current.origin}` : null
+          },
+        })
+        const postTrusted = (
+          pathname: string,
+          body: string,
+          contentType: 'application/json' | 'text/plain',
+          maxBytes: number,
+        ) => nodeClient.foreignWalletPost!(
+          pathname,
+          body,
+          contentType,
+          maxBytes,
+          trust.revision,
+        )
+        try {
+          return await vaultClient.sendForeignCoin({
+            accountId,
+            appIdentity: parsedApp.identityKey,
+            approve: async (rows, meta) => {
+              const decision = await queueAndroidPermissionPrompt(createPermissionPrompt({
+                id: brand<PermissionRequestId>(globalThis.crypto.randomUUID()),
+                protocol,
+                action: 'SEND_COIN',
+                capability: 'payment.foreign-send',
+                appId,
+                appIdentityKey: parsedApp.identityKey,
+                appTitle: parsedApp.title,
+                context: {
+                  appId,
+                  identityId: brand<IdentityId>(`home-v2:identity:${accountId}`),
+                  nodeProfileRef: snapshot.nodes.qortium.ref,
+                  tabId: brand<TabId>(context.tabId),
+                  targetNetwork: 'qortium',
+                  walletRef: brand<WalletRef>(`home-v2:wallet:${account.walletId}`),
+                },
+                title: `Allow ${meta.operationLabel.toLowerCase()}?`,
+                summary: `${parsedApp.title} wants to SEND ${meta.coin} from the wallet Home derives for the selected account. Home builds and signs this transaction itself — your node relays finished bytes and never receives a seed, a private key, or an extended private key. The amount, recipient, network fee, and change are listed exactly as they will be signed. Once broadcast it cannot be recalled.`,
+                details: [
+                  { label: 'Account', value: account.label },
+                  { label: 'Operation', value: meta.operationLabel },
+                  ...rows.map((row) => ({ label: row.label, value: row.value })),
+                  { label: 'Relayed by', value: routeLabel },
+                  { label: 'Not shared', value: 'Wallet seed, private key, or extended private key (xprv)' },
+                  { label: 'Scope', value: 'This one foreign-coin send only' },
+                ],
+                allowedScopes: ['single-request'],
+              }), context.tabId)
+              if (!decision.approved) throw new Error('Foreign send was denied.')
+            },
+            isStillValid,
+            postTrusted,
+            readWalletHistory: async (wallet) => {
+              const historyRequest = buildForeignWalletReadRequest(wallet, 'wallettransactions')
+              return postTrusted(
+                historyRequest.pathname,
+                historyRequest.body,
+                historyRequest.contentType,
+                2 * 1024 * 1024,
+              )
+            },
+            request: isRecord(requestValue) ? requestValue : {},
+            resolveRoute,
+          })
+        } catch (error) {
+          if (error instanceof HomeV2ForeignSendReconciliationError ||
+            error instanceof HomeV2ForeignSendReconciliationPendingError) {
+            throw Object.assign(new Error(error.message), {
+              action,
+              code: error.code,
+              network: 'qortium',
+              retryable: false,
+            })
+          }
+          if (error instanceof HomeV2ForeignSendError) {
+            throw Object.assign(new Error(error.message), {
+              action,
+              code: 'FOREIGN_SEND_UNAVAILABLE',
+              network: 'qortium',
+              retryable: false,
+            })
+          }
+          throw error
+        }
+      }
       if (isAndroidHost && isHomeV2PaymentAction(action)) {
         const qortalChain = protocol === 'qortalRequest'
         const sendQort = action === 'SEND_QORT'
@@ -9578,7 +9733,13 @@ export function HomeV2LiveApp() {
         return result
       }
       if (action !== 'GET_SELECTED_ACCOUNT' && action !== 'GET_USER_ACCOUNT') {
-        return nodeClient.requestApp(protocol, requestValue, context)
+        return nodeClient.requestApp(protocol, requestValue, {
+          ...context,
+          selectedAccountUnlocked: !!context.selectedAccountId &&
+            accountCatalogueRef.current.accounts.some(
+              (candidate) => candidate.id === context.selectedAccountId && candidate.isUnlocked,
+            ),
+        })
       }
       if (!context.selectedAccountId) throw new Error('No account is selected for this tab.')
       const targetNetwork = protocol === 'qortalRequest' ? 'qortal' : 'qortium'

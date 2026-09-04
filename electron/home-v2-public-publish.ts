@@ -1,4 +1,6 @@
 import { Worker } from 'node:worker_threads'
+import { createReadStream } from 'node:fs'
+import { readFile } from 'node:fs/promises'
 import nodePath from 'node:path'
 import { fileURLToPath } from 'node:url'
 import nacl from 'tweetnacl'
@@ -22,6 +24,13 @@ import {
   attestPublicQdnPublish,
   type QdnPublishVerificationInput,
 } from './qdn-content-attestation.js'
+import {
+  maximumJustifiedQdnFileArtifactBytes,
+  QDN_STREAMING_ATTESTATION_METADATA_MAX_BYTES,
+  readQdnStreamingMetadataArtifact,
+  streamQdnAttestationArtifact,
+  verifyStreamedQdnFileAttestation,
+} from './qdn-streaming-attestation.js'
 import type { QdnWriteResourceRequest } from './qdn-request-values.js'
 import { appendSignatureToTransactionBytes, getSignatureFromSignedTransactionBytes } from './qortal-payment.js'
 import { assertPublicArbitraryTransaction, getStaticQdnServiceId } from './public-transaction-validation.js'
@@ -116,11 +125,14 @@ async function postBytes(nodeApiUrl: string, path: string, bytes: Uint8Array, la
   return responseText(response, label)
 }
 
-async function postText(nodeApiUrl: string, path: string, body: string, label: string) {
+async function postText(nodeApiUrl: string, path: string, body: string, label: string, apiKey?: string) {
   const url = `${nodeApiUrl}${path}`
   const response = await nodeFetch(url, {
     body,
-    headers: { 'Content-Type': 'text/plain' },
+    headers: {
+      'Content-Type': 'text/plain',
+      ...(apiKey ? { 'X-API-KEY': apiKey } : {}),
+    },
     method: 'POST',
     redirect: 'error',
     signal: AbortSignal.timeout(60_000),
@@ -129,6 +141,38 @@ async function postText(nodeApiUrl: string, path: string, body: string, label: s
     throw new Error(`${label} changed the approved node URL.`)
   }
   return responseText(response, label)
+}
+
+async function postFile(
+  nodeApiUrl: string,
+  path: string,
+  sourcePath: string,
+  sourceSize: number,
+  apiKey: string,
+  label: string,
+) {
+  const url = `${nodeApiUrl}${path}`
+  const body = createReadStream(sourcePath)
+  try {
+    const response = await nodeFetch(url, {
+      body: body as unknown as BodyInit,
+      duplex: 'half',
+      headers: {
+        'Content-Length': String(sourceSize),
+        'Content-Type': 'application/octet-stream',
+        'X-API-KEY': apiKey,
+      },
+      method: 'POST',
+      redirect: 'error',
+      signal: AbortSignal.timeout(30 * 60_000),
+    })
+    if (response.url && new URL(response.url).toString() !== new URL(url).toString()) {
+      throw new Error(`${label} changed the approved node URL.`)
+    }
+    return responseText(response, label)
+  } finally {
+    if (!body.destroyed) body.destroy()
+  }
 }
 
 async function getText(nodeApiUrl: string, path: string, label: string) {
@@ -179,6 +223,32 @@ async function fetchQdnArtifact(nodeApiUrl: string, hash: Uint8Array, maxBytes: 
   return bytes
 }
 
+async function fetchAuthenticatedQdnArtifact(input: {
+  readonly apiKey: string
+  readonly destinationPath: string
+  readonly hash: Uint8Array
+  readonly maxBytes: number
+  readonly nodeApiUrl: string
+}) {
+  if (input.hash.byteLength !== 32) throw new Error('QDN builder returned an invalid artifact hash.')
+  const url = `${input.nodeApiUrl}/arbitrary/authenticated/data/${encodeURIComponent(base58Encode(input.hash))}`
+  const response = await nodeFetch(url, {
+    headers: { 'X-API-KEY': input.apiKey },
+    method: 'GET',
+    redirect: 'error',
+    signal: AbortSignal.timeout(30 * 60_000),
+  })
+  if (response.url && new URL(response.url).toString() !== new URL(url).toString()) {
+    throw new Error('QDN content attestation changed the approved node URL.')
+  }
+  return streamQdnAttestationArtifact({
+    destinationPath: input.destinationPath,
+    expectedHash: input.hash,
+    maximumBytes: input.maxBytes,
+    response,
+  })
+}
+
 async function publishQortium(input: PublishInput, signingKey: ReturnType<typeof getAccountSecretKey>) {
   const query = queryForQortiumResource(input.resource, input.fileName, Boolean(input.isZip))
   const started = Date.now()
@@ -215,6 +285,112 @@ async function publishQortium(input: PublishInput, signingKey: ReturnType<typeof
   if (!(await input.isStillValid())) throw new Error('The app, account, or node route changed before QDN signing.')
   await input.validateTarget?.()
   if (!(await input.isStillValid())) throw new Error('The app, account, or node route changed before QDN signing.')
+  const rawWithNonce = stampTransactionNonce(unsignedBytes, nonce)
+  const signingWithNonce = stampTransactionNonce(signingBytes, nonce)
+  const signatureBytes = nacl.sign.detached(signingWithNonce, signingKey.secretKey)
+  const signedBytes = appendSignatureToTransactionBytes(rawWithNonce, signatureBytes)
+  return {
+    signedBytes,
+    signature: getSignatureFromSignedTransactionBytes(signedBytes),
+    timestamp: started,
+  }
+}
+
+type AuthenticatedPublishInput = Omit<PublishInput, 'network' | 'sourceBytes'> & Readonly<{
+  apiKey: string
+  attestationDirectory: string
+  contentHash: string
+  network: 'qortium'
+  sourcePath: string
+  sourceSize: number
+}>
+
+async function publishQortiumAuthenticated(
+  input: AuthenticatedPublishInput,
+  signingKey: ReturnType<typeof getAccountSecretKey>,
+) {
+  const query = queryForQortiumResource(input.resource, input.fileName, false)
+  const started = Date.now()
+  const unsignedBase58 = await postFile(
+    input.nodeApiUrl,
+    `/arbitrary${resourcePath(input.resource)}/upload?${query}`,
+    input.sourcePath,
+    input.sourceSize,
+    input.apiKey,
+    'Qortium authenticated publish staging',
+  )
+  if (!(await input.isStillValid())) throw new Error('The app, account, node route, or administrative key changed before QDN attestation.')
+  const unsignedBytes = base58Decode(unsignedBase58)
+  const details = assertPublicArbitraryTransaction(unsignedBytes, {
+    identifier: input.resource.identifier && input.resource.identifier !== 'default' ? input.resource.identifier : undefined,
+    method: 0,
+    name: input.resource.name,
+    publicKey: base58Decode(signingKey.publicKey58),
+    service: input.serviceId,
+    txGroupId: 0,
+  })
+  const expectedMetadata = {
+    category: input.resource.category,
+    description: input.resource.description,
+    tags: input.resource.tags,
+    title: input.resource.title,
+  }
+  if (details.dataType === 1) {
+    const sourceBytes = new Uint8Array(await readFile(input.sourcePath))
+    await attestPublicQdnPublish({
+      details,
+      expectedMetadata,
+      fetchArtifact: async (hash, maxBytes) => {
+        const artifact = await fetchAuthenticatedQdnArtifact({
+          apiKey: input.apiKey,
+          destinationPath: nodePath.join(input.attestationDirectory, `small-${base58Encode(hash)}.bin`),
+          hash,
+          maxBytes,
+          nodeApiUrl: input.nodeApiUrl,
+        })
+        return new Uint8Array(await readFile(artifact.path))
+      },
+      source: { bytes: sourceBytes, filename: input.fileName, unpackZip: false },
+      verify: verifyQdnPublishInWorker,
+    })
+  } else {
+    const maximumArtifactBytes = maximumJustifiedQdnFileArtifactBytes(input.sourceSize)
+    if (details.rawSize > maximumArtifactBytes) {
+      throw new Error('QDN builder claimed a content size inconsistent with the approved publish.')
+    }
+    const artifact = await fetchAuthenticatedQdnArtifact({
+      apiKey: input.apiKey,
+      destinationPath: nodePath.join(input.attestationDirectory, 'content.artifact'),
+      hash: details.data,
+      maxBytes: details.rawSize,
+      nodeApiUrl: input.nodeApiUrl,
+    })
+    const metadataArtifact = details.metadataHash.byteLength === 32
+      ? await fetchAuthenticatedQdnArtifact({
+          apiKey: input.apiKey,
+          destinationPath: nodePath.join(input.attestationDirectory, 'metadata.artifact'),
+          hash: details.metadataHash,
+          maxBytes: QDN_STREAMING_ATTESTATION_METADATA_MAX_BYTES,
+          nodeApiUrl: input.nodeApiUrl,
+        })
+      : null
+    await verifyStreamedQdnFileAttestation({
+      artifact,
+      details,
+      expectedMetadata,
+      fileName: input.fileName,
+      ...(metadataArtifact ? { metadataBytes: await readQdnStreamingMetadataArtifact(metadataArtifact) } : {}),
+      sourceHash: input.contentHash,
+      sourcePath: input.sourcePath,
+      sourceSize: input.sourceSize,
+    })
+  }
+  if (!(await input.isStillValid())) throw new Error('The app, account, node route, or administrative key changed before QDN signing.')
+  const signingBytes = arbitraryRawToSigningBytes(unsignedBytes)
+  const nonce = await computeHomeV2ChatNonce(signingBytes, ARBITRARY_POW_DIFFICULTY, input.isStillValid)
+  if (!(await input.isStillValid())) throw new Error('The app, account, node route, or administrative key changed before QDN signing.')
+  await input.validateTarget?.()
+  if (!(await input.isStillValid())) throw new Error('The app, account, node route, or administrative key changed before QDN signing.')
   const rawWithNonce = stampTransactionNonce(unsignedBytes, nonce)
   const signingWithNonce = stampTransactionNonce(signingBytes, nonce)
   const signatureBytes = nacl.sign.detached(signingWithNonce, signingKey.secretKey)
@@ -459,4 +635,67 @@ export async function publishHomeV2PublicResource(input: Omit<PublishInput, 'ser
         retryable: result.retryable,
         timestamp: result.timestamp,
       })
+}
+
+export async function publishHomeV2AuthenticatedResource(
+  input: Omit<AuthenticatedPublishInput, 'serviceId'>,
+) {
+  const signingKey = getAccountSecretKey(input.accountId)
+  try {
+    let transaction
+    try {
+      transaction = await publishQortiumAuthenticated({
+        ...input,
+        serviceId: getStaticQdnServiceId(input.resource.service),
+      }, signingKey)
+    } catch (error) {
+      const status = typeof (error as { status?: unknown })?.status === 'number'
+        ? (error as { status: number }).status
+        : null
+      if (status === 401 || status === 403 || status === 404 || status === 405) {
+        throw new Error(
+          'The selected trusted Qortium node does not expose compatible authenticated QDN publish and attestation routes.',
+        )
+      }
+      throw error
+    }
+    if (!(await input.isStillValid())) throw new Error('The app, account, node route, or administrative key changed before publication broadcast.')
+    await input.validateTarget?.()
+    if (!(await input.isStillValid())) throw new Error('The app, account, node route, or administrative key changed before publication broadcast.')
+    let accepted = true
+    let error: string | undefined
+    try {
+      await postText(
+        input.nodeApiUrl,
+        '/transactions/process?apiVersion=2',
+        base58Encode(transaction.signedBytes),
+        'Qortium authenticated publish broadcast',
+        input.apiKey,
+      )
+    } catch (broadcastError) {
+      accepted = false
+      error = broadcastError instanceof Error ? broadcastError.message : 'Publish broadcast outcome is unknown.'
+    }
+    const descriptor = createHomeV2PublicPublishDescriptor({
+      contentHash: input.contentHash,
+      fileName: input.fileName,
+      network: 'qortium',
+      resource: input.resource,
+      size: input.sourceSize,
+      transactionSignature: transaction.signature,
+    })
+    return accepted
+      ? descriptor
+      : Object.freeze({
+          ...descriptor,
+          accepted: false as const,
+          error,
+          errorType: 'BROADCAST_UNKNOWN' as const,
+          outcome: 'unknown' as const,
+          retryable: false as const,
+          timestamp: transaction.timestamp,
+        })
+  } finally {
+    signingKey.secretKey.fill(0)
+  }
 }

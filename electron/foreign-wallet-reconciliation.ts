@@ -81,10 +81,10 @@ export type ForeignWalletReconciliationOutcome = Readonly<{
 }>
 
 export type ForeignWalletReconciliationDeps = Readonly<{
-  clear(entry: ForeignWalletPendingTransaction, observedTxId: string): void
+  clear(entry: ForeignWalletPendingTransaction, observedTxId: string): unknown | Promise<unknown>
   now: number
   readHistory(): Promise<unknown>
-  release(entry: ForeignWalletPendingTransaction): void
+  release(entry: ForeignWalletPendingTransaction): unknown | Promise<unknown>
 }>
 
 /**
@@ -125,7 +125,7 @@ export async function reconcileForeignWalletPendingTransactions(
   const needsProof: ForeignWalletPendingTransaction[] = []
   for (const entry of pending) {
     if (isNeverBroadcast(entry, deps.now)) {
-      deps.release(entry)
+      await deps.release(entry)
       released.push(Object.freeze({ reason: 'signed-never-attempted' as const, txId: entry.txId }))
     } else {
       needsProof.push(entry)
@@ -146,7 +146,7 @@ export async function reconcileForeignWalletPendingTransactions(
   const retained: string[] = []
   for (const entry of needsProof) {
     if (foreignWalletHistoryContainsTransaction(history, entry.txId)) {
-      deps.clear(entry, entry.txId)
+      await deps.clear(entry, entry.txId)
       cleared.push(entry.txId)
     } else {
       retained.push(entry.txId)

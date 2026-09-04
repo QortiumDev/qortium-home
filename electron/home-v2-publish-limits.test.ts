@@ -1,101 +1,89 @@
 import assert from 'node:assert/strict'
 
-import { getHomeV2PublishSizeCeiling, resetHomeV2PublishSizeCeilingCache } from './home-v2-publish-limits.js'
-import { HOME_V2_PUBLISH_SOURCE_MAX_BYTES } from './home-v2-publish-source-tokens.js'
-import { HOME_V2_PUBLISH_IN_MEMORY_MAX_BYTES } from './home-v2-publish-source-selection.js'
+import { evaluateHomeV2AdminTrust } from './home-v2-admin-trust.js'
+import {
+  deriveHomeV2QdnPublishLimit,
+  getHomeV2QdnPublishLimit,
+  HOME_V2_AUTHENTICATED_PUBLISH_HARD_MAX_BYTES,
+  shouldUseAuthenticatedQdnPublish,
+} from './home-v2-publish-limits.js'
 
-function jsonResponse(body: unknown, status = 200) {
-  return async () => new Response(JSON.stringify(body), { status })
+const MiB = 1024 * 1024
+const API_KEY = 'A'.repeat(24)
+const BINDING_ID = 'b'.repeat(32)
+
+const trustCases = [
+  evaluateHomeV2AdminTrust({
+    managedApiKey: API_KEY,
+    managedBindingId: BINDING_ID,
+    mode: 'local',
+    network: 'qortium',
+    nodeApiUrl: 'http://127.0.0.1:12391',
+  }),
+  evaluateHomeV2AdminTrust({
+    attached: { apiKey: API_KEY, bindingId: BINDING_ID, origin: 'https://node.example' },
+    mode: 'custom',
+    network: 'qortium',
+    nodeApiUrl: 'https://node.example',
+  }),
+] as const
+for (const trust of trustCases) {
+  assert.equal(shouldUseAuthenticatedQdnPublish('qortium', trust), true)
 }
 
-// Node advertises a small limit: that limit wins.
-resetHomeV2PublishSizeCeilingCache()
-{
-  const ceiling = await getHomeV2PublishSizeCeiling(
-    'qortium',
-    'https://node-a.example',
-    jsonResponse({ publicPublishMaxSize: 200 * 1024 * 1024 }),
-  )
-  assert.equal(ceiling, 200 * 1024 * 1024)
+const refusalCases = [
+  evaluateHomeV2AdminTrust({ mode: 'network', network: 'qortium', nodeApiUrl: 'https://public.example' }),
+  evaluateHomeV2AdminTrust({ mode: 'local', network: 'qortium', nodeApiUrl: 'http://127.0.0.1:12391' }),
+  evaluateHomeV2AdminTrust({
+    attached: { apiKey: API_KEY, bindingId: BINDING_ID, origin: 'https://other.example' },
+    mode: 'custom',
+    network: 'qortium',
+    nodeApiUrl: 'https://node.example',
+  }),
+  evaluateHomeV2AdminTrust({
+    attached: { apiKey: API_KEY, bindingId: BINDING_ID, origin: 'http://node.example' },
+    mode: 'custom',
+    network: 'qortium',
+    nodeApiUrl: 'http://node.example',
+  }),
+  evaluateHomeV2AdminTrust({ mode: 'disabled', network: 'qortium', nodeApiUrl: 'https://node.example' }),
+] as const
+for (const trust of refusalCases) {
+  assert.equal(trust.trusted, false)
+  assert.equal(shouldUseAuthenticatedQdnPublish('qortium', trust), false)
 }
+assert.equal(shouldUseAuthenticatedQdnPublish('qortal', trustCases[0]), false)
 
-// Node advertises an absurd limit: Home's own hard ceiling wins instead. That
-// ceiling is the RESIDENT-MEMORY one, not the attestation one: the publish
-// pipeline still materialises the source, so a node cannot talk Home into
-// holding more of it than Home budgets for.
-resetHomeV2PublishSizeCeilingCache()
-{
-  const ceiling = await getHomeV2PublishSizeCeiling(
-    'qortium',
-    'https://node-b.example',
-    jsonResponse({ publicPublishMaxSize: 999 * 1024 * 1024 * 1024 }),
-  )
-  assert.equal(ceiling, HOME_V2_PUBLISH_IN_MEMORY_MAX_BYTES)
-}
+assert.deepEqual(
+  deriveHomeV2QdnPublishLimit({ publishMaxSize: 2_000 * MiB, publicPublishMaxSize: 100 * MiB }, true),
+  { maximumBytes: 2_000 * MiB, route: 'authenticated' },
+)
+assert.deepEqual(
+  deriveHomeV2QdnPublishLimit({ publishMaxSize: 2_000 * MiB, publicPublishMaxSize: 100 * MiB }, false),
+  { maximumBytes: 100 * MiB, route: 'public' },
+)
+assert.equal(
+  deriveHomeV2QdnPublishLimit({ publicPublishMaxSize: 250 * MiB }, false).maximumBytes,
+  100 * MiB,
+)
+assert.equal(
+  deriveHomeV2QdnPublishLimit({ publishMaxSize: Number.MAX_SAFE_INTEGER }, true).maximumBytes,
+  HOME_V2_AUTHENTICATED_PUBLISH_HARD_MAX_BYTES,
+)
+assert.equal(deriveHomeV2QdnPublishLimit({ publishMaxSize: 0 }, true).maximumBytes, 100 * MiB)
+assert.equal(deriveHomeV2QdnPublishLimit({}, false).maximumBytes, 100 * MiB)
 
-// A node between the two ceilings is clamped to the memory one as well.
-resetHomeV2PublishSizeCeilingCache()
-{
-  const ceiling = await getHomeV2PublishSizeCeiling(
-    'qortium',
-    'https://node-b2.example',
-    jsonResponse({ publicPublishMaxSize: 900 * 1024 * 1024 }),
-  )
-  assert.equal(ceiling, HOME_V2_PUBLISH_IN_MEMORY_MAX_BYTES)
-}
+const fetched: string[] = []
+const remote = await getHomeV2QdnPublishLimit('https://node.example', true, async (url) => {
+  fetched.push(url)
+  return new Response(JSON.stringify({ publishMaxSize: 512 * MiB, publicPublishMaxSize: 80 * MiB }))
+})
+assert.deepEqual(remote, { maximumBytes: 512 * MiB, route: 'authenticated' })
+assert.deepEqual(fetched, ['https://node.example/arbitrary/limits'])
 
-// Endpoint missing / node too old: fall back to the conservative default.
-resetHomeV2PublishSizeCeilingCache()
-{
-  const ceiling = await getHomeV2PublishSizeCeiling(
-    'qortium',
-    'https://node-c.example',
-    async () => new Response('not found', { status: 404 }),
-  )
-  assert.equal(ceiling, HOME_V2_PUBLISH_SOURCE_MAX_BYTES)
-}
+const fallback = await getHomeV2QdnPublishLimit('https://old.example', true, async () => {
+  throw new Error('unsupported')
+})
+assert.deepEqual(fallback, { maximumBytes: 100 * MiB, route: 'authenticated' })
 
-// Malformed JSON body: also falls back rather than throwing.
-resetHomeV2PublishSizeCeilingCache()
-{
-  const ceiling = await getHomeV2PublishSizeCeiling(
-    'qortium',
-    'https://node-d.example',
-    async () => new Response('not json', { status: 200 }),
-  )
-  assert.equal(ceiling, HOME_V2_PUBLISH_SOURCE_MAX_BYTES)
-}
-
-// Response claims a body bigger than the 64 KiB limit: bounded fetch aborts
-// and this also falls back rather than buffering an unbounded body.
-resetHomeV2PublishSizeCeilingCache()
-{
-  const ceiling = await getHomeV2PublishSizeCeiling(
-    'qortium',
-    'https://node-f.example',
-    async () =>
-      new Response(JSON.stringify({ publicPublishMaxSize: 200 * 1024 * 1024 }), {
-        status: 200,
-        headers: { 'content-length': String(65 * 1024) },
-      }),
-  )
-  assert.equal(ceiling, HOME_V2_PUBLISH_SOURCE_MAX_BYTES)
-}
-
-// Result is cached per (network, nodeApiUrl): a second call does not refetch.
-resetHomeV2PublishSizeCeilingCache()
-{
-  let calls = 0
-  const fetchImpl = async () => {
-    calls += 1
-    return new Response(JSON.stringify({ publicPublishMaxSize: 200 * 1024 * 1024 }), { status: 200 })
-  }
-  await getHomeV2PublishSizeCeiling('qortium', 'https://node-e.example', fetchImpl)
-  await getHomeV2PublishSizeCeiling('qortium', 'https://node-e.example', fetchImpl)
-  assert.equal(calls, 1)
-  // A different network on the SAME node URL is a different cache entry.
-  await getHomeV2PublishSizeCeiling('qortal', 'https://node-e.example', fetchImpl)
-  assert.equal(calls, 2)
-}
-
-console.log('Home v2 publish limits tests passed.')
+console.log('Home v2 QDN publish-limit tests passed.')

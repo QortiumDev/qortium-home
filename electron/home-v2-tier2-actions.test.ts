@@ -1250,9 +1250,9 @@ const finalValid = sendFlow.indexOf('if (!(await deps.isStillValid()))')
 const signing = sendFlow.indexOf('deps.withWalletSeed((seed, nonce, walletVersion) => {')
 assert.ok(finalRoute > -1 && finalValid > -1 && signing > -1)
 assert.ok(finalRoute < signing && finalValid < signing, 'the final route and validity checks precede signing')
-// Nothing may await between the last check and the signature: everything from
-// the freshness assertion through the write-ahead record and the broadcast
-// marker is synchronous, so no drift window can open inside it.
+// Nothing may await between the last check and the signature. Journal writes
+// after signing may be asynchronous on Android, but they cannot change the
+// approved bytes and the native request remains credential-bound.
 const settled = sendFlow.lastIndexOf('assertForeignSendFresh()')
 assert.ok(settled > finalValid && settled < signing)
 assert.ok(!sendFlow.slice(settled, signing).includes('await '), 'no await may open a drift window before signing')
@@ -1262,15 +1262,11 @@ const signToBroadcast = stripComments(
 const broadcastAt = signToBroadcast.indexOf('await deps.postTrusted(')
 assert.ok(broadcastAt > -1)
 assert.ok(
-  !signToBroadcast.slice(0, broadcastAt).includes('await '),
-  'signing, the write-ahead record and the attempt marker must all be synchronous',
-)
-assert.ok(
-  signToBroadcast.indexOf('deps.journal.recordSigned(') < signToBroadcast.indexOf('deps.journal.recordBroadcastAttempt('),
+  signToBroadcast.indexOf('await deps.journal.recordSigned(') < signToBroadcast.indexOf('await deps.journal.recordBroadcastAttempt('),
   'the write-ahead record precedes the broadcast marker',
 )
 assert.ok(
-  signToBroadcast.indexOf('deps.journal.recordBroadcastAttempt(') < broadcastAt,
+  signToBroadcast.indexOf('await deps.journal.recordBroadcastAttempt(') < broadcastAt,
   'the broadcast marker precedes the one broadcast',
 )
 
@@ -1321,16 +1317,32 @@ assert.ok(
   'the release window and the send freshness window must be one constant',
 )
 
-// Android must keep answering send:false until it has its own signer: the
-// host passes five arguments, so the send flag stays at its safe default.
+// Android advertises sending only when the trusted host says the selected
+// account is unlocked AND the selected authenticated Core proves the route
+// exists. A QDN app cannot populate selectedAccountUnlocked itself.
 const androidCrosschain = stripComments(sliceAfter(
   readRepoSource('../src/home-v2-live/node-client.ts', './node-client.ts'),
-  'return projectHomeV2CrosschainReadResult(',
-  260,
+  'const foreignWalletTrustedCoreAvailable =',
+  1_100,
   'android crosschain projection',
 ))
-assert.ok(!androidCrosschain.includes('foreignWalletSendAvailable'))
-assert.ok(!/foreignWalletTrustedCoreAvailable,\s*\n\s*\w/.test(androidCrosschain.replace(/\)[\s\S]*$/, ')')))
+assert.ok(androidCrosschain.includes('context?.selectedAccountUnlocked === true'))
+assert.ok(androidCrosschain.includes('await probeForeignSendRoute().catch(() => false)'))
+assert.ok(androidCrosschain.includes('foreignWalletSendAvailable,'))
+
+// The Android foreign arm splits off before the native payment normalizer,
+// uses the shared orchestrator, and never carries the API key in React.
+const androidForeignSend = stripComments(sliceAfter(
+  liveAppSource,
+  "isHomeV2ForeignSendRequest(action, requestValue)",
+  8_000,
+  'android foreign send',
+))
+assert.ok(androidForeignSend.includes('vaultClient.sendForeignCoin({'))
+assert.ok(androidForeignSend.includes("allowedScopes: ['single-request']"))
+assert.ok(androidForeignSend.includes('nodeClient.foreignWalletPost!('))
+assert.ok(androidForeignSend.includes('selectedAccountIdRef.current === accountId'))
+assert.ok(!androidForeignSend.includes('X-API-KEY'))
 
 // The live-context guard must not read mutable state before its own await.
 // Pinned in the bridge because the ordering is the whole property: a guard

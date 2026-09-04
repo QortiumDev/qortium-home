@@ -140,6 +140,17 @@ try {
   assert.equal(fileSource.fileName, 'page.html')
   assert.equal(fileSource.size, 20)
   assert.equal(fileSource.mimeType, null)
+  assert.equal((await describeHomeV2PublishSourcePath(filePath, 'file', {
+    ...HOME_V2_PUBLISH_DIRECTORY_LIMITS,
+    maximumFileBytes: 20,
+  })).size, 20)
+  await assert.rejects(
+    describeHomeV2PublishSourcePath(filePath, 'file', {
+      ...HOME_V2_PUBLISH_DIRECTORY_LIMITS,
+      maximumFileBytes: 19,
+    }),
+    /19 bytes for the selected node route/,
+  )
   assert.deepEqual(
     Array.from(await readHomeV2DesktopPublishSource(fileSource)),
     Array.from(Buffer.from('<!doctype html>hello')),
@@ -149,7 +160,7 @@ try {
   await writeFile(emptyPath, '')
   await assert.rejects(
     describeHomeV2PublishSourcePath(emptyPath),
-    /between 1 byte and [\d,. ]+ bytes/,
+    /between 1 byte and 104,857,600 bytes/,
   )
 
   const hugePath = nodePath.join(root, 'huge.bin')
@@ -158,7 +169,7 @@ try {
   await truncate(hugePath, 101 * 1024 * 1024)
   await assert.rejects(
     describeHomeV2PublishSourcePath(hugePath),
-    /between 1 byte and [\d,. ]+ bytes/,
+    /between 1 byte and 104,857,600 bytes/,
   )
 
   const fileLink = nodePath.join(root, 'page-link.html')
@@ -1267,8 +1278,12 @@ try {
   // isZip reaches the upload and the attestation from the ARTIFACT, not from a
   // guess about the descriptor: a file source that was somehow packaged, or a
   // folder that was not, would otherwise be described wrongly to Core.
-  assert.ok(bridgeSource.includes('isZip: artifact.isZip'), 'the single publish forwards the artifact isZip')
-  assert.ok(bridgeSource.includes('isZip: entry.artifact.isZip'), 'the batch publish forwards the artifact isZip')
+  assert.ok(bridgeSource.includes('isZip: artifact!.isZip'), 'the single publish forwards the artifact isZip')
+  assert.ok(bridgeSource.includes('isZip: entry.artifact!.isZip'), 'the batch publish forwards the artifact isZip')
+  assert.ok(
+    bridgeSource.includes("resolveHomeV2QdnPublishRoute(network, node, source.kind === 'directory')"),
+    'a single folder publish is pinned to the attestable public route',
+  )
 
   // Folder sources are refused on Qortal at BOTH ends: the picker (so no dead
   // token is issued) and the publish (so a token issued before a route change
@@ -1281,6 +1296,10 @@ try {
 
   // The batch aggregate is refused BEFORE anything is opened, read or packaged.
   const batchSource = bridgeSource.slice(bridgeSource.indexOf('async function publishHomeV2MultiplePublishSources'))
+  assert.ok(
+    batchSource.includes("resolved.some((entry) => entry.source.kind === 'directory')"),
+    'a mixed folder batch is pinned to one attestable public route',
+  )
   assert.ok(
     batchSource.indexOf('HOME_V2_PUBLISH_BATCH_MAX_TOTAL_BYTES') <
       batchSource.indexOf('prepareTrackedHomeV2PublishArtifact'),
@@ -1295,6 +1314,10 @@ try {
   assert.ok(
     batchSource.includes('for (const artifact of prepared) await artifact.dispose()'),
     'the batch disposes every prepared artifact',
+  )
+  assert.ok(
+    batchSource.includes('await Promise.all(snapshots.map(removeHomeV2PublishSnapshot))'),
+    'the batch disposes every authenticated file snapshot',
   )
   assert.ok(bridgeSource.includes('await artifact.dispose()'), 'the single publish disposes its artifact')
 

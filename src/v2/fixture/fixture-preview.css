@@ -118,6 +118,10 @@ button {
 }
 
 .home-v2-fixture-preview--phone .home-v2-shell {
+  /* The preview draws a phone-shaped frame on a desktop screen, so the device
+     height lives here rather than on the shell itself (a real phone must size
+     to its own viewport). */
+  min-height: 820px;
   overflow: hidden;
   border: 1px solid #504e49;
   border-radius: 24px;

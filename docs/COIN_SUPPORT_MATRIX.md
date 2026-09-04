@@ -1,6 +1,6 @@
 # Qortium Home coin and asset support matrix
 
-_Current implementation snapshot: 2026-09-01. Scope: Qortium Core and Qortium
+_Current implementation snapshot: 2026-09-04. Scope: Qortium Core and Qortium
 Home; the standalone Wallet app is intentionally excluded._
 
 This matrix distinguishes code presence from live acceptance. Core enablement
@@ -38,11 +38,13 @@ local synced Previewnet Core at the time of each check; apps must use
   only when that trusted Core is present AND an account is selected and
   unlocked; a public or untrusted route always answers `send: false`.
   No funded send has been performed on any of the eight chains: the evidence
-  so far is deterministic vectors and source-level tests only.
+  so far is deterministic vectors, desktop/Android orchestrator coverage,
+  native Android transport and AtomicFile tests, and source-level tests only.
   DGB, NMC and FIRO additionally return Core error 1201 on the send
   spend-context with the currently configured providers, the same blocker
-  their reads hit; a Core-side fix (Electrum protocol cap 1.4 and refreshed
-  server pins) is in flight separately.
+  their reads hit in the last installed-runtime snapshot. The Core-side
+  Electrum 1.4–1.7 and refreshed-pin fix is merged, but installing and
+  accepting that runtime is a separate authorization gate.
 - Foreign **Send** additionally requires a Core that actually implements
   `/crosschain/<coin>/wallet/public/spend-context`. Home probes that route
   once per node/API-key revision before advertising `send`, so an older
@@ -69,11 +71,10 @@ local synced Previewnet Core at the time of each check; apps must use
   points at send-max or a larger amount.
 - **Acceptance gate.** Enabling foreign send for real use is gated on a
   packaged acceptance pass against a Core that carries the spend-context and
-  chain-bound broadcast routes. Until that pass exists there is no end-to-end
-  wired coverage: the evidence is deterministic vectors, dependency-injected
-  orchestrator tests and source-level pins. The wired integration harness is
-  PR 2's scope, and `smoke:desktop:qdn-foreign-send-dry-run:packaged` is the
-  bridge-level check available in the meantime.
+  chain-bound broadcast routes. Desktop and Android are wired in code, but no
+  Android device crash/restart pass or funded send has been authorized or
+  performed. `smoke:desktop:qdn-foreign-send-dry-run:packaged` remains the
+  packaged bridge-level check available in the meantime.
 - A send whose outcome Home could not prove leaves a write-ahead entry that
   blocks further sends for that wallet and coin. The NEXT send for the same
   wallet reconciles it automatically, in two ways and no others:
