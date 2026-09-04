@@ -93,6 +93,10 @@ export function createForeignWalletTransactionJournalStore(
   }
 
   function recordSigned(userData: string, entry: ForeignWalletPendingTransaction) {
+    // The lock is held per operation, not across the whole send: an approval
+    // prompt must never keep another instance out of its own journal. That is
+    // sound because the conflict check is re-run here, against a read taken
+    // under this lock, rather than trusted from the earlier findConflict.
     return withLock(userData, () => write(
       userData,
       addSignedForeignWalletPendingTransaction(readUnlocked(userData), entry),
