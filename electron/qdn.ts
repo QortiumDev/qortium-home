@@ -1,9 +1,15 @@
 import { app, BrowserWindow, dialog, ipcMain, Notification, type WebContents } from 'electron';
 import { extractZipSafely } from './safe-zip-extraction.js';
+import {
+  QDN_PREVIEW_STAGING_PREFIX,
+  cleanupQdnPreviewStagingDirs,
+  sweepOrphanedQdnPreviewStagingDirs,
+  trackQdnPreviewStagingDir,
+} from './qdn-preview-staging.js';
 import { zipSync } from 'fflate';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { createReadStream, existsSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { copyFile, mkdtemp, readFile, readdir, rm, stat } from 'node:fs/promises';
+import { createReadStream, existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { copyFile, mkdtemp, readFile, readdir, stat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -331,7 +337,6 @@ const QDN_PREVIEW_EXTENSION_SERVICES = new Map([
   ['opus', 'AUDIO'],
   ['wav', 'AUDIO'],
 ]);
-const qdnPreviewStagingDirs = new Map<string, string>();
 const QDN_WRITE_APPROVAL_TIMEOUT_MS = 120_000;
 const QDN_UNLOCK_STATE_WAIT_MS = 1_500;
 const QDN_WRITE_SMOKE_ROLE = 'local';
@@ -4474,55 +4479,14 @@ function getQdnPreviewContentRequest(value: QdnPreviewContentRequest) {
   };
 }
 
-const QDN_PREVIEW_STAGING_PREFIX = 'qortium-home-preview-';
+// Re-exported so main.ts keeps importing the quit/startup sweeps from the
+// module that owns previewing, not from the storage detail behind it.
+export { cleanupQdnPreviewStagingDirs, sweepOrphanedQdnPreviewStagingDirs };
 
 async function createQdnPreviewStagingDir(sourcePath: string) {
-  const previousDir = qdnPreviewStagingDirs.get(sourcePath);
-
-  if (previousDir) {
-    await rm(previousDir, { force: true, recursive: true });
-  }
-
   const stagingDir = await mkdtemp(path.join(os.tmpdir(), QDN_PREVIEW_STAGING_PREFIX));
 
-  qdnPreviewStagingDirs.set(sourcePath, stagingDir);
-
-  return stagingDir;
-}
-
-// Preview staging dirs are otherwise only replaced when the same source path is
-// previewed again, so distinct previews accumulate for the process lifetime.
-// Called from the app quit path; sync so the quit cannot outrun the cleanup.
-export function cleanupQdnPreviewStagingDirs() {
-  for (const stagingDir of qdnPreviewStagingDirs.values()) {
-    try {
-      rmSync(stagingDir, { force: true, recursive: true });
-    } catch {
-      // Best effort on quit; the startup sweep collects anything left behind.
-    }
-  }
-
-  qdnPreviewStagingDirs.clear();
-}
-
-// Collect staging dirs orphaned by crashed/killed sessions. Only called after
-// the single-instance lock is held, so no other Home instance can be using them.
-export async function sweepOrphanedQdnPreviewStagingDirs() {
-  let entries: string[];
-
-  try {
-    entries = await readdir(os.tmpdir());
-  } catch {
-    return;
-  }
-
-  await Promise.all(
-    entries
-      .filter((entry) => entry.startsWith(QDN_PREVIEW_STAGING_PREFIX))
-      .map((entry) =>
-        rm(path.join(os.tmpdir(), entry), { force: true, recursive: true }).catch(() => undefined),
-      ),
-  );
+  return trackQdnPreviewStagingDir(sourcePath, stagingDir);
 }
 
 // Match the Core publish flow, which descends into a single extracted folder

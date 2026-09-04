@@ -317,6 +317,7 @@ import {
   readHomeV2DesktopPublishSource,
 } from './home-v2-publish-source-selection.js'
 import { normalizeHomeV2PublishBlobRequest } from './home-v2-publish-blob-source.js'
+import { releaseQdnPreviewStagingDir } from './qdn-preview-staging.js'
 import { isQdnBrowserArchiveService } from './qdn-browser-archive-services.js'
 import { spoolHomeV2PreviewArchive } from './home-v2-preview-archive.js'
 import {
@@ -2695,7 +2696,15 @@ async function previewHomeV2PublishSource(
     // Core has already built and cached the preview by hash by the time the
     // POST returns (ArbitraryResource.previewUpload says so explicitly), so the
     // staged copy of the user's unpublished content need not outlive the call.
-    await Promise.all([...stagingDirs].map(removeHomeV2PublishPreviewStagingDir))
+    await Promise.all([...stagingDirs].map(async (stagingDir) => {
+      await removeHomeV2PublishPreviewStagingDir(stagingDir)
+      // qdn.ts's stager tracks the directory it made against the path it was
+      // given, and Home 2 gives it a fresh mkdtemp path every time, so nothing
+      // there would ever replace this entry. Removing the directory without
+      // dropping the entry would leave the map growing once per preview, for
+      // the life of the process, on an action that needs no permission.
+      releaseQdnPreviewStagingDir(stagingDir)
+    }))
   }
 }
 
