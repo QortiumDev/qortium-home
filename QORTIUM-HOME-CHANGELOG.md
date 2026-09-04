@@ -32,6 +32,39 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## fix(i2p): recover from a half-finished router update
+
+A tester's i2pd update download failed partway, and Home was stuck afterwards.
+Settings showed "Home could not safely compare the installed i2pd version.
+Router maintenance is unavailable.", the panel offered no button that could put
+it right, and the working older router sitting on disk was ignored. Deleting
+the half-installed folder by hand, or the small file that records which router
+is in use, did not help either: each left a different dead end, and Home then
+refused to download the update again no matter how good the connection was.
+
+Home keeps one small file naming the router version it is using, next to a
+folder for that exact version. If the folder is missing or was never finished,
+Home used to treat that as a fault it could not reason about, and everything
+downstream inherited it. It now treats it for what it is: nothing usable is
+installed. That single change restores the Install button, and the install goes
+on to download normally.
+
+Alongside that, Home now clears away the leftovers of an interrupted attempt
+instead of tripping over them for good. A version folder that is completely
+empty, or one that carries Home's own record of this exact release but whose
+files no longer check out, is discarded and fetched again. A folder Home cannot
+prove it created is still left strictly alone. Deleting one of Home's working
+folders by hand no longer bricks the panel, since Home simply recreates it.
+Partial downloads and abandoned staging folders left behind by a Home that was
+killed mid-install are now swept up, rather than accumulating a few megabytes
+on every retry.
+
+There is also a new repair step that re-points Home at the newest trusted
+router already installed, without downloading anything, which is what makes an
+existing older install usable again after a failed update. It prefers the
+version Home would install today. It is available to the rest of the app now
+and will be wired to a button in a follow-up.
+
 ## fix(home2): accept Core-written private-group key announcements
 
 Members of a private Qortium group were seeing every message as "Encrypted
