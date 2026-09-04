@@ -630,10 +630,15 @@ assert.equal(normalizeHomeV2OpenAddress({ address: 'qdn://APP/Trust' }), 'qdn://
 assert.equal(normalizeHomeV2OpenAddress({ qdnUrl: 'qortal://APP/Q-Tube' }), 'qortal://APP/Q-Tube')
 assert.equal(normalizeHomeV2ResponseMaxBytes(undefined), 2 * 1024 * 1024)
 assert.equal(normalizeHomeV2ResponseMaxBytes(5 * 1024 * 1024), 5 * 1024 * 1024)
-assert.throws(
-  () => normalizeHomeV2ResponseMaxBytes(5 * 1024 * 1024 + 1),
-  /between 1 byte and 5 MiB/,
-)
+// Network asks for an 8,000,000-byte budget even though its current snapshot
+// is much smaller. Home 1.x clamped that request and continued; Home 2 used to
+// throw before contacting Core.
+assert.equal(normalizeHomeV2ResponseMaxBytes(8_000_000), 5 * 1024 * 1024)
+assert.equal(normalizeHomeV2ResponseMaxBytes(5 * 1024 * 1024 + 1), 5 * 1024 * 1024)
+assert.equal(normalizeHomeV2ResponseMaxBytes(1_024.9), 1_024)
+assert.equal(normalizeHomeV2ResponseMaxBytes(0), 2 * 1024 * 1024)
+assert.equal(normalizeHomeV2ResponseMaxBytes(Number.POSITIVE_INFINITY), 2 * 1024 * 1024)
+assert.equal(normalizeHomeV2ResponseMaxBytes('not-a-number'), 2 * 1024 * 1024)
 assert.throws(
   () => normalizeHomeV2OpenAddress({ address: 'https://example.com' }),
   /only accepts/,
