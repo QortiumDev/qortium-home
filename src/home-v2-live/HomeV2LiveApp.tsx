@@ -3820,6 +3820,12 @@ export function HomeV2LiveApp() {
             typeof value.publishFileName !== 'string' ||
             typeof value.publishResourceCoordinate !== 'string' ||
             typeof value.publishSize !== 'number' ||
+            // Folder rows: present as non-negative integers or not at all.
+            // A prompt that cannot validate them must not render them, since
+            // the counts are part of what the user is approving.
+            [value.publishEntryCount, value.publishExcludedCount, value.publishHiddenCount]
+              .some((field) => !(field === null || field === undefined ||
+                (typeof field === 'number' && Number.isSafeInteger(field) && field >= 0))) ||
             // A Qortal PUBLISH_QDN_RESOURCE pays the chain fee, so its
             // prompt must carry the pinned Fee row; everywhere else the
             // field must be absent (fee-free mempow, or a non-publish
@@ -4743,6 +4749,15 @@ export function HomeV2LiveApp() {
                   ? [{ label: 'Fee', value: value.publishFee }]
                   : []),
                 { label: 'Size', value: `${Number(value.publishSize).toLocaleString()} bytes` },
+                ...(typeof value.publishEntryCount === 'number'
+                  ? [{ label: 'Folder entries', value: value.publishEntryCount.toLocaleString() }]
+                  : []),
+                ...(typeof value.publishExcludedCount === 'number'
+                  ? [{ label: 'Excluded', value: value.publishExcludedCount.toLocaleString() }]
+                  : []),
+                ...(typeof value.publishHiddenCount === 'number'
+                  ? [{ label: 'Hidden files', value: value.publishHiddenCount.toLocaleString() }]
+                  : []),
                 { label: 'SHA-256', value: String(value.publishContentHash) },
               ]
           // The two rows that matter here are Contract and Message: they are
