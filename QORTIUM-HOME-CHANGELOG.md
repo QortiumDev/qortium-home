@@ -82,6 +82,16 @@ you approve it.
 Folder publishing is Qortium desktop only. Qortal keeps single files at
 100 MiB, and asking it for a folder is an honest error rather than a silent
 downgrade. Android has no folder picker and is unchanged.
+
+Four things found in review are fixed here too. A folder nested very deeply, or
+one larger than your own node says it will accept, is now refused when you pick
+it rather than after you have waited through the packaging and approved the
+publish - the picker, the preview and the publish all read the same limits.
+Previewing a folder no longer leaves a little bookkeeping behind in Home's
+memory each time, which an app could otherwise have driven in a loop. And the
+single check that decides whether something is inside the folder you chose is
+now the one Home already used elsewhere, rather than a second copy of it.
+
 ## fix(home2): lock and harden the pending transaction journals
 
 Three follow-ups from the review of the foreign send work.
