@@ -313,6 +313,7 @@ export async function describeHomeV2PublishSourcePath(
   selectedPath: string,
   kind: HomeV2PublishSourcePickKind = 'file',
   limits: HomeV2PublishDirectoryLimits = HOME_V2_PUBLISH_DIRECTORY_LIMITS,
+  maximumFileBytes: number = HOME_V2_PUBLISH_SOURCE_MAX_BYTES,
 ): Promise<HomeV2DesktopPublishSource> {
   const stats = await lstat(selectedPath, { bigint: true })
   const fileName = nodePath.basename(selectedPath).slice(0, 180) || 'qdn-resource'
@@ -340,8 +341,13 @@ export async function describeHomeV2PublishSourcePath(
     throw homeV2PublishSourceError('Publish source must be a regular file, not a directory or symbolic link.')
   }
   const size = Number(stats.size)
-  if (!Number.isSafeInteger(size) || size < 1 || size > HOME_V2_PUBLISH_SOURCE_MAX_BYTES) {
-    throw homeV2PublishSourceError('Publish source must be between 1 byte and 100 MiB.')
+  if (!Number.isSafeInteger(maximumFileBytes) || maximumFileBytes < 1) {
+    throw new Error('Publish source selection requires a positive safe byte limit.')
+  }
+  if (!Number.isSafeInteger(size) || size < 1 || size > maximumFileBytes) {
+    throw homeV2PublishSourceError(
+      `Publish source must be between 1 byte and ${maximumFileBytes.toLocaleString()} bytes for the selected node route.`,
+    )
   }
   return Object.freeze({
     changedAtMs: stats.ctimeMs,

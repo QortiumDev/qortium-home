@@ -1,4 +1,4 @@
-# Home 2 public QDN publishing
+# Home 2 QDN publishing
 
 Home 2 exposes the same source-token publication contract through
 `qdnRequest` and `qortalRequest`. The invoked global is the authoritative
@@ -19,10 +19,15 @@ if (!selected.canceled) {
 }
 ```
 
-The selected file must be between 1 byte and 100 MiB. The token is bound to the
-requesting app, tab, selected account, invoked network, exact node route, and
-route revision. It expires after 30 minutes. Android retains only one pending
-selection at a time; choosing another file invalidates the earlier token.
+On desktop, Home reads `/arbitrary/limits` from the selected node before the
+picker. An admin-trusted Qortium node uses its authenticated `publishMaxSize`;
+an untrusted/public route uses the smaller of `publicPublishMaxSize` and the
+existing 100 MiB Home public-attestation bound. Home applies a 2 GiB hard
+ceiling to authenticated sources and falls back to 100 MiB if an older node
+has no usable limits endpoint. Android remains capped by its separate 100 MiB selection and
+retained-memory boundaries. The token is bound to the requesting app, tab,
+selected account, invoked network, exact node route, and route revision. It
+expires after 30 minutes.
 
 Apps cannot provide native paths, URIs, inline bytes, Base64, filenames, or
 MIME claims to the publish action. Home reopens and verifies the desktop file
@@ -68,11 +73,23 @@ The desktop bridge and the Android host both apply this disclosure and the
 fee pin.
 
 After approval, Home rechecks the app, tab, account, unlock state, route, and
-name ownership. It stages the source only on that route, decodes and attests
-the returned ARBITRARY transaction fields, verifies the approved content hash
-or Qortium artifact contract, applies proof of work where required, signs
-locally, and broadcasts the signed transaction. Neither a private key nor
-unsigned node-selected fields are exposed to the app.
+name ownership. On desktop Qortium, the canonical administrative-trust result
+selects the transport: a trusted managed or attached-key node receives a
+streamed authenticated upload; every other node receives the unchanged
+keyless public upload. The trusted route also pins and rechecks the exact
+origin-and-key revision. Home decodes and attests the returned ARBITRARY
+transaction fields, verifies the approved content hash and Qortium artifact
+contract, applies proof of work where required, signs locally, and broadcasts
+the signed transaction. Neither a private key nor the node API key is exposed
+to the app.
+
+For a large trusted-node file, desktop Home first streams the selection into a
+private, Home-owned snapshot while computing the SHA-256 shown in the prompt.
+It uploads that immutable snapshot as a stream, downloads Core's encrypted
+pre-signature artifact to a bounded temporary file, verifies the signed hash
+and chunk metadata, decrypts it as a stream, and compares the packaged file
+against the snapshot before signing. No whole-file or whole-artifact heap copy
+is made. The snapshot and attestation files are removed when the attempt ends.
 
 A successful result is network-qualified and includes both a mutable resource
 coordinate and an immutable pin:
@@ -102,8 +119,12 @@ coordinate and an immutable pin:
 If Home has already signed but cannot prove whether broadcast succeeded, it
 returns the same descriptor with `accepted: false`, `outcome: "unknown"`, and
 `retryable: false`. Apps must reconcile by transaction signature and must not
-silently publish again. A route that denies or lacks compatible public staging
-returns `NODE_CAPABILITY_MISSING`; Home does not try another node.
+silently publish again. A route that denies or lacks its selected staging
+contract returns `NODE_CAPABILITY_MISSING`; Home does not try another node. Authenticated
+streaming also requires a Core that exposes
+`/arbitrary/authenticated/data/{hash}` for pre-signature readback. Home will
+not fall back to the public builder after approval or trade away exact-byte
+attestation to support an older trusted node.
 
 The immutable hash/signature pin is the attachment identity. The QDN
 coordinate can later resolve to a newer PUT and must remain visibly distinct

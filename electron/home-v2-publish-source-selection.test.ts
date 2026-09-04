@@ -114,6 +114,11 @@ try {
   assert.equal(fileSource.fileName, 'page.html')
   assert.equal(fileSource.size, 20)
   assert.equal(fileSource.mimeType, null)
+  assert.equal((await describeHomeV2PublishSourcePath(filePath, 'file', undefined, 20)).size, 20)
+  await assert.rejects(
+    describeHomeV2PublishSourcePath(filePath, 'file', undefined, 19),
+    /19 bytes for the selected node route/,
+  )
   assert.deepEqual(
     Array.from(await readHomeV2DesktopPublishSource(fileSource)),
     Array.from(Buffer.from('<!doctype html>hello')),
@@ -123,7 +128,7 @@ try {
   await writeFile(emptyPath, '')
   await assert.rejects(
     describeHomeV2PublishSourcePath(emptyPath),
-    /between 1 byte and 100 MiB/,
+    /between 1 byte and 104,857,600 bytes/,
   )
 
   const hugePath = nodePath.join(root, 'huge.bin')
@@ -132,7 +137,7 @@ try {
   await truncate(hugePath, 101 * 1024 * 1024)
   await assert.rejects(
     describeHomeV2PublishSourcePath(hugePath),
-    /between 1 byte and 100 MiB/,
+    /between 1 byte and 104,857,600 bytes/,
   )
 
   const fileLink = nodePath.join(root, 'page-link.html')
