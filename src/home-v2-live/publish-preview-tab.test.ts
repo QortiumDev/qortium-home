@@ -59,8 +59,14 @@ function openedShell(): ProductState {
   })
 }
 
+const BINDING = 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6'
+
 const payload = {
   network: 'qortium',
+  // The credential's binding id. REQUIRED since the 2026-09-02 security
+  // review: a payload without one names no credential, so nothing downstream
+  // could ever re-check it.
+  previewTrustRevision: BINDING,
   previewUrl: PREVIEW_URL,
   service: 'WEBSITE',
   sourceTabId: SOURCE_TAB,
@@ -211,6 +217,56 @@ const payload = {
     null,
     'a tab whose address and source chain disagree must not yield a descriptor',
   )
+}
+
+// 6. The admin-trust REVISION rides along with the preview URL, so a tab
+//    restored in a later session can be re-bound to the node and credential
+//    the preview was built against (src/v2/product-model.ts) instead of being
+//    trusted on its URL shape. A payload without one restores as no preview.
+{
+  const state = openedShell()
+  const opened = resolveHomeV2PublishPreviewOpen(
+    {
+      previewTrustRevision: 'trust-rev-1',
+      previewUrl: PREVIEW_URL,
+      sourceTabId: SOURCE_TAB,
+      title: 'site.zip',
+    },
+    state.tabs,
+    PREVIEW_TAB,
+  )
+  assert.equal(opened?.context.previewTrustRevision, 'trust-rev-1')
+  assert.equal(opened?.context.previewUrl, PREVIEW_URL)
+
+  // A REMOTE trusted node is exactly as valid as a loopback one now that the
+  // preview is uploaded rather than read off Home's disk.
+  const remote = resolveHomeV2PublishPreviewOpen(
+    {
+      previewTrustRevision: 'trust-rev-2',
+      previewUrl: 'https://core.example/render/hash/2TZX8MTjxbNaQRovthrPxcs1A3Qgas',
+      sourceTabId: SOURCE_TAB,
+    },
+    state.tabs,
+    PREVIEW_TAB,
+  )
+  assert.equal(
+    remote?.context.previewUrl,
+    'https://core.example/render/hash/2TZX8MTjxbNaQRovthrPxcs1A3Qgas',
+  )
+
+  // ...and a payload WITHOUT one is refused outright rather than opening a tab
+  // whose provenance cannot be checked again later.
+  for (const value of [undefined, '', 42, null]) {
+    assert.equal(
+      resolveHomeV2PublishPreviewOpen(
+        { previewTrustRevision: value, previewUrl: PREVIEW_URL, sourceTabId: SOURCE_TAB },
+        state.tabs,
+        PREVIEW_TAB,
+      ),
+      null,
+      `a preview payload with previewTrustRevision=${String(value)} must not open`,
+    )
+  }
 }
 
 console.log('Home 2 publish preview tab tests passed.')

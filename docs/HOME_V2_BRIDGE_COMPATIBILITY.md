@@ -269,7 +269,7 @@ desktop, and Android fixtures pass:**
 
 | Family | Deferred actions | Notes |
 | --- | --- | --- |
-| ~~Publishing preview~~ | ~~`PREVIEW_QDN_PUBLISH_SOURCE`~~ | **No longer deferred (2026-08-30)** — implemented as an app-tab preview on `qdnRequest`, desktop only, local nodes only; folder sources added 2026-09-02, and folder PUBLISHING with them (Qortium desktop only); see its subsection below |
+| ~~Publishing preview~~ | ~~`PREVIEW_QDN_PUBLISH_SOURCE`~~ | **No longer deferred (2026-08-30)** — implemented as an app-tab preview on `qdnRequest`; folder sources added 2026-09-02, and folder PUBLISHING with them (Qortium desktop only); **desktop and Android, on any admin-trusted node** since 2026-09-02 (see § Remote trusted nodes and its subsection below) |
 | ~~Node settings and admin~~ | ~~`GET_NODE_SETTINGS_METADATA`, `UPDATE_NODE_SETTINGS`, `RESTART_NODE`~~ | **No longer deferred (2026-09-01)** — implemented on the node-administration trust rule (see the implemented table above and `docs/BRIDGE_ACTIONS.md` § Node settings actions) |
 | Background notification subscriptions | `NOTIFICATION_ADD`, `NOTIFICATION_GET`, `NOTIFICATION_REMOVE` | Distinct from the implemented `NOTIFICATION_HAS_PERMISSION`/`SHOW_NOTIFICATION` contract and the `NOTIFICATION_MANAGER_*` family |
 | App assignments | `GET_APP_ASSIGNMENTS`, `REQUEST_APP_ASSIGNMENT` | F4 is Settings-only; app-facing delegation remains deferred |
@@ -446,27 +446,43 @@ logged with `console.warn` in the main process only. Messages the publish-source
 raises are tagged and pass through unchanged because each is already a
 path-free constant; anything untagged is replaced.
 
-**Local nodes only, and therefore desktop-only and `qdnRequest`-only.**
-Previewing sends the chosen source to a node to render, so on a public node its
-operator would see it before the user chose to publish.
-`resolveHomeV2AdminNode` only yields a key for a trusted local Core; anything
-else refuses with a message saying why. No approval prompt is needed on a local
-Core because there is no third party. Two consequences, both fixed on
-2026-09-02 after the action was found advertised where it could only refuse:
+**Admin-trusted nodes only, and `qdnRequest`-only.** Previewing sends the
+chosen source to a node to render, so on a public node its operator would see
+it before the user chose to publish. `resolveHomeV2AdminNode` yields a key only
+for a node the user administers -- Home's managed local Core, or their own node
+with its API key attached -- and anything else refuses with a message saying
+why. No approval prompt is needed, because the node is the user's own and no
+third party sees the content. (This paragraph said "local nodes only" until
+2026-09-02; that was the old transport talking, not the security model. See
+§ Remote trusted nodes.) Two consequences, both fixed on 2026-09-02 after the
+action was found advertised where it could only refuse:
 
-- **Not on Android.** Home for Android runs no Core, so the action is in
+- **Not on Android.** Home for Android runs no Core, so the action was in
   `ANDROID_UNSUPPORTED_ACTIONS` (the first entry since the parity wave emptied
   it) with its own stated reason -- the previous single generic refusal claimed
-  "requires transaction signing", which was never true of previewing. A future
-  Android arm would go through Core's
-  `POST /arbitrary/preview/{service}/upload?archive=&filename=`, which takes
-  bytes rather than a local path; that is what Home 1.x Android used. It still
-  needs a trusted node holding a write key, so it is a node-trust decision
-  before it is a client one.
-- **Not on `qortalRequest`.** `getHomeV2SignedWriteApiKey` returns `''` for the
-  Qortal network, so a preview on that protocol could only ever refuse.
+  "requires transaction signing", which was never true of previewing.
+
+  **Superseded 2026-09-02.** That reason described the desktop TRANSPORT, not
+  the action. The desktop handler POSTed a local filesystem PATH to
+  `POST /arbitrary/preview/{service}`, which only a co-located node can read --
+  so the feature was loopback-shaped and looked local-only. Both hosts now use
+  Core's `POST /arbitrary/preview/{service}/upload?archive=&filename=`, which
+  takes the BYTES (what Home 1.x Android already used), and both gate on
+  ADMIN TRUST. Android runs the action like any other: its picker returns
+  base64, so it uploads with `archive=false`; folders are not selectable there,
+  which is fine. Desktop stages the selection into a Home-owned temp directory
+  exactly as before, then uploads that copy -- a folder or an extracted zip as
+  a deflated archive (`archive=true`), a single file as itself -- bounded by
+  `HOME_V2_PUBLISH_SOURCE_MAX_BYTES` (100 MiB) and refused above it with a
+  fixed, path-free message. The path-based route is not retained even as a
+  loopback optimisation: one transport means one behaviour to test, and the
+  desktop smoke (which runs against a loopback node) then exercises the same
+  code a remote user gets.
+- **Not on `qortalRequest`.** Home holds no administrative key for a Qortal
+  node — `evaluateHomeV2AdminTrust` refuses the Qortal network outright — so a
+  preview on that protocol could only ever refuse.
   `PREVIEW_QDN_PUBLISH_SOURCE` is therefore off the Qortal catalogue, exactly
-  like the other local-Core-only actions (`RESTART_NODE`,
+  like the other admin-trusted actions (`RESTART_NODE`,
   `UPDATE_NODE_SETTINGS`, `GET_NODE_SETTINGS_METADATA`). `SELECT_` and
   `STAGE_QDN_PUBLISH_SOURCE` stay on both protocols: they feed
   `PUBLISH_QDN_RESOURCE`, which Qortal has, and neither needs a node key.
@@ -533,8 +549,9 @@ the same per-item structural validator desktop uses, and re-asserting
 publisher-name ownership per item at signing time. See
 [QDN bridge action notes](BRIDGE_ACTIONS.md).
 `PREVIEW_QDN_PUBLISH_SOURCE` is no longer deferred either — it is implemented
-on `qdnRequest`, on desktop, against a local Core only, and it accepts folder
-sources; see its section above for why it is on neither Android nor
+on `qdnRequest`, on **desktop and Android**, against any node the user is
+admin-trusted on (local or remote), and it accepts folder sources on desktop;
+see its section above, and § Remote trusted nodes, for why it is not on
 `qortalRequest`. The Hub-catalogue QDN-writes row above still covers legacy
 inline/path publishing, which stays refused in favor of source tokens.
 
@@ -802,3 +819,106 @@ asking for anything, so it stays on the ordinary read grant.
 Chat ATTACHMENT reads carry a comparable exposure and stay on `account.read`
 for now (owner decision, 2026-08-30). If that is revisited, the same predicate —
 `isHomeV2PrivateChatReadAction` — is where it would be extended.
+
+## Remote trusted nodes (2026-09-02)
+
+Every Home capability that needs a node's API key is gated on **trust**, never
+on the node being `127.0.0.1`. Trust means the user holds that node's API key:
+Home's own managed local Core, or a **custom node with the key attached in
+Settings** — which is how someone running their own Qortium Core on a VPS
+attaches it. `evaluateHomeV2AdminTrust()`
+(`electron/home-v2-admin-trust.ts`) is the one predicate; the desktop wrapper is
+`resolveHomeV2AdminNode()` and the Android one is `requireAdminNode()`.
+
+**All API-key features work over a remote trusted node**, not a subset: QDN
+lists, minting, node settings and restart, foreign-wallet reads and server
+selection, the Core API documentation toggle and its restart, and
+`PREVIEW_QDN_PUBLISH_SOURCE`. Previously three of these were written against
+`mode === 'local'`, which refused a user administering their own remote Core
+for no reason the security model supports.
+
+**The transport rule is unchanged, and it is the one real constraint.** A
+remote node must be reached over:
+
+- **HTTPS** — Core's own SSL API keystore, or a reverse proxy in front of it; or
+- **an SSH tunnel to loopback** (`ssh -L 24891:127.0.0.1:24891 user@host`), which
+  presents to Home as plain HTTP to `127.0.0.1` and is allowed for that reason.
+  Core sees a tunnelled request as loopback too, so its default API-key policy
+  already permits it.
+
+Plain HTTP to a remote host is refused by design: the API key would travel in
+the clear. Android refuses to even SAVE such a custom node. What is *not* a
+reason to refuse is the node simply being somebody else's machine that the user
+happens to own.
+
+A **public/discovered** node stays untrusted whatever its transport. It is
+somebody else's Core; previewing on it would show its operator content the user
+has not decided to publish, and none of the user's keys belong on it.
+
+Two consequences worth stating:
+
+- `SHOW_ACTIONS` advertises the admin-trusted actions only on a route that is
+  actually trusted, so an app is never offered a button whose only possible
+  outcome is a refusal.
+- A trust decision carries a **revision** (origin + credential). Anything that
+  acts after a prompt or a long upload re-resolves trust and compares the
+  revision first, so a node switched or a key re-attached mid-flight cannot
+  inherit an approval made about a different one. A restored publish-preview
+  tab is bound the same way: same origin, same revision, or it is dropped.
+
+### Known architecture gap: the Android admin key transits WebView JS
+
+On Android every authenticated node call — QDN lists, node settings and
+restart, minting, foreign-wallet reads and server selection, and now the
+publish preview — unwraps the API key out of the Keystore-backed secret store
+**into JavaScript** (`HomeV2SecureStorage.unwrap` → `readSettings()` in
+`src/home-v2-live/node-client.ts`) and passes it back across the Capacitor
+bridge as a request header. The key is therefore resident in WebView memory for
+the duration of each call.
+
+This is the shape the Android host has had since the authenticated families
+landed; the preview path follows it rather than widening it. Recorded here
+because it is a real gap and not a decision: the follow-up is a native
+trust-bound request method — the Java side unwraps the key itself, applies it,
+and returns only the result — after which no authenticated path needs the key
+in JS at all. (Security review, 2026-09-02.)
+
+Two things that are NOT part of the gap, and are already closed:
+
+- The key never reaches a **QDN app**, on either host. Apps get results.
+- The token that crosses into React and is written into the user's profile is a
+  random **binding id** minted with the key, not a digest of it. A short digest
+  of `origin||apiKey` would be an offline verifier for a weak key; the binding
+  id is independent of the credential and is re-minted whenever it changes.
+
+### Android source size limit
+
+Android's picker returns Base64 through the Capacitor bridge, so every retained
+selection is a copy in WebView memory. The publish-source store is therefore
+budgeted in Base64 characters (64 MiB), which is **48 MiB of file**. That is
+the real limit for both publishing and previewing on Android, and it is what
+the picker is now asked for — previously it was asked for the desktop's 100 MiB
+and a larger file was read, encoded, passed across the bridge and only then
+refused.
+
+Desktop keeps the 100 MiB `HOME_V2_PUBLISH_SOURCE_MAX_BYTES` ceiling and never
+holds the upload in memory: the archive is spooled to the Home-owned staging
+directory and streamed to the node as chunked Base64.
+
+Android still makes several transient copies of a selection on its way out
+(native bytes → Base64 across the Capacitor bridge → `atob` → `Uint8Array` →
+the Java request body as UTF-8); that is accepted under the 48 MiB cap rather
+than restructured, since the cap is what bounds it.
+
+Two accepted gaps in the Android transport, recorded so they are not
+rediscovered as findings: the plugin's deadline watchdog — the thread that
+closes a connection whose upload has blocked inside a single `write()` — has no
+test, because the JVM unit suite has no socket fixture that can hold a request
+body open; and the API key still transits WebView JS, as described above.
+
+### Core API documentation: desktop only, for now
+
+Enabling Core's API documentation page (and the restart that applies it) is
+gated on admin trust **and** on the desktop transport. Android has no native
+path behind `enableHomeV2CoreDocs`, so the control is not offered there rather
+than being offered and refused. Reading the documentation works on both.

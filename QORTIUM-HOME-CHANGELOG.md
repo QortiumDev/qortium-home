@@ -82,6 +82,131 @@ you approve it.
 Folder publishing is Qortium desktop only. Qortal keeps single files at
 100 MiB, and asking it for a folder is an honest error rather than a silent
 downgrade. Android has no folder picker and is unchanged.
+## fix(home2): lock and harden the pending transaction journals
+
+Three follow-ups from the review of the foreign send work.
+
+Home keeps a small file recording payments it has signed but not yet proven
+sent, and it reads that file to decide whether a new payment would double-spend
+the same coins. If two copies of Home were ever pointed at the same profile
+folder, both could read that file at the same moment and the second one to
+write would quietly erase what the first had just recorded, which is exactly
+the record the duplicate check depends on. Each read and write now takes an
+exclusive lock file next to the journal first, so the two copies take turns. A
+copy that cannot get its turn within ten seconds refuses the send with a clear
+"another Home instance is using this" message rather than going ahead without
+the record, and a lock left behind by a copy of Home that crashed is only ever
+cleared once that program is genuinely gone from this machine and the lock is
+minutes old. Android does not need any of this and does not get it: the journal
+there lives inside the app's own private storage and the app only ever runs as
+one process, which is now written down in both places so nobody has to
+rediscover it.
+
+The Qortal-family payment journal is now written as carefully as the foreign
+one: to a temporary file that is flushed to the disk hardware, then moved into
+place in a single step, so a power cut cannot leave half a file behind. Both
+journals now share one piece of code for that, instead of two versions that had
+already drifted apart.
+
+And when a second send is refused because one is already running for the same
+wallet, Home now recognises that case by its type rather than by matching the
+wording of the message, so rewording the message for people can no longer
+change how Home behaves.
+
+## fix(home2): closure fixes from the security review
+
+Four last things from the review, all small but each one a real hole.
+
+A preview tab already on screen now stops rendering the moment the key behind
+it changes, even when the node address stays the same. It was being checked,
+but only when something else about the node happened to change too, so a
+rotated key could leave a preview from the old one on screen.
+
+When Home turns on Core's API documentation and then cannot restart your node,
+it puts the setting back. It now only does that when it actually knows what the
+setting was before: if your node did not answer that question clearly, Home
+leaves the setting alone and tells you it could not confirm it, rather than
+guessing "off" and possibly switching off something you had turned on
+deliberately.
+
+On Android, the label Home uses to remember which key is which is created once
+even when several things ask for it at the same moment, and is only replaced
+when the key or the node address really changes. Before, an ordinary settings
+change could replace it and quietly invalidate approvals and open previews for
+no reason.
+
+And if the disk fills up or the temporary folder disappears while Home is
+packing a folder for preview, the preview fails with a normal message and the
+half-written file is cleaned up, instead of taking Home down with it.
+
+## fix(home2): security review follow-ups for the trusted-node work
+
+A review of the change above found eight things worth fixing; all are done.
+
+Previewing a large folder no longer loads the whole thing into memory. Home
+packs it into a file next to the copy it already made and streams that to your
+node as it reads it, instead of building the archive, a copy of it, and an
+encoded copy of that before sending anything. On Android the limit is now told
+to you honestly: 48 MiB, which is what the phone can actually hold, rather than
+letting you pick a 100 MiB file and refusing it after the wait.
+
+Home also stops handing the browser side of itself anything derived from your
+node's API key. It used to identify "which key is this" with a short fingerprint
+computed from the key, which is fine inside Home's core but not fine in a
+saved profile, where someone reading it could use it to check a guess at your
+key. Every such handle is now a random label made when you attach the key and
+replaced whenever you change it. Preview tabs are re-checked against that label
+each time they are drawn, so one belonging to a node or key you have since
+changed does not quietly reopen.
+
+An upload from the phone now has a real deadline covering the sending, not only
+the connecting and the waiting, so a node that accepts the connection and then
+stops listening can no longer leave it stuck forever.
+
+Turning on Core's API documentation is tidier in three ways: the button is only
+offered on desktop, where it works; the node's own error text is never shown to
+you, only what went wrong; and if the restart cannot happen after Home changed
+the setting, Home changes it back and says so, rather than leaving your node
+altered.
+
+One gap is recorded rather than closed: on Android the API key still passes
+through the app's JavaScript on its way to your node, as it has for every
+authenticated feature since they shipped. Moving that into the native layer is
+tracked as follow-up work.
+
+## fix(home2): features that need your node's API key follow trust, not "is it local"
+
+If you run your own Qortium Core on a VPS and attach its API key in Home,
+Home now treats it as your node everywhere -- because it is. Four things were
+written as "only the Core running on this computer", and refused people who
+were plainly entitled to use them.
+
+Previewing a file or folder before publishing works on any node you hold the
+key for, and works on Android for the first time. The old desktop preview sent
+your Core a file PATH, which only worked because Home and Core happened to be
+on the same machine; a node on another machine cannot read your disk, so the
+feature looked local-only when really only its plumbing was. Home now sends the
+content itself -- a single file as-is, a folder or zip packed into a compressed
+archive -- so the same preview works over the network. Nothing about what Home
+sends changed: it is still a copy Home makes and controls, never a path of
+yours, the preview address never reaches the app that asked for it, and
+previews are capped at 100 MiB with a plain refusal above that.
+
+Turning on Core's API documentation page, and the restart that applies it, also
+follow the key rather than the address. Home re-checks, right before it
+restarts anything, that the node and key are still the ones you approved.
+
+A preview tab you leave open now comes back after a restart when it belongs to
+the node you are still connected and trusted on, instead of only when that node
+happened to be on this computer. A preview belonging to a node you have since
+changed -- or whose key you have re-attached -- is dropped rather than
+reopened against a machine that is no longer yours.
+
+The security rule that has not changed, and will not: a node somewhere else
+must be reached over HTTPS, or through an SSH tunnel to this computer. Home
+refuses to send your API key in the clear over the network, and a shared public
+node is still nobody's to administer. Apps are only offered these features on a
+node where they can actually work.
 
 ## fix(qdn): the publish preview actually opens
 

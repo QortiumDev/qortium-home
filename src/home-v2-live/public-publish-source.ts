@@ -44,6 +44,23 @@ const QdnPublishSource = registerPlugin<QdnPublishSourcePlugin>('QdnPublishSourc
  */
 const ANDROID_PUBLISH_SOURCE_BUDGET_BYTES = 64 * 1024 * 1024
 
+/**
+ * The largest selection Android can actually hold, in DECODED bytes.
+ *
+ * The budget above is measured in base64 characters, which is 4/3 of the file,
+ * so the real ceiling is 48 MiB and not the 100 MiB the desktop picker allows.
+ * Asking the native picker for 100 MiB meant a 60 MiB file was read, encoded,
+ * handed across the bridge and only then refused by the store — the user
+ * having waited through all of it. The limit is now told to the picker, and
+ * checked here with a message that says what it is (security review,
+ * 2026-09-02).
+ */
+export const HOME_V2_ANDROID_PUBLISH_SOURCE_MAX_BYTES =
+  Math.floor(ANDROID_PUBLISH_SOURCE_BUDGET_BYTES / 4) * 3
+
+const ANDROID_SOURCE_TOO_LARGE =
+  'Qortium Home for Android can publish or preview files up to 48 MiB. Choose a smaller file.'
+
 export const homeV2AndroidPublishSources = new HomeV2PublishSourceTokenStore<AndroidPublishSource>(
   HOME_V2_PUBLISH_MULTIPLE_MAX_ITEMS,
   undefined,
@@ -73,11 +90,18 @@ export function decodeHomeV2AndroidPublishSource(value: string) {
 }
 
 export async function selectHomeV2AndroidPublishSource(binding: HomeV2PublishSourceBinding) {
-  const result = await QdnPublishSource.selectFile({ maxBytes: HOME_V2_PUBLISH_SOURCE_MAX_BYTES })
+  const result = await QdnPublishSource.selectFile({
+    maxBytes: HOME_V2_ANDROID_PUBLISH_SOURCE_MAX_BYTES,
+  })
   if (result.canceled) return { canceled: true as const }
   const bytes = decodeHomeV2AndroidPublishSource(result.dataBase64)
   if (!Number.isSafeInteger(result.size) || result.size !== bytes.byteLength) {
     throw new Error('Selected publish source size does not match the native file result.')
+  }
+  // Belt and braces: a native picker that ignored maxBytes must not reach the
+  // store, whose refusal names a budget rather than a limit the user can act on.
+  if (bytes.byteLength > HOME_V2_ANDROID_PUBLISH_SOURCE_MAX_BYTES) {
+    throw new Error(ANDROID_SOURCE_TOO_LARGE)
   }
   const fileName = result.fileName.trim().split(/[\\/]/).pop()?.slice(0, 180) || 'qdn-resource'
   const source = Object.freeze({

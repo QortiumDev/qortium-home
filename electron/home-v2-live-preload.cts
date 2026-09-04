@@ -157,6 +157,9 @@ contextBridge.exposeInMainWorld('homeV2Nodes', {
   ) => ipcRenderer.invoke('home-v2-nodes:setMode', network, mode),
   setCustomUrl: (network: 'qortal' | 'qortium', customUrl: string) =>
     ipcRenderer.invoke('home-v2-nodes:setCustomUrl', network, customUrl),
+  // Read-only: whether the selected Qortium node is one the user administers,
+  // plus its origin and trust revision. Never the key.
+  adminTrust: () => ipcRenderer.invoke('home-v2-nodes:adminTrust'),
 })
 
 // The node administration key travels on its own one-way channel, never

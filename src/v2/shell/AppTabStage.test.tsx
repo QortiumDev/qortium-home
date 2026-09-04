@@ -17,7 +17,7 @@ import {
   setTranslationLanguage,
   subscribeTranslationChange,
 } from '../../i18n'
-import { AppTabStage, androidAppStageKey } from './AppTabStage'
+import { AppTabStage, androidAppStageKey, homeV2AppStageRenderInputs } from './AppTabStage'
 import { createProductState, reduceProductState } from '../product-model'
 import type { ProductState } from '../product-model'
 import { buildAppResourceLocation } from '../resource-location'
@@ -386,12 +386,33 @@ async function testPublishPreviewRendersItsOwnUrlAndRefusesAnotherOrigin(): Prom
   const nodeOrigin = homeV2Fixture.nodes[chat.sourceNetwork].nodeApiUrl
   assert.ok(nodeOrigin, 'the fixture node must have an API URL')
 
-  const openPreview = (previewUrl: string) => {
+  // The binding id of the credential the preview was built against. Since the
+  // 2026-09-02 security review a preview tab is bound to it as well as to the
+  // origin, and re-checked on every render: the node behind an origin can be
+  // re-pointed, or its key re-attached, while the shell is running.
+  const BINDING = 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6'
+  const trustedSnapshot = {
+    ...homeV2Fixture,
+    nodes: {
+      ...homeV2Fixture.nodes,
+      [chat.sourceNetwork]: {
+        ...homeV2Fixture.nodes[chat.sourceNetwork],
+        adminBindingId: BINDING,
+        adminTrusted: true,
+      },
+    },
+  }
+
+  const openPreview = (previewUrl: string, previewTrustRevision: string | null = BINDING) => {
     let state = createProductState()
     state = reduceProductState(state, {
       type: 'open-app',
       app: chat,
-      context: { ...fixtureTabContext(chat, fixtureIds.chatTab), previewUrl },
+      context: {
+        ...fixtureTabContext(chat, fixtureIds.chatTab),
+        previewTrustRevision,
+        previewUrl,
+      },
       tabId: fixtureIds.chatTab,
     })
     return reduceProductState(state, { type: 'activate-tab', tabId: fixtureIds.chatTab })
@@ -406,7 +427,7 @@ async function testPublishPreviewRendersItsOwnUrlAndRefusesAnotherOrigin(): Prom
       root.render(
         React.createElement(AppTabStage, {
           productState: openPreview(`${nodeOrigin}/render/hash/abc123`),
-          snapshot: homeV2Fixture,
+          snapshot: trustedSnapshot,
           requestApp: async () => null,
           onOpenAddress: async () => undefined,
         }),
@@ -429,7 +450,7 @@ async function testPublishPreviewRendersItsOwnUrlAndRefusesAnotherOrigin(): Prom
       root.render(
         React.createElement(AppTabStage, {
           productState: openPreview('http://127.0.0.1:59999/render/hash/abc123'),
-          snapshot: homeV2Fixture,
+          snapshot: trustedSnapshot,
           requestApp: async () => null,
           onOpenAddress: async () => undefined,
         }),
@@ -438,6 +459,93 @@ async function testPublishPreviewRendersItsOwnUrlAndRefusesAnotherOrigin(): Prom
     await act(async () => { await flushAsync() })
     const frame = container.querySelector('iframe.home-v2-app-frame')
     assert.equal(frame, null, 'a preview URL from another origin must be refused')
+    await act(async () => { root.unmount() })
+    container.remove()
+  }
+
+  // The rotation happens WHILE the preview is on screen. That case cannot be
+  // driven through this harness -- unmounting a mounted iframe under jsdom
+  // grows without bound, for any refusal reason, not only this one -- so it is
+  // proved one level in, on the render memo's DEPENDENCY LIST. That is where
+  // the defect was: `resolveRender` always compared the binding id correctly,
+  // but the memo did not list it, so on a key rotated at the SAME origin
+  // nothing in the list moved and the already-rendered preview stayed live
+  // (review round 3).
+  {
+    const productState = openPreview(`${nodeOrigin}/render/hash/abc123`)
+    const inputs = homeV2AppStageRenderInputs(productState, trustedSnapshot)
+    const withRotatedKey = homeV2AppStageRenderInputs(productState, {
+      ...trustedSnapshot,
+      nodes: {
+        ...trustedSnapshot.nodes,
+        [chat.sourceNetwork]: {
+          ...trustedSnapshot.nodes[chat.sourceNetwork],
+          adminBindingId: 'e'.repeat(32),
+        },
+      },
+    })
+    assert.equal(inputs.length, withRotatedKey.length)
+    assert.notDeepEqual(
+      inputs,
+      withRotatedKey,
+      'a key rotated on the same origin must invalidate the render memo',
+    )
+    // The tab's own half of the binding is listed too, so a tab carrying a
+    // different id resolves separately even against one unchanged node.
+    assert.notDeepEqual(
+      inputs,
+      homeV2AppStageRenderInputs(
+        openPreview(`${nodeOrigin}/render/hash/abc123`, 'e'.repeat(32)),
+        trustedSnapshot,
+      ),
+    )
+    // ...while pure telemetry still must NOT invalidate it: node polling
+    // rebuilds the whole snapshot every few seconds, and re-resolving would
+    // hide and re-show the app view under the user.
+    assert.deepEqual(
+      inputs,
+      homeV2AppStageRenderInputs(productState, {
+        ...trustedSnapshot,
+        nodes: {
+          ...trustedSnapshot.nodes,
+          [chat.sourceNetwork]: {
+            ...trustedSnapshot.nodes[chat.sourceNetwork],
+            height: 999_999,
+            lastCheckedAt: Date.now(),
+            peerCount: 42,
+            statusText: 'Online',
+            syncPercent: 100,
+          },
+        },
+      }),
+      'telemetry must not invalidate the render memo',
+    )
+  }
+
+  // Right origin, WRONG credential: the node was re-pointed or its key
+  // re-attached since the preview was built, so this render URL is no longer
+  // one the user authorised. A missing id is refused for the same reason --
+  // the opener requires one, so its absence means the tab predates the binding.
+  for (const staleBinding of ['f'.repeat(32), null]) {
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+    act(() => {
+      root.render(
+        React.createElement(AppTabStage, {
+          productState: openPreview(`${nodeOrigin}/render/hash/abc123`, staleBinding),
+          snapshot: trustedSnapshot,
+          requestApp: async () => null,
+          onOpenAddress: async () => undefined,
+        }),
+      )
+    })
+    await act(async () => { await flushAsync() })
+    assert.equal(
+      container.querySelector('iframe.home-v2-app-frame'),
+      null,
+      `a preview bound to ${String(staleBinding)} must be refused on the current node`,
+    )
     await act(async () => { root.unmount() })
     container.remove()
   }

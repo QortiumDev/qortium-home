@@ -33,6 +33,20 @@ function encodedLength(value: string) {
  * Android uses a dedicated AtomicFile-backed native plugin for this WAL.
  * Capacitor Preferences is intentionally not used: a broadcast gate needs an
  * atomic, synchronously flushed write, not a best-effort preference update.
+ *
+ * The desktop store additionally holds a cross-process lockfile around every
+ * read-modify-write, because two Home instances can be pointed at one userData
+ * directory. Android needs no such lock. The journal lives in the app's
+ * private files directory, which is reachable only by this app's uid, and
+ * Android runs the app in a single process: a second launch resumes the same
+ * process rather than starting another one that could interleave writes. The
+ * remaining concurrency is in-process, and it is closed twice over: `mutate`
+ * serializes read-then-write through `writeChain`, and the native plugin
+ * serializes `read` and `write` on one static monitor, so no two Capacitor
+ * calls can be inside the file at the same moment. If this WAL is ever reached
+ * from a second Android process (a separate `:remote` service process, or a
+ * work-profile clone with a shared data directory), the plugin would need the
+ * same lockfile discipline before that is allowed.
  */
 export function createAndroidForeignWalletTransactionJournalStore(
   plugin: HomeV2ForeignWalletJournalPlugin = HomeV2ForeignWalletJournal,

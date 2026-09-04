@@ -1,8 +1,13 @@
 import { app, safeStorage } from 'electron'
+import { randomBytes } from 'node:crypto'
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 
-import { homeV2NodeOrigin, type HomeV2AttachedAdminKey } from './home-v2-admin-trust.js'
+import {
+  homeV2AdminTrustRevision,
+  homeV2NodeOrigin,
+  type HomeV2AttachedAdminKey,
+} from './home-v2-admin-trust.js'
 import { isHomeV2SecureStorageAvailable } from './home-v2-account-security.js'
 
 /**
@@ -24,12 +29,46 @@ const ADMIN_KEY_FILE = 'home-v2-node-admin-keys.json'
 const ADMIN_KEY_VERSION = 1
 const MAX_API_KEY_LENGTH = 256
 
+/**
+ * A random, credential-independent handle for one attachment.
+ *
+ * Everything that leaves the main process — the adminTrust channel, a
+ * persisted preview tab, an approval token round-tripped through React — names
+ * a credential by this rather than by `homeV2AdminTrustRevision`, which is a
+ * digest of the key and therefore an offline verifier for a weak one
+ * (security review, 2026-09-02). It is minted fresh whenever the key changes,
+ * so it invalidates exactly when the digest would have.
+ */
+export function createHomeV2AdminBindingId() {
+  return randomBytes(16).toString('hex')
+}
+
+function isBindingId(value: unknown): value is string {
+  return typeof value === 'string' && /^[0-9a-f]{32}$/.test(value)
+}
+
 type StoredAdminKey = {
+  bindingId: string
   origin: string
   wrappedKey: string
 }
 
+/**
+ * The managed local Core's binding id.
+ *
+ * Home does not own that Core's credential — Core writes its own apikey.txt —
+ * so there is no attach moment to mint an id at. `keyRevision` is the
+ * main-process-only digest of the key the id was minted for; a key Core
+ * rotated no longer matches it and the id is re-minted. The digest never
+ * leaves this file, which is the same 0600 file the wrapped keys live in.
+ */
+type StoredManagedBinding = {
+  bindingId: string
+  keyRevision: string
+}
+
 type AdminKeyStore = {
+  managed: Record<string, StoredManagedBinding>
   nodes: Record<string, StoredAdminKey>
   version: typeof ADMIN_KEY_VERSION
 }
@@ -43,7 +82,7 @@ function getStorePath() {
 }
 
 function emptyStore(): AdminKeyStore {
-  return { nodes: {}, version: ADMIN_KEY_VERSION }
+  return { managed: {}, nodes: {}, version: ADMIN_KEY_VERSION }
 }
 
 function readStore(): AdminKeyStore {
@@ -55,12 +94,25 @@ function readStore(): AdminKeyStore {
     const nodes: Record<string, StoredAdminKey> = {}
     for (const [network, candidate] of Object.entries(value.nodes)) {
       if (!isRecord(candidate)) continue
-      const { origin, wrappedKey } = candidate
+      const { bindingId, origin, wrappedKey } = candidate
       if (typeof origin === 'string' && origin && typeof wrappedKey === 'string' && wrappedKey) {
-        nodes[network] = { origin, wrappedKey }
+        // A record written before binding ids existed has none; it is minted
+        // on the next read (getHomeV2NodeAdminKey) rather than here, so a
+        // plain read of the store never rewrites the file.
+        nodes[network] = { bindingId: isBindingId(bindingId) ? bindingId : '', origin, wrappedKey }
       }
     }
-    return { nodes, version: ADMIN_KEY_VERSION }
+    const managed: Record<string, StoredManagedBinding> = {}
+    if (isRecord(value.managed)) {
+      for (const [network, candidate] of Object.entries(value.managed)) {
+        if (!isRecord(candidate)) continue
+        const { bindingId, keyRevision } = candidate
+        if (isBindingId(bindingId) && typeof keyRevision === 'string' && keyRevision) {
+          managed[network] = { bindingId, keyRevision }
+        }
+      }
+    }
+    return { managed, nodes, version: ADMIN_KEY_VERSION }
   } catch {
     return emptyStore()
   }
@@ -69,7 +121,7 @@ function readStore(): AdminKeyStore {
 function writeStore(store: AdminKeyStore) {
   const storePath = getStorePath()
   mkdirSync(path.dirname(storePath), { recursive: true })
-  if (Object.keys(store.nodes).length === 0) {
+  if (Object.keys(store.nodes).length === 0 && Object.keys(store.managed).length === 0) {
     // Nothing attached anywhere: remove the file rather than leaving an empty
     // shell that looks like a credential store.
     if (existsSync(storePath)) rmSync(storePath)
@@ -117,6 +169,9 @@ export function setHomeV2NodeAdminKey(network: string, nodeApiUrl: string, apiKe
   }
   const store = readStore()
   store.nodes[network] = {
+    // A NEW id for every attach: replacing a key must invalidate every token
+    // handed out for the old one, exactly as the digest used to.
+    bindingId: createHomeV2AdminBindingId(),
     origin,
     wrappedKey: safeStorage.encryptString(normalized).toString('base64'),
   }
@@ -142,10 +197,51 @@ export function getHomeV2NodeAdminKey(network: string): HomeV2AttachedAdminKey |
   try {
     const apiKey = safeStorage.decryptString(Buffer.from(stored.wrappedKey, 'base64'))
     if (!apiKey) return null
-    return Object.freeze({ apiKey, origin: stored.origin })
+    let bindingId = stored.bindingId
+    if (!bindingId) {
+      // Upgrade in place: a key attached before binding ids existed gets one
+      // now, once, so trust does not silently fail closed for it.
+      bindingId = createHomeV2AdminBindingId()
+      const store = readStore()
+      const record = store.nodes[network]
+      if (record && record.wrappedKey === stored.wrappedKey) {
+        record.bindingId = bindingId
+        writeStore(store)
+      }
+    }
+    return Object.freeze({ apiKey, bindingId, origin: stored.origin })
   } catch {
     return null
   }
+}
+
+/**
+ * The managed local Core's binding id for `apiKey`, minted on first use and
+ * re-minted whenever Core rotates its key.
+ *
+ * MAIN-PROCESS ONLY, like every other function here: it reads the key to
+ * decide whether the stored id is still current.
+ */
+export function getHomeV2ManagedAdminBindingId(
+  network: string,
+  origin: string,
+  apiKey: string,
+): string {
+  if (!origin || !apiKey) return ''
+  const keyRevision = homeV2AdminTrustRevision(origin, apiKey)
+  const store = readStore()
+  const stored = store.managed[network]
+  if (stored && stored.keyRevision === keyRevision) return stored.bindingId
+  const bindingId = createHomeV2AdminBindingId()
+  store.managed[network] = { bindingId, keyRevision }
+  try {
+    writeStore(store)
+  } catch {
+    // A store that cannot be written yields no id, and trust fails closed
+    // rather than handing out an id that will not be there next time.
+    return ''
+  }
+  return bindingId
 }
 
 /** Whether a key is attached, and to which origin — safe for the UI. */
