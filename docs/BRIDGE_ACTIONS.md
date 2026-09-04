@@ -284,16 +284,19 @@ or the reverse. See
 shapes, supported services, Android proxy behavior, compatibility actions, and
 lazy-loading guidance.
 
-`SELECT_QDN_PUBLISH_SOURCE` and `PUBLISH_QDN_RESOURCE` are the Home 2 public
+`SELECT_QDN_PUBLISH_SOURCE` and `PUBLISH_QDN_RESOURCE` are the Home 2 QDN
 publication pair on both globals. They are advertised only while the invoked
 network has a reachable selected route. Selection returns a 30-minute token
 bound to the app, tab, account, chain, and route; no native path or inline
-bytes cross the bridge. Publication always uses a single-request
-`qdn.publish` approval, verifies current name ownership, stages and attests on
-that exact route, signs locally, and returns a transaction signature plus
-SHA-256 content pin. Qortal currently rejects mutable resource metadata. See
-[Home 2 public QDN publishing](QDN_PUBLIC_PUBLISHING.md) for request, result,
-unknown-broadcast, and operator-denial behavior.
+bytes cross the bridge. Desktop Qortium uses the streamed authenticated
+builder and its node-advertised limit when that exact route is admin-trusted;
+otherwise the existing keyless public builder and public limit remain in use.
+Publication always uses a single-request `qdn.publish` approval, verifies
+current name ownership, stages and attests on that exact route, signs locally,
+and returns a transaction signature plus SHA-256 content pin. Qortal currently
+rejects mutable resource metadata. See [Home 2 QDN publishing](QDN_PUBLIC_PUBLISHING.md)
+for request, result, route selection, unknown-broadcast, and operator-denial
+behavior.
 
 `STAGE_QDN_PUBLISH_SOURCE` complements the picker for bytes an app already
 legitimately holds — a pasted screenshot or a drag-dropped file. The app sends
@@ -421,11 +424,11 @@ projection to each row:
     "implemented": true,
     "read": true,
     "receive": true,
-    "send": false,
+    "send": true,
     "requiresUnlockedAccount": true,
     "readMode": "TRUSTED_CORE",
     "receiveMode": "HOME_LOCAL",
-    "sendMode": "NONE",
+    "sendMode": "HOME_LOCAL",
     "serverManagement": true,
     "serverManagementMode": "TRUSTED_CORE"
   }
@@ -439,10 +442,12 @@ Home itself:
 
 - QORT uses `HOME_SIGNED_PUBLIC_NODE`: Home signs locally and submits only
   signed bytes to a Qortal public node.
-- BTC, LTC, DOGE, DGB, RVN, DASH, NMC, and FIRO use `HOME_LOCAL` receive and
-  `TRUSTED_CORE` read/server-management modes. Foreign send is deliberately
-  unadvertised (`send: false`, `sendMode: "NONE"`) until Home-local signing,
-  approval, journaling, and final-raw-transaction broadcast are wired.
+- BTC, LTC, DOGE, DGB, RVN, DASH, NMC, and FIRO use `HOME_LOCAL` receive/send
+  and `TRUSTED_CORE` read/server-management modes. On desktop and Android,
+  foreign send is advertised only while the selected account is unlocked and
+  the authenticated Core positively proves the spend-context route exists.
+  Home plans and signs locally, durably journals before the one broadcast, and
+  sends Core only the final raw transaction.
 - Other and unknown currency codes fail closed with all operation flags false
   and `sendMode: "NONE"`.
 
@@ -451,6 +456,10 @@ override runtime node-mode checks, wallet lock state, Core enablement, funds,
 fees, or server availability. Apps must handle those operation-time failures.
 See [Coin support matrix](COIN_SUPPORT_MATRIX.md) for the tracked implementation
 and acceptance status.
+
+The JSON above illustrates the runtime-ready case. Without the unlocked account,
+authenticated Core, or positive route probe, the same projection returns
+`send: false` and `sendMode: "NONE"`.
 
 The current Bitcoin-family read actions accept `coin` (or the compatibility
 alias `blockchain`) for BTC, LTC, DOGE, DGB, RVN, DASH, NMC, and FIRO:

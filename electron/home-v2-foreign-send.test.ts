@@ -250,6 +250,7 @@ type HarnessOptions = {
   broadcast?: (attempt: number) => unknown
   cleanupThrows?: boolean
   isStillValid?: () => Promise<boolean>
+  asyncJournal?: boolean
   recordSignedThrows?: boolean
   routes?: readonly { nodeApiUrl: string; revision: string }[]
   spendContexts?: readonly unknown[]
@@ -270,6 +271,8 @@ function createHarness(options: HarnessOptions = {}) {
 
   const routes = options.routes ?? [{ nodeApiUrl: 'http://127.0.0.1:24891', revision: 'rev-1' }]
   const spendContexts = options.spendContexts ?? [DEFAULT_CONTEXT, DEFAULT_CONTEXT]
+  const journalOperation = <T>(operation: () => T): T | Promise<T> =>
+    options.asyncJournal ? Promise.resolve().then(operation) : operation()
 
   const deps: HomeV2ForeignSendDeps = {
     appIdentity: options.appIdentity ?? 'qortium://APP/Wallet',
@@ -280,7 +283,7 @@ function createHarness(options: HarnessOptions = {}) {
     crypto: cryptoAdapter,
     isStillValid: options.isStillValid ?? (async () => true),
     journal: {
-      confirmBroadcastSuccess: (key, returnedTxId) => {
+      confirmBroadcastSuccess: (key, returnedTxId) => journalOperation(() => {
         if (options.cleanupThrows) {
           return { cleanupError: 'journal file is read-only', journalCleared: false }
         }
@@ -293,23 +296,23 @@ function createHarness(options: HarnessOptions = {}) {
             journalCleared: false,
           }
         }
-      },
-      clearReconciled: (key, observedTxId) => {
+      }),
+      clearReconciled: (key, observedTxId) => journalOperation(() => {
         journal = clearReconciledForeignWalletPendingTransaction(journal, key, observedTxId)
         return journal
-      },
-      findConflict: (input) => findForeignWalletPendingTransactionConflict(journal, input),
-      listPending: (input) => selectForeignWalletPendingTransactions(journal, input),
-      recordBroadcastAttempt: (key, now) => {
+      }),
+      findConflict: (input) => journalOperation(() => findForeignWalletPendingTransactionConflict(journal, input)),
+      listPending: (input) => journalOperation(() => selectForeignWalletPendingTransactions(journal, input)),
+      recordBroadcastAttempt: (key, now) => journalOperation(() => {
         journal = markForeignWalletBroadcastAttempted(journal, key, now)
         return journal
-      },
-      recordSigned: (entry) => {
+      }),
+      recordSigned: (entry) => journalOperation(() => {
         if (options.recordSignedThrows) throw new Error('journal write failed')
         journal = addSignedForeignWalletPendingTransaction(journal, entry)
         return journal
-      },
-      releaseNeverBroadcast: (key, releasedAt) => {
+      }),
+      releaseNeverBroadcast: (key, releasedAt) => journalOperation(() => {
         journal = releaseNeverBroadcastForeignWalletPendingTransaction(
           journal,
           key,
@@ -317,7 +320,7 @@ function createHarness(options: HarnessOptions = {}) {
           FOREIGN_WALLET_SEND_FRESHNESS_MS,
         )
         return journal
-      },
+      }),
     },
     now: () => clock,
     readWalletHistory: async () => {
@@ -414,6 +417,17 @@ assert.equal(success.result.transactionHash, success.result.txId)
 assert.equal(success.harness.entries().length, 0)
 assert.equal(success.harness.broadcastCount(), 1)
 assert.equal(success.harness.approvals.length, 1)
+
+// Android's AtomicFile bridge resolves each journal transition
+// asynchronously. The same orchestrator must wait for those durable writes
+// before the one broadcast and still clear on an exact acknowledgement.
+{
+  const harness = createHarness({ asyncJournal: true, broadcast: () => SIGNED_TX_ID })
+  const result = await executeHomeV2ForeignSend(FIXED_SEND, harness.deps)
+  assert.equal(result.accepted, true)
+  assert.equal(harness.broadcastCount(), 1)
+  assert.equal(harness.entries().length, 0)
+}
 
 // The result NEVER carries the two fields the native Base58 journal keys on.
 assert.equal('outcome' in success.result, false)
@@ -866,7 +880,7 @@ const STALE_TX_ID = 'ee'.repeat(32)
 // Case 12: a failed write-ahead means nothing is broadcast.
 
 {
-  const harness = createHarness({ recordSignedThrows: true })
+  const harness = createHarness({ asyncJournal: true, recordSignedThrows: true })
   const error = await rejection(executeHomeV2ForeignSend(FIXED_SEND, harness.deps))
   assert.match(error.message, /journal write failed/)
   assert.equal(broadcastPosts(harness.posts).length, 0)

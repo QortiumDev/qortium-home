@@ -8,6 +8,36 @@ type ForeignWalletOperationIdentity = Pick<
   'chainId' | 'coin' | 'walletFingerprint'
 >
 
+export const FOREIGN_SEND_IN_PROGRESS_CODE = 'FOREIGN_SEND_IN_PROGRESS'
+
+const IN_PROGRESS_MESSAGE =
+  'Another foreign wallet operation is already in progress for this wallet and coin.'
+
+/**
+ * Raised when a second spend is attempted against a wallet/coin/chain that is
+ * already being planned or signed. Callers classify it by type or by `code`,
+ * never by its wording: the user-facing message belongs to the copy, not to
+ * the control flow.
+ */
+export class ForeignWalletOperationInProgressError extends Error {
+  readonly code = FOREIGN_SEND_IN_PROGRESS_CODE
+
+  constructor(message: string = IN_PROGRESS_MESSAGE) {
+    super(message)
+    this.name = 'ForeignWalletOperationInProgressError'
+  }
+}
+
+export function isForeignWalletOperationInProgressError(
+  error: unknown,
+): error is ForeignWalletOperationInProgressError {
+  if (error instanceof ForeignWalletOperationInProgressError) return true
+  // A bundled copy of this module can produce a structurally identical error
+  // that fails instanceof, so the code is checked too.
+  return error instanceof Error
+    && (error as { code?: unknown }).code === FOREIGN_SEND_IN_PROGRESS_CODE
+}
+
 /**
  * Serializes a wallet/coin/chain spend across every app in one Home process.
  * This is deliberately independent of app identity: two apps must not race to
@@ -23,7 +53,7 @@ export function createForeignWalletOperationLock() {
   ): Promise<T> {
     const key = getForeignWalletOperationKey(identity)
     if (active.has(key)) {
-      throw new Error('Another foreign wallet operation is already in progress for this wallet and coin.')
+      throw new ForeignWalletOperationInProgressError()
     }
     active.add(key)
     try {

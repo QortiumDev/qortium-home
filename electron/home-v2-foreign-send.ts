@@ -111,7 +111,6 @@ export type HomeV2ForeignSendApprovalMeta = Readonly<{
 }>
 
 export type HomeV2ForeignSendRoute = Readonly<{
-  apiKey: string
   nodeApiUrl: string
   revision: string
   routeLabel: string
@@ -121,6 +120,8 @@ export type HomeV2ForeignSendJournalKey = Pick<
   ForeignWalletPendingTransaction,
   'chainId' | 'coin' | 'txId' | 'walletFingerprint'
 >
+
+type MaybePromise<T> = T | Promise<T>
 
 export type HomeV2ForeignSendDeps = Readonly<{
   appIdentity: string
@@ -134,19 +135,19 @@ export type HomeV2ForeignSendDeps = Readonly<{
     confirmBroadcastSuccess(
       key: HomeV2ForeignSendJournalKey,
       returnedTxId: unknown,
-    ): { readonly cleanupError?: string; readonly journalCleared: boolean }
-    clearReconciled(key: HomeV2ForeignSendJournalKey, observedTxId: string): unknown
-    releaseNeverBroadcast(key: HomeV2ForeignSendJournalKey, now: number): unknown
+    ): MaybePromise<{ readonly cleanupError?: string; readonly journalCleared: boolean }>
+    clearReconciled(key: HomeV2ForeignSendJournalKey, observedTxId: string): MaybePromise<unknown>
+    releaseNeverBroadcast(key: HomeV2ForeignSendJournalKey, now: number): MaybePromise<unknown>
     findConflict(input: Pick<
       ForeignWalletPendingTransaction,
       'chainId' | 'coin' | 'outpoints' | 'walletFingerprint'
-    >): ForeignWalletPendingTransaction | undefined
+    >): MaybePromise<ForeignWalletPendingTransaction | undefined>
     listPending(input: Pick<
       ForeignWalletPendingTransaction,
       'chainId' | 'coin' | 'walletFingerprint'
-    >): readonly ForeignWalletPendingTransaction[]
-    recordBroadcastAttempt(key: HomeV2ForeignSendJournalKey, now: number): unknown
-    recordSigned(entry: ForeignWalletPendingTransaction): unknown
+    >): MaybePromise<readonly ForeignWalletPendingTransaction[]>
+    recordBroadcastAttempt(key: HomeV2ForeignSendJournalKey, now: number): MaybePromise<unknown>
+    recordSigned(entry: ForeignWalletPendingTransaction): MaybePromise<unknown>
   }>
   now(): number
   // The wallet's own confirmed/unconfirmed history, used ONLY to settle a
@@ -416,7 +417,7 @@ export async function executeHomeV2ForeignSend(
     // state or asking the user. A retained entry means a signed transaction
     // whose fate Home could not prove; the only thing that clears it is
     // finding that exact transaction id in the wallet's own history.
-    const pending = deps.journal.listPending({ chainId, coin, walletFingerprint })
+    const pending = await deps.journal.listPending({ chainId, coin, walletFingerprint })
     if (pending.length > 0) {
       const outcome = await reconcileForeignWalletPendingTransactions(pending, {
         clear: (entry, observedTxId) => deps.journal.clearReconciled(
@@ -452,7 +453,7 @@ export async function executeHomeV2ForeignSend(
     // Before the user is asked anything: an unreconciled signed transaction
     // already claims one of these outputs. Planning past it would build a
     // double spend of Home's own making.
-    const conflict = deps.journal.findConflict({
+    const conflict = await deps.journal.findConflict({
       chainId,
       coin,
       outpoints: outpointsOf(plan),
@@ -509,9 +510,10 @@ export async function executeHomeV2ForeignSend(
     // seconds, and the checks BEFORE it are stale by the time it returns: the
     // app could have navigated, the account could have locked, the node could
     // have been swapped. These two are therefore repeated as the LAST awaits
-    // in the whole function. Everything from here to the broadcast — signing,
-    // the write-ahead record and the attempt marker — is synchronous, so no
-    // further drift can open between the final check and the signature.
+    // before the signature. Android's native AtomicFile journal transitions
+    // are awaited after signing; that cannot alter the already-approved bytes,
+    // and the native transport independently refuses a changed credential
+    // binding before it sends anything.
     const routeFinal = await deps.resolveRoute()
     if (routeFinal.revision !== route.revision || routeFinal.nodeApiUrl !== route.nodeApiUrl) {
       throw new Error('The selected Qortium node or its API key changed before the foreign send could be signed.')
@@ -561,7 +563,7 @@ export async function executeHomeV2ForeignSend(
     // WRITE AHEAD. If this throws, nothing has been broadcast and nothing
     // will be: a transaction whose existence cannot be remembered must not
     // be put on a network that will remember it.
-    deps.journal.recordSigned({
+    await deps.journal.recordSigned({
       appIdentity: deps.appIdentity,
       chainId,
       coin,
@@ -586,7 +588,7 @@ export async function executeHomeV2ForeignSend(
 
     // Marked attempted BEFORE the request leaves, so a crash mid-flight is
     // indistinguishable from a timeout: both leave a retained entry.
-    deps.journal.recordBroadcastAttempt(journalKey, deps.now())
+    await deps.journal.recordBroadcastAttempt(journalKey, deps.now())
     let returned: unknown
     try {
       returned = await deps.postTrusted(
@@ -629,7 +631,7 @@ export async function executeHomeV2ForeignSend(
     // Core returned the exact locally computed txid: the broadcast is
     // confirmed. A failure to CLEAN UP the journal afterwards must never
     // downgrade that into a failed send.
-    const cleanup = deps.journal.confirmBroadcastSuccess(journalKey, returnedTxId)
+    const cleanup = await deps.journal.confirmBroadcastSuccess(journalKey, returnedTxId)
     return Object.freeze({
       ...base,
       accepted: true as const,
