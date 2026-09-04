@@ -1,6 +1,13 @@
 import * as fs from 'node:fs'
 import path from 'node:path'
 import {
+  FOREIGN_JOURNAL_LOCKED_CODE,
+  withFileLock,
+  writeDurableFile,
+  type DurableFileOps,
+  type JournalLockOptions,
+} from './durable-json-file.js'
+import {
   addSignedForeignWalletPendingTransaction,
   clearReconciledForeignWalletPendingTransaction,
   confirmForeignWalletBroadcastSuccess,
@@ -17,16 +24,7 @@ import {
 
 const STORE_FILE = 'home-v2-pending-foreign-transactions.json'
 
-type ForeignWalletJournalFileOps = Pick<typeof fs,
-  | 'closeSync'
-  | 'existsSync'
-  | 'fsyncSync'
-  | 'openSync'
-  | 'readFileSync'
-  | 'renameSync'
-  | 'rmSync'
-  | 'writeFileSync'
->
+type ForeignWalletJournalFileOps = DurableFileOps
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error)
@@ -34,17 +32,30 @@ function errorMessage(error: unknown) {
 
 /**
  * A synchronous store keeps each read/check/write transition indivisible in
- * Electron's main process. The injected operations exist for deterministic
- * durability fault tests; production uses Node's real filesystem operations.
+ * Electron's main process. Every transition additionally runs under a
+ * cross-process lockfile, because two Home instances sharing one userData
+ * directory would otherwise interleave read and write and let the later write
+ * drop the earlier instance's entry, defeating the conflict check that gates a
+ * broadcast. The injected operations exist for deterministic durability fault
+ * tests; production uses Node's real filesystem operations.
  */
 export function createForeignWalletTransactionJournalStore(
   fileOps: ForeignWalletJournalFileOps = fs,
+  lockOptions: Omit<JournalLockOptions, 'code' | 'fileOps'> = {},
 ) {
   function storePath(userData: string) {
     return path.join(userData, STORE_FILE)
   }
 
-  function read(userData: string) {
+  function withLock<T>(userData: string, run: () => T) {
+    return withFileLock(storePath(userData), run, {
+      ...lockOptions,
+      code: FOREIGN_JOURNAL_LOCKED_CODE,
+      fileOps,
+    })
+  }
+
+  function readUnlocked(userData: string) {
     const target = storePath(userData)
     if (!fileOps.existsSync(target)) return createEmptyForeignWalletTransactionJournal()
     const raw = fileOps.readFileSync(target)
@@ -58,13 +69,10 @@ export function createForeignWalletTransactionJournalStore(
     }
   }
 
-  function syncDirectory(directory: string) {
-    const descriptor = fileOps.openSync(directory, 'r')
-    try {
-      fileOps.fsyncSync(descriptor)
-    } finally {
-      fileOps.closeSync(descriptor)
-    }
+  function read(userData: string) {
+    // Reads feed conflict and reconciliation decisions that authorize a later
+    // write, so they are taken under the same lock as the writes.
+    return withLock(userData, () => readUnlocked(userData))
   }
 
   function write(userData: string, value: unknown) {
@@ -74,36 +82,21 @@ export function createForeignWalletTransactionJournalStore(
       throw new Error('Pending foreign transaction journal exceeds its size limit.')
     }
     const target = storePath(userData)
-    const directory = path.dirname(target)
-    const staging = `${target}.tmp-${process.pid}-${process.hrtime.bigint()}`
-    if (!fileOps.existsSync(directory)) {
+    if (!fileOps.existsSync(path.dirname(target))) {
       throw new Error('Pending foreign transaction journal directory is unavailable.')
     }
-    let descriptor: number | undefined
-    try {
-      descriptor = fileOps.openSync(staging, 'wx', 0o600)
-      fileOps.writeFileSync(descriptor, raw, { encoding: 'utf8' })
-      fileOps.fsyncSync(descriptor)
-      const writtenDescriptor = descriptor
-      descriptor = undefined
-      fileOps.closeSync(writtenDescriptor)
-      fileOps.renameSync(staging, target)
-      // Fail closed if this platform/filesystem cannot prove durable rename
-      // metadata. Foreign send remains disabled there until a native durable
-      // store is supplied; silently weakening a financial WAL is not allowed.
-      syncDirectory(directory)
-    } finally {
-      if (descriptor !== undefined) fileOps.closeSync(descriptor)
-      fileOps.rmSync(staging, { force: true })
-    }
+    // Fail closed if this platform/filesystem cannot prove durable rename
+    // metadata. Foreign send remains disabled there until a native durable
+    // store is supplied; silently weakening a financial WAL is not allowed.
+    writeDurableFile(target, raw, { directorySync: 'required', fileOps, mode: 0o600 })
     return journal
   }
 
   function recordSigned(userData: string, entry: ForeignWalletPendingTransaction) {
-    return write(
+    return withLock(userData, () => write(
       userData,
-      addSignedForeignWalletPendingTransaction(read(userData), entry),
-    )
+      addSignedForeignWalletPendingTransaction(readUnlocked(userData), entry),
+    ))
   }
 
   function recordBroadcastAttempt(
@@ -111,10 +104,10 @@ export function createForeignWalletTransactionJournalStore(
     input: Pick<ForeignWalletPendingTransaction, 'chainId' | 'coin' | 'txId' | 'walletFingerprint'>,
     now = Date.now(),
   ) {
-    return write(
+    return withLock(userData, () => write(
       userData,
-      markForeignWalletBroadcastAttempted(read(userData), input, now),
-    )
+      markForeignWalletBroadcastAttempted(readUnlocked(userData), input, now),
+    ))
   }
 
   function confirmBroadcastSuccess(
@@ -124,8 +117,10 @@ export function createForeignWalletTransactionJournalStore(
   ) {
     normalizeConfirmedForeignWalletTransactionId(input.txId, returnedTxId)
     try {
-      const next = confirmForeignWalletBroadcastSuccess(read(userData), input, returnedTxId)
-      write(userData, next)
+      withLock(userData, () => write(
+        userData,
+        confirmForeignWalletBroadcastSuccess(readUnlocked(userData), input, returnedTxId),
+      ))
       return Object.freeze({ journalCleared: true as const })
     } catch (error) {
       // Core already returned the exact locally computed txid. Cleanup failure
@@ -142,10 +137,10 @@ export function createForeignWalletTransactionJournalStore(
     input: Pick<ForeignWalletPendingTransaction, 'chainId' | 'coin' | 'txId' | 'walletFingerprint'>,
     observedTxId: unknown,
   ) {
-    return write(
+    return withLock(userData, () => write(
       userData,
-      clearReconciledForeignWalletPendingTransaction(read(userData), input, observedTxId),
-    )
+      clearReconciledForeignWalletPendingTransaction(readUnlocked(userData), input, observedTxId),
+    ))
   }
 
   function releaseNeverBroadcast(
@@ -154,25 +149,27 @@ export function createForeignWalletTransactionJournalStore(
     now: number,
     minimumAgeMs: number,
   ) {
-    return write(
+    return withLock(userData, () => write(
       userData,
-      releaseNeverBroadcastForeignWalletPendingTransaction(read(userData), input, now, minimumAgeMs),
-    )
+      releaseNeverBroadcastForeignWalletPendingTransaction(readUnlocked(userData), input, now, minimumAgeMs),
+    ))
   }
 
   function listPending(
     userData: string,
     input?: Pick<ForeignWalletPendingTransaction, 'chainId' | 'coin' | 'walletFingerprint'>,
   ) {
-    const journal = read(userData)
-    return input ? selectForeignWalletPendingTransactions(journal, input) : journal.entries
+    return withLock(userData, () => {
+      const journal = readUnlocked(userData)
+      return input ? selectForeignWalletPendingTransactions(journal, input) : journal.entries
+    })
   }
 
   function findConflict(
     userData: string,
     input: Pick<ForeignWalletPendingTransaction, 'chainId' | 'coin' | 'outpoints' | 'walletFingerprint'>,
   ) {
-    return findForeignWalletPendingTransactionConflict(read(userData), input)
+    return withLock(userData, () => findForeignWalletPendingTransactionConflict(readUnlocked(userData), input))
   }
 
   return Object.freeze({

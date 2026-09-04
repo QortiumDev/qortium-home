@@ -3,6 +3,10 @@ import * as fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
+import {
+  FOREIGN_JOURNAL_LOCKED_CODE,
+  isJournalLockedError,
+} from './durable-json-file.js'
 import { getForeignWalletMainnetChainId } from './foreign-wallet-spend-context.js'
 import {
   confirmStoredForeignWalletBroadcastSuccess,
@@ -196,5 +200,53 @@ assert.throws(
   /size limit/,
 )
 assert.equal(fs.readFileSync(byteLimitStore, 'utf8'), priorRaw)
+
+// A journal held by another live Home instance fails closed with the coded
+// error after a bounded wait, and never records a signed transaction.
+const contendedUserData = fs.mkdtempSync(path.join(os.tmpdir(), 'home-v2-foreign-journal-contended-'))
+const contendedLock = path.join(contendedUserData, 'home-v2-pending-foreign-transactions.json.lock')
+fs.writeFileSync(contendedLock, `${JSON.stringify({
+  acquiredAt: Date.now(),
+  host: os.hostname(),
+  pid: process.pid,
+  token: 'other-instance-token',
+})}\n`, { encoding: 'utf8', mode: 0o600 })
+let contendedElapsed = 0
+const contendedStore = createForeignWalletTransactionJournalStore(fs, {
+  now: () => Date.now() + contendedElapsed,
+  sleep: (milliseconds) => { contendedElapsed += milliseconds },
+})
+let contendedError: unknown
+try {
+  contendedStore.recordSigned(contendedUserData, entry)
+} catch (error) {
+  contendedError = error
+}
+assert.equal(isJournalLockedError(contendedError), true)
+assert.equal((contendedError as { code: string }).code, FOREIGN_JOURNAL_LOCKED_CODE)
+assert.ok(contendedElapsed >= 10_000)
+assert.equal(
+  fs.existsSync(path.join(contendedUserData, 'home-v2-pending-foreign-transactions.json')),
+  false,
+)
+// The other instance still holds its lock.
+assert.equal(
+  (JSON.parse(fs.readFileSync(contendedLock, 'utf8')) as { token: string }).token,
+  'other-instance-token',
+)
+
+// A lock left behind by a Home instance that is gone is taken over, so a
+// crashed instance cannot wedge sending forever.
+const staleLockUserData = fs.mkdtempSync(path.join(os.tmpdir(), 'home-v2-foreign-journal-stale-lock-'))
+const staleLock = path.join(staleLockUserData, 'home-v2-pending-foreign-transactions.json.lock')
+fs.writeFileSync(staleLock, `${JSON.stringify({
+  acquiredAt: 1_000,
+  host: os.hostname(),
+  pid: 2 ** 31 - 1,
+  token: 'dead-instance-token',
+})}\n`, { encoding: 'utf8', mode: 0o600 })
+recordSignedForeignWalletPendingTransaction(staleLockUserData, entry)
+assert.equal(readForeignWalletTransactionJournal(staleLockUserData).entries.length, 1)
+assert.equal(fs.existsSync(staleLock), false)
 
 console.log('Foreign wallet transaction journal store tests passed.')
