@@ -300,8 +300,14 @@ import {
 } from './home-v2-qortal-private-group-publish.js'
 import { selectHomeV2DesktopPublishSource } from './home-v2-desktop-publish-source.js'
 import {
+  HOME_V2_PUBLISH_BATCH_MAX_TOTAL_BYTES,
+  HOME_V2_PUBLISH_DIRECTORY_LIMITS,
+  getRequestedHomeV2PublishIncludeHidden,
   getRequestedHomeV2PublishSourceKind,
   homeV2DesktopPublishSources,
+  prepareHomeV2PublishArtifact,
+  prepareTrackedHomeV2PublishArtifact,
+  type HomeV2PublishArtifact,
   homeV2PublishPreviewTempAncestor,
   homeV2PublishSourceError,
   isHomeV2PublishSourceError,
@@ -311,6 +317,8 @@ import {
   readHomeV2DesktopPublishSource,
 } from './home-v2-publish-source-selection.js'
 import { normalizeHomeV2PublishBlobRequest } from './home-v2-publish-blob-source.js'
+import { releaseQdnPreviewStagingDir } from './qdn-preview-staging.js'
+import { isQdnBrowserArchiveService } from './qdn-browser-archive-services.js'
 import { spoolHomeV2PreviewArchive } from './home-v2-preview-archive.js'
 import {
   HOME_V2_PREVIEW_TOO_LARGE,
@@ -684,6 +692,15 @@ const CHAT_WRITE_TIMEOUT_MS = 30_000
 const CHAT_SIGNING_RESPONSE_MAX_BYTES = 256 * 1024
 const DIRECT_CHAT_READ_RESPONSE_MAX_BYTES = 1024 * 1024
 const PRIVATE_GROUP_CHAT_READ_RESPONSE_MAX_BYTES = 2 * 1024 * 1024
+
+// Every encryption path this action can reach (direct/group chat, Qortal
+// hub-compatible IMAGE) enforces a 1 MiB ciphertext cap
+// (PRIVATE_CHAT_ATTACHMENT_MAX_ENVELOPE_BYTES /
+// QORTAL_PRIVATE_GROUP_MAX_ATTACHMENT_CIPHERTEXT_BYTES) - this exists to
+// fail fast before the expensive hash/encrypt work below, with modest
+// headroom over that real cap for encryption/framing overhead, not to
+// duplicate Core's own precise validation, which still applies afterward.
+const PRIVATE_ATTACHMENT_SOURCE_MAX_BYTES = 1536 * 1024
 
 type AccountReadAction =
   // Uses the account key but reads no account data and signs nothing: it
@@ -1441,6 +1458,11 @@ async function requireAccountReadPermission(
   } | {
     readonly kind: 'publish'
     readonly contentHash: string
+    // Folder publishes only: what the packaged archive holds. Absent for a
+    // single file or staged bytes, where the name and hash already say it.
+    readonly entryCount?: number
+    readonly excludedCount?: number
+    readonly hiddenCount?: number
     readonly fileName: string
     readonly operationLabel: string
     readonly resourceCoordinate: string
@@ -1940,7 +1962,10 @@ async function requireAccountReadPermission(
             ? {
                 writeKind: 'publish',
                 publishContentHash: writeDetails.contentHash,
+                publishEntryCount: writeDetails.entryCount ?? null,
+                publishExcludedCount: writeDetails.excludedCount ?? null,
                 publishFee: writeDetails.fee ?? null,
+                publishHiddenCount: writeDetails.hiddenCount ?? null,
                 publishFileName: writeDetails.fileName,
                 publishMetadataCategory: writeDetails.metadataCategory ?? null,
                 publishMetadataDescription: writeDetails.metadataDescription ?? null,
@@ -2389,6 +2414,28 @@ const HOME_V2_PREVIEW_NODE_TOO_OLD =
  * sentences and pass through; everything else is logged in the main process
  * and replaced with one of the constants above.
  */
+/**
+ * The same rule for the PUBLISH path's source handling: this module's own
+ * refusals are fixed, path-free sentences and pass through, and anything else
+ * - a raw `ENOENT: ... /home/<user>/...` from a stat or an open that slipped
+ * past a local catch - is logged in the main process and replaced. Applied
+ * narrowly, around packaging and reading only: the token store's own messages
+ * ("Selected publish source expired.") are untagged, path-free and worth
+ * showing, and they are raised before this wraps anything.
+ */
+const HOME_V2_PUBLISH_SOURCE_UNREADABLE =
+  'Home could not read the selected publish source. Select it again.'
+
+async function withHomeV2PublishSourceErrors<T>(operation: () => Promise<T>): Promise<T> {
+  try {
+    return await operation()
+  } catch (error) {
+    if (isHomeV2PublishSourceError(error)) throw error
+    console.warn('[home-v2-app] QDN publish source could not be read:', error)
+    throw new Error(HOME_V2_PUBLISH_SOURCE_UNREADABLE)
+  }
+}
+
 function homeV2PreviewFailure(error: unknown, fallbackMessage: string) {
   if (isHomeV2PublishSourceError(error)) return error
   console.warn('[home-v2-app] QDN publish preview failed:', error)
@@ -2659,7 +2706,15 @@ async function previewHomeV2PublishSource(
     // Core has already built and cached the preview by hash by the time the
     // POST returns (ArbitraryResource.previewUpload says so explicitly), so the
     // staged copy of the user's unpublished content need not outlive the call.
-    await Promise.all([...stagingDirs].map(removeHomeV2PublishPreviewStagingDir))
+    await Promise.all([...stagingDirs].map(async (stagingDir) => {
+      await removeHomeV2PublishPreviewStagingDir(stagingDir)
+      // qdn.ts's stager tracks the directory it made against the path it was
+      // given, and Home 2 gives it a fresh mkdtemp path every time, so nothing
+      // there would ever replace this entry. Removing the directory without
+      // dropping the entry would leave the map growing once per preview, for
+      // the life of the process, on an action that needs no permission.
+      releaseQdnPreviewStagingDir(stagingDir)
+    }))
   }
 }
 
@@ -2695,10 +2750,11 @@ type HomeV2ResolvedQdnPublishRoute = Readonly<{
 async function resolveHomeV2QdnPublishRoute(
   network: HomeV2AppNetwork,
   node: { mode: string; nodeApiUrl: string },
+  forcePublic = false,
 ): Promise<HomeV2ResolvedQdnPublishRoute> {
   const admin = network === 'qortium' ? await resolveHomeV2AdminNode('qortium') : null
   const authenticated = Boolean(
-    admin && shouldUseAuthenticatedQdnPublish(network, admin.trust) &&
+    !forcePublic && admin && shouldUseAuthenticatedQdnPublish(network, admin.trust) &&
     admin.node.mode === node.mode && admin.node.nodeApiUrl === node.nodeApiUrl,
   )
   const limit = await getHomeV2QdnPublishLimit(
@@ -2724,17 +2780,33 @@ async function selectHomeV2PublicPublishSource(
   // `kind` was dropped when this action was ported, so every app got a file
   // picker no matter what it asked for. It is honoured again here (1.x
   // getRequestedQdnPublishSourceKind), defaulting to 'file' so the publish
-  // flows behave exactly as before.
+  // flows behave exactly as before. ONE parser, in the selection module.
   const kind = getRequestedHomeV2PublishSourceKind(requestValue)
+  // Folder sources and the node-discovered ceiling are Qortium-only:
+  // publishQortium is the only publish path that understands isZip, previewing
+  // is off the Qortal catalogue entirely (it needs a local Core Home has no
+  // write key for on that route), and Qortal's base64-body upload has its own
+  // separate size ceiling (a V8 string-length limit around 384 MiB) that a
+  // Qortium-derived ceiling could exceed. Qortal keeps exactly its
+  // pre-existing behaviour: files only, 100 MiB.
+  if (kind === 'directory' && network !== 'qortium') {
+    throw new Error('Folder publish sources are available on Qortium only. Ask for a file.')
+  }
   const node = await getHomeV2ReadableNode(network)
-  const publishRoute = await resolveHomeV2QdnPublishRoute(network, node)
+  // Folder archives use the public keyless route. That route understands
+  // isZip/unpackZip and Home can attest the resulting multi-file resource;
+  // the authenticated streaming attester currently proves single files.
+  const publishRoute = await resolveHomeV2QdnPublishRoute(network, node, kind === 'directory')
   return selectHomeV2DesktopPublishSource(context.windowId, homeV2PublishSourceBinding({
     context,
     network,
     nodeApiUrl: node.nodeApiUrl,
     protocol,
     routeRevision,
-  }), kind, publishRoute.limit.maximumBytes)
+  }), kind, {
+    ...HOME_V2_PUBLISH_DIRECTORY_LIMITS,
+    maximumFileBytes: publishRoute.limit.maximumBytes,
+  })
 }
 
 async function publishHomeV2PublicPublishSource(
@@ -2765,17 +2837,44 @@ async function publishHomeV2PublicPublishSource(
     routeRevision,
   })
   const source = homeV2DesktopPublishSources.resolve(request.sourceToken, binding)
-  const publishRoute = await resolveHomeV2QdnPublishRoute(network, node)
+  // Folder sources are Qortium-only (see selectHomeV2PublicPublishSource): the
+  // isZip upload and the unpackZip attestation both exist on that path alone.
+  if (source.kind === 'directory' && network !== 'qortium') {
+    throw new Error('Folder publish sources are available on Qortium only. Select a file to publish.')
+  }
+  const publishRoute = await resolveHomeV2QdnPublishRoute(network, node, source.kind === 'directory')
   if (source.size > publishRoute.limit.maximumBytes) {
     throw new Error(`Selected publish source is too large: ${homeV2QdnPublishLimitMessage(publishRoute.limit)}.`)
   }
+  const includeHidden = getRequestedHomeV2PublishIncludeHidden(requestValue)
+  // Only a SITE needs an index file. The browser-archive services are the ones
+  // Home renders through an HTML entry point (and WEBSITE is the one Core
+  // validates an index for), so a folder published as one of those must hold
+  // one; a VIDEO, AUDIO or DOCUMENT bundle - a media file with its poster and
+  // captions - must not be made to invent one. The service is known here and
+  // nowhere earlier, which is why the picker does not ask.
+  const requireIndexFile = isQdnBrowserArchiveService(request.resource.service)
+  let artifact: HomeV2PublishArtifact | null = null
   let snapshot: HomeV2PublishSnapshot | null = null
   try {
-    snapshot = publishRoute.authenticated
-      ? await stageHomeV2PublishSnapshot(source, publishRoute.limit.maximumBytes)
-      : null
-    const sourceBytes = snapshot ? null : await readHomeV2DesktopPublishSource(source)
-    const contentHash = snapshot ? snapshot.contentHash : await sha256Hex(sourceBytes!)
+    if (publishRoute.authenticated) {
+      snapshot = await stageHomeV2PublishSnapshot(source, publishRoute.limit.maximumBytes)
+    } else {
+      artifact = await withHomeV2PublishSourceErrors(
+        () => prepareHomeV2PublishArtifact(source, {
+          includeHidden,
+          maximumBytes: publishRoute.limit.maximumBytes,
+          requireIndexFile,
+        }),
+      )
+    }
+    const contentHash = snapshot
+      ? snapshot.contentHash
+      : await withHomeV2PublishSourceErrors(() => artifact!.sha256())
+    // A packaged folder is uploaded (and named) as the archive it now is, so
+    // the prompt names the same thing the transaction will carry.
+    const publishFileName = artifact?.isZip ? `${source.fileName.slice(0, 176)}.zip` : source.fileName
+    const publishSize = snapshot?.size ?? artifact!.byteLength
     const profile = await getAccountProfile(accountId)
     const nameValue = await readHomeV2ChatJson(
       node.nodeApiUrl,
@@ -2794,7 +2893,7 @@ async function publishHomeV2PublicPublishSource(
       kind: 'publish',
       contentHash,
       ...(network === 'qortal' ? { fee: `${homeV2AtomicDecimal(feeAtomic)} coins` } : {}),
-      fileName: source.fileName,
+      fileName: publishFileName,
       ...(request.resource.title ? { metadataTitle: homeV2PollApprovalText(request.resource.title, 'The resource title') } : {}),
       ...(request.resource.description ? { metadataDescription: homeV2PollApprovalText(request.resource.description, 'The resource description') } : {}),
       ...(request.resource.category ? { metadataCategory: homeV2PollApprovalText(request.resource.category, 'The resource category') } : {}),
@@ -2804,8 +2903,20 @@ async function publishHomeV2PublicPublishSource(
         : 'Publish a public QDN resource',
       resourceCoordinate: `${request.resource.service}/${request.resource.name}/${request.resource.identifier ?? 'default'}`,
       routeLabel: `${node.mode} · ${node.nodeApiUrl} · ${homeV2QdnPublishLimitMessage(publishRoute.limit)}`,
-      size: source.size,
+      size: publishSize,
       targetChainLabel: network === 'qortal' ? 'Qortal' : 'Qortium',
+      // Folder rows. A folder publish is the one case where the file name and
+      // the hash do not tell the user what they are about to publish, so the
+      // prompt says how many entries the archive holds, how many were dropped
+      // by the always-excluded list, and how many hidden files the app asked
+      // to include.
+      ...(artifact?.isZip
+        ? {
+            entryCount: artifact.entryCount,
+            excludedCount: artifact.excludedCount,
+            hiddenCount: artifact.hiddenCount,
+          }
+        : {}),
     })
     const isStillValid = async () => {
       const fresh = getQdnViewContextForWebContents(sender)
@@ -2822,7 +2933,7 @@ async function publishHomeV2PublicPublishSource(
       publishRoute.authenticated,
       (url, signal) => nodeFetch(url, { method: 'GET', redirect: 'error', signal }),
     )
-    if (source.size > currentLimit.maximumBytes) {
+    if (publishSize > currentLimit.maximumBytes) {
       throw new Error(`Selected publish source is too large: ${homeV2QdnPublishLimitMessage(currentLimit)}.`)
     }
     const currentNameValue = await readHomeV2ChatJson(
@@ -2833,13 +2944,14 @@ async function publishHomeV2PublicPublishSource(
     if (stringField(currentNameValue, 'owner') !== profile.address || !(await isStillValid())) {
       throw new Error('Publisher-name ownership or the app context changed after approval.')
     }
+    if (!snapshot && !artifact) throw new Error('Publish source preparation failed.')
     const result = snapshot
       ? await publishHomeV2AuthenticatedResource({
           accountId,
           apiKey: publishRoute.apiKey,
           attestationDirectory: snapshot.directory,
           contentHash,
-          fileName: source.fileName,
+          fileName: publishFileName,
           isStillValid,
           network: 'qortium',
           nodeApiUrl: node.nodeApiUrl,
@@ -2850,12 +2962,14 @@ async function publishHomeV2PublicPublishSource(
       : await publishHomeV2PublicResource({
           accountId,
           ...(network === 'qortal' ? { expectedFeeAtomic: feeAtomic } : {}),
-          fileName: source.fileName,
+          fileName: publishFileName,
           isStillValid,
+          isZip: artifact!.isZip,
           network,
           nodeApiUrl: node.nodeApiUrl,
           resource: request.resource,
-          sourceBytes: sourceBytes!,
+          // Loaded only after approval and re-hashed against the value shown.
+          sourceBytes: await withHomeV2PublishSourceErrors(() => artifact!.read()),
         })
     if (result.accepted || result.outcome === 'unknown') {
       homeV2DesktopPublishSources.release(request.sourceToken)
@@ -2863,6 +2977,7 @@ async function publishHomeV2PublicPublishSource(
     return result
   } finally {
     if (snapshot) await removeHomeV2PublishSnapshot(snapshot)
+    if (artifact) await artifact.dispose()
   }
 }
 
@@ -2898,225 +3013,297 @@ async function publishHomeV2MultiplePublishSources(
     protocol,
     routeRevision,
   })
-  const publishRoute = await resolveHomeV2QdnPublishRoute(network, node)
-  const snapshots: HomeV2PublishSnapshot[] = []
-  try {
-  // Resolve, reopen and hash EVERY selected source before the prompt, so the
-  // rows describe the exact bytes each transaction will attest — the token
-  // store's device/inode/size recheck makes a swapped file refuse here.
+  // Resolve EVERY selected source before the prompt, so the rows describe the
+  // exact bytes each transaction will attest - the token store's
+  // device/inode/size recheck makes a swapped file refuse here.
+  const resolved = request.items.map((item) => ({
+    item,
+    source: homeV2DesktopPublishSources.resolve(item.sourceToken, binding),
+  }))
+  for (const entry of resolved) {
+    if (entry.source.kind === 'directory' && network !== 'qortium') {
+      throw new Error('Folder publish sources are available on Qortium only. Select files to publish.')
+    }
+  }
+  // A batch is where per-source ceilings stop being enough: this action hashes
+  // every item before ONE approval prompt, so N selections at the per-source
+  // ceiling would otherwise be N times that much work and memory. The
+  // aggregate is refused BEFORE anything is opened, read or packaged.
+  const selectedBytes = resolved.reduce((total, entry) => total + entry.source.size, 0)
+  if (selectedBytes > HOME_V2_PUBLISH_BATCH_MAX_TOTAL_BYTES) {
+    throw new Error(
+      `PUBLISH_MULTIPLE_QDN_RESOURCES accepts at most ${HOME_V2_PUBLISH_BATCH_MAX_TOTAL_BYTES} bytes of sources per batch.`,
+    )
+  }
+  // One folder makes the whole batch use the public route: mixed batches must
+  // have one approval route, and only the public attester currently proves
+  // the unpacked multi-file result of an isZip publish.
+  const publishRoute = await resolveHomeV2QdnPublishRoute(
+    network,
+    node,
+    resolved.some((entry) => entry.source.kind === 'directory'),
+  )
+  for (const entry of resolved) {
+    if (entry.source.size > publishRoute.limit.maximumBytes) {
+      throw new Error(`Selected publish source is too large: ${homeV2QdnPublishLimitMessage(publishRoute.limit)}.`)
+    }
+  }
+  if (publishRoute.authenticated && selectedBytes > publishRoute.limit.maximumBytes) {
+    throw new Error(
+      `Selected batch exceeds the aggregate ${publishRoute.limit.maximumBytes.toLocaleString()} byte authenticated trusted-node route limit.`,
+    )
+  }
   const items = [] as {
+    readonly artifact: HomeV2PublishArtifact | null
+    readonly byteLength: number
     readonly contentHash: string
+    readonly fileName: string
     readonly item: (typeof request.items)[number]
     readonly snapshot: HomeV2PublishSnapshot | null
     readonly source: ReturnType<typeof homeV2DesktopPublishSources.resolve>
-    readonly sourceBytes: Uint8Array | null
   }[]
-  let authenticatedAggregateBytes = 0
-  for (const item of request.items) {
-    const source = homeV2DesktopPublishSources.resolve(item.sourceToken, binding)
-    if (source.size > publishRoute.limit.maximumBytes) {
-      throw new Error(`Selected publish source is too large: ${homeV2QdnPublishLimitMessage(publishRoute.limit)}.`)
-    }
-    if (publishRoute.authenticated) {
-      authenticatedAggregateBytes += source.size
-      if (authenticatedAggregateBytes > publishRoute.limit.maximumBytes) {
-        throw new Error(
-          `Selected batch exceeds the aggregate ${publishRoute.limit.maximumBytes.toLocaleString()} byte authenticated trusted-node route limit.`,
-        )
-      }
-    }
-    const snapshot = publishRoute.authenticated
-      ? await stageHomeV2PublishSnapshot(source, publishRoute.limit.maximumBytes)
-      : null
-    if (snapshot) snapshots.push(snapshot)
-    const sourceBytes = snapshot ? null : await readHomeV2DesktopPublishSource(source)
-    items.push({
-      contentHash: snapshot ? snapshot.contentHash : await sha256Hex(sourceBytes!),
-      item,
-      snapshot,
-      source,
-      sourceBytes,
-    })
-  }
-  const profile = await getAccountProfile(accountId)
-  // Every DISTINCT publisher name must be owned by the selected account —
-  // checked before the prompt and again per item at signing time. (1.x read
-  // only the first item's context and never checked ownership per target.)
-  const assertNameOwned = async (name: string, label: string) => {
-    const nameValue = await readHomeV2ChatJson(
-      node.nodeApiUrl,
-      `/names/${encodeURIComponent(name)}`,
-      `${chainLabel} publisher-name ${label}`,
-    )
-    if (stringField(nameValue, 'owner') !== profile.address) {
-      throw new Error(`The selected account does not currently own the publisher name ${name} on this chain.`)
-    }
-  }
-  const distinctNames = [...new Set(items.map((entry) => entry.item.resource.name))]
-  for (const name of distinctNames) await assertNameOwned(name, 'lookup')
-  // On Qortal every item pays the chain's ARBITRARY unit fee. It is read
-  // once here so the prompt can disclose each fee and the batch total, and
-  // publishQortal refuses if the chain answers a different fee at signing.
-  const feeAtomic = network === 'qortal' ? await getHomeV2QortalArbitraryUnitFee(node.nodeApiUrl) : 0n
-  const coordinateOf = (entry: (typeof items)[number]) =>
-    `${entry.item.resource.service}/${entry.item.resource.name}/${entry.item.resource.identifier ?? 'default'}`
-  // DISPLAY form is component-escaped: an identifier may legitimately contain
-  // '/', and raw concatenation would let WEBSITE/alice/b/c read as name
-  // "alice/b" (publishing-extras review, 2026-08-27). The raw form above stays
-  // the target-hash input, which must not change.
-  const displayCoordinateOf = (entry: (typeof items)[number]) =>
-    homeV2ResourceCoordinateText(entry.item.resource)
-  const rows: { label: string; value: string }[] = [{ label: 'Items', value: String(items.length) }]
-  items.forEach((entry, index) => {
-    const position = index + 1
-    rows.push({ label: `Resource ${position}`, value: displayCoordinateOf(entry) })
-    rows.push({ label: `File ${position}`, value: homeV2PollApprovalText(entry.source.fileName, 'The file name') })
-    rows.push({ label: `Size ${position}`, value: `${entry.source.size} bytes` })
-    rows.push({ label: `SHA-256 ${position}`, value: entry.contentHash })
-    // The mutable-metadata values signed alongside the bytes (Qortium only —
-    // the item normalizer refuses metadata on Qortal). A row appears exactly
-    // when that field is being published; an omitted row means nothing is.
-    const metadata = entry.item.resource
-    if (metadata.title) rows.push({ label: `Title ${position}`, value: homeV2PollApprovalText(metadata.title, 'The resource title') })
-    if (metadata.description) rows.push({ label: `Description ${position}`, value: homeV2PollApprovalText(metadata.description, 'The resource description') })
-    if (metadata.category) rows.push({ label: `Category ${position}`, value: homeV2PollApprovalText(metadata.category, 'The resource category') })
-    if (metadata.tags.length) rows.push({ label: `Tags ${position}`, value: homeV2PollApprovalText(metadata.tags.join(', '), 'The resource tags') })
-    if (network === 'qortal') rows.push({ label: `Fee ${position}`, value: `${homeV2AtomicDecimal(feeAtomic)} coins` })
-  })
-  if (network === 'qortal') {
-    rows.push({ label: 'Total fee', value: `${homeV2AtomicDecimal(feeAtomic * BigInt(items.length))} coins` })
-  }
-  const target = `publish-multiple:${await sha256Hex(new TextEncoder().encode(items.map(coordinateOf).join('\n')))}`
-  await requireAccountReadPermission(sender, context, protocol, 'PUBLISH_MULTIPLE_QDN_RESOURCES', {
-    kind: 'publish-multiple',
-    operationLabel: homeV2PublishExtraOperationLabel('PUBLISH_MULTIPLE_QDN_RESOURCES'),
-    publishMultipleDetails: rows,
-    routeLabel: `${node.mode} \u00b7 ${node.nodeApiUrl} \u00b7 ${homeV2QdnPublishLimitMessage(publishRoute.limit)}`,
-    target,
-    targetChainLabel: chainLabel,
-  })
-  const isStillValid = async () => {
-    const fresh = getQdnViewContextForWebContents(sender)
-    if (!fresh || !sameViewContext(context, fresh) || !liveResourceMatchesGrant(fresh) || !isAccountUnlocked(accountId)) return false
-    const current = await getHomeV2ReadableNode(network).catch(() => null)
-    if (!current || `${current.mode}|${current.nodeApiUrl}` !== nodeRoute) return false
-    if (!publishRoute.adminRevision) return true
-    const currentAdmin = await resolveHomeV2AdminNode('qortium').catch(() => null)
-    return Boolean(currentAdmin?.trust.trusted && currentAdmin.trust.revision === publishRoute.adminRevision)
-  }
-  if (!(await isStillValid())) throw new Error('The app, account, or node route changed before batch publishing.')
-  const currentLimit = await getHomeV2QdnPublishLimit(
-    node.nodeApiUrl,
-    publishRoute.authenticated,
-    (url, signal) => nodeFetch(url, { method: 'GET', redirect: 'error', signal }),
-  )
-  if (items.some((entry) => entry.source.size > currentLimit.maximumBytes) ||
-      (publishRoute.authenticated && authenticatedAggregateBytes > currentLimit.maximumBytes)) {
-    throw new Error(`Selected publish batch is too large: ${homeV2QdnPublishLimitMessage(currentLimit)}.`)
-  }
-  for (const name of distinctNames) await assertNameOwned(name, 'recheck')
-  if (!(await isStillValid())) throw new Error('The app, account, or node route changed after approval.')
-  const published: unknown[] = []
-  const failures: unknown[] = []
-  for (const entry of items) {
-    const resource = Object.freeze({
-      identifier: entry.item.resource.identifier ?? null,
-      name: entry.item.resource.name,
-      service: entry.item.resource.service,
-    })
-    try {
-      if (!(await isStillValid())) throw new Error('The app, account, or node route changed during batch publishing.')
-      // Per ITEM, not once for the batch. The dispatcher's gate ran against the
-      // batch request before any of this, so it cannot see a coordinate an
-      // EARLIER ITEM of this same batch has just retained an unknown outcome
-      // for — and nothing stops a batch listing one coordinate twice. (Ported
-      // from the Android arm, publishing-extras review 2026-08-27.)
-      const pendingItem = findStoredHomeV2PendingTransactionConflict(app.getPath('userData'), {
-        accountId,
-        action: 'PUBLISH_QDN_RESOURCE',
-        appIdentity: homeV2AppIdentityKey(context),
-        network,
-        request: {
-          ...(resource.identifier === null ? {} : { identifier: resource.identifier }),
-          name: resource.name,
-          service: resource.service,
-        },
-      })
-      if (pendingItem) {
-        throw new Error(
-          `A previous publish of this resource has an unknown outcome. Reconcile signature ${pendingItem.signature} before publishing it again.`,
-        )
-      }
-      const result = entry.snapshot
-        ? await publishHomeV2AuthenticatedResource({
-            accountId,
-            apiKey: publishRoute.apiKey,
-            attestationDirectory: entry.snapshot.directory,
-            contentHash: entry.contentHash,
-            fileName: entry.source.fileName,
-            isStillValid,
-            network: 'qortium',
-            nodeApiUrl: node.nodeApiUrl,
-            resource: entry.item.resource,
-            sourcePath: entry.snapshot.path,
-            sourceSize: entry.snapshot.size,
-            validateTarget: () => assertNameOwned(entry.item.resource.name, 'signing recheck'),
-          })
-        : await publishHomeV2PublicResource({
-            accountId,
-            ...(network === 'qortal' ? { expectedFeeAtomic: feeAtomic } : {}),
-            fileName: entry.source.fileName,
-            isStillValid,
-            network,
-            nodeApiUrl: node.nodeApiUrl,
-            resource: entry.item.resource,
-            sourceBytes: entry.sourceBytes!,
-            validateTarget: () => assertNameOwned(entry.item.resource.name, 'signing recheck'),
-          })
-      if (result.accepted) {
-        published.push(Object.freeze({ ...result, resource }))
-        homeV2DesktopPublishSources.release(entry.item.sourceToken)
+  // Disposal is tracked SEPARATELY from `items`, because an artifact exists -
+  // holding an open handle or a temp archive - from the moment it is prepared,
+  // which is before its hash is known and therefore before it can join `items`.
+  const prepared: HomeV2PublishArtifact[] = []
+  const snapshots: HomeV2PublishSnapshot[] = []
+  try {
+    // Hashed from a STREAM, not from a retained buffer: what a batch keeps
+    // alive across the prompt is one open handle (or one temp archive) per
+    // item, and the bytes themselves are loaded one item at a time below.
+    const includeHidden = getRequestedHomeV2PublishIncludeHidden(requestValue)
+    for (const entry of resolved) {
+      if (publishRoute.authenticated) {
+        const snapshot = await stageHomeV2PublishSnapshot(entry.source, publishRoute.limit.maximumBytes)
+        snapshots.push(snapshot)
+        items.push({
+          artifact: null,
+          byteLength: snapshot.size,
+          contentHash: snapshot.contentHash,
+          fileName: entry.source.fileName,
+          item: entry.item,
+          snapshot,
+          source: entry.source,
+        })
         continue
       }
-      // Signed but the broadcast outcome is unknown: retain the ITEM in the
-      // journal as the PUBLISH_QDN_RESOURCE transaction it is, keyed on its
-      // own coordinate, and surface it as a failure carrying the signature.
+      // Per ITEM: one batch can mix a WEBSITE folder with a VIDEO bundle, and
+      // the index rule follows each item's own service.
+      const artifact = await withHomeV2PublishSourceErrors(
+        () => prepareTrackedHomeV2PublishArtifact(prepared, entry.source, {
+          includeHidden,
+          maximumBytes: publishRoute.limit.maximumBytes,
+          requireIndexFile: isQdnBrowserArchiveService(entry.item.resource.service),
+        }),
+      )
+      items.push({
+        artifact,
+        byteLength: artifact.byteLength,
+        contentHash: await withHomeV2PublishSourceErrors(() => artifact.sha256()),
+        fileName: artifact.isZip ? `${entry.source.fileName.slice(0, 176)}.zip` : entry.source.fileName,
+        item: entry.item,
+        snapshot: null,
+        source: entry.source,
+      })
+    }
+    const packagedBytes = items.reduce((total, entry) => total + entry.byteLength, 0)
+    if (packagedBytes > HOME_V2_PUBLISH_BATCH_MAX_TOTAL_BYTES) {
+      throw new Error(
+        `PUBLISH_MULTIPLE_QDN_RESOURCES accepts at most ${HOME_V2_PUBLISH_BATCH_MAX_TOTAL_BYTES} bytes of packaged sources per batch.`,
+      )
+    }
+    const profile = await getAccountProfile(accountId)
+    // Every DISTINCT publisher name must be owned by the selected account -
+    // checked before the prompt and again per item at signing time. (1.x read
+    // only the first item's context and never checked ownership per target.)
+    const assertNameOwned = async (name: string, label: string) => {
+      const nameValue = await readHomeV2ChatJson(
+        node.nodeApiUrl,
+        `/names/${encodeURIComponent(name)}`,
+        `${chainLabel} publisher-name ${label}`,
+      )
+      if (stringField(nameValue, 'owner') !== profile.address) {
+        throw new Error(`The selected account does not currently own the publisher name ${name} on this chain.`)
+      }
+    }
+    const distinctNames = [...new Set(items.map((entry) => entry.item.resource.name))]
+    for (const name of distinctNames) await assertNameOwned(name, 'lookup')
+    // On Qortal every item pays the chain's ARBITRARY unit fee. It is read
+    // once here so the prompt can disclose each fee and the batch total, and
+    // publishQortal refuses if the chain answers a different fee at signing.
+    const feeAtomic = network === 'qortal' ? await getHomeV2QortalArbitraryUnitFee(node.nodeApiUrl) : 0n
+    const coordinateOf = (entry: (typeof items)[number]) =>
+      `${entry.item.resource.service}/${entry.item.resource.name}/${entry.item.resource.identifier ?? 'default'}`
+    // DISPLAY form is component-escaped: an identifier may legitimately contain
+    // '/', and raw concatenation would let WEBSITE/alice/b/c read as name
+    // "alice/b" (publishing-extras review, 2026-08-27). The raw form above stays
+    // the target-hash input, which must not change.
+    const displayCoordinateOf = (entry: (typeof items)[number]) =>
+      homeV2ResourceCoordinateText(entry.item.resource)
+    const rows: { label: string; value: string }[] = [{ label: 'Items', value: String(items.length) }]
+    items.forEach((entry, index) => {
+      const position = index + 1
+      rows.push({ label: `Resource ${position}`, value: displayCoordinateOf(entry) })
+      rows.push({ label: `File ${position}`, value: homeV2PollApprovalText(entry.fileName, 'The file name') })
+      rows.push({ label: `Size ${position}`, value: `${entry.byteLength} bytes` })
+      rows.push({ label: `SHA-256 ${position}`, value: entry.contentHash })
+      if (entry.artifact?.isZip) {
+        rows.push({ label: `Folder entries ${position}`, value: String(entry.artifact.entryCount) })
+        rows.push({ label: `Excluded ${position}`, value: String(entry.artifact.excludedCount) })
+        rows.push({ label: `Hidden files ${position}`, value: String(entry.artifact.hiddenCount) })
+      }
+      // The mutable-metadata values signed alongside the bytes (Qortium only -
+      // the item normalizer refuses metadata on Qortal). A row appears exactly
+      // when that field is being published; an omitted row means nothing is.
+      const metadata = entry.item.resource
+      if (metadata.title) rows.push({ label: `Title ${position}`, value: homeV2PollApprovalText(metadata.title, 'The resource title') })
+      if (metadata.description) rows.push({ label: `Description ${position}`, value: homeV2PollApprovalText(metadata.description, 'The resource description') })
+      if (metadata.category) rows.push({ label: `Category ${position}`, value: homeV2PollApprovalText(metadata.category, 'The resource category') })
+      if (metadata.tags.length) rows.push({ label: `Tags ${position}`, value: homeV2PollApprovalText(metadata.tags.join(', '), 'The resource tags') })
+      if (network === 'qortal') rows.push({ label: `Fee ${position}`, value: `${homeV2AtomicDecimal(feeAtomic)} coins` })
+    })
+    if (network === 'qortal') {
+      rows.push({ label: 'Total fee', value: `${homeV2AtomicDecimal(feeAtomic * BigInt(items.length))} coins` })
+    }
+    const target = `publish-multiple:${await sha256Hex(new TextEncoder().encode(items.map(coordinateOf).join('\n')))}`
+    await requireAccountReadPermission(sender, context, protocol, 'PUBLISH_MULTIPLE_QDN_RESOURCES', {
+      kind: 'publish-multiple',
+      operationLabel: homeV2PublishExtraOperationLabel('PUBLISH_MULTIPLE_QDN_RESOURCES'),
+      publishMultipleDetails: rows,
+      routeLabel: `${node.mode} \u00b7 ${node.nodeApiUrl} \u00b7 ${homeV2QdnPublishLimitMessage(publishRoute.limit)}`,
+      target,
+      targetChainLabel: chainLabel,
+    })
+    const isStillValid = async () => {
+      const fresh = getQdnViewContextForWebContents(sender)
+      if (!fresh || !sameViewContext(context, fresh) || !liveResourceMatchesGrant(fresh) || !isAccountUnlocked(accountId)) return false
+      const current = await getHomeV2ReadableNode(network).catch(() => null)
+      if (!current || `${current.mode}|${current.nodeApiUrl}` !== nodeRoute) return false
+      if (!publishRoute.adminRevision) return true
+      const currentAdmin = await resolveHomeV2AdminNode('qortium').catch(() => null)
+      return Boolean(currentAdmin?.trust.trusted && currentAdmin.trust.revision === publishRoute.adminRevision)
+    }
+    if (!(await isStillValid())) throw new Error('The app, account, or node route changed before batch publishing.')
+    const currentLimit = await getHomeV2QdnPublishLimit(
+      node.nodeApiUrl,
+      publishRoute.authenticated,
+      (url, signal) => nodeFetch(url, { method: 'GET', redirect: 'error', signal }),
+    )
+    if (items.some((entry) => entry.byteLength > currentLimit.maximumBytes) ||
+        (publishRoute.authenticated && packagedBytes > currentLimit.maximumBytes)) {
+      throw new Error(`Selected publish batch is too large: ${homeV2QdnPublishLimitMessage(currentLimit)}.`)
+    }
+    for (const name of distinctNames) await assertNameOwned(name, 'recheck')
+    if (!(await isStillValid())) throw new Error('The app, account, or node route changed after approval.')
+    const published: unknown[] = []
+    const failures: unknown[] = []
+    for (const entry of items) {
+      const resource = Object.freeze({
+        identifier: entry.item.resource.identifier ?? null,
+        name: entry.item.resource.name,
+        service: entry.item.resource.service,
+      })
       try {
-        const journalEntry = createHomeV2PendingTransactionFromResult({
+        if (!(await isStillValid())) throw new Error('The app, account, or node route changed during batch publishing.')
+        // Per ITEM, not once for the batch. The dispatcher's gate ran against the
+        // batch request before any of this, so it cannot see a coordinate an
+        // EARLIER ITEM of this same batch has just retained an unknown outcome
+        // for - and nothing stops a batch listing one coordinate twice. (Ported
+        // from the Android arm, publishing-extras review 2026-08-27.)
+        const pendingItem = findStoredHomeV2PendingTransactionConflict(app.getPath('userData'), {
           accountId,
           action: 'PUBLISH_QDN_RESOURCE',
           appIdentity: homeV2AppIdentityKey(context),
-          protocol,
-          request: { identifier: resource.identifier ?? undefined, name: resource.name, service: resource.service },
-          result,
+          network,
+          request: {
+            ...(resource.identifier === null ? {} : { identifier: resource.identifier }),
+            name: resource.name,
+            service: resource.service,
+          },
         })
-        if (journalEntry) recordHomeV2PendingTransaction(app.getPath('userData'), journalEntry)
-      } catch (journalError) {
-        console.warn('[home-v2-app] Unable to retain an ambiguous batch publish item:', journalError)
+        if (pendingItem) {
+          throw new Error(
+            `A previous publish of this resource has an unknown outcome. Reconcile signature ${pendingItem.signature} before publishing it again.`,
+          )
+        }
+        if (!entry.snapshot && !entry.artifact) throw new Error('Publish source preparation failed.')
+        const result = entry.snapshot
+          ? await publishHomeV2AuthenticatedResource({
+              accountId,
+              apiKey: publishRoute.apiKey,
+              attestationDirectory: entry.snapshot.directory,
+              contentHash: entry.contentHash,
+              fileName: entry.fileName,
+              isStillValid,
+              network: 'qortium',
+              nodeApiUrl: node.nodeApiUrl,
+              resource: entry.item.resource,
+              sourcePath: entry.snapshot.path,
+              sourceSize: entry.snapshot.size,
+              validateTarget: () => assertNameOwned(entry.item.resource.name, 'signing recheck'),
+            })
+          : await publishHomeV2PublicResource({
+              accountId,
+              ...(network === 'qortal' ? { expectedFeeAtomic: feeAtomic } : {}),
+              fileName: entry.fileName,
+              isStillValid,
+              isZip: entry.artifact!.isZip,
+              network,
+              nodeApiUrl: node.nodeApiUrl,
+              resource: entry.item.resource,
+              // One item's bytes at a time, re-hashed against the value this
+              // batch's prompt disclosed for it.
+              sourceBytes: await withHomeV2PublishSourceErrors(() => entry.artifact!.read()),
+              validateTarget: () => assertNameOwned(entry.item.resource.name, 'signing recheck'),
+            })
+        if (result.accepted) {
+          published.push(Object.freeze({ ...result, resource }))
+          homeV2DesktopPublishSources.release(entry.item.sourceToken)
+          continue
+        }
+        // Signed but the broadcast outcome is unknown: retain the ITEM in the
+        // journal as the PUBLISH_QDN_RESOURCE transaction it is, keyed on its
+        // own coordinate, and surface it as a failure carrying the signature.
+        try {
+          const journalEntry = createHomeV2PendingTransactionFromResult({
+            accountId,
+            action: 'PUBLISH_QDN_RESOURCE',
+            appIdentity: homeV2AppIdentityKey(context),
+            protocol,
+            request: { identifier: resource.identifier ?? undefined, name: resource.name, service: resource.service },
+            result,
+          })
+          if (journalEntry) recordHomeV2PendingTransaction(app.getPath('userData'), journalEntry)
+        } catch (journalError) {
+          console.warn('[home-v2-app] Unable to retain an ambiguous batch publish item:', journalError)
+        }
+        failures.push(Object.freeze({
+          error: result.error ?? 'Publish broadcast outcome is unknown.',
+          errorType: result.errorType,
+          outcome: result.outcome,
+          resource,
+          transactionSignature: result.transactionSignature,
+        }))
+        homeV2DesktopPublishSources.release(entry.item.sourceToken)
+      } catch (error) {
+        failures.push(Object.freeze({
+          error: error instanceof Error ? error.message : 'QDN publish failed.',
+          resource,
+        }))
       }
-      failures.push(Object.freeze({
-        error: result.error ?? 'Publish broadcast outcome is unknown.',
-        errorType: result.errorType,
-        outcome: result.outcome,
-        resource,
-        transactionSignature: result.transactionSignature,
-      }))
-      homeV2DesktopPublishSources.release(entry.item.sourceToken)
-    } catch (error) {
-      failures.push(Object.freeze({
-        error: error instanceof Error ? error.message : 'QDN publish failed.',
-        resource,
-      }))
     }
-  }
-  return Object.freeze({
-    accepted: true,
-    action: 'PUBLISH_MULTIPLE_QDN_RESOURCES',
-    failures: Object.freeze(failures),
-    network,
-    published: Object.freeze(published),
-  })
+    return Object.freeze({
+      accepted: true,
+      action: 'PUBLISH_MULTIPLE_QDN_RESOURCES',
+      failures: Object.freeze(failures),
+      network,
+      published: Object.freeze(published),
+    })
   } finally {
+    // Always, including the aggregate refusals above and a hash that threw
+    // between preparing an artifact and recording it: every artifact that was
+    // ever prepared owns either an open handle or a temp archive.
+    for (const artifact of prepared) await artifact.dispose()
     await Promise.all(snapshots.map(removeHomeV2PublishSnapshot))
   }
 }
@@ -4278,6 +4465,12 @@ async function publishHomeV2PrivateAttachmentSource(
     routeRevision,
   })
   const source = homeV2DesktopPublishSources.resolve(request.sourceToken, binding)
+  if (source.kind === 'directory') {
+    throw new Error('PUBLISH_CHAT_ATTACHMENT does not support a directory-bundled publish source.')
+  }
+  if (source.size > PRIVATE_ATTACHMENT_SOURCE_MAX_BYTES) {
+    throw new Error('Selected attachment exceeds the size this action will accept.')
+  }
   const sourceBytes = await readHomeV2DesktopPublishSource(source)
   const sourceHash = await sha256Hex(sourceBytes)
   const profile = await getAccountProfile(accountId)

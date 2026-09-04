@@ -1,13 +1,14 @@
 import { app, BrowserWindow, dialog } from 'electron'
 
 import {
+  HOME_V2_PUBLISH_DIRECTORY_LIMITS,
   describeHomeV2PublishSourcePath,
   homeV2DesktopPublishSources,
   homeV2PublishSourceDialogProperties,
+  type HomeV2PublishSourceLimits,
   type HomeV2PublishSourcePickKind,
 } from './home-v2-publish-source-selection.js'
 import {
-  HOME_V2_PUBLISH_SOURCE_MAX_BYTES,
   type HomeV2PublishSourceBinding,
 } from './home-v2-publish-source-tokens.js'
 
@@ -43,7 +44,11 @@ export async function selectHomeV2DesktopPublishSource(
   // Defaults to 'file' so the publish and chat-attachment flows are unchanged:
   // only PREVIEW's caller asks for a folder, and only because it asks.
   kind: HomeV2PublishSourcePickKind = 'file',
-  maximumFileBytes: number = HOME_V2_PUBLISH_SOURCE_MAX_BYTES,
+  // The ceilings the picked path is measured against. The caller supplies
+  // them because the FILE ceiling is discovered from the connected node
+  // (GET /arbitrary/limits, clamped by Home) rather than fixed, and this
+  // module deliberately knows nothing about nodes.
+  limits: HomeV2PublishSourceLimits = HOME_V2_PUBLISH_DIRECTORY_LIMITS,
 ) {
   const hostWindow = BrowserWindow.fromId(windowId)
   if (!hostWindow || hostWindow.isDestroyed()) {
@@ -51,7 +56,7 @@ export async function selectHomeV2DesktopPublishSource(
   }
   const smokePath = homeV2PublishSourceSmokePath()
   if (smokePath) {
-    const source = await describeHomeV2PublishSourcePath(smokePath, kind, undefined, maximumFileBytes)
+    const source = await describeHomeV2PublishSourcePath(smokePath, kind, limits)
     return {
       canceled: false as const,
       fileName: source.fileName,
@@ -67,7 +72,7 @@ export async function selectHomeV2DesktopPublishSource(
     title: `Select ${binding.network === 'qortal' ? 'Qortal' : 'Qortium'} publish source`,
   })
   if (result.canceled || !result.filePaths[0]) return { canceled: true as const }
-  const source = await describeHomeV2PublishSourcePath(result.filePaths[0], kind, undefined, maximumFileBytes)
+  const source = await describeHomeV2PublishSourcePath(result.filePaths[0], kind, limits)
   return {
     canceled: false as const,
     fileName: source.fileName,

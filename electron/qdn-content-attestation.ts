@@ -7,9 +7,38 @@ import type { PublicArbitraryTransactionDetails } from './public-transaction-val
 const AES_GCM_NONCE_BYTES = 12;
 const AES_GCM_TAG_BYTES = 16;
 const ARBITRARY_CHUNK_BYTES = 512 * 1024;
-const MAX_ATTESTED_BYTES = 100 * 1024 * 1024;
+/**
+ * The largest APPROVED SOURCE Home will attest - the bytes the user saw a hash
+ * of and approved, and therefore the ceiling a publish route may discover from
+ * a node (home-v2-publish-limits.ts clamps to this).
+ */
+export const PUBLIC_QDN_ATTESTATION_MAX_SOURCE_BYTES = 1024 * 1024 * 1024;
 const MAX_METADATA_BYTES = 4 * 1024 * 1024;
 const MAX_ZIP_ENTRIES = 10_000;
+// How much larger than the approved source the PACKAGED artifact may be. Core
+// repacks a multi-file publish into its own zip (explicit directory entries,
+// per-entry extra fields, data descriptors) and then encrypts it, so the
+// artifact it hands back is legitimately bigger than what Home uploaded.
+const ATTESTATION_MARGIN_RATIO = 1.1;
+const ATTESTATION_MARGIN_FLAT_BYTES = 4096;
+const ATTESTATION_MARGIN_PER_ELEMENT_BYTES = 2048;
+
+/**
+ * The largest PACKAGED artifact (ciphertext) verification will accept, which
+ * is a DIFFERENT number from the source ceiling and must be at least as large.
+ *
+ * Keeping one constant for both is what made a near-ceiling publish fail
+ * asymmetrically: the pre-download bound below allows the source plus its
+ * repack margin, while assertBounded refused anything over the source ceiling,
+ * so a source close to the ceiling could pass the bound, be downloaded in
+ * full, and only then be refused - a hostile node's free way to make Home
+ * fetch a gigabyte. The two limits are now derived from each other, so
+ * everything the pre-download bound permits is something verification accepts.
+ */
+export const PUBLIC_QDN_ATTESTATION_MAX_PACKAGED_BYTES =
+  Math.ceil(PUBLIC_QDN_ATTESTATION_MAX_SOURCE_BYTES * ATTESTATION_MARGIN_RATIO) +
+  ATTESTATION_MARGIN_FLAT_BYTES +
+  ATTESTATION_MARGIN_PER_ELEMENT_BYTES * MAX_ZIP_ENTRIES;
 const MAX_ZIP_PATH_BYTES = 1_024;
 const BASE58_MAP = new Map([...BASE58_ALPHABET].map((character, index) => [character, index]));
 
@@ -67,8 +96,8 @@ function decodeBase58(value: string) {
   return Uint8Array.from(bytes.reverse());
 }
 
-function assertBounded(bytes: Uint8Array, label: string) {
-  if (bytes.byteLength > MAX_ATTESTED_BYTES + AES_GCM_NONCE_BYTES + AES_GCM_TAG_BYTES) {
+function assertBounded(bytes: Uint8Array, label: string, maximumBytes: number) {
+  if (bytes.byteLength > maximumBytes + AES_GCM_NONCE_BYTES + AES_GCM_TAG_BYTES) {
     throw new Error(`${label} exceeded Home's bounded public QDN attestation limit.`);
   }
 }
@@ -100,7 +129,7 @@ function normalizeCoreSourceZipPath(value: string) {
   }).join('/'));
 }
 
-function unzipFiles(bytes: Uint8Array, stripDataRoot: boolean) {
+function unzipFiles(bytes: Uint8Array, stripDataRoot: boolean, maxInflatedBytes: number = PUBLIC_QDN_ATTESTATION_MAX_SOURCE_BYTES) {
   let inflatedBytes = 0;
   let entryCount = 0;
   let entries: Record<string, Uint8Array>;
@@ -116,7 +145,7 @@ function unzipFiles(bytes: Uint8Array, stripDataRoot: boolean) {
         }
         if (file.name.endsWith('/')) return false;
         inflatedBytes += file.originalSize;
-        if (inflatedBytes > MAX_ATTESTED_BYTES) {
+        if (inflatedBytes > maxInflatedBytes) {
           throw new Error('QDN ZIP content exceeded Home\'s bounded attestation limit.');
         }
         return true;
@@ -141,6 +170,63 @@ function unzipFiles(bytes: Uint8Array, stripDataRoot: boolean) {
     files.set(path, data);
   }
   return files;
+}
+
+/**
+ * Counts every file AND every implied directory in a zip's central
+ * directory, WITHOUT decompressing any file's content - unlike
+ * unzipFiles, which is used elsewhere in this file specifically because
+ * it needs the actual file bytes for comparison. This function only
+ * needs a count, so its filter always returns false, meaning fflate's
+ * unzipSync never inflates anything - it only reads entry metadata
+ * (name, sizes) from the zip's local/central headers.
+ *
+ * Enforces the SAME MAX_ZIP_ENTRIES and MAX_ZIP_PATH_BYTES bounds
+ * unzipFiles enforces, and stops deriving directory prefixes once the
+ * running total reaches MAX_ZIP_ENTRIES - directories are DERIVED from
+ * file paths (every path segment implies a parent directory), so an
+ * entry-count cap alone would not bound the derived directory count;
+ * capping the combined running total while deriving is what actually
+ * bounds both this function's own cost and the caller's resulting size
+ * margin.
+ */
+function countZipStructuralElements(bytes: Uint8Array): number {
+  const paths: string[] = [];
+  let entryCount = 0;
+  try {
+    unzipSync(bytes, {
+      filter(file) {
+        entryCount += 1;
+        if (entryCount > MAX_ZIP_ENTRIES) {
+          throw new Error('QDN ZIP content exceeded Home\'s entry-count limit.');
+        }
+        if (new TextEncoder().encode(file.name).byteLength > MAX_ZIP_PATH_BYTES) {
+          throw new Error('QDN ZIP content contained an oversized path.');
+        }
+        if (!file.name.endsWith('/')) paths.push(file.name);
+        return false;
+      },
+    });
+  } catch (error) {
+    throw error instanceof Error && (error.message.includes('entry-count limit') || error.message.includes('oversized path'))
+      ? error
+      : new Error('QDN content attestation could not decode the packaged approved source ZIP.');
+  }
+  const directories = new Set<string>();
+  let total = paths.length;
+  outer: for (const path of paths) {
+    const parts = path.split('/');
+    let prefix = '';
+    for (let index = 0; index < parts.length - 1; index += 1) {
+      prefix = index === 0 ? parts[0] : `${prefix}/${parts[index]}`;
+      if (!directories.has(prefix)) {
+        directories.add(prefix);
+        total += 1;
+        if (total > MAX_ZIP_ENTRIES) break outer;
+      }
+    }
+  }
+  return Math.min(total, MAX_ZIP_ENTRIES);
 }
 
 function expectedFiles(source: QdnPublishAttestationSource) {
@@ -332,9 +418,45 @@ export async function attestPublicQdnPublish({
   source: QdnPublishAttestationSource;
   verify?: (input: QdnPublishVerificationInput) => Promise<void>;
 }) {
-  assertBounded(source.bytes, 'Approved QDN source');
+  assertBounded(source.bytes, 'Approved QDN source', PUBLIC_QDN_ATTESTATION_MAX_SOURCE_BYTES);
   if (details.dataType === 0 && details.data.length !== 32) {
     throw new Error('Public QDN builder returned an invalid content hash.');
+  }
+
+  // details.rawSize is a value the NODE claims about content it hasn't
+  // handed over yet - trusting it unconditionally as the download cap
+  // would let a hostile node force Home to download/decrypt/inflate up
+  // to PUBLIC_QDN_ATTESTATION_MAX_SOURCE_BYTES regardless of how small the
+  // approved publish actually was. Bound it against what the approved
+  // source can actually justify instead. The margin must account for
+  // more than encryption overhead: Core repacks a multi-file publish
+  // into its OWN zip (explicit directory entries, per-entry extra
+  // fields, data descriptors), measurably larger than the zip Home's
+  // own fflate-based zipSync produces as the approved source. Rather
+  // than model Core's exact per-file/per-directory byte cost (fragile,
+  // library-specific, and previous attempts at this exact calibration
+  // were wrong), count every structural element - every file AND every
+  // implied directory - in the approved source WITHOUT decompressing
+  // any file content, and allow a generous flat amount per element.
+  // This is bounded in aggregate by MAX_ZIP_ENTRIES regardless of how
+  // the allowance is distributed, so it can't reopen the size-based DoS
+  // even in the worst case: 10,000 * 2048 bytes (~20 MB) against a
+  // 1 GiB ceiling is negligible, while comfortably covering the largest
+  // measured real per-entry overhead with room to spare.
+  //
+  // Clamped to PUBLIC_QDN_ATTESTATION_MAX_PACKAGED_BYTES, which is exactly
+  // what verifyPublicQdnPublishArtifacts will accept: a bound that permits a
+  // download verification would then refuse is a bound that buys a hostile
+  // node a free gigabyte of Home's bandwidth.
+  const structuralElementCount = source.unpackZip ? countZipStructuralElements(source.bytes) : 1;
+  const maxJustifiedCiphertextBytes = Math.min(
+    Math.ceil(source.bytes.byteLength * ATTESTATION_MARGIN_RATIO) +
+      ATTESTATION_MARGIN_FLAT_BYTES +
+      ATTESTATION_MARGIN_PER_ELEMENT_BYTES * structuralElementCount,
+    PUBLIC_QDN_ATTESTATION_MAX_PACKAGED_BYTES,
+  );
+  if (details.rawSize > maxJustifiedCiphertextBytes) {
+    throw new Error('Public QDN builder claimed a content size inconsistent with the approved publish.');
   }
 
   const ciphertext = details.dataType === 1 ? details.data : await fetchArtifact(details.data, details.rawSize);
@@ -351,7 +473,7 @@ export async function verifyPublicQdnPublishArtifacts({
   metadataBytes,
   source,
 }: QdnPublishVerificationInput) {
-  assertBounded(ciphertext, 'Public QDN ciphertext');
+  assertBounded(ciphertext, 'Public QDN ciphertext', PUBLIC_QDN_ATTESTATION_MAX_PACKAGED_BYTES);
   if (details.rawSize !== ciphertext.byteLength) {
     throw new Error('Public QDN builder changed the encrypted content size.');
   }
@@ -372,7 +494,15 @@ export async function verifyPublicQdnPublishArtifacts({
       throw new Error('Public QDN builder changed the approved resource content.');
     }
   } else {
-    assertFileMapsEqual(unzipFiles(plaintext, true), files);
+    // The zip-content-inflation check inside unzipFiles must be bounded by
+    // what THIS approved source actually justifies, not the global 1 GiB
+    // ceiling - otherwise a ciphertext just under the (now correctly
+    // entry-count-aware) bounded download size could still inflate up to
+    // the full ceiling regardless of how small the real approved publish
+    // was. The exact expected inflated total is already known from files.
+    const expectedInflatedBytes = [...files.values()].reduce((total, value) => total + value.byteLength, 0);
+    const maxInflatedBytes = Math.ceil(expectedInflatedBytes * 1.1) + 4096 + 256 * files.size;
+    assertFileMapsEqual(unzipFiles(plaintext, true, maxInflatedBytes), files);
   }
 
   if (details.metadataHash.length === 0) {

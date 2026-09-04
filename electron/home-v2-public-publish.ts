@@ -8,6 +8,7 @@ import nacl from 'tweetnacl'
 import { arbitraryRawToSigningBytes } from './arbitrary-tx.js'
 import { getAccountSecretKey, stampTransactionNonce } from './accounts.js'
 import { base58Decode, base58Encode } from './base58.js'
+import { fetchBoundedBytes } from './bounded-response.js'
 import { computeHomeV2ChatNonce } from './home-v2-chat-pow.js'
 import {
   attestUnsignedQortalArbitraryPublish,
@@ -46,6 +47,11 @@ type PublishInput = {
   readonly expectedFeeAtomic?: bigint
   readonly fileName: string
   readonly isStillValid: () => boolean | Promise<boolean>
+  // True when sourceBytes is a ZIP archive of a directory selection, rather
+  // than the raw content of a single file. Threaded to the upload URL
+  // (?isZip=true, so Core unpacks it into a multi-file resource) and to the
+  // attestation source descriptor's unpackZip flag.
+  readonly isZip?: boolean
   readonly network: HomeV2PublicPublishNetwork
   readonly nodeApiUrl: string
   readonly resource: QdnWriteResourceRequest
@@ -66,12 +72,13 @@ export type HomeV2PublishedResourceBytes = Readonly<{
   transactionSignature: string
 }>
 
-function queryForQortiumResource(resource: QdnWriteResourceRequest, fileName: string) {
+function queryForQortiumResource(resource: QdnWriteResourceRequest, fileName: string, isZip: boolean) {
   const query = new URLSearchParams({ filename: fileName })
   if (resource.title) query.set('title', resource.title)
   if (resource.description) query.set('description', resource.description)
   if (resource.category) query.set('category', resource.category)
   for (const tag of resource.tags) query.append('tags', tag)
+  if (isZip) query.set('isZip', 'true')
   return query.toString()
 }
 
@@ -100,7 +107,13 @@ async function responseText(response: Response, label: string) {
 async function postBytes(nodeApiUrl: string, path: string, bytes: Uint8Array, label: string) {
   const url = `${nodeApiUrl}${path}`
   const response = await nodeFetch(url, {
-    body: Uint8Array.from(bytes),
+    // The caller already owns an exclusive, freshly-read/copied buffer
+    // (see readHomeV2DesktopPublishSource's "copy on read"); copying it
+    // again here served no purpose. (Cast matches the existing BodyInit
+    // precedent in qdn.ts's postLocalNodeUpload: TS 5.9's generic
+    // Uint8Array<ArrayBufferLike> doesn't structurally satisfy BodyInit's
+    // ArrayBuffer-backed ArrayBufferView, though it's valid at runtime.)
+    body: bytes as unknown as BodyInit,
     headers: { 'Content-Type': 'application/octet-stream' },
     method: 'POST',
     redirect: 'error',
@@ -197,21 +210,16 @@ function verifyQdnPublishInWorker(input: QdnPublishVerificationInput) {
 async function fetchQdnArtifact(nodeApiUrl: string, hash: Uint8Array, maxBytes: number) {
   if (hash.byteLength !== 32) throw new Error('QDN builder returned an invalid artifact hash.')
   const url = `${nodeApiUrl}/arbitrary/public/data/${encodeURIComponent(base58Encode(hash))}`
-  const response = await nodeFetch(
-    url,
-    { method: 'GET', redirect: 'error', signal: AbortSignal.timeout(120_000) },
+  const { bytes, response } = await fetchBoundedBytes(
+    (signal) => nodeFetch(url, { method: 'GET', redirect: 'error', signal }),
+    maxBytes,
+    120_000,
   )
   if (response.url && new URL(response.url).toString() !== new URL(url).toString()) {
     throw new Error('QDN content attestation changed the approved node URL.')
   }
-  const declared = Number(response.headers.get('content-length'))
-  if (Number.isFinite(declared) && declared > maxBytes) {
-    await response.body?.cancel()
-    throw new Error('QDN attestation artifact exceeded the approved size.')
-  }
-  const bytes = new Uint8Array(await response.arrayBuffer())
   if (!response.ok) throw new Error(`QDN content attestation returned HTTP ${response.status}.`)
-  if (!bytes.byteLength || bytes.byteLength > maxBytes) throw new Error('QDN attestation artifact has an invalid size.')
+  if (!bytes.byteLength) throw new Error('QDN attestation artifact has an invalid size.')
   return bytes
 }
 
@@ -242,7 +250,7 @@ async function fetchAuthenticatedQdnArtifact(input: {
 }
 
 async function publishQortium(input: PublishInput, signingKey: ReturnType<typeof getAccountSecretKey>) {
-  const query = queryForQortiumResource(input.resource, input.fileName)
+  const query = queryForQortiumResource(input.resource, input.fileName, Boolean(input.isZip))
   const started = Date.now()
   const unsignedBase58 = await postBytes(
     input.nodeApiUrl,
@@ -269,7 +277,7 @@ async function publishQortium(input: PublishInput, signingKey: ReturnType<typeof
       title: input.resource.title,
     },
     fetchArtifact: (hash, maxBytes) => fetchQdnArtifact(input.nodeApiUrl, hash, maxBytes),
-    source: { bytes: input.sourceBytes, filename: input.fileName, unpackZip: false },
+    source: { bytes: input.sourceBytes, filename: input.fileName, unpackZip: Boolean(input.isZip) },
     verify: verifyQdnPublishInWorker,
   })
   const signingBytes = arbitraryRawToSigningBytes(unsignedBytes)
@@ -301,7 +309,7 @@ async function publishQortiumAuthenticated(
   input: AuthenticatedPublishInput,
   signingKey: ReturnType<typeof getAccountSecretKey>,
 ) {
-  const query = queryForQortiumResource(input.resource, input.fileName)
+  const query = queryForQortiumResource(input.resource, input.fileName, false)
   const started = Date.now()
   const unsignedBase58 = await postFile(
     input.nodeApiUrl,

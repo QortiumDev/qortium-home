@@ -7,6 +7,20 @@ import { zipSync } from 'fflate';
 import { attestPublicQdnPublish } from '../dist-electron/qdn-content-attestation.js';
 import { assertPublicArbitraryTransaction } from '../dist-electron/public-transaction-validation.js';
 import { fetchBoundedBytes } from '../dist-electron/bounded-response.js';
+import {
+  PUBLIC_QDN_ATTESTATION_MAX_PACKAGED_BYTES,
+  PUBLIC_QDN_ATTESTATION_MAX_SOURCE_BYTES,
+} from '../dist-electron/qdn-content-attestation.js';
+
+assert.equal(PUBLIC_QDN_ATTESTATION_MAX_SOURCE_BYTES, 1024 * 1024 * 1024);
+// The packaged ceiling is a DIFFERENT, larger number, and must be at least
+// what the pre-download bound can permit for a source at the ceiling - the
+// two disagreeing is what made a near-ceiling publish download and then fail.
+assert.ok(PUBLIC_QDN_ATTESTATION_MAX_PACKAGED_BYTES > PUBLIC_QDN_ATTESTATION_MAX_SOURCE_BYTES);
+assert.equal(
+  PUBLIC_QDN_ATTESTATION_MAX_PACKAGED_BYTES,
+  Math.ceil(PUBLIC_QDN_ATTESTATION_MAX_SOURCE_BYTES * 1.1) + 4096 + 2048 * 10_000,
+);
 
 const encoder = new TextEncoder();
 const BASE58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
@@ -428,5 +442,301 @@ await assert.rejects(attestPublicQdnPublish({
   ])),
   source: { bytes: sourceZip, filename: 'app.zip', unpackZip: true },
 }), /does not match the signed metadata hash/);
+
+// A hostile node could claim an arbitrarily large details.rawSize for a
+// tiny approved publish, forcing Home to download/decrypt/inflate far more
+// than the approved source could ever justify. Assert the check rejects
+// before fetchArtifact is ever called - fetchArtifact throws a different
+// message if invoked, so this also proves the guard runs first.
+const disproportionateSource = encoder.encode('tiny approved payload');
+await assert.rejects(attestPublicQdnPublish({
+  details: {
+    compression: 0,
+    data: randomBytes(32),
+    dataType: 0,
+    metadataHash: new Uint8Array(0),
+    rawSize: 500 * 1024 * 1024,
+    secret: randomBytes(32),
+  },
+  expectedMetadata: noMetadata,
+  fetchArtifact: async () => {
+    throw new Error('fetchArtifact should not be called for a disproportionate rawSize claim');
+  },
+  source: { bytes: disproportionateSource, filename: 'tiny.txt', unpackZip: false },
+}), /inconsistent with the approved publish/);
+
+// The old flat 10% + 4 KiB margin only accounted for AES-GCM overhead and
+// generic compression variance. It did not account for the dominant real
+// factor: Core repacks a multi-file publish into its OWN zip format
+// (explicit directory entries, extended-timestamp extra fields, data
+// descriptors), which is measurably larger per entry than the zip Home's
+// own fflate zipSync produces as the approved source. For an ordinary
+// many-small-file publish (an icon set, a locale pack) that per-entry
+// overhead compounds across every file and the flat margin would wrongly
+// reject the node's claimed rawSize as "inconsistent with the approved
+// publish" even though nothing was tampered with. Build a many-small-file
+// fflate zip, and pick a claimed rawSize that the OLD flat margin would
+// have rejected but the NEW entry-count-aware margin correctly accepts.
+const manySmallEntries = {};
+const MANY_SMALL_FILE_COUNT = 180;
+for (let index = 0; index < MANY_SMALL_FILE_COUNT; index += 1) {
+  manySmallEntries[`icons/icon-${index}.txt`] = encoder.encode(`tiny icon payload ${index}`);
+}
+const manySmallFilesSource = zipSync(manySmallEntries, { level: 0 });
+const oldFlatMargin = Math.ceil(manySmallFilesSource.byteLength * 1.1) + 4096;
+const newEntryAwareMargin = oldFlatMargin + 256 * MANY_SMALL_FILE_COUNT;
+const manySmallFilesClaimedRawSize = oldFlatMargin + 5_000;
+assert.ok(
+  manySmallFilesClaimedRawSize > oldFlatMargin,
+  'test fixture must exceed the old flat margin to actually exercise the regression scenario',
+);
+assert.ok(
+  manySmallFilesClaimedRawSize <= newEntryAwareMargin,
+  'test fixture must stay within the new entry-count-aware margin',
+);
+// fetchArtifact throws a distinctive marker if invoked - proving the size
+// gate accepted the claim and reached the fetch step, rather than rejecting
+// it with "inconsistent with the approved publish" the way the old flat
+// margin would have for this same claimed rawSize.
+await assert.rejects(attestPublicQdnPublish({
+  details: {
+    compression: 1,
+    data: randomBytes(32),
+    dataType: 0,
+    metadataHash: new Uint8Array(0),
+    rawSize: manySmallFilesClaimedRawSize,
+    secret: randomBytes(32),
+  },
+  expectedMetadata: noMetadata,
+  fetchArtifact: async () => {
+    throw new Error('MARKER: reached fetchArtifact, size margin accepted the claim');
+  },
+  source: { bytes: manySmallFilesSource, filename: 'icons.zip', unpackZip: true },
+}), /MARKER: reached fetchArtifact/);
+
+// The previous test proving a wildly disproportionate rawSize claim is
+// still rejected (500 MiB against a few-hundred-byte source) already
+// exists above and still runs against the new formula - entry-count
+// headroom for a single tiny file is negligible next to a 500 MiB claim.
+
+// Before this fix, unzipFiles's inflation check inside
+// verifyPublicQdnPublishArtifacts was bounded by the GLOBAL
+// PUBLIC_QDN_ATTESTATION_MAX_SOURCE_BYTES (1 GiB) constant rather than by what the
+// approved source's expected inflated total actually justifies. That left
+// a residual "zip bomb" gap: a ciphertext that passed the entry-count-aware
+// download-size margin (Fix 1) could still decompress to a much larger
+// plaintext, as long as it stayed under the 1 GiB ceiling. Prove the bound
+// is now source-relative and tighter than 1 GiB by using a classic zip-bomb
+// shape - a single file of highly-compressible zero bytes, so its
+// COMPRESSED (ciphertext) size stays tiny and passes Fix 1's margin, but
+// its DECOMPRESSED size modestly exceeds the tiny approved source's
+// inflation bound while remaining nowhere near the 1 GiB global constant.
+const zipBombApprovedFiles = {
+  'a.txt': randomBytes(100),
+  'b.txt': randomBytes(100),
+  'c.txt': randomBytes(100),
+};
+const zipBombSource = zipSync(zipBombApprovedFiles, { level: 0 });
+// expected inflation bound: ceil(300*1.1) + 4096 + 256*3 = 330+4096+768 = 5194
+const zipBombPlaintext = zipSync({ 'data/big.bin': new Uint8Array(6_000) });
+const zipBombEncrypted = encrypt(zipBombPlaintext);
+assert.ok(
+  zipBombEncrypted.bytes.length < 5_194,
+  'zip-bomb fixture ciphertext must stay under the entry-count-aware download margin to reach the inflation check',
+);
+await assert.rejects(attestPublicQdnPublish({
+  details: {
+    compression: 1,
+    data: zipBombEncrypted.bytes,
+    dataType: 1,
+    metadataHash: new Uint8Array(0),
+    rawSize: zipBombEncrypted.bytes.length,
+    secret: zipBombEncrypted.key,
+  },
+  expectedMetadata: noMetadata,
+  fetchArtifact: fetchFrom(new Map()),
+  source: { bytes: zipBombSource, filename: 'zip-bomb.zip', unpackZip: true },
+}), /bounded attestation limit/);
+
+// The entry-count-aware margin from the previous round only counted FILES
+// (unzipFiles's Map excludes directory entries), but Core's real repack
+// overhead is dominated by DIRECTORIES, not files, for any realistically
+// nested publish. Build a small-static-site-shaped fflate zip - 50 files
+// spread across many unique nested directory paths, several directories
+// per file - and pick a claimed rawSize that the OLD file-only-counting
+// formula would have wrongly rejected as tampering, but the NEW
+// structural-element-counting formula (files AND implied directories)
+// correctly accepts.
+const nestedEntries = {};
+const NESTED_FILE_COUNT = 50;
+const NESTED_SECTIONS = 8;
+const NESTED_SUBSECTIONS = 5;
+for (let index = 0; index < NESTED_FILE_COUNT; index += 1) {
+  const section = index % NESTED_SECTIONS;
+  const subsection = index % NESTED_SUBSECTIONS;
+  nestedEntries[`docs/section-${section}/sub-${subsection}/page-${index}/index.html`] =
+    encoder.encode(`<h1>Page ${index}</h1>`);
+}
+const nestedSource = zipSync(nestedEntries, { level: 0 });
+
+// Reproduce the OLD formula exactly: entryCount came from
+// unzipFiles(source.bytes, false).size, which is files only (directories
+// end in '/' and unzipFiles's filter returns false for those, so they
+// never make it into the Map).
+const nestedFilePaths = Object.keys(nestedEntries);
+const oldNestedEntryCount = nestedFilePaths.length;
+const oldNestedMargin = Math.ceil(nestedSource.byteLength * 1.1) + 4096 + 256 * oldNestedEntryCount;
+
+// The new structuralElementCount counts files AND every implied directory
+// path (e.g. 'docs', 'docs/section-0', 'docs/section-0/sub-0', ...).
+const nestedDirectories = new Set();
+for (const path of nestedFilePaths) {
+  const parts = path.split('/');
+  for (let index = 1; index < parts.length; index += 1) {
+    nestedDirectories.add(parts.slice(0, index).join('/'));
+  }
+}
+const newNestedStructuralElementCount = nestedFilePaths.length + nestedDirectories.size;
+const newNestedMargin =
+  Math.ceil(nestedSource.byteLength * 1.1) + 4096 + 2048 * newNestedStructuralElementCount;
+assert.ok(
+  nestedDirectories.size > nestedFilePaths.length,
+  'fixture must have more unique directories than files to actually exercise directory-blindness, not just a file-count edge case',
+);
+
+// Pick a claimed rawSize just above what the OLD formula could justify -
+// this is exactly the shape of claim Core would legitimately make for this
+// publish once its own directory-entry repack overhead is included, and
+// the OLD formula would wrongly reject it as "inconsistent with the
+// approved publish".
+const nestedClaimedRawSize = oldNestedMargin + 5_000;
+assert.ok(
+  nestedClaimedRawSize > oldNestedMargin,
+  'test fixture must exceed the OLD file-only-counting margin to actually exercise the directory-blindness regression',
+);
+assert.ok(
+  nestedClaimedRawSize <= newNestedMargin,
+  'test fixture must stay within the NEW structural-element-counting margin',
+);
+// fetchArtifact throws a distinctive marker if invoked - proving the size
+// gate accepted the claim and reached the fetch step, rather than rejecting
+// it with "inconsistent with the approved publish" the way the old
+// file-only-counting margin would have for this same claimed rawSize.
+await assert.rejects(attestPublicQdnPublish({
+  details: {
+    compression: 1,
+    data: randomBytes(32),
+    dataType: 0,
+    metadataHash: new Uint8Array(0),
+    rawSize: nestedClaimedRawSize,
+    secret: randomBytes(32),
+  },
+  expectedMetadata: noMetadata,
+  fetchArtifact: async () => {
+    throw new Error('MARKER: reached fetchArtifact, nested-directory-aware size margin accepted the claim');
+  },
+  source: { bytes: nestedSource, filename: 'docs-site.zip', unpackZip: true },
+}), /MARKER: reached fetchArtifact/);
+
+// countZipStructuralElements itself must now enforce the same
+// MAX_ZIP_ENTRIES bound unzipFiles enforces - and enforce it from INSIDE
+// the size-margin gate, before attestPublicQdnPublish ever calls
+// fetchArtifact. Before this fix, the margin gate did not count-cap at
+// all, so an over-the-limit entry count would happily compute a
+// (still-bounded-looking, but wrongly generous) margin and let a tiny
+// claimed rawSize sail through to fetchArtifact. Reuse the existing
+// 10,001-entry flood fixture and prove fetchArtifact is never reached -
+// if it were, the marker error below would surface instead of the
+// entry-count rejection.
+await assert.rejects(attestPublicQdnPublish({
+  details: {
+    compression: 0,
+    data: randomBytes(32),
+    dataType: 0,
+    metadataHash: new Uint8Array(0),
+    rawSize: 1024,
+    secret: randomBytes(32),
+  },
+  expectedMetadata: noMetadata,
+  fetchArtifact: async () => {
+    throw new Error('MARKER: reached fetchArtifact despite an over-the-limit entry count');
+  },
+  source: { bytes: floodSource, filename: 'flood.zip', unpackZip: true },
+}), /entry-count limit/);
+
+// Same property for the MAX_ZIP_PATH_BYTES bound - reuse the existing
+// oversized-path fixture and prove the margin gate rejects it itself,
+// before ever calling fetchArtifact.
+await assert.rejects(attestPublicQdnPublish({
+  details: {
+    compression: 0,
+    data: randomBytes(32),
+    dataType: 0,
+    metadataHash: new Uint8Array(0),
+    rawSize: 1024,
+    secret: randomBytes(32),
+  },
+  expectedMetadata: noMetadata,
+  fetchArtifact: async () => {
+    throw new Error('MARKER: reached fetchArtifact despite an oversized path');
+  },
+  source: { bytes: longPathSource, filename: 'long.zip', unpackZip: true },
+}), /oversized path/);
+
+// Performance bound: a pathological but limit-compliant zip - many entries,
+// each with a maximally deep, near-MAX_ZIP_PATH_BYTES, uniquely-prefixed
+// path - so the implied directory count vastly outnumbers MAX_ZIP_ENTRIES
+// if fully derived (this is the exact shape the adversarial review used to
+// measure multi-second, multi-GB cost from the unbounded version: entries
+// within the count limit, paths within the path-length limit, but shaped to
+// maximize derived-directory blowup). After the fix, the running total
+// (files counted so far + directories found so far) is capped at
+// MAX_ZIP_ENTRIES and prefix derivation stops the instant that cap is
+// reached, so this must complete quickly regardless of how deep/wide the
+// pathological shape is.
+const perfEntries = {};
+const PERF_ENTRY_COUNT = 4_000;
+for (let index = 0; index < PERF_ENTRY_COUNT; index += 1) {
+  const segments = [];
+  let pathBytes = 0;
+  let segmentIndex = 0;
+  for (;;) {
+    const segment = `e${index}s${segmentIndex}`;
+    const nextBytes = pathBytes + segment.length + 1;
+    if (nextBytes > 1000) break;
+    segments.push(segment);
+    pathBytes = nextBytes;
+    segmentIndex += 1;
+  }
+  perfEntries[`${segments.join('/')}/f.txt`] = Uint8Array.of(0);
+}
+const perfSource = zipSync(perfEntries, { level: 0 });
+const perfStart = Date.now();
+await assert.rejects(attestPublicQdnPublish({
+  details: {
+    compression: 0,
+    data: randomBytes(32),
+    dataType: 0,
+    metadataHash: new Uint8Array(0),
+    // Tiny relative to any margin countZipStructuralElements could compute
+    // (even its maximum possible margin, MAX_ZIP_ENTRIES structural
+    // elements, is on the order of tens of MB) - stays comfortably within
+    // the margin so the gate passes and execution reaches fetchArtifact,
+    // meaning the timed interval below is dominated by
+    // countZipStructuralElements's own cost, not by an early rejection.
+    rawSize: 1024,
+    secret: randomBytes(32),
+  },
+  expectedMetadata: noMetadata,
+  fetchArtifact: async () => {
+    throw new Error('MARKER: reached fetchArtifact after the margin gate');
+  },
+  source: { bytes: perfSource, filename: 'perf.zip', unpackZip: true },
+}), /MARKER: reached fetchArtifact/);
+const perfElapsedMs = Date.now() - perfStart;
+assert.ok(
+  perfElapsedMs < 5_000,
+  `bounded structural-element counting must complete quickly even for a pathological (deep, near-path-limit, many-entry) zip; took ${perfElapsedMs}ms`,
+);
 
 console.log('Public QDN content attestation tests passed.');
