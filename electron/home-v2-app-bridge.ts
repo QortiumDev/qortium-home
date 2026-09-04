@@ -506,6 +506,14 @@ import {
 } from './foreign-wallet-route-probe.js'
 import { HomeV2ForeignSendReconciliationPendingError } from './foreign-wallet-reconciliation.js'
 import {
+  FOREIGN_SEND_IN_PROGRESS_CODE,
+  isForeignWalletOperationInProgressError,
+} from './foreign-wallet-operation-lock.js'
+import {
+  FOREIGN_JOURNAL_LOCKED_CODE,
+  isJournalLockedError,
+} from './durable-json-file.js'
+import {
   clearReconciledStoredForeignWalletPendingTransaction,
   confirmStoredForeignWalletBroadcastSuccess,
   findStoredForeignWalletPendingTransactionConflict,
@@ -8366,10 +8374,21 @@ async function handleHomeV2ForeignSendAction(
         routeRevision,
       })
     }
-    if (error instanceof Error && /already in progress for this wallet and coin/.test(error.message)) {
+    if (isForeignWalletOperationInProgressError(error)) {
       throw createHomeV2BridgeError(error.message, {
         action,
-        code: 'FOREIGN_SEND_IN_PROGRESS',
+        code: FOREIGN_SEND_IN_PROGRESS_CODE,
+        network,
+        retryable: true,
+        routeRevision,
+      })
+    }
+    if (isJournalLockedError(error)) {
+      // Another Home instance holds the journal. The send never started, so
+      // the app may retry once that instance is done.
+      throw createHomeV2BridgeError(error.message, {
+        action,
+        code: FOREIGN_JOURNAL_LOCKED_CODE,
         network,
         retryable: true,
         routeRevision,

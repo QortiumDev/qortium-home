@@ -32,6 +32,37 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## fix(home2): lock and harden the pending transaction journals
+
+Three follow-ups from the review of the foreign send work.
+
+Home keeps a small file recording payments it has signed but not yet proven
+sent, and it reads that file to decide whether a new payment would double-spend
+the same coins. If two copies of Home were ever pointed at the same profile
+folder, both could read that file at the same moment and the second one to
+write would quietly erase what the first had just recorded, which is exactly
+the record the duplicate check depends on. Each read and write now takes an
+exclusive lock file next to the journal first, so the two copies take turns. A
+copy that cannot get its turn within ten seconds refuses the send with a clear
+"another Home instance is using this" message rather than going ahead without
+the record, and a lock left behind by a copy of Home that crashed is only ever
+cleared once that program is genuinely gone from this machine and the lock is
+minutes old. Android does not need any of this and does not get it: the journal
+there lives inside the app's own private storage and the app only ever runs as
+one process, which is now written down in both places so nobody has to
+rediscover it.
+
+The Qortal-family payment journal is now written as carefully as the foreign
+one: to a temporary file that is flushed to the disk hardware, then moved into
+place in a single step, so a power cut cannot leave half a file behind. Both
+journals now share one piece of code for that, instead of two versions that had
+already drifted apart.
+
+And when a second send is refused because one is already running for the same
+wallet, Home now recognises that case by its type rather than by matching the
+wording of the message, so rewording the message for people can no longer
+change how Home behaves.
+
 ## fix(home2): closure fixes from the security review
 
 Four last things from the review, all small but each one a real hole.
