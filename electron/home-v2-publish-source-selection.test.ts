@@ -23,6 +23,7 @@ import {
   describeHomeV2PublishSourcePath,
   getRequestedHomeV2PublishIncludeHidden,
   getRequestedHomeV2PublishSourceKind,
+  homeV2PublishDirectoryByteCeiling,
   homeV2PublishPackagingLimits,
   homeV2PublishPreviewTempAncestor,
   homeV2PublishSourceDialogProperties,
@@ -318,6 +319,51 @@ try {
     'the refused preview leaves no staging dir behind',
   )
 
+  // ---------------------------------------------------------------------------
+  // A folder selection fails fast against the ceiling the NODE advertises, the
+  // way the file branch already did. Measuring, staging, packaging and
+  // prompting for a folder the node will refuse wastes the user's time and the
+  // disk. A node that advertises MORE never raises Home's own folder ceiling.
+  // ---------------------------------------------------------------------------
+  assert.equal(
+    homeV2PublishDirectoryByteCeiling({ maximumBytes: 500, maximumEntries: 10 }),
+    500,
+    'an undiscovered node ceiling leaves the fixed folder ceiling alone',
+  )
+  assert.equal(
+    homeV2PublishDirectoryByteCeiling({ maximumBytes: 500, maximumEntries: 10, maximumFileBytes: 100 }),
+    100,
+  )
+  assert.equal(
+    homeV2PublishDirectoryByteCeiling({ maximumBytes: 500, maximumEntries: 10, maximumFileBytes: 10_000 }),
+    500,
+    'a generous node ceiling never raises the folder ceiling Home enforces',
+  )
+  const nodeCapped = nodePath.join(root, 'node-capped')
+  await mkdir(nodeCapped, { recursive: true })
+  await writeFile(nodePath.join(nodeCapped, 'index.html'), 'abcde')
+  const nodeCappedLimits = {
+    maximumBytes: HOME_V2_PUBLISH_DIRECTORY_MAX_BYTES,
+    maximumEntries: HOME_V2_PUBLISH_DIRECTORY_LIMITS.maximumEntries,
+  }
+  assert.equal(
+    (await describeHomeV2PublishSourcePath(nodeCapped, 'directory', {
+      ...nodeCappedLimits,
+      maximumFileBytes: 5,
+    })).size,
+    5,
+    'a folder exactly at the node ceiling is still selectable',
+  )
+  await refusal(
+    describeHomeV2PublishSourcePath(nodeCapped, 'directory', { ...nodeCappedLimits, maximumFileBytes: 4 }),
+    /exceeds the 4 byte limit/,
+    'a folder over the node ceiling is refused at selection, not at publish',
+  )
+  assert.equal(
+    (await describeHomeV2PublishSourcePath(nodeCapped, 'directory', nodeCappedLimits)).size,
+    5,
+    'without a discovered ceiling the folder selection is unchanged',
+  )
 
   // -------------------------------------------------------------------------
   // Publishing must be untouched by any of this. A folder source exists only

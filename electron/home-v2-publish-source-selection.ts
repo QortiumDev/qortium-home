@@ -138,6 +138,24 @@ export type HomeV2PublishDirectoryLimits = Readonly<{
 export type HomeV2PublishSourceLimits = HomeV2PublishDirectoryLimits &
   Readonly<{ maximumFileBytes?: number }>
 
+/**
+ * The byte ceiling a FOLDER selection is measured against.
+ *
+ * The folder ceiling is Home's own (512 MiB, the size the publish path would
+ * have to zip anyway), but a node that advertises less than that will refuse
+ * the publish, and the file branch already fails fast against exactly that
+ * number. A folder that cannot be published is refused at the picker for the
+ * same reason: measuring, staging, packaging and prompting first, only to be
+ * refused by the node afterwards, wastes the user's time and the disk.
+ *
+ * Undiscovered (Qortal, or a node too old to answer) leaves the fixed ceiling
+ * alone, so nothing that worked before this becomes a refusal.
+ */
+export function homeV2PublishDirectoryByteCeiling(limits: HomeV2PublishSourceLimits) {
+  return limits.maximumFileBytes === undefined
+    ? limits.maximumBytes
+    : Math.min(limits.maximumBytes, limits.maximumFileBytes)
+}
 
 // Injectable so the early-stop property can be proven against a limit of 5
 // instead of by building a folder with twenty thousand files in it.
@@ -603,7 +621,10 @@ export async function describeHomeV2PublishSourcePath(
       kind: 'directory' as const,
       mimeType: null,
       path: selectedPath,
-      size: await measureHomeV2PublishDirectoryBytes(selectedPath, limits),
+      size: await measureHomeV2PublishDirectoryBytes(selectedPath, {
+        ...limits,
+        maximumBytes: homeV2PublishDirectoryByteCeiling(limits),
+      }),
     })
   }
 
