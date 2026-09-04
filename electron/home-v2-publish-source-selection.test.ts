@@ -9,7 +9,9 @@ import { unzipSync } from 'fflate'
 
 import {
   HOME_V2_PUBLISH_BATCH_MAX_TOTAL_BYTES,
+  HOME_V2_PUBLISH_DIRECTORY_LIMITS,
   HOME_V2_PUBLISH_DIRECTORY_MAX_BYTES,
+  HOME_V2_PUBLISH_DIRECTORY_MAX_DEPTH,
   HOME_V2_PUBLISH_IN_MEMORY_MAX_BYTES,
   HOME_V2_PUBLISH_PACKAGING_STAGING_PREFIX,
   HOME_V2_PUBLISH_PREVIEW_STAGING_PREFIX,
@@ -268,6 +270,54 @@ try {
     measureHomeV2PublishDirectoryBytes(oversize),
     /exceeds the .* byte limit/,
   )
+
+  // ---------------------------------------------------------------------------
+  // Selection and preview enforce the SAME depth ceiling the publish packager
+  // does. They used to leave it undefined, so a tree deeper than the packager
+  // allows was picked and previewed happily, and refused only at the publish
+  // itself -- after the user had approved it.
+  // ---------------------------------------------------------------------------
+  assert.equal(HOME_V2_PUBLISH_DIRECTORY_LIMITS.maximumDepth, HOME_V2_PUBLISH_DIRECTORY_MAX_DEPTH)
+  assert.equal(
+    homeV2PublishPackagingLimits(1024 * 1024).maximumDepth,
+    HOME_V2_PUBLISH_DIRECTORY_LIMITS.maximumDepth,
+    'selection, preview and packaging must read one depth ceiling, not three numbers',
+  )
+  const tooDeep = nodePath.join(root, 'too-deep')
+  await mkdir(tooDeep, { recursive: true })
+  await writeFile(nodePath.join(tooDeep, 'index.html'), 'x')
+  const deepestPath = nodePath.join(
+    tooDeep,
+    ...Array.from({ length: HOME_V2_PUBLISH_DIRECTORY_MAX_DEPTH + 1 }, (_value, index) => `d${index}`),
+  )
+  await mkdir(deepestPath, { recursive: true })
+  await writeFile(nodePath.join(deepestPath, 'deep.txt'), 'x')
+  await refusal(
+    describeHomeV2PublishSourcePath(tooDeep, 'directory'),
+    new RegExp(`nests more than ${HOME_V2_PUBLISH_DIRECTORY_MAX_DEPTH} levels`),
+    'selection refuses a tree deeper than the publish packager accepts',
+  )
+  // The same tree, measured with the ceiling lifted, so the refusal above is
+  // the LIMIT talking: the preview stager then refuses it on the default
+  // limits, which is the PREVIEW half of the same fix.
+  const deepSelection = await describeHomeV2PublishSourcePath(tooDeep, 'directory', {
+    maximumBytes: HOME_V2_PUBLISH_DIRECTORY_MAX_BYTES,
+    maximumDepth: HOME_V2_PUBLISH_DIRECTORY_MAX_DEPTH + 8,
+    maximumEntries: 1_000,
+  })
+  assert.equal(deepSelection.kind, 'directory')
+  const stagingBeforeDeepPreview = await listPreviewStagingDirs()
+  await refusal(
+    stageHomeV2PublishSourceForPreview(deepSelection),
+    new RegExp(`nests more than ${HOME_V2_PUBLISH_DIRECTORY_MAX_DEPTH} levels`),
+    'preview staging refuses a tree deeper than the publish packager accepts',
+  )
+  assert.deepEqual(
+    await listPreviewStagingDirs(),
+    stagingBeforeDeepPreview,
+    'the refused preview leaves no staging dir behind',
+  )
+
 
   // -------------------------------------------------------------------------
   // Publishing must be untouched by any of this. A folder source exists only

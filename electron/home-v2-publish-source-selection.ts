@@ -84,6 +84,18 @@ export const HOME_V2_PUBLISH_DIRECTORY_MAX_BYTES = 512 * 1024 * 1024
 export const HOME_V2_PUBLISH_DIRECTORY_MAX_ENTRIES = 20_000
 
 /**
+ * How deep a folder walk may recurse, for EVERY path that walks one.
+ *
+ * Declared here, with the other folder ceilings, because selection, preview
+ * and packaging must agree on it: a folder accepted by SELECT and rendered by
+ * PREVIEW that the publish packager then refuses is a refusal arriving after
+ * the user approved, and one the app cannot have anticipated. The packaging
+ * limits re-export it as HOME_V2_PUBLISH_ZIP_MAX_DEPTH rather than restating
+ * the number.
+ */
+export const HOME_V2_PUBLISH_DIRECTORY_MAX_DEPTH = 32
+
+/**
  * Home's own resident-memory ceiling for ONE publish source, which is a
  * different thing from what the node will accept.
  *
@@ -126,10 +138,15 @@ export type HomeV2PublishDirectoryLimits = Readonly<{
 export type HomeV2PublishSourceLimits = HomeV2PublishDirectoryLimits &
   Readonly<{ maximumFileBytes?: number }>
 
+
 // Injectable so the early-stop property can be proven against a limit of 5
 // instead of by building a folder with twenty thousand files in it.
 export const HOME_V2_PUBLISH_DIRECTORY_LIMITS: HomeV2PublishDirectoryLimits = Object.freeze({
   maximumBytes: HOME_V2_PUBLISH_DIRECTORY_MAX_BYTES,
+  // The same ceiling the publish packager enforces. Selection and preview used
+  // to leave it undefined, so a tree deeper than the packager allows was picked
+  // and previewed happily and only refused at the publish itself.
+  maximumDepth: HOME_V2_PUBLISH_DIRECTORY_MAX_DEPTH,
   maximumEntries: HOME_V2_PUBLISH_DIRECTORY_MAX_ENTRIES,
 })
 
@@ -1037,7 +1054,9 @@ export function getRequestedHomeV2PublishIncludeHidden(
  */
 export const HOME_V2_PUBLISH_ZIP_MAX_ENTRIES = 10_000
 export const HOME_V2_PUBLISH_ZIP_MAX_PATH_BYTES = 1_024
-export const HOME_V2_PUBLISH_ZIP_MAX_DEPTH = 32
+// One source of truth with selection and preview - see
+// HOME_V2_PUBLISH_DIRECTORY_MAX_DEPTH.
+export const HOME_V2_PUBLISH_ZIP_MAX_DEPTH = HOME_V2_PUBLISH_DIRECTORY_MAX_DEPTH
 
 export const HOME_V2_PUBLISH_PACKAGING_STAGING_PREFIX = 'qortium-home-publish-'
 
