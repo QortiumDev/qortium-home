@@ -32,6 +32,26 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## fix(nodes): stop repeating one certificate warning forever
+
+Home checks on its network connections every fifteen seconds, and each check
+looks at every public Qortal node it knows about. For a remote node reached
+over a secure address there is a security decision Home makes and will always
+make the same way: it will not go and fetch the certificate authority for that
+node over an insecure connection, because anyone in between could hand over
+their own and Home would then trust it permanently.
+
+That decision is right, and it never changes for a given node. Home was
+nevertheless explaining it again on every single check, for every node, which
+filled the log with the same four lines over and over. It was loud enough to
+bury everything else: when a tester was asked to capture what Home was doing
+about its I2P router, this warning was almost the only thing in the capture.
+
+Home now explains it once for each node, and stays quiet about it after that.
+The first explanation is the useful one, because for a node the user typed in
+themselves it says what to change. Nothing about the decision itself has
+changed, and connections to those nodes behave exactly as before.
+
 ## fix(i2p): stop a shared PID file from disabling the router controls
 
 A tester could not turn on I2P at all. Settings offered "Direct only" and
