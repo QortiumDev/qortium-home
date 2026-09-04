@@ -16,6 +16,7 @@ import {
   HomeV2PublishZipWriter,
   sha256HexOfStream,
 } from './home-v2-publish-zip.js'
+import { isPathWithinPath } from './path-containment.js'
 
 import {
   HOME_V2_PUBLISH_SOURCE_MAX_BYTES,
@@ -317,10 +318,6 @@ export async function assertHomeV2PublishDirectoryIndexFile(
   throw homeV2PublishSourceError(MISSING_INDEX)
 }
 
-function isWithinDirectory(root: string, candidate: string) {
-  return candidate === root || candidate.startsWith(root + nodePath.sep)
-}
-
 /**
  * What an entry WAS when the walk classified it.
  *
@@ -400,8 +397,13 @@ async function assertHomeV2PublishDirectoryIdentity(
  * copied). PUBLISHING never gets here — it refuses links outright.
  */
 async function resolveContainedLink(root: string, entryPath: string) {
+  // `root` is already the realpath of the chosen folder and `target` the
+  // realpath of the link, so this is containment on two resolved paths and
+  // nothing else. The check itself is the one core-manager uses for the same
+  // question - a shared path.relative() test, not a string prefix, which would
+  // have called /home/user/site-backup a child of /home/user/site.
   const target = await realpath(entryPath).catch(() => null)
-  if (!target || !isWithinDirectory(root, target)) {
+  if (!target || !isPathWithinPath(target, root)) {
     throw homeV2PublishSourceError(ESCAPING_LINK)
   }
   const stats = await lstat(target, { bigint: true }).catch(() => null)

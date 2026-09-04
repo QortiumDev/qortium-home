@@ -238,6 +238,24 @@ try {
     /symbolic link pointing outside it/,
   )
 
+  // A sibling folder whose NAME starts with the chosen folder's name is
+  // outside it, and a link into one is refused. This is the case a string
+  // prefix gets wrong, and the reason containment is one shared
+  // path.relative() check (electron/path-containment.ts) rather than a
+  // startsWith in each module that needs one.
+  const prefixNeighbour = nodePath.join(root, 'prefix-neighbour')
+  await mkdir(prefixNeighbour, { recursive: true })
+  await writeFile(nodePath.join(prefixNeighbour, 'index.html'), 'x')
+  const siblingPrefix = `${prefixNeighbour}-backup`
+  await mkdir(siblingPrefix, { recursive: true })
+  await writeFile(nodePath.join(siblingPrefix, 'secret.html'), 'x')
+  await symlink(nodePath.join(siblingPrefix, 'secret.html'), nodePath.join(prefixNeighbour, 'leak.html'))
+  await refusal(
+    describeHomeV2PublishSourcePath(prefixNeighbour, 'directory'),
+    /symbolic link pointing outside it/,
+    'a link into a sibling folder sharing the name prefix escapes',
+  )
+
   // A nested escaping link is caught too -- the walk is recursive.
   const escapingNested = nodePath.join(root, 'escaping-nested')
   await mkdir(nodePath.join(escapingNested, 'deep'), { recursive: true })
