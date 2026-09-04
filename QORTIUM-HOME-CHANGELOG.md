@@ -64,6 +64,71 @@ every pixel with nothing to distinguish it from Home itself.
 On Android, where apps render in a frame rather than a native panel, the frame
 is now allowed to go fullscreen too.
 
+## feat(qdn): publish a whole folder, and let the node say how big a publish may be
+
+Publishing from an app used to mean choosing one file, no larger than 100 MiB.
+Two changes here, both on Qortium and both on the desktop app.
+
+Home now asks your node how large a publish it will accept instead of assuming
+100 MiB. A node can only ever lower the answer, never raise it past what Home
+is willing to attempt: whatever the node says is capped by Home's own limits,
+and if your node is too old to answer, Home keeps the old 100 MiB.
+
+You can also hand an app a whole folder. Home opens a folder picker, packages
+the folder into a single archive as it publishes it, and your node unpacks it
+into a multi-file resource -- which is what publishing a website actually
+needs. The archive is written to a temporary file a piece at a time rather than
+assembled in memory, so packaging a large folder does not freeze the app, and
+the temporary file is deleted whether the publish succeeds or fails.
+
+What the folder has to contain depends on what you are publishing it as.
+Published as a website or an app, it needs a home page at the top level, the
+same as before. Published as a video, audio or document bundle -- a media file
+with its poster and its captions -- it needs only to have something in it. The
+folder picker no longer asks for a home page at all, because at that point Home
+does not yet know which of the two you are doing.
+
+Minutes can pass between choosing a folder and approving the publish -- long
+enough for a file in it to grow, or for a folder in the middle of the path to
+be replaced. So each file is identified again at the moment it is opened, and
+one that is no longer the file Home measured is refused; a folder that has
+gained content since you chose it is refused too, because the amount Home will
+read is fixed at what it measured then. Shortcuts (symbolic links) are refused
+outright: a published folder is ordinary files and folders, which is also what
+stops a shortcut from carrying one of the never-published files in under an
+innocent name.
+
+This is not the same as promising the folder cannot change. A change Home has
+not looked at yet is simply what gets published, and the approval prompt shows
+you the exact fingerprint of those bytes before anything is sent.
+
+Two kinds of file are treated specially. Version-control folders, .env files,
+credential directories and editor leftovers are never packaged, whatever the
+app asks for, and the approval prompt tells you how many were left out. Any other hidden file stops
+the publish entirely until the app asks for hidden files by name -- Home cannot
+tell a wanted .htaccess from a private .bash_history, so it asks you instead of
+guessing. The approval prompt for a folder now also shows how many entries the
+archive holds, so you can see the shape of what you are about to publish before
+you approve it.
+
+Folder publishing is Qortium desktop only. Qortal keeps single files at
+100 MiB, and asking it for a folder is an honest error rather than a silent
+downgrade. Android has no folder picker and is unchanged.
+
+Folder archives use Qortium's public keyless publish route, including on a
+trusted node, because that is the route where Home can prove Core unpacked the
+approved archive into the approved multi-file resource. Trusted-node single
+files still use the newer authenticated streaming route and its larger limit.
+
+Four things found in review are fixed here too. A folder nested very deeply, or
+one larger than your own node says it will accept, is now refused when you pick
+it rather than after you have waited through the packaging and approved the
+publish - the picker, the preview and the publish all read the same limits.
+Previewing a folder no longer leaves a little bookkeeping behind in Home's
+memory each time, which an app could otherwise have driven in a loop. And the
+single check that decides whether something is inside the folder you chose is
+now the one Home already used elsewhere, rather than a second copy of it.
+
 ## feat(android): add Home-signed foreign coin sends
 
 Android now uses the same locally planned and signed BTC, LTC, DOGE, DGB, RVN,
@@ -238,7 +303,6 @@ router already installed, without downloading anything, which is what makes an
 existing older install usable again after a failed update. It prefers the
 version Home would install today. It is available to the rest of the app now
 and will be wired to a button in a follow-up.
-
 
 ## fix(home2): accept Core-written private-group key announcements
 
