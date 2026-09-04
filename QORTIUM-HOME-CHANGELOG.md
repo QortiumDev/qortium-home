@@ -32,6 +32,26 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## feat(home2): stream larger QDN publishes through a trusted node
+
+Desktop Home 2 now uses Core's authenticated QDN builder when the selected
+Qortium node passes the same administrative-trust check used by node settings,
+lists and previews. The effective source ceiling comes from that node's
+`qdnPublishMaxSize`; an untrusted/public node continues to use the keyless
+route and the smaller of its `publicPublishMaxSize` and Home's existing
+100 MiB public-attestation bound. Qortal publishing is unchanged.
+
+Large trusted-node files are copied into a private Home-owned snapshot while
+their approval hash is computed, then uploaded and attested as streams. Home
+downloads the encrypted pre-signature artifact through the new authenticated
+Core readback, verifies its signed hash, decrypts it to a bounded temp file,
+and compares the packaged file and metadata before signing. This removes the
+old 100 MiB picker and in-memory publication boundary on the trusted desktop
+route without allowing multi-gigabyte buffers or weakening exact-byte
+attestation. Route, account, app, name ownership and administrative-key
+revision are rechecked after approval and before signing. Public publishing
+keeps its existing behavior and limits.
+
 ## fix(home2): clamp hosted-app read budgets instead of refusing them
 
 Home 2 refused a hosted app's read before contacting Core whenever the app

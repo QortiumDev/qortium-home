@@ -6,7 +6,10 @@ import {
   homeV2PublishSourceDialogProperties,
   type HomeV2PublishSourcePickKind,
 } from './home-v2-publish-source-selection.js'
-import type { HomeV2PublishSourceBinding } from './home-v2-publish-source-tokens.js'
+import {
+  HOME_V2_PUBLISH_SOURCE_MAX_BYTES,
+  type HomeV2PublishSourceBinding,
+} from './home-v2-publish-source-tokens.js'
 
 /**
  * The path a smoke run picks instead of opening the native dialog, or null.
@@ -40,6 +43,7 @@ export async function selectHomeV2DesktopPublishSource(
   // Defaults to 'file' so the publish and chat-attachment flows are unchanged:
   // only PREVIEW's caller asks for a folder, and only because it asks.
   kind: HomeV2PublishSourcePickKind = 'file',
+  maximumFileBytes: number = HOME_V2_PUBLISH_SOURCE_MAX_BYTES,
 ) {
   const hostWindow = BrowserWindow.fromId(windowId)
   if (!hostWindow || hostWindow.isDestroyed()) {
@@ -47,7 +51,7 @@ export async function selectHomeV2DesktopPublishSource(
   }
   const smokePath = homeV2PublishSourceSmokePath()
   if (smokePath) {
-    const source = await describeHomeV2PublishSourcePath(smokePath, kind)
+    const source = await describeHomeV2PublishSourcePath(smokePath, kind, undefined, maximumFileBytes)
     return {
       canceled: false as const,
       fileName: source.fileName,
@@ -63,7 +67,7 @@ export async function selectHomeV2DesktopPublishSource(
     title: `Select ${binding.network === 'qortal' ? 'Qortal' : 'Qortium'} publish source`,
   })
   if (result.canceled || !result.filePaths[0]) return { canceled: true as const }
-  const source = await describeHomeV2PublishSourcePath(result.filePaths[0], kind)
+  const source = await describeHomeV2PublishSourcePath(result.filePaths[0], kind, undefined, maximumFileBytes)
   return {
     canceled: false as const,
     fileName: source.fileName,
