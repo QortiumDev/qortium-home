@@ -827,6 +827,8 @@ function AndroidAppStage(props: AppTabStageProps) {
       className="home-v2-app-frame"
       src={source}
       title={t('home2.app.frameTitle')}
+      allow="fullscreen"
+      allowFullScreen
     /> : null}
     {resolution.status ? <div className="home-v2-app-stage__status" role="status">{resolution.status}</div> : null}
     {resolution.error || runtimeError ? <div className="home-v2-app-stage__error">{resolution.error ?? runtimeError}</div> : null}

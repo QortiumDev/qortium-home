@@ -1401,9 +1401,40 @@ function applyViewGuards(entry: QdnViewEntry) {
 
   const isolatedSession = entry.view.webContents.session;
 
-  isolatedSession.setPermissionCheckHandler(() => false);
-  isolatedSession.setPermissionRequestHandler((_webContents, _permission, callback) => {
-    callback(false);
+  // Every permission is denied by default - hosted Q-App code is untrusted.
+  // 'fullscreen' is special-cased below because it has no side-channel risk
+  // (it only lets the page resize its own view, gated by the same guards as
+  // everything else) and hosted apps have no other way to offer a fullscreen
+  // toggle, unlike camera/mic/clipboard/etc which stay denied.
+  isolatedSession.setPermissionCheckHandler((_wc, permission) => permission === 'fullscreen');
+  isolatedSession.setPermissionRequestHandler((_webContents, permission, callback) => {
+    callback(permission === 'fullscreen');
+  });
+
+  // Permission alone only lets the page's DOM enter the fullscreen state;
+  // Chromium still expects the embedder to actually resize the WebContentsView
+  // to fill the window, since there's no <iframe>/allowfullscreen path here.
+  entry.view.webContents.on('enter-html-full-screen', () => {
+    if (entry.window.isDestroyed()) {
+      return;
+    }
+
+    // setBounds is relative to the window's content area (0,0 top-left),
+    // unlike getContentBounds()'s absolute screen coordinates - only the
+    // size is needed here, not the window's on-screen position.
+    const { width, height } = entry.window.getContentBounds();
+
+    entry.view.setBounds({ x: 0, y: 0, width, height });
+  });
+
+  entry.view.webContents.on('leave-html-full-screen', () => {
+    if (entry.window.isDestroyed() || entry.view.webContents.isDestroyed()) {
+      return;
+    }
+
+    if (entry.hostCssBounds) {
+      applyHostViewBounds(entry, entry.hostCssBounds);
+    }
   });
 
   if (process.env.QORTIUM_HOME_V2 === '1') {
