@@ -32,6 +32,31 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## fix(home2): keep the phone layout clear of the system bars
+
+On a phone, Home was drawing underneath both the status bar at the top and the
+navigation buttons at the bottom. The tab strip sat directly beneath the clock
+and battery icons, which made the tabs very hard to tap, and the bottom of
+every page ran on behind the back, home and recents buttons.
+
+Android now insists that apps draw edge to edge, right out to the corners of
+the display, and hands the app the sizes of the areas the system covers so it
+can keep its own controls out of them. Home already asks for those measurements
+and they arrive correctly; the Home 2 layout simply never used them. Home 1
+did, which is why the problem looked new. Home 2 now uses them in the same
+places: the tab strip and the address row sit below the status bar and clear of
+any camera cutout, and page content and hosted apps end above the navigation
+buttons. Nothing changes on desktop, where these measurements are all zero.
+
+The phone layout also demanded a fixed height of 820 pixels, which is taller
+than the usable area on a typical phone once the system bars are accounted for.
+That forced the whole window to scroll and pushed content down behind the
+navigation buttons. That fixed height came from the desktop preview, which
+draws a phone-shaped frame on a big screen, so it now lives with the preview
+and a real phone simply fits its own screen.
+
+Checked on a real device before and after.
+
 ## fix(i2p): recover from a half-finished router update
 
 A tester's i2pd update download failed partway, and Home was stuck afterwards.
@@ -64,6 +89,7 @@ router already installed, without downloading anything, which is what makes an
 existing older install usable again after a failed update. It prefers the
 version Home would install today. It is available to the rest of the app now
 and will be wired to a button in a follow-up.
+
 
 ## fix(home2): accept Core-written private-group key announcements
 
