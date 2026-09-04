@@ -13,6 +13,7 @@ import {
   type PortableNodeClientDependencies,
 } from './node-client'
 import { parseHomeV2AccountCatalogueStore } from './account-catalogue'
+import { homeV2AdminTrustRevision } from '../../electron/home-v2-admin-trust'
 import { validateVisibleAvatarPayload } from '../v2/shell/VisibleIdentityAvatar'
 import { getHomeV2AppActions } from '../../electron/home-v2-app-actions'
 import { getHomeV2ContextualAppActions } from '../../electron/home-v2-app-runtime'
@@ -124,6 +125,7 @@ let coreUpdatePostCount = 0
 let coreUpdateResponse: unknown = { updateAvailable: true }
 let onCoreUpdateGet: (() => void | Promise<void>) | null = null
 let savedResource: { fileName: string; mimeType: string; size: number } | null = null
+let secretWrites = 0
 
 const dependencies: PortableNodeClientDependencies = {
   async getPreference(key) {
@@ -139,6 +141,10 @@ const dependencies: PortableNodeClientDependencies = {
     preferences.set(key, value)
   },
   async setSecret(key, value) {
+    secretWrites += 1
+    // A real secure store is not instantaneous. The delay is what lets a
+    // single-flight test have two readers overlap at all.
+    await Promise.resolve()
     secrets.set(key, value)
   },
   async requestJson(url, method, timeoutMs, headers, disableRedirects, body) {
@@ -228,6 +234,12 @@ const dependencies: PortableNodeClientDependencies = {
     lastRequestedBody = body
     lastRequestedTimeoutMs = timeoutMs
     lastBoundedMaxBytes = maxBytes
+    if (url.includes('/arbitrary/preview/')) {
+      // The seam that lets a test move the node or the key WHILE the upload is
+      // in flight, which is the only way to exercise the post-upload recheck.
+      await onPreviewUpload?.()
+      return { data: previewUploadResponse, latencyMs: 1, ok: previewUploadOk, status: previewUploadStatus }
+    }
     if (url.endsWith('/walletbalance')) {
       return { data: '123456789', latencyMs: 1, ok: true, status: 200 }
     }
@@ -241,6 +253,15 @@ const dependencies: PortableNodeClientDependencies = {
         ok: true,
         status: 200,
       }
+    }
+    if (url.endsWith('/wallet/public/spend-context')) {
+      if (body === JSON.stringify({ expectedChainId: '', xpub58: '' })) {
+        return { data: { message: 'invalid request' }, latencyMs: 1, ok: false, status: 400 }
+      }
+      return { data: { chainId: 'spend-context-test' }, latencyMs: 1, ok: true, status: 200 }
+    }
+    if (url.endsWith('/send/broadcast')) {
+      return { data: '11'.repeat(32), latencyMs: 1, ok: true, status: 200 }
     }
     return { data: [{ txHash: 'public-history' }], latencyMs: 1, ok: true, status: 200 }
   },
@@ -267,6 +288,11 @@ const dependencies: PortableNodeClientDependencies = {
   },
   now: () => currentNow,
 }
+
+let onPreviewUpload: (() => Promise<void>) | null = null
+let previewUploadResponse: unknown = '/render/hash/abc123def456'
+let previewUploadOk = true
+let previewUploadStatus = 200
 
 const client = createPortableNodeClient(dependencies)
 assert.equal(typeof client.checkCoreUpdate, 'function')
@@ -1164,6 +1190,20 @@ assert.equal(authenticatedQortalBtc?.homeWallet?.receive, true)
 assert.equal(authenticatedQortalBtc?.homeWallet?.read, true)
 assert.equal(authenticatedQortalBtc?.homeWallet?.serverManagement, true)
 
+const authenticatedAndroidDiscovery = await client.requestApp('qdnRequest', {
+  action: 'GET_CROSSCHAIN_BLOCKCHAINS',
+}, {
+  resourceLocation: 'qdn://APP/Wallet/Wallet',
+  selectedAccountId: 'wallet:one:2',
+  selectedAccountUnlocked: true,
+  tabId: 'wallet-tab',
+}) as Array<{ currencyCode?: string; homeWallet?: Record<string, unknown> }>
+const authenticatedAndroidBtc = authenticatedAndroidDiscovery.find((row) => row.currencyCode === 'BTC')
+assert.equal(authenticatedAndroidBtc?.homeWallet?.send, true)
+assert.equal(authenticatedAndroidBtc?.homeWallet?.sendMode, 'HOME_LOCAL')
+assert.equal(lastRequestedUrl, 'https://qortium-admin.example/crosschain/btc/wallet/public/spend-context')
+assert.equal(lastBoundedMaxBytes, 64 * 1024)
+
 const foreignWallet = {
   address: 'DPublicReceiveAddress',
   coin: 'DGB' as const,
@@ -1171,9 +1211,21 @@ const foreignWallet = {
   xpub58: 'xpub-public-wallet',
 }
 assert.equal(typeof client.foreignWalletRead, 'function')
+assert.equal(typeof client.foreignWalletPost, 'function')
 assert.equal(typeof client.setForeignServer, 'function')
 const foreignTrust = await client.adminTrust!()
 assert.equal(foreignTrust.trusted, true)
+// The token React holds is the BINDING ID -- random, minted with the key --
+// and never `homeV2AdminTrustRevision`, which is a truncated digest of
+// origin||apiKey and so an offline verifier for a weak key (security review,
+// 2026-09-02). Asserted here because this is the value that crosses into the
+// React layer, is passed back as `approvedRevision`, and is written into the
+// user's profile on a preview tab.
+assert.match(foreignTrust.revision, /^[0-9a-f]{32}$/)
+assert.notEqual(
+  foreignTrust.revision,
+  homeV2AdminTrustRevision('https://qortium-admin.example', 'private-test-api-key'),
+)
 if (!foreignTrust.trusted) throw new Error('Expected authenticated foreign-wallet node.')
 assert.equal(await client.foreignWalletRead!('GET_WALLET_BALANCE', foreignWallet, foreignTrust.revision), '123456789')
 assert.equal(lastRequestedUrl, 'https://qortium-admin.example/crosschain/dgb/walletbalance')
@@ -1210,9 +1262,133 @@ assert.equal(lastRequestedBody, JSON.stringify({
   port: 50002,
 }))
 assert.equal(lastBoundedMaxBytes, 64 * 1024)
+assert.deepEqual(await client.foreignWalletPost!(
+  '/crosschain/dgb/wallet/public/spend-context',
+  JSON.stringify({ expectedChainId: 'bip122:test', xpub58: foreignWallet.xpub58 }),
+  'application/json',
+  20 * 1024 * 1024,
+  foreignTrust.revision,
+), { chainId: 'spend-context-test' })
+assert.equal(lastBoundedMaxBytes, 20 * 1024 * 1024)
+assert.equal(lastRequestedHeaders?.['X-API-KEY'], 'private-test-api-key')
+assert.equal(await client.foreignWalletPost!(
+  '/crosschain/dgb/send/broadcast',
+  JSON.stringify({ expectedChainId: 'bip122:test', rawTransactionHex: '00' }),
+  'application/json',
+  8 * 1024,
+  foreignTrust.revision,
+), '11'.repeat(32))
+
+// --- PREVIEW_QDN_PUBLISH_SOURCE, Android ----------------------------------
+// Android was refused previews on the stated ground that it "runs no local
+// Core". That was never the action's requirement -- it was the desktop
+// TRANSPORT's (a filesystem path only a co-located node can read). Core's
+// byte-upload route takes the bytes, so the capability is the same one desktop
+// has, gated on the same admin trust and reached over the same authenticated,
+// redirect-refusing, bounded POST.
+assert.equal(typeof client.previewPublishSource, 'function')
+const previewBase64 = btoa('<h1>preview</h1>')
+const previewed = await client.previewPublishSource!({
+  dataBase64: previewBase64,
+  fileName: 'site.zip',
+})
+assert.deepEqual(previewed, {
+  previewUrl: 'https://qortium-admin.example/render/hash/abc123def456',
+  revision: foreignTrust.revision,
+  service: 'WEBSITE',
+})
+// The REQUEST SHAPE: base64 in the body, the archive flag and the filename in
+// the query, the admin key on the header, redirects refused, response bounded.
+assert.equal(
+  lastRequestedUrl,
+  'https://qortium-admin.example/arbitrary/preview/WEBSITE/upload?archive=true&filename=site.zip',
+)
+assert.equal(lastRequestedMethod, 'POST')
+assert.equal(lastRequestedHeaders?.['Content-Type'], 'text/plain')
+assert.equal(lastRequestedHeaders?.['X-API-KEY'], 'private-test-api-key')
+assert.equal(lastDisableRedirects, true)
+assert.equal(lastRequestedBody, previewBase64)
+assert.equal(lastBoundedMaxBytes, 64 * 1024)
+assert.equal(lastRequestedTimeoutMs, 180_000)
+
+// A single file is NOT an archive, and its extension picks the service.
+await client.previewPublishSource!({ dataBase64: previewBase64, fileName: 'clip.mp4' })
+assert.equal(
+  lastRequestedUrl,
+  'https://qortium-admin.example/arbitrary/preview/VIDEO/upload?archive=false&filename=clip.mp4',
+)
+// A standalone page uploads as a file: Core wraps an HTML upload to WEBSITE as
+// index.html itself.
+await client.previewPublishSource!({ dataBase64: previewBase64, fileName: 'page.html' })
+assert.equal(
+  lastRequestedUrl,
+  'https://qortium-admin.example/arbitrary/preview/WEBSITE/upload?archive=false&filename=page.html',
+)
+
+// An extension Core has no preview service for is refused BEFORE the bytes go
+// anywhere.
+{
+  const before = boundedRequestCount
+  await assert.rejects(
+    () => client.previewPublishSource!({ dataBase64: previewBase64, fileName: 'notes.docx' }),
+    /Unsupported preview content/,
+  )
+  assert.equal(boundedRequestCount, before, 'an unsupported source must not be uploaded')
+}
+
+// A node that answers with something other than a bare /render/ path is
+// refused: that answer becomes a tab URL.
+{
+  previewUploadResponse = 'https://evil.example/render/hash/abc'
+  await assert.rejects(
+    () => client.previewPublishSource!({ dataBase64: previewBase64, fileName: 'site.zip' }),
+    /unexpected preview URL/,
+  )
+  previewUploadResponse = '//evil.example/render/hash/abc'
+  await assert.rejects(
+    () => client.previewPublishSource!({ dataBase64: previewBase64, fileName: 'site.zip' }),
+    /unexpected preview URL/,
+  )
+  previewUploadResponse = '/render/hash/abc123def456'
+}
+
+// A node without the endpoint answers 404/500; say so rather than "try again".
+{
+  previewUploadOk = false
+  previewUploadStatus = 404
+  await assert.rejects(
+    () => client.previewPublishSource!({ dataBase64: previewBase64, fileName: 'site.zip' }),
+    /does not support QDN previews yet/,
+  )
+  previewUploadOk = true
+  previewUploadStatus = 200
+}
+
+// REVISION DRIFT AFTER THE UPLOAD. The upload can run for minutes; a node or
+// key that moved while it did means the returned render URL belongs to a node
+// the user is no longer approved on, so the preview must not open.
+{
+  onPreviewUpload = async () => {
+    await client.setCustomUrl('qortium', 'https://qortium-admin.example', 'rotated-mid-upload-key')
+  }
+  await assert.rejects(
+    () => client.previewPublishSource!({ dataBase64: previewBase64, fileName: 'site.zip' }),
+    /API key changed while the preview was being built/,
+  )
+  onPreviewUpload = null
+  await client.setCustomUrl('qortium', 'https://qortium-admin.example', 'private-test-api-key')
+}
 
 const boundedBeforeCredentialChange = boundedRequestCount
 await client.setCustomUrl('qortium', 'https://qortium-admin.example', 'rotated-test-api-key')
+{
+  // Re-minted on rotation: an approval token issued for the old key must not
+  // authorise a write against the new one.
+  const rotatedTrust = await client.adminTrust!()
+  assert.equal(rotatedTrust.trusted, true)
+  assert.match(rotatedTrust.revision, /^[0-9a-f]{32}$/)
+  assert.notEqual(rotatedTrust.revision, foreignTrust.revision)
+}
 await assert.rejects(
   () => client.foreignWalletRead!('GET_WALLET_BALANCE', foreignWallet, foreignTrust.revision),
   /API key changed/,
@@ -1369,5 +1545,153 @@ await assert.rejects(
     /must be approved through Home/.test(error.message) &&
     !/only available in Qortium Home desktop|read-only mode/i.test(error.message),
 )
+
+// --- Preview is gated on TRUST, never on the node being local -------------
+// Run last so the mode changes disturb nothing above. A public node is
+// somebody else's Core, and a plain-HTTP remote host would put the API key on
+// the wire in the clear; both refuse, and neither uploads a byte. The
+// authenticated HTTPS custom node above is the ACCEPT case, and it is not
+// loopback -- which is the whole point of the 2026-09-02 rule.
+{
+  const before = boundedRequestCount
+  await client.setMode('qortium', 'public')
+  await assert.rejects(
+    () => client.previewPublishSource!({ dataBase64: btoa('x'), fileName: 'site.zip' }),
+    // A discovered public node has no attached key and no origin the portable
+    // client will administer, so the refusal names the fix (a secure route to
+    // a node of your own) rather than the platform.
+    /Previewing a publish source needs a secure route to the node/,
+  )
+  await client.setMode('qortium', 'custom')
+  // The transport rule is unchanged and enforced one layer earlier: a remote
+  // custom node cannot even be SAVED over plain HTTP, so an API key never
+  // reaches a preview upload in the clear.
+  await assert.rejects(
+    () => client.setCustomUrl('qortium', 'http://remote.example:24891', 'private-test-api-key'),
+    /must use HTTPS/,
+  )
+  await client.setCustomUrl('qortium', 'https://qortium-admin.example')
+  await assert.rejects(
+    () => client.previewPublishSource!({ dataBase64: btoa('x'), fileName: 'site.zip' }),
+    /needs your node's API key/,
+  )
+  assert.equal(boundedRequestCount, before, 'an untrusted node must never receive preview bytes')
+}
+
+// --- The binding id is minted once, and only when the credential moves -----
+// Both halves come from review round 3.
+{
+  const SECRET_KEY = 'home-v2-qortium-node-api-key-v1'
+  const ORIGIN = 'https://qortium-admin.example'
+  // The block above deliberately leaves the node keyless; re-attach one.
+  await client.setCustomUrl('qortium', ORIGIN, 'private-test-api-key')
+  const currentTrust = await client.adminTrust!()
+  assert.equal(currentTrust.trusted, true)
+
+  // (b) A settings write that touches NEITHER the key nor the origin keeps the
+  // id. Re-minting on a mode change would invalidate every approval token and
+  // every open preview tab for a change that touched no credential.
+  await client.setMode('qortium', 'custom')
+  const afterModeChange = await client.adminTrust!()
+  assert.equal(afterModeChange.trusted, true)
+  assert.equal(
+    afterModeChange.revision,
+    currentTrust.revision,
+    'a mode change must not re-mint the binding id',
+  )
+  // Re-saving the SAME key against the SAME node is equally benign.
+  await client.setCustomUrl('qortium', ORIGIN, 'private-test-api-key')
+  assert.equal(
+    (await client.adminTrust!()).revision,
+    currentTrust.revision,
+    'saving the same key on the same node must not re-mint the binding id',
+  )
+
+  // ...but a different key does re-mint, and so does a different origin.
+  await client.setCustomUrl('qortium', ORIGIN, 'another-test-api-key')
+  const afterKeyChange = await client.adminTrust!()
+  assert.equal(afterKeyChange.trusted, true)
+  assert.notEqual(afterKeyChange.revision, currentTrust.revision)
+  await client.setCustomUrl('qortium', 'https://moved.example', 'another-test-api-key')
+  const afterMove = await client.adminTrust!()
+  assert.equal(afterMove.trusted, true)
+  assert.notEqual(afterMove.revision, afterKeyChange.revision)
+
+  // (a) The lazy upgrade for a record written before binding ids existed is
+  // SINGLE-FLIGHT. Two concurrent readers used to mint independently and the
+  // last write won, leaving the earlier caller holding an id the store no
+  // longer had.
+  await client.setCustomUrl('qortium', ORIGIN, 'private-test-api-key')
+  secrets.set(SECRET_KEY, JSON.stringify({
+    apiKey: 'private-test-api-key',
+    nodeApiUrl: ORIGIN,
+    version: 1,
+  }))
+  const writesBefore = secretWrites
+  const [first, second, third] = await Promise.all([
+    client.adminTrust!(),
+    client.adminTrust!(),
+    client.adminTrust!(),
+  ])
+  assert.equal(first.trusted && second.trusted && third.trusted, true)
+  assert.match(first.revision, /^[0-9a-f]{32}$/)
+  assert.equal(second.revision, first.revision, 'concurrent readers must share one mint')
+  assert.equal(third.revision, first.revision)
+  assert.equal(secretWrites - writesBefore, 1, 'the lazy upgrade must write exactly once')
+  // And the id that was handed out is the one that is actually stored.
+  assert.equal(
+    (JSON.parse(secrets.get(SECRET_KEY) ?? '{}') as { bindingId?: string }).bindingId,
+    first.revision,
+  )
+  // A later read finds it and does not mint again.
+  const writesAfter = secretWrites
+  assert.equal((await client.adminTrust!()).revision, first.revision)
+  assert.equal(secretWrites, writesAfter, 'a record that already has an id must not be rewritten')
+}
+
+// A native host can return an opaque credential handle instead of decrypting
+// the API key into JavaScript. Ordinary mode/same-origin settings writes must
+// preserve that protected value rather than overwriting it with the handle.
+{
+  const origin = 'https://native-admin.example'
+  const bindingId = 'd'.repeat(32)
+  const handle = `native-admin:${bindingId}`
+  const nativePreferences = new Map<string, string>([
+    ['home-v2-live-node:qortium', JSON.stringify({ customUrl: origin, mode: 'custom' })],
+  ])
+  let removals = 0
+  let writes = 0
+  const nativeClient = createPortableNodeClient({
+    ...dependencies,
+    async getPreference(key) {
+      return nativePreferences.get(key) ?? null
+    },
+    async getSecret(key) {
+      return key === 'home-v2-qortium-node-api-key-v1'
+        ? JSON.stringify({ apiKey: handle, bindingId, nodeApiUrl: origin, version: 1 })
+        : null
+    },
+    isSecretHandle(key, value) {
+      return key === 'home-v2-qortium-node-api-key-v1' && value.startsWith('native-admin:')
+    },
+    async removeSecret() {
+      removals += 1
+    },
+    async setPreference(key, value) {
+      nativePreferences.set(key, value)
+    },
+    async setSecret() {
+      writes += 1
+    },
+  })
+  await nativeClient.setMode('qortium', 'custom')
+  await nativeClient.setCustomUrl('qortium', origin)
+  assert.equal(removals, 0)
+  assert.equal(writes, 0)
+
+  await nativeClient.setCustomUrl('qortium', origin, 'replacement-key')
+  assert.equal(removals, 1)
+  assert.equal(writes, 1)
+}
 
 console.log('Home v2 portable node client tests passed.')

@@ -353,9 +353,17 @@ function parseSignedQpgcChatTransaction(value: unknown) {
   const dataLength = reader.int32('data length')
   if (dataLength < 1 || dataLength > 4_000) throw new Error('QPGC control CHAT data length is invalid.')
   const data = reader.read(dataLength, 'data')
-  if (reader.byte('encrypted flag') !== 1 || reader.byte('text flag') !== 1) {
-    throw new Error('QPGC control CHAT must be encrypted text.')
-  }
+  if (reader.byte('encrypted flag') !== 1) throw new Error('QPGC control CHAT must be encrypted.')
+  // The text flag carries no meaning for an opaque control envelope, and the
+  // two producers disagree on it: Core writes every control CHAT (announcement,
+  // relay, key request, rotation request) with isText=false — see Core's
+  // committed interop fixture chatTransactions.relayedKeyAnnouncement and
+  // PrivateGroupChatService.buildChatTransaction(..., false, true) — while Home
+  // writes its own with isText=true. Core's indexer accepts either. Requiring
+  // 1 here rejected every Core-made announcement, so a Home 2 member could
+  // never obtain a key announced by a Home 1.x / Core-backed sender.
+  const textFlag = reader.byte('text flag')
+  if (textFlag !== 0 && textFlag !== 1) throw new Error('QPGC control CHAT text flag is invalid.')
   if (reader.int64('fee') !== 0) throw new Error('QPGC control CHAT fee must be zero.')
   const referenceMarker = reader.byte('chatReference marker')
   if (referenceMarker !== 0 && referenceMarker !== 1) throw new Error('QPGC control CHAT reference marker is invalid.')
@@ -427,10 +435,23 @@ export function normalizeHomeV2QpgcControlPage(
   if (value.nextCursor !== null && value.nextCursor !== undefined && (
     typeof value.nextCursor !== 'string' || value.nextCursor.length > 256
   )) throw new Error('QPGC control page cursor is invalid.')
+  // One unverifiable record must not blank the whole page: the announcement
+  // the caller needs may be the next row. Rejected records are dropped and
+  // counted so a caller can still notice a page that verified nothing.
+  const controls: HomeV2VerifiedQpgcControl[] = []
+  let rejectedRecords = 0
+  for (const control of value.controls) {
+    try {
+      controls.push(verifyHomeV2QpgcControlRecord(control, state))
+    } catch {
+      rejectedRecords += 1
+    }
+  }
   return {
-    controls: value.controls.map((control) => verifyHomeV2QpgcControlRecord(control, state)),
+    controls,
     hasMore: value.hasMore,
     nextCursor: typeof value.nextCursor === 'string' ? value.nextCursor : null,
+    rejectedRecords,
     txGroupId: expectedGroupId,
   }
 }

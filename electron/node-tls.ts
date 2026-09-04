@@ -10,6 +10,7 @@ import {
   normalizeHostname,
   planNodeCaBootstrap,
   type NodeCaBootstrapPlan,
+  shouldReportNodeCaRefusal,
 } from './node-ca-bootstrap.js';
 import { readNodeCertificatePins } from './node-cert-pins.js';
 import {
@@ -297,7 +298,12 @@ export async function ensureNodeCa(nodeApiUrl: string, apiKey: string | null): P
       return true;
     }
 
-    console.warn(plan.reason);
+    // Every other branch here is de-duplicated (ensureCaByKey, refreshCaByKey);
+    // this one was not, so a permanent refusal was re-reported on every status
+    // poll for every configured public node.
+    if (shouldReportNodeCaRefusal(getNodeCaKey(url))) {
+      console.warn(plan.reason);
+    }
 
     return false;
   }

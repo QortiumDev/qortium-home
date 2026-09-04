@@ -37,6 +37,12 @@ import {
   normalizeHomeV2ResponseMaxBytes,
   withHomeV2SelectedAddress,
 } from '../../electron/home-v2-app-actions'
+import {
+  buildHomeV2NodeSettingsApprovalRows,
+  createHomeV2NodeSettingsUpdateResult,
+  homeV2WritableSettingKeys,
+  normalizeHomeV2NodeSettingsPatch,
+} from '../../electron/home-v2-node-settings'
 import { isHomeV2GroupMutationAction } from '../../electron/home-v2-group-mutation-actions'
 import { isHomeV2RatingAction } from '../../electron/home-v2-rating-actions'
 import { isHomeV2PaymentAction } from '../../electron/home-v2-payment-actions'
@@ -59,6 +65,10 @@ import {
 } from '../../electron/foreign-wallet-read-contract'
 import type { ForeignWalletPublicRuntime } from '../../electron/foreign-wallets'
 import type { HomeV2ForeignServerRequest } from '../../electron/home-v2-foreign-wallet-actions'
+import {
+  classifyForeignWalletRouteProbe,
+  createForeignWalletRouteProbeCache,
+} from '../../electron/foreign-wallet-route-probe'
 import {
   HomeV2MarketPriceCache,
   HOME_V2_MARKET_PRICE_MAX_BYTES,
@@ -118,8 +128,19 @@ import {
   normalizeHomeV2ListItems,
   normalizeHomeV2ListName,
 } from '../../electron/home-v2-app-actions'
+import {
+  HOME_V2_PREVIEW_TOO_LARGE,
+  HOME_V2_PREVIEW_UNEXPECTED_URL,
+  HOME_V2_PREVIEW_UPLOAD_MAX_BASE64_LENGTH,
+  homeV2PreviewUploadPath,
+  isHomeV2PreviewRenderPath,
+  resolveHomeV2PreviewUploadForFile,
+} from '../../electron/home-v2-preview-upload'
 
 const LIST_REQUEST_TIMEOUT_MS = 15_000
+// A preview upload is up to 100 MiB of base64 to a node that may be the user's
+// own remote VPS, so it does not share the list timeout.
+const PREVIEW_UPLOAD_TIMEOUT_MS = 180_000
 
 export interface HomeV2NodeClient {
   getSnapshot(): Promise<unknown>
@@ -191,11 +212,50 @@ export interface HomeV2NodeClient {
     wallet: ForeignWalletPublicRuntime,
     approvedRevision: string,
   ): Promise<unknown>
+  foreignWalletPost?(
+    pathname: string,
+    body: string,
+    contentType: 'application/json' | 'text/plain',
+    maxBytes: number,
+    approvedRevision: string,
+  ): Promise<unknown>
   setForeignServer?(
     coin: ForeignWalletPublicRuntime['coin'],
     server: HomeV2ForeignServerRequest,
     approvedRevision: string,
   ): Promise<unknown>
+  nodeSettingsApproval?(request: Record<string, unknown>): Promise<{
+    readonly origin: string
+    readonly revision: string
+    readonly rows: readonly { readonly label: string; readonly value: string }[]
+  }>
+  nodeSettingsWrite?(
+    request: Record<string, unknown>,
+    approvedRevision: string,
+  ): Promise<unknown>
+  nodeRestart?(approvedRevision: string): Promise<unknown>
+  /**
+   * PREVIEW_QDN_PUBLISH_SOURCE, Android side.
+   *
+   * The renderer holds the picked bytes (Capacitor's picker hands them over as
+   * base64), so it passes them in; the KEY and the trust decision stay here,
+   * as they do for every other administered call. Home was never barred from
+   * previewing on Android for a reason of its own: the desktop route posted a
+   * filesystem PATH, which only a co-located node can read. Core's byte-upload
+   * route removes that, so this is the same capability the desktop host has,
+   * gated the same way.
+   *
+   * Returns the render URL rather than opening anything: the tab is the
+   * renderer's to open, exactly as it is when desktop sends the IPC.
+   */
+  previewPublishSource?(request: {
+    readonly dataBase64: string
+    readonly fileName: string
+  }): Promise<{
+    readonly previewUrl: string
+    readonly revision: string
+    readonly service: string
+  }>
 }
 
 export interface HomeV2CoreOnChainUpdateStatus {
@@ -226,6 +286,8 @@ export type HomeV2AppBridgeProtocol = 'qdnRequest' | 'qortalRequest'
 export interface HomeV2AppRequestContext {
   readonly resourceLocation: string
   readonly selectedAccountId: string | null
+  /** Trusted host state; app-supplied request data never populates this. */
+  readonly selectedAccountUnlocked?: boolean
   readonly tabId: string
 }
 
@@ -238,22 +300,44 @@ export interface HomeV2IdentityReadResponse {
 
 interface PortableNodeSettings {
   apiKey: string
+  /**
+   * The renderer-facing handle for the attached credential: random, minted
+   * with the key, re-minted whenever it changes. Everything that crosses into
+   * React or is persisted names the credential by THIS, never by
+   * `homeV2AdminTrustRevision`, which is a digest of the key and so an offline
+   * verifier for a weak one (security review, 2026-09-02).
+   */
+  bindingId: string
   customUrl: string
   lastEnabledMode: Exclude<NodeConnectionMode, 'disabled'>
   mode: NodeConnectionMode
 }
 
+/** 16 random bytes, hex. Matches the desktop store's format. */
+export function createHomeV2AdminBindingId() {
+  const bytes = new Uint8Array(16)
+  crypto.getRandomValues(bytes)
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')
+}
+
+function isBindingId(value: unknown): value is string {
+  return typeof value === 'string' && /^[0-9a-f]{32}$/.test(value)
+}
+
 export interface PortableNodeClientDependencies {
   getPreference(key: string): Promise<string | null>
   getSecret(key: string): Promise<string | null>
+  /** True only for a native opaque credential handle, never for secret text. */
+  isSecretHandle?(key: string, value: string): boolean
   removeSecret(key: string): Promise<void>
   setPreference(key: string, value: string): Promise<void>
   setSecret(key: string, value: string): Promise<void>
   requestJson(
     url: string,
     // DELETE carries a body for REMOVE_FROM_LIST — Core takes the item batch
-    // as a bodied DELETE, exactly as it does on desktop.
-    method?: 'DELETE' | 'GET' | 'HEAD' | 'POST',
+    // as a bodied DELETE, exactly as it does on desktop. PATCH carries the
+    // node-settings patch for UPDATE_NODE_SETTINGS.
+    method?: 'DELETE' | 'GET' | 'HEAD' | 'PATCH' | 'POST',
     timeoutMs?: number,
     headers?: Readonly<Record<string, string>>,
     disableRedirects?: boolean,
@@ -683,6 +767,7 @@ function normalizePortableNodeApiKey(value: unknown) {
 function defaultPortableSettings(network: NetworkId): PortableNodeSettings {
   return {
     apiKey: '',
+    bindingId: '',
     customUrl: '',
     lastEnabledMode: 'public',
     mode: network === 'qortium' ? 'public' : 'disabled',
@@ -716,6 +801,9 @@ function parseSettings(
           : 'public'
       return {
         apiKey: '',
+        // Never in plaintext Preferences: it travels with the key, in the
+        // protected record readSettings() reads.
+        bindingId: '',
         customUrl,
         lastEnabledMode: mode === 'disabled' ? storedLastEnabledMode :
           mode === 'local' ? 'public' : mode,
@@ -848,6 +936,7 @@ function emptySummary(
     customAuthenticated:
       network === 'qortium' && settings.mode === 'custom' && !!settings.apiKey,
     adminTrusted: false,
+    adminBindingId: null,
     customConfigured: !!settings.customUrl,
     customUrl: settings.customUrl || null,
     localCoreState: 'unsupported',
@@ -888,6 +977,64 @@ export function createPortableNodeClient(
     Record<NetworkId, { nodeApiUrl: string; status: unknown; verifiedAt: number }>
   > = {}
   let coreUpdateInstallInFlight: Promise<HomeV2CoreOnChainUpdateStatus> | null = null
+  // One in-flight lazy mint at a time. Two concurrent reads of a pre-binding-id
+  // record used to mint independently, and the LAST write won -- so a caller
+  // could go on to use an id that no longer matched the store, and its approval
+  // token would be refused for no reason the user could see (review round 3).
+  let bindingIdUpgrade: Promise<string> | null = null
+  const foreignSendRouteProbes = createForeignWalletRouteProbeCache()
+
+  /** The protected admin record for `customUrl`, or null. */
+  async function readAdminKeyRecord(customUrl: string) {
+    const protectedValue = await dependencies.getSecret(QORTIUM_CORE_API_KEY_SECRET)
+    if (!protectedValue) return null
+    try {
+      const parsed: unknown = JSON.parse(protectedValue)
+      if (
+        !isRecord(parsed) ||
+        parsed.version !== 1 ||
+        parsed.nodeApiUrl !== customUrl
+      ) return null
+      return {
+        apiKey: normalizePortableNodeApiKey(parsed.apiKey),
+        bindingId: isBindingId(parsed.bindingId) ? parsed.bindingId : '',
+      }
+    } catch {
+      return null
+    }
+  }
+
+  /**
+   * Mints the binding id for a record written before binding ids existed, once,
+   * however many callers ask at the same time.
+   */
+  function upgradeAdminBindingId(apiKey: string, customUrl: string) {
+    if (bindingIdUpgrade) return bindingIdUpgrade
+    const flight = (async () => {
+      // Re-read INSIDE the flight: a write may have landed while callers
+      // queued, and its id is the one now in the store.
+      const current = await readAdminKeyRecord(customUrl)
+      if (current && current.apiKey === apiKey && current.bindingId) return current.bindingId
+      const bindingId = createHomeV2AdminBindingId()
+      await dependencies.setSecret(QORTIUM_CORE_API_KEY_SECRET, JSON.stringify({
+        apiKey,
+        bindingId,
+        nodeApiUrl: customUrl,
+        version: 1,
+      }))
+      return bindingId
+    })()
+    bindingIdUpgrade = flight
+    // Cleared on settle so a failed mint is retried rather than cached; by then
+    // a successful one is in the store, so the next read finds it and never
+    // reaches here.
+    void flight
+      .catch(() => undefined)
+      .finally(() => {
+        if (bindingIdUpgrade === flight) bindingIdUpgrade = null
+      })
+    return flight
+  }
 
   async function readSettings(network: NetworkId) {
     const settings = parseSettings(
@@ -895,23 +1042,31 @@ export function createPortableNodeClient(
       network,
     )
     if (network !== 'qortium' || !settings.customUrl) return settings
-    const protectedValue = await dependencies.getSecret(QORTIUM_CORE_API_KEY_SECRET)
-    if (!protectedValue) return settings
-    try {
-      const parsed: unknown = JSON.parse(protectedValue)
-      if (
-        !isRecord(parsed) ||
-        parsed.version !== 1 ||
-        parsed.nodeApiUrl !== settings.customUrl
-      ) return settings
-      return { ...settings, apiKey: normalizePortableNodeApiKey(parsed.apiKey) }
-    } catch {
-      return settings
+    const record = await readAdminKeyRecord(settings.customUrl)
+    if (!record) return settings
+    const { apiKey } = record
+    let bindingId = record.bindingId
+    if (apiKey && !bindingId) {
+      // A record written before binding ids existed. Mint one and persist it so
+      // trust does not fail closed for an existing user.
+      bindingId = await upgradeAdminBindingId(apiKey, settings.customUrl).catch(() => '')
     }
+    return { ...settings, apiKey, bindingId }
   }
 
   async function writeSettings(network: NetworkId, settings: PortableNodeSettings) {
-    if (network === 'qortium') {
+    // Read BEFORE the removal below, which is what makes "did the credential
+    // actually change?" answerable at all.
+    const existing = network === 'qortium' && settings.apiKey && settings.customUrl
+      ? await readAdminKeyRecord(settings.customUrl)
+      : null
+    const preserveNativeCredential = Boolean(
+      network === 'qortium' &&
+      existing &&
+      existing.apiKey === settings.apiKey &&
+      dependencies.isSecretHandle?.(QORTIUM_CORE_API_KEY_SECRET, settings.apiKey),
+    )
+    if (network === 'qortium' && !preserveNativeCredential) {
       // Remove first so an interrupted host/key change fails closed. The
       // protected record is bound to its origin and is never put in Preferences.
       await dependencies.removeSecret(QORTIUM_CORE_API_KEY_SECRET)
@@ -921,9 +1076,20 @@ export function createPortableNodeClient(
       lastEnabledMode: settings.lastEnabledMode,
       mode: settings.mode,
     }))
-    if (network === 'qortium' && settings.apiKey && settings.customUrl) {
+    if (network === 'qortium' && settings.apiKey && settings.customUrl && !preserveNativeCredential) {
+      // Re-minted ONLY when the credential or the origin actually moves --
+      // `readAdminKeyRecord` already refuses a record bound to another origin,
+      // so a node move lands here with `existing` null. Every other settings
+      // write (a mode change, an enable/disable) keeps the same key on the same
+      // node and must KEEP the id: re-minting on one of those would invalidate
+      // every approval token and every open preview tab for a change that
+      // touched no credential (review round 3).
+      const bindingId = existing && existing.apiKey === settings.apiKey && existing.bindingId
+        ? existing.bindingId
+        : createHomeV2AdminBindingId()
       await dependencies.setSecret(QORTIUM_CORE_API_KEY_SECRET, JSON.stringify({
         apiKey: settings.apiKey,
+        bindingId,
         nodeApiUrl: settings.customUrl,
         version: 1,
       }))
@@ -1017,7 +1183,9 @@ export function createPortableNodeClient(
     const status = result.status
     const adminTrust = network === 'qortium'
       ? evaluateHomeV2AdminTrust({
-          attached: settings.apiKey ? { apiKey: settings.apiKey, origin: settings.customUrl } : null,
+          attached: settings.apiKey
+            ? { apiKey: settings.apiKey, bindingId: settings.bindingId, origin: settings.customUrl }
+            : null,
           managedApiKey: '',
           mode: settings.mode,
           network,
@@ -1031,6 +1199,10 @@ export function createPortableNodeClient(
       statusText: 'Online',
       nodeApiUrl: result.nodeApiUrl,
       adminTrusted: adminTrust?.trusted === true,
+      // The binding id, so a restored preview tab can be re-bound at the point
+      // it is rendered (AppTabStage) without another round trip. Never the
+      // key-derived revision.
+      adminBindingId: adminTrust?.trusted ? adminTrust.bindingId : null,
       height: numberField(status, 'height'),
       peerCount:
         numberField(status, 'numberOfConnections') ??
@@ -1121,15 +1293,24 @@ export function createPortableNodeClient(
     const settings = await readSettings('qortium')
     const nodeApiUrl = settings.mode === 'custom' ? settings.customUrl : ''
     const trust = evaluateHomeV2AdminTrust({
-      attached: settings.apiKey ? { apiKey: settings.apiKey, origin: settings.customUrl } : null,
+      attached: settings.apiKey
+        ? { apiKey: settings.apiKey, bindingId: settings.bindingId, origin: settings.customUrl }
+        : null,
       managedApiKey: '',
       mode: settings.mode,
       network: 'qortium',
       nodeApiUrl,
     })
     return trust.trusted
-      ? { apiKey: trust.apiKey, nodeApiUrl: trust.origin, origin: trust.origin, revision: trust.revision, trusted: true as const }
+      ? {
+          apiKey: trust.apiKey,
+          bindingId: trust.bindingId,
+          nodeApiUrl: trust.origin,
+          origin: trust.origin,
+          trusted: true as const,
+        }
       : {
+          bindingId: '',
           origin: '',
           reason: homeV2AdminTrustMessage(trust.reason, operation),
           revision: '',
@@ -1140,7 +1321,72 @@ export function createPortableNodeClient(
   async function requireAdminNode(operation: string) {
     const trust = await resolveAdminTrust(operation)
     if (!trust.trusted) throw new Error(trust.reason)
-    return { apiKey: trust.apiKey, nodeApiUrl: trust.nodeApiUrl, revision: trust.revision }
+    // `bindingId`, not `homeV2AdminTrustRevision`. Approval tokens round-trip
+    // through React on this host, so the token a caller hands back must not be
+    // a digest of the API key (security review, 2026-09-02).
+    return { apiKey: trust.apiKey, bindingId: trust.bindingId, nodeApiUrl: trust.nodeApiUrl }
+  }
+
+  async function postForeignWalletTrusted(
+    pathname: string,
+    body: string,
+    contentType: 'application/json' | 'text/plain',
+    maxBytes: number,
+    approvedRevision: string,
+  ) {
+    const { apiKey, bindingId, nodeApiUrl } = await requireAdminNode('Using a foreign wallet')
+    if (bindingId !== approvedRevision) {
+      throw new Error('The selected Qortium node or its API key changed during the foreign wallet request.')
+    }
+    const requestBoundedJson = dependencies.requestBoundedJson
+    if (!requestBoundedJson) {
+      throw new Error('Bounded authenticated node requests are unavailable on this platform.')
+    }
+    const response = await requestBoundedJson(
+      `${nodeApiUrl}${pathname}`,
+      20_000,
+      { 'Content-Type': contentType, 'X-API-KEY': apiKey },
+      body,
+      maxBytes,
+    )
+    if (!response.ok) {
+      const coreError = isRecord(response.data) && typeof response.data.error === 'number'
+        ? { error: response.data.error }
+        : null
+      throw Object.assign(
+        new Error(coreError
+          ? JSON.stringify(coreError)
+          : `Foreign wallet request failed with HTTP ${response.status}.`),
+        { status: response.status },
+      )
+    }
+    return response.data
+  }
+
+  async function probeForeignSendRoute() {
+    const trust = await requireAdminNode('Using a foreign wallet')
+    const cacheKey = `${trust.nodeApiUrl}|${trust.bindingId}`
+    const now = dependencies.now()
+    const cached = foreignSendRouteProbes.read(cacheKey, now)
+    if (cached) return cached === 'supported'
+    let outcome: ReturnType<typeof classifyForeignWalletRouteProbe>
+    try {
+      await postForeignWalletTrusted(
+        '/crosschain/btc/wallet/public/spend-context',
+        JSON.stringify({ expectedChainId: '', xpub58: '' }),
+        'application/json',
+        64 * 1024,
+        trust.bindingId,
+      )
+      outcome = classifyForeignWalletRouteProbe({ ok: true, status: 200 })
+    } catch (error) {
+      outcome = classifyForeignWalletRouteProbe({
+        ok: false,
+        status: (error as { status?: unknown }).status,
+      })
+    }
+    foreignSendRouteProbes.write(cacheKey, outcome, now)
+    return outcome === 'supported'
   }
 
   async function requestAdminJson(nodeApiUrl: string, path: string, apiKey: string) {
@@ -1312,8 +1558,10 @@ export function createPortableNodeClient(
     async adminTrust() {
       const trust = await resolveAdminTrust('Using administrative Qortium features')
       return trust.trusted
-        ? { origin: trust.origin, revision: trust.revision, trusted: true as const }
-        : trust
+        // The field is still called `revision` on the wire so every existing
+        // caller keeps working; its VALUE is the binding id.
+        ? { origin: trust.origin, revision: trust.bindingId, trusted: true as const }
+        : { origin: '', reason: trust.reason, revision: '', trusted: false as const }
     },
     async listRead(action, request) {
       const { apiKey, nodeApiUrl } = await requireAdminNode('Using QDN lists')
@@ -1334,10 +1582,10 @@ export function createPortableNodeClient(
     async listWrite(action, request, approvedRevision) {
       const listName = normalizeHomeV2ListName(request)
       const items = normalizeHomeV2ListItems(request)
-      const { apiKey, nodeApiUrl, revision } = await requireAdminNode('Using QDN lists')
+      const { apiKey, bindingId, nodeApiUrl } = await requireAdminNode('Using QDN lists')
       // The approval named one node and one credential; a key rotated or an
       // address changed while the prompt was open must not inherit it.
-      if (revision !== approvedRevision) {
+      if (bindingId !== approvedRevision) {
         throw new Error('The selected Qortium node or its API key changed before the write could start.')
       }
       return requestAdminText(
@@ -1348,14 +1596,153 @@ export function createPortableNodeClient(
         apiKey,
       )
     },
+    /**
+     * The approval PLAN for UPDATE_NODE_SETTINGS: validates the patch,
+     * resolves admin trust, checks every key against the node's own writable
+     * declaration, and derives the current/proposed rows — all BEFORE any
+     * prompt is raised. The key never leaves the client; the React layer
+     * gets rows, the origin for the Node row, and the trust revision that
+     * binds the approval to this node and credential.
+     */
+    async nodeSettingsApproval(request) {
+      const patch = normalizeHomeV2NodeSettingsPatch(request)
+      const { bindingId, nodeApiUrl } = await requireAdminNode('Updating node settings')
+      const metadataResponse = await dependencies.requestJson(
+        `${nodeApiUrl}/admin/settings/metadata`,
+        'GET',
+        LIST_REQUEST_TIMEOUT_MS,
+        undefined,
+        true,
+      )
+      if (!metadataResponse.ok) {
+        throw new Error(`Node settings metadata lookup returned HTTP ${metadataResponse.status}.`)
+      }
+      const settingsResponse = await dependencies.requestJson(
+        `${nodeApiUrl}/admin/settings`,
+        'GET',
+        LIST_REQUEST_TIMEOUT_MS,
+        undefined,
+        true,
+      )
+      if (!settingsResponse.ok) {
+        throw new Error(`Node settings lookup returned HTTP ${settingsResponse.status}.`)
+      }
+      const writableKeys = homeV2WritableSettingKeys(metadataResponse.data)
+      for (const key of Object.keys(patch)) {
+        if (!writableKeys.has(key)) throw new Error(`Node setting ${key} is not writable.`)
+      }
+      return {
+        origin: nodeApiUrl,
+        // Named `revision` on the wire, carrying the binding id.
+        revision: bindingId,
+        rows: buildHomeV2NodeSettingsApprovalRows(settingsResponse.data, patch),
+      }
+    },
+    async nodeSettingsWrite(request, approvedRevision) {
+      const patch = normalizeHomeV2NodeSettingsPatch(request)
+      const { apiKey, bindingId, nodeApiUrl } = await requireAdminNode('Updating node settings')
+      // The approval named one node and one credential; a key rotated or an
+      // address changed while the prompt was open must not inherit it.
+      if (bindingId !== approvedRevision) {
+        throw new Error('The selected Qortium node or its API key changed before the write could start.')
+      }
+      const response = await dependencies.requestJson(
+        `${nodeApiUrl}/admin/settings`,
+        'PATCH',
+        LIST_REQUEST_TIMEOUT_MS,
+        { 'Content-Type': 'application/json', 'X-API-KEY': apiKey },
+        true,
+        JSON.stringify(patch),
+      )
+      if (!response.ok) {
+        throw Object.assign(new Error(`Node settings update failed with HTTP ${response.status}.`), {
+          status: response.status,
+        })
+      }
+      // Core's result is rebuilt from an allowlist; the node's settings file
+      // path never reaches the app (see home-v2-node-settings.ts).
+      return createHomeV2NodeSettingsUpdateResult(response.data)
+    },
+    async nodeRestart(approvedRevision) {
+      const { apiKey, bindingId, nodeApiUrl } = await requireAdminNode('Restarting the node')
+      if (bindingId !== approvedRevision) {
+        throw new Error('The selected Qortium node or its API key changed before the write could start.')
+      }
+      const response = await dependencies.requestJson(
+        `${nodeApiUrl}/admin/restart`,
+        'GET',
+        LIST_REQUEST_TIMEOUT_MS,
+        { 'X-API-KEY': apiKey },
+        true,
+      )
+      if (!response.ok) {
+        throw Object.assign(new Error(`Node restart request failed with HTTP ${response.status}.`), {
+          status: response.status,
+        })
+      }
+      return { accepted: true }
+    },
+    async previewPublishSource(request) {
+      // Service and archive flag come from the file NAME, before anything is
+      // sent: an extension Core has no preview service for is refused here
+      // rather than uploading the bytes to find out.
+      const target = resolveHomeV2PreviewUploadForFile(request.fileName)
+      if (
+        !request.dataBase64 ||
+        request.dataBase64.length > HOME_V2_PREVIEW_UPLOAD_MAX_BASE64_LENGTH
+      ) {
+        throw new Error(HOME_V2_PREVIEW_TOO_LARGE)
+      }
+      const { apiKey, bindingId, nodeApiUrl } = await requireAdminNode('Previewing a publish source')
+      const requestBoundedJson = dependencies.requestBoundedJson
+      if (!requestBoundedJson) {
+        throw new Error('Bounded authenticated node requests are unavailable on this platform.')
+      }
+      const response = await requestBoundedJson(
+        `${nodeApiUrl}${homeV2PreviewUploadPath(target)}`,
+        PREVIEW_UPLOAD_TIMEOUT_MS,
+        { 'Content-Type': 'text/plain', 'X-API-KEY': apiKey },
+        request.dataBase64,
+        // Core's whole answer is one short /render/hash path.
+        64 * 1024,
+      )
+      if (!response.ok) {
+        throw Object.assign(
+          new Error(
+            response.status === 404 || response.status === 500
+              ? 'The connected Qortium Core node does not support QDN previews yet. Update Qortium Core and try again.'
+              : `QDN preview request failed with HTTP ${response.status}.`,
+          ),
+          { status: response.status },
+        )
+      }
+      const renderPath = typeof response.data === 'string' ? response.data.trim() : ''
+      if (!isHomeV2PreviewRenderPath(renderPath)) {
+        throw new Error(HOME_V2_PREVIEW_UNEXPECTED_URL)
+      }
+      // Same recheck the desktop bridge makes: the upload can run for minutes,
+      // and a node or key changed meanwhile means this render URL belongs to a
+      // node the user is no longer approved on.
+      const after = await requireAdminNode('Previewing a publish source')
+      if (after.bindingId !== bindingId) {
+        throw new Error(
+          'The selected Qortium node or its API key changed while the preview was being built.',
+        )
+      }
+      return {
+        previewUrl: `${nodeApiUrl.replace(/\/+$/, '')}${renderPath}`,
+        revision: bindingId,
+        service: target.service,
+      }
+    },
     async foreignWalletRead(action, wallet, approvedRevision) {
       const endpoint: ForeignWalletReadEndpoint = action === 'GET_WALLET_BALANCE'
         ? 'walletbalance'
         : action === 'GET_USER_WALLET_INFO'
           ? 'addressinfos'
           : 'wallettransactions'
-      const { apiKey, nodeApiUrl, revision } = await requireAdminNode('Using a foreign wallet')
-      if (revision !== approvedRevision) {
+      const { apiKey, bindingId, nodeApiUrl } = await requireAdminNode('Using a foreign wallet')
+      if (bindingId !== approvedRevision) {
         throw new Error('The selected Qortium node or its API key changed before the wallet read could start.')
       }
       const requestBoundedJson = dependencies.requestBoundedJson
@@ -1382,9 +1769,10 @@ export function createPortableNodeClient(
         return response.data
       })
     },
+    foreignWalletPost: postForeignWalletTrusted,
     async setForeignServer(coin, server, approvedRevision) {
-      const { apiKey, nodeApiUrl, revision } = await requireAdminNode('Changing a foreign-chain server')
-      if (revision !== approvedRevision) {
+      const { apiKey, bindingId, nodeApiUrl } = await requireAdminNode('Changing a foreign-chain server')
+      if (bindingId !== approvedRevision) {
         throw new Error('The selected Qortium node or its API key changed before the server change could start.')
       }
       const requestBoundedJson = dependencies.requestBoundedJson
@@ -1742,12 +2130,16 @@ export function createPortableNodeClient(
             : null
           const foreignWalletTrustedCoreAvailable = !!qortiumSummary?.nodeApiUrl &&
             qortiumSummary.capabilities.read && qortiumSummary.adminTrusted === true
+          const foreignWalletSendAvailable = foreignWalletTrustedCoreAvailable &&
+            context?.selectedAccountUnlocked === true &&
+            await probeForeignSendRoute().catch(() => false)
           return projectHomeV2CrosschainReadResult(
             action,
             chainReadRequest,
             data,
             true,
             foreignWalletTrustedCoreAvailable,
+            foreignWalletSendAvailable,
           )
         }
         // Both cores answer a valid-but-absent AT with an empty 2xx body;
@@ -1897,6 +2289,8 @@ export function createPortableNodeClient(
           ? '/admin/status'
           : action === 'GET_NODE_INFO'
             ? '/admin/info'
+            : action === 'GET_NODE_SETTINGS_METADATA'
+              ? '/admin/settings/metadata'
             : action === 'FETCH_NODE_API' || action === 'FETCH_QORTAL_NODE_API'
               ? normalizeHomeV2ReadPath(request.path)
               : null
@@ -1913,7 +2307,7 @@ export function createPortableNodeClient(
       if (bodyLength > normalizeHomeV2ResponseMaxBytes(request.maxBytes)) {
         throw new Error('Node API response exceeded the requested size limit.')
       }
-      if (action === 'GET_NODE_STATUS' || action === 'GET_NODE_INFO') {
+      if (action === 'GET_NODE_STATUS' || action === 'GET_NODE_INFO' || action === 'GET_NODE_SETTINGS_METADATA') {
         if (!response.ok) throw new Error(`Node request returned HTTP ${response.status}.`)
         return response.data
       }

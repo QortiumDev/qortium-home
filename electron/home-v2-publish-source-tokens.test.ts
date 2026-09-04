@@ -2,7 +2,6 @@ import assert from 'node:assert/strict'
 
 import {
   HomeV2PublishSourceTokenStore,
-  normalizeHomeV2PublishSourceKind,
   normalizeHomeV2PublishSourceToken,
   type HomeV2PublishSourceBinding,
 } from './home-v2-publish-source-tokens.js'
@@ -98,13 +97,5 @@ assert.throws(() => normalizeHomeV2PublishSourceToken('../file'), /valid Home-is
     /needs sizeOf/,
   )
 }
-
-assert.equal(normalizeHomeV2PublishSourceKind(undefined), 'file')
-assert.equal(normalizeHomeV2PublishSourceKind(null), 'file')
-assert.equal(normalizeHomeV2PublishSourceKind(''), 'file')
-assert.equal(normalizeHomeV2PublishSourceKind('file'), 'file')
-assert.equal(normalizeHomeV2PublishSourceKind('directory'), 'directory')
-assert.throws(() => normalizeHomeV2PublishSourceKind('anything-else'), /must be "file" or "directory"/)
-assert.throws(() => normalizeHomeV2PublishSourceKind(42), /must be "file" or "directory"/)
 
 console.log('Home v2 publish source token tests passed.')

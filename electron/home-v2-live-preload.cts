@@ -157,6 +157,9 @@ contextBridge.exposeInMainWorld('homeV2Nodes', {
   ) => ipcRenderer.invoke('home-v2-nodes:setMode', network, mode),
   setCustomUrl: (network: 'qortal' | 'qortium', customUrl: string) =>
     ipcRenderer.invoke('home-v2-nodes:setCustomUrl', network, customUrl),
+  // Read-only: whether the selected Qortium node is one the user administers,
+  // plus its origin and trust revision. Never the key.
+  adminTrust: () => ipcRenderer.invoke('home-v2-nodes:adminTrust'),
 })
 
 // The node administration key travels on its own one-way channel, never
@@ -167,6 +170,16 @@ contextBridge.exposeInMainWorld('homeV2NodeAdmin', {
     ipcRenderer.invoke('home-v2-node-admin:attach', network, key),
   clear: (network: 'qortium') =>
     ipcRenderer.invoke('home-v2-node-admin:clear', network),
+})
+
+/**
+ * Home's own read-only view of foreign transactions whose outcome could not
+ * be proved. Shell-only: it is not a QDN action, no app can reach it, and
+ * there is deliberately no companion that removes an entry.
+ */
+contextBridge.exposeInMainWorld('homeV2ForeignWallet', {
+  listPendingTransactions: () =>
+    ipcRenderer.invoke('home-v2-app:foreignWalletPendingTransactions'),
 })
 
 contextBridge.exposeInMainWorld('homeV2RetainedViewer', {

@@ -9,6 +9,7 @@ import {
   isHomeV2ForeignWalletReadAction,
   isHomeV2TrustedForeignWalletRoute,
 } from './home-v2-foreign-wallet-actions.js'
+import { isHomeV2NodeSettingsWriteAction } from './home-v2-node-settings.js'
 
 export type HomeV2AppPlatform = 'android' | 'desktop'
 export type HomeV2ConfiguredRouteKind =
@@ -111,8 +112,19 @@ const HOME_V2_REACHABLE_ROUTE_ACTIONS = new Set<string>([
   'SAVE_CHAT_ATTACHMENT',
   'PUBLISH_QDN_RESOURCE',
   'SELECT_QDN_PUBLISH_SOURCE',
-  // Previewing sends the file to the node to be rendered, so an unreachable
-  // route cannot serve it -- same gate as its publish-source siblings.
+])
+
+/**
+ * Actions advertised only on a route the user ADMINISTERS.
+ *
+ * Previewing uploads the chosen bytes to a node that renders them with the
+ * user's own API key, so it is an administrative capability in exactly the
+ * sense the node-settings writes are — and since the 2026-09-02 owner
+ * decision it is gated on that trust rather than on the node being loopback,
+ * which means SHOW_ACTIONS has to describe trust too. Advertising it on a
+ * public node would offer a button whose only possible outcome is a refusal.
+ */
+const HOME_V2_ADMIN_TRUSTED_ROUTE_ACTIONS = new Set<string>([
   'PREVIEW_QDN_PUBLISH_SOURCE',
 ])
 
@@ -188,6 +200,17 @@ export function getHomeV2AvailableAppActions(
         isHomeV2ForeignWalletAdminAction(action))
     ) {
       return isHomeV2TrustedForeignWalletRoute(route)
+    }
+    // The node-settings writes administer a node, so SHOW_ACTIONS stays
+    // honest the same way the foreign-wallet family does: advertised only on
+    // a reachable route the user actually administers (their managed local
+    // Core, or a custom node with their attached key). The metadata READ is
+    // not gated — it is the same anonymous Core route FETCH_NODE_API allows.
+    if (protocol === 'qdnRequest' && isHomeV2NodeSettingsWriteAction(action)) {
+      return route.reachable && route.adminTrusted
+    }
+    if (HOME_V2_ADMIN_TRUSTED_ROUTE_ACTIONS.has(action)) {
+      return route.reachable && route.adminTrusted
     }
     return HOME_V2_REACHABLE_ROUTE_ACTIONS.has(action) ? route.reachable : route.available
   }))
@@ -281,22 +304,25 @@ export function homeV2WidgetWithholdsSelfSubject(action: string) {
 }
 
 /**
- * Actions Android cannot run.
+ * Actions Android cannot run, each with the reason it cannot.
  *
- * DELIBERATELY EMPTY as of 2026-08-27: the parity wave finished, and every
- * action Home 2 implements now runs on Android — polls, names, group
- * mutations, ratings, the account avatar, QDN lists, the publishing extras,
- * contract messages, and payments. What used to be here was never a security
- * posture; it was a list of things not yet ported, and describing an
- * unimplemented feature as a safety measure is how a half-working platform
- * gets mistaken for a careful one.
- *
- * The mechanism stays because a future action may genuinely need it — a
- * capability that depends on a desktop-only OS integration, say. Anything
- * added here needs a reason that is true of the ACTION rather than of the
- * porting schedule.
+ * The 2026-08-27 parity wave emptied this: every SIGNING family runs on
+ * Android, and describing an unimplemented feature as a safety measure is how
+ * a half-working platform gets mistaken for a careful one. Anything added here
+ * needs a reason that is true of the ACTION rather than of the porting
+ * schedule, and the reason is written next to the entry so the refusal cannot
+ * drift away from it — the single generic "requires transaction signing"
+ * message this used to emit was already wrong for the first entry added.
  */
-const ANDROID_UNSUPPORTED_ACTIONS = new Set<string>([])
+// PREVIEW_QDN_PUBLISH_SOURCE used to sit here, with "renders it on your own
+// local Core, which Android does not run" as its reason. That reason described
+// the desktop TRANSPORT (a filesystem path only a co-located node can read),
+// not the action: Core's byte-upload preview route takes the bytes, and
+// Android has had bytes all along. Both hosts now use that route and gate on
+// admin trust, so Android runs the action like any other (2026-09-02).
+const ANDROID_UNSUPPORTED_ACTION_REASONS = new Map<string, string>([])
+
+const ANDROID_UNSUPPORTED_ACTIONS: ReadonlySet<string> = new Set(ANDROID_UNSUPPORTED_ACTION_REASONS.keys())
 
 export function isHomeV2AndroidUnsupportedAction(action: string) {
   return ANDROID_UNSUPPORTED_ACTIONS.has(action)
@@ -328,7 +354,8 @@ export function homeV2AndroidActionRefusal(
   if (!getHomeV2AppActions(protocol).includes(action)) return null
   const network = getHomeV2AppNetwork(protocol, action)
   return {
-    message: `${action} requires transaction signing, which is only available in Qortium Home desktop.`,
+    message: ANDROID_UNSUPPORTED_ACTION_REASONS.get(action)
+      ?? `${action} is only available in Qortium Home desktop.`,
     network,
   }
 }
@@ -336,10 +363,8 @@ export function homeV2AndroidActionRefusal(
 export function getHomeV2ContextualAppActions(
   availableActions: readonly string[],
   context: 'android' | 'tab' | 'widget',
-  // Overridable so the withholding MECHANISM stays testable while the real set
-  // is empty: an empty list is not the same as a broken filter, and the next
-  // action that genuinely needs withholding should not be the one to discover
-  // that.
+  // Overridable so the withholding MECHANISM stays testable independently of
+  // whatever the real set happens to hold.
   unsupportedOnAndroid: ReadonlySet<string> = ANDROID_UNSUPPORTED_ACTIONS,
 ): readonly string[] {
   const filtered = availableActions.filter((action) => {

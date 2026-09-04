@@ -228,7 +228,10 @@ import {
   normalizeHomeV2ForeignServerRequest,
   normalizeHomeV2ForeignWalletCoin,
 } from '../../electron/home-v2-foreign-wallet-actions'
-import { getForeignWalletPublicResponse } from '../../electron/foreign-wallet-read-contract'
+import {
+  buildForeignWalletReadRequest,
+  getForeignWalletPublicResponse,
+} from '../../electron/foreign-wallet-read-contract'
 import { isHomeV2NativeWalletRequest } from '../../electron/home-v2-wallet-actions'
 import { unwrapAndroidNodeRecord } from './android-node-envelope'
 import {
@@ -289,10 +292,22 @@ import {
   selectHomeV2AccountAvatarPointer,
 } from '../../electron/home-v2-account-avatar-actions'
 import { canonicalHomeV2VoteSelection, normalizeHomeV2CreatePollRequest, normalizeHomeV2UpdatePollRequest, normalizeHomeV2VoteOnPollRequest, selectHomeV2PollTarget, resolveHomeV2AppAlias, homeV2NameOperationLabel, homeV2PollOperationLabel, homeV2PublishExtraOperationLabel, isHomeV2ListAction, isHomeV2ListWriteAction, isHomeV2NameWriteAction, isHomeV2PollWriteAction, isHomeV2PublishExtraAction, normalizeHomeV2BuyNameRequest, normalizeHomeV2CancelSellNameRequest, normalizeHomeV2ListItems, normalizeHomeV2ListName, normalizeHomeV2RegisterNameRequest, normalizeHomeV2SellNameRequest, normalizeHomeV2UpdateNameRequest, selectHomeV2NameTarget, serializeHomeV2ListItemsForApproval } from '../../electron/home-v2-app-actions'
+import { HOME_V2_RESTART_NODE_IMPACT, isHomeV2NodeSettingsWriteAction } from '../../electron/home-v2-node-settings'
 import { homeV2GroupMutationOperationLabel, isHomeV2GroupMutationAction } from '../../electron/home-v2-group-mutation-actions'
 import { homeV2RatingOperationLabel, isHomeV2RatingAction } from '../../electron/home-v2-rating-actions'
 import { homeV2AccountAvatarOperationLabel } from '../../electron/home-v2-account-avatar-actions'
 import { homeV2PaymentOperationLabel, isHomeV2PaymentAction } from '../../electron/home-v2-payment-actions'
+import {
+  homeV2ForeignSendOperationLabel,
+  FOREIGN_SEND_DETAIL_SEQUENCE,
+  isHomeV2ForeignSendRequest,
+} from '../../electron/home-v2-foreign-send-actions'
+import {
+  evaluateHomeV2ForeignSendValidity,
+  HomeV2ForeignSendReconciliationError,
+} from '../../electron/home-v2-foreign-send'
+import { HomeV2ForeignSendReconciliationPendingError } from '../../electron/foreign-wallet-reconciliation'
+import { getForeignWalletCoins } from '../../electron/foreign-wallets'
 import {
   homeV2NotificationChainLabel,
   homeV2NotificationSourceKey,
@@ -376,6 +391,7 @@ import {
   buildAppResourceLocation,
   parseAppResourceLocation,
 } from '../v2/resource-location'
+import { resolveHomeV2PublishPreviewOpen } from './publish-preview-tab'
 import { resolveLaunchIdentifier } from '../v2/shell/render-path-identity'
 import { base58Decode, base58Encode } from '../../electron/base58'
 import {
@@ -464,6 +480,61 @@ function isNodeListDetailRows(
     candidate.value.length <= maxLength &&
     !/[\u0000-\u001f\u007f]/.test(candidate.value)
   return row(value[0], 'List', 120) && row(value[1], 'Items', 4_000) && row(value[2], 'Node', 500)
+}
+
+/**
+ * The rows a node-settings write prompt must carry, validated per ACTION.
+ * RESTART_NODE: exactly the pinned Impact row (Home's own wording,
+ * byte-for-byte) and the Node row. UPDATE_NODE_SETTINGS: the Node row, then
+ * 1-64 current/proposed pairs whose labels name the same setting key. Value
+ * caps mirror what the main process can produce — keys at most 120
+ * characters, displayed values at most 1,000 escaped characters plus quotes,
+ * the node URL at most 500.
+ */
+function isNodeSettingsDetailRows(action: string, value: unknown): boolean {
+  if (!Array.isArray(value)) return false
+  const row = (candidate: unknown, label: string | null, maxLength: number) =>
+    isRecord(candidate) &&
+    Object.keys(candidate).length === 2 &&
+    (label === null
+      ? typeof candidate.label === 'string' && candidate.label.length <= 132
+      : candidate.label === label) &&
+    typeof candidate.value === 'string' &&
+    candidate.value.length > 0 &&
+    candidate.value.length <= maxLength &&
+    !/[\u0000-\u001f\u007f]/.test(candidate.value)
+  if (action === 'RESTART_NODE') {
+    return value.length === 2 &&
+      row(value[0], 'Impact', 200) &&
+      (value[0] as { value?: unknown }).value === HOME_V2_RESTART_NODE_IMPACT &&
+      row(value[1], 'Node', 500)
+  }
+  if (value.length < 3 || value.length > 129 || value.length % 2 === 0) return false
+  if (!row(value[0], 'Node', 500)) return false
+  // The value encoding is part of the contract, not a courtesy: a string
+  // value renders QUOTED and the bare annotations belong to Home, so a row
+  // whose value is neither an annotation, a quoted string, nor JSON-shaped
+  // text could impersonate the reserved annotations and is refused.
+  const encoded = (candidate: unknown, allowNotPresent: boolean) => {
+    const text = (candidate as { value?: unknown }).value
+    if (typeof text !== 'string') return false
+    if (text === '(empty)') return true
+    if (text === '(not present)') return allowNotPresent
+    if (text.startsWith('"') && text.endsWith('"') && text.length >= 3) return true
+    return /^[-0-9tfn{[]/.test(text)
+  }
+  for (let index = 1; index < value.length; index += 2) {
+    const current = value[index] as { label?: unknown }
+    const proposed = value[index + 1] as { label?: unknown }
+    if (!row(current, null, 1_010) || !row(proposed, null, 1_010)) return false
+    if (!encoded(current, true) || !encoded(proposed, false)) return false
+    const currentLabel = String(current.label)
+    const proposedLabel = String(proposed.label)
+    if (!currentLabel.endsWith(' (current)') || !proposedLabel.endsWith(' (proposed)')) return false
+    const key = currentLabel.slice(0, -' (current)'.length)
+    if (!key || key.length > 120 || key !== proposedLabel.slice(0, -' (proposed)'.length)) return false
+  }
+  return true
 }
 
 /**
@@ -626,6 +697,12 @@ const PAYMENT_DETAIL_SEQUENCES: Record<string, readonly { label: string; optiona
   ],
 }
 PAYMENT_DETAIL_SEQUENCES.SEND_COIN = PAYMENT_DETAIL_SEQUENCES.PAYMENT
+
+// SEND_COIN's OTHER grammar. A foreign-coin send reuses the action name
+// but discloses a completely different transaction, so it gets its own
+// sequence rather than an optional tail on the native one: a prompt whose
+// rows do not match the grammar its writeKind claims is thrown away.
+const FOREIGN_SEND_COINS = new Set<string>(getForeignWalletCoins())
 
 function isSequencedDetailRows(
   sequence: readonly { label: string; optional?: true }[] | undefined,
@@ -1041,6 +1118,10 @@ function initialSnapshot(): Omit<HomeV2Snapshot, 'nodes'> {
         },
       },
     },
+    // Fixture-only. The live shell has no app catalogue: every app tab is
+    // opened from an address, with its descriptor built on the spot (see
+    // openAddress), so nothing fills this and nothing may read it expecting to
+    // find an open tab's app -- that mistake silently broke publish previews.
     apps: [],
     recentItems: [],
     reticulum: {
@@ -1337,6 +1418,10 @@ export function HomeV2LiveApp() {
   // a tab closed mid-PoW stays invisible to the recheck (FIX #2, review 2).
   const productStateRef = useRef(productState)
   productStateRef.current = productState
+  // Same reason, for the node client: the publish-preview opener is a stable
+  // callback that must reach whichever client is current, and on Android the
+  // client is installed asynchronously after the first render.
+  const nodeClientRef = useRef<HomeV2NodeClient | null>(null)
   const androidLastNotificationAt = useRef(new Map<string, number>())
   const androidNextNotificationId = useRef((Date.now() % 2_000_000_000) + 1)
   const [snapshotState, setSnapshot] = useState(initialSnapshot)
@@ -1395,6 +1480,7 @@ export function HomeV2LiveApp() {
   const [nodeClient, setNodeClient] = useState<HomeV2NodeClient | null>(
     () => window.homeV2Nodes ?? null,
   )
+  nodeClientRef.current = nodeClient
   // Populated once the maintenance controllers below exist. They are built
   // AFTER the node-core controller, so a start/stop cannot call them directly;
   // this ref is the seam that lets a lifecycle action invalidate everything
@@ -1463,6 +1549,8 @@ export function HomeV2LiveApp() {
   const [accountCatalogueReady, setAccountCatalogueReady] = useState(false)
   const accountCatalogueRef = useRef<HomeV2AccountCatalogue>(emptyAccountCatalogue)
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null)
+  const selectedAccountIdRef = useRef<string | null>(null)
+  selectedAccountIdRef.current = selectedAccountId
   const [restoredAccountId, setRestoredAccountId] = useState<
     string | null | undefined
   >(undefined)
@@ -2013,10 +2101,24 @@ export function HomeV2LiveApp() {
         }
         if (cancelled) return
         setFreshShellProfile(isFreshShell)
+        // A stored publish preview names a node origin outright, so it is
+        // restored only against the node the user is admin-trusted on RIGHT
+        // NOW -- their managed local Core or their own remote one. A refusal,
+        // a client without the resolver, or a node that has since changed all
+        // land the same way: the preview is dropped and the tab comes back as
+        // its ordinary app address.
+        const previewTrust = await nodeClient
+          .adminTrust?.()
+          .then((trust) => (trust.trusted && trust.origin && trust.revision
+            ? { origin: trust.origin, revision: trust.revision }
+            : null))
+          .catch(() => null) ?? null
+        if (cancelled) return
         const restored = parseHomeV2ShellState(
           rawState,
           currentSystemTheme(),
           currentSystemLanguage(),
+          { previewTrust },
         )
         setSnapshot((current) => ({
           ...current,
@@ -2240,10 +2342,6 @@ export function HomeV2LiveApp() {
   // client's generation compare-and-set.
   // ---------------------------------------------------------------------
   const appearanceRef = useRef(snapshotState.appearance)
-  // Read at call time by the publish-preview subscription, which needs the
-  // requesting app's descriptor and must not re-subscribe on every change.
-  const appsRef = useRef(snapshotState.apps)
-  appsRef.current = snapshotState.apps
   appearanceRef.current = snapshotState.appearance
   const homeSettingsResponder = useMemo(
     () => createHomeV2HomeSettingsResponder({
@@ -3520,34 +3618,57 @@ export function HomeV2LiveApp() {
   // identity and address but carrying the node-built preview URL. It is a
   // separate tab from the app itself: previewUrl participates in tab identity,
   // so this never replaces the app that asked for it.
+  //
+  // Shared by both hosts: desktop delivers the payload over IPC from the main
+  // process, Android builds the same payload in-process after its own upload.
+  // One opener means the Android preview cannot drift into a second, subtly
+  // different tab shape.
+  const openHomeV2PublishPreview = useCallback(async (value: unknown) => {
+    tabSequence.current += 1
+    const tabId = brand<TabId>(
+      `home-v2:tab:${Date.now().toString(36)}:${tabSequence.current}`,
+    )
+    // The requesting app is rebuilt from ITS OWN TAB, not looked up in
+    // `snapshot.apps`: that field is never populated in the live shell, so
+    // the lookup this handler used to do found nothing and dropped every
+    // preview in silence -- while the app had already been told it opened.
+    const opened = resolveHomeV2PublishPreviewOpen(
+      value,
+      productStateRef.current.tabs,
+      tabId,
+    )
+    if (!opened) return false
+    // The binding id the preview was built against, re-checked against trust
+    // resolved RIGHT NOW, at the moment the tab would open. The upload half
+    // already re-checked before handing the URL over, but time passes between
+    // the two and the node can be re-pointed or its key re-attached in it; a
+    // tab is a durable thing to open on a stale authorisation
+    // (security review, 2026-09-02).
+    const client = nodeClientRef.current
+    const current = await client?.adminTrust?.().catch(() => null) ?? null
+    if (
+      !current?.trusted ||
+      !current.revision ||
+      current.revision !== opened.context.previewTrustRevision
+    ) {
+      return false
+    }
+    dispatchProduct({
+      type: 'open-app',
+      app: opened.app,
+      tabId,
+      context: opened.context,
+    })
+    return true
+  }, [])
+
   useEffect(() => {
     const bridge = window.homeV2Apps
     if (!bridge?.onOpenPublishPreview) return
     return bridge.onOpenPublishPreview((value) => {
-      if (!isRecord(value)) return
-      const previewUrl = typeof value.previewUrl === 'string' ? value.previewUrl : ''
-      const sourceTabId = typeof value.sourceTabId === 'string' ? value.sourceTabId : ''
-      if (!previewUrl || !sourceTabId) return
-      const source = productStateRef.current.tabs.find((tab) => tab.id === sourceTabId)
-      if (!source) return
-      const app = appsRef.current.find((entry) => entry.id === source.context.appId)
-      if (!app) return
-      tabSequence.current += 1
-      const tabId = brand<TabId>(
-        `home-v2:tab:${Date.now().toString(36)}:${tabSequence.current}`,
-      )
-      dispatchProduct({
-        type: 'open-app',
-        app,
-        tabId,
-        context: {
-          ...source.context,
-          previewUrl,
-          tabId,
-        },
-      })
+      void openHomeV2PublishPreview(value)
     })
-  }, [])
+  }, [openHomeV2PublishPreview])
 
   useEffect(() => {
     const bridge = window.homeV2Apps
@@ -3613,6 +3734,7 @@ export function HomeV2LiveApp() {
             !isHomeV2GroupMembershipAction(value.action) &&
             !isHomeV2MintingWriteAction(value.action) &&
             !isHomeV2ListWriteAction(value.action) &&
+            !isHomeV2NodeSettingsWriteAction(value.action) &&
             !isHomeV2PollWriteAction(value.action) &&
             !isHomeV2NameWriteAction(value.action) &&
             !isHomeV2GroupMutationAction(value.action) &&
@@ -3698,6 +3820,12 @@ export function HomeV2LiveApp() {
             typeof value.publishFileName !== 'string' ||
             typeof value.publishResourceCoordinate !== 'string' ||
             typeof value.publishSize !== 'number' ||
+            // Folder rows: present as non-negative integers or not at all.
+            // A prompt that cannot validate them must not render them, since
+            // the counts are part of what the user is approving.
+            [value.publishEntryCount, value.publishExcludedCount, value.publishHiddenCount]
+              .some((field) => !(field === null || field === undefined ||
+                (typeof field === 'number' && Number.isSafeInteger(field) && field >= 0))) ||
             // A Qortal PUBLISH_QDN_RESOURCE pays the chain fee, so its
             // prompt must carry the pinned Fee row; everywhere else the
             // field must be absent (fee-free mempow, or a non-publish
@@ -3734,6 +3862,20 @@ export function HomeV2LiveApp() {
         || (isHomeV2ListWriteAction(value.action) &&
           (value.writeKind !== 'node-list' ||
             !isNodeListDetailRows(value.nodeListDetails) ||
+            typeof value.writeOperationLabel !== 'string' ||
+            typeof value.writeRouteLabel !== 'string' ||
+            typeof value.writeTargetChainLabel !== 'string' ||
+            value.writeSingleRequestOnly !== true))
+        // Node-settings writes must arrive as single-request prompts carrying
+        // the exact per-action row sequence: RESTART_NODE the pinned Impact
+        // row plus the Node row; UPDATE_NODE_SETTINGS the Node row plus the
+        // per-key current/proposed pairs. A prompt that cannot show exactly
+        // what would change on the user's node is refused, not rendered.
+        || (isHomeV2NodeSettingsWriteAction(value.action) &&
+          (value.writeKind !== 'node-settings' ||
+            value.protocol !== 'qdnRequest' ||
+            value.targetNetwork !== 'qortium' ||
+            !isNodeSettingsDetailRows(value.action, value.nodeSettingsDetails) ||
             typeof value.writeOperationLabel !== 'string' ||
             typeof value.writeRouteLabel !== 'string' ||
             typeof value.writeTargetChainLabel !== 'string' ||
@@ -3792,7 +3934,25 @@ export function HomeV2LiveApp() {
         // Qortium sends on qdnRequest, SEND_QORT on qortalRequest, and asset
         // transfers on either correctly paired protocol), with the
         // exact payment-grade row sequence.
-        || (isHomeV2PaymentAction(value.action) &&
+        // Foreign-coin sending: the same action name, a different chain, a
+        // different signer and its own row grammar. Qortium-pinned (the
+        // approval is a Qortium-account operation even though the funds move
+        // on another chain), coin-pinned, caption-pinned to the coin, and
+        // single-request without exception.
+        || (isHomeV2PaymentAction(value.action) && value.writeKind === 'foreign-send' &&
+          (value.action !== 'SEND_COIN' ||
+            value.protocol !== 'qdnRequest' ||
+            value.targetNetwork !== 'qortium' ||
+            value.writeTargetChainLabel !== 'Qortium' ||
+            typeof value.foreignSendCoin !== 'string' ||
+            !FOREIGN_SEND_COINS.has(value.foreignSendCoin) ||
+            typeof value.foreignSendChainId !== 'string' ||
+            !/^bip122:[0-9a-f]{32}$/.test(value.foreignSendChainId) ||
+            !isSequencedDetailRows(FOREIGN_SEND_DETAIL_SEQUENCE, value.foreignSendDetails) ||
+            value.writeOperationLabel !== homeV2ForeignSendOperationLabel(value.foreignSendCoin) ||
+            typeof value.writeRouteLabel !== 'string' ||
+            value.writeSingleRequestOnly !== true))
+        || (isHomeV2PaymentAction(value.action) && value.writeKind !== 'foreign-send' &&
           (value.writeKind !== 'payment' ||
             (value.action === 'SEND_QORT'
               ? value.protocol !== 'qortalRequest' || value.targetNetwork !== 'qortal' || value.writeTargetChainLabel !== 'Qortal'
@@ -3988,6 +4148,7 @@ export function HomeV2LiveApp() {
       const isJournalForget = value.action === 'FORGET_PENDING_TRANSACTION'
       const isMintingWrite = isHomeV2MintingWriteAction(value.action)
       const isListWrite = isHomeV2ListWriteAction(value.action)
+      const isNodeSettingsWrite = isHomeV2NodeSettingsWriteAction(value.action)
       const isPollWrite = isHomeV2PollWriteAction(value.action)
       const isNameWrite = isHomeV2NameWriteAction(value.action)
       const isGroupMutation = isHomeV2GroupMutationAction(value.action)
@@ -3995,7 +4156,10 @@ export function HomeV2LiveApp() {
       const isQdnDelete = value.action === 'DELETE_QDN_RESOURCE'
       const isRatingWrite = isHomeV2RatingAction(value.action)
       const isAccountAvatar = value.action === 'SET_ACCOUNT_AVATAR'
-      const isPaymentSend = isHomeV2PaymentAction(value.action)
+      // SEND_COIN is BOTH families' action name, so the write kind — already
+      // re-validated above — is what separates them here.
+      const isForeignSend = isHomeV2PaymentAction(value.action) && value.writeKind === 'foreign-send'
+      const isPaymentSend = isHomeV2PaymentAction(value.action) && !isForeignSend
       const isForeignWalletRead = isHomeV2ForeignWalletPermissionAction(value.action)
       const isForeignServerWrite = value.action === 'SET_CURRENT_FOREIGN_SERVER'
       // A zero-fee chain MESSAGE to an AT. Its own prompt kind: it signs, so it
@@ -4015,7 +4179,7 @@ export function HomeV2LiveApp() {
       const isDecrypt = value.action === 'DECRYPT_DATA'
       const accountReadPromptKind = homeV2AccountReadPromptKind(value.action)
       const isGenericAccountRead = accountReadPromptKind === 'account'
-      const operationLabel = isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment || isNotification || isBookmarkManager || isNotificationManager || isHomeSettingsUpdate || isJournalForget || isMintingWrite || isListWrite || isPollWrite || isNameWrite || isGroupMutation || isPublishMultiple || isQdnDelete || isRatingWrite || isAccountAvatar || isPaymentSend || isForeignWalletRead || isForeignServerWrite || isAtMessage || isEncrypt || isDecrypt
+      const operationLabel = isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment || isNotification || isBookmarkManager || isNotificationManager || isHomeSettingsUpdate || isJournalForget || isMintingWrite || isListWrite || isPollWrite || isNameWrite || isGroupMutation || isPublishMultiple || isQdnDelete || isRatingWrite || isAccountAvatar || isPaymentSend || isForeignSend || isForeignWalletRead || isForeignServerWrite || isAtMessage || isEncrypt || isDecrypt || isNodeSettingsWrite
         ? String(value.writeOperationLabel)
         : ''
       const prompt = createPermissionPrompt({
@@ -4074,6 +4238,10 @@ export function HomeV2LiveApp() {
               // like 'home.settings.write' (see bridge-permissions.ts).
               : isListWrite
                 ? 'node.lists.write'
+              // Reconfigures or restarts the user's own Core: its own
+              // capability, never durable, single-request only.
+              : isNodeSettingsWrite
+                ? 'node.settings.write'
               // Signs a chain transaction: its own capability, never
               // 'account.read', single-request only (see bridge-permissions).
               : isPollWrite
@@ -4104,6 +4272,11 @@ export function HomeV2LiveApp() {
               // reachable through any other grant.
               : isPaymentSend
                 ? 'payment.send'
+              // MOVES FUNDS on ANOTHER chain, irreversibly and outside
+              // Qortium's reconciliation. Its own capability so it can never
+              // be reached through the native payment one.
+              : isForeignSend
+                ? 'payment.foreign-send'
               // Its own capability, never 'account.read': that string is what
               // bridge-permissions.ts unifies durable grants on, and a signing
               // action must not be reachable through a read grant.
@@ -4151,7 +4324,11 @@ export function HomeV2LiveApp() {
             ? 'Forget pending transaction?'
           : isAtMessage
             ? 'Send a message to a contract?'
-          : isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment || isMintingWrite || isListWrite || isPollWrite || isNameWrite || isGroupMutation || isPublishMultiple || isQdnDelete || isRatingWrite || isAccountAvatar || isPaymentSend
+          : isNodeSettingsWrite
+            ? value.action === 'RESTART_NODE'
+              ? 'Restart your node?'
+              : 'Change node settings?'
+          : isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment || isMintingWrite || isListWrite || isPollWrite || isNameWrite || isGroupMutation || isPublishMultiple || isQdnDelete || isRatingWrite || isAccountAvatar || isPaymentSend || isForeignSend
           ? `Allow ${operationLabel.toLowerCase()}?`
           : 'Allow account access?',
         summary: isWidgetPrompt
@@ -4166,6 +4343,10 @@ export function HomeV2LiveApp() {
           ? `${appTitle} wants to change the Home settings listed below. This approval covers this one change only — the app must ask again for the next one. It cannot read or change your accounts, node connections, or saved data.`
           : isListWrite
           ? `${appTitle} wants to change a named list stored on your own node. Apps on this node share these lists — they commonly drive blocking and following — so this change affects what other apps show you. This approval covers this one change only; nothing is signed and nothing on chain changes.`
+          : isNodeSettingsWrite
+          ? value.action === 'RESTART_NODE'
+            ? `${appTitle} wants to restart your own node's Core. Syncing, minting, and every app using this node pause until it comes back. This approval covers this one restart only; nothing is signed and nothing on chain changes.`
+            : `${appTitle} wants to change the node settings listed below on your own node. Every change is shown exactly as it will be applied; some settings only take effect after a restart, which is asked about separately. This approval covers this one change only; nothing is signed and nothing on chain changes.`
           : isForeignWalletRead
           ? `${appTitle} wants Home to derive public watch-only wallet data for supported foreign chains and let your trusted Qortium Core read balances and transaction history. The app receives addresses and an extended public key, never a seed or private key.`
           : isForeignServerWrite
@@ -4182,6 +4363,8 @@ export function HomeV2LiveApp() {
             : `${appTitle} wants to sign and broadcast the QDN publish transactions listed below from the selected account — one per resource. They cost no fee — Home pays for each with proof-of-work on this device. Every resource, file, size and content hash is listed exactly as it will be signed; this approval covers exactly these listed transactions.`
           : isQdnDelete
           ? `${appTitle} wants to sign and broadcast one QDN deletion transaction from the selected account. Approving marks the resource below DELETED on the Qortium chain for EVERY peer — this deletes the published resource itself, not just a local copy, and only publishing it again would replace it. It costs no fee — Home pays for it with proof-of-work on this device.`
+          : isForeignSend
+          ? `${appTitle} wants to SEND ${String(value.foreignSendCoin)} from the wallet Home derives for the selected account. Home builds and signs this transaction itself \u2014 your node relays finished bytes and never receives a seed, a private key, or an extended private key. The amount, the recipient, the network fee and where any change goes are listed exactly as they will be signed. Once broadcast it cannot be recalled, and this approval covers this one send only.`
           : isPaymentSend
           ? `${appTitle} wants to PAY from the selected account. Approving signs and broadcasts one transaction that moves the funds shown below out of this account \u2014 the amount, the recipient, and the chain fee are all listed exactly as they will be signed, and this approval covers this one payment only. Nothing about this approval can be remembered or reused.`
           : isAccountAvatar
@@ -4260,6 +4443,20 @@ export function HomeV2LiveApp() {
                   : { label: detail.label, value: detail.value }),
               { label: 'Scope', value: 'This one request only' },
             ]
+          : isNodeSettingsWrite
+          ? [
+              { label: 'App', value: appTitle },
+              // The per-action rows, re-checked by isNodeSettingsDetailRows
+              // above. Setting values can carry up to ~1,000 escaped
+              // characters, so the current/proposed rows scroll like the
+              // group Description rows; the Impact and Node rows render
+              // plainly.
+              ...(value.nodeSettingsDetails as readonly { label: string; value: string }[])
+                .map((detail) => detail.label.endsWith(' (current)') || detail.label.endsWith(' (proposed)')
+                  ? { label: detail.label, value: detail.value, variant: 'scroll' as const }
+                  : { label: detail.label, value: detail.value }),
+              { label: 'Scope', value: 'This one request only' },
+            ]
           : isGroupMutation
           ? [
               { label: 'Account', value: account?.label ?? accountId },
@@ -4298,6 +4495,24 @@ export function HomeV2LiveApp() {
               { label: 'Route', value: String(value.writeRouteLabel) },
               { label: 'Chain', value: String(value.writeTargetChainLabel) },
               { label: 'Scope', value: 'This one transaction only' },
+            ]
+          : isForeignSend
+          ? [
+              { label: 'Account', value: account?.label ?? accountId },
+              { label: 'Operation', value: operationLabel },
+              // The foreign-send rows, re-checked against the exact sequence
+              // above before anything is rendered.
+              ...(value.foreignSendDetails as readonly { label: string; value: string }[])
+                .map((detail) => ({ label: detail.label, value: detail.value })),
+              // The rows above already name the coin and its chain. The row
+              // here is the QORTIUM node that will relay the finished bytes —
+              // a second 'Chain' row would read as a contradiction, so the
+              // route label carries it alone.
+              { label: 'Relayed by', value: String(value.writeRouteLabel) },
+              // The shell's own copy, not a bridge row: what is NOT shared
+              // must not be forgeable by the thing asking for the send.
+              { label: 'Not shared', value: 'Wallet seed, private key, or extended private key (xprv)' },
+              { label: 'Scope', value: 'This one foreign-coin send only' },
             ]
           : isPaymentSend
           ? [
@@ -4534,6 +4749,15 @@ export function HomeV2LiveApp() {
                   ? [{ label: 'Fee', value: value.publishFee }]
                   : []),
                 { label: 'Size', value: `${Number(value.publishSize).toLocaleString()} bytes` },
+                ...(typeof value.publishEntryCount === 'number'
+                  ? [{ label: 'Folder entries', value: value.publishEntryCount.toLocaleString() }]
+                  : []),
+                ...(typeof value.publishExcludedCount === 'number'
+                  ? [{ label: 'Excluded', value: value.publishExcludedCount.toLocaleString() }]
+                  : []),
+                ...(typeof value.publishHiddenCount === 'number'
+                  ? [{ label: 'Hidden files', value: value.publishHiddenCount.toLocaleString() }]
+                  : []),
                 { label: 'SHA-256', value: String(value.publishContentHash) },
               ]
           // The two rows that matter here are Contract and Message: they are
@@ -4700,7 +4924,10 @@ export function HomeV2LiveApp() {
         prompt.context.identityId,
         prompt.context.targetNetwork,
         tabId,
-        homeV2PermissionGrantFamily(prompt.action),
+        homeV2PermissionGrantFamily(
+          prompt.action,
+          prompt.capability === 'payment.foreign-send' ? 'foreign-send' : undefined,
+        ),
         prompt.details,
       ])
       if (Array.from(pendingMeta.values()).some((meta) => meta.semanticKey === semanticKey)) {
@@ -6461,6 +6688,83 @@ export function HomeV2LiveApp() {
           trust.revision,
         )
       }
+      // Node settings on Android. Same node-ownership rule as lists: allowed
+      // wherever the user attached their own node's API key. The key stays
+      // inside the node client — this arm only raises the approval and asks
+      // the client to act, binding the approval to the trust revision the
+      // plan named (the client re-resolves and refuses if the node or key
+      // moved while the prompt was open).
+      if (isAndroidHost && protocol === 'qdnRequest' && isHomeV2NodeSettingsWriteAction(action)) {
+        const settingsClient = nodeClient as HomeV2NodeClient
+        if (!settingsClient.adminTrust || !settingsClient.nodeSettingsApproval ||
+          !settingsClient.nodeSettingsWrite || !settingsClient.nodeRestart) {
+          throw new Error('Node settings are unavailable in this build.')
+        }
+        const parsedApp = resolveAppIdentity()
+        const appId = brand<AppId>(`home-v2:permission-app:${parsedApp.identityKey}`)
+        const promptContext = {
+          appId,
+          identityId: brand<IdentityId>(`home-v2:identity:app:${parsedApp.identityKey}`),
+          nodeProfileRef: snapshot.nodes.qortium.ref,
+          tabId: brand<TabId>(context.tabId),
+          targetNetwork: 'qortium' as const,
+          walletRef: null,
+        }
+        if (action === 'RESTART_NODE') {
+          const trust = await settingsClient.adminTrust()
+          if (!trust.trusted) throw new Error(trust.reason ?? 'This node cannot be administered from Home.')
+          const decision = await queueAndroidPermissionPrompt(createPermissionPrompt({
+            id: brand<PermissionRequestId>(globalThis.crypto.randomUUID()),
+            protocol,
+            action,
+            capability: 'node.settings.write',
+            appId,
+            appIdentityKey: parsedApp.identityKey,
+            appTitle: parsedApp.title,
+            context: promptContext,
+            title: 'Restart your node?',
+            summary: `${parsedApp.title} wants to restart your own node's Core. Syncing, minting, and every app using this node pause until it comes back. This approval covers this one restart only; nothing is signed and nothing on chain changes.`,
+            details: [
+              { label: 'App', value: parsedApp.title },
+              { label: 'Impact', value: HOME_V2_RESTART_NODE_IMPACT },
+              { label: 'Node', value: trust.origin },
+              { label: 'Scope', value: 'This one request only' },
+            ],
+            allowedScopes: ['single-request'],
+          }), context.tabId)
+          if (!decision.approved || decision.scope !== 'single-request') {
+            throw new Error('The node restart was denied.')
+          }
+          return await settingsClient.nodeRestart(trust.revision)
+        }
+        // The client validates the patch against the node's own writable
+        // declaration and derives the current/proposed rows BEFORE any
+        // prompt — a malformed or non-writable patch never gets this far.
+        const plan = await settingsClient.nodeSettingsApproval(isRecord(requestValue) ? requestValue : {})
+        const decision = await queueAndroidPermissionPrompt(createPermissionPrompt({
+          id: brand<PermissionRequestId>(globalThis.crypto.randomUUID()),
+          protocol,
+          action,
+          capability: 'node.settings.write',
+          appId,
+          appIdentityKey: parsedApp.identityKey,
+          appTitle: parsedApp.title,
+          context: promptContext,
+          title: 'Change node settings?',
+          summary: `${parsedApp.title} wants to change the node settings listed below on your own node. Every change is shown exactly as it will be applied; some settings only take effect after a restart, which is asked about separately. This approval covers this one change only; nothing is signed and nothing on chain changes.`,
+          details: [
+            { label: 'App', value: parsedApp.title },
+            { label: 'Node', value: plan.origin },
+            ...plan.rows.map((row) => ({ label: row.label, value: row.value, variant: 'scroll' as const })),
+            { label: 'Scope', value: 'This one request only' },
+          ],
+          allowedScopes: ['single-request'],
+        }), context.tabId)
+        if (!decision.approved || decision.scope !== 'single-request') {
+          throw new Error('The node settings change was denied.')
+        }
+        return await settingsClient.nodeSettingsWrite(isRecord(requestValue) ? requestValue : {}, plan.revision)
+      }
       if (isAndroidHost && (action === 'GET_PENDING_TRANSACTIONS' || action === 'FORGET_PENDING_TRANSACTION')) {
         if (!context.selectedAccountId) throw new Error('No account is selected for this tab.')
         const accountId = context.selectedAccountId
@@ -6887,6 +7191,150 @@ export function HomeV2LiveApp() {
       // debit. The amount, asset, recipient, fee and timestamp travel with the
       // request and the vault refuses if its own re-derivation of any of them
       // disagrees; the total debit follows from the amount and the fee.
+      if (
+        isAndroidHost &&
+        protocol === 'qdnRequest' &&
+        action === 'SEND_COIN' &&
+        isHomeV2ForeignSendRequest(action, requestValue)
+      ) {
+        if (!context.selectedAccountId) throw new Error('No account is selected for this tab.')
+        const accountId = context.selectedAccountId
+        const account = accountCatalogueRef.current.accounts.find(
+          (candidate) => candidate.id === accountId,
+        )
+        if (!account) throw new Error('The selected account is no longer available.')
+        if (!account.isUnlocked) throw new Error('The selected account is locked.')
+        if (!vaultClient?.sendForeignCoin || !nodeClient.foreignWalletPost) {
+          throw new Error('Foreign sending is unavailable on this platform.')
+        }
+        const trust = await nodeClient.adminTrust?.()
+        const routeBefore = parseHomeV2NodesSnapshot(await nodeClient.getSnapshot()).qortium
+        if (
+          !trust?.trusted ||
+          !routeBefore.nodeApiUrl ||
+          routeBefore.nodeApiUrl !== trust.origin ||
+          !routeBefore.capabilities.read ||
+          routeBefore.adminTrusted !== true
+        ) {
+          throw new Error(trust?.reason ?? 'Foreign sending requires a reachable authenticated Qortium node.')
+        }
+        const pinnedRoute = `${trust.revision}|${trust.origin}`
+        const routeLabel = `Authenticated · ${trust.origin}`
+        const parsedApp = resolveAppIdentity()
+        const appId = brand<AppId>(`home-v2:permission-app:${parsedApp.identityKey}`)
+        const resolveRoute = async () => {
+          const currentTrust = await nodeClient.adminTrust?.()
+          if (
+            !currentTrust?.trusted ||
+            currentTrust.revision !== trust.revision ||
+            currentTrust.origin !== trust.origin
+          ) {
+            throw new Error('The selected Qortium node or its API key changed during the foreign send.')
+          }
+          return {
+            nodeApiUrl: currentTrust.origin,
+            revision: currentTrust.revision,
+            routeLabel,
+          }
+        }
+        const isStillValid = () => evaluateHomeV2ForeignSendValidity({
+          pinnedRoute,
+          readAccountUnlocked: () => accountCatalogueRef.current.accounts.some(
+            (candidate) => candidate.id === accountId && candidate.isUnlocked,
+          ),
+          readLiveContextMatches: () => {
+            const freshTab = productStateRef.current.tabs.find((tab) => tab.id === context.tabId)
+            return selectedAccountIdRef.current === accountId &&
+              !!freshTab &&
+              freshTab.context.resourceLocation === context.resourceLocation
+          },
+          resolveRoute: async () => {
+            const current = await nodeClient.adminTrust?.().catch(() => null) ?? null
+            return current?.trusted ? `${current.revision}|${current.origin}` : null
+          },
+        })
+        const postTrusted = (
+          pathname: string,
+          body: string,
+          contentType: 'application/json' | 'text/plain',
+          maxBytes: number,
+        ) => nodeClient.foreignWalletPost!(
+          pathname,
+          body,
+          contentType,
+          maxBytes,
+          trust.revision,
+        )
+        try {
+          return await vaultClient.sendForeignCoin({
+            accountId,
+            appIdentity: parsedApp.identityKey,
+            approve: async (rows, meta) => {
+              const decision = await queueAndroidPermissionPrompt(createPermissionPrompt({
+                id: brand<PermissionRequestId>(globalThis.crypto.randomUUID()),
+                protocol,
+                action: 'SEND_COIN',
+                capability: 'payment.foreign-send',
+                appId,
+                appIdentityKey: parsedApp.identityKey,
+                appTitle: parsedApp.title,
+                context: {
+                  appId,
+                  identityId: brand<IdentityId>(`home-v2:identity:${accountId}`),
+                  nodeProfileRef: snapshot.nodes.qortium.ref,
+                  tabId: brand<TabId>(context.tabId),
+                  targetNetwork: 'qortium',
+                  walletRef: brand<WalletRef>(`home-v2:wallet:${account.walletId}`),
+                },
+                title: `Allow ${meta.operationLabel.toLowerCase()}?`,
+                summary: `${parsedApp.title} wants to SEND ${meta.coin} from the wallet Home derives for the selected account. Home builds and signs this transaction itself — your node relays finished bytes and never receives a seed, a private key, or an extended private key. The amount, recipient, network fee, and change are listed exactly as they will be signed. Once broadcast it cannot be recalled.`,
+                details: [
+                  { label: 'Account', value: account.label },
+                  { label: 'Operation', value: meta.operationLabel },
+                  ...rows.map((row) => ({ label: row.label, value: row.value })),
+                  { label: 'Relayed by', value: routeLabel },
+                  { label: 'Not shared', value: 'Wallet seed, private key, or extended private key (xprv)' },
+                  { label: 'Scope', value: 'This one foreign-coin send only' },
+                ],
+                allowedScopes: ['single-request'],
+              }), context.tabId)
+              if (!decision.approved) throw new Error('Foreign send was denied.')
+            },
+            isStillValid,
+            postTrusted,
+            readWalletHistory: async (wallet) => {
+              const historyRequest = buildForeignWalletReadRequest(wallet, 'wallettransactions')
+              return postTrusted(
+                historyRequest.pathname,
+                historyRequest.body,
+                historyRequest.contentType,
+                2 * 1024 * 1024,
+              )
+            },
+            request: isRecord(requestValue) ? requestValue : {},
+            resolveRoute,
+          })
+        } catch (error) {
+          if (error instanceof HomeV2ForeignSendReconciliationError ||
+            error instanceof HomeV2ForeignSendReconciliationPendingError) {
+            throw Object.assign(new Error(error.message), {
+              action,
+              code: error.code,
+              network: 'qortium',
+              retryable: false,
+            })
+          }
+          if (error instanceof HomeV2ForeignSendError) {
+            throw Object.assign(new Error(error.message), {
+              action,
+              code: 'FOREIGN_SEND_UNAVAILABLE',
+              network: 'qortium',
+              retryable: false,
+            })
+          }
+          throw error
+        }
+      }
       if (isAndroidHost && isHomeV2PaymentAction(action)) {
         const qortalChain = protocol === 'qortalRequest'
         const sendQort = action === 'SEND_QORT'
@@ -7612,7 +8060,7 @@ export function HomeV2LiveApp() {
           validateTarget: assertNameOwned,
         }))
       }
-      if (isAndroidHost && (action === 'SELECT_QDN_PUBLISH_SOURCE' || action === 'STAGE_QDN_PUBLISH_SOURCE' || action === 'PUBLISH_QDN_RESOURCE')) {
+      if (isAndroidHost && (action === 'SELECT_QDN_PUBLISH_SOURCE' || action === 'STAGE_QDN_PUBLISH_SOURCE' || action === 'PREVIEW_QDN_PUBLISH_SOURCE' || action === 'PUBLISH_QDN_RESOURCE')) {
         if (!context.selectedAccountId) throw new Error('No account is selected for this tab.')
         const accountId = context.selectedAccountId
         const account = accountCatalogueRef.current.accounts.find((candidate) => candidate.id === accountId)
@@ -7640,6 +8088,41 @@ export function HomeV2LiveApp() {
         }
         if (action === 'STAGE_QDN_PUBLISH_SOURCE') {
           return stageHomeV2AndroidPublishBlob(binding, isRecord(requestValue) ? requestValue : {})
+        }
+        // PREVIEW: the bytes are already here (Android's picker returns base64),
+        // so the node client uploads them to the trusted node's byte-upload
+        // preview route and hands back the render URL. No account signature is
+        // involved -- nothing is published -- so this runs before the unlock
+        // check the publish path makes below.
+        if (action === 'PREVIEW_QDN_PUBLISH_SOURCE') {
+          if (!nodeClient.previewPublishSource) {
+            throw new Error('Previewing a publish source is unavailable on this platform.')
+          }
+          const requested = isRecord(requestValue) ? requestValue : {}
+          const sourceToken = typeof requested.sourceToken === 'string' ? requested.sourceToken : ''
+          if (!sourceToken) {
+            throw new Error('Select a QDN publish source before previewing it.')
+          }
+          const previewSource = homeV2AndroidPublishSources.resolve(sourceToken, binding)
+          const preview = await nodeClient.previewPublishSource({
+            dataBase64: previewSource.dataBase64,
+            fileName: previewSource.fileName,
+          })
+          // Opened exactly as the desktop preview is, through the one shared
+          // opener: the render URL never reaches the requesting app, which is
+          // the whole point of Home doing the opening.
+          const openedPreview = await openHomeV2PublishPreview({
+            network: targetNetwork,
+            previewTrustRevision: preview.revision,
+            previewUrl: preview.previewUrl,
+            service: preview.service,
+            sourceTabId: context.tabId,
+            title: previewSource.fileName,
+          })
+          if (!openedPreview) {
+            throw new Error('The preview could not be opened for this tab.')
+          }
+          return true
         }
         if (!account.isUnlocked) throw new Error('The selected account is locked.')
         if (!vaultClient?.publishPublicResource) {
@@ -9250,7 +9733,13 @@ export function HomeV2LiveApp() {
         return result
       }
       if (action !== 'GET_SELECTED_ACCOUNT' && action !== 'GET_USER_ACCOUNT') {
-        return nodeClient.requestApp(protocol, requestValue, context)
+        return nodeClient.requestApp(protocol, requestValue, {
+          ...context,
+          selectedAccountUnlocked: !!context.selectedAccountId &&
+            accountCatalogueRef.current.accounts.some(
+              (candidate) => candidate.id === context.selectedAccountId && candidate.isUnlocked,
+            ),
+        })
       }
       if (!context.selectedAccountId) throw new Error('No account is selected for this tab.')
       const targetNetwork = protocol === 'qortalRequest' ? 'qortal' : 'qortium'

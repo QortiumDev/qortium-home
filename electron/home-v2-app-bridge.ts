@@ -12,7 +12,8 @@ import {
   type WebContents,
 } from 'electron'
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
-import { writeFile } from 'node:fs/promises'
+import { createReadStream } from 'node:fs'
+import { stat, writeFile } from 'node:fs/promises'
 import nodePath from 'node:path'
 import nacl from 'tweetnacl'
 import { assertAuthorizedHomeV2Sender } from './home-v2-authorized-senders.js'
@@ -297,13 +298,37 @@ import {
   attestUnsignedQortalPrivateGroupPublish,
   signAttestedQortalPrivateGroupPublish,
 } from './home-v2-qortal-private-group-publish.js'
+import { selectHomeV2DesktopPublishSource } from './home-v2-desktop-publish-source.js'
 import {
+  HOME_V2_PUBLISH_BATCH_MAX_TOTAL_BYTES,
+  HOME_V2_PUBLISH_DIRECTORY_LIMITS,
+  getRequestedHomeV2PublishIncludeHidden,
+  getRequestedHomeV2PublishSourceKind,
   homeV2DesktopPublishSources,
+  prepareHomeV2PublishArtifact,
+  prepareTrackedHomeV2PublishArtifact,
+  type HomeV2PublishArtifact,
+  homeV2PublishPreviewTempAncestor,
+  homeV2PublishSourceError,
+  isHomeV2PublishSourceError,
+  removeHomeV2PublishPreviewStagingDir,
   stageHomeV2DesktopPublishBlob,
+  stageHomeV2PublishSourceForPreview,
   readHomeV2DesktopPublishSource,
-  selectHomeV2DesktopPublishSource,
-} from './home-v2-desktop-publish-source.js'
+} from './home-v2-publish-source-selection.js'
 import { normalizeHomeV2PublishBlobRequest } from './home-v2-publish-blob-source.js'
+import { releaseQdnPreviewStagingDir } from './qdn-preview-staging.js'
+import { isQdnBrowserArchiveService } from './qdn-browser-archive-services.js'
+import { spoolHomeV2PreviewArchive } from './home-v2-preview-archive.js'
+import {
+  HOME_V2_PREVIEW_TOO_LARGE,
+  HOME_V2_PREVIEW_UNEXPECTED_URL,
+  HOME_V2_PREVIEW_UNSUPPORTED_CONTENT,
+  HOME_V2_PREVIEW_UPLOAD_MAX_BYTES,
+  homeV2PreviewUploadPath,
+  isHomeV2PreviewRenderPath,
+  type HomeV2PreviewUploadTarget,
+} from './home-v2-preview-upload.js'
 import {
   normalizeHomeV2PublicPublishRequest,
   sha256Hex,
@@ -311,9 +336,21 @@ import {
 import {
   deleteHomeV2QortiumResource,
   getHomeV2QortalArbitraryUnitFee,
+  publishHomeV2AuthenticatedResource,
   publishHomeV2EncryptedResource,
   publishHomeV2PublicResource,
 } from './home-v2-public-publish.js'
+import {
+  getHomeV2QdnPublishLimit,
+  homeV2QdnPublishLimitMessage,
+  shouldUseAuthenticatedQdnPublish,
+  type HomeV2QdnPublishLimit,
+} from './home-v2-publish-limits.js'
+import {
+  removeHomeV2PublishSnapshot,
+  stageHomeV2PublishSnapshot,
+  type HomeV2PublishSnapshot,
+} from './home-v2-publish-snapshot.js'
 import {
   normalizeHomeV2PublishMultipleRequest,
   normalizeHomeV2QdnDeleteRequest,
@@ -375,8 +412,6 @@ import {
   normalizeHomeV2EncryptDataRequest,
 } from './home-v2-encryption-actions.js'
 import type { HomeV2PublishSourceBinding } from './home-v2-publish-source-tokens.js'
-import { HOME_V2_PUBLISH_SOURCE_MAX_BYTES, normalizeHomeV2PublishSourceKind } from './home-v2-publish-source-tokens.js'
-import { getHomeV2PublishSizeCeiling } from './home-v2-publish-limits.js'
 import {
   appendHomeV2GroupMembershipSignature,
   buildUnsignedQortalGroupMembershipTransactionBytes,
@@ -440,6 +475,16 @@ import {
   type HomeV2MintingWriteAction,
 } from './home-v2-minting.js'
 import {
+  HOME_V2_RESTART_NODE_IMPACT,
+  buildHomeV2NodeSettingsApprovalRows,
+  createHomeV2NodeSettingsUpdateResult,
+  homeV2NodeSettingsOperationLabel,
+  homeV2WritableSettingKeys,
+  isHomeV2NodeSettingsWriteAction,
+  normalizeHomeV2NodeSettingsPatch,
+  type HomeV2NodeSettingsWriteAction,
+} from './home-v2-node-settings.js'
+import {
   accountExists,
   getAccountProfile,
   getAccountForeignWalletSeed,
@@ -460,6 +505,7 @@ import {
 import {
   executeForeignWalletRead,
   getForeignWalletPublicResponse,
+  FOREIGN_WALLET_BACKEND_UNAVAILABLE_CODE,
   type ForeignWalletReadEndpoint,
 } from './foreign-wallet-read-contract.js'
 import {
@@ -468,6 +514,36 @@ import {
   normalizeHomeV2ForeignServerRequest,
   normalizeHomeV2ForeignWalletCoin,
 } from './home-v2-foreign-wallet-actions.js'
+import { isHomeV2ForeignSendRequest } from './home-v2-foreign-send-actions.js'
+import {
+  evaluateHomeV2ForeignSendValidity,
+  executeHomeV2ForeignSend,
+  HomeV2ForeignSendReconciliationError,
+} from './home-v2-foreign-send.js'
+import {
+  classifyForeignWalletRouteProbe,
+  createForeignWalletRouteProbeCache,
+} from './foreign-wallet-route-probe.js'
+import { HomeV2ForeignSendReconciliationPendingError } from './foreign-wallet-reconciliation.js'
+import {
+  FOREIGN_SEND_IN_PROGRESS_CODE,
+  isForeignWalletOperationInProgressError,
+} from './foreign-wallet-operation-lock.js'
+import {
+  FOREIGN_JOURNAL_LOCKED_CODE,
+  isJournalLockedError,
+} from './durable-json-file.js'
+import {
+  clearReconciledStoredForeignWalletPendingTransaction,
+  confirmStoredForeignWalletBroadcastSuccess,
+  findStoredForeignWalletPendingTransactionConflict,
+  listStoredForeignWalletPendingTransactions,
+  recordForeignWalletBroadcastAttempt,
+  recordSignedForeignWalletPendingTransaction,
+  releaseNeverBroadcastStoredForeignWalletPendingTransaction,
+} from './foreign-wallet-transaction-journal-store.js'
+import { FOREIGN_WALLET_SEND_FRESHNESS_MS } from './foreign-wallet-reconciliation.js'
+import { buildForeignWalletReadRequest } from './foreign-wallet-read-contract.js'
 import { createHomeV2SendRateLimiter } from './home-v2-send-rate-limiter.js'
 import { assertHomeV2UnlockCompleted } from './home-v2-unlock-contract.js'
 import { base58Decode, base58Encode } from './base58.js'
@@ -476,9 +552,13 @@ import { deriveHomeV2RewardSharePrivateKey } from './home-v2-reward-share-key.js
 import {
   evaluateHomeV2AdminTrust,
   homeV2AdminTrustMessage,
+  homeV2NodeOrigin,
   type HomeV2AdminTrust,
 } from './home-v2-admin-trust.js'
-import { getHomeV2NodeAdminKey } from './home-v2-node-admin-key.js'
+import {
+  getHomeV2ManagedAdminBindingId,
+  getHomeV2NodeAdminKey,
+} from './home-v2-node-admin-key.js'
 import { readableNodeErrorMessage } from './node-error-body.js'
 import { getNodeConnection } from './node-settings.js'
 import {
@@ -670,6 +750,7 @@ type AccountReadAction =
   | 'UNLOCK_SELECTED_ACCOUNT'
   | HomeV2MintingWriteAction
   | HomeV2ListWriteAction
+  | HomeV2NodeSettingsWriteAction
   | HomeV2PollWriteAction
   | HomeV2NameWriteAction
   | HomeV2GroupMutationAction
@@ -1377,6 +1458,11 @@ async function requireAccountReadPermission(
   } | {
     readonly kind: 'publish'
     readonly contentHash: string
+    // Folder publishes only: what the packaged archive holds. Absent for a
+    // single file or staged bytes, where the name and hash already say it.
+    readonly entryCount?: number
+    readonly excludedCount?: number
+    readonly hiddenCount?: number
     readonly fileName: string
     readonly operationLabel: string
     readonly resourceCoordinate: string
@@ -1441,6 +1527,15 @@ async function requireAccountReadPermission(
     // re-validates them before rendering, as it does homeSettingsDetails.
     readonly listDetails: readonly { readonly label: string; readonly value: string }[]
     readonly listName: string
+    readonly operationLabel: string
+    readonly routeLabel: string
+    readonly targetChainLabel: string
+  } | {
+    readonly kind: 'node-settings'
+    // RESTART_NODE: the pinned Impact row plus the Node row. UPDATE: the Node
+    // row plus the per-key current/proposed rows. The shell re-validates the
+    // sequence per action before rendering, as it does nodeListDetails.
+    readonly settingsDetails: readonly { readonly label: string; readonly value: string }[]
     readonly operationLabel: string
     readonly routeLabel: string
     readonly targetChainLabel: string
@@ -1518,6 +1613,20 @@ async function requireAccountReadPermission(
     // 'payment:<chain>:<recipient>:<assetId>:<amountAtomic>'.
     readonly target: string
     readonly targetChainLabel: string
+  } | {
+    readonly kind: 'foreign-send'
+    readonly chainId: string
+    readonly coin: string
+    // The per-send rows, escaped and re-validated in the shell against the
+    // foreign-send sequence. Payment-grade like the native rows: the exact
+    // decimal AND atomic amount, who is paid, the fee and its rate, where
+    // change goes, and what is actually debited.
+    readonly foreignSendDetails: readonly { readonly label: string; readonly value: string }[]
+    readonly operationLabel: string
+    readonly routeLabel: string
+    // 'foreign-send:<coin>:<chainId>:<recipient>:<amountAtomic|max>'.
+    readonly target: string
+    readonly targetChainLabel: 'Qortium'
   } | {
     readonly kind: 'decrypt'
     readonly decryptDetails: readonly { readonly label: string; readonly value: string }[]
@@ -1600,7 +1709,7 @@ async function requireAccountReadPermission(
           ? writeDetails.target
         : writeDetails?.kind === 'account-avatar'
           ? 'account-avatar'
-        : writeDetails?.kind === 'payment'
+        : writeDetails?.kind === 'payment' || writeDetails?.kind === 'foreign-send'
           ? writeDetails.target
         : writeDetails?.kind === 'foreign-server'
           ? `foreign-server:${writeDetails.coin}`
@@ -1615,6 +1724,7 @@ async function requireAccountReadPermission(
     protocol,
     tabId: context.tabId,
     target: grantTarget,
+    writeKind: writeDetails?.kind,
   })
   const singleRequestOnly = action === 'UNLOCK_SELECTED_ACCOUNT' ||
     // SEND_MESSAGE signs a chain transaction. Pinned to the ACTION rather than
@@ -1632,6 +1742,9 @@ async function requireAccountReadPermission(
     // List writes change what the user's node stores, and what other apps
     // then show. Every one asks again, exactly as 1.x prompted per request.
     writeDetails?.kind === 'node-list' ||
+    // Node-settings writes reconfigure or restart the user's own Core.
+    // Every one asks again, exactly as 1.x prompted per request.
+    writeDetails?.kind === 'node-settings' ||
     // Poll writes sign chain transactions. Never a session or durable grant.
     writeDetails?.kind === 'poll' ||
     // Name writes sign chain transactions too — BUY_NAME moves coins.
@@ -1646,8 +1759,10 @@ async function requireAccountReadPermission(
     writeDetails?.kind === 'rating' ||
     // The account avatar signs a chain transaction too.
     writeDetails?.kind === 'account-avatar' ||
-    // Payments MOVE FUNDS. Never a session or durable grant, ever.
+    // Payments MOVE FUNDS, native or foreign. A foreign send moves them on
+    // another chain, irreversibly. Never a session or durable grant, ever.
     writeDetails?.kind === 'payment' ||
+    writeDetails?.kind === 'foreign-send' ||
     writeDetails?.kind === 'foreign-server' ||
     (writeDetails?.kind === 'group' || writeDetails?.kind === 'direct' || writeDetails?.kind === 'private-group') &&
     writeDetails.singleRequestOnly === true
@@ -1847,7 +1962,10 @@ async function requireAccountReadPermission(
             ? {
                 writeKind: 'publish',
                 publishContentHash: writeDetails.contentHash,
+                publishEntryCount: writeDetails.entryCount ?? null,
+                publishExcludedCount: writeDetails.excludedCount ?? null,
                 publishFee: writeDetails.fee ?? null,
+                publishHiddenCount: writeDetails.hiddenCount ?? null,
                 publishFileName: writeDetails.fileName,
                 publishMetadataCategory: writeDetails.metadataCategory ?? null,
                 publishMetadataDescription: writeDetails.metadataDescription ?? null,
@@ -1893,6 +2011,17 @@ async function requireAccountReadPermission(
                 // The Node/List/Items rows. Plain label/value strings,
                 // re-validated in the shell before they are rendered.
                 nodeListDetails: writeDetails.listDetails.map((detail) => ({ ...detail })),
+                writeOperationLabel: writeDetails.operationLabel,
+                writeRouteLabel: writeDetails.routeLabel,
+                writeSingleRequestOnly: true,
+                writeTargetChainLabel: writeDetails.targetChainLabel,
+              }
+          : writeDetails?.kind === 'node-settings'
+            ? {
+                writeKind: 'node-settings',
+                // The per-action row sequence. Plain label/value strings,
+                // re-validated in the shell before they are rendered.
+                nodeSettingsDetails: writeDetails.settingsDetails.map((detail) => ({ ...detail })),
                 writeOperationLabel: writeDetails.operationLabel,
                 writeRouteLabel: writeDetails.routeLabel,
                 writeSingleRequestOnly: true,
@@ -1988,6 +2117,17 @@ async function requireAccountReadPermission(
                 writeRouteLabel: writeDetails.routeLabel,
                 writeSingleRequestOnly: true,
                 writeTargetChainLabel: writeDetails.targetChainLabel,
+              }
+          : writeDetails?.kind === 'foreign-send'
+            ? {
+                foreignSendChainId: writeDetails.chainId,
+                foreignSendCoin: writeDetails.coin,
+                foreignSendDetails: writeDetails.foreignSendDetails.map((detail) => ({ ...detail })),
+                writeKind: 'foreign-send',
+                writeOperationLabel: writeDetails.operationLabel,
+                writeRouteLabel: writeDetails.routeLabel,
+                writeSingleRequestOnly: true,
+                writeTargetChainLabel: 'Qortium',
               }
           : writeDetails?.kind === 'foreign-wallet-read'
             ? {
@@ -2260,18 +2400,199 @@ function issueHomeV2ResourceStream(input: {
   })
 }
 
+const HOME_V2_PREVIEW_STAGING_FAILED =
+  'Home could not prepare the selected source for preview. Select it again.'
+const HOME_V2_PREVIEW_NODE_FAILED = 'The node could not render the preview. Try again.'
+const HOME_V2_PREVIEW_NODE_TOO_OLD =
+  'The connected Qortium Core node does not support QDN previews yet. Update Qortium Core and try again.'
+
+/**
+ * Preview failures reach an APP, so they must never carry a filesystem path or
+ * a node error body: both name directories on the user's machine (the staged
+ * copy lives under the OS temp dir, and Core echoes the path it was given).
+ * Messages the publish-source module raises are already fixed, path-free
+ * sentences and pass through; everything else is logged in the main process
+ * and replaced with one of the constants above.
+ */
+/**
+ * The same rule for the PUBLISH path's source handling: this module's own
+ * refusals are fixed, path-free sentences and pass through, and anything else
+ * - a raw `ENOENT: ... /home/<user>/...` from a stat or an open that slipped
+ * past a local catch - is logged in the main process and replaced. Applied
+ * narrowly, around packaging and reading only: the token store's own messages
+ * ("Selected publish source expired.") are untagged, path-free and worth
+ * showing, and they are raised before this wraps anything.
+ */
+const HOME_V2_PUBLISH_SOURCE_UNREADABLE =
+  'Home could not read the selected publish source. Select it again.'
+
+async function withHomeV2PublishSourceErrors<T>(operation: () => Promise<T>): Promise<T> {
+  try {
+    return await operation()
+  } catch (error) {
+    if (isHomeV2PublishSourceError(error)) throw error
+    console.warn('[home-v2-app] QDN publish source could not be read:', error)
+    throw new Error(HOME_V2_PUBLISH_SOURCE_UNREADABLE)
+  }
+}
+
+function homeV2PreviewFailure(error: unknown, fallbackMessage: string) {
+  if (isHomeV2PublishSourceError(error)) return error
+  console.warn('[home-v2-app] QDN publish preview failed:', error)
+  return new Error(fallbackMessage)
+}
+
+function homeV2PreviewNodeMessage(error: unknown) {
+  const status = typeof (error as { status?: unknown } | null)?.status === 'number'
+    ? (error as { status: number }).status
+    : 0
+  // Nodes without the endpoint answer with a generic 404, or a 500 HTML page.
+  return status === 404 || status === 500 ? HOME_V2_PREVIEW_NODE_TOO_OLD : HOME_V2_PREVIEW_NODE_FAILED
+}
+
+// A preview upload is up to HOME_V2_PREVIEW_UPLOAD_MAX_BYTES of base64 over a
+// link that may be the user's home connection to their own VPS, so it gets its
+// own timeout rather than the 30s chat-write one.
+const HOME_V2_PREVIEW_UPLOAD_TIMEOUT_MS = 180_000
+
+/**
+ * The staged file as a stream of base64 TEXT, never as one string.
+ *
+ * Base64 is a 3-bytes-to-4-characters transform, so each chunk is cut to a
+ * multiple of three and the remainder (at most two bytes) is carried into the
+ * next one; the tail is padded once at the end. Encoding the whole file at
+ * once instead would have cost ~133 MiB of string for a 100 MiB preview, on
+ * top of the archive itself (security review, 2026-09-02).
+ */
+function homeV2PreviewUploadBody(sourcePath: string) {
+  const reader = createReadStream(sourcePath, { highWaterMark: 3 * 64 * 1024 })
+  const iterator = reader[Symbol.asyncIterator]()
+  const encoder = new TextEncoder()
+  let carry = Buffer.alloc(0)
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const { done, value } = await iterator.next()
+        if (done) {
+          // The final group is the only one allowed to be short, which is what
+          // produces base64's padding.
+          if (carry.length > 0) controller.enqueue(encoder.encode(carry.toString('base64')))
+          carry = Buffer.alloc(0)
+          controller.close()
+          return
+        }
+        const chunk = typeof value === 'string' ? Buffer.from(value) : (value as Buffer)
+        const buffer = carry.length > 0 ? Buffer.concat([carry, chunk]) : chunk
+        const usable = buffer.length - (buffer.length % 3)
+        // Copied, not sliced: subarray shares memory with a stream buffer the
+        // reader is free to reuse before the next pull.
+        carry = Buffer.from(buffer.subarray(usable))
+        if (usable > 0) {
+          controller.enqueue(encoder.encode(buffer.subarray(0, usable).toString('base64')))
+        }
+      } catch (error) {
+        controller.error(error)
+      }
+    },
+    cancel() {
+      reader.destroy()
+    },
+  })
+}
+
+async function postHomeV2PreviewUpload(
+  nodeApiUrl: string,
+  path: string,
+  sourcePath: string,
+  apiKey: string,
+) {
+  const response = await nodeFetch(`${nodeApiUrl}${path}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'text/plain',
+      'X-API-KEY': apiKey,
+    },
+    // Streamed, so neither the archive nor its base64 is ever resident whole.
+    // `duplex: 'half'` is what a stream body requires; Core reads the chunked
+    // body as the request's text parameter exactly as it reads a buffered one.
+    body: homeV2PreviewUploadBody(sourcePath),
+    duplex: 'half',
+    // Same rule as postHomeV2ChatText: this call carries the administrative
+    // API key and the user's unpublished bytes, and 307/308 would re-send both
+    // to a host nothing vetted.
+    redirect: 'error',
+    signal: AbortSignal.timeout(HOME_V2_PREVIEW_UPLOAD_TIMEOUT_MS),
+  })
+  // Bounded exactly as the old path-based call was: Core's whole answer is one
+  // short /render/hash path.
+  const result = await readBoundedResponse(response, 'GET', CHAT_SIGNING_RESPONSE_MAX_BYTES)
+  if (!result.ok) {
+    throw Object.assign(new Error(`QDN preview request failed. HTTP ${result.status}.`), {
+      status: result.status,
+    })
+  }
+  return result.body.trim()
+}
+
+/**
+ * The FILE to upload for a staged preview: a directory is spooled to a zip
+ * beside it, a single file is already what goes up.
+ *
+ * Everything here is already a Home-owned staging copy - the user's own path is
+ * never sent, and never was - so the only new obligations are the wire bound
+ * and keeping the bytes on disk rather than in memory.
+ */
+async function prepareHomeV2PreviewUpload(
+  previewPath: string,
+  service: string,
+  stagingDir: string,
+): Promise<{ sourcePath: string; target: HomeV2PreviewUploadTarget }> {
+  const stats = await stat(previewPath)
+  if (stats.isDirectory()) {
+    const archivePath = nodePath.join(stagingDir, 'preview-upload.zip')
+    await spoolHomeV2PreviewArchive(previewPath, archivePath, HOME_V2_PREVIEW_UPLOAD_MAX_BYTES)
+    return {
+      sourcePath: archivePath,
+      // Core only reads `filename` for the single-file case; the archive flag
+      // is what routes this to its unzip-and-render branch.
+      target: Object.freeze({ archive: true, filename: 'preview.zip', service }),
+    }
+  }
+  if (!stats.isFile()) throw homeV2PublishSourceError(HOME_V2_PREVIEW_UNSUPPORTED_CONTENT)
+  if (stats.size < 1 || stats.size > HOME_V2_PREVIEW_UPLOAD_MAX_BYTES) {
+    throw homeV2PublishSourceError(HOME_V2_PREVIEW_TOO_LARGE)
+  }
+  return {
+    sourcePath: previewPath,
+    target: Object.freeze({
+      archive: false,
+      // The BASENAME of the staged copy, which carries the extension Core needs
+      // to keep (and nothing else path-shaped).
+      filename: nodePath.basename(previewPath).slice(0, 180) || 'preview',
+      service,
+    }),
+  }
+}
 /**
  * Render a chosen publish source so the user can look at it before publishing.
  *
- * Gated to a LOCAL node, deliberately. Previewing sends the selected bytes to
- * the node, which renders them -- so on someone else's node the operator would
- * see the file before the user had decided to publish it. qdn.ts flags the same
- * hazard on the 1.x path. On a local managed Core there is no third party, so
- * no approval prompt is needed either; on anything else this refuses.
+ * Gated on ADMIN TRUST, not on the node being loopback (owner decision,
+ * 2026-09-02). Previewing sends the selected bytes to a node that renders them,
+ * so the node must be one the user administers with their own API key — their
+ * managed local Core, or their own VPS Core reached over HTTPS (or an SSH
+ * tunnel). That is precisely `resolveHomeV2AdminNode`, and it is the only gate:
+ * a public/discovered node is somebody else's Core and still refuses, which is
+ * the hazard the old `mode === 'local'` rule was reaching for.
+ *
+ * The transport is Core's BYTE-UPLOAD preview route. The path route it used
+ * before could only ever work when Home and the node shared a filesystem, which
+ * is what made the feature look local-only in the first place. See
+ * home-v2-preview-upload.ts for why the path variant is not kept as a loopback
+ * optimisation.
  *
  * The render URL is never returned to the app: Home opens the preview itself,
- * through the resource viewer, so the app cannot read the staged bytes back out
- * of a URL it was handed.
+ * in its own app tab, so the app cannot read the staged bytes back out of a URL
+ * it was handed.
  */
 async function previewHomeV2PublishSource(
   context: QdnViewContext,
@@ -2284,12 +2605,15 @@ async function previewHomeV2PublishSource(
   if (!sourceToken) {
     throw new Error('Select a QDN publish source before previewing it.')
   }
-  const { apiKey, node } = await resolveHomeV2AdminNode(network)
-  if (node.mode !== 'local' || !apiKey) {
-    throw new Error(
-      'Previewing sends the selected file to the node, so it is only available on your own local Core.',
-    )
+  const admin = await resolveHomeV2AdminNode(network)
+  if (!admin.trust.trusted) {
+    throw new Error(homeV2AdminTrustMessage(admin.trust.reason, 'Previewing a publish source'))
   }
+  const { apiKey, node } = admin
+  // The credential+origin this preview is bound to. Re-checked after the upload
+  // so a node or key that moved while the bytes were in flight cannot have the
+  // resulting render URL opened against it.
+  const approvedRevision = admin.trust.revision
   const hostWindow = getContextWindow(context)
   if (!hostWindow || hostWindow.isDestroyed()) {
     throw new Error('The preview request does not belong to an active Home window.')
@@ -2301,36 +2625,97 @@ async function previewHomeV2PublishSource(
     protocol,
     routeRevision,
   }))
-  if (source.kind !== 'file') {
-    throw new Error('Previewing needs a file selected through the picker; staged bytes cannot be previewed.')
+  // Home never hands Core a path the user owns. The selection is copied into a
+  // Home-owned staging directory with every rule re-enforced during the copy,
+  // and Core is handed that copy: validating and then passing the live path
+  // would leave a window in which an escaping symlink could be added, a file
+  // could grow past the cap, or the whole path could be swapped.
+  const staged = await stageHomeV2PublishSourceForPreview(source)
+    .catch((error: unknown) => {
+      throw homeV2PreviewFailure(error, HOME_V2_PREVIEW_STAGING_FAILED)
+    })
+  // Core's own stager makes a second temp directory for a .zip or a bare .html
+  // (qdn.ts), and nothing in Home 2 sweeps those, so both are collected here.
+  const stagingDirs = new Set<string>([staged.stagingDir])
+  try {
+    let previewPath: string
+    let service: string
+    try {
+      ;({ previewPath, service } = await stageQdnPreviewSource(staged.previewPath))
+      const ancestor = homeV2PublishPreviewTempAncestor(previewPath)
+      if (ancestor) stagingDirs.add(ancestor)
+    } catch (error) {
+      throw homeV2PreviewFailure(error, HOME_V2_PREVIEW_UNSUPPORTED_CONTENT)
+    }
+    let upload: { sourcePath: string; target: HomeV2PreviewUploadTarget }
+    try {
+      // Spooled into the SAME staging directory the finally block removes, so
+      // the archive never outlives the call.
+      upload = await prepareHomeV2PreviewUpload(previewPath, service, staged.stagingDir)
+    } catch (error) {
+      throw homeV2PreviewFailure(error, HOME_V2_PREVIEW_STAGING_FAILED)
+    }
+    let renderPath: string
+    try {
+      renderPath = await postHomeV2PreviewUpload(
+        node.nodeApiUrl,
+        homeV2PreviewUploadPath(upload.target),
+        upload.sourcePath,
+        apiKey,
+      )
+    } catch (error) {
+      throw homeV2PreviewFailure(error, homeV2PreviewNodeMessage(error))
+    }
+    if (!isHomeV2PreviewRenderPath(renderPath)) {
+      throw new Error(HOME_V2_PREVIEW_UNEXPECTED_URL)
+    }
+    // The upload can take minutes on a remote node. Re-resolve trust before the
+    // preview is opened: if the user switched nodes or re-attached a different
+    // key meanwhile, this render URL names a node they are no longer approved
+    // on, and opening it would be Home acting on a stale approval.
+    const after = await resolveHomeV2AdminNode(network)
+    if (!after.trust.trusted || after.trust.revision !== approvedRevision) {
+      throw new Error(
+        'The selected Qortium node or its API key changed while the preview was being built.',
+      )
+    }
+    // Opened as an app TAB, not the resource viewer: the viewer renders images,
+    // audio and video and otherwise offers a download, so a WEBSITE preview --
+    // which is what a folder, a .zip or an .html stages as -- would have shown
+    // the user a download panel instead of their site. The app-tab view is the
+    // only surface that can render a site, which is exactly what
+    // docs/HOME_V2_BRIDGE_COMPATIBILITY.md said this action was waiting for.
+    hostWindow.webContents.send('home-v2-app:open-publish-preview', {
+      network,
+      // Carried so a preview tab restored in a LATER session can be bound to
+      // the same credential+origin it was built against, not merely to a
+      // loopback shape (see src/v2/product-model.ts). The BINDING ID: this
+      // value is written into the user's profile, where a key digest must
+      // never appear.
+      previewTrustRevision: admin.trust.bindingId,
+      previewUrl: `${node.nodeApiUrl.replace(/\/+$/, '')}${renderPath}`,
+      service,
+      sourceTabId: context.tabId,
+      // The BASENAME, which the app already received from the picker (1.x
+      // contract, and Explore displays it). Nothing else path-shaped leaves
+      // this handler.
+      title: source.fileName,
+    })
+    return true
+  } finally {
+    // Core has already built and cached the preview by hash by the time the
+    // POST returns (ArbitraryResource.previewUpload says so explicitly), so the
+    // staged copy of the user's unpublished content need not outlive the call.
+    await Promise.all([...stagingDirs].map(async (stagingDir) => {
+      await removeHomeV2PublishPreviewStagingDir(stagingDir)
+      // qdn.ts's stager tracks the directory it made against the path it was
+      // given, and Home 2 gives it a fresh mkdtemp path every time, so nothing
+      // there would ever replace this entry. Removing the directory without
+      // dropping the entry would leave the map growing once per preview, for
+      // the life of the process, on an action that needs no permission.
+      releaseQdnPreviewStagingDir(stagingDir)
+    }))
   }
-  const { previewPath, service } = await stageQdnPreviewSource(source.path)
-  const rendered = await postHomeV2ChatText(
-    node.nodeApiUrl,
-    `/arbitrary/preview/${encodeURIComponent(service)}`,
-    previewPath,
-    'text/plain',
-    'QDN preview request failed.',
-    apiKey,
-  )
-  const renderPath = typeof rendered === 'string' ? rendered.trim() : ''
-  if (!renderPath.startsWith('/render/')) {
-    throw new Error('The node returned an unexpected preview URL.')
-  }
-  // Opened as an app TAB, not the resource viewer: the viewer renders images,
-  // audio and video and otherwise offers a download, so a WEBSITE preview --
-  // which is what a folder, a .zip or an .html stages as -- would have shown
-  // the user a download panel instead of their site. The app-tab view is the
-  // only surface that can render a site, which is exactly what
-  // docs/HOME_V2_BRIDGE_COMPATIBILITY.md said this action was waiting for.
-  hostWindow.webContents.send('home-v2-app:open-publish-preview', {
-    network,
-    previewUrl: `${node.nodeApiUrl.replace(/\/+$/, '')}${renderPath}`,
-    service,
-    sourceTabId: context.tabId,
-    title: source.fileName,
-  })
-  return true
 }
 
 // STAGE_QDN_PUBLISH_SOURCE (B1): the app supplies the bytes (paste/drop)
@@ -2355,6 +2740,36 @@ async function stageHomeV2PublicPublishSource(
   }), blob)
 }
 
+type HomeV2ResolvedQdnPublishRoute = Readonly<{
+  adminRevision: string | null
+  apiKey: string
+  authenticated: boolean
+  limit: HomeV2QdnPublishLimit
+}>
+
+async function resolveHomeV2QdnPublishRoute(
+  network: HomeV2AppNetwork,
+  node: { mode: string; nodeApiUrl: string },
+  forcePublic = false,
+): Promise<HomeV2ResolvedQdnPublishRoute> {
+  const admin = network === 'qortium' ? await resolveHomeV2AdminNode('qortium') : null
+  const authenticated = Boolean(
+    !forcePublic && admin && shouldUseAuthenticatedQdnPublish(network, admin.trust) &&
+    admin.node.mode === node.mode && admin.node.nodeApiUrl === node.nodeApiUrl,
+  )
+  const limit = await getHomeV2QdnPublishLimit(
+    node.nodeApiUrl,
+    authenticated,
+    (url, signal) => nodeFetch(url, { method: 'GET', redirect: 'error', signal }),
+  )
+  return Object.freeze({
+    adminRevision: admin?.trust.trusted && authenticated ? admin.trust.revision : null,
+    apiKey: admin?.trust.trusted && authenticated ? admin.apiKey : '',
+    authenticated,
+    limit,
+  })
+}
+
 async function selectHomeV2PublicPublishSource(
   context: QdnViewContext,
   protocol: HomeV2AppBridgeProtocol,
@@ -2362,23 +2777,36 @@ async function selectHomeV2PublicPublishSource(
   routeRevision: string,
   requestValue: Record<string, unknown>,
 ) {
+  // `kind` was dropped when this action was ported, so every app got a file
+  // picker no matter what it asked for. It is honoured again here (1.x
+  // getRequestedQdnPublishSourceKind), defaulting to 'file' so the publish
+  // flows behave exactly as before. ONE parser, in the selection module.
+  const kind = getRequestedHomeV2PublishSourceKind(requestValue)
+  // Folder sources and the node-discovered ceiling are Qortium-only:
+  // publishQortium is the only publish path that understands isZip, previewing
+  // is off the Qortal catalogue entirely (it needs a local Core Home has no
+  // write key for on that route), and Qortal's base64-body upload has its own
+  // separate size ceiling (a V8 string-length limit around 384 MiB) that a
+  // Qortium-derived ceiling could exceed. Qortal keeps exactly its
+  // pre-existing behaviour: files only, 100 MiB.
+  if (kind === 'directory' && network !== 'qortium') {
+    throw new Error('Folder publish sources are available on Qortium only. Ask for a file.')
+  }
   const node = await getHomeV2ReadableNode(network)
-  // Directory bundling and the node-discovered ceiling are Qortium-only:
-  // publishQortium is the only publish path that understands isZip, and
-  // Qortal's base64-body upload has its own separate size ceiling (a V8
-  // string-length limit around 384 MiB) that a Qortium-derived ceiling
-  // could exceed. Qortal keeps exactly its pre-existing behavior.
-  const kind = network === 'qortium' ? normalizeHomeV2PublishSourceKind(requestValue.kind) : 'file'
-  const ceilingBytes = network === 'qortium'
-    ? await getHomeV2PublishSizeCeiling(network, node.nodeApiUrl)
-    : HOME_V2_PUBLISH_SOURCE_MAX_BYTES
+  // Folder archives use the public keyless route. That route understands
+  // isZip/unpackZip and Home can attest the resulting multi-file resource;
+  // the authenticated streaming attester currently proves single files.
+  const publishRoute = await resolveHomeV2QdnPublishRoute(network, node, kind === 'directory')
   return selectHomeV2DesktopPublishSource(context.windowId, homeV2PublishSourceBinding({
     context,
     network,
     nodeApiUrl: node.nodeApiUrl,
     protocol,
     routeRevision,
-  }), kind, ceilingBytes)
+  }), kind, {
+    ...HOME_V2_PUBLISH_DIRECTORY_LIMITS,
+    maximumFileBytes: publishRoute.limit.maximumBytes,
+  })
 }
 
 async function publishHomeV2PublicPublishSource(
@@ -2409,67 +2837,148 @@ async function publishHomeV2PublicPublishSource(
     routeRevision,
   })
   const source = homeV2DesktopPublishSources.resolve(request.sourceToken, binding)
-  const sourceBytes = await readHomeV2DesktopPublishSource(source)
-  const contentHash = await sha256Hex(sourceBytes)
-  const profile = await getAccountProfile(accountId)
-  const nameValue = await readHomeV2ChatJson(
-    node.nodeApiUrl,
-    `/names/${encodeURIComponent(request.resource.name)}`,
-    `${network === 'qortal' ? 'Qortal' : 'Qortium'} publisher-name lookup`,
-  )
-  if (stringField(nameValue, 'owner') !== profile.address) {
-    throw new Error('The selected account does not currently own the requested publisher name on this chain.')
+  // Folder sources are Qortium-only (see selectHomeV2PublicPublishSource): the
+  // isZip upload and the unpackZip attestation both exist on that path alone.
+  if (source.kind === 'directory' && network !== 'qortium') {
+    throw new Error('Folder publish sources are available on Qortium only. Select a file to publish.')
   }
-  // On Qortal this publish pays the chain's ARBITRARY unit fee: read it
-  // BEFORE the prompt so it is disclosed, and pin it so the signing path
-  // refuses a fee that moved after approval (a lying node could otherwise
-  // build an arbitrarily high valid fee the user never saw).
-  const feeAtomic = network === 'qortal' ? await getHomeV2QortalArbitraryUnitFee(node.nodeApiUrl) : 0n
-  await requireAccountReadPermission(sender, context, protocol, 'PUBLISH_QDN_RESOURCE', {
-    kind: 'publish',
-    contentHash,
-    ...(network === 'qortal' ? { fee: `${homeV2AtomicDecimal(feeAtomic)} coins` } : {}),
-    fileName: source.fileName,
-    ...(request.resource.title ? { metadataTitle: homeV2PollApprovalText(request.resource.title, 'The resource title') } : {}),
-    ...(request.resource.description ? { metadataDescription: homeV2PollApprovalText(request.resource.description, 'The resource description') } : {}),
-    ...(request.resource.category ? { metadataCategory: homeV2PollApprovalText(request.resource.category, 'The resource category') } : {}),
-    ...(request.resource.tags.length ? { metadataTags: homeV2PollApprovalText(request.resource.tags.join(', '), 'The resource tags') } : {}),
-    operationLabel: 'Publish a public QDN resource',
-    resourceCoordinate: `${request.resource.service}/${request.resource.name}/${request.resource.identifier ?? 'default'}`,
-    routeLabel: `${node.mode} · ${node.nodeApiUrl}`,
-    size: source.size,
-    targetChainLabel: network === 'qortal' ? 'Qortal' : 'Qortium',
-  })
-  const isStillValid = async () => {
-    const fresh = getQdnViewContextForWebContents(sender)
-    if (!fresh || !sameViewContext(context, fresh) || !liveResourceMatchesGrant(fresh) || !isAccountUnlocked(accountId)) return false
-    const current = await getHomeV2ReadableNode(network).catch(() => null)
-    return !!current && `${current.mode}|${current.nodeApiUrl}` === nodeRoute
+  const publishRoute = await resolveHomeV2QdnPublishRoute(network, node, source.kind === 'directory')
+  if (source.size > publishRoute.limit.maximumBytes) {
+    throw new Error(`Selected publish source is too large: ${homeV2QdnPublishLimitMessage(publishRoute.limit)}.`)
   }
-  if (!(await isStillValid())) throw new Error('The app, account, or node route changed before public publishing.')
-  const currentNameValue = await readHomeV2ChatJson(
-    node.nodeApiUrl,
-    `/names/${encodeURIComponent(request.resource.name)}`,
-    `${network === 'qortal' ? 'Qortal' : 'Qortium'} publisher-name recheck`,
-  )
-  if (stringField(currentNameValue, 'owner') !== profile.address || !(await isStillValid())) {
-    throw new Error('Publisher-name ownership or the app context changed after approval.')
+  const includeHidden = getRequestedHomeV2PublishIncludeHidden(requestValue)
+  // Only a SITE needs an index file. The browser-archive services are the ones
+  // Home renders through an HTML entry point (and WEBSITE is the one Core
+  // validates an index for), so a folder published as one of those must hold
+  // one; a VIDEO, AUDIO or DOCUMENT bundle - a media file with its poster and
+  // captions - must not be made to invent one. The service is known here and
+  // nowhere earlier, which is why the picker does not ask.
+  const requireIndexFile = isQdnBrowserArchiveService(request.resource.service)
+  let artifact: HomeV2PublishArtifact | null = null
+  let snapshot: HomeV2PublishSnapshot | null = null
+  try {
+    if (publishRoute.authenticated) {
+      snapshot = await stageHomeV2PublishSnapshot(source, publishRoute.limit.maximumBytes)
+    } else {
+      artifact = await withHomeV2PublishSourceErrors(
+        () => prepareHomeV2PublishArtifact(source, {
+          includeHidden,
+          maximumBytes: publishRoute.limit.maximumBytes,
+          requireIndexFile,
+        }),
+      )
+    }
+    const contentHash = snapshot
+      ? snapshot.contentHash
+      : await withHomeV2PublishSourceErrors(() => artifact!.sha256())
+    // A packaged folder is uploaded (and named) as the archive it now is, so
+    // the prompt names the same thing the transaction will carry.
+    const publishFileName = artifact?.isZip ? `${source.fileName.slice(0, 176)}.zip` : source.fileName
+    const publishSize = snapshot?.size ?? artifact!.byteLength
+    const profile = await getAccountProfile(accountId)
+    const nameValue = await readHomeV2ChatJson(
+      node.nodeApiUrl,
+      `/names/${encodeURIComponent(request.resource.name)}`,
+      `${network === 'qortal' ? 'Qortal' : 'Qortium'} publisher-name lookup`,
+    )
+    if (stringField(nameValue, 'owner') !== profile.address) {
+      throw new Error('The selected account does not currently own the requested publisher name on this chain.')
+    }
+    // On Qortal this publish pays the chain's ARBITRARY unit fee: read it
+    // BEFORE the prompt so it is disclosed, and pin it so the signing path
+    // refuses a fee that moved after approval (a lying node could otherwise
+    // build an arbitrarily high valid fee the user never saw).
+    const feeAtomic = network === 'qortal' ? await getHomeV2QortalArbitraryUnitFee(node.nodeApiUrl) : 0n
+    await requireAccountReadPermission(sender, context, protocol, 'PUBLISH_QDN_RESOURCE', {
+      kind: 'publish',
+      contentHash,
+      ...(network === 'qortal' ? { fee: `${homeV2AtomicDecimal(feeAtomic)} coins` } : {}),
+      fileName: publishFileName,
+      ...(request.resource.title ? { metadataTitle: homeV2PollApprovalText(request.resource.title, 'The resource title') } : {}),
+      ...(request.resource.description ? { metadataDescription: homeV2PollApprovalText(request.resource.description, 'The resource description') } : {}),
+      ...(request.resource.category ? { metadataCategory: homeV2PollApprovalText(request.resource.category, 'The resource category') } : {}),
+      ...(request.resource.tags.length ? { metadataTags: homeV2PollApprovalText(request.resource.tags.join(', '), 'The resource tags') } : {}),
+      operationLabel: publishRoute.authenticated
+        ? 'Publish a QDN resource through your trusted node'
+        : 'Publish a public QDN resource',
+      resourceCoordinate: `${request.resource.service}/${request.resource.name}/${request.resource.identifier ?? 'default'}`,
+      routeLabel: `${node.mode} · ${node.nodeApiUrl} · ${homeV2QdnPublishLimitMessage(publishRoute.limit)}`,
+      size: publishSize,
+      targetChainLabel: network === 'qortal' ? 'Qortal' : 'Qortium',
+      // Folder rows. A folder publish is the one case where the file name and
+      // the hash do not tell the user what they are about to publish, so the
+      // prompt says how many entries the archive holds, how many were dropped
+      // by the always-excluded list, and how many hidden files the app asked
+      // to include.
+      ...(artifact?.isZip
+        ? {
+            entryCount: artifact.entryCount,
+            excludedCount: artifact.excludedCount,
+            hiddenCount: artifact.hiddenCount,
+          }
+        : {}),
+    })
+    const isStillValid = async () => {
+      const fresh = getQdnViewContextForWebContents(sender)
+      if (!fresh || !sameViewContext(context, fresh) || !liveResourceMatchesGrant(fresh) || !isAccountUnlocked(accountId)) return false
+      const current = await getHomeV2ReadableNode(network).catch(() => null)
+      if (!current || `${current.mode}|${current.nodeApiUrl}` !== nodeRoute) return false
+      if (!publishRoute.adminRevision) return true
+      const currentAdmin = await resolveHomeV2AdminNode('qortium').catch(() => null)
+      return Boolean(currentAdmin?.trust.trusted && currentAdmin.trust.revision === publishRoute.adminRevision)
+    }
+    if (!(await isStillValid())) throw new Error('The app, account, node route, or administrative key changed before publishing.')
+    const currentLimit = await getHomeV2QdnPublishLimit(
+      node.nodeApiUrl,
+      publishRoute.authenticated,
+      (url, signal) => nodeFetch(url, { method: 'GET', redirect: 'error', signal }),
+    )
+    if (publishSize > currentLimit.maximumBytes) {
+      throw new Error(`Selected publish source is too large: ${homeV2QdnPublishLimitMessage(currentLimit)}.`)
+    }
+    const currentNameValue = await readHomeV2ChatJson(
+      node.nodeApiUrl,
+      `/names/${encodeURIComponent(request.resource.name)}`,
+      `${network === 'qortal' ? 'Qortal' : 'Qortium'} publisher-name recheck`,
+    )
+    if (stringField(currentNameValue, 'owner') !== profile.address || !(await isStillValid())) {
+      throw new Error('Publisher-name ownership or the app context changed after approval.')
+    }
+    if (!snapshot && !artifact) throw new Error('Publish source preparation failed.')
+    const result = snapshot
+      ? await publishHomeV2AuthenticatedResource({
+          accountId,
+          apiKey: publishRoute.apiKey,
+          attestationDirectory: snapshot.directory,
+          contentHash,
+          fileName: publishFileName,
+          isStillValid,
+          network: 'qortium',
+          nodeApiUrl: node.nodeApiUrl,
+          resource: request.resource,
+          sourcePath: snapshot.path,
+          sourceSize: snapshot.size,
+        })
+      : await publishHomeV2PublicResource({
+          accountId,
+          ...(network === 'qortal' ? { expectedFeeAtomic: feeAtomic } : {}),
+          fileName: publishFileName,
+          isStillValid,
+          isZip: artifact!.isZip,
+          network,
+          nodeApiUrl: node.nodeApiUrl,
+          resource: request.resource,
+          // Loaded only after approval and re-hashed against the value shown.
+          sourceBytes: await withHomeV2PublishSourceErrors(() => artifact!.read()),
+        })
+    if (result.accepted || result.outcome === 'unknown') {
+      homeV2DesktopPublishSources.release(request.sourceToken)
+    }
+    return result
+  } finally {
+    if (snapshot) await removeHomeV2PublishSnapshot(snapshot)
+    if (artifact) await artifact.dispose()
   }
-  const result = await publishHomeV2PublicResource({
-    accountId,
-    ...(network === 'qortal' ? { expectedFeeAtomic: feeAtomic } : {}),
-    fileName: source.fileName,
-    isStillValid,
-    isZip: source.kind === 'directory',
-    network,
-    nodeApiUrl: node.nodeApiUrl,
-    resource: request.resource,
-    sourceBytes,
-  })
-  if (result.accepted || result.outcome === 'unknown') {
-    homeV2DesktopPublishSources.release(request.sourceToken)
-  }
-  return result
 }
 
 function homeV2AtomicDecimal(atomic: bigint) {
@@ -2504,172 +3013,299 @@ async function publishHomeV2MultiplePublishSources(
     protocol,
     routeRevision,
   })
-  // Resolve, reopen and hash EVERY selected source before the prompt, so the
-  // rows describe the exact bytes each transaction will attest — the token
-  // store's device/inode/size recheck makes a swapped file refuse here.
-  const items = [] as {
-    readonly contentHash: string
-    readonly item: (typeof request.items)[number]
-    readonly source: ReturnType<typeof homeV2DesktopPublishSources.resolve>
-    readonly sourceBytes: Uint8Array
-  }[]
-  for (const item of request.items) {
-    const source = homeV2DesktopPublishSources.resolve(item.sourceToken, binding)
-    const sourceBytes = await readHomeV2DesktopPublishSource(source)
-    items.push({ contentHash: await sha256Hex(sourceBytes), item, source, sourceBytes })
-  }
-  const profile = await getAccountProfile(accountId)
-  // Every DISTINCT publisher name must be owned by the selected account —
-  // checked before the prompt and again per item at signing time. (1.x read
-  // only the first item's context and never checked ownership per target.)
-  const assertNameOwned = async (name: string, label: string) => {
-    const nameValue = await readHomeV2ChatJson(
-      node.nodeApiUrl,
-      `/names/${encodeURIComponent(name)}`,
-      `${chainLabel} publisher-name ${label}`,
-    )
-    if (stringField(nameValue, 'owner') !== profile.address) {
-      throw new Error(`The selected account does not currently own the publisher name ${name} on this chain.`)
+  // Resolve EVERY selected source before the prompt, so the rows describe the
+  // exact bytes each transaction will attest - the token store's
+  // device/inode/size recheck makes a swapped file refuse here.
+  const resolved = request.items.map((item) => ({
+    item,
+    source: homeV2DesktopPublishSources.resolve(item.sourceToken, binding),
+  }))
+  for (const entry of resolved) {
+    if (entry.source.kind === 'directory' && network !== 'qortium') {
+      throw new Error('Folder publish sources are available on Qortium only. Select files to publish.')
     }
   }
-  const distinctNames = [...new Set(items.map((entry) => entry.item.resource.name))]
-  for (const name of distinctNames) await assertNameOwned(name, 'lookup')
-  // On Qortal every item pays the chain's ARBITRARY unit fee. It is read
-  // once here so the prompt can disclose each fee and the batch total, and
-  // publishQortal refuses if the chain answers a different fee at signing.
-  const feeAtomic = network === 'qortal' ? await getHomeV2QortalArbitraryUnitFee(node.nodeApiUrl) : 0n
-  const coordinateOf = (entry: (typeof items)[number]) =>
-    `${entry.item.resource.service}/${entry.item.resource.name}/${entry.item.resource.identifier ?? 'default'}`
-  // DISPLAY form is component-escaped: an identifier may legitimately contain
-  // '/', and raw concatenation would let WEBSITE/alice/b/c read as name
-  // "alice/b" (publishing-extras review, 2026-08-27). The raw form above stays
-  // the target-hash input, which must not change.
-  const displayCoordinateOf = (entry: (typeof items)[number]) =>
-    homeV2ResourceCoordinateText(entry.item.resource)
-  const rows: { label: string; value: string }[] = [{ label: 'Items', value: String(items.length) }]
-  items.forEach((entry, index) => {
-    const position = index + 1
-    rows.push({ label: `Resource ${position}`, value: displayCoordinateOf(entry) })
-    rows.push({ label: `File ${position}`, value: homeV2PollApprovalText(entry.source.fileName, 'The file name') })
-    rows.push({ label: `Size ${position}`, value: `${entry.sourceBytes.byteLength} bytes` })
-    rows.push({ label: `SHA-256 ${position}`, value: entry.contentHash })
-    // The mutable-metadata values signed alongside the bytes (Qortium only —
-    // the item normalizer refuses metadata on Qortal). A row appears exactly
-    // when that field is being published; an omitted row means nothing is.
-    const metadata = entry.item.resource
-    if (metadata.title) rows.push({ label: `Title ${position}`, value: homeV2PollApprovalText(metadata.title, 'The resource title') })
-    if (metadata.description) rows.push({ label: `Description ${position}`, value: homeV2PollApprovalText(metadata.description, 'The resource description') })
-    if (metadata.category) rows.push({ label: `Category ${position}`, value: homeV2PollApprovalText(metadata.category, 'The resource category') })
-    if (metadata.tags.length) rows.push({ label: `Tags ${position}`, value: homeV2PollApprovalText(metadata.tags.join(', '), 'The resource tags') })
-    if (network === 'qortal') rows.push({ label: `Fee ${position}`, value: `${homeV2AtomicDecimal(feeAtomic)} coins` })
-  })
-  if (network === 'qortal') {
-    rows.push({ label: 'Total fee', value: `${homeV2AtomicDecimal(feeAtomic * BigInt(items.length))} coins` })
+  // A batch is where per-source ceilings stop being enough: this action hashes
+  // every item before ONE approval prompt, so N selections at the per-source
+  // ceiling would otherwise be N times that much work and memory. The
+  // aggregate is refused BEFORE anything is opened, read or packaged.
+  const selectedBytes = resolved.reduce((total, entry) => total + entry.source.size, 0)
+  if (selectedBytes > HOME_V2_PUBLISH_BATCH_MAX_TOTAL_BYTES) {
+    throw new Error(
+      `PUBLISH_MULTIPLE_QDN_RESOURCES accepts at most ${HOME_V2_PUBLISH_BATCH_MAX_TOTAL_BYTES} bytes of sources per batch.`,
+    )
   }
-  const target = `publish-multiple:${await sha256Hex(new TextEncoder().encode(items.map(coordinateOf).join('\n')))}`
-  await requireAccountReadPermission(sender, context, protocol, 'PUBLISH_MULTIPLE_QDN_RESOURCES', {
-    kind: 'publish-multiple',
-    operationLabel: homeV2PublishExtraOperationLabel('PUBLISH_MULTIPLE_QDN_RESOURCES'),
-    publishMultipleDetails: rows,
-    routeLabel: `${node.mode} \u00b7 ${node.nodeApiUrl}`,
-    target,
-    targetChainLabel: chainLabel,
-  })
-  const isStillValid = async () => {
-    const fresh = getQdnViewContextForWebContents(sender)
-    if (!fresh || !sameViewContext(context, fresh) || !liveResourceMatchesGrant(fresh) || !isAccountUnlocked(accountId)) return false
-    const current = await getHomeV2ReadableNode(network).catch(() => null)
-    return !!current && `${current.mode}|${current.nodeApiUrl}` === nodeRoute
+  // One folder makes the whole batch use the public route: mixed batches must
+  // have one approval route, and only the public attester currently proves
+  // the unpacked multi-file result of an isZip publish.
+  const publishRoute = await resolveHomeV2QdnPublishRoute(
+    network,
+    node,
+    resolved.some((entry) => entry.source.kind === 'directory'),
+  )
+  for (const entry of resolved) {
+    if (entry.source.size > publishRoute.limit.maximumBytes) {
+      throw new Error(`Selected publish source is too large: ${homeV2QdnPublishLimitMessage(publishRoute.limit)}.`)
+    }
   }
-  if (!(await isStillValid())) throw new Error('The app, account, or node route changed before batch publishing.')
-  for (const name of distinctNames) await assertNameOwned(name, 'recheck')
-  if (!(await isStillValid())) throw new Error('The app, account, or node route changed after approval.')
-  const published: unknown[] = []
-  const failures: unknown[] = []
-  for (const entry of items) {
-    const resource = Object.freeze({
-      identifier: entry.item.resource.identifier ?? null,
-      name: entry.item.resource.name,
-      service: entry.item.resource.service,
-    })
-    try {
-      if (!(await isStillValid())) throw new Error('The app, account, or node route changed during batch publishing.')
-      // Per ITEM, not once for the batch. The dispatcher's gate ran against the
-      // batch request before any of this, so it cannot see a coordinate an
-      // EARLIER ITEM of this same batch has just retained an unknown outcome
-      // for — and nothing stops a batch listing one coordinate twice. (Ported
-      // from the Android arm, publishing-extras review 2026-08-27.)
-      const pendingItem = findStoredHomeV2PendingTransactionConflict(app.getPath('userData'), {
-        accountId,
-        action: 'PUBLISH_QDN_RESOURCE',
-        appIdentity: homeV2AppIdentityKey(context),
-        network,
-        request: {
-          ...(resource.identifier === null ? {} : { identifier: resource.identifier }),
-          name: resource.name,
-          service: resource.service,
-        },
-      })
-      if (pendingItem) {
-        throw new Error(
-          `A previous publish of this resource has an unknown outcome. Reconcile signature ${pendingItem.signature} before publishing it again.`,
-        )
-      }
-      const result = await publishHomeV2PublicResource({
-        accountId,
-        ...(network === 'qortal' ? { expectedFeeAtomic: feeAtomic } : {}),
-        fileName: entry.source.fileName,
-        isStillValid,
-        isZip: entry.source.kind === 'directory',
-        network,
-        nodeApiUrl: node.nodeApiUrl,
-        resource: entry.item.resource,
-        sourceBytes: entry.sourceBytes,
-        validateTarget: () => assertNameOwned(entry.item.resource.name, 'signing recheck'),
-      })
-      if (result.accepted) {
-        published.push(Object.freeze({ ...result, resource }))
-        homeV2DesktopPublishSources.release(entry.item.sourceToken)
+  if (publishRoute.authenticated && selectedBytes > publishRoute.limit.maximumBytes) {
+    throw new Error(
+      `Selected batch exceeds the aggregate ${publishRoute.limit.maximumBytes.toLocaleString()} byte authenticated trusted-node route limit.`,
+    )
+  }
+  const items = [] as {
+    readonly artifact: HomeV2PublishArtifact | null
+    readonly byteLength: number
+    readonly contentHash: string
+    readonly fileName: string
+    readonly item: (typeof request.items)[number]
+    readonly snapshot: HomeV2PublishSnapshot | null
+    readonly source: ReturnType<typeof homeV2DesktopPublishSources.resolve>
+  }[]
+  // Disposal is tracked SEPARATELY from `items`, because an artifact exists -
+  // holding an open handle or a temp archive - from the moment it is prepared,
+  // which is before its hash is known and therefore before it can join `items`.
+  const prepared: HomeV2PublishArtifact[] = []
+  const snapshots: HomeV2PublishSnapshot[] = []
+  try {
+    // Hashed from a STREAM, not from a retained buffer: what a batch keeps
+    // alive across the prompt is one open handle (or one temp archive) per
+    // item, and the bytes themselves are loaded one item at a time below.
+    const includeHidden = getRequestedHomeV2PublishIncludeHidden(requestValue)
+    for (const entry of resolved) {
+      if (publishRoute.authenticated) {
+        const snapshot = await stageHomeV2PublishSnapshot(entry.source, publishRoute.limit.maximumBytes)
+        snapshots.push(snapshot)
+        items.push({
+          artifact: null,
+          byteLength: snapshot.size,
+          contentHash: snapshot.contentHash,
+          fileName: entry.source.fileName,
+          item: entry.item,
+          snapshot,
+          source: entry.source,
+        })
         continue
       }
-      // Signed but the broadcast outcome is unknown: retain the ITEM in the
-      // journal as the PUBLISH_QDN_RESOURCE transaction it is, keyed on its
-      // own coordinate, and surface it as a failure carrying the signature.
+      // Per ITEM: one batch can mix a WEBSITE folder with a VIDEO bundle, and
+      // the index rule follows each item's own service.
+      const artifact = await withHomeV2PublishSourceErrors(
+        () => prepareTrackedHomeV2PublishArtifact(prepared, entry.source, {
+          includeHidden,
+          maximumBytes: publishRoute.limit.maximumBytes,
+          requireIndexFile: isQdnBrowserArchiveService(entry.item.resource.service),
+        }),
+      )
+      items.push({
+        artifact,
+        byteLength: artifact.byteLength,
+        contentHash: await withHomeV2PublishSourceErrors(() => artifact.sha256()),
+        fileName: artifact.isZip ? `${entry.source.fileName.slice(0, 176)}.zip` : entry.source.fileName,
+        item: entry.item,
+        snapshot: null,
+        source: entry.source,
+      })
+    }
+    const packagedBytes = items.reduce((total, entry) => total + entry.byteLength, 0)
+    if (packagedBytes > HOME_V2_PUBLISH_BATCH_MAX_TOTAL_BYTES) {
+      throw new Error(
+        `PUBLISH_MULTIPLE_QDN_RESOURCES accepts at most ${HOME_V2_PUBLISH_BATCH_MAX_TOTAL_BYTES} bytes of packaged sources per batch.`,
+      )
+    }
+    const profile = await getAccountProfile(accountId)
+    // Every DISTINCT publisher name must be owned by the selected account -
+    // checked before the prompt and again per item at signing time. (1.x read
+    // only the first item's context and never checked ownership per target.)
+    const assertNameOwned = async (name: string, label: string) => {
+      const nameValue = await readHomeV2ChatJson(
+        node.nodeApiUrl,
+        `/names/${encodeURIComponent(name)}`,
+        `${chainLabel} publisher-name ${label}`,
+      )
+      if (stringField(nameValue, 'owner') !== profile.address) {
+        throw new Error(`The selected account does not currently own the publisher name ${name} on this chain.`)
+      }
+    }
+    const distinctNames = [...new Set(items.map((entry) => entry.item.resource.name))]
+    for (const name of distinctNames) await assertNameOwned(name, 'lookup')
+    // On Qortal every item pays the chain's ARBITRARY unit fee. It is read
+    // once here so the prompt can disclose each fee and the batch total, and
+    // publishQortal refuses if the chain answers a different fee at signing.
+    const feeAtomic = network === 'qortal' ? await getHomeV2QortalArbitraryUnitFee(node.nodeApiUrl) : 0n
+    const coordinateOf = (entry: (typeof items)[number]) =>
+      `${entry.item.resource.service}/${entry.item.resource.name}/${entry.item.resource.identifier ?? 'default'}`
+    // DISPLAY form is component-escaped: an identifier may legitimately contain
+    // '/', and raw concatenation would let WEBSITE/alice/b/c read as name
+    // "alice/b" (publishing-extras review, 2026-08-27). The raw form above stays
+    // the target-hash input, which must not change.
+    const displayCoordinateOf = (entry: (typeof items)[number]) =>
+      homeV2ResourceCoordinateText(entry.item.resource)
+    const rows: { label: string; value: string }[] = [{ label: 'Items', value: String(items.length) }]
+    items.forEach((entry, index) => {
+      const position = index + 1
+      rows.push({ label: `Resource ${position}`, value: displayCoordinateOf(entry) })
+      rows.push({ label: `File ${position}`, value: homeV2PollApprovalText(entry.fileName, 'The file name') })
+      rows.push({ label: `Size ${position}`, value: `${entry.byteLength} bytes` })
+      rows.push({ label: `SHA-256 ${position}`, value: entry.contentHash })
+      if (entry.artifact?.isZip) {
+        rows.push({ label: `Folder entries ${position}`, value: String(entry.artifact.entryCount) })
+        rows.push({ label: `Excluded ${position}`, value: String(entry.artifact.excludedCount) })
+        rows.push({ label: `Hidden files ${position}`, value: String(entry.artifact.hiddenCount) })
+      }
+      // The mutable-metadata values signed alongside the bytes (Qortium only -
+      // the item normalizer refuses metadata on Qortal). A row appears exactly
+      // when that field is being published; an omitted row means nothing is.
+      const metadata = entry.item.resource
+      if (metadata.title) rows.push({ label: `Title ${position}`, value: homeV2PollApprovalText(metadata.title, 'The resource title') })
+      if (metadata.description) rows.push({ label: `Description ${position}`, value: homeV2PollApprovalText(metadata.description, 'The resource description') })
+      if (metadata.category) rows.push({ label: `Category ${position}`, value: homeV2PollApprovalText(metadata.category, 'The resource category') })
+      if (metadata.tags.length) rows.push({ label: `Tags ${position}`, value: homeV2PollApprovalText(metadata.tags.join(', '), 'The resource tags') })
+      if (network === 'qortal') rows.push({ label: `Fee ${position}`, value: `${homeV2AtomicDecimal(feeAtomic)} coins` })
+    })
+    if (network === 'qortal') {
+      rows.push({ label: 'Total fee', value: `${homeV2AtomicDecimal(feeAtomic * BigInt(items.length))} coins` })
+    }
+    const target = `publish-multiple:${await sha256Hex(new TextEncoder().encode(items.map(coordinateOf).join('\n')))}`
+    await requireAccountReadPermission(sender, context, protocol, 'PUBLISH_MULTIPLE_QDN_RESOURCES', {
+      kind: 'publish-multiple',
+      operationLabel: homeV2PublishExtraOperationLabel('PUBLISH_MULTIPLE_QDN_RESOURCES'),
+      publishMultipleDetails: rows,
+      routeLabel: `${node.mode} \u00b7 ${node.nodeApiUrl} \u00b7 ${homeV2QdnPublishLimitMessage(publishRoute.limit)}`,
+      target,
+      targetChainLabel: chainLabel,
+    })
+    const isStillValid = async () => {
+      const fresh = getQdnViewContextForWebContents(sender)
+      if (!fresh || !sameViewContext(context, fresh) || !liveResourceMatchesGrant(fresh) || !isAccountUnlocked(accountId)) return false
+      const current = await getHomeV2ReadableNode(network).catch(() => null)
+      if (!current || `${current.mode}|${current.nodeApiUrl}` !== nodeRoute) return false
+      if (!publishRoute.adminRevision) return true
+      const currentAdmin = await resolveHomeV2AdminNode('qortium').catch(() => null)
+      return Boolean(currentAdmin?.trust.trusted && currentAdmin.trust.revision === publishRoute.adminRevision)
+    }
+    if (!(await isStillValid())) throw new Error('The app, account, or node route changed before batch publishing.')
+    const currentLimit = await getHomeV2QdnPublishLimit(
+      node.nodeApiUrl,
+      publishRoute.authenticated,
+      (url, signal) => nodeFetch(url, { method: 'GET', redirect: 'error', signal }),
+    )
+    if (items.some((entry) => entry.byteLength > currentLimit.maximumBytes) ||
+        (publishRoute.authenticated && packagedBytes > currentLimit.maximumBytes)) {
+      throw new Error(`Selected publish batch is too large: ${homeV2QdnPublishLimitMessage(currentLimit)}.`)
+    }
+    for (const name of distinctNames) await assertNameOwned(name, 'recheck')
+    if (!(await isStillValid())) throw new Error('The app, account, or node route changed after approval.')
+    const published: unknown[] = []
+    const failures: unknown[] = []
+    for (const entry of items) {
+      const resource = Object.freeze({
+        identifier: entry.item.resource.identifier ?? null,
+        name: entry.item.resource.name,
+        service: entry.item.resource.service,
+      })
       try {
-        const journalEntry = createHomeV2PendingTransactionFromResult({
+        if (!(await isStillValid())) throw new Error('The app, account, or node route changed during batch publishing.')
+        // Per ITEM, not once for the batch. The dispatcher's gate ran against the
+        // batch request before any of this, so it cannot see a coordinate an
+        // EARLIER ITEM of this same batch has just retained an unknown outcome
+        // for - and nothing stops a batch listing one coordinate twice. (Ported
+        // from the Android arm, publishing-extras review 2026-08-27.)
+        const pendingItem = findStoredHomeV2PendingTransactionConflict(app.getPath('userData'), {
           accountId,
           action: 'PUBLISH_QDN_RESOURCE',
           appIdentity: homeV2AppIdentityKey(context),
-          protocol,
-          request: { identifier: resource.identifier ?? undefined, name: resource.name, service: resource.service },
-          result,
+          network,
+          request: {
+            ...(resource.identifier === null ? {} : { identifier: resource.identifier }),
+            name: resource.name,
+            service: resource.service,
+          },
         })
-        if (journalEntry) recordHomeV2PendingTransaction(app.getPath('userData'), journalEntry)
-      } catch (journalError) {
-        console.warn('[home-v2-app] Unable to retain an ambiguous batch publish item:', journalError)
+        if (pendingItem) {
+          throw new Error(
+            `A previous publish of this resource has an unknown outcome. Reconcile signature ${pendingItem.signature} before publishing it again.`,
+          )
+        }
+        if (!entry.snapshot && !entry.artifact) throw new Error('Publish source preparation failed.')
+        const result = entry.snapshot
+          ? await publishHomeV2AuthenticatedResource({
+              accountId,
+              apiKey: publishRoute.apiKey,
+              attestationDirectory: entry.snapshot.directory,
+              contentHash: entry.contentHash,
+              fileName: entry.fileName,
+              isStillValid,
+              network: 'qortium',
+              nodeApiUrl: node.nodeApiUrl,
+              resource: entry.item.resource,
+              sourcePath: entry.snapshot.path,
+              sourceSize: entry.snapshot.size,
+              validateTarget: () => assertNameOwned(entry.item.resource.name, 'signing recheck'),
+            })
+          : await publishHomeV2PublicResource({
+              accountId,
+              ...(network === 'qortal' ? { expectedFeeAtomic: feeAtomic } : {}),
+              fileName: entry.fileName,
+              isStillValid,
+              isZip: entry.artifact!.isZip,
+              network,
+              nodeApiUrl: node.nodeApiUrl,
+              resource: entry.item.resource,
+              // One item's bytes at a time, re-hashed against the value this
+              // batch's prompt disclosed for it.
+              sourceBytes: await withHomeV2PublishSourceErrors(() => entry.artifact!.read()),
+              validateTarget: () => assertNameOwned(entry.item.resource.name, 'signing recheck'),
+            })
+        if (result.accepted) {
+          published.push(Object.freeze({ ...result, resource }))
+          homeV2DesktopPublishSources.release(entry.item.sourceToken)
+          continue
+        }
+        // Signed but the broadcast outcome is unknown: retain the ITEM in the
+        // journal as the PUBLISH_QDN_RESOURCE transaction it is, keyed on its
+        // own coordinate, and surface it as a failure carrying the signature.
+        try {
+          const journalEntry = createHomeV2PendingTransactionFromResult({
+            accountId,
+            action: 'PUBLISH_QDN_RESOURCE',
+            appIdentity: homeV2AppIdentityKey(context),
+            protocol,
+            request: { identifier: resource.identifier ?? undefined, name: resource.name, service: resource.service },
+            result,
+          })
+          if (journalEntry) recordHomeV2PendingTransaction(app.getPath('userData'), journalEntry)
+        } catch (journalError) {
+          console.warn('[home-v2-app] Unable to retain an ambiguous batch publish item:', journalError)
+        }
+        failures.push(Object.freeze({
+          error: result.error ?? 'Publish broadcast outcome is unknown.',
+          errorType: result.errorType,
+          outcome: result.outcome,
+          resource,
+          transactionSignature: result.transactionSignature,
+        }))
+        homeV2DesktopPublishSources.release(entry.item.sourceToken)
+      } catch (error) {
+        failures.push(Object.freeze({
+          error: error instanceof Error ? error.message : 'QDN publish failed.',
+          resource,
+        }))
       }
-      failures.push(Object.freeze({
-        error: result.error ?? 'Publish broadcast outcome is unknown.',
-        errorType: result.errorType,
-        outcome: result.outcome,
-        resource,
-        transactionSignature: result.transactionSignature,
-      }))
-      homeV2DesktopPublishSources.release(entry.item.sourceToken)
-    } catch (error) {
-      failures.push(Object.freeze({
-        error: error instanceof Error ? error.message : 'QDN publish failed.',
-        resource,
-      }))
     }
+    return Object.freeze({
+      accepted: true,
+      action: 'PUBLISH_MULTIPLE_QDN_RESOURCES',
+      failures: Object.freeze(failures),
+      network,
+      published: Object.freeze(published),
+    })
+  } finally {
+    // Always, including the aggregate refusals above and a hash that threw
+    // between preparing an artifact and recording it: every artifact that was
+    // ever prepared owns either an open handle or a temp archive.
+    for (const artifact of prepared) await artifact.dispose()
+    await Promise.all(snapshots.map(removeHomeV2PublishSnapshot))
   }
-  return Object.freeze({
-    accepted: true,
-    action: 'PUBLISH_MULTIPLE_QDN_RESOURCES',
-    failures: Object.freeze(failures),
-    network,
-    published: Object.freeze(published),
-  })
 }
 
 async function deleteHomeV2QdnResourceForApp(
@@ -3310,6 +3946,13 @@ async function handleHomeV2PaymentAction(
     routeRevision,
   })
   const accountId = context.accountId
+  // The foreign arm splits off BEFORE the native normalizer, the native
+  // in-flight lock and the native journal gate. `handleHomeV2PaymentAction`
+  // keeps its blanket foreign refusal below as the fail-closed backstop for
+  // anything this predicate does not claim.
+  if (action === 'SEND_COIN' && isHomeV2ForeignSendRequest(action, requestValue)) {
+    return handleHomeV2ForeignSendAction(sender, context, protocol, network, routeRevision, requestValue)
+  }
   if (homeV2PaymentJournalFailures.has(accountId)) {
     throw createHomeV2BridgeError(
       'A previously signed payment could not be recorded for reconciliation. Payment actions are blocked for this account until it is reconciled.',
@@ -7767,7 +8410,7 @@ async function deleteHomeV2MintingKey(
  * derived from `getHomeV2SignedWriteApiKey`, whose callers are ordinary
  * signed writes that must never inherit administrative authority.
  */
-async function resolveHomeV2AdminNode(network: HomeV2AppNetwork) {
+export async function resolveHomeV2AdminNode(network: HomeV2AppNetwork) {
   const node = await getHomeV2ReadableNode(network)
   const managedApiKey = node.mode === 'local'
     ? await getHomeV2SignedWriteApiKey(network, node.nodeApiUrl)
@@ -7775,6 +8418,9 @@ async function resolveHomeV2AdminNode(network: HomeV2AppNetwork) {
   const trust = evaluateHomeV2AdminTrust({
     attached: network === 'qortium' ? getHomeV2NodeAdminKey(network) : null,
     managedApiKey,
+    managedBindingId: managedApiKey
+      ? getHomeV2ManagedAdminBindingId(network, homeV2NodeOrigin(node.nodeApiUrl), managedApiKey)
+      : '',
     mode: node.mode,
     network,
     nodeApiUrl: node.nodeApiUrl,
@@ -7818,6 +8464,11 @@ async function postHomeV2TrustedForeignWallet(
   pathname: string,
   body: string,
   contentType: 'application/json' | 'text/plain',
+  // The ordinary authenticated-read ceiling. The spend context is the one
+  // caller that legitimately needs more: Core hex-encodes up to 8 MiB of
+  // funding transactions into it, so it passes its own bound rather than
+  // widening this default for every other foreign-wallet call.
+  maxBytes = 2 * 1024 * 1024,
 ) {
   const response = await nodeFetch(`${nodeApiUrl}${pathname}`, {
     body,
@@ -7829,7 +8480,7 @@ async function postHomeV2TrustedForeignWallet(
     redirect: 'error',
     signal: AbortSignal.timeout(20_000),
   })
-  const result = await readBoundedResponse(response, 'POST', 2 * 1024 * 1024)
+  const result = await readBoundedResponse(response, 'POST', maxBytes)
   if (!result.ok) {
     const coreError = isHomeV2AppRecord(result.data) && typeof result.data.error === 'number'
       ? { error: result.data.error }
@@ -7842,6 +8493,239 @@ async function postHomeV2TrustedForeignWallet(
     )
   }
   return result.data
+}
+
+/**
+ * The foreign arm of `SEND_COIN`.
+ *
+ * Deliberately NOT part of `handleHomeV2PaymentAction`'s machinery: it takes
+ * neither the native per-account payment lock (the per-WALLET foreign lock is
+ * the right granularity, and it is taken inside the orchestrator) nor the
+ * native journal fail-closed gate (a foreign ambiguity belongs in the foreign
+ * journal, and must never block native payments or be blocked by them). It
+ * keeps every gate that DOES apply: qdnRequest on Qortium, a selected and
+ * unlocked account, an administratively trusted Core, and a route pinned for
+ * the whole operation.
+ */
+/**
+ * Whether the SELECTED Core actually implements the Home-signed send route.
+ *
+ * Administrative trust says the node will answer authenticated calls; it does
+ * not say the node is new enough to have
+ * `/crosschain/<coin>/wallet/public/spend-context`. An older trusted Core
+ * would otherwise be advertised as HOME_LOCAL and then 404 at send time,
+ * which is exactly the "capability that lies" case.
+ *
+ * The probe posts a deliberately INVALID body: a Core that has the route
+ * rejects it with a validation error, a Core that lacks it answers 404. Only
+ * 404 (or 405, the same absence reported differently) counts as unsupported;
+ * only an affirmative validation-style 4xx counts as supported; everything
+ * else (transport failure, 5xx, auth/rate-limit statuses, an unexpected 2xx)
+ * is inconclusive: send is NOT advertised and the answer is cached only
+ * briefly so a momentary blip recovers on the next read.
+ */
+const homeV2ForeignSendRouteProbes = createForeignWalletRouteProbeCache()
+
+async function probeHomeV2ForeignSendRouteSupported(
+  nodeApiUrl: string,
+  apiKey: string,
+  revision: string,
+) {
+  const key = `${nodeApiUrl}|${revision}`
+  const now = Date.now()
+  const cached = homeV2ForeignSendRouteProbes.read(key, now)
+  if (cached) return cached === 'supported'
+  let outcome: ReturnType<typeof classifyForeignWalletRouteProbe>
+  try {
+    await postHomeV2TrustedForeignWallet(
+      nodeApiUrl,
+      apiKey,
+      '/crosschain/btc/wallet/public/spend-context',
+      JSON.stringify({ expectedChainId: '', xpub58: '' }),
+      'application/json',
+      64 * 1024,
+    )
+    // The route should have rejected that body. A success answer is not
+    // evidence it exists; something else replied.
+    outcome = classifyForeignWalletRouteProbe({ ok: true, status: 200 })
+  } catch (error) {
+    outcome = classifyForeignWalletRouteProbe({ ok: false, status: (error as { status?: unknown }).status })
+  }
+  homeV2ForeignSendRouteProbes.write(key, outcome, now)
+  return outcome === 'supported'
+}
+
+async function handleHomeV2ForeignSendAction(
+  sender: WebContents,
+  context: QdnViewContext,
+  protocol: HomeV2AppBridgeProtocol,
+  network: HomeV2AppNetwork,
+  routeRevision: string,
+  requestValue: Record<string, unknown>,
+) {
+  const action = 'SEND_COIN'
+  const accountId = context.accountId
+  if (!accountId) throw new Error('No account is selected for this tab.')
+  const pinned = await resolveHomeV2AdminNode('qortium')
+  assertHomeV2TrustedForeignWalletNode(action, pinned.trust)
+  const pinnedRevision = pinned.trust.revision
+  const nodeApiUrl = pinned.node.nodeApiUrl
+  const nodeRoute = pinned.nodeRoute
+  const apiKey = pinned.apiKey
+  const routeLabel = `${pinned.node.mode} \u00b7 ${nodeApiUrl}`
+  const userData = app.getPath('userData')
+  const appIdentity = homeV2AppIdentityKey(context)
+
+  try {
+    return await executeHomeV2ForeignSend(requestValue, {
+      appIdentity,
+      approve: async (rows, meta) => {
+        await requireAccountReadPermission(sender, context, protocol, action, {
+          chainId: meta.chainId,
+          coin: meta.coin,
+          foreignSendDetails: rows.map((row) => ({ ...row })),
+          kind: 'foreign-send',
+          operationLabel: meta.operationLabel,
+          routeLabel,
+          target: meta.target,
+          targetChainLabel: 'Qortium',
+        })
+      },
+      crypto: foreignWalletCrypto(),
+      // Every mutable input is read AFTER the node resolution and returned
+      // without another await, so this answer describes the moment it is
+      // given rather than the moment the guard was entered.
+      isStillValid: () => evaluateHomeV2ForeignSendValidity({
+        pinnedRoute: nodeRoute,
+        readAccountUnlocked: () => isAccountUnlocked(accountId),
+        readLiveContextMatches: () => {
+          const fresh = getQdnViewContextForWebContents(sender)
+          return !!fresh && sameViewContext(context, fresh) && liveResourceMatchesGrant(fresh)
+        },
+        resolveRoute: async () => {
+          const current = await getHomeV2ReadableNode('qortium').catch(() => null)
+          return current ? `${current.mode}|${current.nodeApiUrl}` : null
+        },
+      }),
+      journal: {
+        clearReconciled: (key, observedTxId) =>
+          clearReconciledStoredForeignWalletPendingTransaction(userData, key, observedTxId),
+        confirmBroadcastSuccess: (key, returnedTxId) =>
+          confirmStoredForeignWalletBroadcastSuccess(userData, key, returnedTxId),
+        findConflict: (input) => findStoredForeignWalletPendingTransactionConflict(userData, input),
+        listPending: (input) => listStoredForeignWalletPendingTransactions(userData, input),
+        recordBroadcastAttempt: (key, now) => recordForeignWalletBroadcastAttempt(userData, key, now),
+        recordSigned: (entry) => recordSignedForeignWalletPendingTransaction(userData, entry),
+        releaseNeverBroadcast: (key, now) => {
+          // Worth a line in the log: a signed transaction that was never put
+          // on a network is being forgotten, and that should be visible even
+          // though it is provably safe.
+          console.warn(
+            `[home-v2-app] Releasing a ${key.coin} transaction that was signed but never broadcast: ${key.txId}`,
+          )
+          return releaseNeverBroadcastStoredForeignWalletPendingTransaction(
+            userData,
+            key,
+            now,
+            FOREIGN_WALLET_SEND_FRESHNESS_MS,
+          )
+        },
+      },
+      now: () => Date.now(),
+      readWalletHistory: async (wallet) => {
+        // The SAME authenticated read the wallet-history action uses, on the
+        // pinned route. It settles a retained write-ahead entry and nothing
+        // else: the result never reaches the app.
+        const request = buildForeignWalletReadRequest(wallet, 'wallettransactions')
+        return postHomeV2TrustedForeignWallet(
+          nodeApiUrl,
+          apiKey,
+          request.pathname,
+          request.body,
+          request.contentType,
+        )
+      },
+      postTrusted: (pathname, body, contentType, maxBytes) => postHomeV2TrustedForeignWallet(
+        nodeApiUrl,
+        apiKey,
+        pathname,
+        body,
+        contentType,
+        maxBytes,
+      ),
+      resolveRoute: async () => {
+        const current = await resolveHomeV2AdminNode('qortium')
+        assertHomeV2TrustedForeignWalletNode(action, current.trust)
+        if (current.trust.revision !== pinnedRevision || current.node.nodeApiUrl !== nodeApiUrl) {
+          throw new Error('The selected Qortium node or its API key changed during the foreign send.')
+        }
+        return {
+          apiKey: current.apiKey,
+          nodeApiUrl: current.node.nodeApiUrl,
+          revision: current.trust.revision,
+          routeLabel,
+        }
+      },
+      withWalletSeed: (use) => {
+        const seed = getAccountForeignWalletSeed(accountId)
+        try {
+          return use(seed.seed, seed.addressIndex, seed.walletVersion)
+        } finally {
+          seed.seed.fill(0)
+        }
+      },
+    })
+  } catch (error) {
+    if (error instanceof HomeV2ForeignSendReconciliationError
+      || error instanceof HomeV2ForeignSendReconciliationPendingError) {
+      throw createHomeV2BridgeError(error.message, {
+        action,
+        code: error.code,
+        network,
+        retryable: false,
+        routeRevision,
+      })
+    }
+    if (error instanceof HomeV2ForeignSendError) {
+      throw createHomeV2BridgeError(error.message, {
+        action,
+        code: 'FOREIGN_SEND_UNAVAILABLE',
+        network,
+        retryable: false,
+        routeRevision,
+      })
+    }
+    if (error instanceof Error && (error as { code?: unknown }).code === FOREIGN_WALLET_BACKEND_UNAVAILABLE_CODE) {
+      throw createHomeV2BridgeError(error.message, {
+        action,
+        code: FOREIGN_WALLET_BACKEND_UNAVAILABLE_CODE,
+        network,
+        retryable: false,
+        routeRevision,
+      })
+    }
+    if (isForeignWalletOperationInProgressError(error)) {
+      throw createHomeV2BridgeError(error.message, {
+        action,
+        code: FOREIGN_SEND_IN_PROGRESS_CODE,
+        network,
+        retryable: true,
+        routeRevision,
+      })
+    }
+    if (isJournalLockedError(error)) {
+      // Another Home instance holds the journal. The send never started, so
+      // the app may retry once that instance is done.
+      throw createHomeV2BridgeError(error.message, {
+        action,
+        code: FOREIGN_JOURNAL_LOCKED_CODE,
+        network,
+        retryable: true,
+        routeRevision,
+      })
+    }
+    throw error
+  }
 }
 
 async function deriveHomeV2ForeignWallet(
@@ -8593,6 +9477,190 @@ async function handleHomeV2ListAction(
     action === 'ADD_TO_LIST' ? 'Failed to add items to list.' : 'Failed to remove items from list.',
     after.apiKey,
   )
+}
+
+/**
+ * Node settings are the node's own configuration, so the family shares the
+ * administrative trust rule with lists and minting: Home's own managed Core,
+ * or a custom node the user attached their API key to
+ * (resolveHomeV2AdminNode / evaluateHomeV2AdminTrust). The metadata READ is
+ * not handled here — it is a plain anonymous Core route answered by the
+ * shared read handler, exactly like GET_NODE_STATUS.
+ */
+async function resolveHomeV2NodeSettingsNode(action: string) {
+  const resolved = await resolveHomeV2AdminNode('qortium')
+  if (!resolved.trust.trusted) {
+    throw createHomeV2BridgeError(
+      homeV2AdminTrustMessage(
+        resolved.trust.reason,
+        action === 'RESTART_NODE' ? 'Restarting the node' : 'Updating node settings',
+      ),
+      { action, code: 'NODE_CAPABILITY_MISSING', network: 'qortium', retryable: false },
+    )
+  }
+  return resolved
+}
+
+// The read twin for this family: the two anonymous settings reads UPDATE
+// validation needs (current values and writable metadata). No key is
+// attached — Core serves both routes anonymously — but redirects are refused
+// anyway so the answer comes from the node the trust gate named.
+async function readHomeV2NodeSettingsJson(nodeApiUrl: string, path: string, label: string) {
+  const response = await nodeFetch(`${nodeApiUrl}${path}`, {
+    method: 'GET',
+    redirect: 'error',
+    signal: AbortSignal.timeout(15_000),
+  })
+  const result = await readBoundedResponse(response, 'GET', LIST_READ_MAX_BYTES)
+  if (!result.ok) {
+    throw Object.assign(new Error(`${label} returned HTTP ${result.status}.`), { status: result.status })
+  }
+  return result.data
+}
+
+// The keyed call: PATCH /admin/settings or GET /admin/restart, key attached.
+// Redirects are refused for the same reason as requestHomeV2ListText — a
+// redirect would let the RESPONDER move the administrative key to a host the
+// trust gate never approved. (Security review 2026-08-26, finding 1.)
+async function requestHomeV2NodeSettingsText(
+  method: 'GET' | 'PATCH',
+  nodeApiUrl: string,
+  path: string,
+  body: string | undefined,
+  fallbackMessage: string,
+  apiKey: string,
+) {
+  const response = await nodeFetch(`${nodeApiUrl}${path}`, {
+    method,
+    headers: {
+      ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
+      ...(apiKey ? { 'X-API-KEY': apiKey } : {}),
+    },
+    body,
+    redirect: 'error',
+    signal: AbortSignal.timeout(CHAT_WRITE_TIMEOUT_MS),
+  })
+  const result = await readBoundedResponse(response, 'GET', CHAT_SIGNING_RESPONSE_MAX_BYTES)
+  if (!result.ok) {
+    // The error is a FIXED operation/status message, never the node's body:
+    // this call carried the administrative key, and a hostile node or proxy
+    // could echo received headers into its error text, which flows onward to
+    // the calling app. Same scrub rationale as scrubbedHomeV2MintingError
+    // (dual-model review 2026-09-01, finding 1).
+    throw Object.assign(
+      new Error(`${fallbackMessage} HTTP ${result.status}.`),
+      { status: result.status },
+    )
+  }
+  return result.body.trim()
+}
+
+/**
+ * Runs UPDATE_NODE_SETTINGS or RESTART_NODE on desktop: validate BEFORE
+ * prompting, prompt on every request, re-resolve trust after the prompt,
+ * then one keyed call — the exact shape of handleHomeV2ListAction.
+ *
+ * 1.x parity with three deliberate differences: trust comes from
+ * resolveHomeV2AdminNode (so an attached custom node qualifies, not only a
+ * non-network one); the update result is rebuilt from an allowlist instead of
+ * passing Core's response through (the settings file path stays on the
+ * node); and RESTART_NODE remains fire-and-forget exactly as every existing
+ * /admin/restart caller is — core-manager's process-scan fallback already
+ * tolerates the pid change a self-restart causes.
+ */
+async function handleHomeV2NodeSettingsAction(
+  sender: WebContents,
+  context: QdnViewContext,
+  protocol: HomeV2AppBridgeProtocol,
+  action: HomeV2NodeSettingsWriteAction,
+  requestValue: Record<string, unknown>,
+) {
+  const operationLabel = homeV2NodeSettingsOperationLabel(action)
+  if (action === 'RESTART_NODE') {
+    const before = await resolveHomeV2NodeSettingsNode(action)
+    await requireAccountReadPermission(sender, context, protocol, action, {
+      kind: 'node-settings',
+      operationLabel,
+      routeLabel: `${before.node.mode} · ${before.node.nodeApiUrl}`,
+      settingsDetails: [
+        { label: 'Impact', value: HOME_V2_RESTART_NODE_IMPACT },
+        { label: 'Node', value: before.node.nodeApiUrl },
+      ],
+      targetChainLabel: 'Qortium',
+    })
+    const rateLimitDecision = chatSendRateLimiter.checkAndRecordSend(chatSendRateLimitKey(sender, context))
+    if (!rateLimitDecision.allowed) throw new Error(rateLimitDecision.message)
+    // Re-resolve after the prompt: the approval named one node and one
+    // credential, and the restart must not follow the key anywhere else.
+    const after = await resolveHomeV2NodeSettingsNode(action)
+    if (
+      after.node.nodeApiUrl !== before.node.nodeApiUrl ||
+      !before.trust.trusted ||
+      !after.trust.trusted ||
+      after.trust.origin !== before.trust.origin ||
+      after.trust.revision !== before.trust.revision
+    ) {
+      throw new Error('The selected Qortium node or its API key changed before the write could start.')
+    }
+    await requestHomeV2NodeSettingsText(
+      'GET',
+      after.node.nodeApiUrl,
+      '/admin/restart',
+      undefined,
+      'Node restart request failed.',
+      after.apiKey,
+    )
+    return { accepted: true }
+  }
+  // Validate BEFORE prompting: a malformed patch, an oversized batch, or a
+  // key the node does not declare writable can never raise a prompt.
+  const patch = normalizeHomeV2NodeSettingsPatch(requestValue)
+  const before = await resolveHomeV2NodeSettingsNode(action)
+  const [metadata, currentSettings] = await Promise.all([
+    readHomeV2NodeSettingsJson(before.node.nodeApiUrl, '/admin/settings/metadata', 'Node settings metadata lookup'),
+    readHomeV2NodeSettingsJson(before.node.nodeApiUrl, '/admin/settings', 'Node settings lookup'),
+  ])
+  const writableKeys = homeV2WritableSettingKeys(metadata)
+  for (const key of Object.keys(patch)) {
+    if (!writableKeys.has(key)) throw new Error(`Node setting ${key} is not writable.`)
+  }
+  await requireAccountReadPermission(sender, context, protocol, action, {
+    kind: 'node-settings',
+    operationLabel,
+    routeLabel: `${before.node.mode} · ${before.node.nodeApiUrl}`,
+    settingsDetails: [
+      { label: 'Node', value: before.node.nodeApiUrl },
+      ...buildHomeV2NodeSettingsApprovalRows(currentSettings, patch),
+    ],
+    targetChainLabel: 'Qortium',
+  })
+  const rateLimitDecision = chatSendRateLimiter.checkAndRecordSend(chatSendRateLimitKey(sender, context))
+  if (!rateLimitDecision.allowed) throw new Error(rateLimitDecision.message)
+  const after = await resolveHomeV2NodeSettingsNode(action)
+  if (
+    after.node.nodeApiUrl !== before.node.nodeApiUrl ||
+    !before.trust.trusted ||
+    !after.trust.trusted ||
+    after.trust.origin !== before.trust.origin ||
+    after.trust.revision !== before.trust.revision
+  ) {
+    throw new Error('The selected Qortium node or its API key changed before the write could start.')
+  }
+  const text = await requestHomeV2NodeSettingsText(
+    'PATCH',
+    after.node.nodeApiUrl,
+    '/admin/settings',
+    JSON.stringify(patch),
+    'Node settings update request failed.',
+    after.apiKey,
+  )
+  let parsed: unknown = null
+  try {
+    parsed = JSON.parse(text)
+  } catch {
+    parsed = null
+  }
+  return createHomeV2NodeSettingsUpdateResult(parsed)
 }
 
 // ---------------------------------------------------------------------------
@@ -10040,6 +11108,9 @@ async function handleRequestWithRuntime(
   if (isHomeV2ListAction(action)) {
     return handleHomeV2ListAction(sender, context, protocol, action, requestValue)
   }
+  if (isHomeV2NodeSettingsWriteAction(action)) {
+    return handleHomeV2NodeSettingsAction(sender, context, protocol, action, requestValue)
+  }
   if (isHomeV2PollWriteAction(action)) {
     return handleHomeV2PollAction(sender, context, protocol, action, requestValue)
   }
@@ -10512,15 +11583,37 @@ async function handleRequestWithRuntime(
       // The `/crosschain` family keeps the two 1.x response projections: the
       // QORT row added to the blockchain list, and feekb normalized to a
       // per-byte fee.
-      const foreignWalletTrustedCoreAvailable = action === 'GET_CROSSCHAIN_BLOCKCHAINS'
-        ? await resolveHomeV2AdminNode('qortium').then(({ trust }) => trust.trusted, () => false)
-        : false
+      // Reading needs an administratively trusted Core. SENDING needs three
+      // more things, each checked rather than assumed: a selected account that
+      // is unlocked (the signing keys come from its seed), and a Core new
+      // enough to have the route the send actually uses. An older trusted Core
+      // advertised as able to send would 404 at the last moment, which is
+      // exactly the capability-that-lies case. Never on a public or untrusted
+      // route, and an app that sees send:false cannot make it true by asking.
+      const foreignWalletDiscovery = action === 'GET_CROSSCHAIN_BLOCKCHAINS'
+        ? await resolveHomeV2AdminNode('qortium').then(
+            async (resolved) => {
+              if (!resolved.trust.trusted) return { send: false, trusted: false }
+              const unlocked = !!context.accountId && isAccountUnlocked(context.accountId)
+              const send = unlocked && await probeHomeV2ForeignSendRouteSupported(
+                resolved.node.nodeApiUrl,
+                resolved.apiKey,
+                resolved.trust.revision,
+              )
+              return { send, trusted: true }
+            },
+            () => ({ send: false, trusted: false }),
+          )
+        : { send: false, trusted: false }
+      const foreignWalletTrustedCoreAvailable = foreignWalletDiscovery.trusted
+      const foreignWalletSendAvailable = foreignWalletDiscovery.send
       return projectHomeV2CrosschainReadResult(
         action,
         chainReadRequest,
         responseDataOrThrow(result, `${action} request`),
         true,
         foreignWalletTrustedCoreAvailable,
+        foreignWalletSendAvailable,
       )
     }
     // Both cores answer a valid-but-absent AT with an empty 2xx body (Qortal
@@ -10629,6 +11722,8 @@ async function handleRequestWithRuntime(
       ? '/admin/status'
       : action === 'GET_NODE_INFO'
         ? '/admin/info'
+        : action === 'GET_NODE_SETTINGS_METADATA'
+          ? '/admin/settings/metadata'
         : action === 'FETCH_NODE_API' || action === 'FETCH_QORTAL_NODE_API'
           ? normalizeHomeV2ReadPath(requestValue.path)
           : null
@@ -10640,7 +11735,7 @@ async function handleRequestWithRuntime(
     method,
     normalizeHomeV2ResponseMaxBytes(requestValue.maxBytes),
   )
-  if (action === 'GET_NODE_STATUS' || action === 'GET_NODE_INFO') {
+  if (action === 'GET_NODE_STATUS' || action === 'GET_NODE_INFO' || action === 'GET_NODE_SETTINGS_METADATA') {
     if (!result.ok) throw new Error(`Node request returned HTTP ${result.status}.`)
     return result.data
   }
@@ -10723,8 +11818,14 @@ async function handleRequest(
       getHomeV2AvailableAppActions(protocol, routes),
       isWidgetTabId(context.tabId) ? 'widget' : 'tab',
     )
+    // The Base58 journal is the NATIVE chain's. A foreign send is journaled by
+    // txid in the foreign write-ahead log instead, and must be kept out of
+    // this one entirely: its results carry no Base58 signature, so recording
+    // one would throw and fail-close every native payment for the account.
+    const foreignSend = isHomeV2ForeignSendRequest(action, aliasedRequest)
     if (
       context.accountId &&
+      !foreignSend &&
       contextualActions.includes(action) &&
       isHomeV2JournaledMutation(action)
     ) {
@@ -10762,7 +11863,7 @@ async function handleRequest(
       contextualActions,
     )
     try {
-      const entry = context.accountId
+      const entry = context.accountId && !foreignSend
         ? createHomeV2PendingTransactionFromResult({
             accountId: context.accountId,
             action,
@@ -10799,6 +11900,32 @@ async function handleRequest(
 }
 
 export function registerHomeV2AppBridgeIpcHandlers() {
+  // The shell's read-only view of node administration: whether the selected
+  // Qortium node is one the user administers, its origin, and the trust
+  // revision. The KEY never crosses this boundary -- the renderer learns only
+  // what it needs to bind a restored publish preview to the node it was built
+  // on. Mirrors HomeV2NodeClient.adminTrust(), which the Android client
+  // already implements.
+  ipcMain.handle('home-v2-nodes:adminTrust', async (event) => {
+    assertAuthorizedHomeV2Sender(event)
+    const resolved = await resolveHomeV2AdminNode('qortium')
+    return resolved.trust.trusted
+      ? {
+          origin: resolved.trust.origin,
+          // The BINDING ID, never `trust.revision`: that one is a digest of
+          // the API key, and handing it to a renderer (or letting it be
+          // persisted in a profile) would give anyone who read it an offline
+          // check for a guessed key. Security review, 2026-09-02.
+          revision: resolved.trust.bindingId,
+          trusted: true as const,
+        }
+      : {
+          origin: '',
+          reason: homeV2AdminTrustMessage(resolved.trust.reason, 'Administering this node'),
+          revision: '',
+          trusted: false as const,
+        }
+  })
   // An app view that navigates replaces the document that asked, so its pending
   // Home-settings prompts are dropped rather than left to expire. Registered
   // here, not imported the other way round, to keep qdn-views free of a cycle.
@@ -10936,6 +12063,28 @@ export function registerHomeV2AppBridgeIpcHandlers() {
         ? 'session'
         : 'single-request'
     pending.resolve({ approved, scope: approved ? scope : null })
+  })
+  /**
+   * The retained foreign write-ahead entries, for Home's own Settings surface.
+   *
+   * Read-only and shell-only on purpose. It is NOT a QDN action and it is not
+   * reachable from an app: an app must not be able to enumerate which
+   * transactions a wallet has outstanding, and there is deliberately no
+   * companion that removes one. Clearing happens only through automatic
+   * reconciliation, which requires the exact transaction id to appear in the
+   * wallet's own history on the trusted node.
+   */
+  ipcMain.handle('home-v2-app:foreignWalletPendingTransactions', (event) => {
+    assertAuthorizedHomeV2Sender(event)
+    return listStoredForeignWalletPendingTransactions(app.getPath('userData')).map((entry) => ({
+      broadcastAttemptedAt: entry.broadcastAttemptedAt ?? null,
+      chainId: entry.chainId,
+      coin: entry.coin,
+      createdAt: entry.createdAt,
+      stage: entry.stage,
+      txId: entry.txId,
+      walletFingerprint: entry.walletFingerprint,
+    }))
   })
   // The shell window's reply to a Home-settings round-trip. Mirrors
   // 'qdn-app:resolveBookmarkManagerRequest' in home-v2-collections-bridge.ts:

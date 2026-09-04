@@ -70,6 +70,7 @@ export function createInitialHomeV2Node(network: NetworkId): NodeSummary {
     isTrusted: true,
     customAuthenticated: false,
     adminTrusted: false,
+    adminBindingId: null,
     customConfigured: false,
     customUrl: null,
     localCoreState: 'not-detected',
@@ -147,6 +148,9 @@ export function parseHomeV2NodeSummary(
     isTrusted: value.isTrusted === true,
     customAuthenticated: value.customAuthenticated === true,
     adminTrusted: value.adminTrusted === true,
+    adminBindingId: typeof value.adminBindingId === 'string' && /^[0-9a-f]{32}$/.test(value.adminBindingId)
+      ? value.adminBindingId
+      : null,
     customConfigured: value.customConfigured === true,
     customUrl: nullableString(value.customUrl),
     localCoreState:
@@ -272,6 +276,7 @@ export function unavailableHomeV2Node(
     error:
       error instanceof Error ? error.message : 'Unable to refresh node status.',
     adminTrusted: false,
+    adminBindingId: null,
     capabilities: { admin: false, read: false, write: false },
   }
 }

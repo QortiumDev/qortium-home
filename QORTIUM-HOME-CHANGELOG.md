@@ -32,6 +32,554 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## feat(qdn): publish a whole folder, and let the node say how big a publish may be
+
+Publishing from an app used to mean choosing one file, no larger than 100 MiB.
+Two changes here, both on Qortium and both on the desktop app.
+
+Home now asks your node how large a publish it will accept instead of assuming
+100 MiB. A node can only ever lower the answer, never raise it past what Home
+is willing to attempt: whatever the node says is capped by Home's own limits,
+and if your node is too old to answer, Home keeps the old 100 MiB.
+
+You can also hand an app a whole folder. Home opens a folder picker, packages
+the folder into a single archive as it publishes it, and your node unpacks it
+into a multi-file resource -- which is what publishing a website actually
+needs. The archive is written to a temporary file a piece at a time rather than
+assembled in memory, so packaging a large folder does not freeze the app, and
+the temporary file is deleted whether the publish succeeds or fails.
+
+What the folder has to contain depends on what you are publishing it as.
+Published as a website or an app, it needs a home page at the top level, the
+same as before. Published as a video, audio or document bundle -- a media file
+with its poster and its captions -- it needs only to have something in it. The
+folder picker no longer asks for a home page at all, because at that point Home
+does not yet know which of the two you are doing.
+
+Minutes can pass between choosing a folder and approving the publish -- long
+enough for a file in it to grow, or for a folder in the middle of the path to
+be replaced. So each file is identified again at the moment it is opened, and
+one that is no longer the file Home measured is refused; a folder that has
+gained content since you chose it is refused too, because the amount Home will
+read is fixed at what it measured then. Shortcuts (symbolic links) are refused
+outright: a published folder is ordinary files and folders, which is also what
+stops a shortcut from carrying one of the never-published files in under an
+innocent name.
+
+This is not the same as promising the folder cannot change. A change Home has
+not looked at yet is simply what gets published, and the approval prompt shows
+you the exact fingerprint of those bytes before anything is sent.
+
+Two kinds of file are treated specially. Version-control folders, .env files,
+credential directories and editor leftovers are never packaged, whatever the
+app asks for, and the approval prompt tells you how many were left out. Any other hidden file stops
+the publish entirely until the app asks for hidden files by name -- Home cannot
+tell a wanted .htaccess from a private .bash_history, so it asks you instead of
+guessing. The approval prompt for a folder now also shows how many entries the
+archive holds, so you can see the shape of what you are about to publish before
+you approve it.
+
+Folder publishing is Qortium desktop only. Qortal keeps single files at
+100 MiB, and asking it for a folder is an honest error rather than a silent
+downgrade. Android has no folder picker and is unchanged.
+
+Folder archives use Qortium's public keyless publish route, including on a
+trusted node, because that is the route where Home can prove Core unpacked the
+approved archive into the approved multi-file resource. Trusted-node single
+files still use the newer authenticated streaming route and its larger limit.
+
+Four things found in review are fixed here too. A folder nested very deeply, or
+one larger than your own node says it will accept, is now refused when you pick
+it rather than after you have waited through the packaging and approved the
+publish - the picker, the preview and the publish all read the same limits.
+Previewing a folder no longer leaves a little bookkeeping behind in Home's
+memory each time, which an app could otherwise have driven in a loop. And the
+single check that decides whether something is inside the folder you chose is
+now the one Home already used elsewhere, rather than a second copy of it.
+
+## feat(android): add Home-signed foreign coin sends
+
+Android now uses the same locally planned and signed BTC, LTC, DOGE, DGB, RVN,
+DASH, NMC, and FIRO send flow as desktop. A send is advertised only with an
+unlocked account, an authenticated trusted Qortium Core, and a positive check
+that the Core supports the spend-context route. The user approves the exact
+amount, recipient, chain, fee, inputs, change, and total before Home re-reads
+the spend state and signs anything.
+
+The existing native `AtomicFile` journal is now the Android write-ahead gate:
+Home waits for the signed entry and broadcast-attempt marker to reach native
+storage before it makes the one broadcast request. Unknown or mismatched
+outcomes remain retained and non-retryable until the exact transaction appears
+in wallet history. The node API key stays in the native transport, and Core
+receives only the public watch key for spend discovery and the final signed
+transaction bytes for relay. Device crash/restart and funded-send acceptance
+remain separate release gates.
+
+## fix(android): keep the node API key in native storage and transport
+
+Android no longer unwraps a saved Qortium node API key into WebView
+JavaScript for lists, node settings and restart, Core updates, previews, or
+foreign-wallet reads and server selection. JavaScript receives an opaque
+random binding id; the native transport decrypts the key, checks the exact
+saved origin and binding again, applies the key itself, refuses redirects, and
+allows only the specific administrative endpoint and method families Home
+uses. Request and response ceilings remain native-enforced.
+
+The generic secure-storage unwrap method now explicitly refuses the
+administrative record. Existing protected records are compatible, including a
+native-only binding-id upgrade for records saved before binding ids existed.
+Changing modes or re-saving the same origin preserves the protected key;
+replacing or clearing the key and moving the node retain the existing
+fail-closed behavior.
+
+## feat(home2): stream larger QDN publishes through a trusted node
+
+Desktop Home 2 now uses Core's authenticated QDN builder when the selected
+Qortium node passes the same administrative-trust check used by node settings,
+lists and previews. The effective source ceiling comes from that node's
+`qdnPublishMaxSize`; an untrusted/public node continues to use the keyless
+route and the smaller of its `publicPublishMaxSize` and Home's existing
+100 MiB public-attestation bound. Qortal publishing is unchanged.
+
+Large trusted-node files are copied into a private Home-owned snapshot while
+their approval hash is computed, then uploaded and attested as streams. Home
+downloads the encrypted pre-signature artifact through the new authenticated
+Core readback, verifies its signed hash, decrypts it to a bounded temp file,
+and compares the packaged file and metadata before signing. This removes the
+old 100 MiB picker and in-memory publication boundary on the trusted desktop
+route without allowing multi-gigabyte buffers or weakening exact-byte
+attestation. Route, account, app, name ownership and administrative-key
+revision are rechecked after approval and before signing. Public publishing
+keeps its existing behavior and limits.
+
+## fix(home2): clamp hosted-app read budgets instead of refusing them
+
+Home 2 refused a hosted app's read before contacting Core whenever the app
+asked for a response budget above 5 MiB. Home 1.x accepted the same request by
+clamping its budget to 5 MiB and then checking the response as it arrived. This
+made the Network app work in Home 1.x but fall back to its bundled sample data
+in Home 2, even though its current live snapshot is under 100 KiB.
+
+Home 2 now restores the earlier behavior: an oversized requested budget is
+clamped to the established bounded-read limit instead of becoming an error.
+Invalid or non-positive budgets use the safe 2 MiB default rather than creating
+an unbounded read. The actual response is still stopped if it exceeds the
+effective limit, and the separate avatar, private-chat, signing, list, saved
+resource and streamed-resource safeguards are unchanged.
+
+## fix(nodes): stop repeating one certificate warning forever
+
+Home checks on its network connections every fifteen seconds, and each check
+looks at every public Qortal node it knows about. For a remote node reached
+over a secure address there is a security decision Home makes and will always
+make the same way: it will not go and fetch the certificate authority for that
+node over an insecure connection, because anyone in between could hand over
+their own and Home would then trust it permanently.
+
+That decision is right, and it never changes for a given node. Home was
+nevertheless explaining it again on every single check, for every node, which
+filled the log with the same four lines over and over. It was loud enough to
+bury everything else: when a tester was asked to capture what Home was doing
+about its I2P router, this warning was almost the only thing in the capture.
+
+Home now explains it once for each node, and stays quiet about it after that.
+The first explanation is the useful one, because for a node the user typed in
+themselves it says what to change. Nothing about the decision itself has
+changed, and connections to those nodes behave exactly as before.
+
+## fix(i2p): stop a shared PID file from disabling the router controls
+
+A tester could not turn on I2P at all. Settings offered "Direct only" and
+nothing else: the two I2P transport choices were greyed out, no button was
+offered to install, start or update the router, and it made no difference
+whether Qortium Core was running. His router was in fact perfectly healthy and
+fully installed.
+
+When the router runs, it writes a small file recording its process number so
+Home can find it again after a restart. That file is written by the router
+itself, so its permissions come from the settings of the account that launched
+it, and on his machine it ended up readable by more than just him. Home treats
+a file like that as untrustworthy, which is right, but it then reported that it
+could not tell whether a router was running at all — and that single uncertain
+answer travelled all the way to the settings page and switched off every
+control, including the one that would have started the router and rewritten the
+file. There was no way out from inside Home.
+
+Home now repairs the file instead. It is Home's own file, so Home tightens its
+permissions and reads it, exactly as it already does for its own folders, and
+the repair only ever removes access. If a file still cannot be trusted, or its
+contents make no sense, Home simply declines to reuse whatever it names and
+carries on offering to start the router. That is the cautious choice as well as
+the useful one: before Home ever reuses a running router it separately checks
+the account it belongs to, the exact program it is running and the exact
+options it was given, and none of that changes.
+
+## fix(home2): keep the phone layout clear of the system bars
+
+On a phone, Home was drawing underneath both the status bar at the top and the
+navigation buttons at the bottom. The tab strip sat directly beneath the clock
+and battery icons, which made the tabs very hard to tap, and the bottom of
+every page ran on behind the back, home and recents buttons.
+
+Android now insists that apps draw edge to edge, right out to the corners of
+the display, and hands the app the sizes of the areas the system covers so it
+can keep its own controls out of them. Home already asks for those measurements
+and they arrive correctly; the Home 2 layout simply never used them. Home 1
+did, which is why the problem looked new. Home 2 now uses them in the same
+places: the tab strip and the address row sit below the status bar and clear of
+any camera cutout, and page content and hosted apps end above the navigation
+buttons. Nothing changes on desktop, where these measurements are all zero.
+
+The phone layout also demanded a fixed height of 820 pixels, which is taller
+than the usable area on a typical phone once the system bars are accounted for.
+That forced the whole window to scroll and pushed content down behind the
+navigation buttons. That fixed height came from the desktop preview, which
+draws a phone-shaped frame on a big screen, so it now lives with the preview
+and a real phone simply fits its own screen.
+
+Checked on a real device before and after.
+
+## fix(i2p): recover from a half-finished router update
+
+A tester's i2pd update download failed partway, and Home was stuck afterwards.
+Settings showed "Home could not safely compare the installed i2pd version.
+Router maintenance is unavailable.", the panel offered no button that could put
+it right, and the working older router sitting on disk was ignored. Deleting
+the half-installed folder by hand, or the small file that records which router
+is in use, did not help either: each left a different dead end, and Home then
+refused to download the update again no matter how good the connection was.
+
+Home keeps one small file naming the router version it is using, next to a
+folder for that exact version. If the folder is missing or was never finished,
+Home used to treat that as a fault it could not reason about, and everything
+downstream inherited it. It now treats it for what it is: nothing usable is
+installed. That single change restores the Install button, and the install goes
+on to download normally.
+
+Alongside that, Home now clears away the leftovers of an interrupted attempt
+instead of tripping over them for good. A version folder that is completely
+empty, or one that carries Home's own record of this exact release but whose
+files no longer check out, is discarded and fetched again. A folder Home cannot
+prove it created is still left strictly alone. Deleting one of Home's working
+folders by hand no longer bricks the panel, since Home simply recreates it.
+Partial downloads and abandoned staging folders left behind by a Home that was
+killed mid-install are now swept up, rather than accumulating a few megabytes
+on every retry.
+
+There is also a new repair step that re-points Home at the newest trusted
+router already installed, without downloading anything, which is what makes an
+existing older install usable again after a failed update. It prefers the
+version Home would install today. It is available to the rest of the app now
+and will be wired to a button in a follow-up.
+
+## fix(home2): accept Core-written private-group key announcements
+
+Members of a private Qortium group were seeing every message as "Encrypted
+message" in Home 2, even in groups they belong to. To read a private group,
+Home fetches the group's key announcements from the node and unwraps the copy
+addressed to the member. The node had the right announcement, wrapped for
+everyone including the affected member, but Home refused to look at it: Home
+insisted the announcement's transaction be flagged as "text", and Core writes
+every such control record with that flag off — which is also what Core's own
+interop fixture, the one Home's tests are meant to reproduce, says it should
+be. Home now only requires the record to be encrypted and accepts either text
+flag, so keys announced by Home 1.x users (whose sends go through Core) are
+usable straight away with no re-keying. The check that reads a page of
+announcements also no longer throws the whole page away because one record
+failed to verify; bad records are skipped and counted instead. A regression
+test now runs the fixture's real announcement transaction through the
+verifier, which is the case that had never been exercised.
+
+## fix(home2): lock and harden the pending transaction journals
+
+Three follow-ups from the review of the foreign send work.
+
+Home keeps a small file recording payments it has signed but not yet proven
+sent, and it reads that file to decide whether a new payment would double-spend
+the same coins. If two copies of Home were ever pointed at the same profile
+folder, both could read that file at the same moment and the second one to
+write would quietly erase what the first had just recorded, which is exactly
+the record the duplicate check depends on. Each read and write now takes an
+exclusive lock file next to the journal first, so the two copies take turns. A
+copy that cannot get its turn within ten seconds refuses the send with a clear
+"another Home instance is using this" message rather than going ahead without
+the record, and a lock left behind by a copy of Home that crashed is only ever
+cleared once that program is genuinely gone from this machine and the lock is
+minutes old. Android does not need any of this and does not get it: the journal
+there lives inside the app's own private storage and the app only ever runs as
+one process, which is now written down in both places so nobody has to
+rediscover it.
+
+The Qortal-family payment journal is now written as carefully as the foreign
+one: to a temporary file that is flushed to the disk hardware, then moved into
+place in a single step, so a power cut cannot leave half a file behind. Both
+journals now share one piece of code for that, instead of two versions that had
+already drifted apart.
+
+And when a second send is refused because one is already running for the same
+wallet, Home now recognises that case by its type rather than by matching the
+wording of the message, so rewording the message for people can no longer
+change how Home behaves.
+
+## fix(home2): closure fixes from the security review
+
+Four last things from the review, all small but each one a real hole.
+
+A preview tab already on screen now stops rendering the moment the key behind
+it changes, even when the node address stays the same. It was being checked,
+but only when something else about the node happened to change too, so a
+rotated key could leave a preview from the old one on screen.
+
+When Home turns on Core's API documentation and then cannot restart your node,
+it puts the setting back. It now only does that when it actually knows what the
+setting was before: if your node did not answer that question clearly, Home
+leaves the setting alone and tells you it could not confirm it, rather than
+guessing "off" and possibly switching off something you had turned on
+deliberately.
+
+On Android, the label Home uses to remember which key is which is created once
+even when several things ask for it at the same moment, and is only replaced
+when the key or the node address really changes. Before, an ordinary settings
+change could replace it and quietly invalidate approvals and open previews for
+no reason.
+
+And if the disk fills up or the temporary folder disappears while Home is
+packing a folder for preview, the preview fails with a normal message and the
+half-written file is cleaned up, instead of taking Home down with it.
+
+## fix(home2): security review follow-ups for the trusted-node work
+
+A review of the change above found eight things worth fixing; all are done.
+
+Previewing a large folder no longer loads the whole thing into memory. Home
+packs it into a file next to the copy it already made and streams that to your
+node as it reads it, instead of building the archive, a copy of it, and an
+encoded copy of that before sending anything. On Android the limit is now told
+to you honestly: 48 MiB, which is what the phone can actually hold, rather than
+letting you pick a 100 MiB file and refusing it after the wait.
+
+Home also stops handing the browser side of itself anything derived from your
+node's API key. It used to identify "which key is this" with a short fingerprint
+computed from the key, which is fine inside Home's core but not fine in a
+saved profile, where someone reading it could use it to check a guess at your
+key. Every such handle is now a random label made when you attach the key and
+replaced whenever you change it. Preview tabs are re-checked against that label
+each time they are drawn, so one belonging to a node or key you have since
+changed does not quietly reopen.
+
+An upload from the phone now has a real deadline covering the sending, not only
+the connecting and the waiting, so a node that accepts the connection and then
+stops listening can no longer leave it stuck forever.
+
+Turning on Core's API documentation is tidier in three ways: the button is only
+offered on desktop, where it works; the node's own error text is never shown to
+you, only what went wrong; and if the restart cannot happen after Home changed
+the setting, Home changes it back and says so, rather than leaving your node
+altered.
+
+One gap is recorded rather than closed: on Android the API key still passes
+through the app's JavaScript on its way to your node, as it has for every
+authenticated feature since they shipped. Moving that into the native layer is
+tracked as follow-up work.
+
+## fix(home2): features that need your node's API key follow trust, not "is it local"
+
+If you run your own Qortium Core on a VPS and attach its API key in Home,
+Home now treats it as your node everywhere -- because it is. Four things were
+written as "only the Core running on this computer", and refused people who
+were plainly entitled to use them.
+
+Previewing a file or folder before publishing works on any node you hold the
+key for, and works on Android for the first time. The old desktop preview sent
+your Core a file PATH, which only worked because Home and Core happened to be
+on the same machine; a node on another machine cannot read your disk, so the
+feature looked local-only when really only its plumbing was. Home now sends the
+content itself -- a single file as-is, a folder or zip packed into a compressed
+archive -- so the same preview works over the network. Nothing about what Home
+sends changed: it is still a copy Home makes and controls, never a path of
+yours, the preview address never reaches the app that asked for it, and
+previews are capped at 100 MiB with a plain refusal above that.
+
+Turning on Core's API documentation page, and the restart that applies it, also
+follow the key rather than the address. Home re-checks, right before it
+restarts anything, that the node and key are still the ones you approved.
+
+A preview tab you leave open now comes back after a restart when it belongs to
+the node you are still connected and trusted on, instead of only when that node
+happened to be on this computer. A preview belonging to a node you have since
+changed -- or whose key you have re-attached -- is dropped rather than
+reopened against a machine that is no longer yours.
+
+The security rule that has not changed, and will not: a node somewhere else
+must be reached over HTTPS, or through an SSH tunnel to this computer. Home
+refuses to send your API key in the clear over the network, and a shared public
+node is still nobody's to administer. Apps are only offered these features on a
+node where they can actually work.
+
+## fix(qdn): the publish preview actually opens
+
+Explore's "Preview local file" said "Preview opened in Home." and then nothing
+appeared. The file really was sent to your own Core, and Core really did build
+the preview -- the last step, opening it in a tab, was the one that silently did
+nothing.
+
+Home 2 keeps a list of apps in its shell state that was only ever filled in by
+the design fixture, never by the real application: every app tab you open is
+built from the address you opened, on the spot. The preview looked the
+requesting app up in that empty list, found nothing, and gave up without a
+word. Because Home tells the app the preview opened as soon as it has handed it
+over, the app had already congratulated you.
+
+The preview tab is now rebuilt from the tab that asked for it, which is both
+correct and stricter: a preview can only ever borrow the identity and address of
+the app that requested it. The tab is also named after the file you picked, so a
+preview is easy to tell apart from the app beside it. The empty list is now
+labelled as fixture-only so nothing reads it that way again.
+
+Two new guards come with it, because neither layer alone could see this failure:
+a unit test for the shell's decision, and a headless end-to-end run
+(`npm run smoke:desktop:qdn-publish-preview`) that picks a file, previews it,
+and fails unless a real preview tab opens and renders.
+
+## fix(qdn): folder previews are back, and preview is only offered where it works
+
+Explore's "Preview local file" button lets you look at something before you
+publish it. Two things were wrong with it in Home 2.
+
+Folders could not be chosen at all. An app is allowed to ask Home for either a
+file or a folder, but the request to pick a folder was being thrown away
+somewhere between the app and the file dialog, so everyone got a file picker no
+matter what they asked for -- and a website that lives in a folder could not be
+previewed. Asking for a folder works again. Home checks that the folder really
+does contain a home page (`index.html` or one of the names Qortium Core also
+accepts), adds up its contents without opening any of them, and refuses a
+folder that is enormous or that contains a shortcut pointing somewhere outside
+itself, because previewing hands the folder to your node and your node would
+follow that shortcut to a file you never chose. A folder can only be previewed,
+never published -- publishing is untouched by this change.
+
+Home also no longer hands your node the folder itself. It takes its own private
+copy first, in a temporary place only Home can read, and checks every rule again
+while it copies -- so a shortcut or an extra gigabyte that appears in the folder
+in the seconds after you picked it is caught rather than followed. The copy is
+deleted as soon as your node has finished with it, and the same is now true of a
+single file, which is copied rather than pointed at. If a preview fails you get
+a short plain sentence about what went wrong; the technical detail, including
+any location on your disk, stays in Home's own log instead of being handed to
+the app that asked.
+
+Preview was also being offered in two places it could never work. It renders
+your file on your OWN node, and Home only ever does that on a local Qortium
+Core you run yourself. Home for Android does not run one, and Home has no local
+key for the Qortal network, so in both cases the button was there and the answer
+was always no. It is no longer offered in either place, and where an app asks
+anyway it now gets a straight answer about local Cores instead of a message
+about transaction signing, which was never the reason. If Android gains this
+later it will use the upload form of Core's preview endpoint, which takes the
+file itself rather than a path on the phone.
+
+## feat(qdn): Home can send foreign coins again, and signs them itself
+
+Qortium Home 2 could show a Bitcoin, Litecoin, Dogecoin, DigiByte, Ravencoin,
+Dash, Namecoin or Firo balance and hand out a receive address, but it could not
+spend any of it. Sending is back, on Home 2's terms rather than by reviving the
+old code.
+
+Home 1 sent a foreign coin by deriving that wallet's master PRIVATE key from
+your account and posting it to your node, which built, signed and broadcast the
+transaction for you. Home 2 never does that. It asks your node only what your
+wallet already owns, then builds the transaction, signs it and works out its
+identity entirely on your own device, and asks the node to do one thing: pass
+the finished bytes to the coin's network. Your seed, your private keys and your
+extended private key stay in Home.
+
+The approval is its own prompt, deliberately separate from a Qortium payment.
+It names the coin and the chain, shows the amount both as a decimal and as the
+exact whole units being signed, names the recipient, shows the network fee and
+its rate, and says where change goes — back to an address the wallet is already
+spending from. It also states, in Home's own words rather than the app's, that
+no seed or private key is shared. Approving covers that one send and nothing
+else: there is no "always allow" for spending, and one approval can never
+satisfy another.
+
+Each send is written down before it is broadcast, and broadcast exactly once.
+If the answer is ambiguous — a timeout, a dropped connection, a node that
+acknowledges a different transaction — Home does not try again, because a
+failure to hear back is not proof the network never saw it. The record is kept
+instead, the outputs it spends are held back from any further send, and Home
+tells you which transaction to reconcile. A send is only forgotten once the
+node returns the exact transaction identity Home computed itself.
+
+Two numbers come from your node rather than from you: the fee rate it
+recommends, and the smallest output the coin's network will carry. Both move
+money without appearing in the amount you typed — and the second one matters
+more than it looks, because change too small to be worth returning is added to
+the fee instead. Home now holds both to a fixed ceiling for each coin, taken
+from the values Qortium Core itself declares for that chain rather than guessed,
+with generous room above them. That distinction is not academic: a Dogecoin's
+smallest usable output is a whole coin, hundreds of thousands of times
+Bitcoin's, so a ceiling picked by eye would have refused every honest Dogecoin
+send. A node reporting something beyond the ceiling is refused outright rather
+than quietly obeyed, and the finished transaction is checked again: it cannot
+pay a fee out of proportion to its size, and it can never pay more in fee than
+it sends — if that is really what you want, Home points you at sending the
+whole balance instead. The approval shows the rate you are actually paying,
+which is not always the rate quoted.
+
+One thing worth stating plainly: when Home checks a wallet's history to settle
+an unresolved send, it takes your trusted node's word for what it finds. That
+is a deliberate choice rather than an oversight. The same node already tells
+Home which coins the wallet holds, what the fee should be, and carries the
+finished transaction to the network, so it is the thing being trusted either
+way. The list of unresolved sends stays visible in Home's own settings for
+anyone who would rather check for themselves.
+
+If a send's outcome could not be established, the record Home keeps of it now
+has a way out. The next time you send from the same wallet, Home asks your node
+for that wallet's own transaction history and closes the record if — and only
+if — the exact transaction it signed is there. If it is not, the new send stops
+and tells you which transaction is unresolved. Nothing is ever assumed, retried
+or thrown away on a guess, and Home's own settings can show you what is
+outstanding. No app can see or clear that list.
+
+There is one case Home can settle without asking anyone, because it already
+knows the answer. Home writes down that it is about to send before it sends,
+and writes down the attempt itself before making it. A record that never
+reached the second step is a transaction that was never sent at all — its bytes
+were never even kept. After ten minutes, long enough that any send it could
+have belonged to would have expired anyway, Home releases that record and notes
+it in the log. Anything that did reach the second step still needs the proof
+above.
+
+Sending is offered only when your node is one Home administratively trusts, an
+account is unlocked, and that node is actually new enough to support it — Home
+checks for the feature rather than assuming it, so an older node says sending
+is unavailable instead of failing at the last moment. That check only counts as
+a yes when the node answers affirmatively; if it cannot be reached, or answers
+in a way that settles nothing, Home says sending is unavailable and tries again
+shortly rather than assuming the best. On a public node apps are
+told plainly that sending is unavailable rather than being allowed to try. It
+is available for the eight chains above only. This release adds the capability
+and its tests; no funded send has been made yet, and DigiByte, Namecoin and
+Firo still hit the same node-side server problem their balance reads do.
+
+## feat(qdn): apps can manage your node's settings again
+
+The Node app could show your node under Home 2 but no longer change it: the
+three bridge actions it uses to edit Core settings and restart the node were
+still on the not-yet-carried list. They are now implemented, on Home 2's
+terms rather than by reviving old code. Editing settings and restarting are
+offered only for a node you actually administer — the Core Home runs itself,
+or a custom node you attached your own API key to, on desktop and Android
+alike — and never for a public node. Every change asks you first, every
+time, listing each setting with its current value and the proposed one, and
+a restart request says plainly what it will do. Home checks the request
+against what your node itself declares changeable before you are ever asked,
+refuses anything too large to show in full, and re-checks that the node and
+key have not changed while the dialog was open. What the app learns back is
+only whether the change saved and which settings want a restart — details
+like where your node keeps its files stay on the node.
+
 ## fix(qdn): restore the Node app's settings and peers reads
 
 The Node app's dashboard came back empty under Home 2: the Core settings

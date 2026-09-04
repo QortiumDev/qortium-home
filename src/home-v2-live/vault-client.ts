@@ -9,6 +9,11 @@ import type {
   ForeignWalletPublicRuntime,
 } from '../../electron/foreign-wallets'
 import type {
+  HomeV2ForeignSendApprovalMeta,
+  HomeV2ForeignSendResult,
+  HomeV2ForeignSendRoute,
+} from '../../electron/home-v2-foreign-send'
+import type {
   HomeV2PrivateAttachmentConversation,
   HomeV2PrivateAttachmentDescriptor,
 } from '../../electron/home-v2-private-attachment-contract'
@@ -22,6 +27,25 @@ export type HomeV2WalletFileSelection =
       suggestedName: string
       token: string
     }
+
+export interface HomeV2ForeignSendRequest {
+  readonly accountId: string
+  readonly appIdentity: string
+  readonly approve: (
+    rows: readonly { readonly label: string; readonly value: string }[],
+    meta: HomeV2ForeignSendApprovalMeta,
+  ) => Promise<void>
+  readonly isStillValid: () => Promise<boolean>
+  readonly postTrusted: (
+    pathname: string,
+    body: string,
+    contentType: 'application/json' | 'text/plain',
+    maxBytes: number,
+  ) => Promise<unknown>
+  readonly readWalletHistory: (wallet: ForeignWalletPublicRuntime) => Promise<unknown>
+  readonly request: Record<string, unknown>
+  readonly resolveRoute: () => Promise<HomeV2ForeignSendRoute>
+}
 
 export interface HomeV2SendChatMessageRequest {
   readonly accountId: string
@@ -250,6 +274,7 @@ export interface HomeV2VaultClient {
     accountId: string,
     coin: ForeignWalletCoin,
   ): Promise<ForeignWalletPublicRuntime>
+  sendForeignCoin?(request: HomeV2ForeignSendRequest): Promise<HomeV2ForeignSendResult>
   getState(): Promise<HomeV2VaultState>
   importPrivateKey(
     request: HomeV2ImportPrivateKeyRequest,

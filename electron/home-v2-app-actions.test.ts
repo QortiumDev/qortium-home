@@ -630,10 +630,15 @@ assert.equal(normalizeHomeV2OpenAddress({ address: 'qdn://APP/Trust' }), 'qdn://
 assert.equal(normalizeHomeV2OpenAddress({ qdnUrl: 'qortal://APP/Q-Tube' }), 'qortal://APP/Q-Tube')
 assert.equal(normalizeHomeV2ResponseMaxBytes(undefined), 2 * 1024 * 1024)
 assert.equal(normalizeHomeV2ResponseMaxBytes(5 * 1024 * 1024), 5 * 1024 * 1024)
-assert.throws(
-  () => normalizeHomeV2ResponseMaxBytes(5 * 1024 * 1024 + 1),
-  /between 1 byte and 5 MiB/,
-)
+// Network asks for an 8,000,000-byte budget even though its current snapshot
+// is much smaller. Home 1.x clamped that request and continued; Home 2 used to
+// throw before contacting Core.
+assert.equal(normalizeHomeV2ResponseMaxBytes(8_000_000), 5 * 1024 * 1024)
+assert.equal(normalizeHomeV2ResponseMaxBytes(5 * 1024 * 1024 + 1), 5 * 1024 * 1024)
+assert.equal(normalizeHomeV2ResponseMaxBytes(1_024.9), 1_024)
+assert.equal(normalizeHomeV2ResponseMaxBytes(0), 2 * 1024 * 1024)
+assert.equal(normalizeHomeV2ResponseMaxBytes(Number.POSITIVE_INFINITY), 2 * 1024 * 1024)
+assert.equal(normalizeHomeV2ResponseMaxBytes('not-a-number'), 2 * 1024 * 1024)
 assert.throws(
   () => normalizeHomeV2OpenAddress({ address: 'https://example.com' }),
   /only accepts/,
@@ -1235,6 +1240,7 @@ assert.deepEqual(normalizeHomeV2ListReadResult(200, ['a']), ['a'])
 // without the refusal. (List-family security review, 2026-08-26.)
 for (const helper of [
   'async function postHomeV2ChatText(',
+  'async function postHomeV2PreviewUpload(',
   'async function readHomeV2ChatJson(',
   'async function deleteHomeV2MintingKey(',
   'async function requestHomeV2ListText(',
@@ -1248,6 +1254,42 @@ for (const helper of [
     body.includes("redirect: 'error'"),
     true,
     `${helper} sends X-API-KEY and must refuse redirects`,
+  )
+}
+
+// ---- PREVIEW_QDN_PUBLISH_SOURCE: gated on TRUST, uploaded as BYTES -------
+// The desktop handler lives in the Electron bridge, so its shape is pinned
+// from source (the behaviour it implements is proved by
+// home-v2-preview-upload.test.ts, home-v2-preview-archive.test.ts and the
+// desktop smoke). Owner decision 2026-09-02: any feature needing the node's
+// API key is gated on trust, never on the node being loopback.
+{
+  const start = openTabBridgeSource.indexOf('async function previewHomeV2PublishSource(')
+  assert.notEqual(start, -1, 'previewHomeV2PublishSource must exist')
+  const body = openTabBridgeSource.slice(
+    start,
+    openTabBridgeSource.indexOf('\nasync function', start + 1),
+  )
+  assert.match(body, /resolveHomeV2AdminNode\(network\)/)
+  assert.match(body, /!admin\.trust\.trusted/)
+  assert.doesNotMatch(
+    body,
+    /node\.mode !== 'local'|node\.mode === 'local'/,
+    'previewing must not be gated on the node being local',
+  )
+  // The BYTE-upload route, not the path route: a remote node cannot read
+  // Home's disk, which is what made this look local-only in the first place.
+  assert.match(body, /homeV2PreviewUploadPath\(upload\.target\)/)
+  assert.doesNotMatch(
+    body,
+    /`\/arbitrary\/preview\/\$\{encodeURIComponent\(service\)\}`/,
+    'the path-based preview route must not be used: a remote node cannot read a local path',
+  )
+  // Trust re-checked AFTER the upload and BEFORE the preview is opened.
+  assert.ok(
+    body.indexOf('after.trust.revision !== approvedRevision') <
+      body.indexOf("'home-v2-app:open-publish-preview'"),
+    'the trust revision must be re-checked before the preview tab is opened',
   )
 }
 
@@ -1507,5 +1549,43 @@ for (const action of [
   assert.equal(getHomeV2AppActions('qdnRequest').includes(action), false, `${action} is not implemented`)
   assert.equal(getHomeV2AppActions('qortalRequest').includes(action), false, `${action} is not implemented`)
 }
+
+// ---------------------------------------------------------------------------
+// Node-settings family: qdnRequest-only, writes never permissionless, one
+// grant per action, and the raw admin routes stay closed to the passthrough.
+// ---------------------------------------------------------------------------
+for (const action of ['GET_NODE_SETTINGS_METADATA', 'RESTART_NODE', 'UPDATE_NODE_SETTINGS']) {
+  assert.equal(qdnActions.includes(action), true, `qdnRequest must advertise ${action}.`)
+  // Qortium Home is the only host with a node-settings concept, and admin
+  // trust refuses network 'qortal' outright — advertising these on
+  // qortalRequest could never be answered honestly.
+  assert.equal(qortalActions.includes(action), false, `qortalRequest must not advertise ${action}.`)
+  assert.equal(getHomeV2AppNetwork('qdnRequest', action), 'qortium')
+}
+for (const action of ['RESTART_NODE', 'UPDATE_NODE_SETTINGS']) {
+  assert.equal(
+    (HOME_V2_PERMISSIONLESS_ACTIONS as readonly string[]).includes(action),
+    false,
+    `${action} must always prompt.`,
+  )
+  assert.equal(isHomeV2PermissionlessAction(action), false)
+  assert.equal(isHomeV2ChatSendAction(action), false, `${action} must not be a grantable chat send.`)
+  // Exact families: approving a settings change must never satisfy a restart.
+  assert.equal(homeV2PermissionGrantFamily(action), action)
+}
+assert.notEqual(
+  homeV2PermissionGrantFamily('RESTART_NODE'),
+  homeV2PermissionGrantFamily('UPDATE_NODE_SETTINGS'),
+)
+// The dedicated actions exist so the raw admin write/read-sensitive routes
+// stay outside the generic FETCH_NODE_API passthrough.
+assert.throws(
+  () => normalizeHomeV2ReadPath('/admin/restart'),
+  /outside Home v2 read-only scope/,
+)
+assert.throws(
+  () => normalizeHomeV2ReadPath('/admin/settings/apiKeyPath'),
+  /outside Home v2 read-only scope/,
+)
 
 console.log('Home v2 app action contract tests passed.')

@@ -268,6 +268,94 @@ export function confirmForeignWalletBroadcastSuccess(
   })
 }
 
+/**
+ * Remove an entry because the wallet's own confirmed/unconfirmed history,
+ * read back from the trusted node, contains the EXACT transaction Home
+ * signed.
+ *
+ * This is not a forget: it takes the same proof `confirmForeignWalletBroadcastSuccess`
+ * takes — a byte-exact txid match — and differs only in where the proof came
+ * from (the wallet history rather than the broadcast reply) and in accepting
+ * a 'signed' entry, which is what a crash between the write-ahead record and
+ * the broadcast attempt leaves behind. There is deliberately no path that
+ * drops an entry without that proof.
+ */
+export function clearReconciledForeignWalletPendingTransaction(
+  journal: ForeignWalletTransactionJournal,
+  input: Pick<ForeignWalletPendingTransaction, 'chainId' | 'coin' | 'txId' | 'walletFingerprint'>,
+  observedTxId: unknown,
+): ForeignWalletTransactionJournal {
+  const current = sanitizeForeignWalletTransactionJournal(journal)
+  const wanted = transactionKeyFromInput(input)
+  normalizeConfirmedForeignWalletTransactionId(input.txId, observedTxId)
+  if (!current.entries.some((candidate) => transactionKey(candidate) === wanted)) {
+    throw new Error('Pending foreign transaction was not found.')
+  }
+  return sanitizeForeignWalletTransactionJournal({
+    entries: current.entries.filter((entry) => transactionKey(entry) !== wanted),
+    version: 1,
+  })
+}
+
+/**
+ * Release an entry that was signed but never broadcast.
+ *
+ * Stage 'signed' is a proof, not a guess. The broadcast-attempt mark is
+ * written and fsynced BEFORE the single broadcast POST is issued, so an entry
+ * still at 'signed' means that mark never reached disk, which means the POST
+ * was never made and the signed bytes never left the process. They were never
+ * persisted either, so there is nothing that could be rebroadcast later.
+ *
+ * The one ambiguity is timing: another Home instance could be mid-send right
+ * now, having recorded 'signed' and not yet marked the attempt. The age guard
+ * closes that — an entry younger than the send's own freshness window is never
+ * released, and past that window the send it belonged to would have been
+ * refused as stale anyway.
+ *
+ * Both conditions are enforced here rather than at the call site, so no caller
+ * can release a broadcast-attempted entry or a fresh one.
+ */
+export function releaseNeverBroadcastForeignWalletPendingTransaction(
+  journal: ForeignWalletTransactionJournal,
+  input: Pick<ForeignWalletPendingTransaction, 'chainId' | 'coin' | 'txId' | 'walletFingerprint'>,
+  now: number,
+  minimumAgeMs: number,
+): ForeignWalletTransactionJournal {
+  const current = sanitizeForeignWalletTransactionJournal(journal)
+  const wanted = transactionKeyFromInput(input)
+  const at = safeTimestamp(now, 'Pending foreign transaction release time')
+  if (!Number.isSafeInteger(minimumAgeMs) || minimumAgeMs <= 0) {
+    throw new Error('Pending foreign transaction release age is invalid.')
+  }
+  const entry = current.entries.find((candidate) => transactionKey(candidate) === wanted)
+  if (!entry) throw new Error('Pending foreign transaction was not found.')
+  if (entry.stage !== 'signed') {
+    throw new Error('Pending foreign transaction was already attempted and needs its outcome proved.')
+  }
+  if (at - entry.createdAt < minimumAgeMs) {
+    throw new Error('Pending foreign transaction is too recent to release.')
+  }
+  return sanitizeForeignWalletTransactionJournal({
+    entries: current.entries.filter((candidate) => transactionKey(candidate) !== wanted),
+    version: 1,
+  })
+}
+
+/**
+ * Every entry retained for one wallet and coin, oldest first. Read-only: the
+ * caller decides what to do about them, and nothing here removes anything.
+ */
+export function selectForeignWalletPendingTransactions(
+  journal: ForeignWalletTransactionJournal,
+  input: Pick<ForeignWalletPendingTransaction, 'chainId' | 'coin' | 'walletFingerprint'>,
+): readonly ForeignWalletPendingTransaction[] {
+  const current = sanitizeForeignWalletTransactionJournal(journal)
+  const walletKey = canonicalWalletIdentity(input)
+  return Object.freeze(current.entries
+    .filter((entry) => conflictWalletKey(entry) === walletKey)
+    .sort((left, right) => left.createdAt - right.createdAt))
+}
+
 export function normalizeConfirmedForeignWalletTransactionId(
   expectedTxId: unknown,
   returnedTxId: unknown,

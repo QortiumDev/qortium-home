@@ -2,41 +2,93 @@ import { ipcMain } from 'electron'
 import { assertAuthorizedHomeV2Sender } from './home-v2-authorized-senders.js'
 import { getHomeV2ReadableNode } from './home-v2-node-bridge.js'
 import { nodeFetch } from './node-tls.js'
-import { requireCoreManagerEntry } from './core-manager.js'
-import { readRunningLocalCoreApiKeyFor } from './local-api-key.js'
+import { resolveHomeV2AdminNode } from './home-v2-app-bridge.js'
+import {
+  enableHomeV2CoreApiDocs,
+  type HomeV2CoreDocsAdminDependencies,
+} from './home-v2-core-docs-admin.js'
 
-async function requestProtectedCore(
-  network: 'qortal' | 'qortium',
-  path: string,
-  method: 'GET' | 'PATCH',
-  body?: string,
-) {
-  const node = await getHomeV2ReadableNode(network)
-  if (node.mode !== 'local') {
-    throw new Error('Only the configured local Core can be changed from Home.')
+/**
+ * The IPC skin over home-v2-core-docs-admin.
+ *
+ * Trust and ordering live in that module (and are tested there); this supplies
+ * the two things it cannot have without Electron: the real trust resolver, and
+ * the real HTTP call. The call keeps `redirect: 'error'` — it carries the
+ * node's administrative API key, and a redirect would hand that key to a host
+ * nothing vetted.
+ */
+const coreDocsAdmin: HomeV2CoreDocsAdminDependencies = {
+  async resolveAdminNode(network) {
+    const resolved = await resolveHomeV2AdminNode(network)
+    return {
+      apiKey: resolved.apiKey,
+      nodeApiUrl: resolved.node.nodeApiUrl,
+      trust: resolved.trust,
+    }
+  },
+  async request({ apiKey, body, method, nodeApiUrl, path }) {
+    const response = await nodeFetch(new URL(path, `${nodeApiUrl}/`).toString(), {
+      body,
+      headers: {
+        'accept-encoding': 'identity',
+        'X-API-KEY': apiKey,
+        ...(body === undefined ? {} : { 'content-type': 'application/json' }),
+      },
+      method,
+      redirect: 'error',
+      signal: AbortSignal.timeout(15_000),
+    })
+    return {
+      ok: response.ok,
+      status: response.status,
+      text: await readBoundedCoreDocsText(response),
+    }
+  },
+}
+
+/**
+ * At most CORE_DOCS_RESPONSE_MAX_BYTES of the node's answer.
+ *
+ * `response.text()` reads to completion first and only then truncates, so a
+ * node answering /admin/settings with an unbounded stream had to be read whole
+ * before Home could react. The body is also never shown to anyone: the caller
+ * parses it for Core's own `saved`/`apiDocumentationEnabled` flags and reports
+ * failures by STATUS, so a node cannot choose the text a renderer displays
+ * (security review, 2026-09-02).
+ */
+const CORE_DOCS_RESPONSE_MAX_BYTES = 4 * 1024
+
+async function readBoundedCoreDocsText(response: Response) {
+  const declared = Number(response.headers.get('content-length'))
+  if (Number.isFinite(declared) && declared > CORE_DOCS_RESPONSE_MAX_BYTES) {
+    await response.body?.cancel()
+    return ''
   }
-  const descriptor = requireCoreManagerEntry(network).descriptor
-  const key = readRunningLocalCoreApiKeyFor({
-    descriptor,
-    fileAccess: 'read-only',
-  })
-  if (!key) throw new Error(`${descriptor.label} Core API key is unavailable.`)
-  const response = await nodeFetch(new URL(path, `${node.nodeApiUrl}/`).toString(), {
-    body,
-    headers: {
-      'accept-encoding': 'identity',
-      'X-API-KEY': key.apiKey,
-      ...(body === undefined ? {} : { 'content-type': 'application/json' }),
-    },
-    method,
-    redirect: 'error',
-    signal: AbortSignal.timeout(15_000),
-  })
-  const text = (await response.text()).slice(0, 4_096)
-  if (!response.ok) {
-    throw new Error(text || `${descriptor.label} Core returned HTTP ${response.status}.`)
+  if (!response.body) return ''
+  const reader = response.body.getReader()
+  const chunks: Uint8Array[] = []
+  let length = 0
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      length += value.byteLength
+      if (length > CORE_DOCS_RESPONSE_MAX_BYTES) {
+        await reader.cancel()
+        return ''
+      }
+      chunks.push(value)
+    }
+  } catch {
+    return ''
   }
-  return text
+  const bytes = new Uint8Array(length)
+  let offset = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return new TextDecoder().decode(bytes)
 }
 
 function normalizeNetwork(value: unknown) {
@@ -64,22 +116,6 @@ export function registerHomeV2CoreDocsBridgeIpcHandlers() {
   })
   ipcMain.handle('home-v2-core-docs:enable', async (event, networkValue: unknown) => {
     assertAuthorizedHomeV2Sender(event)
-    const network = normalizeNetwork(networkValue)
-    const result = await requestProtectedCore(
-      network,
-      '/admin/settings',
-      'PATCH',
-      JSON.stringify({ apiDocumentationEnabled: true }),
-    )
-    if (result) {
-      try {
-        const parsed = JSON.parse(result) as { saved?: unknown }
-        if (parsed.saved === false) throw new Error('The node declined the settings update.')
-      } catch (error) {
-        if (!(error instanceof SyntaxError)) throw error
-      }
-    }
-    await requestProtectedCore(network, '/admin/restart', 'GET')
-    return { accepted: true }
+    return enableHomeV2CoreApiDocs(normalizeNetwork(networkValue), coreDocsAdmin)
   })
 }

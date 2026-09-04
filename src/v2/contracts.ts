@@ -243,6 +243,12 @@ export interface NodeSummary {
   readonly customAuthenticated: boolean
   /** Authoritative admin-route trust, including the current credential. */
   readonly adminTrusted?: boolean
+  /**
+   * The random binding id of the credential that trust rests on, so a surface
+   * holding a token minted earlier (a restored publish-preview tab) can check
+   * it still names the same one. Never a digest of the key.
+   */
+  readonly adminBindingId?: string | null
   readonly customConfigured: boolean
   readonly customUrl: string | null
   readonly localCoreState: LocalCoreState
@@ -350,11 +356,22 @@ export interface AppTabContext {
    * different: the node returns `/render/hash/<hash>`, which matches no
    * resource address and cannot be expressed as one. This field carries that
    * URL instead, and everything downstream must treat it as the narrower case:
-   * loopback origin matching the node, `/render/` path, nothing else.
+   * the origin of the admin-trusted node it was built on, `/render/` path,
+   * nothing else. (It used to be "loopback origin", which was only ever true
+   * because the preview transport could not reach a remote node — see
+   * electron/home-v2-preview-upload.ts.)
    *
    * Null for every ordinary app tab.
    */
   readonly previewUrl: string | null
+  /**
+   * The admin-trust revision (origin + credential) the preview was built
+   * against, so a tab restored in a LATER session can be bound to the same
+   * node and key rather than merely to a URL shape. Absent on every ordinary
+   * app tab, and on a preview restored from a profile written before this
+   * field existed — which is dropped rather than trusted.
+   */
+  readonly previewTrustRevision?: string | null
 }
 
 export interface NetworkRequest {

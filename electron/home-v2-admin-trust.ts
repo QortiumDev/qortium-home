@@ -41,6 +41,21 @@ export type HomeV2AdminTrust =
   | {
       readonly trusted: true
       readonly apiKey: string
+      /**
+       * The renderer- and PERSIST-facing token for "this credential, bound to
+       * this origin". A random value minted when the key is attached and
+       * re-minted whenever it changes — never a function of the key.
+       *
+       * `revision` below is a digest OF the key, which is fine inside the main
+       * process and is not fine anywhere a renderer, a persisted profile or a
+       * QDN app can see it: a short digest of origin||apiKey is an offline
+       * verifier, so anyone who obtained one could confirm a guessed key
+       * without ever touching the node. Everything that leaves the main
+       * process — the adminTrust channel, a stored preview tab, an approval
+       * token round-tripped through React — carries this instead.
+       * (Security review, 2026-09-02.)
+       */
+      readonly bindingId: string
       readonly origin: string
       readonly revision: string
       readonly source: HomeV2AdminTrustSource
@@ -57,6 +72,8 @@ export type HomeV2AdminTrust =
  */
 export type HomeV2AttachedAdminKey = Readonly<{
   apiKey: string
+  /** Random, minted with the attachment; see HomeV2AdminTrust.bindingId. */
+  bindingId: string
   origin: string
 }>
 
@@ -74,6 +91,10 @@ export function homeV2NodeOrigin(nodeApiUrl: unknown): string {
  * on every trust answer so a caller can re-check after an approval prompt
  * that neither the node nor the key moved underneath it — without ever
  * holding or comparing the raw key outside the main process.
+ *
+ * MAIN-PROCESS ONLY. It is derived from the key, so publishing it would let
+ * someone confirm a guessed credential offline. Use `bindingId` for anything
+ * that crosses to a renderer or is written to disk outside the key store.
  */
 export function homeV2AdminTrustRevision(origin: string, apiKey: string): string {
   const digest = new Sha256()
@@ -86,6 +107,8 @@ export function homeV2AdminTrustRevision(origin: string, apiKey: string): string
 export function evaluateHomeV2AdminTrust(input: {
   readonly attached?: HomeV2AttachedAdminKey | null
   readonly managedApiKey?: string
+  /** The managed Core's binding id; see HomeV2AdminTrust.bindingId. */
+  readonly managedBindingId?: string
   readonly mode: string
   readonly network: string
   readonly nodeApiUrl: unknown
@@ -106,9 +129,17 @@ export function evaluateHomeV2AdminTrust(input: {
     // The managed Core is always reached over loopback; anything else means
     // the local route was mis-set or tampered with.
     if (!isHomeV2LoopbackNodeUrl(input.nodeApiUrl)) return { trusted: false, reason: 'transport-unsafe' }
+    // Fail CLOSED without a binding id rather than falling back to the digest:
+    // the callers that need one need it to be unguessable, and a trusted answer
+    // that quietly carried a key-derived token instead would reintroduce the
+    // exact exposure the binding id exists to remove. The stores mint one on
+    // read, so an absent id means the store could not be written.
+    const bindingId = input.managedBindingId ?? ''
+    if (!bindingId) return { trusted: false, reason: 'key-missing' }
     return {
       trusted: true,
       apiKey,
+      bindingId,
       origin,
       revision: homeV2AdminTrustRevision(origin, apiKey),
       source: 'managed',
@@ -124,9 +155,11 @@ export function evaluateHomeV2AdminTrust(input: {
   // sees a tunnelled request as loopback too, so its default API-key policy
   // already permits it.
   if (!isNodeApiKeyTransportSafe(origin)) return { trusted: false, reason: 'transport-unsafe' }
+  if (!attached.bindingId) return { trusted: false, reason: 'key-missing' }
   return {
     trusted: true,
     apiKey: attached.apiKey,
+    bindingId: attached.bindingId,
     origin,
     revision: homeV2AdminTrustRevision(origin, attached.apiKey),
     source: 'attached',

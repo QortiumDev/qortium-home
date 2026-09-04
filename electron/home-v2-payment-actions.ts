@@ -115,7 +115,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * with different values, the request refuses rather than letting one copy
  * be displayed and the other consumed.
  */
-function moneyField(request: Record<string, unknown>, fields: readonly string[], label: string): unknown {
+export function homeV2MoneyField(request: Record<string, unknown>, fields: readonly string[], label: string): unknown {
   const payload = isRecord(request.payload) ? request.payload : null
   let seen: unknown
   let found = false
@@ -134,7 +134,7 @@ function moneyField(request: Record<string, unknown>, fields: readonly string[],
 }
 
 function refuseNonZero(request: Record<string, unknown>, fields: readonly string[], message: string) {
-  const value = moneyField(request, fields, fields[0])
+  const value = homeV2MoneyField(request, fields, fields[0])
   if (value === undefined) return
   const parsed = typeof value === 'number'
     ? value
@@ -152,18 +152,18 @@ function positiveAmount(value: unknown, label: string): HomeV2CoinAmount {
 const NATIVE_COIN_ALIASES = new Set(['NATIVE', 'NATIVE_ASSET', 'ASSET_0', 'ASSET0', 'QORTIUM'])
 // Any of these 1.x foreign-arm fields present means the app wants a foreign
 // coin send — refused loudly, never silently downgraded to a native send.
-const FOREIGN_ARM_FIELDS = ['sendMax', 'feePerByte', 'receivingAddress', 'xprv58'] as const
+export const HOME_V2_FOREIGN_ARM_FIELDS = ['sendMax', 'feePerByte', 'receivingAddress', 'xprv58'] as const
 
 export class HomeV2ForeignSendError extends Error {
   readonly code = 'FOREIGN_SEND_UNAVAILABLE'
 }
 
-function assertNoAppFeeOrGroup(request: Record<string, unknown>) {
+export function assertHomeV2NoAppFeeOrGroup(request: Record<string, unknown>) {
   refuseNonZero(request, ['fee'], 'Home quotes the chain fee itself and does not accept an app-provided fee.')
   refuseNonZero(request, ['txGroupId', 'feeGroupId'], 'Payment transactions are never group-approved: txGroupId must be 0.')
 }
 
-const RECIPIENT_FIELDS = ['recipient', 'recipientAddress', 'address', 'destinationAddress'] as const
+export const HOME_V2_RECIPIENT_FIELDS = ['recipient', 'recipientAddress', 'address', 'destinationAddress'] as const
 
 export type HomeV2NativeSendRequest = Readonly<{
   action: HomeV2PaymentAction
@@ -178,19 +178,19 @@ export function normalizeHomeV2NativeSendRequest(
   // EVERY 1.x foreign-arm signal — feePerByte included — refuses with the
   // coded foreign error: an app that thinks it is sending BTC must hear
   // exactly that foreign sending is unavailable (review round 1, LOW).
-  for (const field of FOREIGN_ARM_FIELDS) {
-    if (moneyField(request, [field], field) !== undefined) {
+  for (const field of HOME_V2_FOREIGN_ARM_FIELDS) {
+    if (homeV2MoneyField(request, [field], field) !== undefined) {
       throw new HomeV2ForeignSendError('Foreign coin sending is unavailable in Qortium Home 2; SEND_COIN sends only the native coin.')
     }
   }
-  const coinRaw = moneyField(request, ['coin', 'blockchain'], 'The coin selector')
+  const coinRaw = homeV2MoneyField(request, ['coin', 'blockchain'], 'The coin selector')
   if (coinRaw !== undefined) {
     const coin = typeof coinRaw === 'string' ? coinRaw.trim().toUpperCase() : ''
     if (!NATIVE_COIN_ALIASES.has(coin)) {
       throw new HomeV2ForeignSendError('Foreign coin sending is unavailable in Qortium Home 2; SEND_COIN sends only the native coin.')
     }
   }
-  const assetIdRaw = moneyField(request, ['assetId'], 'The asset id')
+  const assetIdRaw = homeV2MoneyField(request, ['assetId'], 'The asset id')
   if (assetIdRaw !== undefined) {
     const assetId = typeof assetIdRaw === 'number'
       ? assetIdRaw
@@ -199,11 +199,11 @@ export function normalizeHomeV2NativeSendRequest(
       throw new Error('Use TRANSFER_ASSET for non-native asset transfers.')
     }
   }
-  assertNoAppFeeOrGroup(request)
-  const recipientRaw = moneyField(request, RECIPIENT_FIELDS, 'The recipient address')
+  assertHomeV2NoAppFeeOrGroup(request)
+  const recipientRaw = homeV2MoneyField(request, HOME_V2_RECIPIENT_FIELDS, 'The recipient address')
   if (typeof recipientRaw !== 'string' || !recipientRaw.trim()) throw new Error('Recipient address is required.')
   const recipient = normalizeHomeV2PaymentRecipient(recipientRaw.trim(), 'The recipient address')
-  const amount = positiveAmount(moneyField(request, ['amount'], 'The amount'), 'The amount')
+  const amount = positiveAmount(homeV2MoneyField(request, ['amount'], 'The amount'), 'The amount')
   return Object.freeze({ action, amount, recipient })
 }
 
@@ -215,8 +215,8 @@ export type HomeV2TransferAssetRequest = Readonly<{
 }>
 
 export function normalizeHomeV2TransferAssetRequest(request: Record<string, unknown>): HomeV2TransferAssetRequest {
-  assertNoAppFeeOrGroup(request)
-  const assetIdRaw = moneyField(request, ['assetId'], 'The asset id')
+  assertHomeV2NoAppFeeOrGroup(request)
+  const assetIdRaw = homeV2MoneyField(request, ['assetId'], 'The asset id')
   const assetId = typeof assetIdRaw === 'number'
     ? assetIdRaw
     : typeof assetIdRaw === 'string' && /^\d+$/.test(String(assetIdRaw).trim()) ? Number(String(assetIdRaw).trim()) : NaN
@@ -232,10 +232,10 @@ export function normalizeHomeV2TransferAssetRequest(request: Record<string, unkn
   if (assetId === 0) {
     throw new Error('Use PAYMENT or SEND_COIN for the native coin; TRANSFER_ASSET is for other assets.')
   }
-  const recipientRaw = moneyField(request, RECIPIENT_FIELDS, 'The recipient address')
+  const recipientRaw = homeV2MoneyField(request, HOME_V2_RECIPIENT_FIELDS, 'The recipient address')
   if (typeof recipientRaw !== 'string' || !recipientRaw.trim()) throw new Error('Recipient address is required.')
   const recipient = normalizeHomeV2PaymentRecipient(recipientRaw.trim(), 'The recipient address')
-  const amount = positiveAmount(moneyField(request, ['amount'], 'The amount'), 'The amount')
+  const amount = positiveAmount(homeV2MoneyField(request, ['amount'], 'The amount'), 'The amount')
   return Object.freeze({ action: 'TRANSFER_ASSET', amount, assetId, recipient })
 }
 
@@ -249,11 +249,11 @@ export type HomeV2SendQortRequest = Readonly<{
 }>
 
 export function normalizeHomeV2SendQortRequest(request: Record<string, unknown>): HomeV2SendQortRequest {
-  assertNoAppFeeOrGroup(request)
-  const recipientRaw = moneyField(request, ['recipient', 'recipientAddress', 'address'], 'The recipient')
+  assertHomeV2NoAppFeeOrGroup(request)
+  const recipientRaw = homeV2MoneyField(request, ['recipient', 'recipientAddress', 'address'], 'The recipient')
   if (typeof recipientRaw !== 'string' || !recipientRaw.trim()) throw new Error('Recipient is required.')
   const recipientText = recipientRaw.trim()
-  const amount = positiveAmount(moneyField(request, ['amount'], 'The amount'), 'The amount')
+  const amount = positiveAmount(homeV2MoneyField(request, ['amount'], 'The amount'), 'The amount')
   let address: string | null = null
   try {
     address = normalizeHomeV2PaymentRecipient(recipientText, 'The recipient address').address

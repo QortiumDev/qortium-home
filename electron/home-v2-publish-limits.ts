@@ -1,64 +1,67 @@
 import { fetchBoundedBytes } from './bounded-response.js'
-import { nodeFetch } from './node-tls.js'
 import { HOME_V2_PUBLISH_SOURCE_MAX_BYTES } from './home-v2-publish-source-tokens.js'
-import { PUBLIC_QDN_ATTESTATION_MAX_BYTES } from './qdn-content-attestation.js'
 
 const LIMITS_RESPONSE_MAX_BYTES = 64 * 1024
-const LIMITS_CACHE_TTL_MS = 5 * 60_000
 const LIMITS_FETCH_TIMEOUT_MS = 15_000
+export const HOME_V2_AUTHENTICATED_PUBLISH_HARD_MAX_BYTES = 2 * 1024 * 1024 * 1024
 
-type HomeV2PublishLimitsFetch = (url: string, signal: AbortSignal) => Promise<Response>
+export type HomeV2QdnPublishRouteKind = 'authenticated' | 'public'
 
-type CacheEntry = { fetchedAt: number; value: number }
-const cache = new Map<string, CacheEntry>()
+export type HomeV2QdnPublishLimit = Readonly<{
+  maximumBytes: number
+  route: HomeV2QdnPublishRouteKind
+}>
 
-async function discoverPublicPublishMaxSize(nodeApiUrl: string, fetchImpl: HomeV2PublishLimitsFetch): Promise<number> {
-  const { bytes, response } = await fetchBoundedBytes(
-    (signal) => fetchImpl(`${nodeApiUrl}/arbitrary/limits`, signal),
-    LIMITS_RESPONSE_MAX_BYTES,
-    LIMITS_FETCH_TIMEOUT_MS,
-  )
-  if (!response.ok) throw new Error(`Node publish-limits lookup returned HTTP ${response.status}.`)
-  const parsed: unknown = JSON.parse(new TextDecoder().decode(bytes))
-  const value = parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>).publicPublishMaxSize : undefined
-  if (typeof value !== 'number' || !Number.isFinite(value) || value < 1) {
-    throw new Error('Node publish-limits response did not include a valid publicPublishMaxSize.')
-  }
-  return value
+export function shouldUseAuthenticatedQdnPublish(
+  network: string,
+  trust: { readonly trusted: boolean },
+) {
+  return network === 'qortium' && trust.trusted
 }
 
-/**
- * The effective per-file ceiling for a public Qortium/Qortal publish:
- * whatever the connected node advertises via GET /arbitrary/limits,
- * backstopped by Home's own hard ceiling so a node can only ever shrink
- * this, never grow it past what Home is willing to attempt. Falls back to
- * HOME_V2_PUBLISH_SOURCE_MAX_BYTES if the node doesn't expose the endpoint
- * or answers something unusable. Cached per (network, nodeApiUrl) for
- * LIMITS_CACHE_TTL_MS so repeated selections on the same route don't each
- * pay a round trip.
- */
-export async function getHomeV2PublishSizeCeiling(
-  network: 'qortal' | 'qortium',
+type LimitsFetch = (url: string, signal: AbortSignal) => Promise<Response>
+
+export function deriveHomeV2QdnPublishLimit(
+  value: unknown,
+  authenticated: boolean,
+): HomeV2QdnPublishLimit {
+  const route = authenticated ? 'authenticated' : 'public'
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return Object.freeze({ maximumBytes: HOME_V2_PUBLISH_SOURCE_MAX_BYTES, route })
+  }
+  const field = authenticated ? 'publishMaxSize' : 'publicPublishMaxSize'
+  const advertised = (value as Record<string, unknown>)[field]
+  if (typeof advertised !== 'number' || !Number.isSafeInteger(advertised) || advertised < 1) {
+    return Object.freeze({ maximumBytes: HOME_V2_PUBLISH_SOURCE_MAX_BYTES, route })
+  }
+  const homeMaximum = authenticated
+    ? HOME_V2_AUTHENTICATED_PUBLISH_HARD_MAX_BYTES
+    : HOME_V2_PUBLISH_SOURCE_MAX_BYTES
+  return Object.freeze({
+    maximumBytes: Math.min(advertised, homeMaximum),
+    route,
+  })
+}
+
+export async function getHomeV2QdnPublishLimit(
   nodeApiUrl: string,
-  fetchImpl: HomeV2PublishLimitsFetch = (url, signal) => nodeFetch(url, { signal }),
-): Promise<number> {
-  const cacheKey = `${network}|${nodeApiUrl}`
-  const now = Date.now()
-  const cached = cache.get(cacheKey)
-  if (cached && now - cached.fetchedAt < LIMITS_CACHE_TTL_MS) {
-    return cached.value
-  }
-  let discovered: number
+  authenticated: boolean,
+  fetchImpl: LimitsFetch,
+): Promise<HomeV2QdnPublishLimit> {
   try {
-    discovered = await discoverPublicPublishMaxSize(nodeApiUrl, fetchImpl)
+    const { bytes, response } = await fetchBoundedBytes(
+      (signal) => fetchImpl(`${nodeApiUrl}/arbitrary/limits`, signal),
+      LIMITS_RESPONSE_MAX_BYTES,
+      LIMITS_FETCH_TIMEOUT_MS,
+    )
+    if (!response.ok) throw new Error(`Node publish-limits lookup returned HTTP ${response.status}.`)
+    return deriveHomeV2QdnPublishLimit(JSON.parse(new TextDecoder().decode(bytes)), authenticated)
   } catch {
-    discovered = HOME_V2_PUBLISH_SOURCE_MAX_BYTES
+    return deriveHomeV2QdnPublishLimit(null, authenticated)
   }
-  const ceiling = Math.min(discovered, PUBLIC_QDN_ATTESTATION_MAX_BYTES)
-  cache.set(cacheKey, { fetchedAt: now, value: ceiling })
-  return ceiling
 }
 
-export function resetHomeV2PublishSizeCeilingCache() {
-  cache.clear()
+export function homeV2QdnPublishLimitMessage(limit: HomeV2QdnPublishLimit) {
+  const route = limit.route === 'authenticated' ? 'authenticated trusted-node' : 'public keyless'
+  return `${route} route limit is ${limit.maximumBytes.toLocaleString()} bytes`
 }

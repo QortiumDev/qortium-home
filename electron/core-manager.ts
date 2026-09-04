@@ -61,6 +61,7 @@ import {
   type CoreUpdateSettings,
 } from './core-update-settings.js';
 import { movePath } from './filesystem-move.js';
+import { isPathWithinPath, normalizeFilesystemPath } from './path-containment.js';
 import { startIfManaged as startI2pdIfManaged, stopIfManaged as stopI2pdIfManaged } from './i2pd-manager.js';
 import { selectManagedJavaBinary } from './managed-java-asset.js';
 import type { QortalCoreManager } from './qortal-core-manager.js';
@@ -664,16 +665,6 @@ function getRuntimeChainPath(runtimePath: string) {
 
 function getRuntimeMigrationBlockedPath(runtimePath: string) {
   return path.join(runtimePath, CORE_DESCRIPTOR.storage.runtimeMigrationBlockedFileName);
-}
-
-function normalizeFilesystemPath(value: string) {
-  return path.resolve(value);
-}
-
-function isPathWithinPath(candidatePath: string, parentPath: string) {
-  const relativePath = path.relative(normalizeFilesystemPath(parentPath), normalizeFilesystemPath(candidatePath));
-
-  return relativePath === '' || (!!relativePath && !relativePath.startsWith('..') && !path.isAbsolute(relativePath));
 }
 
 function isRunningCoreWithinPath(runningCore: RunningCoreApiKeyResult, parentPath: string) {

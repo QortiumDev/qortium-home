@@ -23,6 +23,12 @@ import {
 export type HomeV2AppBridgeProtocol = 'qdnRequest' | 'qortalRequest'
 export type HomeV2AppNetwork = 'qortal' | 'qortium'
 
+// These are compatibility and memory-safety bounds, not Core protocol limits.
+// Home 1.x used the same values and clamped an app's requested maximum instead
+// of rejecting the request. Keep that behavior: hosted apps often provide a
+// generous maxBytes budget even when the actual response is small. Larger QDN
+// payloads can use GET_QDN_RESOURCE_URL or SAVE_FILE, which stream content
+// instead of materializing it as an app-bridge response.
 const RESPONSE_DEFAULT_MAX_BYTES = 2 * 1024 * 1024
 const RESPONSE_MAX_BYTES = 5 * 1024 * 1024
 const AVATAR_MAX_BYTES = 500 * 1024
@@ -123,6 +129,14 @@ const QDN_ACTIONS = [
   'GET_MEMBER_KICKS',
   'GET_MINTING_STATUS',
   'GET_NAME_DATA',
+  // The Node app's settings family, qdnRequest-only like GET_HOME_SETTINGS*:
+  // Qortium Home is the only host with a node-settings concept, and
+  // evaluateHomeV2AdminTrust refuses network 'qortal' outright, so a
+  // qortalRequest copy could never be answered honestly. The metadata READ is
+  // promptless (the same anonymous Core route FETCH_NODE_API already allows);
+  // the two WRITES prompt on every request and are advertised only for an
+  // admin-trusted route (home-v2-app-runtime.ts).
+  'GET_NODE_SETTINGS_METADATA',
   'GET_PRIMARY_NAME',
   'GET_PRIVATE_DIRECT_ACTIVE_CHATS',
   'GET_PRIVATE_GROUP_ACTIVE_CHATS',
@@ -152,6 +166,7 @@ const QDN_ACTIONS = [
   'REMOVE_FROM_LIST',
   'REMOVE_GROUP_ADMIN',
   'REMOVE_MINTING_ACCOUNT',
+  'RESTART_NODE',
   'START_MINTING',
   'OPEN_QDN_RESOURCE_VIEWER',
   'OPEN_QDN_DOCUMENT_VIEWER',
@@ -202,6 +217,7 @@ const QDN_ACTIONS = [
   'UNLOCK_SELECTED_ACCOUNT',
   'UPDATE_GROUP',
   'UPDATE_NAME',
+  'UPDATE_NODE_SETTINGS',
   'UPDATE_POLL',
   'VOTE_ON_POLL',
 ] as const
@@ -284,7 +300,15 @@ const QORTAL_ACTIONS = [
   'SAVE_CHAT_ATTACHMENT',
   'SELECT_QDN_PUBLISH_SOURCE',
   'STAGE_QDN_PUBLISH_SOURCE',
-  'PREVIEW_QDN_PUBLISH_SOURCE',
+  // PREVIEW_QDN_PUBLISH_SOURCE is deliberately absent here while SELECT and
+  // STAGE stay: those two feed PUBLISH_QDN_RESOURCE, which Qortal does have.
+  // Previewing does not go to a chain at all -- it POSTs the source to a node
+  // that renders it, so it needs a LOCAL Core with a write key, and Home 2
+  // holds no such key for the Qortal route (getHomeV2SignedWriteApiKey returns
+  // '' for 'qortal'). Advertising it would mean advertising an action that can
+  // only ever refuse. This is how the other local-Core-only actions are
+  // handled: RESTART_NODE, UPDATE_NODE_SETTINGS and GET_NODE_SETTINGS_METADATA
+  // are on the qdnRequest catalogue only, for the same reason.
   'SEARCH_CHAT_MESSAGES',
   'SEARCH_PRIVATE_DIRECT_CHAT_MESSAGES',
   'SEARCH_PRIVATE_GROUP_CHAT_MESSAGES',
@@ -766,10 +790,13 @@ function appendQueryValue(query: URLSearchParams, key: string, value: unknown) {
 export function normalizeHomeV2ResponseMaxBytes(value: unknown) {
   if (value === undefined || value === null || value === '') return RESPONSE_DEFAULT_MAX_BYTES
   const parsed = typeof value === 'number' ? value : Number(value)
-  if (!Number.isSafeInteger(parsed) || parsed < 1 || parsed > RESPONSE_MAX_BYTES) {
-    throw new Error('maxBytes must be between 1 byte and 5 MiB.')
-  }
-  return parsed
+  if (!Number.isFinite(parsed)) return RESPONSE_DEFAULT_MAX_BYTES
+  const requested = Math.floor(parsed)
+  // Home 1.x allowed zero to become an unbounded read. Treat non-positive and
+  // unusable values as "no preference" instead so compatibility never removes
+  // the bounded-read protection.
+  if (requested < 1 || !Number.isSafeInteger(requested)) return RESPONSE_DEFAULT_MAX_BYTES
+  return Math.min(requested, RESPONSE_MAX_BYTES)
 }
 
 export function normalizeHomeV2AvatarMaxBytes(value: unknown) {
