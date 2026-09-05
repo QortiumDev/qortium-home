@@ -16,6 +16,7 @@ import { networkLabels } from './NetworkBadge'
 import { NetworkMark } from './ProductMarks'
 import { VisibleIdentityAvatar } from './VisibleIdentityAvatar'
 import { useDismissablePopover } from './useDismissablePopover'
+import { InlineAccountUnlock, type InlineUnlockSubmission } from './InlineAccountUnlock'
 
 // Same order as the Dashboard's connection-mode select, so the two controls
 // read identically wherever the user meets them first.
@@ -54,31 +55,36 @@ interface ChromeMenuProps {
   readonly label: string
   /** Reports the menu's open state so the chrome can suspend the app view. */
   readonly onOpenChange?: (open: boolean) => void
+  readonly panelRole?: 'menu' | 'dialog'
   readonly trigger: (props: {
     readonly onClick: () => void
     readonly 'aria-expanded': boolean
-    readonly 'aria-haspopup': 'menu'
+    readonly 'aria-haspopup': 'menu' | 'dialog'
   }) => ReactNode
 }
 
-function ChromeMenu({ children, label, onOpenChange, trigger }: ChromeMenuProps) {
+function ChromeMenu({ children, label, onOpenChange, panelRole = 'menu', trigger }: ChromeMenuProps) {
   const { containerRef, open, setOpen } =
     useDismissablePopover<HTMLDivElement>(onOpenChange)
   return (
     <div className="home-v2-chrome-menu" ref={containerRef}>
       {trigger({
         'aria-expanded': open,
-        'aria-haspopup': 'menu',
+        'aria-haspopup': panelRole,
         onClick: () => setOpen((current) => !current),
       })}
       {open ? (
         <div
           aria-label={label}
           className="home-v2-chrome-menu__panel"
-          role="menu"
+          role={panelRole}
+          aria-modal={panelRole === 'dialog' ? false : undefined}
         >
           {typeof children === 'function'
-            ? children(() => setOpen(false))
+            ? children(() => {
+                containerRef.current?.querySelector<HTMLButtonElement>('button[aria-expanded]')?.focus()
+                setOpen(false)
+              })
             : children}
         </div>
       ) : null}
@@ -423,7 +429,8 @@ export interface AccountStatusMenuProps {
   readonly onLockAccount?: () => void
   /** Reports the menu's open state so the chrome can suspend the app view. */
   readonly onOpenChange?: (open: boolean) => void
-  readonly onUnlockAccount?: () => void
+  readonly rememberedUnlockAvailable?: boolean
+  readonly onUnlockAccount?: (value: InlineUnlockSubmission) => Promise<void>
 }
 
 /**
@@ -462,6 +469,7 @@ export function AccountStatusMenu({
   onLockAccount,
   onOpenChange,
   onUnlockAccount,
+  rememberedUnlockAvailable,
 }: AccountStatusMenuProps) {
   const hasAccount = snapshot.account.state !== 'none'
   const isLocked = snapshot.account.state === 'locked'
@@ -484,6 +492,7 @@ export function AccountStatusMenu({
   return (
     <ChromeMenu
       label={contextLabel ?? t('home2.account.selected')}
+      panelRole="dialog"
       onOpenChange={onOpenChange}
       trigger={(triggerProps) => (
         <button
@@ -526,6 +535,7 @@ export function AccountStatusMenu({
         </button>
       )}
     >
+      {(close) => <>
       {contextLabel ? <small>{contextLabel}</small> : null}
       <strong>
         {hasAccount ? snapshot.identity.displayLabel : t('account.noAccount')}
@@ -579,15 +589,16 @@ export function AccountStatusMenu({
         </>
       ) : null}
       {hasAccount && isLocked && onUnlockAccount ? (
-        <button type="button" role="menuitem" disabled={unavailable} onClick={onUnlockAccount}>
-          {t('home2.account.unlock')}
-        </button>
+        unavailable ? <button type="button" disabled>{t('home2.account.unlock')}</button> :
+        <InlineAccountUnlock rememberedUnlockAvailable={rememberedUnlockAvailable}
+          onSubmit={onUnlockAccount} onCancel={close} />
       ) : null}
       {hasAccount && !isLocked && onLockAccount ? (
-        <button type="button" role="menuitem" onClick={onLockAccount}>
+        <button type="button" onClick={onLockAccount}>
           {t('home2.account.lock')}
         </button>
       ) : null}
+      </>}
     </ChromeMenu>
   )
 }

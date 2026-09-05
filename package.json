@@ -324,6 +324,7 @@
     "test:home-v2-payments": "npm run build:electron && node dist-electron/home-v2-payment-actions.test.js",
     "test:home-v2-reward-share-key": "npm run build:electron && node dist-electron/home-v2-reward-share-key.test.js",
     "test:home-v2-admin-trust": "npm run build:electron && node dist-electron/home-v2-admin-trust.test.js",
+    "smoke:desktop:home-v2-inline-unlock": "node scripts/smoke-desktop-home-v2-inline-unlock.mjs",
     "smoke:packaged": "node scripts/smoke-desktop-suite.mjs",
     "smoke:packaged:no-node": "node scripts/smoke-desktop-suite.mjs --no-node",
     "test:smoke-wiring": "node scripts/check-smoke-wiring.mjs",

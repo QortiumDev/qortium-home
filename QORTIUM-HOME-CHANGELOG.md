@@ -32,6 +32,15 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## fix(home2): unlock accounts directly in the toolbar dropdown
+
+The toolbar account menu now accepts the password inline, as Home 1.x did.
+It stays above an open app without a full-window popup blocking the tabs.
+Cancel, Escape and tab changes dismiss the menu and clear its password;
+incorrect passwords stay in the menu as errors. Unlock still targets the tab's
+bound account, including derived addresses, and removed accounts cannot unlock.
+App-requested unlock approvals and Dashboard account dialogs remain separate.
+
 ## fix(home2): keep tab account identity visible and preserve it when saving
 
 App tabs now show their bound account, and the toolbar displays and locks or

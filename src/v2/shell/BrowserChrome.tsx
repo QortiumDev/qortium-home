@@ -34,6 +34,7 @@ import {
 } from './HomeV2BookmarkToolbar'
 import { BookmarksMenuButton } from './BookmarksMenuButton'
 import { AccountStatusMenu, NodeStatusMenu } from './ChromeStatusMenus'
+import type { InlineUnlockSubmission } from './InlineAccountUnlock'
 import type { HomeV2CoreManagement } from './CoreManagerCards'
 import { locateBookmarkManagerLink } from '../../bookmarkManager'
 import type { BookmarkToolbarVisibility } from '../../bookmarkToolbar'
@@ -104,7 +105,8 @@ export interface BrowserChromeProps {
     tabId: ProductState['tabs'][number]['id'],
   ) => void | Promise<void>
   readonly onLockAccount?: (accountId?: string) => void
-  readonly onUnlockAccount?: (accountId?: string) => void
+  readonly onUnlockAccount?: (accountId: string | undefined, value: InlineUnlockSubmission) => Promise<void>
+  readonly rememberedUnlockAccountIds?: readonly string[]
   /**
    * Everything the node-status menus need to act rather than only report:
    * the Core manager and maintenance slices behind start/stop and updates,
@@ -219,6 +221,7 @@ export function BrowserChrome({
   onDetachTab,
   onLockAccount,
   onUnlockAccount,
+  rememberedUnlockAccountIds,
   coreManagement,
   onConfigureCustomNode,
   onOpenCoreSettings,
@@ -237,6 +240,10 @@ export function BrowserChrome({
     accountCatalogue,
     rememberedAccountLabels.current,
   )
+  // Capture the identity actually displayed, even while a default-selection
+  // catalogue update and its presentation snapshot are arriving separately.
+  const unlockAccountId = accountContext.accountId ??
+    accountContext.snapshot.account.selectedIdentityId?.replace(/^home-v2:identity:/, '')
   const currentAddress = browserAddress(
     productState,
     releaseNotesAddress,
@@ -632,6 +639,7 @@ export function BrowserChrome({
             <Settings aria-hidden="true" size={18} strokeWidth={2} />
           </button>
           <AccountStatusMenu
+            key={`${productState.activeTabId}:${accountContext.snapshot.account.selectedIdentityId}:${accountContext.snapshot.account.state}:${accountContext.unavailable}`}
             snapshot={accountContext.snapshot}
             contextLabel={t(accountContext.tabBound ? 'home2.account.tabAccount' : 'home2.account.defaultAccount')}
             unavailable={accountContext.unavailable}
@@ -639,7 +647,8 @@ export function BrowserChrome({
             loadVisibleAvatar={loadVisibleAvatar}
             onLockAccount={onLockAccount && !accountContext.unavailable ? () => onLockAccount(accountContext.accountId ?? undefined) : undefined}
             onOpenChange={(open) => setOverlayOpen('account-menu', open)}
-            onUnlockAccount={onUnlockAccount ? () => onUnlockAccount(accountContext.accountId ?? undefined) : undefined}
+            rememberedUnlockAvailable={rememberedUnlockAccountIds?.includes(unlockAccountId ?? '')}
+            onUnlockAccount={onUnlockAccount ? (value) => onUnlockAccount(unlockAccountId, value) : undefined}
           />
         </div>
       </div>

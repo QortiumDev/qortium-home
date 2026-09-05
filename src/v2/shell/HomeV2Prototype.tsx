@@ -57,6 +57,7 @@ import {
   type AppTabNavigationSnapshot,
 } from './AppTabStage'
 import { BrowserChrome, type AddressOpenResult } from './BrowserChrome'
+import type { InlineUnlockSubmission } from './InlineAccountUnlock'
 import { NetworkBadge } from './NetworkBadge'
 import { PermissionDialog } from './PermissionDialog'
 import { VisibleIdentityAvatar } from './VisibleIdentityAvatar'
@@ -229,6 +230,7 @@ export interface HomeV2PrototypeProps {
   readonly onIdentityLookupInput?: (value: string) => void
   readonly onIdentityLookupSubmit?: () => void
   readonly onUnlockAccount?: (accountId?: string) => void
+  readonly onSubmitAccountUnlock?: (accountId: string | undefined, value: InlineUnlockSubmission) => Promise<void>
   readonly onLockAccount?: (accountId?: string) => void
   readonly onSelectAccount?: (accountId: string | null) => void
   readonly onSelectAddress?: (addressId: string) => void
@@ -1146,7 +1148,10 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
         onPinTabToDashboard={props.onPinTabToDashboard}
         onDetachTab={props.onDetachTab}
         onLockAccount={props.onLockAccount}
-        onUnlockAccount={props.onUnlockAccount}
+        onUnlockAccount={props.onSubmitAccountUnlock}
+        rememberedUnlockAccountIds={props.vaultState?.accounts.flatMap((account) =>
+          account.security.rememberUnlock && !account.security.manuallyLocked
+            ? account.addresses.map((address) => address.id) : [])}
         coreManagement={props.coreManagement}
         onConfigureCustomNode={props.onConfigureCustomNode}
         onOpenCoreSettings={() => openSettingsSection('core')}
