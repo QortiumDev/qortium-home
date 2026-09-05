@@ -157,6 +157,43 @@ async function main() {
       await sleep(1000)
     }
 
+    // The strip renders before asynchronous shell restoration completes.
+    // Wait for that restoration and finish first-run setup before input tests:
+    // otherwise Welcome can replace a successfully clicked tab underneath us.
+    const waitForStartup = async (label, read) => {
+      const deadline = Date.now() + appTimeoutMs
+      while (Date.now() < deadline) {
+        const result = await read()
+        if (result) return result
+        await sleep(250)
+      }
+      fail(`startup did not reach ${label}`)
+    }
+    await waitForStartup('initial shell state persistence', () =>
+      existsSync(path.join(profile, 'home-v2-shell-state.json')),
+    )
+    const activeStartupPage = `(() => {
+      const page = document.querySelector('.home-v2-page-slot:not([hidden])')
+        ?.getAttribute('data-internal-page')
+      return page === 'dashboard' || page === 'welcome' ? page : null
+    })()`
+    const initialPage = await waitForStartup('Welcome or Dashboard', () =>
+      cdp.evaluate(activeStartupPage),
+    )
+    if (initialPage === 'welcome') {
+      const skipped = await cdp.evaluate(`(() => {
+        const button = [...document.querySelectorAll('.home-v2-welcome button')]
+          .find((candidate) => candidate.textContent.trim() === 'Skip setup')
+        if (!button) return false
+        button.click()
+        return true
+      })()`)
+      if (!skipped) fail('Welcome has no Skip setup button')
+    }
+    await waitForStartup('active Dashboard', async () =>
+      (await cdp.evaluate(activeStartupPage)) === 'dashboard',
+    )
+
     // Open a second internal page through the ordinary address-bar route so
     // there are two tabs to switch between.
     await cdp.evaluate(`(() => {
