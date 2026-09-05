@@ -3513,7 +3513,10 @@ function testGrantIdentityAndSendRateLimitHardening(): void {
   assert.match(appBridge, /normalizeHomeV2RuntimeInvalidation/)
   assert.match(appBridge, /findStoredHomeV2PendingTransactionConflict/)
   assert.match(appBridge, /recordHomeV2PendingTransaction/)
-  assert.match(liveApp, /invalidateAndroidRuntime\('account-changed'\)/)
+  assert.doesNotMatch(liveApp, /invalidateAndroidRuntime\('account-changed'\)/,
+    'default selection must not revoke immutable app-tab authority')
+  assert.match(liveApp, /invalidateAndroidRuntime\('locked'\)/,
+    'real lock and account removal must still revoke transient authority')
   assert.match(liveApp, /invalidateAndroidRuntime\('node-changed', null, network\)/)
   assert.doesNotMatch(
     liveApp,

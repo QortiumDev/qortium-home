@@ -1341,7 +1341,9 @@ const androidForeignSend = stripComments(sliceAfter(
 assert.ok(androidForeignSend.includes('vaultClient.sendForeignCoin({'))
 assert.ok(androidForeignSend.includes("allowedScopes: ['single-request']"))
 assert.ok(androidForeignSend.includes('nodeClient.foreignWalletPost!('))
-assert.ok(androidForeignSend.includes('selectedAccountIdRef.current === accountId'))
+assert.ok(androidForeignSend.includes('return isRequestCurrent() &&'))
+assert.ok(!androidForeignSend.includes('selectedAccountIdRef.current'))
+assert.ok(liveAppSource.includes('requestEpochCurrent() && isBoundAccountRequestCurrent('))
 assert.ok(!androidForeignSend.includes('X-API-KEY'))
 
 // The live-context guard must not read mutable state before its own await.
