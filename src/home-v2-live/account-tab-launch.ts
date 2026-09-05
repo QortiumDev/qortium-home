@@ -1,6 +1,7 @@
 import type { AppDescriptor, AppResourceLocation, HomeV2AccountCatalogue } from '../v2/contracts'
 import type { AppTab } from '../v2/product-model'
 import { appDescriptorForOpenTab } from './publish-preview-tab'
+import { currentAppLocation } from '../v2/current-app-location'
 
 export interface AccountTabLaunch {
   readonly app: AppDescriptor
@@ -37,7 +38,8 @@ export function resolveAccountTabLaunch(input: {
   )) {
     throw new Error('The selected Home account is no longer available.')
   }
-  const app = appDescriptorForOpenTab(source)
+  const resourceLocation = currentAppLocation(source)
+  const app = appDescriptorForOpenTab({ ...source, context: { ...source.context, resourceLocation } })
   if (!app) throw new Error('The source app address is no longer valid.')
-  return { app, resourceLocation: source.context.resourceLocation, accountId: input.accountId }
+  return { app, resourceLocation, accountId: input.accountId }
 }

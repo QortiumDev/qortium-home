@@ -5,7 +5,7 @@ import assert from 'node:assert/strict'
 import { spawn, spawnSync } from 'node:child_process'
 import { createServer } from 'node:http'
 import { randomUUID } from 'node:crypto'
-import { existsSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { Cdp, launchHomeV2, resolveAppImage, sleep } from './lib/home-v2-cdp.mjs'
@@ -189,11 +189,11 @@ try {
     await key('Enter', 13)
     await until(`default ${account.label}`, () => cdp.evaluate(`window.homeV2Vault.getState().then(state => state.selectedAccountId === ${JSON.stringify(account.id)})`))
   }
-  const openFixture = async () => {
+  const openFixture = async (identifier = 'default') => {
     await click('.home-v2-new-tab')
     await click('.home-v2-address input')
     await cdp.evaluate(`document.querySelector('.home-v2-address input').select()`)
-    await cdp.send('Input.insertText', { text: 'qortal://APP/AccountLaunchFixture/default' })
+    await cdp.send('Input.insertText', { text: `qortal://APP/AccountLaunchFixture/${identifier}` })
     await cdp.evaluate(`document.querySelector('.home-v2-address input').closest('form').requestSubmit()`)
     return attachFixture()
   }
@@ -264,7 +264,11 @@ try {
   }
 
   await until('initial restoration', () => existsSync(path.join(profile, 'home-v2-shell-state.json')))
-  await cdp.evaluate(`(() => { [...document.querySelectorAll('.home-v2-welcome button')].find(button => button.textContent.trim() === 'Skip setup')?.click() })()`)
+  // The bootstrap already wrote the state file; its existence is not proof
+  // this packaged renderer has finished restoring or mounted Welcome yet.
+  await until('Welcome ready to skip', () => cdp.evaluate(`!!document.querySelector('.home-v2-welcome__header .home-v2-link-button')?.getClientRects().length`))
+  await click('.home-v2-welcome__header .home-v2-link-button')
+  await until('Skip setup persisted', () => JSON.parse(readFileSync(path.join(profile,'home-v2-shell-state.json'),'utf8')).onboarding?.status === 'skipped')
   await until('Dashboard', () => cdp.evaluate(`!!document.querySelector('.home-v2-page-slot[data-internal-page="dashboard"]:not([hidden])')`))
   await selectDefault(accountA)
   // Seed only disposable saved-link data, then exercise the real packaged
@@ -371,15 +375,90 @@ try {
   await activate(original)
   assert.deepEqual(await identity(original), {resolved:true,address:accountA.address})
   log('real Ctrl+Shift+T reopened B, guest and same-account duplicate with fresh native identities; default A unchanged')
+  // Navigate through actual browser history APIs in the native app document,
+  // then exercise real chrome saves/reopen. No React state or handlers injected.
+  const deep = await openFixture('deep-link')
+  assert.deepEqual(await identity(deep), {resolved:true,address:accountA.address})
+  await deep.app.evaluate(`window.__navigationSentinel = 'same-document'; history.pushState({}, '', '/render/APP/AccountLaunchFixture/deep-link/page?room=7&theme=dark#one')`)
+  const deepAddress = 'qortal://APP/AccountLaunchFixture/deep-link/page?room=7#one'
+  const showsAddress = (expected) => cdp.evaluate(`document.querySelector('.home-v2-address input')?.value === ${JSON.stringify(expected)}`)
+  await until('live native path/query/hash in address bar', () => showsAddress(deepAddress))
+  await click('.home-v2-address input')
+  await cdp.evaluate(`document.querySelector('.home-v2-address input').select()`)
+  await cdp.send('Input.insertText',{text:'home://settings'})
+  await deep.app.evaluate(`history.replaceState({}, '', '/render/APP/AccountLaunchFixture/deep-link/page?room=7#background')`)
+  await until('background route captured while address is edited', () => {
+    const saved = JSON.parse(readFileSync(path.join(profile,'home-v2-shell-state.json'),'utf8'))
+    return saved.product.entries.some(entry => entry.id === deep.tabId && entry.currentResourceLocation?.endsWith('#background'))
+  })
+  assert.ok(await showsAddress('home://settings'), 'Background navigation must not overwrite typed text')
+  await deep.app.evaluate(`history.replaceState({}, '', '/render/APP/AccountLaunchFixture/deep-link/page?room=7#one')`)
+  await activate(original)
+  await activate(deep)
+  await until('tab activation restores current URL after editing', () => showsAddress(deepAddress))
+  assert.equal(await deep.app.evaluate('window.__navigationSentinel'), 'same-document', 'SPA navigation must not reload the view')
+  assert.deepEqual(await identity(deep), {resolved:true,address:accountA.address}, 'SPA routing keeps account-read consent')
+  await click('.home-v2-bookmarks-button')
+  await click('.home-v2-bookmarks-menu__panel button[role="menuitem"]')
+  await until('current URL bookmarked', () => cdp.evaluate(`document.querySelector('.home-v2-bookmarks-button')?.classList.contains('is-bookmarked')`))
+  const deepTabSelector = `.home-v2-tab[data-tab-id="${deep.tabId}"] button[role="tab"]`
+  await cdp.evaluate(`document.querySelector(${JSON.stringify(deepTabSelector)}).scrollIntoView({block:'nearest',inline:'center',behavior:'instant'})`)
+  const tabPoint = await cdp.box(deepTabSelector)
+  assert.ok(tabPoint)
+  for (const type of ['mousePressed','mouseReleased']) await cdp.send('Input.dispatchMouseEvent', {type,x:tabPoint.x,y:tabPoint.y,button:'right',clickCount:1})
+  await until('tab context menu pin action', () => cdp.evaluate(`!!document.querySelector('[data-home-v2-tab-menu-action="pin"]')`))
+  await click('[data-home-v2-tab-menu-action="pin"]')
+  await until('current URL pinned with A', () => cdp.evaluate(`JSON.parse(localStorage.getItem('qortium-home-bookmark-manager-snapshot')).dashboardPins.some(pin => pin.displayUrl === ${JSON.stringify(deepAddress)} && pin.accountId === ${JSON.stringify(accountA.id)})`))
+  const screenshot = await cdp.send('Page.captureScreenshot')
+  writeFileSync(path.join(profile, 'current-app-url.png'), Buffer.from(screenshot.data,'base64'))
+  await deep.app.evaluate(`history.pushState({}, '', '/render/APP/AccountLaunchFixture/deep-link/other?room=8#two'); history.replaceState({}, '', '/render/APP/AccountLaunchFixture/deep-link/replaced?room=9#three')`)
+  await until('replaceState current URL', () => showsAddress('qortal://APP/AccountLaunchFixture/deep-link/replaced?room=9#three'))
+  await click('.home-v2-browser-controls button[aria-label="Back"]')
+  await until('Back restores previous current URL', () => showsAddress(deepAddress))
+  await click('.home-v2-browser-controls button[aria-label="Forward"]')
+  const resumeAddress = 'qortal://APP/AccountLaunchFixture/deep-link/replaced?room=9#three'
+  await until('Forward restores current URL', () => showsAddress(resumeAddress))
+  const deepB = await launchAs(deep, accountB)
+  await until('new-account launch keeps current route', () => showsAddress(resumeAddress))
+  assert.equal(new URL(await deepB.app.evaluate('location.href')).pathname, '/render/APP/AccountLaunchFixture/deep-link/replaced')
+  assert.deepEqual(await identity(deepB), {resolved:true,address:accountB.address})
+  const reopenedDeep = await reopen(deepB)
+  await until('Reopen keeps current route', () => showsAddress(resumeAddress))
+  assert.deepEqual(await identity(reopenedDeep), {resolved:true,address:accountB.address})
+  await until('current route persisted', () => {
+    const saved = JSON.parse(readFileSync(path.join(profile,'home-v2-shell-state.json'),'utf8'))
+    return saved.product.entries.some(entry => entry.id === reopenedDeep.tabId &&
+      (entry.currentResourceLocation ?? entry.context?.resourceLocation) === resumeAddress)
+  })
+  // A real process restart proves persistence, not just the existing view cache.
+  for (const entry of apps) entry.app.socket.close()
+  home.cdp.socket.close()
+  home.shutdown()
+  home = await launchHomeV2({appImage:resolveAppImage(repoRoot),profile,portBase:10300,appArgs:['--ozone-platform=x11'],log})
+  await until('process restart restores deep URL', () => home.cdp.evaluate(`document.querySelector('.home-v2-address input')?.value === ${JSON.stringify(resumeAddress)}`))
+  await until('process restart loads deep native document', async () => {
+    const targets = await (await fetch(`http://127.0.0.1:${home.port}/json/list`)).json()
+    return targets.some(target => target.url.startsWith(`${origin}/render/APP/AccountLaunchFixture/deep-link/replaced?`) && target.url.endsWith('#three'))
+  })
+  log('live path/query/hash, push/replace/back/forward, bookmark/pin, same-account consent, B duplicate/reopen and full process restart passed')
   writeFileSync(path.join(profile, 'acceptance.json'), JSON.stringify({
     passed:true, appImage:resolveAppImage(repoRoot),
     checks:['pin-account-attribution', 'pin-descriptions-and-layout', 'saved-pin-B-default-A',
       'account-dropdown-real-input', 'B-distinct-native-tab', 'source-A-identity-retained',
       'default-A-unchanged', 'duplicate-A-distinct-native-tab', 'explicit-guest-no-default-identity',
-      'reopen-B-under-default-A', 'reopen-explicit-guest', 'reopen-duplicate-new-native-tab'],
+      'reopen-B-under-default-A', 'reopen-explicit-guest', 'reopen-duplicate-new-native-tab',
+      'live-path-query-hash', 'same-document-no-reload', 'same-app-consent-retained',
+      'address-edit-survives-background-navigation',
+      'current-url-bookmark-pin', 'push-replace-back-forward', 'current-url-B-duplicate-reopen',
+      'current-url-process-restart'],
   }, null, 2))
   log(`PASS: account-specific launch, duplicate and guest. Isolated receipt: ${profile}`)
 } catch (error) {
+  if (home) {
+    const screenshot = await home.cdp.send('Page.captureScreenshot').catch(() => null)
+    if (screenshot) writeFileSync(path.join(profile,'failure.png'),Buffer.from(screenshot.data,'base64'))
+    log(`Failure evidence: ${profile}`)
+  }
   if (home) log(JSON.stringify(await home.cdp.evaluate(`({
     address: document.querySelector('.home-v2-address input')?.value,
     account: document.querySelector('.home-v2-account-button')?.getAttribute('aria-label'),

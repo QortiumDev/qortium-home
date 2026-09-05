@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { t } from '../../i18n'
+import { currentAppLocation } from '../current-app-location'
 import type {
   DualIdentityLookupResult,
   HomeV2Snapshot,
@@ -156,7 +157,7 @@ function browserAddress(
     (tab) => tab.id === productState.activeTabId,
   )
   if (activeTab) {
-    return activeTab.context.resourceLocation
+    return currentAppLocation(activeTab)
   }
   if (productState.destination === 'releases' && releaseNotesAddress) {
     return releaseNotesAddress
@@ -262,6 +263,8 @@ export function BrowserChrome({
     ? locateBookmarkManagerLink(bookmarkSnapshot, currentAddress)
     : null
   const [address, setAddress] = useState(currentAddress)
+  const addressEditing = useRef(false)
+  const addressTab = useRef(productState.activeTabId)
   const [addressResult, setAddressResult] = useState<AddressOpenResult | null>(null)
   const [addressBusy, setAddressBusy] = useState(false)
   const [selectedChoice, setSelectedChoice] = useState('')
@@ -327,15 +330,21 @@ export function BrowserChrome({
     setOverlayOpen('address-suggestions', addressResult !== null)
   }, [addressResult, setOverlayOpen])
   useEffect(() => {
+    // Background SPA routing must not overwrite an address being typed.
+    // Switching tabs still shows the newly selected tab's current URL.
+    if (addressTab.current === productState.activeTabId && addressEditing.current) return
+    addressTab.current = productState.activeTabId
+    addressEditing.current = false
     addressRequest.current += 1
     setAddress(currentAddress)
     setAddressResult(null)
     setAddressBusy(false)
     setSelectedChoice('')
     setWidgetError(null)
-  }, [currentAddress])
+  }, [currentAddress, productState.activeTabId])
   const submitAddress = async (requestedAddress = address) => {
     if (!onOpenAddress || navigationDisabled) return
+    addressEditing.current = false
     const request = addressRequest.current + 1
     addressRequest.current = request
     setAddressBusy(true)
@@ -541,7 +550,9 @@ export function BrowserChrome({
             disabled={navigationDisabled}
             spellCheck={false}
             value={address}
+            onBlur={() => { addressEditing.current = false }}
             onChange={(event) => {
+              addressEditing.current = true
               addressRequest.current += 1
               setAddress(event.target.value)
               setAddressResult(null)

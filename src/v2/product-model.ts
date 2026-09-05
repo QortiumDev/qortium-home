@@ -6,6 +6,7 @@ import type {
 } from './contracts'
 import { parseAppResourceLocation } from './resource-location'
 import { sanitizeHomeV2AppTitle } from './app-frame-messages'
+import { validateCurrentAppLocation } from './current-app-location'
 
 export type ShellDestination =
   | 'core-docs'
@@ -43,6 +44,8 @@ export interface AppTab {
   readonly appId: AppId
   readonly title: string
   readonly context: AppTabContext
+  /** Current same-resource destination, separate from live permission identity. */
+  readonly currentResourceLocation?: AppTabContext['resourceLocation']
 }
 
 /**
@@ -58,6 +61,7 @@ export type ShellEntry =
       readonly appId: AppId
       readonly title: string
       readonly context: AppTabContext
+      readonly currentResourceLocation?: AppTabContext['resourceLocation']
     }
 
 export interface ProductState {
@@ -101,6 +105,12 @@ export type ProductAction =
     }
   | { readonly type: 'activate-tab'; readonly tabId: TabId }
   | { readonly type: 'close-tab'; readonly tabId: TabId }
+  | {
+      readonly type: 'set-tab-current-location'
+      readonly tabId: TabId
+      readonly fromResourceLocation: string
+      readonly location: string
+    }
   | {
       readonly type: 'set-tab-title'
       readonly tabId: TabId
@@ -195,6 +205,7 @@ function freezeProductState(
           appId: entry.appId,
           title: entry.title,
           context: Object.freeze({ ...entry.context }),
+          ...(entry.currentResourceLocation ? { currentResourceLocation: entry.currentResourceLocation } : {}),
         }),
       ),
     ),
@@ -344,7 +355,10 @@ function parseAppEntry(
           : ('home-v2:identity:none' as AppTabContext['identityId']),
       previewTrustRevision: previewUrl ? (context.previewTrustRevision as string) : null,
       previewUrl,
-      resourceLocation: resourceLocation as AppTabContext['resourceLocation'],
+      // A restored session starts a NEW runtime at the last same-resource URL.
+      // Old versions have no currentResourceLocation and retain their launch.
+      resourceLocation: validateCurrentAppLocation(context as unknown as AppTabContext,
+        candidate.currentResourceLocation) ?? resourceLocation as AppTabContext['resourceLocation'],
       sourceNetwork: context.sourceNetwork,
       tabId: id as TabId,
       walletRef:
@@ -782,6 +796,16 @@ export function reduceProductState(
       return closeTab(state, action.tabId)
     case 'set-tab-title':
       return setTabTitle(state, action.tabId, action.title)
+    case 'set-tab-current-location': {
+      const tab = state.tabs.find((entry) => entry.id === action.tabId)
+      // Late events from a closed/replaced runtime must not rename its successor.
+      if (!tab || tab.context.resourceLocation !== action.fromResourceLocation) return state
+      const location = validateCurrentAppLocation(tab.context, action.location)
+      if (!location || location === (tab.currentResourceLocation ?? tab.context.resourceLocation)) return state
+      return freezeProductState({ ...state, revision: state.revision + 1,
+        entries: state.entries.map((entry) => entry.id === action.tabId && entry.kind === 'app'
+          ? { ...entry, currentResourceLocation: location } : entry) })
+    }
     case 'navigate':
       return navigate(state, action.destination)
     case 'open-internal':

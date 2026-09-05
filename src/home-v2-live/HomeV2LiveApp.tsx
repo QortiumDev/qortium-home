@@ -395,6 +395,7 @@ import {
 import { resolveHomeV2PublishPreviewOpen } from './publish-preview-tab'
 import { resolveAccountTabLaunch } from './account-tab-launch'
 import { rememberClosedAppTab, type ClosedAppTab } from './closed-app-tabs'
+import { currentAppLocation, currentAppLocationFromRender } from '../v2/current-app-location'
 import { resolveLaunchIdentifier } from '../v2/shell/render-path-identity'
 import { base58Decode, base58Encode } from '../../electron/base58'
 import {
@@ -1927,6 +1928,14 @@ export function HomeV2LiveApp() {
 
   const handleAppNavigationChanged = useCallback(
     (tabId: TabId, navigation: AppTabNavigationSnapshot) => {
+      const tab = productStateRef.current.tabs.find((entry) => entry.id === tabId)
+      if (!tab || navigation.resourceUrl !== tab.context.resourceLocation) return
+      const active = navigation.entries.find((entry) => entry.index === navigation.activeIndex)
+      const location = active && navigation.renderUrl
+        ? currentAppLocationFromRender(tab.context, active.url, navigation.renderUrl)
+        : null
+      if (location) dispatchProduct({ type: 'set-tab-current-location', tabId,
+        fromResourceLocation: tab.context.resourceLocation, location })
       // This event is same-app history/hash navigation. The native view blocks
       // cross-resource navigation before it reaches this callback, so changing
       // Chat routes must not revoke the tab's account-read consent.
@@ -1973,6 +1982,8 @@ export function HomeV2LiveApp() {
       handleAppNavigationChanged(value.tabId as TabId, {
         activeIndex: value.activeIndex as number,
         entries,
+        resourceUrl: typeof value.resourceUrl === 'string' ? value.resourceUrl : undefined,
+        renderUrl: typeof value.renderUrl === 'string' ? value.renderUrl : undefined,
       })
     })
   }, [handleAppNavigationChanged])
@@ -3423,7 +3434,7 @@ export function HomeV2LiveApp() {
       const entry = productState.entries.find((candidate) => candidate.id === tabId)
       if (!entry) return null
       return entry.kind === 'app'
-        ? { address: entry.context.resourceLocation, title: entry.title }
+        ? { address: currentAppLocation(entry), title: entry.title }
         : {
             address: `home://${entry.page}`,
             title: t(internalTabLabelKeys[entry.page]),
@@ -3495,7 +3506,7 @@ export function HomeV2LiveApp() {
       const entry = productState.entries.find((candidate) => candidate.id === tabId)
       if (!entry) return
       const displayUrl = entry.kind === 'app'
-        ? entry.context.resourceLocation
+        ? currentAppLocation(entry)
         : `home://${entry.page}`
       // Same title derivation as the bookmark path directly below, so a tab
       // pinned and a tab bookmarked are labelled identically.
@@ -3512,7 +3523,7 @@ export function HomeV2LiveApp() {
       if (!entry) return
       const displayUrl =
         entry.kind === 'app'
-          ? entry.context.resourceLocation
+          ? currentAppLocation(entry)
           : `home://${entry.page}`
       try {
         const result = await applyCollectionsMutation((snapshot) => buildTabToolbarSave(snapshot, {

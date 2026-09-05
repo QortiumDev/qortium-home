@@ -1,6 +1,7 @@
 import type { AppDescriptor, AppResourceLocation, TabId } from '../v2/contracts'
 import type { AppTab } from '../v2/product-model'
 import { appDescriptorForOpenTab } from './publish-preview-tab'
+import { currentAppLocation } from '../v2/current-app-location'
 
 /** Session-only navigation data, never a saved grant, vault state or native view. */
 export interface ClosedAppTab {
@@ -21,11 +22,12 @@ export function rememberClosedAppTab(
       tab.context.appId !== tab.appId || history.some((entry) => entry.sourceTabId === tab.id)) {
     return [...history]
   }
-  const app = appDescriptorForOpenTab(tab)
+  const resourceLocation = currentAppLocation(tab)
+  const app = appDescriptorForOpenTab({ ...tab, context: { ...tab.context, resourceLocation } })
   const identity = String(tab.context.identityId)
   const prefix = 'home-v2:identity:'
   if (!app || !identity.startsWith(prefix) || !identity.slice(prefix.length).trim()) return [...history]
   const accountId = identity === `${prefix}none` ? null : identity.slice(prefix.length)
   return [...history, { sourceTabId: tab.id, app,
-    resourceLocation: tab.context.resourceLocation, accountId }].slice(-10)
+    resourceLocation, accountId }].slice(-10)
 }
