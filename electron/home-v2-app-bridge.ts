@@ -1,3 +1,4 @@
+import { isHomeV2AccountRatingSessionAction } from './home-v2-rating-permissions.js'
 import {
   app,
   BrowserWindow,
@@ -1676,6 +1677,13 @@ async function requireAccountReadPermission(
   if (isHomeV2PermissionlessAction(action) && writeDetails?.kind !== 'foreign-wallet-read') return
 
   const targetNetwork = protocol === 'qortalRequest' ? 'qortal' : 'qortium'
+  const accountRatingSession = isHomeV2AccountRatingSessionAction(action, protocol, writeDetails?.kind)
+  const ratingConsentCurrent = accountRatingSession
+    ? sessionAccountReadGrants.capture({
+        family: 'account.rating', hostWebContentsId: context.windowId,
+        network: targetNetwork, tabId: context.tabId,
+      })
+    : () => true
   const routeIndependent = action === 'GET_PENDING_TRANSACTIONS' ||
     action === 'FORGET_PENDING_TRANSACTION' ||
     (action === 'GET_USER_WALLET' && writeDetails?.kind === 'foreign-wallet-read')
@@ -1754,8 +1762,9 @@ async function requireAccountReadPermission(
     // permanent on-chain tombstone. Never a session or durable grant.
     writeDetails?.kind === 'publish-multiple' ||
     writeDetails?.kind === 'qdn-delete' ||
-    // Rating writes sign chain transactions. Never a session/durable grant.
-    writeDetails?.kind === 'rating' ||
+    // Account ratings can be approved for this tab session. Resource ratings
+    // remain per-transaction; neither action can receive a durable grant.
+    (writeDetails?.kind === 'rating' && !accountRatingSession) ||
     // The account avatar signs a chain transaction too.
     writeDetails?.kind === 'account-avatar' ||
     // Payments MOVE FUNDS, native or foreign. A foreign send moves them on
@@ -1872,15 +1881,18 @@ async function requireAccountReadPermission(
   if (!hostWindow || hostWindow.isDestroyed()) {
     throw new Error('The app request does not belong to an active Home window.')
   }
+  // Never share a rating decision: Allow once must authorize exactly one
+  // request even if an app sends concurrent requests before consent.
+  const sharePendingDecision = !singleRequestOnly && !accountRatingSession
   let ownsPendingDecision = false
-  let decisionPromise = !singleRequestOnly
+  let decisionPromise = sharePendingDecision
     ? pendingSessionGrantDecisions.get(grantKey)
     : undefined
   if (!decisionPromise) {
     if (!isQdnViewVisible(context.windowId, context.tabId)) {
       throw new Error('Open this app tab to review the requested permission.')
     }
-    ownsPendingDecision = !singleRequestOnly
+    ownsPendingDecision = sharePendingDecision
     const requestId = randomUUID()
     decisionPromise = new Promise<PermissionDecision>((resolve) => {
       const timeout = setTimeout(() => {
@@ -2096,7 +2108,7 @@ async function requireAccountReadPermission(
                 writeKind: 'rating',
                 writeOperationLabel: writeDetails.operationLabel,
                 writeRouteLabel: writeDetails.routeLabel,
-                writeSingleRequestOnly: true,
+                writeSingleRequestOnly: singleRequestOnly,
                 writeTargetChainLabel: writeDetails.targetChainLabel,
               }
           : writeDetails?.kind === 'account-avatar'
@@ -2151,7 +2163,7 @@ async function requireAccountReadPermission(
             : {}),
       })
     })
-    if (!singleRequestOnly) pendingSessionGrantDecisions.set(grantKey, decisionPromise)
+    if (sharePendingDecision) pendingSessionGrantDecisions.set(grantKey, decisionPromise)
   }
   let decision: PermissionDecision
   try {
@@ -2160,6 +2172,9 @@ async function requireAccountReadPermission(
     if (ownsPendingDecision) pendingSessionGrantDecisions.delete(grantKey)
   }
   if (!decision.approved) throw new Error('Account access was denied.')
+  if (accountRatingSession && decision.scope !== 'single-request' && decision.scope !== 'session') {
+    throw new Error('Account ratings require a single-request or session approval.')
+  }
   const freshContext = getQdnViewContextForWebContents(sender)
   if (
     !freshContext ||
@@ -2179,6 +2194,7 @@ async function requireAccountReadPermission(
       throw new Error('Account access node route changed before approval completed.')
     }
   }
+  if (!ratingConsentCurrent()) throw new Error('The rating session changed before approval completed.')
   // A durable grant must never fail the action the user just approved, and must
   // never be BELIEVED unless it actually stuck. Two distinct failure modes:
   //   - the write throws (an app key the capability store refuses outright,
@@ -2309,7 +2325,7 @@ async function requireAccountReadPermission(
   }
   if (!singleRequestOnly && (decision.scope === 'session' || decision.scope === 'always')) {
     sessionAccountReadGrants.add(grantKey, {
-      family: homeV2PermissionGrantFamily(action),
+      family: homeV2PermissionGrantFamily(action, writeDetails?.kind),
       hostWebContentsId: context.windowId,
       network: targetNetwork,
       tabId: context.tabId,

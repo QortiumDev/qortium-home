@@ -1,3 +1,4 @@
+import { homeV2RatingPermissionScopes, homeV2RatingPermissionSummary, homeV2RatingPermissionScopeDetail } from '../../electron/home-v2-rating-permissions'
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import { Capacitor } from '@capacitor/core'
 import { reduceTabNavigation, tabDestination, tabHistory, nativeHistoryIndex } from './tab-navigation'
@@ -4064,8 +4065,8 @@ export function HomeV2LiveApp() {
             !isEncryptDetailRows(value.encryptDetails) ||
             value.writeOperationLabel !== HOME_V2_ENCRYPT_DATA_OPERATION_LABEL ||
             value.writeSingleRequestOnly !== false))
-        // Rating writes sign chain transactions: fully specified
-        // single-request, protocol/chain-pinned, caption-pinned (each action
+        // Rating writes: protocol/chain-pinned, account-session or
+        // resource-single-request, caption-pinned (each action
         // has exactly two legitimate captions — rate and remove), exact
         // per-action row sequence.
         || (isHomeV2RatingAction(value.action) &&
@@ -4077,7 +4078,7 @@ export function HomeV2LiveApp() {
               value.writeOperationLabel !== homeV2RatingOperationLabel(value.action, true)) ||
             typeof value.writeRouteLabel !== 'string' ||
             value.writeTargetChainLabel !== 'Qortium' ||
-            value.writeSingleRequestOnly !== true))
+            value.writeSingleRequestOnly !== (value.action !== 'RATE_ACCOUNT')))
         // Name writes sign chain transactions and BUY_NAME pays: prompts
         // must arrive fully specified single-request, protocol/chain-pinned,
         // caption-pinned, with exactly the per-action row sequence.
@@ -4433,7 +4434,7 @@ export function HomeV2LiveApp() {
           : isAccountAvatar
           ? `${appTitle} wants to sign and broadcast one transaction that changes the selected account's public avatar pointer on the Qortium chain. The avatar image itself is a separate published QDN resource — this signs only which resource the account points at. It costs no fee \u2014 Home pays for it with proof-of-work on this device; this approval covers this one transaction only.`
           : isRatingWrite
-          ? `${appTitle} wants to sign and broadcast one rating transaction from the selected account. Ratings are public on the Qortium chain and attributed to this account. It costs no fee \u2014 Home pays for it with proof-of-work on this device. Everything it does is shown below, exactly as it will be signed; this approval covers this one transaction only.`
+          ? homeV2RatingPermissionSummary(appTitle, value.action)
           : isNameWrite
           ? value.action === 'BUY_NAME'
             ? `${appTitle} wants to buy a name with the selected account. Approving PAYS the amount shown below from this account to the seller — the transaction fee is zero, but the payment is real. Everything is shown exactly as it will be signed; this approval covers this one purchase only.`
@@ -4634,7 +4635,7 @@ export function HomeV2LiveApp() {
               ...(value.ratingDetails as readonly { label: string; value: string }[])
                 .map((detail) => ({ label: detail.label, value: detail.value })),
               { label: 'Chain', value: String(value.writeTargetChainLabel) },
-              { label: 'Scope', value: 'This one transaction only' },
+              { label: 'Scope', value: homeV2RatingPermissionScopeDetail(value.action) },
             ]
           : isNameWrite
           ? [
@@ -4860,7 +4861,9 @@ export function HomeV2LiveApp() {
             ? [homeV2AccountReadAlwaysAllowDetail(account?.label ?? accountId)]
             : []),
         ],
-        allowedScopes: isAtMessage
+        allowedScopes: isRatingWrite
+          ? homeV2RatingPermissionScopes(value.action)
+          : isAtMessage
           // Stated first and unconditionally, ahead of every other arm: one
           // approval signs exactly one transaction. This does not depend on
           // writeSingleRequestOnly reaching us intact, and the main process
@@ -6100,41 +6103,52 @@ export function HomeV2LiveApp() {
         const parsedApp = resolveAppIdentity()
         const appId = brand<AppId>(`home-v2:permission-app:${parsedApp.identityKey}`)
         const nodeRoute = `${nodeBefore.mode}|${nodeBefore.nodeApiUrl}`
-        const decision = await queueBoundPermissionPrompt(createPermissionPrompt({
-          id: brand<PermissionRequestId>(globalThis.crypto.randomUUID()),
-          protocol,
-          action,
-          capability: isRating ? 'rating.write' : 'account.avatar.write',
-          appId,
-          appIdentityKey: parsedApp.identityKey,
-          appTitle: parsedApp.title,
-          context: {
+        const accountRatingSession = action === 'RATE_ACCOUNT'
+        const grantKey = homeV2PermissionGrantKey({
+          accountId, accountUnlocked: true, action,
+          appIdentity: parsedApp.identityKey, nodeRoute, principalId: 'android',
+          protocol, tabId: context.tabId, writeKind: isRating ? 'rating' : 'account-avatar',
+        })
+        const heldRatingSession = accountRatingSession && androidSessionAccountGrants.current.has(grantKey)
+        let rememberRatingSession = false
+        if (!heldRatingSession) {
+          const decision = await queueBoundPermissionPrompt(createPermissionPrompt({
+            id: brand<PermissionRequestId>(globalThis.crypto.randomUUID()),
+            protocol,
+            action,
+            capability: isRating ? 'rating.write' : 'account.avatar.write',
             appId,
-            identityId: brand<IdentityId>(`home-v2:identity:${accountId}`),
-            nodeProfileRef: snapshot.nodes.qortium.ref,
-            tabId: brand<TabId>(context.tabId),
-            targetNetwork: 'qortium',
-            walletRef: brand<WalletRef>(`home-v2:wallet:${account.walletId}`),
-          },
-          title: `Allow ${operationLabel.toLowerCase()}?`,
-          summary: isRating
-            ? `${parsedApp.title} wants to sign and broadcast one rating transaction from the selected account. Ratings are public on the Qortium chain and attributed to this account. It costs no fee \u2014 Home pays for it with proof-of-work on this device. Everything it does is shown below, exactly as it will be signed; this approval covers this one transaction only.`
-            : `${parsedApp.title} wants to sign and broadcast one transaction that changes the selected account's public avatar pointer on the Qortium chain. The avatar image itself is a separate published QDN resource \u2014 this signs only which resource the account points at. It costs no fee \u2014 Home pays for it with proof-of-work on this device; this approval covers this one transaction only.`,
-          details: [
-            { label: 'Account', value: account.label },
-            { label: 'Operation', value: operationLabel },
-            ...androidSequencedDetails(
-              action,
-              isRating ? RATING_DETAIL_SEQUENCES[action] : ACCOUNT_AVATAR_DETAIL_SEQUENCE,
-              rows,
-            ),
-            { label: 'Chain', value: 'Qortium' },
-            { label: 'Scope', value: 'This one transaction only' },
-          ],
-          allowedScopes: ['single-request'],
-        }), context.tabId)
-        if (!decision.approved || decision.scope !== 'single-request') {
-          throw new Error(isRating ? 'The rating transaction was denied.' : 'The avatar transaction was denied.')
+            appIdentityKey: parsedApp.identityKey,
+            appTitle: parsedApp.title,
+            context: {
+              appId,
+              identityId: brand<IdentityId>(`home-v2:identity:${accountId}`),
+              nodeProfileRef: snapshot.nodes.qortium.ref,
+              tabId: brand<TabId>(context.tabId),
+              targetNetwork: 'qortium',
+              walletRef: brand<WalletRef>(`home-v2:wallet:${account.walletId}`),
+            },
+            title: `Allow ${operationLabel.toLowerCase()}?`,
+            summary: isRating
+              ? homeV2RatingPermissionSummary(parsedApp.title, action)
+              : `${parsedApp.title} wants to sign and broadcast one transaction that changes the selected account's public avatar pointer on the Qortium chain. The avatar image itself is a separate published QDN resource \u2014 this signs only which resource the account points at. It costs no fee \u2014 Home pays for it with proof-of-work on this device; this approval covers this one transaction only.`,
+            details: [
+              { label: 'Account', value: account.label },
+              { label: 'Operation', value: operationLabel },
+              ...androidSequencedDetails(
+                action,
+                isRating ? RATING_DETAIL_SEQUENCES[action] : ACCOUNT_AVATAR_DETAIL_SEQUENCE,
+                rows,
+              ),
+              { label: 'Chain', value: 'Qortium' },
+              { label: 'Scope', value: homeV2RatingPermissionScopeDetail(action) },
+            ],
+            allowedScopes: homeV2RatingPermissionScopes(action),
+          }), context.tabId)
+          if (!decision.approved || (decision.scope !== 'single-request' && !(accountRatingSession && decision.scope === 'session'))) {
+            throw new Error(isRating ? 'The rating transaction was denied.' : 'The avatar transaction was denied.')
+          }
+          rememberRatingSession = decision.scope === 'session'
         }
         const rateLimitDecision = androidChatSendRateLimiter.current.checkAndRecordSend(`${context.tabId}|${accountId}`)
         if (!rateLimitDecision.allowed) throw new Error(rateLimitDecision.message)
@@ -6151,6 +6165,12 @@ export function HomeV2LiveApp() {
         }
         if (!(await isStillValid())) throw new Error('The app, account, or node route changed before signing.')
         await assertNoPendingTransactionConflict()
+        if (rememberRatingSession) {
+          assertRequestCurrent()
+          androidSessionAccountGrants.current.add(grantKey, {
+            family: 'account.rating', hostWebContentsId: 'android', network: 'qortium', tabId: context.tabId,
+          })
+        }
         return retainUnknownTransaction(isRating
           ? await vaultClient!.signRatingWrite!({
               accountId,
