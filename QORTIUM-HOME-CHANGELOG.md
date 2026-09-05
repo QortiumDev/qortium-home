@@ -32,6 +32,15 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## fix(home2): align Dashboard transport controls with Settings
+
+The Dashboard now lets you select and apply a transport mode while Qortium
+Core runs, just as Settings does. Saving a live change offers a separate
+Restart Core button so you decide when it takes effect. Both surfaces use the
+same mode permissions and router readiness checks, and block changes while
+busy or showing stale status. The Dashboard also shows I2P router download
+and installation progress.
+
 ## fix(home2): keep app permissions reachable and restore the notification manager launcher
 
 QDN Apps settings now remain available when Qortium is disabled, including
