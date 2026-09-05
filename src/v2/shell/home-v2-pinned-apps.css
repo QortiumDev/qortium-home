@@ -99,7 +99,7 @@
 
 .home-v2-pinned-apps__card {
   position: relative;
-  width: 4.5rem;
+  width: 5.5rem;
   min-width: 0;
   transition: transform 180ms ease;
   touch-action: pan-y;
@@ -113,7 +113,8 @@
 .home-v2-pinned-apps__open {
   display: flex;
   width: 100%;
-  aspect-ratio: 1;
+  min-height: 7rem;
+  height: 100%;
   flex-direction: column;
   align-items: center;
   justify-content: center;
@@ -147,6 +148,7 @@
 }
 
 .home-v2-pinned-apps__icon {
+  flex-shrink: 0;
   display: grid;
   width: 38px;
   height: 38px;
@@ -163,6 +165,19 @@
   line-height: 1.2;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.home-v2-pinned-apps__account {
+  display: -webkit-box;
+  max-width: 100%;
+  min-height: 2.4em;
+  overflow: hidden;
+  color: var(--v2-muted);
+  font-size: var(--v2-type-small);
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .home-v2-pinned-apps__open:disabled,

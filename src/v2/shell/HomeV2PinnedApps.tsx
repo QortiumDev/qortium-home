@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useId,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -18,7 +19,9 @@ import { t } from "../../i18n";
 import { useMenuKeyboard } from "../../useMenuKeyboard";
 import type { HomeV2ContextMenuPresentationItem } from "./HomeV2ContextMenu";
 import { HomeV2AppIcon, getHomeV2AppIconTarget } from "./HomeV2AppIcon";
-import type { VisibleAppIconLoader } from "../contracts";
+import type { HomeV2AccountCatalogue, VisibleAppIconLoader } from "../contracts";
+import { getSavedAccountContext, shouldSaveAccountContext } from "../../accountContext";
+import { SAVED_GUEST_ACCOUNT_ID } from "../../bookmarkManagerContract";
 import "./home-v2-pinned-apps.css";
 
 export type HomeV2PinnedAppsStatus = "error" | "loading" | "ready";
@@ -31,6 +34,7 @@ export interface HomeV2PinnedAppsDraft {
 
 export interface HomeV2PinnedAppsProps {
   readonly pins: readonly DashboardPin[];
+  readonly accountCatalogue?: HomeV2AccountCatalogue;
   readonly status: HomeV2PinnedAppsStatus;
   readonly error?: string | null;
   readonly busy?: boolean;
@@ -63,7 +67,7 @@ export interface HomeV2PinnedAppsProps {
 
 const PIN_DRAG_START_MIN_DISTANCE_PX = 8;
 const PIN_LONG_PRESS_MS = 500;
-const PIN_TILE_REM = 4.5;
+const PIN_TILE_REM = 5.5;
 const PIN_GAP_PX = 10;
 
 type PinMenuState = {
@@ -111,6 +115,7 @@ function getBalancedColumnCount(
 
 export function HomeV2PinnedApps({
   pins,
+  accountCatalogue,
   status,
   error,
   busy = false,
@@ -127,6 +132,7 @@ export function HomeV2PinnedApps({
   onRetry,
   loadVisibleAppIcon,
 }: HomeV2PinnedAppsProps) {
+  const accountDescriptionId = useId();
   const [showAddForm, setShowAddForm] = useState(false);
   const [addAddress, setAddAddress] = useState("");
   const [addTitle, setAddTitle] = useState("");
@@ -633,8 +639,20 @@ export function HomeV2PinnedApps({
           onPointerCancel={handlePointerCancel}
           onLostPointerCapture={handlePointerCancel}
         >
-          {renderedPins.map((pin) => {
+          {renderedPins.map((pin, index) => {
             const display = getDashboardPinDisplay(pin);
+            // Attribution describes the saved binding, not the default account
+            // or its unlocked state. Never rewrite the pin passed to onOpen.
+            const accountId = getSavedAccountContext(pin.displayUrl, pin.accountId);
+            const accountLabel = !shouldSaveAccountContext(pin.displayUrl)
+              ? null
+              : accountId === SAVED_GUEST_ACCOUNT_ID
+                ? t("account.noAccount")
+                : accountId === null
+                  ? t("common.current")
+                  : accountCatalogue?.accounts.find((account) => account.id === accountId)?.label
+                    || t("home2.account.unavailableAccount");
+            const descriptionId = `${accountDescriptionId}-${index}`;
             const Icon = display.Icon;
             const appIconTarget = getHomeV2AppIconTarget(pin.displayUrl);
             return (
@@ -666,10 +684,11 @@ export function HomeV2PinnedApps({
                   className="home-v2-pinned-apps__open"
                   disabled={controlsDisabled}
                   aria-haspopup="menu"
+                  aria-describedby={accountLabel ? descriptionId : undefined}
                   aria-label={t("common.openItem", {
                     target: display.shortLabel,
                   })}
-                  title={t("common.openItem", { target: display.shortLabel })}
+                  title={[t("common.openItem", { target: display.shortLabel }), accountLabel].filter(Boolean).join(" — ")}
                   onClick={() => {
                     if (suppressedClickPinIdRef.current === pin.id) {
                       suppressedClickPinIdRef.current = null;
@@ -712,6 +731,11 @@ export function HomeV2PinnedApps({
                   <span className="home-v2-pinned-apps__copy">
                     {display.shortLabel}
                   </span>
+                  {accountLabel ? (
+                    <bdi id={descriptionId} className="home-v2-pinned-apps__account">
+                      {accountLabel}
+                    </bdi>
+                  ) : null}
                 </button>
               </li>
             );

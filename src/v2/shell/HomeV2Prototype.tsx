@@ -762,6 +762,7 @@ function Dashboard(props: DashboardProps) {
         {qortiumEnabled || visiblePins.length > 0 ? (
           <HomeV2PinnedApps
             {...pinnedApps}
+            accountCatalogue={props.accountCatalogue}
             allowAdd={qortiumEnabled}
             loadVisibleAppIcon={props.loadVisibleAppIcon}
             pins={visiblePins}

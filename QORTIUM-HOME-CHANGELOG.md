@@ -32,6 +32,16 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## feat(home2): show account attribution on Dashboard pins
+
+2026-09-05
+
+Dashboard app pins now show their saved account name, Current, No account, or
+Account unavailable when that account has been removed. Full labels are
+available in the tooltip and to screen readers. Account names update when
+renamed; opening pins works exactly as before. Home and Core links remain
+unlabelled because they do not carry an account binding.
+
 ## feat(home2): open app tabs with an explicit account
 
 2026-09-05
