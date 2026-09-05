@@ -527,7 +527,7 @@ function testProductModelKeepsSourceQualifiedTabs(): void {
     assert.equal(restored.destination, 'newtab')
     assert.ok(
       restored.entries.every(
-        (entry) => entry.kind === 'app' || entry.page !== ('welcome' as never),
+        (entry) => entry.kind !== 'internal' || entry.page !== ('welcome' as never),
       ),
       'transient pages must never restore as tabs',
     )
@@ -2748,7 +2748,7 @@ function collectV2SourceFiles(directory: string): string[] {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const sourcePath = `${directory}/${entry.name}`
     if (entry.isDirectory()) return collectV2SourceFiles(sourcePath)
-    if (!/\.(?:css|ts|tsx)$/.test(entry.name) || entry.name.endsWith('.test.tsx')) {
+    if (!/\.(?:css|ts|tsx)$/.test(entry.name) || /\.test\.tsx?$/.test(entry.name)) {
       return []
     }
     return [sourcePath]

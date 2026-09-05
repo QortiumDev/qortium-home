@@ -7,6 +7,7 @@ import type {
 import { parseAppResourceLocation } from './resource-location'
 import { sanitizeHomeV2AppTitle } from './app-frame-messages'
 import { validateCurrentAppLocation } from './current-app-location'
+import { parseViewerLocation } from './viewer-location'
 
 export type ShellDestination =
   | 'core-docs'
@@ -16,8 +17,9 @@ export type ShellDestination =
   | 'settings'
   | 'welcome'
   | 'tab'
+  | 'viewer'
 
-export type InternalPageId = Exclude<ShellDestination, 'tab'>
+export type InternalPageId = Exclude<ShellDestination, 'tab' | 'viewer'>
 
 /**
  * Pages that own unpersisted side state in the shell (the release target, the
@@ -55,6 +57,9 @@ export interface AppTab {
  */
 export type ShellEntry =
   | { readonly kind: 'internal'; readonly id: TabId; readonly page: TabPageId }
+  | { readonly kind: 'viewer'; readonly id: TabId; readonly title: string; readonly location: string;
+      /** Attribution for saves/chrome only; viewers have no app or wallet authority. */
+      readonly accountId: string | null }
   | {
       readonly kind: 'app'
       readonly id: TabId
@@ -78,6 +83,7 @@ export interface ProductState {
 }
 
 export type ProductAction =
+  | { readonly type: 'open-viewer'; readonly tabId: TabId; readonly location: string; readonly accountId: string | null }
   | {
       readonly type: 'open-app'
       readonly app: AppDescriptor
@@ -210,7 +216,7 @@ function freezeProductState(
       ),
     ),
     destination:
-      state.transient ?? (active.kind === 'internal' ? active.page : 'tab'),
+      state.transient ?? (active.kind === 'internal' ? active.page : active.kind === 'viewer' ? 'viewer' : 'tab'),
   })
 }
 
@@ -392,6 +398,15 @@ export function restoreProductState(
         const id = typeof candidate.id === 'string' ? candidate.id.trim() : ''
         if (!restorableTabPages.has(page) || !id || id.length > 80) continue
         pushEntry({ kind: 'internal', id: id as TabId, page: page as TabPageId })
+      } else if (candidate.kind === 'viewer') {
+        try {
+          const id = typeof candidate.id === 'string' ? candidate.id.trim() : ''
+          if (!id || id.length > 80 || typeof candidate.location !== 'string' ||
+              (candidate.accountId !== null && (typeof candidate.accountId !== 'string' || candidate.accountId.length > 400))) continue
+          const resource = parseViewerLocation(candidate.location)
+          pushEntry({ kind: 'viewer', id: id as TabId, location: resource.location,
+            title: resource.path?.split('/').at(-1) ?? resource.name, accountId: candidate.accountId as string | null })
+        } catch { /* Invalid public coordinates cannot be restored. */ }
       } else {
         pushEntry(parseAppEntry(candidate, previewTrust))
       }
@@ -471,6 +486,7 @@ function sameShellEntry(left: ShellEntry, right: ShellEntry): boolean {
   if (left.kind === 'internal' && right.kind === 'internal') {
     return left.page === right.page
   }
+  if (left.kind === 'viewer' && right.kind === 'viewer') return left.location === right.location && left.accountId === right.accountId
   return left.kind === 'app' && right.kind === 'app' &&
     contextsIdentifySameTab(left.context, right.context)
 }
@@ -786,6 +802,15 @@ export function reduceProductState(
   action: ProductAction,
 ): ProductState {
   switch (action.type) {
+    case 'open-viewer': {
+      const resource = parseViewerLocation(action.location)
+      if (state.entries.some(entry => entry.id === action.tabId)) throw new ProductModelError('TAB_ALREADY_EXISTS', 'Viewer tab already exists.')
+      return freezeProductState({ ...state, transient: null, activeTabId: action.tabId,
+        revision: state.revision + 1, entries: [...state.entries, {
+          kind: 'viewer', id: action.tabId, location: resource.location,
+          title: resource.path?.split('/').at(-1) ?? resource.name, accountId: action.accountId,
+        }] })
+    }
     case 'open-app':
       return openApp(state, action)
     case 'replace-tab-app':

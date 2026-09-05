@@ -54,7 +54,7 @@ export interface BrowserChromeProps {
     toIndex: number,
   ) => void
   readonly onNavigate?: (
-    destination: Exclude<ShellDestination, 'tab'>,
+    destination: Exclude<ShellDestination, 'tab' | 'viewer'>,
   ) => void
   readonly onOpenAddress?: (address: string) => Promise<AddressOpenResult>
   /**
@@ -153,6 +153,8 @@ function browserAddress(
   releaseNotesAddress?: string,
   coreDocsAddress?: string,
 ): string {
+  const viewer = productState.entries.find(entry => entry.id === productState.activeTabId && entry.kind === 'viewer')
+  if (viewer?.kind === 'viewer' && !productState.transient) return viewer.location
   const activeTab = productState.tabs.find(
     (tab) => tab.id === productState.activeTabId,
   )
@@ -186,7 +188,7 @@ function browserPageTitle(productState: ProductState): string {
     (entry) => entry.id === productState.activeTabId,
   )
   if (!activeEntry) return ''
-  return activeEntry.kind === 'app'
+  return activeEntry.kind !== 'internal'
     ? activeEntry.title
     : t(internalTabLabelKeys[activeEntry.page])
 }

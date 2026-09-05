@@ -1,5 +1,6 @@
 import { detectDocumentFormat } from '../../DocumentViewer'
 import type { HomeV2ResourceViewerState } from './HomeV2ResourceViewer'
+import { getQdnResourceStreamProxyMimeType } from '../../viewerLocation'
 
 export const HOME_V2_RETAINED_VIEWER_MAX_BYTES = 100 * 1024 * 1024
 
@@ -36,7 +37,7 @@ export async function readHomeV2RetainedViewerBytes(
 }
 
 export function classifyHomeV2ResourceViewer(resource: HomeV2ResourceViewerState) {
-  const mime = resource.mimeType?.split(';', 1)[0].trim().toLowerCase() ?? ''
+  const mime = resource.mimeType?.split(';', 1)[0].trim().toLowerCase() || getQdnResourceStreamProxyMimeType(resource) || ''
   const imageServices = new Set(['IMAGE', 'THUMBNAIL', 'QCHAT_IMAGE'])
   const audioServices = new Set(['AUDIO', 'VOICE', 'PODCAST'])
   const videoServices = new Set(['VIDEO'])

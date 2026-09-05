@@ -18,6 +18,9 @@ const base: HomeV2ResourceViewerState = {
 }
 
 assert.equal(classifyHomeV2ResourceViewer(base), 'document')
+assert.equal(classifyHomeV2ResourceViewer({ ...base, service: 'FILE', filename: 'photo.png' }), 'image')
+assert.equal(classifyHomeV2ResourceViewer({ ...base, service: 'FILE', filename: 'clip.mp4' }), 'video')
+assert.equal(classifyHomeV2ResourceViewer({ ...base, service: 'FILE', filename: 'untrusted.svg' }), 'download')
 assert.equal(
   classifyHomeV2ResourceViewer({ ...base, filename: 'bundle.zip' }),
   'archive',

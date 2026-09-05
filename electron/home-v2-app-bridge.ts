@@ -11672,23 +11672,14 @@ async function handleRequestWithRuntime(
     if (!hostWindow || hostWindow.isDestroyed()) {
       throw new Error('The resource viewer request does not belong to an active Home window.')
     }
-    const resolved = await resolveHomeV2ResourceUrl(network, requestValue, context)
-    const streamUrl = issueHomeV2ResourceStream({
-      context,
-      mimeType: getQdnResourceStreamProxyMimeType(resource),
-      network,
-      node: resolved.node,
-      protocol,
-      routeRevision: hostInfo.route.revision,
-      sender,
-      targetSession: hostWindow.webContents.session,
-      upstreamUrl: resolved.url,
-    })
+    await resolveHomeV2ResourceUrl(network, requestValue, context)
+    const fresh = getQdnViewContextForWebContents(sender)
+    if (!fresh || !sameViewContext(context, fresh)) throw new Error('The requesting app changed before the resource opened.')
     hostWindow.webContents.send('home-v2-app:open-resource-viewer', {
       ...resource,
+      publicResource: true,
       network,
       sourceTabId: context.tabId,
-      streamUrl,
     })
     return true
   }

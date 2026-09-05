@@ -6,6 +6,11 @@ import { tabDestination, type NavigationState } from './tab-navigation'
 
 export type ClosedTab = ClosedAppTab | {
   readonly sourceTabId: TabId
+  readonly kind: 'viewer'
+  readonly location: string
+  readonly accountId: string | null
+} | {
+  readonly sourceTabId: TabId
   readonly page: TabPageId
   readonly section?: HomeV2SettingsSectionId
 }
@@ -15,6 +20,8 @@ export function rememberClosedTab(history: readonly ClosedTab[], state: Navigati
   if (history.some(entry => entry.sourceTabId === id)) return [...history]
   const entry = state.entries.find(candidate => candidate.id === id)
   if (!entry) return [...history]
+  if (entry.kind === 'viewer') return [...history, { kind: 'viewer' as const, sourceTabId: id,
+    location: entry.location, accountId: entry.accountId }].slice(-10)
   if (entry.kind === 'app') {
     return [...history, ...rememberClosedAppTab([], entry)].slice(-10)
   }

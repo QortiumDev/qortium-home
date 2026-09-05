@@ -248,6 +248,7 @@ type ViewerState =
 // ----- Main component -----
 
 type DocumentViewerProps = {
+  presentation?: 'dialog' | 'tab';
   /** In-memory bytes to render instead of fetching from the node (archive entry). */
   bytes?: Uint8Array;
   displaySettings: QdnDisplaySettings;
@@ -268,6 +269,7 @@ type DocumentViewerProps = {
 };
 
 export function DocumentViewer({
+  presentation = 'dialog',
   bytes: providedBytes,
   loadBytes,
   knownFilename,
@@ -514,7 +516,7 @@ export function DocumentViewer({
       aria-label={t('docViewer.dialogLabel')}
       className="doc-viewer-dialog"
       ref={viewerRef}
-      role="dialog"
+      role={presentation === 'tab' ? 'region' : 'dialog'}
     >
       <header className="doc-viewer__toolbar">
         <div className="doc-viewer__toolbar-left">
