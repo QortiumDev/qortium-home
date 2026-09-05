@@ -32,6 +32,7 @@ import type { HomeV2AppUpdates } from '../../home-v2-live/app-update-controller'
 import type { HomeV2MaintenanceControllers } from '../../home-v2-live/maintenance-controllers'
 import type { HomeV2QdnSettingsManagement } from '../../home-v2-live/qdn-settings-client'
 import { QdnAppsSettings } from './QdnAppsSettings'
+import type { AddressOpenResult } from './BrowserChrome'
 import type { HomeV2NotificationPolicyState } from '../../home-v2-live/notification-policy-client'
 import type {
   HomeV2WindowBehaviorChange,
@@ -105,6 +106,7 @@ export interface SettingsPageProps extends AppearanceSettingsPageProps {
   readonly appUpdates?: HomeV2AppUpdates
   readonly onChainCoreUpdates?: HomeV2OnChainCoreUpdates
   readonly qdnAppsManagement?: HomeV2QdnSettingsManagement
+  readonly onOpenAddress?: (address: string) => Promise<AddressOpenResult>
   // Names the account a durable QDN app grant is bound to.
   readonly resolveAccountLabel?: (accountId: string) => string | null
   readonly notificationPolicy?: HomeV2NotificationPolicyState | null
@@ -547,8 +549,9 @@ export function SettingsPage(props: SettingsPageProps) {
     networkCoreAvailable ||
     !!props.appUpdates?.available ||
     (qortiumEnabled && !!props.onChainCoreUpdates?.available)
+  // These controls manage local grants, including Qortal grants and grants for
+  // temporarily disabled networks. Revocation must remain available offline.
   const qdnAppsAvailable =
-    qortiumEnabled &&
     !!props.qdnAppsManagement?.available &&
     !!props.qdnAppsManagement.client
   const accountAvailable = props.account.state !== 'none'
@@ -705,6 +708,7 @@ export function SettingsPage(props: SettingsPageProps) {
             props.qdnAppsManagement.client ? (
             <QdnAppsSettings
               client={props.qdnAppsManagement.client}
+              onOpenAddress={props.onOpenAddress}
               loadVisibleAppIcon={props.loadVisibleAppIcon}
               resolveAccountLabel={props.resolveAccountLabel}
             />

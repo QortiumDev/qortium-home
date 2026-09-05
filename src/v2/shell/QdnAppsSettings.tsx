@@ -20,9 +20,11 @@ import {
 import { t } from '../../i18n'
 import type { VisibleAppIconLoader } from '../contracts'
 import { HomeV2AppIcon } from './HomeV2AppIcon'
+import type { AddressOpenResult } from './BrowserChrome'
 
 type QdnAppsSettingsProps = Readonly<{
   client: HomeV2QdnSettingsClient
+  onOpenAddress?: (address: string) => Promise<AddressOpenResult>
   loadVisibleAppIcon?: VisibleAppIconLoader
   /**
    * Resolves the display label for an account a durable grant is bound to.
@@ -403,6 +405,7 @@ function BookmarkGrantCard<Grant extends HomeV2QdnBookmarkGrant>({
 
 export function QdnAppsSettings({
   client,
+  onOpenAddress,
   loadVisibleAppIcon,
   resolveAccountLabel,
 }: QdnAppsSettingsProps) {
@@ -413,6 +416,30 @@ export function QdnAppsSettings({
   const [stale, setStale] = useState(false)
   const requestId = useRef(0)
   const snapshotRef = useRef<HomeV2QdnSettingsState | null>(null)
+  const openingManager = useRef(false)
+  const [managerBusy, setManagerBusy] = useState(false)
+  const [managerError, setManagerError] = useState<string | null>(null)
+
+  const openNotificationsManager = async () => {
+    if (!onOpenAddress || openingManager.current) return
+    openingManager.current = true
+    setManagerBusy(true)
+    setManagerError(null)
+    try {
+      // Another Settings tab or manager may have changed the assignment since
+      // this panel rendered. Resolve the persisted choice at click time.
+      const current = await client.get()
+      const url = current.assignments.assignments.notifications?.url
+      if (!url) throw new Error(t('qdnApps.invalidAddress'))
+      const result = await onOpenAddress(normalizeHomeV2QdnAssignmentUrl(url))
+      if (result.status !== 'opened') setManagerError(result.message)
+    } catch (reason) {
+      setManagerError(reason instanceof Error ? reason.message : t('common.error'))
+    } finally {
+      openingManager.current = false
+      setManagerBusy(false)
+    }
+  }
 
   const refresh = useCallback(async () => {
     const currentRequest = ++requestId.current
@@ -651,6 +678,17 @@ export function QdnAppsSettings({
               onSave={saveAssignment}
             />
           ))}
+          {onOpenAddress ? (
+            <button
+              className="home-v2-secondary-button"
+              disabled={actionsDisabled || busy !== null || managerBusy}
+              type="button"
+              onClick={() => void openNotificationsManager()}
+            >
+              {t('qdnApps.openNotificationsManager')}
+            </button>
+          ) : null}
+          {managerError ? <p role="alert">{managerError}</p> : null}
         </div>
       ) : null}
 
