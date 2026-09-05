@@ -82,7 +82,7 @@ export interface BrowserChromeProps {
   readonly loadVisibleAppIcon?: VisibleAppIconLoader
   readonly bookmarkToolbar?: Omit<
     HomeV2BookmarkToolbarProps,
-    'isDashboardRoute'
+    'isDashboardRoute' | 'onOpenChange'
   >
   /** Saves or removes the address currently shown in the address bar. */
   readonly onToggleCurrentBookmark?: (draft: {
@@ -682,6 +682,7 @@ export function BrowserChrome({
       {bookmarkToolbar ? (
         <HomeV2BookmarkToolbar
           {...bookmarkToolbar}
+          onOpenChange={(open) => setOverlayOpen('bookmark-toolbar', open)}
           keepEmptyStrip={!!onDropTabOnBookmarkToolbar}
           isDashboardRoute={
             productState.destination === 'dashboard' ||

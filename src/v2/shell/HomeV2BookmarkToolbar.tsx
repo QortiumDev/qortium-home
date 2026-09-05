@@ -57,6 +57,8 @@ export interface HomeV2BookmarkToolbarProps {
   readonly onOpen: (link: BookmarkManagerLink) => void | Promise<void>
   /** Surfaces toolbar open/context-action failures (they have no inline alert). */
   readonly onActionError?: (message: string) => void
+  /** Reports visible popups so the chrome can suspend the native app view. */
+  readonly onOpenChange?: (open: boolean) => void
   readonly snapshot: BookmarkManagerSnapshot | null
 }
 
@@ -350,6 +352,7 @@ export function HomeV2BookmarkToolbar({
   onOpen,
   onActionError,
   keepEmptyStrip,
+  onOpenChange,
   snapshot,
 }: HomeV2BookmarkToolbarProps) {
   const [menu, setMenu] = useState<ToolbarMenu>(null)
@@ -364,6 +367,18 @@ export function HomeV2BookmarkToolbar({
   const menuItems = menu && getContextMenuItems
     ? getContextMenuItems(menu.link)
     : []
+  const popupOpen = visible && (!!folderMenu || (!!menu && menuItems.length > 0))
+  const onOpenChangeRef = useRef(onOpenChange)
+  useEffect(() => {
+    onOpenChangeRef.current = onOpenChange
+  }, [onOpenChange])
+  useEffect(() => {
+    onOpenChangeRef.current?.(popupOpen)
+    // Hiding/removing the toolbar must not leave the native page suspended.
+    return () => {
+      if (popupOpen) onOpenChangeRef.current?.(false)
+    }
+  }, [popupOpen])
 
   useEffect(() => {
     if (visible) return

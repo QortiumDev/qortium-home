@@ -113,6 +113,21 @@ try {
   const forward = '.home-v2-browser-controls button[aria-label="Forward"]'
   const reload = '.home-v2-browser-controls button[aria-label="Reload"]'
   await until('Settings restoration', async () => await currentTab() === 'settings')
+  // Seed only this disposable profile. Toolbar menus must obscure a real native
+  // app, not merely appear in renderer DOM above an internal Settings page.
+  await cdp.evaluate(`(() => {
+    const key = 'qortium-home-bookmark-manager-snapshot'
+    const snapshot = JSON.parse(localStorage.getItem(key))
+    const link = { type: 'bookmark', id: 'overlay-link', title: 'Overlay fixture',
+      displayUrl: 'qortal://APP/NavigationAlpha/published/one', accountId: null, createdAt: 1 }
+    snapshot.toolbar = [link, { type: 'folder', id: 'overlay-folder', title: 'Overlay folder',
+      createdAt: 1, children: [{ ...link, id: 'overlay-child' }] }]
+    snapshot.toolbarVisibility = 'always'
+    snapshot.revision++
+    localStorage.setItem(key, JSON.stringify(snapshot))
+  })()`)
+  await cdp.send('Page.reload', { ignoreCache: true })
+  await until('Toolbar fixture restored', () => cdp.evaluate(`!!document.querySelector('[data-bookmark-id="overlay-link"]')`))
   // Settings uses a section navigation, distinct from the browser tab strip.
   async function settingsButton(label) {
     const selector = await cdp.evaluate(`(() => {
@@ -169,6 +184,34 @@ try {
   await open(`${alpha}one`)
   let app = await attach('NavigationAlpha', 'one')
   const appTab = await currentTab(), tabs = await countTabs()
+  await until('Native view visible before popup', () => app.evaluate(`document.visibilityState === 'visible'`))
+  await app.evaluate(`window.__bookmarkOverlayMarker = 'same-document'`)
+  async function pointer(selector, button = '1') {
+    const point = await cdp.box(selector)
+    assert.ok(point, `Missing native pointer target ${selector}`)
+    nativeInput(['windowactivate', '--sync', nativeWindows[0]])
+    nativeInput(['mousemove', '--window', nativeWindows[0], String(Math.round(point.x)), String(Math.round(point.y))])
+    nativeInput(['click', button])
+  }
+  const toolbarContext = '.home-v2-bookmark-toolbar__context-menu'
+  await pointer('[data-bookmark-id="overlay-link"]', '3')
+  await until('Toolbar context menu shown', () => cdp.evaluate(`!!document.querySelector(${JSON.stringify(toolbarContext)})`))
+  await until('Native app hidden under toolbar context menu', () => app.evaluate(`document.visibilityState === 'hidden'`))
+  const menuScreenshot = await cdp.send('Page.captureScreenshot', { format: 'png' })
+  writeFileSync(path.join(profile, 'bookmark-context.png'), Buffer.from(menuScreenshot.data, 'base64'))
+  shortcut('Escape')
+  await until('App restored after context Escape', () => app.evaluate(`document.visibilityState === 'visible'`))
+  await pointer('[data-bookmark-folder-id="overlay-folder"]')
+  await until('App hidden under folder popup', () => app.evaluate(`document.visibilityState === 'hidden'`))
+  // Replacing a folder popup with its child's context popup must retain the
+  // suspension until the last popup is dismissed.
+  await pointer('[data-bookmark-id="overlay-child"]', '3')
+  await until('Folder child context menu', () => cdp.evaluate(`!!document.querySelector(${JSON.stringify(toolbarContext)}) && !document.querySelector('.home-v2-bookmark-toolbar__folder-menu')`))
+  assert.equal(await app.evaluate('document.visibilityState'), 'hidden')
+  await pointer('.home-v2-address input')
+  await until('Outside pointer restores app', () => app.evaluate(`document.visibilityState === 'visible'`))
+  assert.equal(await app.evaluate('window.__bookmarkOverlayMarker'), 'same-document')
+  log('Native-pointer bookmark context/folder popup suspension and restoration passed')
   await app.evaluate(`history.pushState({}, '', 'two?room=7#message')`)
   await until('Alpha deep URL', async () => await address() === `${alpha}two?room=7#message`)
   await app.evaluate(`window.__navigationMarker = 'kept'; history.pushState({}, '', 'three')`)
@@ -232,7 +275,7 @@ try {
   const screenshot = await cdp.send('Page.captureScreenshot', { format: 'png' })
   writeFileSync(path.join(profile, 'navigation.png'), Buffer.from(screenshot.data, 'base64'))
   writeFileSync(path.join(profile, 'acceptance.json'), JSON.stringify({ passed: true, appTab, tabs,
-    checks: ['Settings history', 'tab isolation', 'native traversal preserves document', 'cross-app deep URL traversal', 'transient address and reload isolation', 'internal status refresh', 'native keyboard internal/mixed reopen'] }, null, 2))
+    checks: ['Settings history', 'tab isolation', 'bookmark context/folder native overlay and dismissal', 'native traversal preserves document', 'cross-app deep URL traversal', 'transient address and reload isolation', 'internal status refresh', 'native keyboard internal/mixed reopen'] }, null, 2))
   log(`PASS — receipt ${profile}/acceptance.json`)
 } catch (error) {
   if (home) {

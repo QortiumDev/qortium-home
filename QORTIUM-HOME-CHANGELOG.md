@@ -32,6 +32,14 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## fix(home2): keep bookmark toolbar menus above apps
+
+2026-09-05
+
+Right-click menus and folder popups in the bookmarks toolbar now stay visible
+above open apps, like the tab and account menus. Closing a popup, hiding the
+toolbar or removing it restores the app without leaving it frozen.
+
 ## fix(home2): keep navigation history scoped to each tab
 
 2026-09-05

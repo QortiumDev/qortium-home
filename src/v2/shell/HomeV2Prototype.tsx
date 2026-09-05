@@ -156,7 +156,7 @@ export interface HomeV2PrototypeProps {
   readonly pinnedApps?: HomeV2PinnedAppsProps
   readonly bookmarkToolbar?: Omit<
     HomeV2BookmarkToolbarProps,
-    'isDashboardRoute'
+    'isDashboardRoute' | 'onOpenChange'
   >
   readonly bookmarkToolbarVisibility?: BookmarkToolbarVisibility
   readonly onToggleCurrentBookmark?: (draft: {
