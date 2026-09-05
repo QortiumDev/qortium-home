@@ -126,6 +126,10 @@ export async function spoolHomeV2PreviewArchive(
     for (const entry of entries) {
       if (overflow || failure) break
       const member = new ZipDeflate(entry.relative, { level: 6 })
+      // ZIP encodes local calendar fields, not a UTC instant. Pin those
+      // fields to the ZIP epoch so identical content hashes identically
+      // across clocks/time zones; an unset mtime defaults to the current time.
+      member.mtime = new Date(1980, 0, 1, 0, 0, 0)
       zip.add(member)
       await new Promise<void>((resolve, reject) => {
         const stream = createReadStream(entry.absolute)
