@@ -36,14 +36,30 @@ try {
   // Deflated, not stored: the wire cost of a preview to a remote node matters.
   assert.ok(size < 50_000, 'the archive must be compressed')
 
-  // The same tree twice gives the same bytes, so Core's content hash -- and
-  // therefore the /render/hash URL -- is stable across runs.
-  const againPath = nodePath.join(out, 'again.zip')
-  await spoolHomeV2PreviewArchive(root, againPath)
-  assert.deepEqual(
-    Array.from(readFileSync(againPath)),
-    Array.from(readFileSync(archivePath)),
-  )
+  // The same tree gives the same bytes across clocks AND time zones, so
+  // Core's content hash stays stable. Two back-to-back real-clock calls can
+  // accidentally pass because ZIP timestamps have two-second resolution.
+  const originalNow = Date.now
+  const originalTimeZone = process.env.TZ
+  try {
+    for (const [index, timeZone] of ['UTC', 'America/New_York', 'Pacific/Kiritimati'].entries()) {
+      process.env.TZ = timeZone
+      // Deliberately different days/years: never depend on a sleep landing
+      // across a wall-clock boundary to exercise the regression.
+      Date.now = () => Date.UTC(2030 + index, 5, 15, 12, 34, 56)
+      const againPath = nodePath.join(out, `again-${index}.zip`)
+      await spoolHomeV2PreviewArchive(root, againPath)
+      assert.deepEqual(
+        readFileSync(againPath),
+        readFileSync(archivePath),
+        `identical preview bytes under ${timeZone} and a changed clock`,
+      )
+    }
+  } finally {
+    Date.now = originalNow
+    if (originalTimeZone === undefined) delete process.env.TZ
+    else process.env.TZ = originalTimeZone
+  }
 
   // The wire BOUND. A tree whose archive would exceed the cap is refused with
   // the fixed, path-free sentence rather than being written out whole -- and

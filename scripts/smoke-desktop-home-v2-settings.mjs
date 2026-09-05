@@ -785,7 +785,7 @@ try {
           const qdnApps = [...document.querySelectorAll('.home-v2-settings-nav button')]
             .some((button) => button.textContent.trim() === 'QDN Apps');
           return document.querySelector('input[aria-label="Qortium connection mode"]')?.checked === false &&
-            !qdnApps;
+            qdnApps;
         })()`,
       ),
     )
@@ -804,6 +804,19 @@ try {
     // so a local node's key is still written here in the clear. Whether that is
     // intended is a question for the report, not something to encode either way.
     assert.equal(disabledQortiumSettings.apiKey, '')
+    await evaluate(
+      client,
+      `([...document.querySelectorAll('.home-v2-settings-nav button')]
+        .find((button) => button.textContent.trim() === 'QDN Apps')).click()`,
+    )
+    await waitUntil('local permission controls with Qortium disabled', () =>
+      evaluate(client, `(() => {
+        const panel = document.querySelector('[data-home-v2-qdn-settings="ready"]');
+        return Boolean(panel?.querySelector('[data-qdn-notification-empty="true"]')) &&
+          [...panel.querySelectorAll('button')].some((button) =>
+            button.textContent.trim() === 'Open Notifications Manager' && !button.disabled);
+      })()`),
+    )
     await evaluate(
       client,
       `([...document.querySelectorAll('.home-v2-settings-nav button')]

@@ -41,6 +41,20 @@ same mode permissions and router readiness checks, and block changes while
 busy or showing stale status. The Dashboard also shows I2P router download
 and installation progress.
 
+## fix(home2): keep app permissions reachable and restore the notification manager launcher
+
+QDN Apps settings now remain available when Qortium is disabled, including
+Qortal-only and offline profiles, so saved permissions can always be inspected
+and revoked. The Notifications Manager has an Open button again; it opens the
+currently saved app assignment and reports launch failures in Settings.
+
+## fix(home2): keep preview archive hashes stable across clocks and time zones
+
+Previewing the same folder now produces the same archive bytes even when the
+clock or time zone changes. ZIP entries use a fixed timestamp, so an unchanged
+preview no longer gets a different content hash merely because time passed.
+File contents, compression, upload limits and cleanup behavior are unchanged.
+
 ## fix(home2): apps can go fullscreen, and Home says so while they are
 
 Apps opened in Home could not go fullscreen. A video player, a game or a

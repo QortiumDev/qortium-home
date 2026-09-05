@@ -125,8 +125,13 @@ const bookmarkRevokeRequests: unknown[] = []
 let subscriptionListener: (() => void) | null = null
 let releaseRead: (() => void) | null = null
 let blockNextRead = false
+let failNextRead = false
 const adapter: HomeV2QdnSettingsAdapter = {
   async get() {
+    if (failNextRead) {
+      failNextRead = false
+      throw new Error('Settings unavailable')
+    }
     if (blockNextRead) {
       blockNextRead = false
       await new Promise<void>((resolve) => { releaseRead = resolve })
@@ -709,6 +714,11 @@ assert.equal(
 )
 
 const networkModeRequests: Array<readonly [string, string]> = []
+const managerOpenRequests: string[] = []
+let rejectManagerOpen = false
+let chooseManagerIdentifier = false
+state = initialState()
+state.accountRead.apps[0].appKey = 'qortal://APP/Chat/Chat'
 await act(async () => {
   root.render(
     <SettingsPage
@@ -728,6 +738,16 @@ await act(async () => {
       newTabPreference={{ kind: 'search' }}
       qdnAppsManagement={{ available: true, client }}
       requestedSection="qdn-apps"
+      onOpenAddress={async (address) => {
+        managerOpenRequests.push(address)
+        if (chooseManagerIdentifier) return {
+          status: 'choose', message: 'Choose an identifier.',
+          options: [{ address: 'qdn://APP/MyNotify/custom', label: 'Custom notification manager' }],
+        }
+        return rejectManagerOpen
+          ? { status: 'error', message: 'The selected network is disabled.' }
+          : { status: 'opened' }
+      }}
       onSetNodeMode={async (network, mode) => {
         networkModeRequests.push([network, mode])
       }}
@@ -735,13 +755,76 @@ await act(async () => {
   )
   await settle()
 })
-assert.equal(button('General').getAttribute('aria-current'), 'page')
+assert.equal(button('QDN Apps').getAttribute('aria-current'), 'page')
 assert.equal(
   [...container.querySelectorAll('nav button')].some(
     (candidate) => candidate.textContent?.trim() === 'QDN Apps',
   ),
-  false,
+  true,
 )
+const qortalReadCard = container.querySelector('[data-qdn-account-read-grant]') as HTMLElement
+assert.ok(qortalReadCard)
+assert.equal(qortalReadCard.getAttribute('data-qdn-account-read-grant'), 'qortal://APP/Chat/Chat')
+const revokeCount = bookmarkRevokeRequests.length
+await act(async () => button('Revoke', qortalReadCard).click())
+assert.equal(bookmarkRevokeRequests.length, revokeCount)
+await act(async () => {
+  button('Revoke', qortalReadCard.querySelector('[data-qdn-account-read-revoke-confirm]')!).click()
+  await settle()
+})
+assert.deepEqual(bookmarkRevokeRequests.at(-1), {
+  accountId: 'wallet:QAAA',
+  appKey: 'qortal://APP/Chat/Chat',
+  capability: 'account.read',
+  expectedAssignmentRevision: 3,
+})
+assert.equal(container.querySelector('[data-qdn-account-read-grant]'), null)
+
+// Re-read the persisted manager assignment on click, not the stale panel or
+// an unsaved URL edit. Double clicks while resolution is pending open one tab.
+state.assignments.assignments.notifications.url = 'qdn://APP/MyNotify/default'
+blockNextRead = true
+await act(async () => {
+  const launcher = button('Open Notifications Manager')
+  launcher.click()
+  launcher.click()
+  await settle()
+})
+assert.equal(managerOpenRequests.length, 0)
+assert.equal(button('Open Notifications Manager').disabled, true)
+await act(async () => {
+  releaseRead?.()
+  await settle()
+})
+assert.deepEqual(managerOpenRequests, ['qdn://APP/MyNotify/default'])
+chooseManagerIdentifier = true
+await act(async () => {
+  button('Open Notifications Manager').click()
+  await settle()
+})
+chooseManagerIdentifier = false
+await act(async () => {
+  button('Custom notification manager').click()
+  await settle()
+})
+assert.equal(managerOpenRequests.at(-1), 'qdn://APP/MyNotify/custom')
+rejectManagerOpen = true
+await act(async () => {
+  button('Open Notifications Manager').click()
+  await settle()
+})
+assert.ok([...container.querySelectorAll('[role="alert"]')]
+  .some((element) => element.textContent === 'The selected network is disabled.'))
+const openCount = managerOpenRequests.length
+failNextRead = true
+await act(async () => {
+  button('Open Notifications Manager').click()
+  await settle()
+})
+assert.equal(managerOpenRequests.length, openCount, 'failed settings lookup must not open a fallback app')
+assert.ok([...container.querySelectorAll('[role="alert"]')]
+  .some((element) => element.textContent === 'Settings unavailable'))
+await act(async () => button('General').click())
 const qortiumSwitch = container.querySelector(
   'input[aria-label="Qortium connection mode"]',
 ) as HTMLInputElement
@@ -762,6 +845,26 @@ assert.deepEqual(networkModeRequests, [
   ['qortium', 'public'],
   ['qortal', 'disabled'],
 ])
+
+// Even with both networks disabled, local permission inspection is available.
+await act(async () => {
+  root.render(
+    <SettingsPage
+      key="offline-permissions"
+      account={{ lockOnExit: true, manuallyLocked: false, rememberUnlock: false,
+        secureStorageAvailable: true, selectedIdentityId: null, state: 'none' }}
+      appearance={defaultHomeV2Appearance}
+      nodes={{ qortium: { lastEnabledMode: 'public', mode: 'disabled' },
+        qortal: { lastEnabledMode: 'public', mode: 'disabled' } }}
+      newTabPreference={{ kind: 'search' }}
+      qdnAppsManagement={{ available: true, client }}
+      requestedSection="notifications"
+    />,
+  )
+  await settle()
+})
+assert.equal(button('QDN Apps').getAttribute('aria-current'), 'page')
+assert.ok(container.querySelector('[data-home-v2-qdn-settings="ready"]'))
 
 await act(async () => root.unmount())
 container.remove()
