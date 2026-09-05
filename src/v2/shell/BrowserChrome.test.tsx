@@ -648,6 +648,14 @@ try {
         })}
         onToggleCurrentBookmark={() => undefined}
         onOverlayOpenChange={(open) => overlayCalls.push(open)}
+        bookmarkToolbar={{
+          snapshot: { activeAccountId: null, availableAccounts: [], bookmarks: [],
+            dashboardPins: [], revision: 1, schemaVersion: 1, startPages: [],
+            toolbarVisibility: 'always', toolbar: [{ type: 'bookmark', id: 'overlay-link',
+              accountId: null, createdAt: 1, title: 'Overlay fixture', displayUrl: 'qdn://APP/Fixture' }] },
+          onOpen: () => undefined,
+          getContextMenuItems: () => [{ action: 'resource.copy-address', group: 'copy', label: 'Copy' }],
+        }}
       />,
     )
     await Promise.resolve()
@@ -705,6 +713,18 @@ try {
     )
     assert.ok(overlayCalls.length > before)
   }
+
+  // Bookmark toolbar popups must join the SAME registry as other menus.
+  // Closing a node popup must not resume the app behind a still-open bookmark.
+  act(() => overlayTrigger('[data-bookmark-id="overlay-link"]').dispatchEvent(
+    new window.MouseEvent('contextmenu', { bubbles: true }),
+  ))
+  assert.equal(overlayCalls.at(-1), true, 'toolbar context menu suspends through BrowserChrome')
+  act(() => overlayTrigger('.home-v2-node-pill[data-network="qortium"]').click())
+  act(() => overlayTrigger('.home-v2-node-pill[data-network="qortium"]').click())
+  assert.equal(overlayCalls.at(-1), true, 'bookmark popup retains suspension after another menu closes')
+  act(() => overlayTrigger('.home-v2-bookmark-toolbar__context-menu button').click())
+  assert.equal(overlayCalls.at(-1), false, 'last bookmark popup releases the app')
 
   // Escape is a dismissal like any other and has to report as one, or the app
   // page would stay frozen behind a menu that is no longer there.

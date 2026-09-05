@@ -14,6 +14,7 @@ document.body.appendChild(container)
 const root = createRoot(container)
 const opened: Array<{ accountId?: string | null; id: string }> = []
 const contextActions: string[] = []
+const popupReports: boolean[] = []
 
 const link = {
   accountId: 'account-1',
@@ -91,6 +92,7 @@ function renderToolbar(
         { action: 'resource.copy-address', group: 'copy', label: 'Copy resource link' },
       ]}
       isDashboardRoute={isDashboardRoute}
+      onOpenChange={(open) => popupReports.push(open)}
       onContextMenuAction={(_item, action) => {
         contextActions.push(action)
       }}
@@ -163,6 +165,7 @@ try {
   )
   assert.ok(folderButton)
   act(() => folderButton.click())
+  assert.equal(popupReports.at(-1), true, 'folder popup suspends the native app')
   assert.ok(container.querySelector('.home-v2-bookmark-toolbar__folder-menu'))
   assert.ok(container.querySelector('details[data-bookmark-folder-id="nested"]'))
   const nestedButton = container.querySelector<HTMLButtonElement>(
@@ -170,6 +173,7 @@ try {
   )
   assert.ok(nestedButton)
   act(() => nestedButton.click())
+  assert.equal(popupReports.at(-1), false, 'opening a folder link releases the native app')
   assert.deepEqual(opened.at(-1), { accountId: null, id: 'help' })
 
   act(() => {
@@ -183,8 +187,31 @@ try {
     '.home-v2-bookmark-toolbar__context-menu button',
   )].find((button) => button.textContent?.includes('Copy resource link'))
   assert.ok(copyButton)
+  assert.equal(popupReports.at(-1), true, 'context popup suspends the native app')
   act(() => copyButton.click())
+  assert.equal(popupReports.at(-1), false, 'context action releases the native app')
   assert.deepEqual(contextActions, ['resource.copy-address'])
+
+  const openContext = () => act(() => linkButton.dispatchEvent(
+    new MouseEvent('contextmenu', { bubbles: true }),
+  ))
+  openContext()
+  const beforeRerender = popupReports.length
+  act(() => renderToolbar(snapshot, false))
+  assert.equal(popupReports.length, beforeRerender, 'fresh callback identity must not flicker suspension')
+  act(() => window.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape' })))
+  assert.equal(popupReports.at(-1), false, 'Escape releases the app')
+  openContext()
+  act(() => document.body.dispatchEvent(new Event('pointerdown', { bubbles: true })))
+  assert.equal(popupReports.at(-1), false, 'outside pointer releases the app')
+  openContext()
+  act(() => renderToolbar({ ...snapshot, toolbarVisibility: 'hidden' }, false))
+  assert.equal(popupReports.at(-1), false, 'hidden toolbar releases the app')
+  act(() => renderToolbar(snapshot, false))
+  assert.equal(container.querySelector('.home-v2-bookmark-toolbar__context-menu'), null)
+  act(() => container.querySelector<HTMLButtonElement>('[data-bookmark-folder-id="tools"]')!.click())
+  act(() => root.render(<div />))
+  assert.equal(popupReports.at(-1), false, 'unmounting an open folder releases the app')
 
   let selectedVisibility = ''
   act(() => {
