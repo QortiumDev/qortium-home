@@ -58,6 +58,7 @@ import {
 } from '../v2/startup-preference'
 import { HomeV2Prototype } from '../v2/shell/HomeV2Prototype'
 import { accountsLosingAccess, savedEntryAccountId } from '../v2/shell/account-context'
+import { createAccountRequestEpochs, isBoundAccountRequestCurrent } from './account-request-guard'
 import { buildTabBookmarkToggle, buildTabDashboardPin, buildTabToolbarSave } from '../v2/shell/saved-tab-bookmarks'
 import type { HomeV2SettingsSectionId } from '../v2/shell/SettingsPage'
 import { HomeV2ContextMenu } from '../v2/shell/HomeV2ContextMenu'
@@ -1548,8 +1549,6 @@ export function HomeV2LiveApp() {
   const [accountCatalogueReady, setAccountCatalogueReady] = useState(false)
   const accountCatalogueRef = useRef<HomeV2AccountCatalogue>(emptyAccountCatalogue)
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null)
-  const selectedAccountIdRef = useRef<string | null>(null)
-  selectedAccountIdRef.current = selectedAccountId
   const [restoredAccountId, setRestoredAccountId] = useState<
     string | null | undefined
   >(undefined)
@@ -1724,7 +1723,7 @@ export function HomeV2LiveApp() {
     new Map<string, AppTabNavigationController>(),
   )
   const tabSequence = useRef(0)
-  const accountRuntimeFingerprint = useRef<string | null>(null)
+  const androidAccountRequestEpochs = useRef(createAccountRequestEpochs())
   const nodeRuntimeFingerprint = useRef<Readonly<Record<NetworkId, string>> | null>(null)
 
   const invalidateAndroidRuntime = useCallback((
@@ -1732,6 +1731,7 @@ export function HomeV2LiveApp() {
     tabId: string | null = null,
     network: NetworkId | null = null,
   ) => {
+    androidAccountRequestEpochs.current.invalidate(kind, tabId, network)
     setPermissionState((current) => {
       if (kind === 'account-changed') return createPermissionState()
       if (kind === 'navigation-changed' || kind === 'tab-closed' || kind === 'app-replaced') {
@@ -1788,17 +1788,9 @@ export function HomeV2LiveApp() {
     }
   }, [isAndroidHost])
 
-  useEffect(() => {
-    const fingerprint = selectedAccountId ?? 'none'
-    const previous = accountRuntimeFingerprint.current
-    accountRuntimeFingerprint.current = fingerprint
-    if (previous === null || previous === fingerprint) return
-    invalidateAndroidRuntime('account-changed')
-    window.homeV2Apps?.invalidateRuntime({ kind: 'account-changed' })
-  }, [
-    invalidateAndroidRuntime,
-    selectedAccountId,
-  ])
+  // The default selects the identity for NEW tabs, not existing app principals.
+  // Lock/removal still invalidate through applyVaultState; app/navigation/node
+  // transitions retain their scoped invalidation paths below.
 
   useEffect(() => {
     const fingerprint: Readonly<Record<NetworkId, string>> = {
@@ -4961,6 +4953,29 @@ export function HomeV2LiveApp() {
       requestValue: unknown,
       context: HomeV2AppRequestContext,
     ) => {
+      const requestEpochCurrent = androidAccountRequestEpochs.current.capture(
+        context.tabId, protocol === 'qortalRequest' ? 'qortal' : 'qortium',
+      )
+      const isRequestCurrent = () => !isAndroidHost || (
+        requestEpochCurrent() && isBoundAccountRequestCurrent(
+          context, productStateRef.current.tabs, accountCatalogueRef.current.accounts,
+        )
+      )
+      const assertRequestCurrent = () => {
+        if (!isRequestCurrent()) throw new Error('The app account context changed while the request was running.')
+      }
+      // A resolved prompt is not authority to persist a grant after a genuine
+      // lifecycle change. Recheck the immutable tab binding, never the default.
+      const queueBoundPermissionPrompt: typeof queueAndroidPermissionPrompt = async (...args) => {
+        assertRequestCurrent()
+        const decision = await queueAndroidPermissionPrompt(...args)
+        return isRequestCurrent() ? decision : { approved: false }
+      }
+      const queueBoundSessionGrantPermission: typeof queueAndroidSessionGrantPermission = async (...args) => {
+        assertRequestCurrent()
+        const decision = await queueAndroidSessionGrantPermission(...args)
+        return isRequestCurrent() ? decision : { approved: false }
+      }
       // Same alias collapse the desktop bridge does, at this host's own entry
       // point: a compatibility alias must be dispatched, gated and reported as
       // the canonical action on every surface, never as a capability of its own.
@@ -5484,7 +5499,7 @@ export function HomeV2LiveApp() {
         if (!heldDecryptGrant && !androidSessionAccountGrants.current.has(grantKey)) {
           const parsedApp = resolveAppIdentity()
           const appId = brand<AppId>(`home-v2:permission-app:${parsedApp.identityKey}`)
-          const decision = await queueAndroidPermissionPrompt(createPermissionPrompt({
+          const decision = await queueBoundPermissionPrompt(createPermissionPrompt({
             id: brand<PermissionRequestId>(globalThis.crypto.randomUUID()),
             protocol,
             action,
@@ -5518,6 +5533,7 @@ export function HomeV2LiveApp() {
             await persistDurableAccountReadGrant(decryptAppCapabilityKey, accountId, 'account.decrypt')
           }
           if (decision.scope === 'session' || decision.scope === 'always') {
+            assertRequestCurrent()
             androidSessionAccountGrants.current.add(grantKey, {
               family: homeV2PermissionGrantFamily(action),
               hostWebContentsId: 'android',
@@ -5527,14 +5543,17 @@ export function HomeV2LiveApp() {
           }
         }
         const stillUnlocked = accountCatalogueRef.current.accounts.find((candidate) => candidate.id === accountId)
+        assertRequestCurrent()
         if (!stillUnlocked?.isUnlocked) {
           throw new Error('The selected account was locked before the data could be decrypted.')
         }
-        return await vaultClient.decryptData({
+        const result = await vaultClient.decryptData({
           accountId,
           approvedSenderPublicKey: decryptRequest.senderPublicKey,
           requestValue: decryptValue,
         })
+        assertRequestCurrent()
+        return result
       }
       // ENCRYPT_DATA on Android. Deliberately BEFORE the pending-transaction
       // conflict gate and outside every node check: it signs nothing, reaches
@@ -5578,7 +5597,7 @@ export function HomeV2LiveApp() {
         if (!heldEncryptGrant && !androidSessionAccountGrants.current.has(grantKey)) {
           const parsedApp = resolveAppIdentity()
           const appId = brand<AppId>(`home-v2:permission-app:${parsedApp.identityKey}`)
-          const decision = await queueAndroidPermissionPrompt(createPermissionPrompt({
+          const decision = await queueBoundPermissionPrompt(createPermissionPrompt({
             id: brand<PermissionRequestId>(globalThis.crypto.randomUUID()),
             protocol,
             action,
@@ -5620,6 +5639,7 @@ export function HomeV2LiveApp() {
             )
           }
           if (decision.scope === 'session' || decision.scope === 'always') {
+            assertRequestCurrent()
             androidSessionAccountGrants.current.add(grantKey, {
               family: homeV2PermissionGrantFamily(action),
               hostWebContentsId: 'android',
@@ -5629,14 +5649,17 @@ export function HomeV2LiveApp() {
           }
         }
         const currentAccount = accountCatalogueRef.current.accounts.find((candidate) => candidate.id === accountId)
+        assertRequestCurrent()
         if (!currentAccount?.isUnlocked) {
           throw new Error('The selected account was locked before the data could be encrypted.')
         }
-        return await vaultClient.encryptData({
+        const result = await vaultClient.encryptData({
           accountId,
           approvedRecipientPublicKeys: encryptRequest.publicKeys,
           requestValue: encryptValue,
         })
+        assertRequestCurrent()
+        return result
       }
       await assertNoPendingTransactionConflict()
       // Poll writes on Android. The builders are Core's keyless
@@ -5733,7 +5756,7 @@ export function HomeV2LiveApp() {
         const parsedApp = resolveAppIdentity()
         const appId = brand<AppId>(`home-v2:permission-app:${parsedApp.identityKey}`)
         const nodeRoute = `${nodeBefore.mode}|${nodeBefore.nodeApiUrl}`
-        const decision = await queueAndroidPermissionPrompt(createPermissionPrompt({
+        const decision = await queueBoundPermissionPrompt(createPermissionPrompt({
           id: brand<PermissionRequestId>(globalThis.crypto.randomUUID()),
           protocol,
           action,
@@ -5770,7 +5793,7 @@ export function HomeV2LiveApp() {
           const currentTab = productStateRef.current.tabs.find((tab) => tab.id === context.tabId)
           const currentAccount = accountCatalogueRef.current.accounts.find((candidate) => candidate.id === accountId)
           const currentNode = parseHomeV2NodesSnapshot(await nodeClient.getSnapshot()).qortium
-          return !!currentTab &&
+          return isRequestCurrent() && !!currentTab &&
             currentTab.context.resourceLocation === context.resourceLocation &&
             // The tab's identity too: switching the account mid-prompt means
             // the approval named an account that is no longer the one the app
@@ -5981,7 +6004,7 @@ export function HomeV2LiveApp() {
         const parsedApp = resolveAppIdentity()
         const appId = brand<AppId>(`home-v2:permission-app:${parsedApp.identityKey}`)
         const nodeRoute = `${nodeBefore.mode}|${nodeBefore.nodeApiUrl}`
-        const decision = await queueAndroidPermissionPrompt(createPermissionPrompt({
+        const decision = await queueBoundPermissionPrompt(createPermissionPrompt({
           id: brand<PermissionRequestId>(globalThis.crypto.randomUUID()),
           protocol,
           action,
@@ -6023,7 +6046,7 @@ export function HomeV2LiveApp() {
           const currentTab = productStateRef.current.tabs.find((tab) => tab.id === context.tabId)
           const currentAccount = accountCatalogueRef.current.accounts.find((candidate) => candidate.id === accountId)
           const currentNode = parseHomeV2NodesSnapshot(await nodeClient.getSnapshot()).qortium
-          return !!currentTab &&
+          return isRequestCurrent() && !!currentTab &&
             currentTab.context.resourceLocation === context.resourceLocation &&
             String(currentTab.context.identityId) === `home-v2:identity:${accountId}` &&
             !!currentAccount?.isUnlocked &&
@@ -6318,7 +6341,7 @@ export function HomeV2LiveApp() {
         const parsedApp = resolveAppIdentity()
         const appId = brand<AppId>(`home-v2:permission-app:${parsedApp.identityKey}`)
         const nodeRoute = `${nodeBefore.mode}|${nodeBefore.nodeApiUrl}`
-        const decision = await queueAndroidPermissionPrompt(createPermissionPrompt({
+        const decision = await queueBoundPermissionPrompt(createPermissionPrompt({
           id: brand<PermissionRequestId>(globalThis.crypto.randomUUID()),
           protocol,
           action,
@@ -6354,7 +6377,7 @@ export function HomeV2LiveApp() {
           const currentTab = productStateRef.current.tabs.find((tab) => tab.id === context.tabId)
           const currentAccount = accountCatalogueRef.current.accounts.find((candidate) => candidate.id === accountId)
           const currentNode = parseHomeV2NodesSnapshot(await nodeClient.getSnapshot()).qortium
-          return !!currentTab &&
+          return isRequestCurrent() && !!currentTab &&
             currentTab.context.resourceLocation === context.resourceLocation &&
             String(currentTab.context.identityId) === `home-v2:identity:${accountId}` &&
             !!currentAccount?.isUnlocked &&
@@ -6521,7 +6544,7 @@ export function HomeV2LiveApp() {
         const parsedApp = resolveAppIdentity()
         const appId = brand<AppId>(`home-v2:permission-app:${parsedApp.identityKey}`)
         const nodeRoute = `${nodeBefore.mode}|${nodeBefore.nodeApiUrl}`
-        const decision = await queueAndroidPermissionPrompt(createPermissionPrompt({
+        const decision = await queueBoundPermissionPrompt(createPermissionPrompt({
           id: brand<PermissionRequestId>(globalThis.crypto.randomUUID()),
           protocol,
           action,
@@ -6563,7 +6586,7 @@ export function HomeV2LiveApp() {
           const currentTab = productStateRef.current.tabs.find((tab) => tab.id === context.tabId)
           const currentAccount = accountCatalogueRef.current.accounts.find((candidate) => candidate.id === accountId)
           const currentNode = parseHomeV2NodesSnapshot(await nodeClient.getSnapshot()).qortium
-          return !!currentTab &&
+          return isRequestCurrent() && !!currentTab &&
             currentTab.context.resourceLocation === context.resourceLocation &&
             // The tab's identity too: switching the account mid-prompt means
             // the approval named an account that is no longer the one the app
@@ -6798,8 +6821,8 @@ export function HomeV2LiveApp() {
             allowedScopes: singleRequestOnly ? ['single-request'] : ['single-request', 'session'],
           })
           const decision = await (singleRequestOnly
-            ? queueAndroidPermissionPrompt(prompt, context.tabId)
-            : queueAndroidSessionGrantPermission(grantKey, prompt, context.tabId))
+            ? queueBoundPermissionPrompt(prompt, context.tabId)
+            : queueBoundSessionGrantPermission(grantKey, prompt, context.tabId))
           if (!decision.approved) throw new Error('Account access was denied.')
           // Self-contained so it is correct at every prompt site and a no-op
           // for anything that is not a chat send. A durable grant that throws
@@ -6811,6 +6834,7 @@ export function HomeV2LiveApp() {
             !(context.resourceLocation &&
               await persistDurableChatSendGrant(context.resourceLocation, accountId))
           if (!singleRequestOnly && (decision.scope === 'session' || durableChatSendFailed)) {
+            assertRequestCurrent()
             androidSessionAccountGrants.current.add(grantKey, {
               family: homeV2PermissionGrantFamily(action),
               hostWebContentsId: 'android',
@@ -6821,7 +6845,7 @@ export function HomeV2LiveApp() {
           const freshTab = productStateRef.current.tabs.find((tab) => tab.id === context.tabId)
           const freshAccount = accountCatalogueRef.current.accounts.find((candidate) => candidate.id === accountId)
           if (
-            selectedAccountId !== accountId ||
+            !isRequestCurrent() ||
             !freshTab ||
             freshTab.context.resourceLocation !== context.resourceLocation ||
             !freshAccount
@@ -6914,7 +6938,7 @@ export function HomeV2LiveApp() {
           const currentTab = productStateRef.current.tabs.find((tab) => tab.id === context.tabId)
           const currentAccount = accountCatalogueRef.current.accounts.find((candidate) => candidate.id === accountId)
           const currentNode = parseHomeV2NodesSnapshot(await nodeClient.getSnapshot())[targetNetwork]
-          return !!currentTab &&
+          return isRequestCurrent() && !!currentTab &&
             currentTab.context.resourceLocation === context.resourceLocation &&
             String(currentTab.context.identityId) === `home-v2:identity:${accountId}` &&
             !!currentAccount?.isUnlocked &&
@@ -6961,7 +6985,7 @@ export function HomeV2LiveApp() {
             ? `grp-q-manager_0_group_${publishRequest.conversation.groupId}_${opaqueId.slice(0, 16)}`
             : `chat-attachment-${opaqueId}`
           const requestId = brand<PermissionRequestId>(globalThis.crypto.randomUUID())
-          const decision = await queueAndroidPermissionPrompt(createPermissionPrompt({
+          const decision = await queueBoundPermissionPrompt(createPermissionPrompt({
             id: requestId,
             protocol,
             action,
@@ -7087,8 +7111,8 @@ export function HomeV2LiveApp() {
               : readOnlyAttachment ? ['single-request', 'session'] : ['single-request'],
           })
           const decision = await (readOnlyAttachment
-            ? queueAndroidSessionGrantPermission(grantKey, prompt, context.tabId)
-            : queueAndroidPermissionPrompt(prompt, context.tabId))
+            ? queueBoundSessionGrantPermission(grantKey, prompt, context.tabId)
+            : queueBoundPermissionPrompt(prompt, context.tabId))
           if (!decision.approved) throw new Error('Private attachment access was denied.')
           // Gated on attachmentReadCapability, not on the scope alone, so an
           // 'always' this prompt never offered cannot become a durable grant.
@@ -7106,6 +7130,7 @@ export function HomeV2LiveApp() {
             )
           }
           if (readOnlyAttachment && (decision.scope === 'session' || decision.scope === 'always')) {
+            assertRequestCurrent()
             androidSessionAccountGrants.current.add(grantKey, {
               family: homeV2PermissionGrantFamily(action),
               hostWebContentsId: 'android',
@@ -7220,7 +7245,7 @@ export function HomeV2LiveApp() {
           ),
           readLiveContextMatches: () => {
             const freshTab = productStateRef.current.tabs.find((tab) => tab.id === context.tabId)
-            return selectedAccountIdRef.current === accountId &&
+            return isRequestCurrent() &&
               !!freshTab &&
               freshTab.context.resourceLocation === context.resourceLocation
           },
@@ -7246,7 +7271,7 @@ export function HomeV2LiveApp() {
             accountId,
             appIdentity: parsedApp.identityKey,
             approve: async (rows, meta) => {
-              const decision = await queueAndroidPermissionPrompt(createPermissionPrompt({
+              const decision = await queueBoundPermissionPrompt(createPermissionPrompt({
                 id: brand<PermissionRequestId>(globalThis.crypto.randomUUID()),
                 protocol,
                 action: 'SEND_COIN',
@@ -7523,7 +7548,7 @@ export function HomeV2LiveApp() {
         const appId = brand<AppId>(`home-v2:permission-app:${parsedApp.identityKey}`)
         const nodeRoute = `${nodeBefore.mode}|${nodeBefore.nodeApiUrl}`
         const chainLabel = qortalChain ? 'Qortal' : 'Qortium'
-        const decision = await queueAndroidPermissionPrompt(createPermissionPrompt({
+        const decision = await queueBoundPermissionPrompt(createPermissionPrompt({
           id: brand<PermissionRequestId>(globalThis.crypto.randomUUID()),
           protocol,
           action,
@@ -7562,7 +7587,7 @@ export function HomeV2LiveApp() {
           const currentTab = productStateRef.current.tabs.find((tab) => tab.id === context.tabId)
           const currentAccount = accountCatalogueRef.current.accounts.find((candidate) => candidate.id === accountId)
           const currentNode = parseHomeV2NodesSnapshot(await nodeClient.getSnapshot())[targetNetwork]
-          return !!currentTab &&
+          return isRequestCurrent() && !!currentTab &&
             currentTab.context.resourceLocation === context.resourceLocation &&
             String(currentTab.context.identityId) === `home-v2:identity:${accountId}` &&
             !!currentAccount?.isUnlocked &&
@@ -7620,7 +7645,7 @@ export function HomeV2LiveApp() {
         const parsedApp = resolveAppIdentity()
         const appId = brand<AppId>(`home-v2:permission-app:${parsedApp.identityKey}`)
         const nodeRoute = `${nodeBefore.mode}|${nodeBefore.nodeApiUrl}`
-        const decision = await queueAndroidPermissionPrompt(createPermissionPrompt({
+        const decision = await queueBoundPermissionPrompt(createPermissionPrompt({
           id: brand<PermissionRequestId>(globalThis.crypto.randomUUID()),
           protocol,
           action,
@@ -7674,7 +7699,7 @@ export function HomeV2LiveApp() {
           const currentTab = productStateRef.current.tabs.find((tab) => tab.id === context.tabId)
           const currentAccount = accountCatalogueRef.current.accounts.find((candidate) => candidate.id === accountId)
           const currentNode = parseHomeV2NodesSnapshot(await nodeClient.getSnapshot()).qortium
-          return !!currentTab &&
+          return isRequestCurrent() && !!currentTab &&
             currentTab.context.resourceLocation === context.resourceLocation &&
             String(currentTab.context.identityId) === `home-v2:identity:${accountId}` &&
             !!currentAccount?.isUnlocked &&
@@ -7810,7 +7835,7 @@ export function HomeV2LiveApp() {
         const appId = brand<AppId>(`home-v2:permission-app:${parsedApp.identityKey}`)
         const nodeRoute = `${nodeBefore.mode}|${nodeBefore.nodeApiUrl}`
         const chainLabel = targetNetwork === 'qortal' ? 'Qortal' : 'Qortium'
-        const decision = await queueAndroidPermissionPrompt(createPermissionPrompt({
+        const decision = await queueBoundPermissionPrompt(createPermissionPrompt({
           id: brand<PermissionRequestId>(globalThis.crypto.randomUUID()),
           protocol,
           action,
@@ -7852,7 +7877,7 @@ export function HomeV2LiveApp() {
           const currentTab = productStateRef.current.tabs.find((tab) => tab.id === context.tabId)
           const currentAccount = accountCatalogueRef.current.accounts.find((candidate) => candidate.id === accountId)
           const currentNode = parseHomeV2NodesSnapshot(await nodeClient.getSnapshot())[targetNetwork]
-          return !!currentTab &&
+          return isRequestCurrent() && !!currentTab &&
             currentTab.context.resourceLocation === context.resourceLocation &&
             String(currentTab.context.identityId) === `home-v2:identity:${accountId}` &&
             !!currentAccount?.isUnlocked &&
@@ -7972,7 +7997,7 @@ export function HomeV2LiveApp() {
         const parsedApp = resolveAppIdentity()
         const appId = brand<AppId>(`home-v2:permission-app:${parsedApp.identityKey}`)
         const nodeRoute = `${nodeBefore.mode}|${nodeBefore.nodeApiUrl}`
-        const decision = await queueAndroidPermissionPrompt(createPermissionPrompt({
+        const decision = await queueBoundPermissionPrompt(createPermissionPrompt({
           id: brand<PermissionRequestId>(globalThis.crypto.randomUUID()),
           protocol,
           action,
@@ -8013,7 +8038,7 @@ export function HomeV2LiveApp() {
           const currentTab = productStateRef.current.tabs.find((tab) => tab.id === context.tabId)
           const currentAccount = accountCatalogueRef.current.accounts.find((candidate) => candidate.id === accountId)
           const currentNode = parseHomeV2NodesSnapshot(await nodeClient.getSnapshot()).qortium
-          return !!currentTab &&
+          return isRequestCurrent() && !!currentTab &&
             currentTab.context.resourceLocation === context.resourceLocation &&
             String(currentTab.context.identityId) === `home-v2:identity:${accountId}` &&
             !!currentAccount?.isUnlocked &&
@@ -8148,7 +8173,7 @@ export function HomeV2LiveApp() {
           }
         })()
         const appId = brand<AppId>(`home-v2:permission-app:${parsedApp.identityKey}`)
-        const decision = await queueAndroidPermissionPrompt(createPermissionPrompt({
+        const decision = await queueBoundPermissionPrompt(createPermissionPrompt({
           id: requestId,
           protocol,
           action: 'PUBLISH_QDN_RESOURCE',
@@ -8199,7 +8224,7 @@ export function HomeV2LiveApp() {
           const currentTab = productStateRef.current.tabs.find((tab) => tab.id === context.tabId)
           const currentAccount = accountCatalogueRef.current.accounts.find((candidate) => candidate.id === accountId)
           const currentNode = parseHomeV2NodesSnapshot(await nodeClient.getSnapshot())[targetNetwork]
-          return !!currentTab &&
+          return isRequestCurrent() && !!currentTab &&
             currentTab.context.resourceLocation === context.resourceLocation &&
             String(currentTab.context.identityId) === `home-v2:identity:${accountId}` &&
             !!currentAccount?.isUnlocked &&
@@ -8488,7 +8513,7 @@ export function HomeV2LiveApp() {
               ? ['single-request', 'session', 'always']
               : ['single-request', 'session'],
           })
-          const decision = await queueAndroidPermissionPrompt(prompt, context.tabId)
+          const decision = await queueBoundPermissionPrompt(prompt, context.tabId)
           if (!decision.approved) throw new Error('Account access was denied.')
           // Self-contained so it is correct at every prompt site and a no-op
           // for anything that is not a chat send. A durable grant that throws
@@ -8500,6 +8525,7 @@ export function HomeV2LiveApp() {
             !(context.resourceLocation &&
               await persistDurableChatSendGrant(context.resourceLocation, accountId))
           if (decision.scope === 'session' || durableChatSendFailed) {
+            assertRequestCurrent()
             androidSessionAccountGrants.current.add(grantKey, {
               family: homeV2PermissionGrantFamily(action),
               hostWebContentsId: 'android',
@@ -8513,7 +8539,7 @@ export function HomeV2LiveApp() {
           )
           const nodeAfter = parseHomeV2NodesSnapshot(await nodeClient.getSnapshot())[targetNetwork]
           if (
-            selectedAccountId !== accountId ||
+            !isRequestCurrent() ||
             !freshTab ||
             freshTab.context.resourceLocation !== context.resourceLocation ||
             freshAccount?.isUnlocked !== account.isUnlocked ||
@@ -8532,13 +8558,13 @@ export function HomeV2LiveApp() {
             (candidate) => candidate.id === accountId,
           )
           if (
-            selectedAccountId !== accountId ||
+            !isRequestCurrent() ||
             !freshTab ||
             freshTab.context.resourceLocation !== context.resourceLocation ||
             !freshAccount?.isUnlocked
           ) return false
           const nodeNow = parseHomeV2NodesSnapshot(await nodeClient.getSnapshot())[targetNetwork]
-          return `${nodeNow.mode}|${nodeNow.nodeApiUrl ?? ''}` === nodeRoute
+          return isRequestCurrent() && `${nodeNow.mode}|${nodeNow.nodeApiUrl ?? ''}` === nodeRoute
         }
         if (!(await checkStillValid())) {
           throw new Error('Account access context changed before the group action could start.')
@@ -8688,7 +8714,7 @@ export function HomeV2LiveApp() {
           ],
           allowedScopes: ['single-request'],
         })
-        const decision = await queueAndroidPermissionPrompt(prompt, context.tabId)
+        const decision = await queueBoundPermissionPrompt(prompt, context.tabId)
         if (!decision.approved) throw new Error('Account access was denied.')
         const checkStillValid = async () => {
           const freshTab = productStateRef.current.tabs.find((tab) => tab.id === context.tabId)
@@ -8696,13 +8722,13 @@ export function HomeV2LiveApp() {
             (candidate) => candidate.id === accountId,
           )
           if (
-            selectedAccountId !== accountId ||
+            !isRequestCurrent() ||
             !freshTab ||
             freshTab.context.resourceLocation !== context.resourceLocation ||
             !freshAccount?.isUnlocked
           ) return false
           const nodeNow = parseHomeV2NodesSnapshot(await nodeClient.getSnapshot())[targetNetwork]
-          return `${nodeNow.mode}|${nodeNow.nodeApiUrl ?? ''}` === nodeRoute
+          return isRequestCurrent() && `${nodeNow.mode}|${nodeNow.nodeApiUrl ?? ''}` === nodeRoute
         }
         if (!(await checkStillValid())) {
           throw new Error('Account access context changed before the group action could start.')
@@ -8881,8 +8907,8 @@ export function HomeV2LiveApp() {
                 : ['single-request', 'session'],
           })
           const decision = await (!isWrite
-            ? queueAndroidSessionGrantPermission(grantKey, prompt, context.tabId)
-            : queueAndroidPermissionPrompt(prompt, context.tabId))
+            ? queueBoundSessionGrantPermission(grantKey, prompt, context.tabId)
+            : queueBoundPermissionPrompt(prompt, context.tabId))
           if (!decision.approved) throw new Error('Account access was denied.')
           // Self-contained so it is correct at every prompt site and a no-op
           // for anything that is not a chat send. A durable grant that throws
@@ -8913,6 +8939,7 @@ export function HomeV2LiveApp() {
             (decision.scope === 'session' ||
               durableChatSendFailed ||
               (decision.scope === 'always' && privateGroupReadCapability))) {
+            assertRequestCurrent()
             androidSessionAccountGrants.current.add(grantKey, {
               family: homeV2PermissionGrantFamily(action),
               hostWebContentsId: 'android',
@@ -8925,14 +8952,14 @@ export function HomeV2LiveApp() {
           const freshTab = productStateRef.current.tabs.find((tab) => tab.id === context.tabId)
           const freshAccount = accountCatalogueRef.current.accounts.find((candidate) => candidate.id === accountId)
           if (
-            selectedAccountId !== accountId ||
+            !isRequestCurrent() ||
             !freshTab ||
             freshTab.context.resourceLocation !== context.resourceLocation ||
             !freshAccount?.isUnlocked
           ) return false
           const nodesNow = await nodeClient.getSnapshot().then(parseHomeV2NodesSnapshot).catch(() => null)
           const currentNode = nodesNow?.[privateGroupNetwork]
-          return !!currentNode?.nodeApiUrl && `${currentNode.mode}|${currentNode.nodeApiUrl}` === nodeRoute
+          return isRequestCurrent() && !!currentNode?.nodeApiUrl && `${currentNode.mode}|${currentNode.nodeApiUrl}` === nodeRoute
         }
         if (!(await checkPrivateGroupStillValid())) {
           throw new Error('Account access context changed before the private-group action could start.')
@@ -9170,8 +9197,8 @@ export function HomeV2LiveApp() {
               : ['single-request', 'session'],
           })
           const decision = await (isWrite
-            ? queueAndroidPermissionPrompt(prompt, context.tabId)
-            : queueAndroidSessionGrantPermission(grantKey, prompt, context.tabId))
+            ? queueBoundPermissionPrompt(prompt, context.tabId)
+            : queueBoundSessionGrantPermission(grantKey, prompt, context.tabId))
           if (!decision.approved) throw new Error('Account access was denied.')
           // Self-contained so it is correct at every prompt site and a no-op
           // for anything that is not a chat send. A durable grant that throws
@@ -9183,6 +9210,7 @@ export function HomeV2LiveApp() {
             !(context.resourceLocation &&
               await persistDurableChatSendGrant(context.resourceLocation, accountId))
           if (decision.scope === 'session' || durableChatSendFailed) {
+            assertRequestCurrent()
             androidSessionAccountGrants.current.add(grantKey, {
               family: homeV2PermissionGrantFamily(action),
               hostWebContentsId: 'android',
@@ -9195,14 +9223,14 @@ export function HomeV2LiveApp() {
           const freshTab = productStateRef.current.tabs.find((tab) => tab.id === context.tabId)
           const freshAccount = accountCatalogueRef.current.accounts.find((candidate) => candidate.id === accountId)
           if (
-            selectedAccountId !== accountId ||
+            !isRequestCurrent() ||
             !freshTab ||
             freshTab.context.resourceLocation !== context.resourceLocation ||
             !freshAccount?.isUnlocked
           ) return false
           const nodeNow = await nodeClient.getSnapshot().then(parseHomeV2NodesSnapshot).catch(() => null)
           const summary = nodeNow?.[targetNetwork]
-          return !!summary?.nodeApiUrl && `${summary.mode}|${summary.nodeApiUrl}` === nodeRoute
+          return isRequestCurrent() && !!summary?.nodeApiUrl && `${summary.mode}|${summary.nodeApiUrl}` === nodeRoute
         }
         if (!(await checkDirectStillValid())) {
           throw new Error('Account access context changed before the direct-message action could start.')
@@ -9403,7 +9431,7 @@ export function HomeV2LiveApp() {
               ? ['single-request', 'session', 'always']
               : ['single-request', 'session'],
           })
-          const decision = await queueAndroidPermissionPrompt(prompt, context.tabId)
+          const decision = await queueBoundPermissionPrompt(prompt, context.tabId)
           if (!decision.approved) throw new Error('Account access was denied.')
           // Self-contained so it is correct at every prompt site and a no-op
           // for anything that is not a chat send. A durable grant that throws
@@ -9415,6 +9443,7 @@ export function HomeV2LiveApp() {
             !(context.resourceLocation &&
               await persistDurableChatSendGrant(context.resourceLocation, accountId))
           if (decision.scope === 'session' || durableChatSendFailed) {
+            assertRequestCurrent()
             androidSessionAccountGrants.current.add(grantKey, {
               family: homeV2PermissionGrantFamily(effectiveAction),
               hostWebContentsId: 'android',
@@ -9422,13 +9451,13 @@ export function HomeV2LiveApp() {
               tabId: context.tabId,
             })
           }
-          const freshTab = productState.tabs.find((tab) => tab.id === context.tabId)
+          const freshTab = productStateRef.current.tabs.find((tab) => tab.id === context.tabId)
           const freshAccount = accountCatalogueRef.current.accounts.find(
             (candidate) => candidate.id === accountId,
           )
           const nodeAfter = parseHomeV2NodesSnapshot(await nodeClient.getSnapshot())[targetNetwork]
           if (
-            selectedAccountId !== accountId ||
+            !isRequestCurrent() ||
             !freshTab ||
             freshTab.context.resourceLocation !== context.resourceLocation ||
             freshAccount?.isUnlocked !== account.isUnlocked ||
@@ -9462,7 +9491,7 @@ export function HomeV2LiveApp() {
             (candidate) => candidate.id === accountId,
           )
           if (
-            selectedAccountId !== accountId ||
+            !isRequestCurrent() ||
             !freshTab ||
             freshTab.context.resourceLocation !== context.resourceLocation ||
             !freshAccount?.isUnlocked
@@ -9471,7 +9500,7 @@ export function HomeV2LiveApp() {
           }
           const nodeNow = await nodeClient.getSnapshot().then(parseHomeV2NodesSnapshot).catch(() => null)
           const nodeSummary = nodeNow?.[targetNetwork]
-          return !!nodeSummary?.nodeApiUrl && `${nodeSummary.mode}|${nodeSummary.nodeApiUrl}` === nodeRoute
+          return isRequestCurrent() && !!nodeSummary?.nodeApiUrl && `${nodeSummary.mode}|${nodeSummary.nodeApiUrl}` === nodeRoute
         }
         const nodeBeforeSend = parseHomeV2NodesSnapshot(await nodeClient.getSnapshot())[targetNetwork]
         if (!nodeBeforeSend.nodeApiUrl || !(await checkChatSendStillValid())) {
@@ -9561,9 +9590,10 @@ export function HomeV2LiveApp() {
             ],
             allowedScopes: ['single-request', 'session'],
           })
-          const decision = await queueAndroidSessionGrantPermission(grantKey, prompt, context.tabId)
+          const decision = await queueBoundSessionGrantPermission(grantKey, prompt, context.tabId)
           if (!decision.approved) throw new Error('Foreign wallet access was denied.')
           if (decision.scope === 'session') {
+            assertRequestCurrent()
             androidSessionAccountGrants.current.add(grantKey, {
               family: homeV2PermissionGrantFamily(action),
               hostWebContentsId: 'android',
@@ -9576,7 +9606,7 @@ export function HomeV2LiveApp() {
         const freshAccount = accountCatalogueRef.current.accounts.find((candidate) => candidate.id === accountId)
         const currentTrust = receiveOnly ? trust : await nodeClient.adminTrust?.()
         if (
-          selectedAccountId !== accountId ||
+          !isRequestCurrent() ||
           !freshTab ||
           freshTab.context.resourceLocation !== context.resourceLocation ||
           !freshAccount?.isUnlocked ||
@@ -9593,7 +9623,7 @@ export function HomeV2LiveApp() {
           ? null
           : parseHomeV2NodesSnapshot(await nodeClient.getSnapshot()).qortium
         if (
-          selectedAccountId !== accountId ||
+          !isRequestCurrent() ||
           !tabAfterDerivation ||
           tabAfterDerivation.context.resourceLocation !== context.resourceLocation ||
           !accountAfterDerivation?.isUnlocked ||
@@ -9619,7 +9649,7 @@ export function HomeV2LiveApp() {
         const trustAfterRead = await nodeClient.adminTrust?.()
         const routeAfterRead = parseHomeV2NodesSnapshot(await nodeClient.getSnapshot()).qortium
         if (
-          selectedAccountId !== accountId ||
+          !isRequestCurrent() ||
           !tabAfterRead ||
           tabAfterRead.context.resourceLocation !== context.resourceLocation ||
           !accountAfterRead?.isUnlocked ||
@@ -9650,7 +9680,7 @@ export function HomeV2LiveApp() {
         if (!trust?.trusted) throw new Error(trust?.reason ?? 'Changing a foreign server requires an authenticated Qortium node.')
         const parsedApp = resolveAppIdentity()
         const appId = brand<AppId>(`home-v2:permission-app:${parsedApp.identityKey}`)
-        const decision = await queueAndroidPermissionPrompt(createPermissionPrompt({
+        const decision = await queueBoundPermissionPrompt(createPermissionPrompt({
           id: brand<PermissionRequestId>(globalThis.crypto.randomUUID()),
           protocol,
           action: 'SET_CURRENT_FOREIGN_SERVER',
@@ -9685,7 +9715,7 @@ export function HomeV2LiveApp() {
         const freshTab = productStateRef.current.tabs.find((tab) => tab.id === context.tabId)
         const freshAccount = accountCatalogueRef.current.accounts.find((candidate) => candidate.id === accountId)
         if (
-          selectedAccountId !== accountId ||
+          !isRequestCurrent() ||
           !freshTab ||
           freshTab.context.resourceLocation !== context.resourceLocation ||
           !freshAccount?.isUnlocked
@@ -9697,7 +9727,7 @@ export function HomeV2LiveApp() {
         const accountAfterWrite = accountCatalogueRef.current.accounts.find((candidate) => candidate.id === accountId)
         const trustAfterWrite = await nodeClient.adminTrust?.()
         if (
-          selectedAccountId !== accountId ||
+          !isRequestCurrent() ||
           !tabAfterWrite ||
           tabAfterWrite.context.resourceLocation !== context.resourceLocation ||
           !accountAfterWrite?.isUnlocked ||
@@ -9750,7 +9780,7 @@ export function HomeV2LiveApp() {
       }
       return nodeClient.requestApp(protocol, requestValue, context)
     },
-    [applyCollectionsSnapshot, collectionsClient, homeSettingsResponder, nodeClient, openAddress, productState.tabs, queueAndroidPermissionPrompt, queueAndroidSessionGrantPermission, selectedAccountId, snapshot.nodes, vaultClient],
+    [applyCollectionsSnapshot, collectionsClient, homeSettingsResponder, nodeClient, openAddress, productState.tabs, queueAndroidPermissionPrompt, queueAndroidSessionGrantPermission, snapshot.nodes, vaultClient],
   )
 
   const setNodeMode = async (

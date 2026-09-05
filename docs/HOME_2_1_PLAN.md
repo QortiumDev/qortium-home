@@ -1,6 +1,6 @@
 # Qortium Home 2.1.0 delivery plan
 
-Last updated: 2026-09-04
+Last updated: 2026-09-05
 
 Status: active. Home 2.0.0 at `5606faa` is the implementation baseline.
 
@@ -35,11 +35,15 @@ dropdown, with native-view suspension but no full-window backdrop blocking tabs.
 App-requested unlock approvals retain their separate requester-owned dialog.
 These are implementation milestones, not release or installed-device acceptance.
 
+The paired default-account follow-up removes default-picker grant invalidation
+and checks Android approvals against each requesting tab's live account/wallet
+binding. Scoped lifecycle epochs prevent stale asynchronous approvals from
+surviving lock/unlock or app replacement. Existing lock/removal invalidation is
+retained; this does not narrow those events to one account.
+
 Remaining work, in order:
 
-1. **Account follow-ups:** refactor default-selection invalidation together with
-   Android approval-completion checks; do not weaken actual lock/removal events.
-   Add an explicit guest saved-link schema (existing null still means Current/
+1. **Account follow-ups:** add an explicit guest saved-link schema (existing null still means Current/
    inherit), open/duplicate-under-account affordances and Dashboard pin account
    attribution. Never silently rebind an existing app.
 2. **Viewers and navigation:** independent generic QDN resource tabs and rich

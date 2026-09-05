@@ -32,6 +32,14 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## fix(home2): preserve tab permissions when changing the default account
+
+Changing the default account for new tabs no longer clears permissions or
+cancels approvals for existing app tabs. Android approvals and ongoing account
+operations check the requesting tab's bound account instead of the default.
+Locks, account removal, app replacement and node changes still invalidate
+affected work; locking and unlocking again cannot revive an old approval.
+
 ## fix(home2): unlock accounts directly in the toolbar dropdown
 
 The toolbar account menu now accepts the password inline, as Home 1.x did.
