@@ -32,6 +32,18 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## fix(home2): keep displayed and saved app URLs current
+
+2026-09-05
+
+Home now follows the current page within an app when showing its address,
+bookmarking or pinning it, opening it with another account, reopening a closed
+tab, and restoring the session. In-app paths, query values and fragments are
+preserved without saving Home's bridge tokens or display settings. Navigating
+within the same app keeps its account and approvals unchanged, and does not
+reload the page. Publish previews and cross-resource navigation cannot change
+a tab's saved app identity.
+
 ## fix(home2): preserve account identity when reopening closed app tabs
 
 2026-09-05

@@ -97,17 +97,21 @@ export function parseAppResourceLocation(
   if (!isAppResourceService(service)) {
     throw new Error('The resource address does not identify an app.')
   }
-  const rawSegments = parsed.pathname.split('/').filter(Boolean)
+  // Keep the legacy identity-prefix normalization, but preserve empty/trailing
+  // segments AFTER the identifier so current page paths round-trip unchanged.
+  const rawSegments = parsed.pathname.split('/')
+  while (rawSegments[0] === '') rawSegments.shift()
   const rawName = rawSegments.shift()
   if (!rawName) {
     throw new Error('The app resource name is required.')
   }
   const name = validateSegment(decodeSegment(rawName).trim(), 'App resource name')
+  while (rawSegments[0] === '') rawSegments.shift()
   const identifierWasExplicit = rawSegments.length > 0
   const rawIdentifier = rawSegments.shift() ?? 'default'
   const identifier = validateSegment(decodeSegment(rawIdentifier).trim(), 'App resource identifier')
   const routeSegments = rawSegments.map((segment) =>
-    validateSegment(decodeSegment(segment).trim(), 'App resource path segment'),
+    segment === '' ? '' : validateSegment(decodeSegment(segment), 'App resource path segment'),
   )
   // The REAL parsed service is carried through, not re-stamped as 'APP' —
   // everything downstream (the /render/<service>/ URL, the rebuilt qdn://
@@ -119,7 +123,7 @@ export function parseAppResourceLocation(
   } as const
   const baseLocation = buildAppResourceLocation(networkForScheme(scheme), identity)
   const routePath = routeSegments.length > 0
-    ? `/${routeSegments.map(encodeSegment).join('/')}`
+    ? `/${routeSegments.map(encodeURIComponent).join('/')}`
     : ''
   const location = `${baseLocation}${routePath}${parsed.search}${parsed.hash}` as AppResourceLocation
 

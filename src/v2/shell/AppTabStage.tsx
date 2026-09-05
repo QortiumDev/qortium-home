@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { HomeV2Snapshot } from '../contracts'
 import type { ProductState } from '../product-model'
 import { parseAppResourceLocation } from '../resource-location'
+import { currentAppLocation } from '../current-app-location'
 import { isSameRenderResourcePath, resolveLaunchIdentifier } from './render-path-identity'
 import {
   readHomeV2AppNavigationMessage,
@@ -61,7 +62,7 @@ function waitForAnimationFrames(count: number) {
   })
 }
 
-function resolveRender(productState: ProductState, snapshot: HomeV2Snapshot) {
+function resolveRender(productState: ProductState, snapshot: HomeV2Snapshot, resumeCurrentLocation = false) {
   const tab = productState.tabs.find((candidate) => candidate.id === productState.activeTabId)
   if (!tab) throw new Error('No active app tab was selected.')
   const node = snapshot.nodes[tab.context.sourceNetwork]
@@ -114,7 +115,7 @@ function resolveRender(productState: ProductState, snapshot: HomeV2Snapshot) {
       url: preview.toString(),
     }
   }
-  const resource = parseAppResourceLocation(tab.context.resourceLocation)
+  const resource = parseAppResourceLocation(resumeCurrentLocation ? currentAppLocation(tab) : tab.context.resourceLocation)
   const name = resource.identity.name
   const identifier = resource.identity.identifier
   const suffix = identifier ? `/${encodeURIComponent(identifier)}` : ''
@@ -190,6 +191,7 @@ function useResolvedRender(
   productState: ProductState,
   snapshot: HomeV2Snapshot,
   translationVersion = 0,
+  resumeCurrentLocation = false,
 ) {
   const tab = productState.tabs.find((candidate) => candidate.id === productState.activeTabId)
   const node = tab ? snapshot.nodes[tab.context.sourceNetwork] : null
@@ -206,7 +208,7 @@ function useResolvedRender(
       return { error: null, status: t('home2.app.checkingNetwork', { network: networkLabel }), value: null }
     }
     try {
-      return { error: null, status: null, value: resolveRender(productState, snapshot) }
+      return { error: null, status: null, value: resolveRender(productState, snapshot, resumeCurrentLocation) }
     } catch (cause) {
       return {
         error: cause instanceof Error ? cause.message : t('home2.app.unableToOpen'),
@@ -434,6 +436,9 @@ function AndroidAppStage(props: AppTabStageProps) {
     props.productState,
     props.snapshot,
     props.translationVersion,
+    // On a remount, start at the last same-resource route. It is deliberately
+    // NOT a memo dependency: pushState must not reload the active iframe.
+    true,
   )
   const resolved = resolution.value
 
@@ -608,8 +613,11 @@ function AndroidAppStage(props: AppTabStageProps) {
     // ever compares pathname + filtered query; giving it a hash to
     // (deliberately) ignore is not the same guarantee as it never being
     // asked to carry one at all).
-    const initialHash = new URL(resolved.url).hash
-    const authorizedDocument = new URL(resolved.url)
+    // Reload is an explicit new native authorization, at the latest route.
+    // Current-location changes alone do not run this effect.
+    const resumeUrl = resolveRender(props.productState, props.snapshot, true).url
+    const initialHash = new URL(resumeUrl).hash
+    const authorizedDocument = new URL(resumeUrl)
     authorizedDocument.searchParams.set('homeV2Bridge', '1')
     // The fragment is cleared AFTER homeV2Bridge is folded in (not before —
     // see the comment above): what matters for the exact-URL gate is only
@@ -674,7 +682,11 @@ function AndroidAppStage(props: AppTabStageProps) {
             liveResourcePathRef.current = null
           }
         }
-        if (resolved) props.onNavigationChanged?.(resolved.tab.id, navigationMessage)
+        if (resolved) props.onNavigationChanged?.(resolved.tab.id, {
+          ...navigationMessage,
+          resourceUrl: resolved.tab.context.resourceLocation,
+          renderUrl: source,
+        })
         return
       }
 
@@ -892,6 +904,8 @@ function AndroidAppStage(props: AppTabStageProps) {
 }
 
 export interface AppTabNavigationSnapshot {
+  readonly resourceUrl?: string
+  readonly renderUrl?: string
   readonly activeIndex: number
   readonly entries: readonly {
     readonly index: number

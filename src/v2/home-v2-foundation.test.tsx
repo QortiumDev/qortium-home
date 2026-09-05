@@ -3377,7 +3377,12 @@ function testGrantIdentityAndSendRateLimitHardening(): void {
   // bridge-eligible.
   assert.match(
     appTabStage,
-    /const authorizedDocument = new URL\(resolved\.url\)\s*\n\s*authorizedDocument\.searchParams\.set\('homeV2Bridge', '1'\)/,
+    /const resumeUrl = resolveRender\(props\.productState, props\.snapshot, true\)\.url/,
+    'Android reload resumes a validated same-resource URL without changing the launch context',
+  )
+  assert.match(
+    appTabStage,
+    /const authorizedDocument = new URL\(resumeUrl\)\s*\n\s*authorizedDocument\.searchParams\.set\('homeV2Bridge', '1'\)/,
     'the authorized document URL registered natively must be built ONCE and reused, verbatim, for ' +
       'the iframe src — not independently recomputed',
   )

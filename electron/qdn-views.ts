@@ -1298,6 +1298,9 @@ function applyViewGuards(entry: QdnViewEntry) {
       entries,
       resourceUrl: entry.resourceUrl,
       tabId: entry.tabId,
+      // Trusted transport base for same-resource URL presentation. Entries
+      // already passed the native origin/resource checks above.
+      renderUrl: entry.requestedUrl,
     });
   };
 
