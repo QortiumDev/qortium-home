@@ -614,13 +614,13 @@ export function QdnAppsSettings({
       }))
   }
 
-  // Chat-send "always allow" grants were persisted and reported here from the
-  // start but never rendered, which made them unrevokable in practice. They
-  // revoke through the same path as every other durable capability.
-  const revokeChatSend = async (grant: HomeV2QdnBookmarkGrant) => {
+  // Revoke only the account named on this card, preserving the same app's
+  // approval for any other account.
+  const revokeChatSend = async (grant: HomeV2QdnAccountGrant) => {
     if (!snapshot) return
-    await applyMutation(`chatSend:${grant.appKey}`, () =>
+    await applyMutation(`chatSend:${grant.appKey}:${grant.accountId}`, () =>
       client.revokeBookmarks({
+        accountId: grant.accountId,
         appKey: grant.appKey,
         capability: 'chat.send',
         expectedAssignmentRevision: snapshot.chatSend.revision,
@@ -833,11 +833,12 @@ export function QdnAppsSettings({
           </div>
           {snapshot.chatSend.apps.map((grant) => (
             <BookmarkGrantCard
-              busy={busy === `chatSend:${grant.appKey}`}
+              accountLabel={resolveAccountLabel?.(grant.accountId) ?? shortenAccountId(grant.accountId)}
+              busy={busy === `chatSend:${grant.appKey}:${grant.accountId}`}
               capability="chat.send"
               disabled={actionsDisabled || busy !== null}
               grant={grant}
-              key={grant.appKey}
+              key={`${grant.appKey}:${grant.accountId}`}
               loadVisibleAppIcon={loadVisibleAppIcon}
               onRevoke={revokeChatSend}
             />

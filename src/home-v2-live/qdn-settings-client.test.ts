@@ -51,6 +51,7 @@ const state = {
   },
   chatSend: {
     apps: [{
+      accountId: 'wallet:QAAA',
       appKey: 'qdn://APP/Chat/Chat',
       grantedAt: '2026-08-22T13:00:00.000Z',
     }],
@@ -371,10 +372,18 @@ const portableAssignments = {
   ...state.assignments,
   capabilityGrants: {
     'qdn://APP/Secret/Secret': { 'bookmarks.manage': { grantedAt: '2026-08-22T12:00:00.000Z' } },
+    'qdn://APP/LegacyChat/LegacyChat': { 'chat.send': { grantedAt: '2026-08-22T12:00:00.000Z' } },
   },
   accountCapabilityGrants: {
     'qdn://APP/Chat/Chat': {
-      'wallet:QAAA': { 'account.read': { grantedAt: '2026-08-22T14:00:00.000Z' } },
+      'wallet:QAAA': {
+        'account.read': { grantedAt: '2026-08-22T14:00:00.000Z' },
+        'chat.send': { grantedAt: '2026-08-22T14:00:00.000Z' },
+      },
+      'wallet:QBBB': { 'chat.send': { grantedAt: '2026-08-22T14:00:00.000Z' } },
+    },
+    'qortal://GAME/Arena/Arena': {
+      'wallet:QAAA': { 'chat.send': { grantedAt: '2026-08-22T14:00:00.000Z' } },
     },
   },
   legacyMigrated: true,
@@ -408,6 +417,11 @@ const portableAdapter = createPortableHomeV2QdnSettingsAdapter({
 })
 const portableClient = createHomeV2QdnSettingsClient(portableAdapter)
 const portableState = await portableClient.get()
+assert.deepEqual(portableState.chatSend.apps.map(({ appKey, accountId }) => [appKey, accountId]), [
+  ['qdn://APP/Chat/Chat', 'wallet:QAAA'],
+  ['qdn://APP/Chat/Chat', 'wallet:QBBB'],
+  ['qortal://GAME/Arena/Arena', 'wallet:QAAA'],
+], 'portable settings project per-account sends and omit legacy app-wide approvals')
 assert.deepEqual(portableState.notifications.apps, [{
   appKey: 'qdn://APP/Notify/Notify',
   grantedAt: '2026-08-22T12:00:00.000Z',

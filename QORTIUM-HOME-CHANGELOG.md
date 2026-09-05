@@ -32,6 +32,16 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## fix(home2): bind chat-send approvals to each account
+
+Choosing "always allow" for chat now approves only the account named in the
+prompt, on desktop and Android. Another account still asks for its own approval.
+Settings names the account beside each chat-send grant and revokes only that
+account's approval. Account-specific direct-message and private-group reading
+permissions can also be revoked from their Settings cards. Older approvals that
+applied to an entire app are cleared and must be confirmed again for each
+account; they never transfer silently.
+
 ## fix(home2): align Dashboard transport controls with Settings
 
 The Dashboard now lets you select and apply a transport mode while Qortium

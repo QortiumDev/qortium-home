@@ -92,7 +92,7 @@ export type HomeV2QdnSettingsState = {
   }>
   readonly assignments: HomeV2QdnAssignmentState
   readonly chatSend: Readonly<{
-    apps: readonly Readonly<{ appKey: string; grantedAt: string }>[]
+    apps: readonly Readonly<{ accountId: string; appKey: string; grantedAt: string }>[]
     revision: number
     version: 1
   }>
@@ -228,7 +228,9 @@ function parseRevoke(value: unknown) {
 // delete a single rule.
 const REVOCABLE_CAPABILITIES = [
   'account.decrypt',
+  'account.directChat',
   'account.encrypt',
+  'account.groupChat',
   'account.read',
   'bookmarks.manage',
   'chat.send',
@@ -237,7 +239,10 @@ const REVOCABLE_CAPABILITIES = [
 export type HomeV2RevocableCapability = (typeof REVOCABLE_CAPABILITIES)[number]
 // The subset stored per (app principal, account). Revoking one of these
 // must name the account, and only that account's grant is dropped.
-const ACCOUNT_SCOPED_REVOCABLE_CAPABILITIES = ['account.read', 'account.encrypt', 'account.decrypt'] as const
+const ACCOUNT_SCOPED_REVOCABLE_CAPABILITIES = [
+  'account.read', 'account.encrypt', 'account.decrypt',
+  'account.directChat', 'account.groupChat', 'chat.send',
+] as const
 export type HomeV2AccountScopedRevocableCapability =
   (typeof ACCOUNT_SCOPED_REVOCABLE_CAPABILITIES)[number]
 
@@ -276,7 +281,7 @@ function parseRevokeBookmarks(value: unknown) {
   // An account-scoped grant is stored per account, so a revoke that does not
   // name one cannot identify a grant. Refuse rather than guess.
   if (accountScoped && !withAccount) {
-    throw new Error('Revoking read-only account access requires the account it was granted for.')
+    throw new Error('Revoking account-scoped access requires the account it was granted for.')
   }
   if (!accountScoped && withAccount) {
     throw new Error('That capability is not granted per account.')
@@ -313,7 +318,7 @@ export function redactHomeV2QdnSettingsState(
   const accountDirectChatApps = listQdnAccountCapabilityGrants(assignmentsStore, 'account.directChat')
   const accountGroupChatApps = listQdnAccountCapabilityGrants(assignmentsStore, 'account.groupChat')
   const bookmarkApps = grantsFor('bookmarks.manage')
-  const chatSendApps = grantsFor('chat.send')
+  const chatSendApps = listQdnAccountCapabilityGrants(assignmentsStore, 'chat.send')
   const notificationManagerApps = grantsFor('notifications.manage')
   const apps = notificationStore ? Object.entries(notificationStore.grants)
     .map(([appKey, grant]) => {
