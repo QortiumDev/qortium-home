@@ -49,6 +49,11 @@ function initialState() {
     },
     chatSend: {
       apps: [{
+        accountId: 'wallet:QAAA',
+        appKey: 'qdn://APP/Chat/Chat',
+        grantedAt: '2026-08-22T13:00:00.000Z',
+      }, {
+        accountId: 'wallet:QBBB',
         appKey: 'qdn://APP/Chat/Chat',
         grantedAt: '2026-08-22T13:00:00.000Z',
       }],
@@ -272,7 +277,8 @@ const adapter: HomeV2QdnSettingsAdapter = {
       },
       chatSend: {
         apps: capability === 'chat.send'
-          ? state.chatSend.apps.filter(({ appKey }) => appKey !== request.appKey)
+          ? state.chatSend.apps.filter(({ appKey, accountId }) =>
+            appKey !== request.appKey || accountId !== request.accountId)
           : state.chatSend.apps,
         revision: state.chatSend.revision + 1,
         version: 1,
@@ -447,6 +453,8 @@ assert.equal(container.querySelector('[data-qdn-account-read-grant]'), null)
 const chatSendCard = container.querySelector('[data-qdn-chat-send-grant]') as HTMLElement
 assert.ok(chatSendCard, 'a durable chat.send grant must be listed in QDN Apps settings')
 assert.match(chatSendCard.textContent ?? '', /qdn:\/\/APP\/Chat\/Chat/)
+assert.match(chatSendCard.textContent ?? '', /For account QAAA/)
+assert.equal(container.querySelectorAll('[data-qdn-chat-send-grant]').length, 2)
 await act(async () => {
   button('Revoke', chatSendCard).click()
 })
@@ -459,11 +467,13 @@ await act(async () => {
   await settle()
 })
 assert.deepEqual(bookmarkRevokeRequests[2], {
+  accountId: 'wallet:QAAA',
   appKey: 'qdn://APP/Chat/Chat',
   capability: 'chat.send',
   expectedAssignmentRevision: 7,
 })
-assert.equal(container.querySelector('[data-qdn-chat-send-grant]'), null)
+assert.equal(container.querySelectorAll('[data-qdn-chat-send-grant]').length, 1)
+assert.match(container.querySelector('[data-qdn-chat-send-grant]')?.textContent ?? '', /For account QBBB/)
 
 // The durable notification-MANAGER grant: authority over every app's
 // notification rules. It has its own card, distinct from the per-app "may show

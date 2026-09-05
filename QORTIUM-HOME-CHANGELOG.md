@@ -32,6 +32,14 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## fix(home2): bind chat-send approvals to each account
+
+Choosing "always allow" for chat now approves only the account named in the
+prompt, on desktop and Android. Another account still asks for its own approval.
+Settings names the account beside each chat-send grant and revokes only that
+account's approval. Older approvals that applied to an entire app are cleared
+and must be confirmed again for each account; they never transfer silently.
+
 ## fix(home2): apps can go fullscreen, and Home says so while they are
 
 Apps opened in Home could not go fullscreen. A video player, a game or a

@@ -6,14 +6,21 @@ import {
   readFileSync,
   readdirSync,
   rmSync,
+  writeFileSync,
 } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { app } from 'electron'
 import {
   readQdnAppRolesStore,
+  hasQdnAccountCapability,
+  hasQdnAppCapability,
+  grantQdnAccountCapabilityPermission,
+  grantQdnAppCapabilityPermission,
+  revokeQdnAccountCapabilityPermissionIfRevision,
   setQdnAppAssignmentValueIfRevision,
 } from './qdn-manager-permission-store.js'
+import { createDefaultQdnAppRolesStore, sanitizeQdnAppRolesStore, storeHoldsQdnAccountCapability } from './qdn-manager-permissions.js'
 
 const root = mkdtempSync(path.join(os.tmpdir(), 'qortium-qdn-app-store-'))
 const storePath = path.join(root, 'qdn-app-roles.json')
@@ -21,6 +28,32 @@ app.setPath('userData', root)
 
 try {
   await app.whenReady()
+  writeFileSync(storePath, JSON.stringify({
+    ...createDefaultQdnAppRolesStore(),
+    capabilityGrants: {
+      'qdn://APP/Chat/Chat': { 'chat.send': { grantedAt: '2026-09-04T10:00:00.000Z' } },
+      'qortal://APP/Chat/Chat': { 'chat.send': { grantedAt: '2026-09-04T10:00:00.000Z' } },
+    },
+  }))
+  assert.deepEqual(readQdnAppRolesStore().capabilityGrants, {})
+  for (const scheme of ['qdn', 'qortal']) {
+    const principal = `${scheme}://APP/Chat/Chat`
+    assert.equal(hasQdnAppCapability(principal, 'chat.send'), false)
+    assert.equal(hasQdnAccountCapability(principal, 'wallet:A', 'chat.send'), false)
+    assert.throws(() => grantQdnAppCapabilityPermission(principal, 'chat.send'), /requires an account/)
+    grantQdnAccountCapabilityPermission(principal, 'wallet:A', 'chat.send')
+    assert.equal(hasQdnAccountCapability(principal, 'wallet:A', 'chat.send'), true)
+    assert.equal(hasQdnAccountCapability(principal, 'wallet:B', 'chat.send'), false)
+    // Decode the activated file afresh, without the store's in-memory cache.
+    const reopened = sanitizeQdnAppRolesStore(JSON.parse(readFileSync(storePath, 'utf8')))
+    assert.equal(storeHoldsQdnAccountCapability(reopened, principal, 'wallet:A', 'chat.send'), true)
+    assert.equal(storeHoldsQdnAccountCapability(reopened, principal, 'wallet:B', 'chat.send'), false)
+    assert.equal(reopened.capabilityGrants[principal]?.['chat.send'], undefined)
+    grantQdnAccountCapabilityPermission(principal, 'wallet:B', 'chat.send')
+    revokeQdnAccountCapabilityPermissionIfRevision(readQdnAppRolesStore().revision, principal, 'wallet:A', 'chat.send')
+    assert.equal(hasQdnAccountCapability(principal, 'wallet:A', 'chat.send'), false)
+    assert.equal(hasQdnAccountCapability(principal, 'wallet:B', 'chat.send'), true)
+  }
   const initial = readQdnAppRolesStore()
   const changed = setQdnAppAssignmentValueIfRevision(initial.revision, {
     role: 'explore',

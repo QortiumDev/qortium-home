@@ -7,7 +7,7 @@
  */
 export const QDN_MANAGER_CAPABILITIES = ['bookmarks.manage', 'notifications.manage'] as const;
 /**
- * Durable per-app permission to send chat on the user's behalf, granted by
+ * Durable per-app, per-account permission to send chat on the user's behalf, granted by
  * choosing "always allow" on a send prompt and revocable in QDN Apps settings.
  * Deliberately covers chat sends only — publishing, unlocking, group admin and
  * private-group key rotation are never grantable this way.
@@ -79,8 +79,9 @@ export const QDN_APP_DECRYPT_CAPABILITIES = ['account.decrypt'] as const;
  * on `account-changed` (see home-v2-session-grants.ts). The durable grant now
  * follows the same rule instead of outliving it.
  *
- * chat.send and the manager capabilities stay app-scoped on purpose: they
- * shipped that way, and rekeying them would silently drop live user grants.
+ * chat.send also names one account. Legacy app-wide chat-send approvals are
+ * discarded on read and must be confirmed again for each account. Manager
+ * capabilities remain app-scoped because they manage Home data, not an account.
  */
 /**
  * Reading this account's DIRECT MESSAGES, durably.
@@ -117,6 +118,7 @@ export const QDN_APP_DIRECT_CHAT_CAPABILITIES = ['account.directChat'] as const;
  */
 export const QDN_APP_GROUP_CHAT_CAPABILITIES = ['account.groupChat'] as const;
 export const QDN_ACCOUNT_SCOPED_CAPABILITIES = [
+  'chat.send',
   'account.read',
   'account.encrypt',
   'account.decrypt',
@@ -423,6 +425,9 @@ function sanitizeCapabilityGrants(value: unknown) {
     if (!isRecord(rawCapabilities)) continue;
     const safeCapabilities: Partial<Record<QdnAppCapability, { grantedAt: string }>> = {};
     for (const capability of QDN_APP_CAPABILITIES) {
+      // An old app-wide send approval cannot identify the account the user
+      // intended. Never expand it into grants for current or future accounts.
+      if (capability === 'chat.send') continue;
       const rawGrant = rawCapabilities[capability];
       const grantedAt = isRecord(rawGrant) ? sanitizeGrantedAt(rawGrant.grantedAt) : null;
       if (grantedAt) safeCapabilities[capability] = { grantedAt };
@@ -546,6 +551,7 @@ export function clearQdnAppAssignment(store: QdnAppAssignmentsStore, roleValue: 
 }
 
 export function storeHoldsQdnAppCapability(store: QdnAppAssignmentsStore, appKeyValue: unknown, capability: QdnAppCapability) {
+  if (capability === 'chat.send') return false;
   let appKey: string;
   try { appKey = sanitizeQdnManagerAppKey(appKeyValue); } catch { return false; }
   return !!store.capabilityGrants[appKey]?.[capability];
@@ -556,6 +562,7 @@ export function storeHoldsQdnManagerPermission(store: QdnAppAssignmentsStore, ap
 }
 
 export function grantQdnAppCapability(store: QdnAppAssignmentsStore, appKeyValue: unknown, capability: QdnAppCapability) {
+  if (capability === 'chat.send') throw new Error('Chat-send approval requires an account.');
   const appKey = sanitizeQdnManagerAppKey(appKeyValue);
   if (storeHoldsQdnAppCapability(store, appKey, capability)) return store;
   return {

@@ -99,7 +99,7 @@ const service = createHomeV2QdnSettingsService({
       // silently revoked the wrong grant once there were two.
       assert.ok(
         capability === 'account.read' || capability === 'account.encrypt' ||
-          capability === 'account.decrypt',
+          capability === 'account.decrypt' || capability === 'chat.send',
         'an account-scoped revoke must name an account-scoped capability',
       )
       assignments = revokeQdnAccountCapability(assignments, appKey, accountId, capability)
@@ -519,6 +519,24 @@ assert.equal(authorized, true)
     true,
     'revoking account.decrypt must not drop account.encrypt',
   )
+}
+
+// A revoke must identify precisely one app/account grant on either protocol.
+for (const scheme of ['qdn', 'qortal']) {
+  const app = `${scheme}://APP/Chat/Chat`
+  assignments = grantQdnAccountCapability(assignments, app, READ_ACCOUNT_A, 'chat.send')
+  assignments = grantQdnAccountCapability(assignments, app, READ_ACCOUNT_B, 'chat.send')
+  const request = {
+    appKey: app,
+    capability: 'chat.send',
+    expectedAssignmentRevision: assignments.revision,
+    revision: 1,
+    schema: 'home-v2-qdn-settings-revoke-bookmarks-request',
+  }
+  assert.throws(() => service.revokeBookmarks(request), /account/i)
+  const after = service.revokeBookmarks({ ...request, accountId: READ_ACCOUNT_A })
+  assert.deepEqual(after.chatSend.apps.filter(({ appKey }) => appKey === app)
+    .map(({ accountId }) => accountId), [READ_ACCOUNT_B])
 }
 
 console.log('Home 2 QDN settings contract tests passed.')

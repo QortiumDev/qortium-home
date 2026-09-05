@@ -87,7 +87,7 @@ export type HomeV2QdnSettingsState = Readonly<{
   }>
   /** Apps granted persistent permission to send chat ("always allow"). */
   chatSend: Readonly<{
-    apps: readonly HomeV2QdnBookmarkGrant[]
+    apps: readonly HomeV2QdnAccountGrant[]
     revision: number
     version: 1
   }>
@@ -327,7 +327,7 @@ function parseAccountGrant(value: unknown): HomeV2QdnAccountGrant {
     // a legitimate holder of a durable read grant. The identifier segment is
     // the canonical one the main process already resolved, so no query string
     // or route path is permitted here.
-    !/^(?:qdn|qortal):\/\/(?:APP|WEBSITE)\/[^/?#]+(?:\/[^/?#]+)?$/i.test(value.appKey) ||
+    !/^(?:qdn|qortal):\/\/(?:APP|WEBSITE|GAME)\/[^/?#]+(?:\/[^/?#]+)?$/i.test(value.appKey) ||
     !boundedText(value.grantedAt, 100) ||
     !Number.isFinite(Date.parse(value.grantedAt))
   ) throw new Error('Home 2 QDN account grant was malformed.')
@@ -415,14 +415,14 @@ export function parseHomeV2QdnSettingsState(
   }
   const apps = value.notifications.apps.map(parseGrant)
   const bookmarkApps = value.bookmarks.apps.map(parseBookmarkGrant)
-  const chatSendApps = value.chatSend.apps.map(parseBookmarkGrant)
+  const chatSendApps = value.chatSend.apps.map(parseAccountGrant)
   const notificationManagerApps = value.notificationsManage.apps.map(parseBookmarkGrant)
   const accountReadApps = value.accountRead.apps.map(parseAccountGrant)
   const accountEncryptApps = value.accountEncrypt.apps.map(parseAccountGrant)
   const accountDecryptApps = value.accountDecrypt.apps.map(parseAccountGrant)
   const accountDirectChatApps = value.accountDirectChat.apps.map(parseAccountGrant)
   const accountGroupChatApps = value.accountGroupChat.apps.map(parseAccountGrant)
-  if (new Set(chatSendApps.map(({ appKey }) => appKey)).size !== chatSendApps.length) {
+  if (new Set(chatSendApps.map(({ appKey, accountId }) => `${appKey}\0${accountId}`)).size !== chatSendApps.length) {
     throw new Error('Home 2 QDN settings contained duplicate chat-send grants.')
   }
   if (new Set(notificationManagerApps.map(({ appKey }) => appKey)).size !== notificationManagerApps.length) {
@@ -522,7 +522,8 @@ export function parseHomeV2QdnSettingsState(
     }),
     chatSend: Object.freeze({
       apps: Object.freeze(
-        [...chatSendApps].sort((left, right) => left.appKey.localeCompare(right.appKey)),
+        [...chatSendApps].sort((left, right) =>
+          left.appKey.localeCompare(right.appKey) || left.accountId.localeCompare(right.accountId)),
       ),
       revision: value.chatSend.revision,
       version: 1,
@@ -656,8 +657,6 @@ function projectPortableAssignments(value: unknown) {
       })]
     })
   const bookmarkApps = grantsFor('bookmarks.manage')
-  // Apps the user chose "always allow" for when sending chat.
-  const chatSendApps = grantsFor('chat.send')
   // Apps holding the durable notification-manager capability.
   const notificationManagerApps = grantsFor('notifications.manage')
   // Apps the user chose "always allow" for read-only account access, one entry
@@ -668,7 +667,7 @@ function projectPortableAssignments(value: unknown) {
   // account-scoped grants are read the same way, and a copy-paste second
   // version is how one of them ends up reading the other's key.
   const accountGrantsFor = (
-    capability: 'account.read' | 'account.encrypt' | 'account.decrypt' | 'account.directChat' | 'account.groupChat',
+    capability: 'account.read' | 'account.encrypt' | 'account.decrypt' | 'account.directChat' | 'account.groupChat' | 'chat.send',
   ) =>
     Object.entries(rawAccountGrants).flatMap(([appKey, accounts]) => {
       if (!isRecord(accounts)) return []
@@ -682,6 +681,7 @@ function projectPortableAssignments(value: unknown) {
       })
     })
   const accountReadApps = accountGrantsFor('account.read')
+  const chatSendApps = accountGrantsFor('chat.send')
   const accountEncryptApps = accountGrantsFor('account.encrypt')
   const accountDecryptApps = accountGrantsFor('account.decrypt')
   const accountDirectChatApps = accountGrantsFor('account.directChat')

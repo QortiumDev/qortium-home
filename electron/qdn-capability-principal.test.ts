@@ -6,7 +6,6 @@ import { fileURLToPath } from 'node:url'
 import {
   createDefaultQdnAppRolesStore,
   grantQdnAccountCapability,
-  grantQdnAppCapability,
   listQdnAccountCapabilityGrants,
   resolveQdnCapabilityIdentifier,
   revokeQdnAccountCapability,
@@ -237,15 +236,46 @@ import {
 
   // The account-scoped store is separate from the app-scoped one: an
   // account.read grant is never visible as a chat.send grant and vice versa.
-  let mixed = grantQdnAppCapability(createDefaultQdnAppRolesStore(), app, 'chat.send')
+  let mixed = grantQdnAccountCapability(createDefaultQdnAppRolesStore(), app, accountA, 'chat.send')
   mixed = grantQdnAccountCapability(mixed, app, accountA, 'account.read')
-  assert.equal(storeHoldsQdnAppCapability(mixed, app, 'chat.send'), true)
+  assert.equal(storeHoldsQdnAppCapability(mixed, app, 'chat.send'), false)
+  assert.equal(storeHoldsQdnAccountCapability(mixed, app, accountA, 'chat.send'), true)
   assert.equal(storeHoldsQdnAccountCapability(mixed, app, accountA, 'account.read'), true)
   assert.equal(
     storeHoldsQdnAppCapability(mixed, app, 'account.read'),
     false,
     'the account-scoped grant must not be readable from the app-scoped map',
   )
+}
+
+// Old app-wide chat approvals cannot be assigned to any account. Both
+// protocols require a fresh approval; effective identifiers remain isolated.
+for (const scheme of ['qdn', 'qortal']) {
+  const app = `${scheme}://APP/Chat/Chat`
+  const legacy = {
+    ...createDefaultQdnAppRolesStore(),
+    capabilityGrants: {
+      [app]: { 'chat.send': { grantedAt: '2026-09-04T10:00:00.000Z' } },
+    },
+  }
+  assert.equal(storeHoldsQdnAppCapability(legacy, app, 'chat.send'), false)
+  let store = sanitizeQdnAppRolesStore(legacy)
+  assert.deepEqual(store.capabilityGrants, {})
+  for (const account of ['wallet:A', 'wallet:B']) {
+    assert.equal(storeHoldsQdnAccountCapability(store, app, account, 'chat.send'), false)
+  }
+  store = grantQdnAccountCapability(store, app, 'wallet:A', 'chat.send')
+  store = sanitizeQdnAppRolesStore(JSON.parse(JSON.stringify(store)))
+  assert.equal(storeHoldsQdnAccountCapability(store, app, 'wallet:A', 'chat.send'), true)
+  assert.equal(storeHoldsQdnAccountCapability(store, app, 'wallet:B', 'chat.send'), false)
+  assert.equal(storeHoldsQdnAccountCapability(store, `${app}?identifier=other`, 'wallet:A', 'chat.send'), false)
+  assert.equal(storeHoldsQdnAccountCapability(store, app, 'wallet:A', 'account.read'), false)
+  store = grantQdnAccountCapability(store, app, 'wallet:B', 'chat.send')
+  store = grantQdnAccountCapability(store, app, 'wallet:A', 'account.encrypt')
+  store = revokeQdnAccountCapability(store, app, 'wallet:A', 'chat.send')
+  assert.equal(storeHoldsQdnAccountCapability(store, app, 'wallet:A', 'chat.send'), false)
+  assert.equal(storeHoldsQdnAccountCapability(store, app, 'wallet:B', 'chat.send'), true)
+  assert.equal(storeHoldsQdnAccountCapability(store, app, 'wallet:A', 'account.encrypt'), true)
 }
 
 // --- Round-trips through persistence, for both schemes ---
