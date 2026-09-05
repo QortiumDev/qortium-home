@@ -1909,6 +1909,9 @@ function testCoreManagementRenderingAndAndroidDegrade(): void {
     transport: {
       busy: null,
       mode: 'direct-only',
+      selectedMode: 'direct-only',
+      restartRequired: false,
+      progress: null,
       notice: null,
       stale: false,
       status: {
@@ -2024,6 +2027,9 @@ function testCoreManagementRenderingAndAndroidDegrade(): void {
           transport: {
             busy: null,
             mode: null,
+            selectedMode: null,
+            restartRequired: false,
+            progress: null,
             notice: null,
             stale: false,
             status: null,

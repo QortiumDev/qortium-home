@@ -11,7 +11,9 @@ import {
   parseHomeV2TransportMaintenanceActionResult,
   parseHomeV2TransportMaintenanceStatus,
 } from '../../home-v2-live/core-manager-client'
-import { useHomeV2TransportMaintenance } from '../../home-v2-live/transport-maintenance-controller'
+import { toHomeV2TransportManagement, useHomeV2TransportMaintenance } from '../../home-v2-live/transport-maintenance-controller'
+import { homeV2Fixture } from '../test-kit/fixtures'
+import { HomeV2NodeCoreSection } from './HomeV2NodeCoreSection'
 import type { HomeV2CoreManagement } from './CoreManagerCards'
 import { TransportMaintenancePanel } from './TransportMaintenancePanel'
 
@@ -132,8 +134,19 @@ const management: HomeV2CoreManagement = {
 // per domain. This harness stands in for HomeV2LiveApp: it calls the real
 // controller hook and hands the whole return to the panel, so the polling,
 // staleness and busy behaviour below is still exercised end to end.
-function TransportMaintenanceHarness() {
+function TransportMaintenanceHarness({ dashboard = false }: { dashboard?: boolean }) {
   const maintenance = useHomeV2TransportMaintenance(management.onRefresh)
+  if (dashboard) return <HomeV2NodeCoreSection networks={['qortium']} snapshot={homeV2Fixture}
+    coreManagement={{ ...management, statuses: {
+      qortium: {
+        capabilities: { canStart: false, canStop: true }, control: 'full', install: 'home-managed',
+        issue: null, network: 'qortium', revision: 1, runtime: 'running', schema: 'home-v2-core-manager',
+      },
+      qortal: {
+        capabilities: { canStart: true, canStop: false }, control: 'full', install: 'home-managed',
+        issue: null, network: 'qortal', revision: 1, runtime: 'stopped', schema: 'home-v2-core-manager',
+      },
+    }, transport: toHomeV2TransportManagement(maintenance) }} />
   return <TransportMaintenancePanel maintenance={maintenance} />
 }
 
@@ -186,10 +199,10 @@ function hasButton(label: string) {
     .some((candidate) => candidate.textContent?.trim() === label)
 }
 
-async function render(nextClient: HomeV2CoreManagerClient) {
+async function render(nextClient: HomeV2CoreManagerClient, dashboard = false) {
   window.homeV2CoreManagers = nextClient
   await act(async () => {
-    root.render(<TransportMaintenanceHarness />)
+    root.render(<TransportMaintenanceHarness dashboard={dashboard} />)
     await Promise.resolve()
     await Promise.resolve()
   })
@@ -432,6 +445,157 @@ try {
     await Promise.resolve()
   })
   assert.deepEqual([...stopActions], [{ action: 'stop-router', mode: null }])
+
+  // Exercise the real dashboard row through the same controller/bridge as
+  // Settings. A live mode write saves only; the separate button opts into a
+  // stop/start. Merely selecting a mode must do neither.
+  const dashboardSelect = () => container.querySelector(
+    '[data-home-v2-node-core-transport="dashboard"] select',
+  ) as HTMLSelectElement
+  const dashboardCalls: string[] = []
+  let dashboardStatus = transportStatus({
+    coreRuntime: 'running', maintenance: 'none', routerState: 'managed-running', version: '2.60.0-q2',
+  })
+  let dashboardRefreshFails = false
+  let refuseStop = false
+  let refuseStart = false
+  const coreActionResult = (runtime: 'running' | 'stopped', blocked = false) => ({
+    code: blocked ? 'operation-blocked' as const : null, network: 'qortium' as const,
+    outcome: blocked ? 'blocked' as const : 'completed' as const, revision: 1 as const,
+    schema: 'home-v2-core-manager-action' as const, warning: null,
+    status: {
+      capabilities: { canStart: runtime === 'stopped', canStop: runtime === 'running' },
+      control: 'full' as const, install: 'home-managed' as const, issue: null,
+      network: 'qortium' as const, revision: 1 as const, runtime,
+      schema: 'home-v2-core-manager' as const,
+    },
+  })
+  let resolveMode!: (result: HomeV2TransportMaintenanceActionResult) => void
+  await render(client({
+    getTransportMaintenanceStatus: async () => {
+      if (dashboardRefreshFails) throw new Error('offline')
+      return dashboardStatus
+    },
+    runTransportMaintenanceAction: async (action, mode) => {
+      dashboardCalls.push(`${action}:${mode}`)
+      dashboardStatus = { ...dashboardStatus, transportMode: mode! }
+      return new Promise((resolve) => { resolveMode = resolve })
+    },
+    stop: async (network) => {
+      dashboardCalls.push(`stop:${network}`)
+      return coreActionResult(refuseStop ? 'running' : 'stopped', refuseStop)
+    },
+    start: async (network) => {
+      dashboardCalls.push(`start:${network}`)
+      return coreActionResult(refuseStart ? 'stopped' : 'running', refuseStart)
+    },
+  }), true)
+  assert.equal(dashboardSelect().disabled, false)
+  assert.equal([...dashboardSelect().options].every((option) => !option.disabled), true)
+  assert.equal(button('Apply transport mode').disabled, true)
+  assert.match(container.textContent ?? '', /Qortium Core must restart before it uses the new mode/)
+  await act(async () => {
+    dashboardSelect().value = 'i2p-only'
+    dashboardSelect().dispatchEvent(new Event('change', { bubbles: true }))
+  })
+  assert.deepEqual([...dashboardCalls], [])
+  await act(async () => { button('Apply transport mode').click() })
+  assert.deepEqual(dashboardCalls, ['set-mode-live:i2p-only'])
+  assert.equal(dashboardSelect().disabled, true, 'pending write blocks more changes')
+  assert.equal(container.querySelector('[data-home-v2-transport-restart]'), null)
+  await act(async () => {
+    resolveMode({ ...actionResult(dashboardStatus), warning: 'restart-required' })
+  })
+  assert.deepEqual(dashboardCalls, ['set-mode-live:i2p-only'], 'saving must never restart Core')
+  let restartButton = container.querySelector('[data-home-v2-transport-restart]') as HTMLButtonElement
+  assert(restartButton)
+  dashboardRefreshFails = true
+  await act(async () => { refreshInterval?.() })
+  assert.equal(dashboardSelect().disabled, true)
+  assert.equal(restartButton.disabled, true)
+  assert.match(container.textContent ?? '', /shown state may be stale/)
+  await act(async () => { restartButton.click() })
+  assert.deepEqual(dashboardCalls, ['set-mode-live:i2p-only'])
+  dashboardRefreshFails = false
+  await act(async () => { refreshInterval?.() })
+  restartButton = container.querySelector('[data-home-v2-transport-restart]') as HTMLButtonElement
+  refuseStop = true
+  await act(async () => { restartButton.click() })
+  assert.deepEqual([...dashboardCalls], ['set-mode-live:i2p-only', 'stop:qortium'],
+    'a refused stop must not proceed to start')
+  assert(container.querySelector('[data-home-v2-transport-restart]'), 'keep pending restart after refusal')
+  refuseStop = false
+  refuseStart = true
+  await act(async () => { restartButton.click() })
+  assert.deepEqual([...dashboardCalls], ['set-mode-live:i2p-only', 'stop:qortium', 'stop:qortium', 'start:qortium'])
+  assert(container.querySelector('[data-home-v2-transport-restart]'), 'failed start must not clear pending restart')
+  assert.match(container.querySelector('[role="alert"]')?.textContent ?? '', /restart/i)
+  refuseStart = false
+  await act(async () => { restartButton.click() })
+  assert.deepEqual([...dashboardCalls].slice(-2), ['stop:qortium', 'start:qortium'])
+  assert.equal(container.querySelector('[data-home-v2-transport-restart]'), null)
+
+  // The backend can still refuse a live write (for example an unsupported
+  // Core API). Keep the actual mode and report failure without a restart.
+  await render(client({
+    getTransportMaintenanceStatus: async () => ({ ...dashboardStatus, transportMode: 'direct-only' }),
+    runTransportMaintenanceAction: async () => ({
+      ...actionResult({ ...dashboardStatus, transportMode: 'direct-only' }),
+      outcome: 'blocked', code: 'action-not-allowed',
+    }),
+  }), true)
+  await act(async () => {
+    dashboardSelect().value = 'i2p-only'
+    dashboardSelect().dispatchEvent(new Event('change', { bubbles: true }))
+  })
+  await act(async () => { button('Apply transport mode').click() })
+  assert.equal(dashboardSelect().value, 'direct-only')
+  assert(container.querySelector('[role="alert"]'))
+  assert.equal(container.querySelector('[data-home-v2-transport-restart]'), null)
+
+  // Stopped Core still uses the settings-file write and needs no restart now.
+  await render(client({
+    getTransportMaintenanceStatus: async () => readyStatus,
+    runTransportMaintenanceAction: async (action, mode) => {
+      dashboardCalls.push(`${action}:${mode}`)
+      return actionResult({ ...readyStatus, transportMode: mode! })
+    },
+  }), true)
+  await act(async () => {
+    dashboardSelect().value = 'direct-and-i2p'
+    dashboardSelect().dispatchEvent(new Event('change', { bubbles: true }))
+  })
+  await act(async () => { button('Apply transport mode').click() })
+  assert.equal(dashboardCalls.at(-1), 'set-mode:direct-and-i2p')
+  assert.equal(container.querySelector('[data-home-v2-transport-restart]'), null)
+
+  for (const coreRuntime of ['running', 'stopped', 'unknown'] as const) {
+    await render(client({ getTransportMaintenanceStatus: async () => transportStatus({ coreRuntime }) }), true)
+    const selector = dashboardSelect()
+    assert.equal(selector.disabled, coreRuntime === 'unknown')
+    assert.equal(selector.options[0].disabled, true, 'I2P modes require ready SAM')
+    assert.equal(selector.options[2].disabled, true)
+    assert.equal(selector.options[1].disabled, coreRuntime === 'unknown')
+  }
+
+  let dashboardEmit: ((event: unknown) => void) | undefined
+  await render(client({
+    getTransportMaintenanceStatus: async () => readyStatus,
+    onTransportProgress: (listener) => {
+      dashboardEmit = listener
+      return () => { dashboardEmit = undefined }
+    },
+  }), true)
+  await act(async () => {
+    dashboardEmit?.({ action: 'downloading', kind: 'info', message: 'Downloading I2P router.',
+      percent: 42, revision: 1, schema: 'home-v2-transport-progress' })
+  })
+  assert.equal(container.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow'), '42')
+  await act(async () => {
+    dashboardEmit?.({ action: 'idle', kind: 'info', message: 'Idle.',
+      percent: null, revision: 1, schema: 'home-v2-transport-progress' })
+  })
+  assert.equal(container.querySelector('[role="progressbar"]'), null)
 
   act(() => root.unmount())
   root = createRoot(container)

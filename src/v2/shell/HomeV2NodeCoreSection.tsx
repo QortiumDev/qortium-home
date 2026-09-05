@@ -3,9 +3,10 @@ import type { HomeV2AppUpdates } from '../../home-v2-live/app-update-controller'
 import type { HomeV2CoreMaintenanceManagement } from '../../home-v2-live/core-maintenance-controller'
 import type { HomeV2OnChainCoreUpdates } from '../../home-v2-live/on-chain-core-update-controller'
 import type { HomeV2QortalMaintenanceManagement } from '../../home-v2-live/qortal-maintenance-controller'
-import type {
-  HomeV2SettableTransportMode,
-  HomeV2TransportManagement,
+import {
+  transportModeActionFor,
+  type HomeV2SettableTransportMode,
+  type HomeV2TransportManagement,
 } from '../../home-v2-live/transport-maintenance-controller'
 import { t, type TranslationKey } from '../../i18n'
 import type {
@@ -523,6 +524,8 @@ function TransportRow({
     )
   }
   const blocked = transport.busy !== null || transport.stale
+  const selectedMode = transport.selectedMode ?? transport.mode
+  const modeAllowed = selectedMode !== null && transportModeActionFor(status, selectedMode) !== null
   return (
     <div
       className="home-v2-node-core-row"
@@ -533,39 +536,70 @@ function TransportRow({
         <strong>{t('home2.transportMaintenance.title')}</strong>
         <small id="node-core-transport-state">{routerStatusMessage(status)}</small>
         <small data-home-v2-node-core-sam-state>{samStatusMessage(status)}</small>
+        <small id="node-core-transport-mode-note">
+          {status.core.runtime === 'stopped'
+            ? t('home2.transportMaintenance.mode.stoppedNote')
+            : status.core.runtime === 'running'
+              ? t(status.capabilities.canSetModeWhileRunning
+                  ? 'home2.transportMaintenance.mode.runningNote'
+                  : 'home2.transportMaintenance.mode.stopCoreNote')
+              : t('home2.transportMaintenance.mode.verifyStoppedNote')}
+        </small>
       </div>
       <div className="home-v2-node-core-row__controls">
         {transport.mode && transport.onSetTransportMode ? (
           <select
             aria-label={t('home2.transportMaintenance.mode.label')}
-            aria-describedby="node-core-transport-state"
-            disabled={blocked || status.core.runtime !== 'stopped'}
-            value={transport.mode}
+            aria-describedby="node-core-transport-mode-note"
+            disabled={blocked ||
+              (status.core.runtime !== 'stopped' && !status.capabilities.canSetModeWhileRunning)}
+            value={selectedMode ?? transport.mode}
             onChange={(event) =>
-              transport.onSetTransportMode?.(
+              transport.onSelectTransportMode?.(
                 event.target.value as HomeV2SettableTransportMode,
               )
             }
           >
             <option
               value="direct-and-i2p"
-              disabled={!status.capabilities.canSetDirectAndI2p}
+              disabled={!transportModeActionFor(status, 'direct-and-i2p')}
             >
               {t('home2.transportMaintenance.mode.directAndI2p')}
             </option>
             <option
               value="direct-only"
-              disabled={!status.capabilities.canSetDirectOnly}
+              disabled={!transportModeActionFor(status, 'direct-only')}
             >
               {t('home2.transportMaintenance.mode.directOnly')}
             </option>
             <option
               value="i2p-only"
-              disabled={!status.capabilities.canSetI2pOnly}
+              disabled={!transportModeActionFor(status, 'i2p-only')}
             >
               {t('home2.transportMaintenance.mode.i2pOnly')}
             </option>
           </select>
+        ) : null}
+        {transport.mode && transport.onSetTransportMode ? (
+          <button type="button" className="home-v2-primary-button"
+            aria-describedby="node-core-transport-mode-note"
+            data-home-v2-node-core-action="set-transport-mode"
+            disabled={blocked || selectedMode === transport.mode || !modeAllowed}
+            onClick={() => {
+              if (selectedMode && modeAllowed) transport.onSetTransportMode?.(selectedMode)
+            }}>
+            {transport.busy === 'set-mode' || transport.busy === 'set-mode-live'
+              ? t('home2.common.working')
+              : t('home2.transportMaintenance.mode.apply')}
+          </button>
+        ) : null}
+        {transport.restartRequired && transport.onConfirmRestart ? (
+          <button type="button" className="home-v2-primary-button"
+            data-home-v2-transport-restart
+            disabled={blocked}
+            onClick={transport.onConfirmRestart}>
+            {t('home2.transportMaintenance.action.restartNow')}
+          </button>
         ) : null}
         {status.capabilities.canEnsureRouter && transport.onEnsureRouter ? (
           <button
@@ -612,6 +646,12 @@ function TransportRow({
           </button>
         ) : null}
       </div>
+      <CoreProgressBar progress={transport.progress} />
+      {transport.stale ? (
+        <p className="home-v2-core-notice" role="alert">
+          {t('home2.transportMaintenance.refreshStale')}
+        </p>
+      ) : null}
       {transport.notice ? (
         <p
           className="home-v2-core-notice"

@@ -7,6 +7,7 @@ import type {
   HomeV2TransportMode,
 } from './core-manager-client'
 import {
+  parseHomeV2CoreManagerActionResult,
   parseHomeV2TransportMaintenanceActionResult,
   parseHomeV2TransportMaintenanceStatus,
   parseHomeV2TransportProgress,
@@ -55,6 +56,7 @@ export function transportStatusFingerprint(status: HomeV2TransportMaintenanceSta
     status.capabilities.canSetDirectAndI2p,
     status.capabilities.canSetDirectOnly,
     status.capabilities.canSetI2pOnly,
+    status.capabilities.canSetModeWhileRunning,
     status.core.install,
     status.core.runtime,
     status.issue,
@@ -159,6 +161,8 @@ export function useHomeV2TransportMaintenance(onCoreRefresh?: () => void) {
     setNotice(null)
     setInitialLoadFailed(false)
     setStale(false)
+    setRestartRequired(false)
+    setProgress(null)
     void refresh()
     const interval = window.setInterval(() => void refresh(), 30_000)
     return () => {
@@ -238,27 +242,35 @@ export function useHomeV2TransportMaintenance(onCoreRefresh?: () => void) {
    * succeeded, and this is the separate step the user opts into.
    */
   const confirmRestart = async () => {
-    if (!client?.stop || !client?.start || busyRef.current) return
+    if (!client?.stop || !client?.start || busyRef.current || stale || !restartRequired) return
+    const sequence = ++requestSequence.current
     busyRef.current = true
     setBusy('set-mode-live')
     setNotice(null)
     try {
-      await client.stop('qortium')
-      await client.start('qortium')
-      if (disposed.current) return
+      const stopped = parseHomeV2CoreManagerActionResult(await client.stop('qortium'), 'qortium')
+      if (disposed.current || sequence !== requestSequence.current) return
+      if (stopped.outcome !== 'completed' || stopped.status.runtime !== 'stopped') {
+        throw new Error('Core stop was not confirmed.')
+      }
+      const started = parseHomeV2CoreManagerActionResult(await client.start('qortium'), 'qortium')
+      if (disposed.current || sequence !== requestSequence.current) return
+      if (started.outcome !== 'completed' || started.status.runtime !== 'running') {
+        throw new Error('Core start was not confirmed.')
+      }
       setRestartRequired(false)
       setNotice({ error: false, message: t('home2.transportMaintenance.action.restarted') })
       coreRefresh.current?.()
     } catch {
-      if (!disposed.current) {
+      if (!disposed.current && sequence === requestSequence.current) {
         setNotice({ error: true, message: t('home2.transportMaintenance.action.restartFailed') })
       }
     } finally {
-      if (!disposed.current) {
+      if (!disposed.current && sequence === requestSequence.current) {
         busyRef.current = false
         setBusy(null)
+        void refresh()
       }
-      void refresh()
     }
   }
 
@@ -291,6 +303,9 @@ export type HomeV2TransportMaintenance = ReturnType<typeof useHomeV2TransportMai
 export interface HomeV2TransportManagement {
   readonly busy: HomeV2TransportMaintenanceAction | null
   readonly mode: HomeV2SettableTransportMode | null
+  readonly selectedMode: HomeV2SettableTransportMode | null
+  readonly restartRequired: boolean
+  readonly progress: HomeV2TransportProgress | null
   /** Last action outcome, so a tile can report a failure it caused. */
   readonly notice: HomeV2TransportMaintenanceNotice | null
   readonly stale: boolean
@@ -299,6 +314,8 @@ export interface HomeV2TransportManagement {
   /** Opens the managed router's folder. Absent when the router is external. */
   readonly onRevealRouterFolder?: () => void
   readonly onSetTransportMode?: (mode: HomeV2SettableTransportMode) => void
+  readonly onSelectTransportMode?: (mode: HomeV2SettableTransportMode) => void
+  readonly onConfirmRestart?: () => void
   readonly onStopRouter?: () => void
   readonly onUpdateRouter?: () => void
 }
@@ -309,7 +326,12 @@ export function toHomeV2TransportManagement(
   return {
     busy: transport.busy,
     mode: transport.currentMode,
+    selectedMode: transport.selectedMode,
+    restartRequired: transport.restartRequired,
+    progress: transport.progress,
     notice: transport.notice,
+    onSelectTransportMode: transport.setSelectedMode,
+    onConfirmRestart: () => void transport.confirmRestart(),
     onEnsureRouter: () => void transport.run('ensure-router', null),
     onSetTransportMode: (mode: HomeV2SettableTransportMode) => {
       const status = transport.status
