@@ -160,6 +160,7 @@ import {
   normalizeHomeV2EncryptDataRequest,
 } from '../../electron/home-v2-encryption-actions'
 import {
+  SAVED_GUEST_ACCOUNT_ID,
   validateBookmarkManagerMutationRequest,
   validateBookmarksOpenRequest,
   type BookmarkManagerDashboardPin,
@@ -1186,6 +1187,12 @@ type HomeV2AccountBinding =
   | typeof HOME_V2_BIND_NO_ACCOUNT
   | null
   | undefined
+
+// Decode saved-place references only at launch. A runtime null means Current,
+// so an explicit guest must use the existing no-account binding object.
+function savedAccountBinding(accountId: string | null | undefined): HomeV2AccountBinding {
+  return accountId === SAVED_GUEST_ACCOUNT_ID ? HOME_V2_BIND_NO_ACCOUNT : accountId
+}
 
 function accountIdentity(
   account: HomeV2AccountCatalogueEntry,
@@ -3168,7 +3175,7 @@ export function HomeV2LiveApp() {
         try {
           const result = await openAddress(
             entry.displayUrl,
-            entry.accountId ?? undefined,
+            savedAccountBinding(entry.accountId),
           )
           if (result.status === 'opened') opened += 1
         } catch {
@@ -3310,7 +3317,7 @@ export function HomeV2LiveApp() {
 
   const openDashboardPin = useCallback(
     async (pin: BookmarkManagerDashboardPin) => {
-      const result = await openAddress(pin.displayUrl, pin.accountId ?? selectedAccountId)
+      const result = await openAddress(pin.displayUrl, savedAccountBinding(pin.accountId ?? selectedAccountId))
       if (result.status !== 'opened') {
         // Reject so the pinned-apps inline alert (role=alert) renders the
         // failure next to the pin the user clicked (toolbar review FIX #1).
@@ -3362,7 +3369,7 @@ export function HomeV2LiveApp() {
     async (link: BookmarkManagerLink) => {
       const result = await openAddress(
         link.displayUrl,
-        link.accountId ?? selectedAccountId,
+        savedAccountBinding(link.accountId ?? selectedAccountId),
       )
       if (result.status !== 'opened') {
         setShellNotice(
@@ -3605,7 +3612,7 @@ export function HomeV2LiveApp() {
     return bridge.onOpen((value) => {
       if (!isRecord(value) || typeof value.address !== 'string') return
       const accountId = typeof value.accountId === 'string' ? value.accountId : null
-      void openAddress(value.address, accountId)
+      void openAddress(value.address, savedAccountBinding(accountId))
     })
   }, [openAddress])
 
@@ -5191,11 +5198,12 @@ export function HomeV2LiveApp() {
         const openAccountId = openRequest.accountId ?? context.selectedAccountId
         if (
           openAccountId &&
+          openAccountId !== SAVED_GUEST_ACCOUNT_ID &&
           !accountCatalogueRef.current.accounts.some((account) => account.id === openAccountId)
         ) {
           throw new Error('BOOKMARKS_OPEN accountId does not match a saved Home account.')
         }
-        const opened = await openAddress(openRequest.address, openAccountId)
+        const opened = await openAddress(openRequest.address, savedAccountBinding(openAccountId))
         if (opened.status !== 'opened') throw new Error(opened.message ?? 'Saved Home link could not be opened.')
         return true
       }

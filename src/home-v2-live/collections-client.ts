@@ -1,6 +1,7 @@
 import { Capacitor } from '@capacitor/core'
 import { Preferences } from '@capacitor/preferences'
 import {
+  SAVED_GUEST_ACCOUNT_ID,
   validateBookmarkManagerMutationRequest,
   validateBookmarkManagerSnapshot,
   type BookmarkManagerAccountChoice,
@@ -15,6 +16,7 @@ import { saveBookmarkManagerSnapshot } from '../bookmarkManagerStore'
 import { DEFAULT_BOOKMARKS_STATE, saveBookmarksState } from '../bookmarks'
 import { saveDashboardPins } from '../dashboardPins'
 import { saveStartPages } from '../startPages'
+import { t } from '../i18n'
 import {
   HOME_V2_LEGACY_COLLECTION_KEYS,
   parseHomeV2LegacyCollectionsRaw,
@@ -31,10 +33,17 @@ export type HomeV2CollectionsAccounts = {
 }
 
 function withAccounts(snapshot: BookmarkManagerSnapshot, accounts: HomeV2CollectionsAccounts) {
+  // This is only a manager choice, not a real account or persisted catalogue.
+  // At the existing contract limit, retain every real choice. A saved guest
+  // reference remains preserved by older managers as an unavailable choice.
+  const availableAccounts = accounts.availableAccounts.length < 256
+    && !accounts.availableAccounts.some((account) => account.id === SAVED_GUEST_ACCOUNT_ID)
+    ? [...accounts.availableAccounts, { id: SAVED_GUEST_ACCOUNT_ID, label: t('account.noAccount') }]
+    : accounts.availableAccounts
   return validateBookmarkManagerSnapshot({
     ...snapshot,
     activeAccountId: accounts.activeAccountId,
-    availableAccounts: accounts.availableAccounts,
+    availableAccounts,
   })
 }
 
@@ -273,7 +282,7 @@ export class HomeV2CollectionsClient {
         snapshotCollections(currentSnapshot, accounts),
         request.mutation,
       )
-      if (!result.changed) return { changed: false, snapshot: result.snapshot }
+      if (!result.changed) return { changed: false, snapshot: withAccounts(result.snapshot, accounts) }
       const stored = withoutAccounts(result.snapshot)
       await persistSnapshot(stored)
       this.current = stored

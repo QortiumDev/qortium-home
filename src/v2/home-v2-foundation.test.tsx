@@ -2327,16 +2327,17 @@ function testCoreManagementRenderingAndAndroidDegrade(): void {
   assert.equal(parseHomeV2MenuCommand(7), null)
 
   // F3 start-page launch plan: restored tabs win, onboarding suppresses,
-  // dead account bindings fall back to the current account.
+  // unavailable account bindings are skipped and explicit guests survive.
   const startPages = [
     { accountId: 'wallet:Qa', displayUrl: 'qdn://APP/Chat/Chat' },
     { accountId: 'wallet:Qgone', displayUrl: 'qdn://APP/Trust/Trust' },
+    { accountId: 'home-v2:guest', displayUrl: 'qdn://APP/Guest/default' },
     { accountId: null, displayUrl: '  ' },
     { accountId: null, displayUrl: 'home://apps' },
   ]
   const expectedPages = [
     { accountId: 'wallet:Qa', displayUrl: 'qdn://APP/Chat/Chat' },
-    { accountId: null, displayUrl: 'qdn://APP/Trust/Trust' },
+    { accountId: 'home-v2:guest', displayUrl: 'qdn://APP/Guest/default' },
     { accountId: null, displayUrl: 'home://apps' },
   ]
   assert.deepEqual(

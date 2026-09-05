@@ -42,6 +42,16 @@ another instance. The original tab and your default for new tabs stay unchanged;
 locked accounts remain locked. This control stays inside the dropdown and is
 not offered for publish previews or resource viewers.
 
+## fix(home2): preserve guest accounts in saved links
+
+2026-09-05
+
+Saving an app tab with no account now keeps it that way when reopened from
+Bookmarks, the toolbar, Dashboard pins, or startup pages, even if a default
+account is selected later. The Bookmarks manager offers a No account choice;
+existing Current links still follow the current account. Startup pages saved
+for a removed account are skipped instead of opening under a different account.
+
 ## fix(home2): preserve tab permissions when changing the default account
 
 Changing the default account for new tabs no longer clears permissions or

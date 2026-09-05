@@ -6,6 +6,12 @@ import { isPublicQdnService } from './qdn-public-services.js';
 
 export const BOOKMARK_MANAGER_SCHEMA_VERSION = 1 as const;
 
+// Saved-place reference, never a wallet ID: real IDs begin with `wallet:`.
+// Keeping this nonempty preserves it through schema-1 managers, and older
+// Home BOOKMARKS_OPEN bridges reject it as an unavailable account instead of
+// inheriting one.
+export const SAVED_GUEST_ACCOUNT_ID = 'home-v2:guest' as const;
+
 export const BOOKMARK_MANAGER_TREE_ROOT_IDS = ['bookmarks', 'toolbar'] as const;
 export const BOOKMARK_MANAGER_SPECIAL_ROOT_IDS = ['pins', 'startPages'] as const;
 export const BOOKMARK_MANAGER_ROOT_IDS = [
@@ -54,9 +60,10 @@ export type BookmarkManagerStartPage = {
 };
 
 // Safe, permission-scoped account choices for a manager app: just enough to
-// let it label and select an account, never wallet filenames, keys,
+// let it label and select an account reference, never wallet filenames, keys,
 // addresses, or unlock state. A `null` id/activeAccountId means Home's
-// built-in "Current" account (the calling tab's active account).
+// built-in "Current" account (the calling tab's active account). The reserved
+// SAVED_GUEST_ACCOUNT_ID choice means explicitly no account, not a real wallet.
 export type BookmarkManagerAccountChoice = {
   id: string;
   label: string;
@@ -163,8 +170,9 @@ export type BookmarkManagerMutationResult = {
 // BOOKMARKS_OPEN request shape: a supported address plus an optional,
 // nullable account choice. `accountId: null` means Home's built-in
 // "Current" account - inherit whichever account the calling tab is using.
-// This only validates shape; the caller is still responsible for checking a
-// non-null accountId against Home's actual saved accounts.
+// SAVED_GUEST_ACCOUNT_ID means explicitly no account. This only validates
+// shape; the caller must distinguish that reserved reference before checking
+// other non-null accountIds against Home's actual saved accounts.
 export type BookmarksOpenRequest = {
   accountId: string | null;
   address: string;

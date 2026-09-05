@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   BOOKMARK_MANAGER_SCHEMA_VERSION,
+  SAVED_GUEST_ACCOUNT_ID,
   validateBookmarkManagerMutation,
   validateBookmarkManagerMutationRequest,
   validateBookmarkManagerSnapshot,
@@ -308,5 +309,18 @@ assert.throws(
   () => validateBookmarksOpenRequest({ address: `qdn://APP/${'a'.repeat(2048)}` }),
   /request\.address must be at most/,
 );
+
+assert.deepEqual(validateBookmarksOpenRequest({ address: 'qortal://APP/Chat/default', accountId: SAVED_GUEST_ACCOUNT_ID }), {
+  address: 'qortal://APP/Chat/default', accountId: SAVED_GUEST_ACCOUNT_ID,
+});
+const guestDraft = { accountId: SAVED_GUEST_ACCOUNT_ID, displayUrl: 'qdn://APP/Chat/default', title: 'Guest Chat' };
+for (const mutation of [
+  { type: 'addTreeLink', rootId: 'bookmarks', link: guestDraft },
+  { type: 'addTreeLink', rootId: 'toolbar', link: guestDraft },
+  { type: 'addDashboardPin', pin: guestDraft },
+  { type: 'addStartPage', page: guestDraft },
+]) {
+  assert.deepEqual(validateBookmarkManagerMutation(mutation), mutation);
+}
 
 console.log('Bookmark manager contract tests passed.');
