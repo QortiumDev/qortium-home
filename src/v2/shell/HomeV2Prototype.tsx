@@ -228,8 +228,8 @@ export interface HomeV2PrototypeProps {
   readonly onConfigureCustomNode?: (network: NetworkId) => void
   readonly onIdentityLookupInput?: (value: string) => void
   readonly onIdentityLookupSubmit?: () => void
-  readonly onUnlockAccount?: () => void
-  readonly onLockAccount?: () => void
+  readonly onUnlockAccount?: (accountId?: string) => void
+  readonly onLockAccount?: (accountId?: string) => void
   readonly onSelectAccount?: (accountId: string | null) => void
   readonly onSelectAddress?: (addressId: string) => void
   readonly onAccountManage?: (action: HomeV2AccountManageAction) => void
@@ -586,8 +586,8 @@ function AccountCard({
             !hasAccount
               ? onCreateAccount
               : isLocked
-                ? onUnlockAccount
-                : onLockAccount
+                ? () => onUnlockAccount?.()
+                : () => onLockAccount?.()
           }
         >
           {!hasAccount
@@ -1127,6 +1127,7 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
             : undefined
         }
         selectedAccountLookup={props.selectedAccountLookup}
+        accountCatalogue={props.accountCatalogue}
         loadVisibleAvatar={props.loadVisibleAvatar}
         loadVisibleAppIcon={props.loadVisibleAppIcon}
         bookmarkToolbar={

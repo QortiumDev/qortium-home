@@ -2,6 +2,10 @@ import type { TranslationKey } from './en';
 
 // Greek (Ελληνικά) locale catalog. Every key must remain present.
 export const el: Record<TranslationKey, string> = {
+  "home2.account.savedLinkConflict": "Αυτή η διεύθυνση είναι αποθηκευμένη για άλλον λογαριασμό. Διαχειριστείτε την στους Σελιδοδείκτες.",
+  "home2.account.tabAccount": "Λογαριασμός καρτέλας",
+  "home2.account.defaultAccount": "Προεπιλεγμένος λογαριασμός για νέες καρτέλες",
+  "home2.account.unavailableAccount": "Ο λογαριασμός δεν είναι διαθέσιμος",
   "account.actionFailed": "Η ενέργεια λογαριασμού απέτυχε.",
   "account.actionsLabel": "Ενέργειες λογαριασμού",
   "account.addAddress": "Προσθήκη διεύθυνσης",

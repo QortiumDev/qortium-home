@@ -1488,8 +1488,8 @@ function testDesktopAndPhoneContracts(): void {
     // The account button is avatars plus a lock glyph and nothing else (owner
     // request), so the label it used to print has to survive as the accessible
     // name and the tooltip.
-    assert.match(accountTag, /aria-label="Alice · Unlocked"/)
-    assert.match(accountTag, /title="Alice · Unlocked"/)
+    assert.match(accountTag, /aria-label="Default account for new tabs: Alice · Unlocked"/)
+    assert.match(accountTag, /title="Default account for new tabs: Alice · Unlocked"/)
     const accountButtonBody = (() => {
       const start = html.indexOf(accountTag)
       return html.slice(start + accountTag.length, html.indexOf('</button>', start))

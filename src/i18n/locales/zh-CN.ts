@@ -2,6 +2,10 @@
 
 // Simplified Chinese (中文（简体）) catalog.
 export const zhCN: Record<TranslationKey, string> = {
+  "home2.account.savedLinkConflict": "此地址已为另一个账户保存。请在书签中管理。",
+  "home2.account.tabAccount": "标签页账户",
+  "home2.account.defaultAccount": "新标签页的默认账户",
+  "home2.account.unavailableAccount": "账户不可用",
   "account.actionFailed": "账户操作失败。",
   "account.actionsLabel": "账户操作",
   "account.addAddress": "添加地址",

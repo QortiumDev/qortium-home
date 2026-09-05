@@ -538,6 +538,26 @@ body,
   flex: 0 0 18px;
 }
 
+.home-v2-tab__account {
+  flex: 0 0 auto;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  font-size: 10px;
+  line-height: 18px;
+  min-width: 18px;
+  text-align: center;
+}
+
+.home-v2-saved-tab-error {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 12px;
+  font-size: 13px;
+  border-block-end: 1px solid currentColor;
+}
+
 .home-v2-app-icon {
   position: relative;
   display: grid;

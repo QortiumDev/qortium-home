@@ -2,6 +2,10 @@
 
 // Traditional Chinese (中文（繁體）) catalog.
 export const zhTW: Record<TranslationKey, string> = {
+  "home2.account.savedLinkConflict": "此地址已為另一個帳戶儲存。請在書籤中管理。",
+  "home2.account.tabAccount": "分頁帳戶",
+  "home2.account.defaultAccount": "新分頁的預設帳戶",
+  "home2.account.unavailableAccount": "帳戶無法使用",
   "account.actionFailed": "帳戶操作失敗。",
   "account.actionsLabel": "帳戶操作",
   "account.addAddress": "新增地址",

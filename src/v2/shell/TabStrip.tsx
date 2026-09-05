@@ -5,7 +5,7 @@ import {
   type MouseEvent,
   type PointerEvent,
 } from 'react'
-import { Compass, LayoutDashboard, Settings } from 'lucide-react'
+import { Compass, LayoutDashboard, Lock, Settings } from 'lucide-react'
 import type { TabId } from '../contracts'
 import type { ProductState, ShellEntry, TabPageId } from '../product-model'
 import { t, type TranslationKey } from '../../i18n'
@@ -13,9 +13,13 @@ import { NetworkBadge, networkLabels } from './NetworkBadge'
 import { HomeMark } from './ProductMarks'
 import { HomeV2AppIcon } from './HomeV2AppIcon'
 import type { VisibleAppIconLoader } from '../contracts'
+import type { HomeV2AccountCatalogue } from '../contracts'
+import { savedEntryAccountId } from './account-context'
 
 export interface TabStripProps {
   readonly productState: ProductState
+  readonly accountCatalogue?: HomeV2AccountCatalogue
+  readonly rememberedAccountLabels?: ReadonlyMap<string, string>
   readonly onActivateTab?: (tabId: TabId) => void
   readonly onCloseTab?: (tabId: TabId) => void
   readonly onReorderTab?: (tabId: TabId, toIndex: number) => void
@@ -150,6 +154,8 @@ function entryLabel(entry: ShellEntry): string {
 
 export function TabStrip({
   productState,
+  accountCatalogue,
+  rememberedAccountLabels,
   onActivateTab,
   onCloseTab,
   onReorderTab,
@@ -376,6 +382,15 @@ export function TabStrip({
                 />
               )}
               <span>{label}</span>
+              {entry.kind === 'app' && accountCatalogue ? (() => {
+                const accountId = savedEntryAccountId(entry)
+                const account = accountCatalogue.accounts.find((candidate) => candidate.id === accountId)
+                const accountLabel = account?.label ?? (accountId ? rememberedAccountLabels?.get(accountId) ?? t('home2.account.unavailableAccount') : t('account.noAccount'))
+                return <span className="home-v2-tab__account" title={`${t('home2.account.tabAccount')}: ${accountLabel}${account ? ` · ${account.address}` : ''}${accountId && !account?.isUnlocked ? ` · ${t('account.statusLocked')}` : ''}`} aria-label={`${t('home2.account.tabAccount')}: ${accountLabel}`}>
+                  {accountId ? accountLabel.slice(0, 2).toUpperCase() : '–'}
+                  {accountId && !account?.isUnlocked ? <Lock size={10} aria-hidden="true" /> : null}
+                </span>
+              })() : null}
               {entry.kind === 'app' ? (
                 <NetworkBadge compact network={entry.context.sourceNetwork} />
               ) : null}

@@ -2,6 +2,10 @@
 
 // Japanese (日本語) catalog.
 export const ja: Record<TranslationKey, string> = {
+  "home2.account.savedLinkConflict": "このアドレスは別のアカウント用に保存されています。ブックマークで管理してください。",
+  "home2.account.tabAccount": "タブのアカウント",
+  "home2.account.defaultAccount": "新しいタブの既定のアカウント",
+  "home2.account.unavailableAccount": "アカウントを利用できません",
   "account.actionFailed": "アカウント操作に失敗しました。",
   "account.actionsLabel": "アカウント操作",
   "account.addAddress": "アドレスを追加",

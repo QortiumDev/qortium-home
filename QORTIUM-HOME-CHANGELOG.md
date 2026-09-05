@@ -32,6 +32,19 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## fix(home2): keep tab account identity visible and preserve it when saving
+
+App tabs now show their bound account, and the toolbar displays and locks or
+unlocks that account even when a different account is selected on the Dashboard.
+The Dashboard account is labelled as the default for new tabs. Starring, pinning
+or dragging an app tab to the bookmarks toolbar preserves its own account.
+This now works for Qortal links too. Saving an address already bound to a
+different account shows a message directing you to Bookmarks, preserving the
+existing save. The existing “Current” saved-account choice still inherits the
+account in use when the link is opened.
+Removing an account leaves its tabs open with a locked account indicator and a
+disabled unlock action, and revokes cached account access without rebinding tabs.
+
 ## fix(home2): bind chat-send approvals to each account
 
 Choosing "always allow" for chat now approves only the account named in the

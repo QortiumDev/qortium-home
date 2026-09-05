@@ -6,7 +6,7 @@ export function normalizeSavedAccountId(value: unknown): string | null {
 }
 
 export function shouldSaveAccountContext(displayUrl: string) {
-  return /^qdn:\/\//i.test(displayUrl.trim());
+  return /^(qdn|qortal):\/\//i.test(displayUrl.trim());
 }
 
 export function getSavedAccountContext(displayUrl: string, accountId: string | null | undefined) {

@@ -2,6 +2,10 @@
 
 // Dutch (Nederlands) locale catalog. Every key must remain present.
 export const nl: Record<TranslationKey, string> = {
+  "home2.account.savedLinkConflict": "Dit adres is opgeslagen voor een ander account. Beheer het in Bladwijzers.",
+  "home2.account.tabAccount": "Tabbladaccount",
+  "home2.account.defaultAccount": "Standaardaccount voor nieuwe tabbladen",
+  "home2.account.unavailableAccount": "Account niet beschikbaar",
   "account.actionFailed": "Accountactie mislukt.",
   "account.actionsLabel": "Accountacties",
   "account.addAddress": "Adres toevoegen",

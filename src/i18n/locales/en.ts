@@ -1,5 +1,9 @@
 // The source-of-truth English catalog. Every other locale must provide exactly these keys.
 export const en = {
+  "home2.account.savedLinkConflict": "This address is saved for another account. Manage it in Bookmarks.",
+  "home2.account.tabAccount": "Tab account",
+  "home2.account.defaultAccount": "Default account for new tabs",
+  "home2.account.unavailableAccount": "Account unavailable",
   "account.actionFailed": "Account action failed.",
   "account.actionsLabel": "Account actions",
   "account.addAddress": "Add address",

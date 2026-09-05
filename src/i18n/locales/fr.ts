@@ -2,6 +2,10 @@
 
 // French (Français) catalog.
 export const fr: Record<TranslationKey, string> = {
+  "home2.account.savedLinkConflict": "Cette adresse est enregistrée pour un autre compte. Gérez-la dans les favoris.",
+  "home2.account.tabAccount": "Compte de l’onglet",
+  "home2.account.defaultAccount": "Compte par défaut des nouveaux onglets",
+  "home2.account.unavailableAccount": "Compte indisponible",
   "account.actionFailed": "Échec de l'action sur le compte.",
   "account.actionsLabel": "Actions du compte",
   "account.addAddress": "Ajouter une adresse",

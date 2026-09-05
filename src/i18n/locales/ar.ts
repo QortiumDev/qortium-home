@@ -2,6 +2,10 @@
 
 // Arabic (العربية) catalog — Modern Standard Arabic, RTL.
 export const ar: Record<TranslationKey, string> = {
+  "home2.account.savedLinkConflict": "هذا العنوان محفوظ لحساب آخر. يمكنك إدارته في الإشارات المرجعية.",
+  "home2.account.tabAccount": "حساب علامة التبويب",
+  "home2.account.defaultAccount": "الحساب الافتراضي لعلامات التبويب الجديدة",
+  "home2.account.unavailableAccount": "الحساب غير متاح",
   "account.actionFailed": "فشل إجراء الحساب.",
   "account.actionsLabel": "إجراءات الحساب",
   "account.addAddress": "إضافة عنوان",

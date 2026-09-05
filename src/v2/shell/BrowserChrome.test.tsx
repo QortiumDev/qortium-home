@@ -1,14 +1,18 @@
 import assert from 'node:assert/strict'
 import React, { act } from 'react'
 import { createRoot } from 'react-dom/client'
-import { createProductState } from '../product-model'
-import { homeV2Fixture } from '../test-kit/fixtures'
+import { createProductState, reduceProductState } from '../product-model'
+import { homeV2Fixture, fixtureApp, fixtureIds, fixtureTabContext } from '../test-kit/fixtures'
+import { accountsLosingAccess, chromeAccountContext, savedEntryAccountId } from './account-context'
 import { BrowserChrome, type AddressOpenResult } from './BrowserChrome'
 import { useDismissablePopover } from './useDismissablePopover'
 import type { HomeV2CoreManagement } from './CoreManagerCards'
 import type {
   DualIdentityLookupResult,
   HomeV2Snapshot,
+  HomeV2AccountCatalogue,
+  IdentityId,
+  WalletRef,
   NetworkId,
 } from '../contracts'
 
@@ -275,8 +279,8 @@ try {
     assert.ok(button, 'the browser chrome should render an account button')
     return button
   }
-  assert.equal(accountButton().getAttribute('aria-label'), 'Alice · Unlocked')
-  assert.equal(accountButton().getAttribute('title'), 'Alice · Unlocked')
+  assert.equal(accountButton().getAttribute('aria-label'), 'Default account for new tabs: Alice · Unlocked')
+  assert.equal(accountButton().getAttribute('title'), 'Default account for new tabs: Alice · Unlocked')
   // Avatar monograms and the padlock are aria-hidden decoration; anything left
   // after removing them would be a visible label, which the trigger must not
   // have any more.
@@ -354,7 +358,7 @@ try {
     )
     await Promise.resolve()
   })
-  assert.equal(accountButton().getAttribute('aria-label'), 'Alice · Locked')
+  assert.equal(accountButton().getAttribute('aria-label'), 'Default account for new tabs: Alice · Locked')
   assert.equal(
     lockGlyph().classList.contains('lucide-lock-open'),
     false,
@@ -791,6 +795,82 @@ try {
     'a popover unmounted while open must still report closed',
   )
   probeContainer.remove()
+
+  // The default is Alice, but this app instance is bound to Bob's derived
+  // address. Both the visible identity and actual lock/unlock target must be
+  // Bob; switching tabs must never rewrite that captured binding.
+  const bob = { id: 'wallet-b:1', walletId: 'wallet-b', address: 'QBobAddress', addressIndex: 1, isUnlocked: true, label: 'Bob', supportsDerivedAddresses: true }
+  const catalogue: HomeV2AccountCatalogue = { activeAccountId: 'alice', accounts: [bob] }
+  const app = fixtureApp(fixtureIds.chatApp)
+  const bobState = reduceProductState(createProductState(), {
+    type: 'open-app', app, tabId: fixtureIds.chatTab,
+    context: { ...fixtureTabContext(app, fixtureIds.chatTab), identityId: 'home-v2:identity:wallet-b:1' as IdentityId, walletRef: 'wallet-b' as WalletRef },
+  })
+  const bobEntry = bobState.entries.find((entry) => entry.id === bobState.activeTabId)!
+  const locks: (string | undefined)[] = []
+  const unlocks: (string | undefined)[] = []
+  const renderAccountChrome = (accountCatalogue: HomeV2AccountCatalogue, productState = bobState) => root.render(
+    <BrowserChrome key="account-context" snapshot={homeV2Fixture} productState={productState} accountCatalogue={accountCatalogue}
+      selectedAccountLookup={accountLookup} onLockAccount={(id) => locks.push(id)} onUnlockAccount={(id) => unlocks.push(id)} />,
+  )
+  act(() => renderAccountChrome(catalogue))
+  assert.equal(accountButton().getAttribute('aria-label'), 'Tab account: Bob · Unlocked')
+  assert.equal(container.querySelector('.home-v2-account-avatars'), null, 'Alice avatars cannot label Bob')
+  assert.equal(container.querySelector('.home-v2-tab__account')?.getAttribute('aria-label'), 'Tab account: Bob')
+  act(() => accountButton().click())
+  const menuAction = (label: string) => [...container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((button) => button.textContent === label)!
+  assert.ok(menuAction('Lock account'))
+  act(() => menuAction('Lock account').click())
+  assert.deepEqual(locks, ['wallet-b:1'])
+  const lockedCatalogue = { ...catalogue, accounts: [{ ...bob, isUnlocked: false }] }
+  act(() => renderAccountChrome(lockedCatalogue))
+  assert.equal(accountButton().getAttribute('aria-label'), 'Tab account: Bob · Locked')
+  assert.ok(menuAction('Unlock account'))
+  act(() => menuAction('Unlock account').click())
+  assert.deepEqual(unlocks, ['wallet-b:1'])
+  assert.equal(savedEntryAccountId(bobEntry), 'wallet-b:1', 'star, pin and dragged bookmarks capture the tab identity')
+  assert.deepEqual(accountsLosingAccess(catalogue, lockedCatalogue), ['wallet-b:1'])
+
+  const removedCatalogue = { ...catalogue, accounts: [] }
+  act(() => renderAccountChrome(removedCatalogue))
+  assert.equal(accountButton().getAttribute('data-account-state'), 'locked')
+  assert.equal(accountButton().getAttribute('aria-label'), 'Tab account: Bob · Locked · Account unavailable')
+  assert.ok(menuAction('Unlock account').disabled, 'removed account stays locked and cannot unlock')
+  act(() => menuAction('Unlock account').click())
+  assert.deepEqual(unlocks, ['wallet-b:1'])
+  assert.equal(bobState.entries.find((entry) => entry.id === bobState.activeTabId), bobEntry, 'removal leaves the tab accessible and its binding intact')
+  assert.deepEqual(accountsLosingAccess(lockedCatalogue, removedCatalogue), ['wallet-b:1'], 'removing even an already-locked address revokes cached access')
+  assert.deepEqual(accountsLosingAccess(catalogue, catalogue), [])
+  const removed = chromeAccountContext(homeV2Fixture, bobEntry, removedCatalogue)
+  assert.equal(removed.unavailable, true)
+  assert.equal(removed.snapshot.account.state, 'locked')
+
+  const guestState = reduceProductState(bobState, {
+    type: 'open-app', app, tabId: fixtureIds.qortalCompatTab,
+    context: { ...fixtureTabContext(app, fixtureIds.qortalCompatTab), identityId: 'home-v2:identity:none' as IdentityId, walletRef: null },
+  })
+  act(() => renderAccountChrome(catalogue, guestState))
+  assert.equal(accountButton().getAttribute('aria-label'), 'Tab account: No account')
+  assert.equal(savedEntryAccountId(guestState.entries.find((entry) => entry.id === guestState.activeTabId)), null)
+  act(() => renderAccountChrome(catalogue, createProductState()))
+  assert.equal(accountButton().getAttribute('aria-label'), 'Default account for new tabs: Alice · Unlocked')
+  assert.equal(savedEntryAccountId(createProductState().entries[0]), null)
+
+  // A rejected save must be visible while the app tab is active, independent
+  // of Dashboard-only notices, and the user can dismiss the message.
+  act(() => root.render(<BrowserChrome key="save-conflict" snapshot={homeV2Fixture} productState={bobState}
+    accountCatalogue={catalogue} onToggleCurrentBookmark={async () => { throw new Error('Saved for another account') }} />))
+  act(() => container.querySelector<HTMLButtonElement>('.home-v2-bookmarks-button')!.click())
+  await act(async () => {
+    const save = [...container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((button) => button.textContent === 'Add to Bookmarks')!
+    assert.ok(save)
+    save.click()
+    await Promise.resolve()
+  })
+  const conflict = container.querySelector('.home-v2-saved-tab-error[role="alert"]')
+  assert.ok(conflict?.textContent?.includes('Saved for another account'))
+  act(() => conflict!.querySelector<HTMLButtonElement>('button')!.click())
+  assert.equal(container.querySelector('.home-v2-saved-tab-error'), null)
 } finally {
   act(() => root.unmount())
   container.remove()

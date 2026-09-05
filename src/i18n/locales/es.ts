@@ -2,6 +2,10 @@
 
 // Spanish (Español) catalog.
 export const es: Record<TranslationKey, string> = {
+  "home2.account.savedLinkConflict": "Esta dirección está guardada para otra cuenta. Adminístrala en Marcadores.",
+  "home2.account.tabAccount": "Cuenta de la pestaña",
+  "home2.account.defaultAccount": "Cuenta predeterminada para pestañas nuevas",
+  "home2.account.unavailableAccount": "Cuenta no disponible",
   "account.actionFailed": "Error en la acción de la cuenta.",
   "account.actionsLabel": "Acciones de cuenta",
   "account.addAddress": "Añadir dirección",

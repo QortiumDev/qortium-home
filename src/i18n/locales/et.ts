@@ -2,6 +2,10 @@
 
 // Estonian (Eesti) locale catalog.
 export const et: Record<TranslationKey, string> = {
+  "home2.account.savedLinkConflict": "See aadress on salvestatud teise konto jaoks. Halda seda järjehoidjates.",
+  "home2.account.tabAccount": "Vahekaardi konto",
+  "home2.account.defaultAccount": "Uute vahekaartide vaikekonto",
+  "home2.account.unavailableAccount": "Konto pole saadaval",
   "account.actionFailed": "Konto toiming ebaõnnestus.",
   "account.actionsLabel": "Konto toimingud",
   "account.addAddress": "Lisa aadress",

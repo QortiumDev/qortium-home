@@ -416,6 +416,8 @@ export function NodeStatusMenu({
 
 export interface AccountStatusMenuProps {
   readonly snapshot: HomeV2Snapshot
+  readonly contextLabel?: string
+  readonly unavailable?: boolean
   readonly selectedAccountLookup?: DualIdentityLookupResult | null
   readonly loadVisibleAvatar?: VisibleAvatarLoader
   readonly onLockAccount?: () => void
@@ -453,6 +455,8 @@ function sharedAccountAddress(
  */
 export function AccountStatusMenu({
   snapshot,
+  contextLabel,
+  unavailable = false,
   selectedAccountLookup,
   loadVisibleAvatar,
   onLockAccount,
@@ -466,9 +470,10 @@ export function AccountStatusMenu({
     : t('account.statusUnlocked')
   // The trigger shows no text any more (owner request), so everything the old
   // label said has to survive as the button's accessible name and tooltip.
-  const label = !hasAccount
+  const identityLabel = !hasAccount
     ? t('account.noAccount')
     : `${snapshot.identity.displayLabel} · ${lockStateText}`
+  const label = `${contextLabel ? `${contextLabel}: ` : ''}${identityLabel}${unavailable ? ` · ${t('home2.account.unavailableAccount')}` : ''}`
   const networks = (['qortium', 'qortal'] as const).filter(
     (network) => snapshot.nodes[network].mode !== 'disabled',
   )
@@ -478,7 +483,7 @@ export function AccountStatusMenu({
   const LockGlyph = isLocked ? Lock : LockOpen
   return (
     <ChromeMenu
-      label={t('home2.account.selected')}
+      label={contextLabel ?? t('home2.account.selected')}
       onOpenChange={onOpenChange}
       trigger={(triggerProps) => (
         <button
@@ -521,9 +526,11 @@ export function AccountStatusMenu({
         </button>
       )}
     >
+      {contextLabel ? <small>{contextLabel}</small> : null}
       <strong>
         {hasAccount ? snapshot.identity.displayLabel : t('account.noAccount')}
       </strong>
+      {unavailable ? <small>{t('home2.account.unavailableAccount')}</small> : null}
       {hasAccount ? (
         <>
           {networks.map((network) => {
@@ -572,7 +579,7 @@ export function AccountStatusMenu({
         </>
       ) : null}
       {hasAccount && isLocked && onUnlockAccount ? (
-        <button type="button" role="menuitem" onClick={onUnlockAccount}>
+        <button type="button" role="menuitem" disabled={unavailable} onClick={onUnlockAccount}>
           {t('home2.account.unlock')}
         </button>
       ) : null}

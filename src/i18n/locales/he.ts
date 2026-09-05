@@ -2,6 +2,10 @@
 
 // Hebrew (עברית) catalog.
 export const he: Record<TranslationKey, string> = {
+  "home2.account.savedLinkConflict": "הכתובת הזו שמורה עבור חשבון אחר. ניתן לנהל אותה בסימניות.",
+  "home2.account.tabAccount": "חשבון הכרטיסייה",
+  "home2.account.defaultAccount": "חשבון ברירת המחדל לכרטיסיות חדשות",
+  "home2.account.unavailableAccount": "החשבון אינו זמין",
   "account.actionFailed": "פעולת החשבון נכשלה.",
   "account.actionsLabel": "פעולות חשבון",
   "account.addAddress": "הוספת כתובת",

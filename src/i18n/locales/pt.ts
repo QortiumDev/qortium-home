@@ -2,6 +2,10 @@
 
 // Portuguese (Português) catalog — neutral pt for pt-BR and pt-PT readers.
 export const pt: Record<TranslationKey, string> = {
+  "home2.account.savedLinkConflict": "Este endereço está salvo para outra conta. Gerencie-o nos Favoritos.",
+  "home2.account.tabAccount": "Conta da aba",
+  "home2.account.defaultAccount": "Conta padrão para novas abas",
+  "home2.account.unavailableAccount": "Conta indisponível",
   "account.actionFailed": "A ação da conta falhou.",
   "account.actionsLabel": "Ações da conta",
   "account.addAddress": "Adicionar endereço",

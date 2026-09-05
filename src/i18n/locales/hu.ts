@@ -2,6 +2,10 @@
 
 // Hungarian (Magyar) catalog.
 export const hu: Record<TranslationKey, string> = {
+  "home2.account.savedLinkConflict": "Ez a cím egy másik fiókhoz van mentve. A Könyvjelzőkben kezelhető.",
+  "home2.account.tabAccount": "Lap fiókja",
+  "home2.account.defaultAccount": "Új lapok alapértelmezett fiókja",
+  "home2.account.unavailableAccount": "A fiók nem érhető el",
   "account.actionFailed": "A fiókművelet nem sikerült.",
   "account.actionsLabel": "Fiókműveletek",
   "account.addAddress": "Cím hozzáadása",
