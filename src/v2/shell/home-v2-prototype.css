@@ -1520,7 +1520,8 @@ body,
   gap: 10px;
 }
 
-.home-v2-node-core-row > .home-v2-core-notice {
+.home-v2-node-core-row > .home-v2-core-notice,
+.home-v2-node-core-row > .home-v2-core-progress {
   grid-column: 1 / -1;
   margin: 0;
 }

@@ -20,9 +20,11 @@ import {
 import { t } from '../../i18n'
 import type { VisibleAppIconLoader } from '../contracts'
 import { HomeV2AppIcon } from './HomeV2AppIcon'
+import type { AddressOpenResult } from './BrowserChrome'
 
 type QdnAppsSettingsProps = Readonly<{
   client: HomeV2QdnSettingsClient
+  onOpenAddress?: (address: string) => Promise<AddressOpenResult>
   loadVisibleAppIcon?: VisibleAppIconLoader
   /**
    * Resolves the display label for an account a durable grant is bound to.
@@ -403,6 +405,7 @@ function BookmarkGrantCard<Grant extends HomeV2QdnBookmarkGrant>({
 
 export function QdnAppsSettings({
   client,
+  onOpenAddress,
   loadVisibleAppIcon,
   resolveAccountLabel,
 }: QdnAppsSettingsProps) {
@@ -413,6 +416,34 @@ export function QdnAppsSettings({
   const [stale, setStale] = useState(false)
   const requestId = useRef(0)
   const snapshotRef = useRef<HomeV2QdnSettingsState | null>(null)
+  const openingManager = useRef(false)
+  const [managerBusy, setManagerBusy] = useState(false)
+  const [managerError, setManagerError] = useState<string | null>(null)
+  const [managerChoices, setManagerChoices] = useState<Extract<AddressOpenResult, { status: 'choose' }> | null>(null)
+
+  const openNotificationsManager = async (chosenAddress?: string) => {
+    if (!onOpenAddress || openingManager.current) return
+    openingManager.current = true
+    setManagerBusy(true)
+    setManagerError(null)
+    setManagerChoices(null)
+    try {
+      // Another Settings tab or manager may have changed the assignment since
+      // this panel rendered. Resolve the persisted choice at click time.
+      // A choice is already a full resource address explicitly selected by the
+      // user from the resolver's results; only the initial launch reads the role.
+      const url = chosenAddress ?? (await client.get()).assignments.assignments.notifications?.url
+      if (!url) throw new Error(t('qdnApps.invalidAddress'))
+      const result = await onOpenAddress(normalizeHomeV2QdnAssignmentUrl(url))
+      if (result.status === 'choose') setManagerChoices(result)
+      else if (result.status === 'error') setManagerError(result.message)
+    } catch (reason) {
+      setManagerError(reason instanceof Error ? reason.message : t('common.error'))
+    } finally {
+      openingManager.current = false
+      setManagerBusy(false)
+    }
+  }
 
   const refresh = useCallback(async () => {
     const currentRequest = ++requestId.current
@@ -583,13 +614,13 @@ export function QdnAppsSettings({
       }))
   }
 
-  // Chat-send "always allow" grants were persisted and reported here from the
-  // start but never rendered, which made them unrevokable in practice. They
-  // revoke through the same path as every other durable capability.
-  const revokeChatSend = async (grant: HomeV2QdnBookmarkGrant) => {
+  // Revoke only the account named on this card, preserving the same app's
+  // approval for any other account.
+  const revokeChatSend = async (grant: HomeV2QdnAccountGrant) => {
     if (!snapshot) return
-    await applyMutation(`chatSend:${grant.appKey}`, () =>
+    await applyMutation(`chatSend:${grant.appKey}:${grant.accountId}`, () =>
       client.revokeBookmarks({
+        accountId: grant.accountId,
         appKey: grant.appKey,
         capability: 'chat.send',
         expectedAssignmentRevision: snapshot.chatSend.revision,
@@ -651,6 +682,29 @@ export function QdnAppsSettings({
               onSave={saveAssignment}
             />
           ))}
+          {onOpenAddress ? (
+            <button
+              className="home-v2-secondary-button"
+              disabled={actionsDisabled || busy !== null || managerBusy}
+              type="button"
+              onClick={() => void openNotificationsManager()}
+            >
+              {t('qdnApps.openNotificationsManager')}
+            </button>
+          ) : null}
+          {managerError ? <p role="alert">{managerError}</p> : null}
+          {managerChoices ? (
+            <div role="status">
+              <p>{managerChoices.message}</p>
+              {managerChoices.options.map((option) => (
+                <button className="home-v2-secondary-button" key={option.address}
+                  type="button" disabled={managerBusy || actionsDisabled || busy !== null}
+                  onClick={() => void openNotificationsManager(option.address)}>
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          ) : null}
         </div>
       ) : null}
 
@@ -779,11 +833,12 @@ export function QdnAppsSettings({
           </div>
           {snapshot.chatSend.apps.map((grant) => (
             <BookmarkGrantCard
-              busy={busy === `chatSend:${grant.appKey}`}
+              accountLabel={resolveAccountLabel?.(grant.accountId) ?? shortenAccountId(grant.accountId)}
+              busy={busy === `chatSend:${grant.appKey}:${grant.accountId}`}
               capability="chat.send"
               disabled={actionsDisabled || busy !== null}
               grant={grant}
-              key={grant.appKey}
+              key={`${grant.appKey}:${grant.accountId}`}
               loadVisibleAppIcon={loadVisibleAppIcon}
               onRevoke={revokeChatSend}
             />

@@ -1,8 +1,73 @@
 # Qortium Home 2.1.0 delivery plan
 
-Last updated: 2026-08-23
+Last updated: 2026-09-04
 
 Status: active. Home 2.0.0 at `5606faa` is the implementation baseline.
+
+## September 4 execution checkpoint
+
+This checkpoint began at `2d8734235c56815c13d5eb70c725622c695fb71b`;
+use main's current commit for delivery verification, not this historical base.
+Earlier checked items below describe delivery history, not a claim that every
+later parity regression is resolved. Subsequent owner decisions allow multiple
+simultaneous internal tabs and require the remaining major parity issues to be
+resolved before release. Release preparation must verify current application,
+Android and QAVS metadata rather than reuse the original version-code estimate.
+
+Completed since the original plan: desktop and Android Home-signed foreign sends
+(#502/#517), bounded hosted-app read budgets (#514), authenticated streamed
+single-file publishing with Core #306 (#515), native Android admin-key handling
+(#516), reconciled folder publishing (#504), and hosted-app fullscreen (#507).
+Folders and mixed batches use the public keyless `isZip` route with a 512 MiB
+aggregate staging bound; the authenticated 2 GiB ceiling concerns trusted
+single-file publishing. Build/CI evidence does not establish installed acceptance.
+
+The September 4 parity tranche implements per-tab account chrome and source-tab
+bookmark/pin bindings (#518), accessible local permission management and the
+Notifications Manager launcher (#519), account-specific chat-send consent and
+legacy reconfirmation (#520), Dashboard/Settings transport parity with explicit
+restart confirmation (#521), and deterministic preview ZIP timestamps (#522).
+Removed-account tabs remain accessible and bound to that identity, show Locked,
+and disable Unlock. Opening a saved link uses its saved account; the cross-account
+save warning only prevents URL-only deduplication from removing or replacing another save.
+These are implementation milestones, not release or installed-device acceptance.
+
+Remaining work, in order:
+
+1. **Account follow-ups:** refactor default-selection invalidation together with
+   Android approval-completion checks; do not weaken actual lock/removal events.
+   Add an explicit guest saved-link schema (existing null still means Current/
+   inherit), open/duplicate-under-account affordances and Dashboard pin account
+   attribution. Never silently rebind an existing app.
+2. **Viewers and navigation:** independent generic QDN resource tabs and rich
+   text/data viewers, saved-resource opening/restoration, current live app URLs,
+   internal-page history/reload/reopen, and correct tab/window transfer context.
+3. **Shell and maintenance consistency:** per-tab Settings state and unique IDs;
+   remaining maintenance progress/copy/details, node-settings discovery, and tab
+   and keyboard parity.
+4. **Accessibility/localization/notifications:** dialog/menu focus and keyboard
+   behavior, globally visible announced errors, translated approval/maintenance
+   text, and the separate background notification subscription family.
+
+Full collections management remains in the Bookmarks app. Existing retained
+media/document/archive overlays do not by themselves complete generic viewer
+tabs. Each change needs meaningful tests and relevant renderer/packaged checks;
+permission/signing changes additionally need independent security review.
+
+Wallet #17 already provides the proposed app-side capability integration and
+awaits its maintainer; do not duplicate it. Public-node foreign sends remain a
+separate planned Home/Core phase with a distinct `HOME_SIGNED_PUBLIC_NODE`
+capability, operator/xpub disclosure, public endpoint limits, chain checks and
+ambiguous-broadcast handling. Do not enable this by allowlisting admin routes.
+Core already pins official Pirate v1.2.0 through #304; upstream #48–#50 are
+merged but need an official release before the next artifact/acceptance/repin
+cycle. Fork artifacts remain proof-only.
+
+Outstanding installed acceptance includes Android WAL crash/restart and native
+key lifecycle/refusals; large trusted single-file and folder public-route
+publishing, route/key drift and cleanup; hosted-app reads and fullscreen. Device
+installs, live key changes, signed publication, funded sends and releases remain
+separately scoped. Preserve unrelated worktrees and unfinished import work.
 
 This document is the repository's product and release authority for 2.1.0.
 Maintainers may keep a more detailed private task tracker with verified source
@@ -19,8 +84,9 @@ The QAVS compatibility level advances to `platformVersion: "2.1"`: the F9
 bookmark/delegation work restores an app-observable action family that Home
 2.0.0 did not advertise. `SHOW_ACTIONS` remains the runtime discovery
 authority, while the explicit platform level lets apps declare that they need
-the restored manager surface. Android advances from version code 38 to 39
-during release preparation.
+the restored manager surface. The initial Android estimate was version code 39;
+current metadata is version code 42 and version name 2.1.0. Recheck the actual
+metadata during release preparation rather than reusing an old estimate.
 
 ## Product boundaries
 

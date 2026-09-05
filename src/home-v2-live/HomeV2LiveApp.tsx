@@ -355,10 +355,8 @@ import { createHomeV2HomeSettingsResponder } from './home-settings-client'
 import {
   grantQdnManagerPermission,
   grantQdnAccountCapabilityPermission,
-  grantQdnAppCapabilityPermission,
   getQdnAppRolesStore,
   hasQdnAccountCapability,
-  hasQdnAppCapability,
   hasQdnManagerPermission,
   onQdnManagerPermissionsChanged,
   revokeQdnAccountCapabilityPermission,
@@ -1276,14 +1274,14 @@ function parseHomeV2ResourceViewerState(value: unknown): HomeV2ResourceViewerSta
  * denying a request the user already approved or believing in a grant that
  * does not exist.
  */
-function persistDurableChatSendGrant(appPrincipal: string): Promise<boolean> {
+function persistDurableChatSendGrant(appPrincipal: string, accountId: string): Promise<boolean> {
   return persistDurableGrantAsync({
     capability: 'chat.send',
-    isHeld: () => hasQdnAppCapability(appPrincipal, 'chat.send'),
+    isHeld: () => hasQdnAccountCapability(appPrincipal, accountId, 'chat.send'),
     // .then-discard rather than await: the foundation test pins that no
     // `await grantQdn...` call exists in this file, so prompt sites cannot
     // bypass the verifying helper; this helper is the one legitimate writer.
-    write: () => grantQdnAppCapabilityPermission(appPrincipal, 'chat.send').then(() => undefined),
+    write: () => grantQdnAccountCapabilityPermission(appPrincipal, accountId, 'chat.send').then(() => undefined),
   })
 }
 
@@ -6811,7 +6809,7 @@ export function HomeV2LiveApp() {
             decision.scope === 'always' &&
             isHomeV2ChatSendAction(action) &&
             !(context.resourceLocation &&
-              await persistDurableChatSendGrant(context.resourceLocation))
+              await persistDurableChatSendGrant(context.resourceLocation, accountId))
           if (!singleRequestOnly && (decision.scope === 'session' || durableChatSendFailed)) {
             androidSessionAccountGrants.current.add(grantKey, {
               family: homeV2PermissionGrantFamily(action),
@@ -8431,7 +8429,7 @@ export function HomeV2LiveApp() {
         const chatSendGrantable = isHomeV2ChatSendAction(action)
         const appCapabilityKey = context.resourceLocation || ''
         const heldChatSendGrant = chatSendGrantable && appCapabilityKey
-          ? await hasQdnAppCapability(appCapabilityKey, 'chat.send')
+          ? await hasQdnAccountCapability(appCapabilityKey, accountId, 'chat.send')
           : false
         if (!heldChatSendGrant && !isHomeV2PermissionlessAction(action) &&
           !androidSessionAccountGrants.current.has(grantKey)) {
@@ -8500,7 +8498,7 @@ export function HomeV2LiveApp() {
             decision.scope === 'always' &&
             isHomeV2ChatSendAction(action) &&
             !(context.resourceLocation &&
-              await persistDurableChatSendGrant(context.resourceLocation))
+              await persistDurableChatSendGrant(context.resourceLocation, accountId))
           if (decision.scope === 'session' || durableChatSendFailed) {
             androidSessionAccountGrants.current.add(grantKey, {
               family: homeV2PermissionGrantFamily(action),
@@ -8894,7 +8892,7 @@ export function HomeV2LiveApp() {
             decision.scope === 'always' &&
             isHomeV2ChatSendAction(action) &&
             !(context.resourceLocation &&
-              await persistDurableChatSendGrant(context.resourceLocation))
+              await persistDurableChatSendGrant(context.resourceLocation, accountId))
           // Gated on privateGroupReadCapability, not on the scope alone, so an
           // 'always' that this prompt never offered cannot become a durable
           // grant. Mirrors the desktop bridge.
@@ -9107,7 +9105,7 @@ export function HomeV2LiveApp() {
         const chatSendGrantable = isHomeV2ChatSendAction(action)
         const appCapabilityKey = context.resourceLocation || ''
         const heldChatSendGrant = chatSendGrantable && appCapabilityKey
-          ? await hasQdnAppCapability(appCapabilityKey, 'chat.send')
+          ? await hasQdnAccountCapability(appCapabilityKey, accountId, 'chat.send')
           : false
         if (!heldChatSendGrant && !isHomeV2PermissionlessAction(action) &&
           !androidSessionAccountGrants.current.has(grantKey)) {
@@ -9183,7 +9181,7 @@ export function HomeV2LiveApp() {
             decision.scope === 'always' &&
             isHomeV2ChatSendAction(action) &&
             !(context.resourceLocation &&
-              await persistDurableChatSendGrant(context.resourceLocation))
+              await persistDurableChatSendGrant(context.resourceLocation, accountId))
           if (decision.scope === 'session' || durableChatSendFailed) {
             androidSessionAccountGrants.current.add(grantKey, {
               family: homeV2PermissionGrantFamily(action),
@@ -9321,7 +9319,7 @@ export function HomeV2LiveApp() {
         const chatSendGrantable = isHomeV2ChatSendAction(action)
         const appCapabilityKey = context.resourceLocation || ''
         const heldChatSendGrant = chatSendGrantable && appCapabilityKey
-          ? await hasQdnAppCapability(appCapabilityKey, 'chat.send')
+          ? await hasQdnAccountCapability(appCapabilityKey, accountId, 'chat.send')
           : false
         if (!heldChatSendGrant && !isHomeV2PermissionlessAction(action) &&
           !androidSessionAccountGrants.current.has(grantKey)) {
@@ -9415,7 +9413,7 @@ export function HomeV2LiveApp() {
             decision.scope === 'always' &&
             isHomeV2ChatSendAction(action) &&
             !(context.resourceLocation &&
-              await persistDurableChatSendGrant(context.resourceLocation))
+              await persistDurableChatSendGrant(context.resourceLocation, accountId))
           if (decision.scope === 'session' || durableChatSendFailed) {
             androidSessionAccountGrants.current.add(grantKey, {
               family: homeV2PermissionGrantFamily(effectiveAction),

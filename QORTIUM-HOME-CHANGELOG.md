@@ -45,6 +45,39 @@ account in use when the link is opened.
 Removing an account leaves its tabs open with a locked account indicator and a
 disabled unlock action, and revokes cached account access without rebinding tabs.
 
+## fix(home2): bind chat-send approvals to each account
+
+Choosing "always allow" for chat now approves only the account named in the
+prompt, on desktop and Android. Another account still asks for its own approval.
+Settings names the account beside each chat-send grant and revokes only that
+account's approval. Account-specific direct-message and private-group reading
+permissions can also be revoked from their Settings cards. Older approvals that
+applied to an entire app are cleared and must be confirmed again for each
+account; they never transfer silently.
+
+## fix(home2): align Dashboard transport controls with Settings
+
+The Dashboard now lets you select and apply a transport mode while Qortium
+Core runs, just as Settings does. Saving a live change offers a separate
+Restart Core button so you decide when it takes effect. Both surfaces use the
+same mode permissions and router readiness checks, and block changes while
+busy or showing stale status. The Dashboard also shows I2P router download
+and installation progress.
+
+## fix(home2): keep app permissions reachable and restore the notification manager launcher
+
+QDN Apps settings now remain available when Qortium is disabled, including
+Qortal-only and offline profiles, so saved permissions can always be inspected
+and revoked. The Notifications Manager has an Open button again; it opens the
+currently saved app assignment and reports launch failures in Settings.
+
+## fix(home2): keep preview archive hashes stable across clocks and time zones
+
+Previewing the same folder now produces the same archive bytes even when the
+clock or time zone changes. ZIP entries use a fixed timestamp, so an unchanged
+preview no longer gets a different content hash merely because time passed.
+File contents, compression, upload limits and cleanup behavior are unchanged.
+
 ## fix(home2): apps can go fullscreen, and Home says so while they are
 
 Apps opened in Home could not go fullscreen. A video player, a game or a

@@ -43,9 +43,7 @@ import {
   grantQdnManagerPermission,
   hasQdnManagerPermission,
   hasQdnAccountCapability,
-  hasQdnAppCapability,
   grantQdnAccountCapabilityPermission,
-  grantQdnAppCapabilityPermission,
 } from './qdn-manager-permission-store.js'
 import {
   validateBookmarkManagerMutationRequest,
@@ -1766,7 +1764,7 @@ async function requireAccountReadPermission(
     writeDetails?.kind === 'foreign-server' ||
     (writeDetails?.kind === 'group' || writeDetails?.kind === 'direct' || writeDetails?.kind === 'private-group') &&
     writeDetails.singleRequestOnly === true
-  // A durable per-app chat-send grant ("always allow", revocable in QDN Apps
+  // A durable per-app, per-account chat-send grant ("always allow", revocable in QDN Apps
   // settings) skips the prompt entirely. Scoped to chat sends only: publishing,
   // unlocking, group admin and key rotation are never grantable this way.
   const chatSendGrantable = isHomeV2ChatSendAction(action) && !singleRequestOnly
@@ -1781,7 +1779,8 @@ async function requireAccountReadPermission(
     ? null
     : homeV2DurableAccountReadCapability(action)
   const appGrantKey = context.resourceUrl ?? ''
-  if (chatSendGrantable && appGrantKey && hasQdnAppCapability(appGrantKey, 'chat.send')) {
+  if (chatSendGrantable && appGrantKey && context.accountId &&
+    hasQdnAccountCapability(appGrantKey, context.accountId, 'chat.send')) {
     return
   }
   // The durable ENCRYPT grant. Account-scoped like the read grant below, and
@@ -2189,11 +2188,12 @@ async function requireAccountReadPermission(
   //     "always" while nothing was retained at all.
   // persistDurableGrant covers both by re-reading the grant, and every caller
   // falls through to the session grant below when it reports failure.
-  if (decision.scope === 'always' && chatSendGrantable && appGrantKey) {
+  const grantAccountId = context.accountId
+  if (decision.scope === 'always' && chatSendGrantable && appGrantKey && grantAccountId) {
     if (persistDurableGrant({
       capability: 'chat.send',
-      isHeld: () => hasQdnAppCapability(appGrantKey, 'chat.send'),
-      write: () => grantQdnAppCapabilityPermission(appGrantKey, 'chat.send'),
+      isHeld: () => hasQdnAccountCapability(appGrantKey, grantAccountId, 'chat.send'),
+      write: () => grantQdnAccountCapabilityPermission(appGrantKey, grantAccountId, 'chat.send'),
     })) return
   }
   // Gated on durableAccountReadCapability rather than on the scope alone, so an
@@ -2202,7 +2202,6 @@ async function requireAccountReadPermission(
   // An account-bound grant needs an account: with none selected the 'always'
   // choice falls through to the session grant below, which is the narrower
   // outcome and never wider than what the prompt described.
-  const grantAccountId = context.accountId
   if (
     decision.scope === 'always' &&
     durableAccountReadCapability &&

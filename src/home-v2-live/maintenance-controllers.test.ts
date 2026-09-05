@@ -331,6 +331,11 @@ function transportActionResult(
   const transport = {
     busy: null,
     currentMode: 'direct-only',
+    selectedMode: 'direct-and-i2p',
+    restartRequired: true,
+    progress: { action: 'downloading', message: 'Downloading router', kind: 'info', percent: 42 },
+    confirmRestart: async () => { calls.push('restart') },
+    setSelectedMode: (mode: string) => { calls.push(`select:${mode}`) },
     run: async (action: string, mode: string | null) => { calls.push(`${action}:${mode}`) },
     stale: false,
     status: transportStatus(),
@@ -339,9 +344,14 @@ function transportActionResult(
   const slice = toHomeV2TransportManagement(transport)
   assert.equal(slice.mode, 'direct-only')
   assert.equal(slice.stale, false)
+  assert.equal(slice.selectedMode, 'direct-and-i2p')
+  assert.equal(slice.restartRequired, true)
+  assert.equal(slice.progress?.percent, 42)
   slice.onEnsureRouter?.()
   slice.onSetTransportMode?.('direct-and-i2p')
-  assert.deepEqual(calls, ['ensure-router:null', 'set-mode:direct-and-i2p'])
+  slice.onSelectTransportMode?.('direct-only')
+  slice.onConfirmRestart?.()
+  assert.deepEqual(calls, ['ensure-router:null', 'set-mode:direct-and-i2p', 'select:direct-only', 'restart'])
 }
 
 // Which write a mode change uses. A stopped Core edits the settings file; a

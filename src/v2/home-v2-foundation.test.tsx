@@ -1909,6 +1909,9 @@ function testCoreManagementRenderingAndAndroidDegrade(): void {
     transport: {
       busy: null,
       mode: 'direct-only',
+      selectedMode: 'direct-only',
+      restartRequired: false,
+      progress: null,
       notice: null,
       stale: false,
       status: {
@@ -2024,6 +2027,9 @@ function testCoreManagementRenderingAndAndroidDegrade(): void {
           transport: {
             busy: null,
             mode: null,
+            selectedMode: null,
+            restartRequired: false,
+            progress: null,
             notice: null,
             stale: false,
             status: null,
@@ -3140,7 +3146,7 @@ function testGrantIdentityAndSendRateLimitHardening(): void {
     const durableRead = appBridge.indexOf('durableAccountReadCapability &&')
     const durableEncrypt = appBridge.indexOf("hasQdnAccountCapability(appGrantKey, context.accountId, 'account.encrypt')")
     const durableDecrypt = appBridge.indexOf("hasQdnAccountCapability(appGrantKey, context.accountId, 'account.decrypt')")
-    const durableChatSend = appBridge.indexOf("hasQdnAppCapability(appGrantKey, 'chat.send')")
+    const durableChatSend = appBridge.indexOf("hasQdnAccountCapability(appGrantKey, context.accountId, 'chat.send')")
     const durableDirectChat = appBridge.indexOf(
       "hasQdnAccountCapability(appGrantKey, context.accountId, 'account.directChat')",
     )
@@ -3195,7 +3201,7 @@ function testGrantIdentityAndSendRateLimitHardening(): void {
   // The durable chat.send grant must also sit after the stale-resource check.
   assert.match(
     appBridge,
-    /liveResourceMatchesGrant\(context\)[\s\S]{0,7000}hasQdnAppCapability\(appGrantKey, 'chat\.send'\)/,
+    /liveResourceMatchesGrant\(context\)[\s\S]{0,7000}hasQdnAccountCapability\(appGrantKey, context\.accountId, 'chat\.send'\)/,
   )
   // So must the durable account.read grant (R3-10). Its membership comes from
   // homeV2DurableAccountReadCapability, which returns null outside
@@ -3255,6 +3261,15 @@ function testGrantIdentityAndSendRateLimitHardening(): void {
   // durable chat-send writes goes through the verifying helper, and each
   // prompt site records a session grant when that helper reports failure.
   const durableGrantLiveApp = readFileSync('src/home-v2-live/HomeV2LiveApp.tsx', 'utf8')
+  assert.doesNotMatch(appBridge, /(?:hasQdnAppCapability|grantQdnAppCapabilityPermission)\([^\n]*'chat\.send'/)
+  assert.doesNotMatch(durableGrantLiveApp, /(?:hasQdnAppCapability|grantQdnAppCapabilityPermission)\([^\n]*'chat\.send'/)
+  assert.match(appBridge, /grantQdnAccountCapabilityPermission\(appGrantKey, grantAccountId, 'chat\.send'\)/)
+  assert.match(durableGrantLiveApp, /grantQdnAccountCapabilityPermission\(appPrincipal, accountId, 'chat\.send'\)/)
+  assert.equal(
+    durableGrantLiveApp.match(/persistDurableChatSendGrant\(context\.resourceLocation, accountId\)/g)?.length,
+    5,
+    'every Android prompt must persist the captured tab account, not the global default',
+  )
   assert.match(
     durableGrantLiveApp,
     /function persistDurableChatSendGrant[\s\S]{0,400}persistDurableGrantAsync\(\{/,
