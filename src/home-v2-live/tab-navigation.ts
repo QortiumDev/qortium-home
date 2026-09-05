@@ -9,6 +9,7 @@ import type { HomeV2ReleaseNotesTarget } from '../v2/shell/HomeV2ReleaseNotesPag
 
 /** Session-only destinations. Deliberately no vault, wallet or grant snapshots. */
 export type TabDestination =
+  | { readonly kind: 'viewer'; readonly location: string }
   | { readonly kind: 'app'; readonly app: AppDescriptor; readonly location: AppResourceLocation }
   | { readonly kind: 'internal'; readonly page: TabPageId; readonly section?: HomeV2SettingsSectionId }
   | { readonly kind: 'releases'; readonly target: HomeV2ReleaseNotesTarget }
@@ -32,6 +33,7 @@ export type NavigationAction = ProductAction
   | { readonly type: 'select-native-history'; readonly tabId: TabId; readonly index: number }
 
 export function destinationForEntry(entry: ShellEntry): TabDestination | null {
+  if (entry.kind === 'viewer') return { kind: 'viewer', location: entry.location }
   if (entry.kind === 'internal') return { kind: 'internal', page: entry.page,
     ...(entry.page === 'settings' ? { section: 'general' as const } : {}) }
   // Preview capabilities are expiring and must never be replayed as an app URL.
@@ -66,7 +68,7 @@ function showCurrent(state: NavigationState): NavigationState {
   const current = tabDestination(state)
   const transient = current?.kind === 'releases' || current?.kind === 'core-docs' ? current.kind : null
   const entry = state.entries.find(candidate => candidate.id === state.activeTabId)!
-  return { ...state, transient, destination: transient ?? (entry.kind === 'app' ? 'tab' : entry.page) }
+  return { ...state, transient, destination: transient ?? (entry.kind === 'internal' ? entry.page : entry.kind === 'viewer' ? 'viewer' : 'tab') }
 }
 
 /** Native indices are usable only for the currently live app session. */

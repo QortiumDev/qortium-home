@@ -23,6 +23,7 @@ export type HomeV2ResourceViewerState = {
 }
 
 type HomeV2ResourceViewerProps = {
+  readonly presentation?: 'overlay' | 'tab'
   readonly appearance: HomeV2AppearanceSettings
   readonly loadRetainedBytes: (
     url: string,
@@ -41,7 +42,7 @@ type HomeV2ResourceViewerProps = {
   readonly onClose: () => void
 }
 
-export function HomeV2ResourceViewer({ appearance, loadRetainedBytes, saveRetainedBytes, saveRetainedFile, resource, onClose }: HomeV2ResourceViewerProps) {
+export function HomeV2ResourceViewer({ appearance, loadRetainedBytes, saveRetainedBytes, saveRetainedFile, resource, onClose, presentation = 'overlay' }: HomeV2ResourceViewerProps) {
   const kind = classifyHomeV2ResourceViewer(resource)
   const coordinate = `${resource.service}/${resource.name}/${resource.identifier ?? 'default'}`
   const qdnResource: QdnResource = useMemo(() => ({
@@ -71,17 +72,20 @@ export function HomeV2ResourceViewer({ appearance, loadRetainedBytes, saveRetain
   )
 
   useEffect(() => {
+    if (presentation === 'tab') return
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onClose()
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [onClose])
+  }, [onClose, presentation])
+  const viewerClass = `home-v2-resource-overlay${presentation === 'tab' ? ' home-v2-resource-overlay--tab' : ''}`
 
   if (kind === 'document') {
     return (
-      <div className="home-v2-resource-overlay home-v2-resource-overlay--retained" role="presentation">
+      <div className={`${viewerClass} home-v2-resource-overlay--retained`} role="presentation">
         <DocumentViewer
+          presentation={presentation === 'tab' ? 'tab' : 'dialog'}
           displaySettings={displaySettings}
           knownFilename={resource.filename}
           knownMimeType={resource.mimeType}
@@ -101,12 +105,12 @@ export function HomeV2ResourceViewer({ appearance, loadRetainedBytes, saveRetain
   }
 
   return (
-    <div className="home-v2-resource-overlay" role="presentation">
+    <div className={viewerClass} role="presentation">
       <section
         aria-label={t('home2.resourceViewer.ariaLabel')}
-        aria-modal="true"
+        aria-modal={presentation === 'overlay' ? true : undefined}
         className="home-v2-resource-viewer"
-        role="dialog"
+        role={presentation === 'overlay' ? 'dialog' : 'region'}
       >
         <header>
           <div>

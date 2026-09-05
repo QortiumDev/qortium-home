@@ -5,7 +5,7 @@ import {
   type MouseEvent,
   type PointerEvent,
 } from 'react'
-import { Compass, LayoutDashboard, Lock, Settings } from 'lucide-react'
+import { Compass, File, LayoutDashboard, Lock, Settings } from 'lucide-react'
 import type { TabId } from '../contracts'
 import type { ProductState, ShellEntry, TabPageId } from '../product-model'
 import { t, type TranslationKey } from '../../i18n'
@@ -15,6 +15,7 @@ import { HomeV2AppIcon } from './HomeV2AppIcon'
 import type { VisibleAppIconLoader } from '../contracts'
 import type { HomeV2AccountCatalogue } from '../contracts'
 import { savedEntryAccountId } from './account-context'
+import { parseViewerLocation } from '../viewer-location'
 
 export interface TabStripProps {
   readonly productState: ProductState
@@ -373,6 +374,8 @@ export function TabStrip({
             >
               {entry.kind === 'internal' ? (
                 <InternalTabIcon page={entry.page} />
+              ) : entry.kind === 'viewer' ? (
+                <File className="home-v2-tab__favicon" size={18} aria-hidden="true" />
               ) : (
                 <HomeV2AppIcon
                   displayUrl={entry.context.resourceLocation}
@@ -382,7 +385,7 @@ export function TabStrip({
                 />
               )}
               <span>{label}</span>
-              {entry.kind === 'app' && accountCatalogue ? (() => {
+              {entry.kind !== 'internal' && accountCatalogue ? (() => {
                 const accountId = savedEntryAccountId(entry)
                 const account = accountCatalogue.accounts.find((candidate) => candidate.id === accountId)
                 const accountLabel = account?.label ?? (accountId ? rememberedAccountLabels?.get(accountId) ?? t('home2.account.unavailableAccount') : t('account.noAccount'))
@@ -391,8 +394,8 @@ export function TabStrip({
                   {accountId && !account?.isUnlocked ? <Lock size={10} aria-hidden="true" /> : null}
                 </span>
               })() : null}
-              {entry.kind === 'app' ? (
-                <NetworkBadge compact network={entry.context.sourceNetwork} />
+              {entry.kind !== 'internal' ? (
+                <NetworkBadge compact network={entry.kind === 'app' ? entry.context.sourceNetwork : parseViewerLocation(entry.location).network} />
               ) : null}
             </button>
             <button

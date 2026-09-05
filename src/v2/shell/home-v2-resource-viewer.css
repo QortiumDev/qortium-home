@@ -39,6 +39,25 @@
   align-items: center;
 }
 
+.home-v2-resource-overlay--tab {
+  position: relative;
+  inset: auto;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  padding: 0;
+  z-index: auto;
+  background: transparent;
+  backdrop-filter: none;
+}
+.home-v2-resource-overlay--tab > .home-v2-resource-viewer,
+.home-v2-resource-overlay--tab > .doc-viewer-dialog {
+  width: 100%;
+  height: 100%;
+  border-radius: 0;
+  box-shadow: none;
+}
+
 .doc-viewer-dialog {
   display: flex;
   flex-direction: column;

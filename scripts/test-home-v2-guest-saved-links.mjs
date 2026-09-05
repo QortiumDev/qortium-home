@@ -43,6 +43,7 @@ async function bundled(relative) {
 }
 const contract = await bundled('../electron/bookmark-manager-contract.ts')
 const resources = await bundled('../src/v2/resource-location.ts')
+const viewers = await bundled('../src/v2/viewer-location.ts')
 const startup = await bundled('../src/home-v2-live/start-page-launch.ts')
 const { createAccountRequestEpochs } = await bundled('../src/home-v2-live/account-request-guard.ts')
 const guestId = contract.SAVED_GUEST_ACCOUNT_ID
@@ -63,7 +64,7 @@ function createShell(defaultId = 'wallet:A') {
   const managerTab = { id: 'manager', context: { resourceLocation: managerAddress } }
   const accounts = ['wallet:A', 'wallet:B'].map((id) => ({ id, walletId: id, label: id }))
   const sandbox = vm.createContext({
-    Error, console, ...contract, ...resources, ...startup,
+    Error, console, ...contract, ...resources, ...viewers, ...startup,
     HOME_V2_BIND_NO_ACCOUNT: Object.freeze({ bind: 'none' }),
     brand: (value) => value,
     isRecord: (value) => !!value && typeof value === 'object' && !Array.isArray(value),
@@ -71,7 +72,7 @@ function createShell(defaultId = 'wallet:A') {
     nodeClient: {},
     tabSequence: { current: 0 },
     accountCatalogueRef: { current: { accounts } },
-    productStateRef: { current: { tabs: [managerTab], activeTabId: 'manager' } },
+    productStateRef: { current: { tabs: [managerTab], entries: [{ ...managerTab, kind: 'app' }], activeTabId: 'manager' } },
     snapshot: { identity: { id: `home-v2:identity:${defaultId}`, selectedWallet: `home-v2:wallet:${defaultId}` } },
     selectedAccountId: defaultId,
     setShellNotice: (notice) => notices.push(notice),

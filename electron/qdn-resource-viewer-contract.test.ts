@@ -155,6 +155,7 @@ const qdnViews = readRepoSource('../electron/qdn-views.ts', './qdn-views.ts');
 const homeV2Preload = readRepoSource('../electron/home-v2-live-preload.cts', './home-v2-live-preload.cts');
 const homeV2Android = readRepoSource('../src/home-v2-live/node-client.ts', './src/home-v2-live/node-client.ts');
 const homeV2Live = readRepoSource('../src/home-v2-live/HomeV2LiveApp.tsx', './src/home-v2-live/HomeV2LiveApp.tsx');
+const publicViewerClient = readRepoSource('../src/home-v2-live/retained-viewer-client.ts', './src/home-v2-live/retained-viewer-client.ts');
 const androidProxy = readRepoSource(
   '../android/app/src/main/java/org/qortium/home/QdnRenderProxy.java',
   '../../android/app/src/main/java/org/qortium/home/QdnRenderProxy.java',
@@ -259,7 +260,8 @@ assert(
   'The Android host must validate the shell-origin capability form it asked for.',
 );
 assert(
-  homeV2Live.includes('minted on the shell') || homeV2Live.includes('shell-origin'),
+  publicViewerClient.includes('shell-origin') &&
+    publicViewerClient.includes('authorizeHomeV2AndroidResourceStream(raw.streamUrl, getQdnResourceStreamProxyMimeType(resource), binding, true)'),
   'The viewer mint site must document that it uses the shell-origin form.',
 );
 assert(

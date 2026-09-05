@@ -31,6 +31,8 @@ async function bundled(relative) {
 const { rememberClosedAppTab } = await bundled('../src/home-v2-live/closed-app-tabs.ts')
 const { rememberClosedTab } = await bundled('../src/home-v2-live/closed-tabs.ts')
 const { createProductState } = await bundled('../src/v2/product-model.ts')
+const { parseViewerLocation, viewerLocationFromResource } = await bundled('../src/v2/viewer-location.ts')
+const { savedEntryAccountId } = await bundled('../src/v2/shell/account-context.ts')
 const { reduceTabNavigation: reduceProductState } = await bundled('../src/home-v2-live/tab-navigation.ts')
 const { createHomeV2SessionGrantStore, homeV2PermissionGrantKey } = await bundled('../electron/home-v2-session-grants.ts')
 const location = 'qortal://APP/Fixture/published/path?room=7#messages'
@@ -40,9 +42,11 @@ function harness() {
   const effects = [], notices = [], actions = []
   const product = { current: createProductState() }
   const sandbox = vm.createContext({
-    Error, rememberClosedAppTab, rememberClosedTab, productStateRef: product, shellStateReady: true, accountCatalogueReady: true,
+    Error, parseViewerLocation, viewerLocationFromResource, savedEntryAccountId,
+    isRecord: value => !!value && typeof value === 'object' && !Array.isArray(value),
+    rememberClosedAppTab, rememberClosedTab, productStateRef: product, shellStateReady: true, accountCatalogueReady: true,
     closedAppTabs: { current: [] }, tabSequence: { current: 0 },
-    accountCatalogueRef: { current: { accounts: ['A', 'B:2'].map(id => ({
+    accountCatalogueRef: { current: { activeAccountId: 'wallet:A', accounts: ['A', 'B:2'].map(id => ({
       id: `wallet:${id}`, walletId: id[0], isUnlocked: false,
     })) } },
     snapshot: { identity: { id: 'home-v2:identity:wallet:B:2', selectedWallet: 'home-v2:wallet:B' } },
@@ -63,6 +67,7 @@ function harness() {
     Object.defineProperty(sandbox, key, { get() { throw new Error(`Reopen must not consult ${key}`) } })
   }
   sandbox.openApp = callback('openApp', sandbox)
+  sandbox.openViewer = callback('openViewer', sandbox)
   const close = callback('closeTab', sandbox), reopen = callback('reopenClosedAppTab', sandbox)
   function open(accountId) {
     sandbox.openApp(app, location, accountId === null ? sandbox.HOME_V2_BIND_NO_ACCOUNT : accountId, true)
@@ -150,4 +155,38 @@ assert.match(text, /onCloseTab=\{closeTab\}/)
   assert.equal(h.product.current.navigation[entry.id].entries[0].section, 'appearance')
 }
 assert.match(text, /reopenClosedTab: reopenClosedAppTab/)
+for (const accountId of ['wallet:B:2', null]) {
+  const h = harness()
+  h.sandbox.openViewer('qdn://IMAGE/Viewer/default', accountId ?? h.sandbox.HOME_V2_BIND_NO_ACCOUNT)
+  const original = h.product.current.entries.at(-1)
+  const effectsBefore = h.effects.length
+  h.close(original.id)
+  assert.equal(h.effects.length, effectsBefore, 'Closing a public viewer must not invalidate unrelated app streams or grants')
+  h.reopen()
+  const reopened = h.product.current.entries.at(-1)
+  assert.equal(reopened.kind, 'viewer')
+  assert.equal(reopened.accountId, accountId, 'Viewer reopen preserves concrete and guest attribution despite default A')
+  assert.notEqual(reopened.id, original.id)
+  assert.equal(h.product.current.tabs.length, 0)
+}
+{
+  const events = []
+  function visit(node) {
+    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === 'onOpenResourceViewer') events.push(node.arguments[0])
+    ts.forEachChild(node, visit)
+  }
+  visit(source)
+  assert.equal(events.length, 1)
+  const output = ts.transpileModule(`(${events[0].getText(source)})`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText
+  for (const accountId of ['wallet:B:2', null]) {
+    const h = harness(), sourceTab = h.open(accountId)
+    const event = vm.runInContext(output, h.sandbox)
+    event({ publicResource: true, sourceTabId: sourceTab.id, network: 'qortium', service: 'IMAGE', name: 'Viewer', identifier: null, path: null })
+    const viewer = h.product.current.entries.at(-1)
+    assert.equal(viewer.kind, 'viewer')
+    assert.equal(viewer.accountId, accountId, 'Public app viewer captures source attribution, not default A')
+    h.close(sourceTab.id)
+    assert.equal(h.product.current.entries.some(entry => entry.id === viewer.id), true)
+  }
+}
 console.log('Home v2 production close/reopen identity, duplicate, lifecycle and failure tests passed.')

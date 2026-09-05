@@ -215,7 +215,7 @@ export function HomeV2FixturePreview() {
   }
 
   const navigate = (
-    destination: Exclude<ShellDestination, 'tab'>,
+    destination: Exclude<ShellDestination, 'tab' | 'viewer'>,
   ) => {
     if (productState.activeTabId) {
       setPermissionState((current) =>

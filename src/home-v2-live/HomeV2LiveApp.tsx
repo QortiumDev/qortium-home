@@ -58,6 +58,7 @@ import {
 } from '../v2/startup-preference'
 import { HomeV2Prototype } from '../v2/shell/HomeV2Prototype'
 import { accountsLosingAccess, savedEntryAccountId } from '../v2/shell/account-context'
+import { isViewerAddress, parseViewerLocation, viewerLocationFromResource } from '../v2/viewer-location'
 import { createAccountRequestEpochs, isBoundAccountRequestCurrent } from './account-request-guard'
 import { buildTabBookmarkToggle, buildTabDashboardPin, buildTabToolbarSave } from '../v2/shell/saved-tab-bookmarks'
 import type { HomeV2SettingsSectionId } from '../v2/shell/SettingsPage'
@@ -1764,6 +1765,7 @@ export function HomeV2LiveApp() {
     homeV2AndroidPublishSources.clear()
     void import('./android-app-host')
       .then(({ releaseHomeV2AndroidResourceStreams }) => releaseHomeV2AndroidResourceStreams())
+      .then(() => window.dispatchEvent(new Event('home-v2-public-viewers-invalidated')))
       .catch(() => undefined)
     const pendingContextMenu = androidContextMenuResolver.current
     if (
@@ -2749,6 +2751,18 @@ export function HomeV2LiveApp() {
     }
   }, [])
 
+  const openViewer = useCallback((location: string, requestedAccountId?: HomeV2AccountBinding) => {
+    const resource = parseViewerLocation(location)
+    const accountId = typeof requestedAccountId === 'string' ? requestedAccountId
+      : requestedAccountId && requestedAccountId.bind === 'none' ? null : accountCatalogueRef.current.activeAccountId
+    if (accountId && !accountCatalogueRef.current.accounts.some(account => account.id === accountId)) {
+      throw new Error('The saved Home account is no longer available.')
+    }
+    tabSequence.current += 1
+    const tabId = brand<TabId>(`home-v2:viewer:${Date.now().toString(36)}:${tabSequence.current}`)
+    dispatchProduct({ type: 'open-viewer', location: resource.location, accountId, tabId })
+  }, [])
+
   const openAddress = useCallback(
     async (
       address: string,
@@ -2816,6 +2830,11 @@ export function HomeV2LiveApp() {
             type: 'navigate',
             destination: internal,
           })
+          return { status: 'opened' }
+        }
+        if (!replaceTarget && isViewerAddress(address)) {
+          openViewer(address, requestedAccountId)
+          setShellNotice(null)
           return { status: 'opened' }
         }
         const parsed = parseAppResourceLocation(address)
@@ -2907,7 +2926,7 @@ export function HomeV2LiveApp() {
         return { message, status: 'error' }
       }
     },
-    [nodeClient, openApp, replaceTabWithApp],
+    [nodeClient, openApp, openViewer, replaceTabWithApp],
   )
 
   // The single entry point behind OPEN_CURRENT_TAB on every host. `tabId` is
@@ -3159,7 +3178,7 @@ export function HomeV2LiveApp() {
     startPagesLaunched.current = true
     const pending = pendingStartup.current
     const plan = planStartPageLaunch({
-      appTabCount: productStateRef.current.tabs.length,
+      appTabCount: productStateRef.current.entries.filter(entry => entry.kind !== 'internal').length,
       mode: pending?.startPages ?? 'when-empty',
       onboardingInProgress: onboarding.status === 'in-progress',
       startPages: collectionsSnapshot.startPages ?? [],
@@ -3216,7 +3235,7 @@ export function HomeV2LiveApp() {
       }
       // v1 made the FIRST start page the active tab; the loop leaves the
       // last one active. The strip order is already correct.
-      const tabs = productStateRef.current.tabs
+      const tabs = productStateRef.current.entries.filter(entry => entry.kind !== 'internal')
       if (tabs.length > 1 && productStateRef.current.activeTabId !== tabs[0].id) {
         dispatchProduct({ type: 'activate-tab', tabId: tabs[0].id })
       }
@@ -3447,6 +3466,7 @@ export function HomeV2LiveApp() {
       if (!entry) return null
       return entry.kind === 'app'
         ? { address: currentAppLocation(entry), title: entry.title }
+        : entry.kind === 'viewer' ? { address: entry.location, title: entry.title }
         : {
             address: `home://${entry.page}`,
             title: t(internalTabLabelKeys[entry.page]),
@@ -3483,6 +3503,12 @@ export function HomeV2LiveApp() {
       const windows = window.homeV2Windows
       const target = tabAddress(tabId)
       if (!windows || !target) return
+      // Cross-window transfer currently carries a URL only. Do not silently
+      // rebind a viewer's saved account to the destination window's default.
+      if (productStateRef.current.entries.find(entry => entry.id === tabId)?.kind === 'viewer') {
+        setShellNotice('Resource viewer window transfer is not available yet. Open its saved link in the other window.')
+        return
+      }
       try {
         // Dropped ONTO another Home window? Then this is a reattach, not a
         // detach: the tab moves there instead of opening a third window. Main
@@ -3519,10 +3545,11 @@ export function HomeV2LiveApp() {
       if (!entry) return
       const displayUrl = entry.kind === 'app'
         ? currentAppLocation(entry)
+        : entry.kind === 'viewer' ? entry.location
         : `home://${entry.page}`
       // Same title derivation as the bookmark path directly below, so a tab
       // pinned and a tab bookmarked are labelled identically.
-      const title = entry.kind === 'app'
+      const title = entry.kind !== 'internal'
         ? entry.title
         : t(internalTabLabelKeys[entry.page])
       await addDashboardPin(displayUrl, title, savedEntryAccountId(entry))
@@ -3536,11 +3563,12 @@ export function HomeV2LiveApp() {
       const displayUrl =
         entry.kind === 'app'
           ? currentAppLocation(entry)
+          : entry.kind === 'viewer' ? entry.location
           : `home://${entry.page}`
       try {
         const result = await applyCollectionsMutation((snapshot) => buildTabToolbarSave(snapshot, {
           accountId: savedEntryAccountId(entry), displayUrl,
-          title: entry.kind === 'app' ? entry.title : t(internalTabLabelKeys[entry.page]),
+          title: entry.kind !== 'internal' ? entry.title : t(internalTabLabelKeys[entry.page]),
         }))
         applyCollectionsSnapshot(result.snapshot)
       } catch (error) {
@@ -3700,12 +3728,21 @@ export function HomeV2LiveApp() {
     const bridge = window.homeV2Apps
     if (!bridge) return
     return bridge.onOpenResourceViewer((value) => {
+      if (isRecord(value) && value.publicResource === true && typeof value.sourceTabId === 'string') {
+        const source = productStateRef.current.tabs.find(tab => tab.id === value.sourceTabId)
+        if (!source) return
+        try {
+          const location = viewerLocationFromResource(value as unknown as Parameters<typeof viewerLocationFromResource>[0])
+          openViewer(location, savedEntryAccountId({ ...source, kind: 'app' }) ?? HOME_V2_BIND_NO_ACCOUNT)
+        } catch (error) { setShellNotice(error instanceof Error ? error.message : String(error)) }
+        return
+      }
       const parsed = parseHomeV2ResourceViewerState(value)
       if (!parsed) return
       if (!productStateRef.current.tabs.some((tab) => tab.id === parsed.sourceTabId)) return
       setResourceViewer(parsed)
     })
-  }, [])
+  }, [openViewer])
 
   useEffect(() => {
     const bridge = window.homeV2Apps
@@ -8343,38 +8380,9 @@ export function HomeV2LiveApp() {
       }
       if (action === 'OPEN_QDN_RESOURCE_VIEWER') {
         if (!isAndroidHost) return nodeClient.requestApp(protocol, requestValue, context)
-        const [raw, hostInfo] = await Promise.all([
-          nodeClient.requestApp(protocol, requestValue, context),
-          nodeClient.requestApp(protocol, { action: 'GET_HOST_INFO' }, context),
-        ])
-        const parsed = parseHomeV2ResourceViewerState(raw)
-        if (!parsed) throw new Error('Resource viewer response was invalid.')
-        if (!isRecord(hostInfo) || !isRecord(hostInfo.route) || typeof hostInfo.route.revision !== 'string') {
-          throw new Error('Home bridge route identity is unavailable.')
-        }
         const resource = getQdnResourceViewerRequest(requestValue as QdnAppRequest)
         const network = protocol === 'qortalRequest' ? 'qortal' : 'qortium'
-        const { authorizeHomeV2AndroidResourceStream } = await import('./android-app-host')
-        setResourceViewer({
-          ...parsed,
-          // The VIEWER renders in the shell document, so its media/img URL is
-          // minted on the shell's own origin (H-P2) — unlike the app-facing
-          // GET_QDN_RESOURCE_STREAM_URL above, which stays on the app's proxy
-          // origin.
-          streamUrl: await authorizeHomeV2AndroidResourceStream(
-            parsed.streamUrl,
-            getQdnResourceStreamProxyMimeType(resource),
-            JSON.stringify({
-              accountId: context.selectedAccountId,
-              appIdentity: context.resourceLocation || `home-v2-tab:${context.tabId}`,
-              network,
-              protocol,
-              routeRevision: hostInfo.route.revision,
-              tabId: context.tabId,
-            }),
-            true,
-          ),
-        })
+        openViewer(viewerLocationFromResource({ ...resource, network }), context.selectedAccountId ?? HOME_V2_BIND_NO_ACCOUNT)
         return true
       }
       if (action === 'UNLOCK_SELECTED_ACCOUNT') {
@@ -9839,7 +9847,7 @@ export function HomeV2LiveApp() {
       }
       return nodeClient.requestApp(protocol, requestValue, context)
     },
-    [applyCollectionsSnapshot, collectionsClient, homeSettingsResponder, nodeClient, openAddress, productState.tabs, queueAndroidPermissionPrompt, queueAndroidSessionGrantPermission, snapshot.nodes, vaultClient],
+    [applyCollectionsSnapshot, collectionsClient, homeSettingsResponder, nodeClient, openAddress, openViewer, productState.tabs, queueAndroidPermissionPrompt, queueAndroidSessionGrantPermission, snapshot.nodes, vaultClient],
   )
 
   const setNodeMode = async (
@@ -10380,6 +10388,10 @@ export function HomeV2LiveApp() {
     }
   }
   const reloadActiveSurface = () => {
+    if (!productState.transient && productState.destination === 'viewer') {
+      setAppReloadVersion(current => current + 1)
+      return
+    }
     if (!productState.transient && productState.destination === 'tab') {
       if (window.homeV2Apps) {
         void window.homeV2Apps.reload({ tabId: productState.activeTabId })
@@ -10407,6 +10419,10 @@ export function HomeV2LiveApp() {
     const closed = closedAppTabs.current.pop()
     if (!closed) return
     try {
+      if ('location' in closed) {
+        openViewer(closed.location, closed.accountId ?? HOME_V2_BIND_NO_ACCOUNT)
+        return
+      }
       if ('page' in closed) {
         tabSequence.current += 1
         const tabId = brand<TabId>(`home-v2:internal:reopened:${Date.now().toString(36)}:${tabSequence.current}`)
@@ -10424,11 +10440,17 @@ export function HomeV2LiveApp() {
       // removed account must not prevent reopening the older entries next.
       setShellNotice(error instanceof Error ? error.message : 'The closed app tab could not be reopened.')
     }
-  }, [openApp, shellStateReady, accountCatalogueReady])
+  }, [openApp, openViewer, shellStateReady, accountCatalogueReady])
 
   const closeTab = useCallback((tabId: TabId) => {
     if (shellStateReady) {
       closedAppTabs.current = rememberClosedTab(closedAppTabs.current, productStateRef.current, tabId)
+    }
+    if (productStateRef.current.entries.find(entry => entry.id === tabId)?.kind === 'viewer') {
+      // Its component owns the public lease. A viewer has no app grants to
+      // invalidate and must not trigger Android's blanket app-stream cleanup.
+      dispatchProduct({ type: 'close-tab', tabId })
+      return
     }
     invalidateAndroidRuntime('tab-closed', tabId)
     window.homeV2Apps?.invalidateRuntime({ kind: 'tab-closed', tabId })

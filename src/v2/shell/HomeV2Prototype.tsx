@@ -30,6 +30,9 @@ import type {
   VisibleAvatarLoader,
 } from '../contracts'
 import { subscribeHomeV2MenuCommands } from '../menu-commands'
+import { lazy, Suspense } from 'react'
+const HomeV2ViewerTab = lazy(() => import('./HomeV2ViewerTab').then(module => ({ default: module.HomeV2ViewerTab })))
+import { parseViewerLocation } from '../viewer-location'
 import {
   hasHomeV2NativeZoom,
   setHomeV2WindowZoom,
@@ -217,7 +220,7 @@ export interface HomeV2PrototypeProps {
     toIndex: number,
   ) => void
   readonly onNavigate?: (
-    destination: Exclude<ShellDestination, 'tab'>,
+    destination: Exclude<ShellDestination, 'tab' | 'viewer'>,
   ) => void
   readonly onResolvePermission?: (
     requestId: PermissionRequestId,
@@ -969,7 +972,7 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
     : onActivateTab
   const guardedNavigate = overlayOwnerTabId
     ? () => undefined
-    : (destination: Exclude<ShellDestination, 'tab'>) => {
+    : (destination: Exclude<ShellDestination, 'tab' | 'viewer'>) => {
         // Deliberately does NOT reset the Settings section: returning to an
         // open Settings tab must leave it where the user left it. Deep links
         // still choose a section through openSettingsSection().
@@ -1167,6 +1170,7 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
       <main
         className="home-v2-page-viewport"
         data-app-active={activeTab ? 'true' : 'false'}
+        data-viewer-active={productState.destination === 'viewer' ? 'true' : 'false'}
         data-app-overlay-active={appOverlayActive ? 'true' : 'false'}
       >
         {productState.transient ? (
@@ -1199,11 +1203,18 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
           </section>
           ) : null
         ) : null}
-        {/* Every open tab stays mounted and is merely hidden when inactive:
-            unmounting would throw away scroll position, form state and any
-            in-progress work the moment the user glanced at another tab. */}
+        {/* Internal pages stay mounted. Apps keep platform-owned state.
+            Public viewers release stream capabilities when inactive and
+            resolve fresh public access when selected again. */}
         {productState.entries.map((entry) => {
           const isActive = entry.id === productState.activeTabId
+          if (entry.kind === 'viewer') {
+            const node = snapshot.nodes[parseViewerLocation(entry.location).network]
+            return isActive && !productState.transient ? <Suspense key={entry.id} fallback={<p role="status">{t('common.loading')}</p>}><HomeV2ViewerTab
+              key={entry.id} entry={entry} appearance={snapshot.appearance} nodeClient={props.nodeClient}
+              reloadVersion={props.appReloadVersion} routeKey={`${node.mode}|${node.nodeApiUrl}`}
+              onClose={() => onCloseTab?.(entry.id)} /></Suspense> : null
+          }
           if (entry.kind === 'app') {
             // App tabs keep their own persistence: on desktop the native view
             // survives hidden, on Android the stage is keyed per tab.

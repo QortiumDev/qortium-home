@@ -183,6 +183,8 @@ contextBridge.exposeInMainWorld('homeV2ForeignWallet', {
 })
 
 contextBridge.exposeInMainWorld('homeV2RetainedViewer', {
+  openPublic: (request: { location: string; viewerId: string }) => ipcRenderer.invoke('home-v2-retained-viewer:openPublic', request),
+  closePublic: (viewerId: string) => ipcRenderer.invoke('home-v2-retained-viewer:closePublic', viewerId),
   readBytes: (request: { maxBytes: number; url: string }) =>
     ipcRenderer.invoke('home-v2-retained-viewer:readBytes', request),
   save: (request: { filename: string; url: string }) =>

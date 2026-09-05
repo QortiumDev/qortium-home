@@ -41,18 +41,29 @@ binding. Scoped lifecycle epochs prevent stale asynchronous approvals from
 surviving lock/unlock or app replacement. Existing lock/removal invalidation is
 retained; this does not narrow those events to one account.
 
+The September 5 follow-ups through #531 complete guest saved-link references
+(#525), explicit account launching (#526), Dashboard pin attribution (#527),
+identity-safe close/reopen (#528), current app URLs (#529), per-tab navigation
+history (#530), and bookmark-toolbar overlay ownership (#531).
+
+The next viewer foundation introduces separate public resource tabs: generic
+QDN coordinates, account-attributed saves, close/reopen and process restoration.
+These entries carry no app identity, wallet context, node URL or stream token.
+Public access is acquired through the selected node each time a viewer mounts;
+private attachment viewers retain their existing source-app approval lifetime.
+Media/document/archive renderers are reused inside the content area. This does
+not complete rich text/data viewers or retained playback/page/scroll position.
+Viewer queries/fragments are refused for now. Cross-window viewer transfer is
+deferred until the transfer contract preserves account attribution.
+
 Remaining work, in order:
 
-1. **Account follow-ups:** add an explicit guest saved-link schema (existing null still means Current/
-   inherit), open/duplicate-under-account affordances and Dashboard pin account
-   attribution. Never silently rebind an existing app.
-2. **Viewers and navigation:** independent generic QDN resource tabs and rich
-   text/data viewers, saved-resource opening/restoration, current live app URLs,
-   internal-page history/reload/reopen, and correct tab/window transfer context.
-3. **Shell and maintenance consistency:** per-tab Settings state and unique IDs;
+1. **Viewers and navigation:** rich text/data viewers, retained viewer position,
+   visible save/download progress/errors, and correct tab/window transfer context.
+2. **Shell and maintenance consistency:** per-tab Settings state and unique IDs;
    remaining maintenance progress/copy/details, node-settings discovery, and tab
    and keyboard parity.
-4. **Accessibility/localization/notifications:** dialog/menu focus and keyboard
+3. **Accessibility/localization/notifications:** dialog/menu focus and keyboard
    behavior, globally visible announced errors, translated approval/maintenance
    text, and the separate background notification subscription family.
 

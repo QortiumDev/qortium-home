@@ -1,4 +1,5 @@
 import { parseAppResourceLocation } from './resource-location'
+import { isViewerAddress, parseViewerLocation } from './viewer-location'
 import type { ShellDestination } from './product-model'
 
 export type NewTabPreference =
@@ -21,10 +22,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 export function parseHomeV2InternalAddress(
   value: string,
-): Exclude<ShellDestination, 'tab'> | null {
+): Exclude<ShellDestination, 'tab' | 'viewer'> | null {
   const match = INTERNAL_ADDRESS_PATTERN.exec(value.trim())
   return match
-    ? (match[1].toLowerCase() as Exclude<ShellDestination, 'tab'>)
+    ? (match[1].toLowerCase() as Exclude<ShellDestination, 'tab' | 'viewer'>)
     : null
 }
 
@@ -61,6 +62,7 @@ export function validateCustomNewTabAddress(value: string): string {
   if (parseHomeV2InternalAddress(address)) return address
   if (parseHomeV2ReleaseNotesAddress(address)) return address
   if (parseHomeV2CoreDocsAddress(address)) return address
+  if (isViewerAddress(address)) return parseViewerLocation(address).location
   try {
     parseAppResourceLocation(address)
   } catch {

@@ -1319,7 +1319,8 @@ body,
   padding: 32px 0 56px;
 }
 
-.home-v2-page-viewport[data-app-active='true'] {
+.home-v2-page-viewport[data-app-active='true'],
+.home-v2-page-viewport[data-viewer-active='true'] {
   width: 100%;
   height: calc(100vh - var(--v2-chrome-height, 98px));
   min-height: 0;
