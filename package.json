@@ -98,6 +98,7 @@
     "test:home-v2-default-account-grants": "node scripts/test-home-v2-default-account-grants.mjs",
     "test:home-v2-account-tab-launch": "esbuild src/home-v2-live/account-tab-launch.test.ts --bundle --platform=node --format=esm --outfile=dist-electron/account-tab-launch.test.js && node dist-electron/account-tab-launch.test.js",
     "test:home-v2-account-launch": "node scripts/test-home-v2-account-launch.mjs",
+    "test:home-v2-closed-app-tabs": "esbuild src/home-v2-live/closed-app-tabs.test.ts --bundle --platform=node --format=esm --outfile=dist-electron/closed-app-tabs.test.js && node dist-electron/closed-app-tabs.test.js && node scripts/test-home-v2-closed-app-tabs.mjs",
     "test:home-v2-guest-saved-links": "node scripts/test-home-v2-guest-saved-links.mjs",
     "test:saved-account-context": "esbuild src/accountContext.test.ts --bundle --platform=node --format=esm --outfile=dist-electron/saved-account-context.test.js && node dist-electron/saved-account-context.test.js",
     "test:home-v2-new-tab-preference": "esbuild src/v2/new-tab-preference.test.ts --bundle --platform=node --format=esm --outfile=dist-electron/new-tab-preference.test.js && node dist-electron/new-tab-preference.test.js",

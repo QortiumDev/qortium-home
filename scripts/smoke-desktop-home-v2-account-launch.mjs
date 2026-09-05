@@ -2,6 +2,7 @@
 // Real packaged UI + native QDN views, using two new unfunded scratch accounts.
 // No production profile, live node, transaction, signing or publication is used.
 import assert from 'node:assert/strict'
+import { spawn, spawnSync } from 'node:child_process'
 import { createServer } from 'node:http'
 import { randomUUID } from 'node:crypto'
 import { existsSync, mkdtempSync, writeFileSync } from 'node:fs'
@@ -54,9 +55,14 @@ process.env.QORTIUM_HOME_QORTAL_NODE_API_URL = origin
 delete process.env.DISPLAY
 delete process.env.WAYLAND_DISPLAY
 delete process.env.ELECTRON_RUN_AS_NODE
+process.env.XDG_SESSION_TYPE = 'x11'
+process.env.ELECTRON_OZONE_PLATFORM_HINT = 'x11'
 
 let home
 let bootstrap
+let nativeXServer
+let nativeWindowManager
+process.once('exit', () => { nativeWindowManager?.kill(); nativeXServer?.kill() })
 const apps = []
 try {
   // Only this isolated unpackaged bootstrap redirects the native backup save
@@ -108,7 +114,39 @@ try {
   await bootstrap.stop()
   bootstrap = null
 
-  home = await launchHomeV2({ appImage: resolveAppImage(repoRoot), profile, portBase: 10300, log })
+  // Menu accelerators need an OS-focused BrowserWindow, not just a CDP-focused
+  // DOM element. Allocate a collision-free private display and real WM. Never
+  // send X11 input to the user's desktop or another smoke's X server.
+  nativeXServer = spawn('Xvfb', ['-displayfd', '3', '-screen', '0', '1100x720x24', '-nolisten', 'tcp'],
+    { stdio: ['ignore', 'ignore', 'ignore', 'pipe'] })
+  const display = await new Promise((resolve, reject) => {
+    let output = ''
+    const timer = setTimeout(() => reject(new Error('Private X display startup timed out')), 10_000)
+    nativeXServer.once('error', error => { clearTimeout(timer); reject(error) })
+    nativeXServer.stdio[3].on('data', data => {
+      output += data.toString()
+      if (/^\d+\n$/.test(output)) { clearTimeout(timer); resolve(`:${output.trim()}`) }
+    })
+  })
+  process.env.DISPLAY = display
+  nativeWindowManager = spawn('openbox', [], { stdio: 'ignore', env: { ...process.env } })
+  nativeWindowManager.on('error', error => log(`Window manager error: ${error.message}`))
+  await sleep(1000)
+  home = await launchHomeV2({ appImage: resolveAppImage(repoRoot), profile, portBase: 10300,
+    appArgs: ['--ozone-platform=x11'], log })
+  const nativeInput = (args) => {
+    const result = spawnSync('xdotool', args, { encoding: 'utf8', env: { ...process.env, DISPLAY: display } })
+    assert.equal(result.status, 0, result.stderr || result.error?.message || `xdotool ${args.join(' ')}`)
+    return result.stdout.trim()
+  }
+  // The shell updates its native title to the selected page. Match the only
+  // normal-sized application window on this private display, not that title.
+  const nativeWindowIds = nativeInput(['search', '--onlyvisible', '--class', '.']).split('\n').filter(Boolean)
+    .filter(id => {
+      const size = /Geometry:\s*(\d+)x(\d+)/.exec(nativeInput(['getwindowgeometry', id]))
+      return size && Number(size[1]) >= 400 && Number(size[2]) >= 300
+    })
+  assert.equal(nativeWindowIds.length, 1, 'The private display must have exactly one Home window')
   const { cdp } = home
   const click = async (selector) => {
     // Dashboard accounts can sit below the viewport on the default Xvfb
@@ -306,11 +344,39 @@ try {
   await activate(underB)
   assert.deepEqual(await identity(underB), {resolved:true,address:accountB.address})
   await assertDefaultA()
+  const reopen = async (closed) => {
+    await activate(closed)
+    await click(`.home-v2-tab[data-tab-id="${closed.tabId}"] .home-v2-tab__close`)
+    await until('closed tab removed', () => cdp.evaluate(`!document.querySelector('.home-v2-tab[data-tab-id="${closed.tabId}"]')`))
+    // Focus chrome and use the real Electron Reopen Closed Tab accelerator;
+    // no direct invocation of the renderer callback or menu bridge.
+    await click('.home-v2-address input')
+    nativeInput(['windowactivate', '--sync', nativeWindowIds[0]])
+    nativeInput(['key', '--clearmodifiers', 'ctrl+shift+t'])
+    const reopened = await attachFixture()
+    assert.notEqual(reopened.tabId, closed.tabId, 'Reopen gets a fresh tab identity')
+    assert.notEqual(reopened.targetId, closed.targetId, 'Reopen gets a fresh native view')
+    await assertDefaultA()
+    return reopened
+  }
+  const reopenedB = await reopen(underB)
+  assert.deepEqual(await identity(reopenedB), {resolved:true,address:accountB.address})
+  const reopenedGuest = await reopen(guest)
+  const reopenedGuestIdentity = await identity(reopenedGuest)
+  assert.equal(reopenedGuestIdentity.resolved, false)
+  assert.match(reopenedGuestIdentity.message, /no account|account.*selected/i)
+  const reopenedDuplicate = await reopen(duplicateA)
+  assert.notEqual(reopenedDuplicate.tabId, original.tabId, 'Do not just activate the surviving A tab')
+  assert.deepEqual(await identity(reopenedDuplicate), {resolved:true,address:accountA.address})
+  await activate(original)
+  assert.deepEqual(await identity(original), {resolved:true,address:accountA.address})
+  log('real Ctrl+Shift+T reopened B, guest and same-account duplicate with fresh native identities; default A unchanged')
   writeFileSync(path.join(profile, 'acceptance.json'), JSON.stringify({
     passed:true, appImage:resolveAppImage(repoRoot),
     checks:['pin-account-attribution', 'pin-descriptions-and-layout', 'saved-pin-B-default-A',
       'account-dropdown-real-input', 'B-distinct-native-tab', 'source-A-identity-retained',
-      'default-A-unchanged', 'duplicate-A-distinct-native-tab', 'explicit-guest-no-default-identity'],
+      'default-A-unchanged', 'duplicate-A-distinct-native-tab', 'explicit-guest-no-default-identity',
+      'reopen-B-under-default-A', 'reopen-explicit-guest', 'reopen-duplicate-new-native-tab'],
   }, null, 2))
   log(`PASS: account-specific launch, duplicate and guest. Isolated receipt: ${profile}`)
 } catch (error) {
@@ -333,6 +399,8 @@ try {
   for (const entry of apps) entry.app.socket.close()
   home?.cdp.socket.close()
   home?.shutdown()
+  nativeWindowManager?.kill()
+  nativeXServer?.kill()
   fixture.closeAllConnections()
   fixture.close()
   // Keep only this newly-created temporary profile as acceptance evidence.

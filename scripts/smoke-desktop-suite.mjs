@@ -54,7 +54,7 @@ const SMOKES = [
   { script: 'smoke:desktop:home-v2-default-account-grants', needs: 'none',
     note: 'Default account changes preserve immutable app-tab grants; local disposable vault and node fixture.' },
   { script: 'smoke:desktop:home-v2-account-launch', needs: 'none',
-    note: 'Dashboard pin attribution and saved-account opening; explicit account-menu new tab, duplicate and guest. Disposable vault/loopback fixture, locally verified, not yet hosted CI.' },
+    note: 'Pin attribution, account-menu launch, duplicate/guest and account-preserving close/reopen. Disposable vault/loopback fixture, locally verified, not yet hosted CI.' },
   { script: 'smoke:desktop:home-v2-guest-saved-links', needs: 'none',
     note: 'Guest saved-link reopen acceptance; disposable vault and loopback fixture, locally verified, not yet hosted CI.' },
   { script: 'smoke:desktop:home-v2-inline-unlock', needs: 'none',
