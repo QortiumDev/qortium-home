@@ -809,25 +809,106 @@ try {
   const bobEntry = bobState.entries.find((entry) => entry.id === bobState.activeTabId)!
   const locks: (string | undefined)[] = []
   const unlocks: (string | undefined)[] = []
+  let unlockFailure = false
+  let delayedUnlock: Promise<void> | null = null
+  const credentials: { password?: string; useRememberedUnlock: boolean }[] = []
+  const accountOverlays: boolean[] = []
+  let rememberedIds: readonly string[] = []
   const renderAccountChrome = (accountCatalogue: HomeV2AccountCatalogue, productState = bobState) => root.render(
     <BrowserChrome key="account-context" snapshot={homeV2Fixture} productState={productState} accountCatalogue={accountCatalogue}
-      selectedAccountLookup={accountLookup} onLockAccount={(id) => locks.push(id)} onUnlockAccount={(id) => unlocks.push(id)} />,
+      selectedAccountLookup={accountLookup} onLockAccount={(id) => locks.push(id)}
+      rememberedUnlockAccountIds={rememberedIds} onOverlayOpenChange={(open) => accountOverlays.push(open)}
+      onUnlockAccount={async (id, value) => {
+        unlocks.push(id)
+        credentials.push(value)
+        if (delayedUnlock) await delayedUnlock
+        if (unlockFailure) throw new Error("Error invoking remote method 'home-v2-vault:unlock': Error: Incorrect password")
+      }} />,
   )
   act(() => renderAccountChrome(catalogue))
   assert.equal(accountButton().getAttribute('aria-label'), 'Tab account: Bob · Unlocked')
   assert.equal(container.querySelector('.home-v2-account-avatars'), null, 'Alice avatars cannot label Bob')
   assert.equal(container.querySelector('.home-v2-tab__account')?.getAttribute('aria-label'), 'Tab account: Bob')
   act(() => accountButton().click())
-  const menuAction = (label: string) => [...container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((button) => button.textContent === label)!
+  const menuAction = (label: string) => [...container.querySelectorAll<HTMLButtonElement>('.home-v2-chrome-menu__panel > button')].find((button) => button.textContent === label)!
   assert.ok(menuAction('Lock account'))
   act(() => menuAction('Lock account').click())
   assert.deepEqual(locks, ['wallet-b:1'])
   const lockedCatalogue = { ...catalogue, accounts: [{ ...bob, isUnlocked: false }] }
   act(() => renderAccountChrome(lockedCatalogue))
   assert.equal(accountButton().getAttribute('aria-label'), 'Tab account: Bob · Locked')
-  assert.ok(menuAction('Unlock account'))
-  act(() => menuAction('Unlock account').click())
+  act(() => accountButton().click())
+  const passwordInput = () => container.querySelector<HTMLInputElement>('.home-v2-inline-unlock input[type="password"]')!
+  const typePassword = (value: string) => act(() => {
+    const input = passwordInput()
+    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')!.set!.call(input, value)
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  const submitUnlock = () => container.querySelector('form.home-v2-inline-unlock')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+  assert.ok(passwordInput(), 'locked account accepts its password inside the dropdown')
+  assert.ok(document.activeElement === passwordInput(), 'password autofocus')
+  assert.equal(container.querySelector('.home-v2-dialog-backdrop'), null)
+  act(() => passwordInput().dispatchEvent(new Event('pointerdown', { bubbles: true })))
+  assert.equal(accountOverlays.at(-1), true, 'clicking the field keeps the native app suspended')
+  typePassword('test-only-password')
+  await act(async () => { submitUnlock(); await Promise.resolve() })
   assert.deepEqual(unlocks, ['wallet-b:1'])
+  assert.deepEqual(credentials, [{ password: 'test-only-password', useRememberedUnlock: false }])
+  assert.equal(passwordInput(), null)
+  assert.equal(accountOverlays.at(-1), false)
+
+  unlockFailure = true
+  act(() => accountButton().click())
+  typePassword('wrong-test-password')
+  await act(async () => { submitUnlock(); await Promise.resolve() })
+  assert.equal(container.querySelector('.home-v2-inline-unlock [role="alert"]')?.textContent, 'Incorrect password')
+  assert.equal(passwordInput().value, '', 'failed submissions do not retain the password')
+  assert.equal(accountOverlays.at(-1), true)
+  unlockFailure = false
+  typePassword('retry-test-password')
+  await act(async () => { submitUnlock(); await Promise.resolve() })
+  assert.equal(passwordInput(), null)
+  act(() => accountButton().click())
+  typePassword('discard-on-escape')
+  act(() => passwordInput().dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
+  assert.equal(passwordInput(), null)
+  assert.ok(document.activeElement === accountButton(), 'Escape restores account trigger focus')
+  act(() => accountButton().click())
+  assert.equal(passwordInput().value, '')
+  const cancelUnlock = () => container.querySelector<HTMLButtonElement>('.home-v2-inline-unlock button[type="button"]')!
+  act(() => cancelUnlock().click())
+  assert.equal(passwordInput(), null)
+
+  // A dismissed in-flight operation must not close/contaminate a reopened form.
+  let finishUnlock!: () => void
+  delayedUnlock = new Promise<void>((resolve) => { finishUnlock = resolve })
+  act(() => accountButton().click())
+  typePassword('pending-test-password')
+  const beforePending = unlocks.length
+  act(() => { submitUnlock(); submitUnlock() })
+  assert.equal(unlocks.length, beforePending + 1, 'guard duplicate submits before React rerenders')
+  act(() => cancelUnlock().click())
+  act(() => accountButton().click())
+  typePassword('new-form-password')
+  await act(async () => { finishUnlock(); await delayedUnlock })
+  assert.equal(passwordInput().value, 'new-form-password', 'stale completion cannot close a new form')
+  delayedUnlock = null
+  // Switching tabs dismisses the old menu and its credentials.
+  const otherBobState = reduceProductState(bobState, {
+    type: 'navigate', destination: 'dashboard',
+  })
+  act(() => renderAccountChrome(lockedCatalogue, otherBobState))
+  assert.ok(!passwordInput(), 'tab switching clears the form')
+  assert.equal(accountOverlays.at(-1), false)
+  act(() => renderAccountChrome(lockedCatalogue))
+  rememberedIds = ['wallet-b:1']
+  act(() => renderAccountChrome(lockedCatalogue))
+  act(() => accountButton().click())
+  assert.equal(passwordInput(), null, 'remembered unlock does not request a password')
+  assert.ok(container.querySelector('.home-v2-inline-unlock input[type="checkbox"]'))
+  await act(async () => { submitUnlock(); await Promise.resolve() })
+  assert.deepEqual(credentials.at(-1), { password: undefined, useRememberedUnlock: true })
+  rememberedIds = []
   assert.equal(savedEntryAccountId(bobEntry), 'wallet-b:1', 'star, pin and dragged bookmarks capture the tab identity')
   assert.deepEqual(accountsLosingAccess(catalogue, lockedCatalogue), ['wallet-b:1'])
 
@@ -835,15 +916,32 @@ try {
   act(() => renderAccountChrome(removedCatalogue))
   assert.equal(accountButton().getAttribute('data-account-state'), 'locked')
   assert.equal(accountButton().getAttribute('aria-label'), 'Tab account: Bob · Locked · Account unavailable')
+  act(() => accountButton().click())
   assert.ok(menuAction('Unlock account').disabled, 'removed account stays locked and cannot unlock')
   act(() => menuAction('Unlock account').click())
-  assert.deepEqual(unlocks, ['wallet-b:1'])
+  assert.ok(unlocks.every((id) => id === 'wallet-b:1'))
+  assert.equal(passwordInput(), null)
   assert.equal(bobState.entries.find((entry) => entry.id === bobState.activeTabId), bobEntry, 'removal leaves the tab accessible and its binding intact')
   assert.deepEqual(accountsLosingAccess(lockedCatalogue, removedCatalogue), ['wallet-b:1'], 'removing even an already-locked address revokes cached access')
   assert.deepEqual(accountsLosingAccess(catalogue, catalogue), [])
   const removed = chromeAccountContext(homeV2Fixture, bobEntry, removedCatalogue)
   assert.equal(removed.unavailable, true)
   assert.equal(removed.snapshot.account.state, 'locked')
+
+  // Presentation and catalogue updates can arrive separately. The account
+  // visibly named by the menu, not a newer catalogue default, owns its submit.
+  const defaultUnlocks: (string | undefined)[] = []
+  act(() => root.render(<BrowserChrome key="account-context"
+    snapshot={{ ...homeV2Fixture, account: { ...homeV2Fixture.account, state: 'locked', selectedIdentityId: 'home-v2:identity:alice' as IdentityId } }}
+    productState={otherBobState}
+    accountCatalogue={{ activeAccountId: 'wallet-b:1', accounts: [bob, { ...bob, id: 'alice', walletId: 'alice', label: 'Alice', isUnlocked: false }] }}
+    rememberedUnlockAccountIds={['wallet-b:1']}
+    onUnlockAccount={async (id) => { defaultUnlocks.push(id) }} />))
+  act(() => accountButton().click())
+  assert.ok(passwordInput(), 'Bob remembered unlock cannot be offered for displayed Alice')
+  typePassword('alice-test-password')
+  await act(async () => { submitUnlock(); await Promise.resolve() })
+  assert.deepEqual(defaultUnlocks, ['alice'])
 
   const guestState = reduceProductState(bobState, {
     type: 'open-app', app, tabId: fixtureIds.qortalCompatTab,

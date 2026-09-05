@@ -39,7 +39,14 @@ export function useDismissablePopover<Element extends HTMLElement>(
       if (!containerRef.current?.contains(event.target as Node)) setOpen(false)
     }
     const dismissKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpen(false)
+      if (event.key === 'Escape') {
+        // Restore focus only for the dismissed menu that currently contains it.
+        // Do not steal focus from another tab or another open popover.
+        if (containerRef.current?.contains(document.activeElement)) {
+          containerRef.current.querySelector<HTMLButtonElement>('button[aria-expanded]')?.focus()
+        }
+        setOpen(false)
+      }
     }
     window.addEventListener('pointerdown', dismiss)
     window.addEventListener('keydown', dismissKey)

@@ -1807,6 +1807,34 @@ body,
   background: rgb(20 18 16 / 58%);
 }
 
+.home-v2-inline-unlock,
+.home-v2-inline-unlock > label {
+  display: grid;
+  gap: 8px;
+}
+
+.home-v2-inline-unlock input[type='password'] {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--v2-line-strong);
+  border-radius: 8px;
+  padding: 8px;
+  background: var(--v2-surface);
+  color: var(--v2-ink);
+}
+
+.home-v2-inline-unlock__actions,
+.home-v2-inline-unlock > .home-v2-inline-unlock__remember {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.home-v2-inline-unlock [role='alert'] {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
 .home-v2-custom-node-dialog {
   display: grid;
   width: min(440px, 100%);

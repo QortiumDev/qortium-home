@@ -1484,7 +1484,7 @@ function testDesktopAndPhoneContracts(): void {
     const accountTag = openingTag(html, 'home-v2-account-button')
     assert.match(nodePillTag, /aria-haspopup="menu"/)
     assert.match(nodePillTag, /aria-expanded="false"/)
-    assert.match(accountTag, /aria-haspopup="menu"/)
+    assert.match(accountTag, /aria-haspopup="dialog"/)
     // The account button is avatars plus a lock glyph and nothing else (owner
     // request), so the label it used to print has to survive as the accessible
     // name and the tooltip.
@@ -3323,6 +3323,12 @@ function testGrantIdentityAndSendRateLimitHardening(): void {
     'account-state IPC must not resolve before the app view receives the unlock state',
   )
   assert.match(appTabStage, /bridge\.updateBridgeStates/)
+  const inlineUnlock = durableGrantLiveApp.split('onSubmitAccountUnlock=')[1]?.split('onLockAccount=')[0]
+  assert.ok(inlineUnlock, 'manual toolbar unlock has its own submission path')
+  assert.doesNotMatch(inlineUnlock, /setAccountDialog|selectedVaultAccount|resolvePermission/)
+  assert.match(inlineUnlock, /candidate\.id === addressId/)
+  assert.match(inlineUnlock, /await commitVaultState\(state\)[\s\S]*candidate\.id === addressId && candidate\.isUnlocked[\s\S]*completeUnlockAfterAccountStatePropagation/)
+  assert.match(inlineUnlock, /tabs: productStateRef\.current\.tabs/)
   assert.match(sessionGrants, /return 'account\.read'/)
   assert.match(sessionGrants, /HOME_V2_ACCOUNT_READ_ACTIONS/)
   assert.match(sessionGrants, /return 'chat\.public\.mutate'/)

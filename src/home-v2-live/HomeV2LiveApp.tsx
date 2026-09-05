@@ -10515,6 +10515,22 @@ export function HomeV2LiveApp() {
         setAccountDialogError(null)
         setAccountDialog({ mode: 'unlock', accountId: account?.walletId ?? selectedVaultAccount?.id })
       }}
+      onSubmitAccountUnlock={async (addressId, value) => {
+        // Resolve only the menu's captured address. Never substitute the current
+        // default when a bound account has disappeared while the menu was open.
+        const account = accountCatalogueRef.current.accounts.find((candidate) => candidate.id === addressId)
+        if (!vaultClient || !account) throw new Error(t('home2.account.unavailableAccount'))
+        const state = await vaultClient.unlock({ accountId: account.walletId, ...value })
+        await commitVaultState(state)
+        if (!accountCatalogueRef.current.accounts.some((candidate) => candidate.id === addressId && candidate.isUnlocked)) {
+          throw new Error(t('home2.account.unavailableAccount'))
+        }
+        await completeUnlockAfterAccountStatePropagation({
+          accountId: account.walletId,
+          tabs: productStateRef.current.tabs,
+          updateAccountState: (request) => window.homeV2Apps?.updateAccountState(request),
+        })
+      }}
       onLockAccount={(addressId) => {
         const account = addressId ? accountCatalogue.accounts.find((candidate) => candidate.id === addressId) : null
         if (addressId && !account) return

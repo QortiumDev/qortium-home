@@ -30,6 +30,9 @@ restart confirmation (#521), and deterministic preview ZIP timestamps (#522).
 Removed-account tabs remain accessible and bound to that identity, show Locked,
 and disable Unlock. Opening a saved link uses its saved account; the cross-account
 save warning only prevents URL-only deduplication from removing or replacing another save.
+The manual toolbar unlock follow-up keeps password entry inside the account
+dropdown, with native-view suspension but no full-window backdrop blocking tabs.
+App-requested unlock approvals retain their separate requester-owned dialog.
 These are implementation milestones, not release or installed-device acceptance.
 
 Remaining work, in order:
