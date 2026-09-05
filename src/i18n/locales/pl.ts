@@ -2,6 +2,11 @@
 
 // Polish (Polski) translation catalog.
 export const pl: Record<TranslationKey, string> = {
+  "home2.account.openAppNewTab": "Otwórz tę aplikację w nowej karcie",
+  "home2.account.newTabAccount": "Konto dla nowej karty",
+  "home2.account.chooseNewTabAccount": "Wybierz konto",
+  "home2.account.openNewTab": "Otwórz nową kartę",
+  "home2.account.launchUnavailable": "Tej aplikacji nie można już otworzyć w nowej karcie.",
   "home2.account.savedLinkConflict": "Ten adres jest zapisany dla innego konta. Zarządzaj nim w Zakładkach.",
   "home2.account.tabAccount": "Konto karty",
   "home2.account.defaultAccount": "Domyślne konto dla nowych kart",

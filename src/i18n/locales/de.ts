@@ -2,6 +2,11 @@
 
 // German (Deutsch) catalog.
 export const de: Record<TranslationKey, string> = {
+  "home2.account.openAppNewTab": "Diese App in einem neuen Tab öffnen",
+  "home2.account.newTabAccount": "Konto für den neuen Tab",
+  "home2.account.chooseNewTabAccount": "Konto auswählen",
+  "home2.account.openNewTab": "Neuen Tab öffnen",
+  "home2.account.launchUnavailable": "Diese App kann nicht mehr in einem neuen Tab geöffnet werden.",
   "home2.account.savedLinkConflict": "Diese Adresse ist für ein anderes Konto gespeichert. Verwalte sie in den Lesezeichen.",
   "home2.account.tabAccount": "Tab-Konto",
   "home2.account.defaultAccount": "Standardkonto für neue Tabs",

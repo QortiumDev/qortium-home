@@ -969,6 +969,101 @@ try {
   assert.ok(conflict?.textContent?.includes('Saved for another account'))
   act(() => conflict!.querySelector<HTMLButtonElement>('button')!.click())
   assert.equal(container.querySelector('.home-v2-saved-tab-error'), null)
+
+  // Launch into a new instance with an explicit target; never edit this tab's
+  // binding or infer the default account from an unavailable source.
+  const launchCalls: Array<[string, string, string | null]> = []
+  let launchFailure = false
+  let launchPending: Promise<void> | null = null
+  const launchCatalogue = { ...catalogue, accounts: [bob, { ...bob, id: 'alice', label: 'Alice', isUnlocked: false }] }
+  const launchCallback = async (tabId: string, resourceLocation: string, accountId: string | null) => {
+    launchCalls.push([tabId, resourceLocation, accountId])
+    if (launchPending) await launchPending
+    if (launchFailure) throw new Error('The source tab changed')
+  }
+  const renderLauncher = (state = bobState, options: { disabled?: boolean; catalogue?: HomeV2AccountCatalogue; callback?: boolean } = {}) => root.render(
+    <BrowserChrome key="account-launch" snapshot={homeV2Fixture} productState={state}
+      accountCatalogue={options.catalogue ?? launchCatalogue} navigationDisabled={options.disabled}
+      onOpenTabWithAccount={options.callback === false ? undefined : launchCallback}
+      onUnlockAccount={async () => undefined} />,
+  )
+  const targetSelect = () => container.querySelector<HTMLSelectElement>('[data-home-v2-account-tab-target]')!
+  const launchForm = () => container.querySelector<HTMLFormElement>('[data-home-v2-account-tab-launcher]')!
+  const submitLaunch = () => launchForm().dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }))
+  const selectLaunchTarget = (value: string) => act(() => {
+    targetSelect().value = value
+    targetSelect().dispatchEvent(new window.Event('change', { bubbles: true }))
+  })
+  act(() => renderLauncher())
+  act(() => accountButton().click())
+  assert.equal(targetSelect().value, 'account:wallet-b:1', 'the source account, not default Alice, is preselected')
+  assert.equal(targetSelect().closest('label')?.textContent?.includes('Account for the new tab'), true)
+  assert.equal([...targetSelect().options].find((option) => option.value === 'account:alice')?.disabled, false, 'locked targets can be opened')
+  selectLaunchTarget('account:alice')
+  let finishLaunch!: () => void
+  launchPending = new Promise<void>((resolve) => { finishLaunch = resolve })
+  act(() => { submitLaunch(); submitLaunch() })
+  assert.equal(launchCalls.length, 1, 'synchronous duplicate submissions are single-flight')
+  assert.deepEqual(launchCalls[0], [bobState.activeTabId, bobEntry.kind === 'app' ? bobEntry.context.resourceLocation : '', 'alice'])
+  assert.equal(targetSelect().disabled, true)
+  await act(async () => { finishLaunch(); await launchPending })
+  launchPending = null
+  assert.equal(launchForm(), null, 'successful launch dismisses the account menu')
+  assert.equal(savedEntryAccountId(bobEntry), 'wallet-b:1', 'the source identity is unchanged')
+  act(() => accountButton().click())
+  await act(async () => { submitLaunch(); await Promise.resolve() })
+  assert.equal(launchCalls.at(-1)?.[2], 'wallet-b:1', 'same-account duplication is allowed')
+  act(() => accountButton().click())
+  selectLaunchTarget('none')
+  launchFailure = true
+  await act(async () => { submitLaunch(); await Promise.resolve() })
+  assert.equal(launchCalls.at(-1)?.[2], null, 'No account is passed explicitly')
+  assert.equal(launchForm().querySelector('[role="alert"]')?.textContent, 'The source tab changed')
+  assert.equal(targetSelect().disabled, false)
+  launchFailure = false
+  await act(async () => { submitLaunch(); await Promise.resolve() })
+  assert.equal(launchForm(), null)
+
+  act(() => renderLauncher(guestState))
+  act(() => accountButton().click())
+  assert.equal(targetSelect().value, 'none', 'a guest source preselects No account')
+  act(() => renderLauncher(bobState, { catalogue: { activeAccountId: 'alice', accounts: [launchCatalogue.accounts[1]] } }))
+  act(() => accountButton().click())
+  assert.equal(targetSelect().value, '', 'a removed source requires an explicit target choice')
+  assert.equal(container.querySelector<HTMLButtonElement>('[data-home-v2-account-tab-open]')?.disabled, true)
+  selectLaunchTarget('account:alice')
+  act(() => renderLauncher(bobState, { catalogue: { activeAccountId: null, accounts: [] } }))
+  assert.equal(targetSelect().value, '', 'a removed target is not silently replaced')
+  assert.equal(container.querySelector<HTMLButtonElement>('[data-home-v2-account-tab-open]')?.disabled, true)
+
+  act(() => renderLauncher(bobState, { catalogue: { ...catalogue, accounts: [{ ...bob, isUnlocked: false }] } }))
+  act(() => accountButton().click())
+  assert.equal(document.activeElement?.getAttribute('type'), 'password', 'new picker does not steal inline unlock autofocus')
+  assert.ok(launchForm())
+  const changedLocation = { ...bobState, entries: bobState.entries.map((entry) => entry.kind === 'app'
+    ? { ...entry, context: { ...entry.context, resourceLocation: `${entry.context.resourceLocation}?changed` as typeof entry.context.resourceLocation } } : entry) }
+  act(() => renderLauncher(changedLocation))
+  assert.equal(launchForm(), null, 'source resource navigation resets and dismisses the stale chooser')
+  act(() => accountButton().click())
+  selectLaunchTarget('account:alice')
+  act(() => window.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
+  assert.equal(launchForm(), null, 'Escape dismisses the launcher with its existing menu')
+  act(() => accountButton().click())
+  assert.equal(targetSelect().value, 'account:wallet-b:1', 'reopening resets target choice')
+  act(() => renderLauncher(changedLocation, { disabled: true }))
+  assert.equal(launchForm(), null, 'navigation-disabled chrome cannot launch')
+  act(() => renderLauncher(changedLocation, { callback: false }))
+  assert.equal(launchForm(), null, 'viewer or unhydrated hosts omit launch authority')
+  const previewState = { ...changedLocation, entries: changedLocation.entries.map((entry) => entry.kind === 'app'
+    ? { ...entry, context: { ...entry.context, previewUrl: 'https://preview.invalid/' } } : entry) }
+  act(() => renderLauncher(previewState))
+  assert.equal(launchForm(), null, 'preview tabs never offer account launch')
+  act(() => renderLauncher({ ...changedLocation, transient: 'releases' }))
+  if (accountButton().getAttribute('aria-expanded') !== 'true') act(() => accountButton().click())
+  assert.equal(launchForm(), null, 'transient pages never offer account launch')
+  act(() => renderLauncher(createProductState()))
+  act(() => accountButton().click())
+  assert.equal(launchForm(), null, 'internal pages do not offer app launch')
 } finally {
   act(() => root.unmount())
   container.remove()

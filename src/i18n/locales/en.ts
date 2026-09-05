@@ -1,5 +1,10 @@
 // The source-of-truth English catalog. Every other locale must provide exactly these keys.
 export const en = {
+  "home2.account.openAppNewTab": "Open this app in a new tab",
+  "home2.account.newTabAccount": "Account for the new tab",
+  "home2.account.chooseNewTabAccount": "Choose an account",
+  "home2.account.openNewTab": "Open new tab",
+  "home2.account.launchUnavailable": "This app is no longer available to open in a new tab.",
   "home2.account.savedLinkConflict": "This address is saved for another account. Manage it in Bookmarks.",
   "home2.account.tabAccount": "Tab account",
   "home2.account.defaultAccount": "Default account for new tabs",

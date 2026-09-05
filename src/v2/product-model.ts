@@ -79,6 +79,8 @@ export type ProductAction =
       readonly app: AppDescriptor
       readonly context: AppTabContext
       readonly tabId: TabId
+      /** Trusted shell duplication only; ordinary opens keep their dedup policy. */
+      readonly newInstance?: boolean
     }
   /**
    * Replaces one app tab's content in place, keeping its id and its position
@@ -597,7 +599,7 @@ function openApp(
 ): ProductState {
   assertAppTabTarget(action.app, action.context, action.tabId)
 
-  const existing = state.entries.find(
+  const existing = action.newInstance === true ? undefined : state.entries.find(
     (entry) =>
       entry.kind === 'app' &&
       contextsIdentifySameTab(entry.context, action.context),

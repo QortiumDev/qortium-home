@@ -2,6 +2,11 @@
 
 // Arabic (العربية) catalog — Modern Standard Arabic, RTL.
 export const ar: Record<TranslationKey, string> = {
+  "home2.account.openAppNewTab": "فتح هذا التطبيق في علامة تبويب جديدة",
+  "home2.account.newTabAccount": "حساب علامة التبويب الجديدة",
+  "home2.account.chooseNewTabAccount": "اختر حسابًا",
+  "home2.account.openNewTab": "فتح علامة تبويب جديدة",
+  "home2.account.launchUnavailable": "لم يعد هذا التطبيق متاحًا للفتح في علامة تبويب جديدة.",
   "home2.account.savedLinkConflict": "هذا العنوان محفوظ لحساب آخر. يمكنك إدارته في الإشارات المرجعية.",
   "home2.account.tabAccount": "حساب علامة التبويب",
   "home2.account.defaultAccount": "الحساب الافتراضي لعلامات التبويب الجديدة",

@@ -2,6 +2,11 @@
 
 // Japanese (日本語) catalog.
 export const ja: Record<TranslationKey, string> = {
+  "home2.account.openAppNewTab": "このアプリを新しいタブで開く",
+  "home2.account.newTabAccount": "新しいタブのアカウント",
+  "home2.account.chooseNewTabAccount": "アカウントを選択",
+  "home2.account.openNewTab": "新しいタブを開く",
+  "home2.account.launchUnavailable": "このアプリは新しいタブで開けなくなりました。",
   "home2.account.savedLinkConflict": "このアドレスは別のアカウント用に保存されています。ブックマークで管理してください。",
   "home2.account.tabAccount": "タブのアカウント",
   "home2.account.defaultAccount": "新しいタブの既定のアカウント",

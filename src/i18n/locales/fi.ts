@@ -2,6 +2,11 @@
 
 // Finnish (Suomi) catalog.
 export const fi: Record<TranslationKey, string> = {
+  "home2.account.openAppNewTab": "Avaa tämä sovellus uudessa välilehdessä",
+  "home2.account.newTabAccount": "Uuden välilehden tili",
+  "home2.account.chooseNewTabAccount": "Valitse tili",
+  "home2.account.openNewTab": "Avaa uusi välilehti",
+  "home2.account.launchUnavailable": "Tätä sovellusta ei voi enää avata uudessa välilehdessä.",
   "home2.account.savedLinkConflict": "Tämä osoite on tallennettu toiselle tilille. Hallitse sitä kirjanmerkeissä.",
   "home2.account.tabAccount": "Välilehden tili",
   "home2.account.defaultAccount": "Uusien välilehtien oletustili",

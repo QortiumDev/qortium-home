@@ -2,6 +2,11 @@
 
 // Spanish (Español) catalog.
 export const es: Record<TranslationKey, string> = {
+  "home2.account.openAppNewTab": "Abrir esta aplicación en una pestaña nueva",
+  "home2.account.newTabAccount": "Cuenta para la pestaña nueva",
+  "home2.account.chooseNewTabAccount": "Elige una cuenta",
+  "home2.account.openNewTab": "Abrir pestaña nueva",
+  "home2.account.launchUnavailable": "Esta aplicación ya no está disponible para abrirla en una pestaña nueva.",
   "home2.account.savedLinkConflict": "Esta dirección está guardada para otra cuenta. Adminístrala en Marcadores.",
   "home2.account.tabAccount": "Cuenta de la pestaña",
   "home2.account.defaultAccount": "Cuenta predeterminada para pestañas nuevas",

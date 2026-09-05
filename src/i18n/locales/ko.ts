@@ -2,6 +2,11 @@
 
 // Korean (한국어) catalog.
 export const ko: Record<TranslationKey, string> = {
+  "home2.account.openAppNewTab": "이 앱을 새 탭에서 열기",
+  "home2.account.newTabAccount": "새 탭의 계정",
+  "home2.account.chooseNewTabAccount": "계정 선택",
+  "home2.account.openNewTab": "새 탭 열기",
+  "home2.account.launchUnavailable": "이 앱은 더 이상 새 탭에서 열 수 없습니다.",
   "home2.account.savedLinkConflict": "이 주소는 다른 계정용으로 저장되어 있습니다. 북마크에서 관리하세요.",
   "home2.account.tabAccount": "탭 계정",
   "home2.account.defaultAccount": "새 탭의 기본 계정",

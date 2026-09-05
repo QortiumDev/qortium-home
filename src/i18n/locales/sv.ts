@@ -2,6 +2,11 @@
 
 // Swedish (Svenska) catalog.
 export const sv: Record<TranslationKey, string> = {
+  "home2.account.openAppNewTab": "Öppna den här appen i en ny flik",
+  "home2.account.newTabAccount": "Konto för den nya fliken",
+  "home2.account.chooseNewTabAccount": "Välj ett konto",
+  "home2.account.openNewTab": "Öppna ny flik",
+  "home2.account.launchUnavailable": "Den här appen kan inte längre öppnas i en ny flik.",
   "home2.account.savedLinkConflict": "Den här adressen är sparad för ett annat konto. Hantera den i Bokmärken.",
   "home2.account.tabAccount": "Flikens konto",
   "home2.account.defaultAccount": "Standardkonto för nya flikar",

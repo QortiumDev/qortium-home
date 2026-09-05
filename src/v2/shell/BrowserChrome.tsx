@@ -38,7 +38,7 @@ import type { InlineUnlockSubmission } from './InlineAccountUnlock'
 import type { HomeV2CoreManagement } from './CoreManagerCards'
 import { locateBookmarkManagerLink } from '../../bookmarkManager'
 import type { BookmarkToolbarVisibility } from '../../bookmarkToolbar'
-import { chromeAccountContext } from './account-context'
+import { chromeAccountContext, savedEntryAccountId } from './account-context'
 
 export interface BrowserChromeProps {
   readonly snapshot: HomeV2Snapshot
@@ -106,6 +106,7 @@ export interface BrowserChromeProps {
   ) => void | Promise<void>
   readonly onLockAccount?: (accountId?: string) => void
   readonly onUnlockAccount?: (accountId: string | undefined, value: InlineUnlockSubmission) => Promise<void>
+  readonly onOpenTabWithAccount?: (tabId: string, resourceLocation: string, accountId: string | null) => Promise<void>
   readonly rememberedUnlockAccountIds?: readonly string[]
   /**
    * Everything the node-status menus need to act rather than only report:
@@ -221,6 +222,7 @@ export function BrowserChrome({
   onDetachTab,
   onLockAccount,
   onUnlockAccount,
+  onOpenTabWithAccount,
   rememberedUnlockAccountIds,
   coreManagement,
   onConfigureCustomNode,
@@ -234,9 +236,15 @@ export function BrowserChrome({
   for (const account of accountCatalogue?.accounts ?? []) {
     rememberedAccountLabels.current.set(account.id, account.label)
   }
+  const activeEntry = productState.transient ? undefined : productState.entries.find((entry) => entry.id === productState.activeTabId)
+  const accountTabLauncher = activeEntry?.kind === 'app' && activeEntry.context.previewUrl == null
+    && !navigationDisabled && accountCatalogue && onOpenTabWithAccount
+    ? { accountCatalogue, sourceAccountId: savedEntryAccountId(activeEntry), tabId: activeEntry.id,
+        resourceLocation: activeEntry.context.resourceLocation, onOpenTabWithAccount }
+    : undefined
   const accountContext = chromeAccountContext(
     snapshot,
-    productState.transient ? undefined : productState.entries.find((entry) => entry.id === productState.activeTabId),
+    activeEntry,
     accountCatalogue,
     rememberedAccountLabels.current,
   )
@@ -639,7 +647,8 @@ export function BrowserChrome({
             <Settings aria-hidden="true" size={18} strokeWidth={2} />
           </button>
           <AccountStatusMenu
-            key={`${productState.activeTabId}:${accountContext.snapshot.account.selectedIdentityId}:${accountContext.snapshot.account.state}:${accountContext.unavailable}`}
+            key={`${productState.activeTabId}:${activeEntry?.kind === 'app' ? activeEntry.context.resourceLocation : ''}:${accountContext.snapshot.account.selectedIdentityId}:${accountContext.snapshot.account.state}:${accountContext.unavailable}`}
+            accountTabLauncher={accountTabLauncher}
             snapshot={accountContext.snapshot}
             contextLabel={t(accountContext.tabBound ? 'home2.account.tabAccount' : 'home2.account.defaultAccount')}
             unavailable={accountContext.unavailable}

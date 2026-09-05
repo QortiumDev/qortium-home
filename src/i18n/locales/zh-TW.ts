@@ -2,6 +2,11 @@
 
 // Traditional Chinese (中文（繁體）) catalog.
 export const zhTW: Record<TranslationKey, string> = {
+  "home2.account.openAppNewTab": "在新分頁中開啟此應用程式",
+  "home2.account.newTabAccount": "新分頁的帳戶",
+  "home2.account.chooseNewTabAccount": "選擇帳戶",
+  "home2.account.openNewTab": "開啟新分頁",
+  "home2.account.launchUnavailable": "此應用程式已無法在新分頁中開啟。",
   "home2.account.savedLinkConflict": "此地址已為另一個帳戶儲存。請在書籤中管理。",
   "home2.account.tabAccount": "分頁帳戶",
   "home2.account.defaultAccount": "新分頁的預設帳戶",

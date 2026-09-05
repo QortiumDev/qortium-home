@@ -231,6 +231,7 @@ export interface HomeV2PrototypeProps {
   readonly onIdentityLookupSubmit?: () => void
   readonly onUnlockAccount?: (accountId?: string) => void
   readonly onSubmitAccountUnlock?: (accountId: string | undefined, value: InlineUnlockSubmission) => Promise<void>
+  readonly onOpenTabWithAccount?: (tabId: string, resourceLocation: string, accountId: string | null) => Promise<void>
   readonly onLockAccount?: (accountId?: string) => void
   readonly onSelectAccount?: (accountId: string | null) => void
   readonly onSelectAddress?: (addressId: string) => void
@@ -1149,6 +1150,7 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
         onDetachTab={props.onDetachTab}
         onLockAccount={props.onLockAccount}
         onUnlockAccount={props.onSubmitAccountUnlock}
+        onOpenTabWithAccount={props.onOpenTabWithAccount}
         rememberedUnlockAccountIds={props.vaultState?.accounts.flatMap((account) =>
           account.security.rememberUnlock && !account.security.manuallyLocked
             ? account.addresses.map((address) => address.id) : [])}

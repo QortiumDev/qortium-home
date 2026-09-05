@@ -2,6 +2,11 @@ import type { TranslationKey } from './en';
 
 // Greek (Ελληνικά) locale catalog. Every key must remain present.
 export const el: Record<TranslationKey, string> = {
+  "home2.account.openAppNewTab": "Άνοιγμα αυτής της εφαρμογής σε νέα καρτέλα",
+  "home2.account.newTabAccount": "Λογαριασμός για τη νέα καρτέλα",
+  "home2.account.chooseNewTabAccount": "Επιλέξτε λογαριασμό",
+  "home2.account.openNewTab": "Άνοιγμα νέας καρτέλας",
+  "home2.account.launchUnavailable": "Αυτή η εφαρμογή δεν είναι πλέον διαθέσιμη για άνοιγμα σε νέα καρτέλα.",
   "home2.account.savedLinkConflict": "Αυτή η διεύθυνση είναι αποθηκευμένη για άλλον λογαριασμό. Διαχειριστείτε την στους Σελιδοδείκτες.",
   "home2.account.tabAccount": "Λογαριασμός καρτέλας",
   "home2.account.defaultAccount": "Προεπιλεγμένος λογαριασμός για νέες καρτέλες",

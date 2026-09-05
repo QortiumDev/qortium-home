@@ -2,6 +2,11 @@
 
 // Estonian (Eesti) locale catalog.
 export const et: Record<TranslationKey, string> = {
+  "home2.account.openAppNewTab": "Ava see rakendus uuel vahelehel",
+  "home2.account.newTabAccount": "Uue vahelehe konto",
+  "home2.account.chooseNewTabAccount": "Vali konto",
+  "home2.account.openNewTab": "Ava uus vaheleht",
+  "home2.account.launchUnavailable": "Seda rakendust ei saa enam uuel vahelehel avada.",
   "home2.account.savedLinkConflict": "See aadress on salvestatud teise konto jaoks. Halda seda järjehoidjates.",
   "home2.account.tabAccount": "Vahekaardi konto",
   "home2.account.defaultAccount": "Uute vahekaartide vaikekonto",
