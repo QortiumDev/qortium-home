@@ -394,6 +394,7 @@ import {
 } from '../v2/resource-location'
 import { resolveHomeV2PublishPreviewOpen } from './publish-preview-tab'
 import { resolveAccountTabLaunch } from './account-tab-launch'
+import { rememberClosedAppTab, type ClosedAppTab } from './closed-app-tabs'
 import { resolveLaunchIdentifier } from '../v2/shell/render-path-identity'
 import { base58Decode, base58Encode } from '../../electron/base58'
 import {
@@ -2440,9 +2441,9 @@ export function HomeV2LiveApp() {
     snapshot.appearance.textSize,
     snapshot.appearance.ui,
   ])
-  // Session-only stack of recently closed app-tab locations (newest last),
+  // Session-only stack of recently closed app-tab bindings (newest last),
   // consumed by the reopen-closed-tab menu command.
-  const closedAppTabs = useRef<string[]>([])
+  const closedAppTabs = useRef<ClosedAppTab[]>([])
   // Navigation handlers live late in the render scope; the menu subscription
   // reads them through this ref so it can stay mounted once.
   const menuNavigation = useRef<{
@@ -10337,14 +10338,51 @@ export function HomeV2LiveApp() {
       }
     }
   }
+  const reopenClosedAppTab = useCallback(() => {
+    // Do not consume history before the real account catalogue is available.
+    if (!shellStateReady || !accountCatalogueReady) return
+    const closed = closedAppTabs.current.pop()
+    if (!closed) return
+    try {
+      // New id/native view every time: never select a surviving duplicate or
+      // resurrect the closed tab's session grants. openApp checks the current
+      // catalogue synchronously and refuses removed accounts without fallback.
+      openApp(closed.app, closed.resourceLocation,
+        closed.accountId === null ? HOME_V2_BIND_NO_ACCOUNT : closed.accountId, true)
+    } catch (error) {
+      // Like the old URL-only stack, each command consumes one entry. A
+      // removed account must not prevent reopening the older entries next.
+      setShellNotice(error instanceof Error ? error.message : 'The closed app tab could not be reopened.')
+    }
+  }, [openApp, shellStateReady, accountCatalogueReady])
+
+  const closeTab = useCallback((tabId: TabId) => {
+    const closingTab = productStateRef.current.tabs.find((tab) => tab.id === tabId)
+    if (shellStateReady) {
+      closedAppTabs.current = rememberClosedAppTab(closedAppTabs.current, closingTab)
+    }
+    invalidateAndroidRuntime('tab-closed', tabId)
+    window.homeV2Apps?.invalidateRuntime({ kind: 'tab-closed', tabId })
+    void window.homeV2Apps?.destroy({ tabId })
+    androidNavigationControllers.current.delete(tabId)
+    setAppNavigation((current) => {
+      if (!(tabId in current)) return current
+      const next = { ...current }
+      delete next[tabId]
+      return next
+    })
+    // Closing a requesting tab still denies every pending Android prompt.
+    for (const [requestId, meta] of androidPendingPermissionMeta.current) {
+      if (meta.tabId === tabId) resolveAccountPermission(requestId, { approved: false })
+    }
+    dispatchProduct({ type: 'close-tab', tabId })
+  }, [invalidateAndroidRuntime, resolveAccountPermission, shellStateReady])
+
   menuNavigation.current = {
     goBack: () => navigateActiveApp(-1),
     goForward: () => navigateActiveApp(1),
     reload: reloadActiveSurface,
-    reopenClosedTab: () => {
-      const location = closedAppTabs.current.pop()
-      if (location) void openAddress(location)
-    },
+    reopenClosedTab: reopenClosedAppTab,
   }
 
   return (
@@ -10459,31 +10497,7 @@ export function HomeV2LiveApp() {
       onActivateTab={(tabId) =>
         dispatchProduct({ type: 'activate-tab', tabId })
       }
-      onCloseTab={(tabId) => {
-        const closingTab = productState.tabs.find((tab) => tab.id === tabId)
-        if (closingTab) {
-          closedAppTabs.current.push(closingTab.context.resourceLocation)
-          if (closedAppTabs.current.length > 10) closedAppTabs.current.shift()
-        }
-        invalidateAndroidRuntime('tab-closed', tabId)
-        window.homeV2Apps?.invalidateRuntime({ kind: 'tab-closed', tabId })
-        void window.homeV2Apps?.destroy({ tabId })
-        androidNavigationControllers.current.delete(tabId)
-        setAppNavigation((current) => {
-          if (!(tabId in current)) return current
-          const next = { ...current }
-          delete next[tabId]
-          return next
-        })
-        // Deny (rather than leave hanging) any Android permission prompt
-        // still pending for this tab — closing the tab that requested it
-        // means the app frame that would have received the result is gone
-        // (FIX #3, security review).
-        for (const [requestId, meta] of androidPendingPermissionMeta.current) {
-          if (meta.tabId === tabId) resolveAccountPermission(requestId, { approved: false })
-        }
-        dispatchProduct({ type: 'close-tab', tabId })
-      }}
+      onCloseTab={closeTab}
       onOpenInternalTab={(page) => {
         tabSequence.current += 1
         dispatchProduct({

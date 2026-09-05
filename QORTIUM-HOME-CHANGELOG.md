@@ -32,6 +32,17 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## fix(home2): preserve account identity when reopening closed app tabs
+
+2026-09-05
+
+Reopen Closed Tab now preserves the account the tab was using, including No
+account, even if the default has changed. It creates a fresh tab instead of
+switching to an existing duplicate, and does not restore old session approvals.
+Removed accounts show an error without opening under another account. Publish
+previews are excluded so they cannot accidentally reopen as the published app.
+The history remains session-only and keeps the last ten eligible app tabs.
+
 ## feat(home2): show account attribution on Dashboard pins
 
 2026-09-05

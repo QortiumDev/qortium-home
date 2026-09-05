@@ -117,6 +117,7 @@ export async function launchHomeV2({
   portBase,
   profile: requestedProfile,
   timeoutMs = 90_000,
+  appArgs = [],
   // Starts a private X server WITH a window manager, so windows are really
   // placed and can be resized. Plain xvfb-run has no WM: windows land at 0,0
   // and never move, which makes any geometry assertion meaningless.
@@ -179,7 +180,7 @@ export async function launchHomeV2({
 
   const useXvfb = !windowManager && !process.env.DISPLAY && existsSync('/usr/bin/xvfb-run')
   const command = useXvfb ? '/usr/bin/xvfb-run' : appImage
-  const baseArgs = [`--remote-debugging-port=${port}`]
+  const baseArgs = [`--remote-debugging-port=${port}`, ...appArgs]
   const args = useXvfb ? ['-a', appImage, ...baseArgs] : baseArgs
 
   log(`starting ${path.basename(appImage)} (CDP ${port})`)
