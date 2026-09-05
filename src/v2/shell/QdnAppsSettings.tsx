@@ -419,20 +419,24 @@ export function QdnAppsSettings({
   const openingManager = useRef(false)
   const [managerBusy, setManagerBusy] = useState(false)
   const [managerError, setManagerError] = useState<string | null>(null)
+  const [managerChoices, setManagerChoices] = useState<Extract<AddressOpenResult, { status: 'choose' }> | null>(null)
 
-  const openNotificationsManager = async () => {
+  const openNotificationsManager = async (chosenAddress?: string) => {
     if (!onOpenAddress || openingManager.current) return
     openingManager.current = true
     setManagerBusy(true)
     setManagerError(null)
+    setManagerChoices(null)
     try {
       // Another Settings tab or manager may have changed the assignment since
       // this panel rendered. Resolve the persisted choice at click time.
-      const current = await client.get()
-      const url = current.assignments.assignments.notifications?.url
+      // A choice is already a full resource address explicitly selected by the
+      // user from the resolver's results; only the initial launch reads the role.
+      const url = chosenAddress ?? (await client.get()).assignments.assignments.notifications?.url
       if (!url) throw new Error(t('qdnApps.invalidAddress'))
       const result = await onOpenAddress(normalizeHomeV2QdnAssignmentUrl(url))
-      if (result.status !== 'opened') setManagerError(result.message)
+      if (result.status === 'choose') setManagerChoices(result)
+      else if (result.status === 'error') setManagerError(result.message)
     } catch (reason) {
       setManagerError(reason instanceof Error ? reason.message : t('common.error'))
     } finally {
@@ -689,6 +693,18 @@ export function QdnAppsSettings({
             </button>
           ) : null}
           {managerError ? <p role="alert">{managerError}</p> : null}
+          {managerChoices ? (
+            <div role="status">
+              <p>{managerChoices.message}</p>
+              {managerChoices.options.map((option) => (
+                <button className="home-v2-secondary-button" key={option.address}
+                  type="button" disabled={managerBusy || actionsDisabled || busy !== null}
+                  onClick={() => void openNotificationsManager(option.address)}>
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          ) : null}
         </div>
       ) : null}
 

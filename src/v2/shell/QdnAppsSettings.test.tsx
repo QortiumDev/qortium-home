@@ -716,6 +716,7 @@ assert.equal(
 const networkModeRequests: Array<readonly [string, string]> = []
 const managerOpenRequests: string[] = []
 let rejectManagerOpen = false
+let chooseManagerIdentifier = false
 state = initialState()
 state.accountRead.apps[0].appKey = 'qortal://APP/Chat/Chat'
 await act(async () => {
@@ -739,6 +740,10 @@ await act(async () => {
       requestedSection="qdn-apps"
       onOpenAddress={async (address) => {
         managerOpenRequests.push(address)
+        if (chooseManagerIdentifier) return {
+          status: 'choose', message: 'Choose an identifier.',
+          options: [{ address: 'qdn://APP/MyNotify/custom', label: 'Custom notification manager' }],
+        }
         return rejectManagerOpen
           ? { status: 'error', message: 'The selected network is disabled.' }
           : { status: 'opened' }
@@ -792,6 +797,17 @@ await act(async () => {
   await settle()
 })
 assert.deepEqual(managerOpenRequests, ['qdn://APP/MyNotify/default'])
+chooseManagerIdentifier = true
+await act(async () => {
+  button('Open Notifications Manager').click()
+  await settle()
+})
+chooseManagerIdentifier = false
+await act(async () => {
+  button('Custom notification manager').click()
+  await settle()
+})
+assert.equal(managerOpenRequests.at(-1), 'qdn://APP/MyNotify/custom')
 rejectManagerOpen = true
 await act(async () => {
   button('Open Notifications Manager').click()
