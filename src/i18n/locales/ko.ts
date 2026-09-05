@@ -2,6 +2,10 @@
 
 // Korean (한국어) catalog.
 export const ko: Record<TranslationKey, string> = {
+  "home2.account.savedLinkConflict": "이 주소는 다른 계정용으로 저장되어 있습니다. 북마크에서 관리하세요.",
+  "home2.account.tabAccount": "탭 계정",
+  "home2.account.defaultAccount": "새 탭의 기본 계정",
+  "home2.account.unavailableAccount": "계정을 사용할 수 없음",
   "account.actionFailed": "계정 작업에 실패했습니다.",
   "account.actionsLabel": "계정 작업",
   "account.addAddress": "주소 추가",

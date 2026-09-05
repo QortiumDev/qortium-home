@@ -2,6 +2,10 @@ import type { TranslationKey } from './en';
 
 // Hindi (हिन्दी) locale catalog.
 export const hi: Record<TranslationKey, string> = {
+  "home2.account.savedLinkConflict": "यह पता दूसरे खाते के लिए सहेजा गया है। इसे बुकमार्क में प्रबंधित करें।",
+  "home2.account.tabAccount": "टैब का खाता",
+  "home2.account.defaultAccount": "नए टैब के लिए डिफ़ॉल्ट खाता",
+  "home2.account.unavailableAccount": "खाता उपलब्ध नहीं है",
   "account.actionFailed": "खाता कार्रवाई विफल रही।",
   "account.actionsLabel": "खाता कार्रवाइयां",
   "account.addAddress": "पता जोड़ें",

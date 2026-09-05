@@ -2,6 +2,10 @@
 
 // Swedish (Svenska) catalog.
 export const sv: Record<TranslationKey, string> = {
+  "home2.account.savedLinkConflict": "Den här adressen är sparad för ett annat konto. Hantera den i Bokmärken.",
+  "home2.account.tabAccount": "Flikens konto",
+  "home2.account.defaultAccount": "Standardkonto för nya flikar",
+  "home2.account.unavailableAccount": "Kontot är inte tillgängligt",
   "account.actionFailed": "Kontoåtgärden misslyckades.",
   "account.actionsLabel": "Kontoåtgärder",
   "account.addAddress": "Lägg till adress",

@@ -2,6 +2,10 @@
 
 // Finnish (Suomi) catalog.
 export const fi: Record<TranslationKey, string> = {
+  "home2.account.savedLinkConflict": "Tämä osoite on tallennettu toiselle tilille. Hallitse sitä kirjanmerkeissä.",
+  "home2.account.tabAccount": "Välilehden tili",
+  "home2.account.defaultAccount": "Uusien välilehtien oletustili",
+  "home2.account.unavailableAccount": "Tili ei ole käytettävissä",
   "account.actionFailed": "Tilitoiminto epäonnistui.",
   "account.actionsLabel": "Tilitoiminnot",
   "account.addAddress": "Lisää osoite",

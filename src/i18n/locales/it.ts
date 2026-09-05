@@ -2,6 +2,10 @@
 
 // Italian (Italiano) catalog.
 export const it: Record<TranslationKey, string> = {
+  "home2.account.savedLinkConflict": "Questo indirizzo è salvato per un altro account. Gestiscilo nei Segnalibri.",
+  "home2.account.tabAccount": "Account della scheda",
+  "home2.account.defaultAccount": "Account predefinito per le nuove schede",
+  "home2.account.unavailableAccount": "Account non disponibile",
   "account.actionFailed": "Azione sull'account non riuscita.",
   "account.actionsLabel": "Azioni account",
   "account.addAddress": "Aggiungi indirizzo",

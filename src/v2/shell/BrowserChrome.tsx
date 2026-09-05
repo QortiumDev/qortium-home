@@ -3,6 +3,7 @@ import { t } from '../../i18n'
 import type {
   DualIdentityLookupResult,
   HomeV2Snapshot,
+  HomeV2AccountCatalogue,
   NetworkId,
   NodeConnectionMode,
   VisibleAppIconLoader,
@@ -36,9 +37,11 @@ import { AccountStatusMenu, NodeStatusMenu } from './ChromeStatusMenus'
 import type { HomeV2CoreManagement } from './CoreManagerCards'
 import { locateBookmarkManagerLink } from '../../bookmarkManager'
 import type { BookmarkToolbarVisibility } from '../../bookmarkToolbar'
+import { chromeAccountContext } from './account-context'
 
 export interface BrowserChromeProps {
   readonly snapshot: HomeV2Snapshot
+  readonly accountCatalogue?: HomeV2AccountCatalogue
   readonly productState: ProductState
   readonly onActivateTab?: (tabId: ProductState['tabs'][number]['id']) => void
   readonly onCloseTab?: (tabId: ProductState['tabs'][number]['id']) => void
@@ -100,8 +103,8 @@ export interface BrowserChromeProps {
   readonly onPinTabToDashboard?: (
     tabId: ProductState['tabs'][number]['id'],
   ) => void | Promise<void>
-  readonly onLockAccount?: () => void
-  readonly onUnlockAccount?: () => void
+  readonly onLockAccount?: (accountId?: string) => void
+  readonly onUnlockAccount?: (accountId?: string) => void
   /**
    * Everything the node-status menus need to act rather than only report:
    * the Core manager and maintenance slices behind start/stop and updates,
@@ -185,6 +188,7 @@ function browserPageTitle(productState: ProductState): string {
 
 export function BrowserChrome({
   snapshot,
+  accountCatalogue,
   productState,
   onActivateTab,
   onCloseTab,
@@ -221,6 +225,18 @@ export function BrowserChrome({
   onSetNodeMode,
   onOverlayOpenChange,
 }: BrowserChromeProps) {
+  // Retain only presentation labels after removal; authority always comes from
+  // the current catalogue, so this cannot make a removed account unlockable.
+  const rememberedAccountLabels = useRef(new Map<string, string>())
+  for (const account of accountCatalogue?.accounts ?? []) {
+    rememberedAccountLabels.current.set(account.id, account.label)
+  }
+  const accountContext = chromeAccountContext(
+    snapshot,
+    productState.transient ? undefined : productState.entries.find((entry) => entry.id === productState.activeTabId),
+    accountCatalogue,
+    rememberedAccountLabels.current,
+  )
   const currentAddress = browserAddress(
     productState,
     releaseNotesAddress,
@@ -236,6 +252,13 @@ export function BrowserChrome({
   const [selectedChoice, setSelectedChoice] = useState('')
   const [widgetBusy, setWidgetBusy] = useState(false)
   const [widgetError, setWidgetError] = useState<string | null>(null)
+  const [savedTabError, setSavedTabError] = useState<string | null>(null)
+  const runSavedTabAction = async (action: () => void | Promise<void>) => {
+    setSavedTabError(null)
+    try { await action() } catch (error) {
+      setSavedTabError(error instanceof Error ? error.message : String(error))
+    }
+  }
   const addressRequest = useRef(0)
   const addressInputRef = useRef<HTMLInputElement | null>(null)
   // Which toolbar popovers are open, by id. Several can coexist (a node menu
@@ -433,11 +456,13 @@ export function BrowserChrome({
       <div className="home-v2-browser-tabs-row">
         <TabStrip
           productState={productState}
+          accountCatalogue={accountCatalogue}
+          rememberedAccountLabels={rememberedAccountLabels.current}
           onActivateTab={onActivateTab}
           onCloseTab={onCloseTab}
           onReorderTab={onReorderTab}
           onNewTab={openNewTab}
-          onDropOnBookmarkToolbar={onDropTabOnBookmarkToolbar}
+          onDropOnBookmarkToolbar={onDropTabOnBookmarkToolbar ? (tabId) => runSavedTabAction(() => onDropTabOnBookmarkToolbar(tabId)) : undefined}
           onDetachTab={onDetachTab}
           onTabContextMenu={(tabId, position) =>
             setTabMenu({ tabId, x: position.x, y: position.y })}
@@ -463,11 +488,11 @@ export function BrowserChrome({
             <BookmarksMenuButton
               isBookmarked={!!currentBookmark}
               disabled={navigationDisabled}
-              onToggle={() =>
+              onToggle={() => runSavedTabAction(() =>
                 onToggleCurrentBookmark({
                   displayUrl: currentAddress,
                   title: browserPageTitle(productState),
-                })
+                }))
               }
               onManage={onManageBookmarks}
               toolbarVisibility={bookmarkSnapshot?.toolbarVisibility}
@@ -607,15 +632,23 @@ export function BrowserChrome({
             <Settings aria-hidden="true" size={18} strokeWidth={2} />
           </button>
           <AccountStatusMenu
-            snapshot={snapshot}
-            selectedAccountLookup={selectedAccountLookup}
+            snapshot={accountContext.snapshot}
+            contextLabel={t(accountContext.tabBound ? 'home2.account.tabAccount' : 'home2.account.defaultAccount')}
+            unavailable={accountContext.unavailable}
+            selectedAccountLookup={accountContext.useSelectedLookup ? selectedAccountLookup : null}
             loadVisibleAvatar={loadVisibleAvatar}
-            onLockAccount={onLockAccount}
+            onLockAccount={onLockAccount && !accountContext.unavailable ? () => onLockAccount(accountContext.accountId ?? undefined) : undefined}
             onOpenChange={(open) => setOverlayOpen('account-menu', open)}
-            onUnlockAccount={onUnlockAccount}
+            onUnlockAccount={onUnlockAccount ? () => onUnlockAccount(accountContext.accountId ?? undefined) : undefined}
           />
         </div>
       </div>
+      {savedTabError ? (
+        <div className="home-v2-saved-tab-error" role="alert">
+          <span>{savedTabError}</span>
+          <button type="button" aria-label={t('home2.common.close')} onClick={() => setSavedTabError(null)}>×</button>
+        </div>
+      ) : null}
       {bookmarkToolbar ? (
         <HomeV2BookmarkToolbar
           {...bookmarkToolbar}
@@ -651,7 +684,7 @@ export function BrowserChrome({
                 role="menuitem"
                 data-home-v2-tab-menu-action="pin"
                 onClick={() => {
-                  void onPinTabToDashboard(tabMenu.tabId)
+                  void runSavedTabAction(() => onPinTabToDashboard(tabMenu.tabId))
                   setTabMenu(null)
                 }}
               >
@@ -664,7 +697,7 @@ export function BrowserChrome({
                 role="menuitem"
                 data-home-v2-tab-menu-action="bookmark"
                 onClick={() => {
-                  void onDropTabOnBookmarkToolbar(tabMenu.tabId)
+                  void runSavedTabAction(() => onDropTabOnBookmarkToolbar(tabMenu.tabId))
                   setTabMenu(null)
                 }}
               >

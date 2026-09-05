@@ -2,6 +2,10 @@
 
 // German (Deutsch) catalog.
 export const de: Record<TranslationKey, string> = {
+  "home2.account.savedLinkConflict": "Diese Adresse ist für ein anderes Konto gespeichert. Verwalte sie in den Lesezeichen.",
+  "home2.account.tabAccount": "Tab-Konto",
+  "home2.account.defaultAccount": "Standardkonto für neue Tabs",
+  "home2.account.unavailableAccount": "Konto nicht verfügbar",
   "account.actionFailed": "Kontoaktion fehlgeschlagen.",
   "account.actionsLabel": "Kontoaktionen",
   "account.addAddress": "Adresse hinzufügen",

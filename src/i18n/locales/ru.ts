@@ -2,6 +2,10 @@
 
 // Russian (Русский) catalog.
 export const ru: Record<TranslationKey, string> = {
+  "home2.account.savedLinkConflict": "Этот адрес сохранён для другой учётной записи. Управляйте им в Закладках.",
+  "home2.account.tabAccount": "Учётная запись вкладки",
+  "home2.account.defaultAccount": "Учётная запись по умолчанию для новых вкладок",
+  "home2.account.unavailableAccount": "Учётная запись недоступна",
   "account.actionFailed": "Не удалось выполнить действие с аккаунтом.",
   "account.actionsLabel": "Действия с аккаунтом",
   "account.addAddress": "Добавить адрес",

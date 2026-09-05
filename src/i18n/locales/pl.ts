@@ -2,6 +2,10 @@
 
 // Polish (Polski) translation catalog.
 export const pl: Record<TranslationKey, string> = {
+  "home2.account.savedLinkConflict": "Ten adres jest zapisany dla innego konta. Zarządzaj nim w Zakładkach.",
+  "home2.account.tabAccount": "Konto karty",
+  "home2.account.defaultAccount": "Domyślne konto dla nowych kart",
+  "home2.account.unavailableAccount": "Konto niedostępne",
   "account.actionFailed": "Akcja konta nie powiodła się.",
   "account.actionsLabel": "Akcje konta",
   "account.addAddress": "Dodaj adres",

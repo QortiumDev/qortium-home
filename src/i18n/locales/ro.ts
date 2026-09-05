@@ -2,6 +2,10 @@
 
 // Romanian (Română) catalog.
 export const ro: Record<TranslationKey, string> = {
+  "home2.account.savedLinkConflict": "Această adresă este salvată pentru alt cont. Gestionați-o în Marcaje.",
+  "home2.account.tabAccount": "Contul filei",
+  "home2.account.defaultAccount": "Cont implicit pentru file noi",
+  "home2.account.unavailableAccount": "Cont indisponibil",
   "account.actionFailed": "Acțiunea asupra contului a eșuat.",
   "account.actionsLabel": "Acțiuni pentru cont",
   "account.addAddress": "Adaugă adresă",

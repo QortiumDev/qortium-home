@@ -2,6 +2,10 @@ import type { TranslationKey } from './en';
 
 // Norwegian Bokmal (Norsk bokmål) locale catalog.
 export const nb: Record<TranslationKey, string> = {
+  "home2.account.savedLinkConflict": "Denne adressen er lagret for en annen konto. Administrer den i Bokmerker.",
+  "home2.account.tabAccount": "Fanens konto",
+  "home2.account.defaultAccount": "Standardkonto for nye faner",
+  "home2.account.unavailableAccount": "Konto utilgjengelig",
   "account.actionFailed": "Kontohandlingen mislyktes.",
   "account.actionsLabel": "Kontohandlinger",
   "account.addAddress": "Legg til adresse",

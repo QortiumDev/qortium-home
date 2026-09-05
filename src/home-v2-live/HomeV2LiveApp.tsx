@@ -57,6 +57,8 @@ import {
   type HomeV2StartupPreference,
 } from '../v2/startup-preference'
 import { HomeV2Prototype } from '../v2/shell/HomeV2Prototype'
+import { accountsLosingAccess, savedEntryAccountId } from '../v2/shell/account-context'
+import { buildTabBookmarkToggle, buildTabDashboardPin, buildTabToolbarSave } from '../v2/shell/saved-tab-bookmarks'
 import type { HomeV2SettingsSectionId } from '../v2/shell/SettingsPage'
 import { HomeV2ContextMenu } from '../v2/shell/HomeV2ContextMenu'
 import {
@@ -133,7 +135,6 @@ import {
   resolveHomeV2AppsAppUrl,
   resolveHomeV2BookmarksAppUrl,
 } from './qdn-settings-client'
-import { locateBookmarkManagerLink } from '../bookmarkManager'
 import { internalTabLabelKeys } from '../v2/shell/TabStrip'
 import { t } from '../i18n'
 import {
@@ -1907,12 +1908,23 @@ export function HomeV2LiveApp() {
 
   const applyVaultState = useCallback((state: HomeV2VaultState) => {
     const catalogue = vaultCatalogue(state)
+    const lostAccounts = new Set(accountsLosingAccess(accountCatalogueRef.current, catalogue))
+    if (lostAccounts.size > 0) {
+      invalidateAndroidRuntime('locked')
+      window.homeV2Apps?.accountLocked()
+      for (const tab of productStateRef.current.tabs) {
+        const accountId = String(tab.context.identityId).replace(/^home-v2:identity:/, '')
+        if (!lostAccounts.has(accountId)) continue
+        void window.homeV2Apps?.updateAccountState({ accountId, isUnlocked: false, tabId: tab.id })
+          ?.catch((error: unknown) => console.warn('Unable to announce a locked tab account.', error))
+      }
+    }
     setVaultState(state)
     accountCatalogueRef.current = catalogue
     setAccountCatalogue(catalogue)
     setAccountCatalogueReady(true)
     return catalogue
-  }, [])
+  }, [invalidateAndroidRuntime])
 
   const handleAppNavigationChanged = useCallback(
     (tabId: TabId, navigation: AppTabNavigationSnapshot) => {
@@ -3225,29 +3237,22 @@ export function HomeV2LiveApp() {
   )
 
   const addDashboardPin = useCallback(
-    async (address: string, title: string) => {
+    async (address: string, title: string, accountId: string | null = selectedAccountId) => {
       const openRequest = validateBookmarksOpenRequest({
-        accountId: selectedAccountId,
+        accountId,
         address,
       })
-      await mutateDashboardPins({
-        type: 'addDashboardPin',
-        pin: {
+      await mutateDashboardPins((snapshot) => buildTabDashboardPin(snapshot, {
           accountId: openRequest.accountId,
           displayUrl: openRequest.address,
           title,
-        },
-      })
+      }))
       if (title.trim()) {
-        await mutateDashboardPins({
-          type: 'updateDashboardPin',
-          pinId: openRequest.address,
-          pin: {
-            accountId: openRequest.accountId,
-            displayUrl: openRequest.address,
-            title,
-          },
-        })
+        // The stored custom label is set by updateDashboardPin. Re-resolve
+        // against the latest revision so another account's save is protected.
+        await mutateDashboardPins((snapshot) => buildTabDashboardPin(snapshot, {
+          accountId: openRequest.accountId, displayUrl: openRequest.address, title,
+        }))
       }
     },
     [mutateDashboardPins, selectedAccountId],
@@ -3358,25 +3363,9 @@ export function HomeV2LiveApp() {
    */
   const toggleCurrentBookmark = useCallback(
     async (draft: { displayUrl: string; title: string }) => {
+      const accountId = savedEntryAccountId(productState.entries.find((entry) => entry.id === productState.activeTabId))
       try {
-        const result = await applyCollectionsMutation((snapshot) => {
-          const existing = locateBookmarkManagerLink(snapshot, draft.displayUrl)
-          return existing
-            ? {
-                itemId: existing.link.id,
-                rootId: existing.rootId,
-                type: 'removeTreeItem',
-              }
-            : {
-                link: {
-                  accountId: selectedAccountId,
-                  displayUrl: draft.displayUrl,
-                  title: draft.title,
-                },
-                rootId: 'bookmarks',
-                type: 'addTreeLink',
-              }
-        })
+        const result = await applyCollectionsMutation((snapshot) => buildTabBookmarkToggle(snapshot, { ...draft, accountId }))
         // Without this the store is updated but the toolbar and the star keep
         // rendering the previous snapshot.
         applyCollectionsSnapshot(result.snapshot)
@@ -3384,9 +3373,10 @@ export function HomeV2LiveApp() {
         setShellNotice(
           error instanceof Error ? error.message : 'Unable to update bookmarks.',
         )
+        throw error
       }
     },
-    [applyCollectionsMutation, applyCollectionsSnapshot, selectedAccountId],
+    [applyCollectionsMutation, applyCollectionsSnapshot, productState.entries, productState.activeTabId],
   )
 
   // The tab this window was dragged out with, opened through the ordinary
@@ -3487,7 +3477,7 @@ export function HomeV2LiveApp() {
       const title = entry.kind === 'app'
         ? entry.title
         : t(internalTabLabelKeys[entry.page])
-      await addDashboardPin(displayUrl, title)
+      await addDashboardPin(displayUrl, title, savedEntryAccountId(entry))
     },
     [addDashboardPin, productState.entries],
   )
@@ -3500,34 +3490,22 @@ export function HomeV2LiveApp() {
           ? entry.context.resourceLocation
           : `home://${entry.page}`
       try {
-        const result = await applyCollectionsMutation((snapshot) =>
-          locateBookmarkManagerLink(snapshot, displayUrl)?.rootId === 'toolbar'
-            ? null
-            : {
-                link: {
-                  accountId: selectedAccountId,
-                  displayUrl,
-                  title:
-                    entry.kind === 'app'
-                      ? entry.title
-                      : t(internalTabLabelKeys[entry.page]),
-                },
-                rootId: 'toolbar',
-                type: 'addTreeLink',
-              },
-        )
+        const result = await applyCollectionsMutation((snapshot) => buildTabToolbarSave(snapshot, {
+          accountId: savedEntryAccountId(entry), displayUrl,
+          title: entry.kind === 'app' ? entry.title : t(internalTabLabelKeys[entry.page]),
+        }))
         applyCollectionsSnapshot(result.snapshot)
       } catch (error) {
         setShellNotice(
           error instanceof Error ? error.message : 'Unable to save that tab.',
         )
+        throw error
       }
     },
     [
       applyCollectionsMutation,
       applyCollectionsSnapshot,
       productState.entries,
-      selectedAccountId,
     ],
   )
 
@@ -10533,17 +10511,22 @@ export function HomeV2LiveApp() {
         setAccountDialog({ mode: 'create' })
       }}
       onImportAccount={() => void openWalletImport()}
-      onUnlockAccount={() => {
+      onUnlockAccount={(addressId) => {
+        const account = addressId ? accountCatalogue.accounts.find((candidate) => candidate.id === addressId) : null
+        if (addressId && !account) return
         setAccountDialogError(null)
-        setAccountDialog({ mode: 'unlock' })
+        setAccountDialog({ mode: 'unlock', accountId: account?.walletId ?? selectedVaultAccount?.id })
       }}
-      onLockAccount={() => {
-        if (!vaultClient || !selectedVaultAccount) return
+      onLockAccount={(addressId) => {
+        const account = addressId ? accountCatalogue.accounts.find((candidate) => candidate.id === addressId) : null
+        if (addressId && !account) return
+        const walletId = account?.walletId ?? selectedVaultAccount?.id
+        if (!vaultClient || !walletId) return
         invalidateAndroidRuntime('locked')
         window.homeV2Apps?.accountLocked()
         for (const tab of productState.tabs) {
           const boundId = String(tab.context.identityId).replace(/^home-v2:identity:/, '')
-          if (boundId.startsWith(`${selectedVaultAccount.id}`)) {
+          if (boundId === walletId || boundId.startsWith(`${walletId}:`)) {
             void window.homeV2Apps?.updateAccountState({
               accountId: boundId,
               isUnlocked: false,
@@ -10551,7 +10534,7 @@ export function HomeV2LiveApp() {
             })
           }
         }
-        void runVaultOperation(() => vaultClient.lock(selectedVaultAccount.id))
+        void runVaultOperation(() => vaultClient.lock(walletId))
       }}
       onAccountManage={manageAccount}
       onToggleRememberUnlock={() => {

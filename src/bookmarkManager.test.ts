@@ -3,8 +3,10 @@ import { DEFAULT_BOOKMARKS_STATE } from './bookmarks';
 import {
   applyBookmarkManagerMutation,
   locateBookmarkManagerLink,
+  createBookmarkManagerSnapshot,
   type BookmarkManagerCollections,
 } from './bookmarkManager';
+import { buildTabBookmarkToggle, buildTabDashboardPin, buildTabToolbarSave } from './v2/shell/saved-tab-bookmarks';
 
 const initial: BookmarkManagerCollections = {
   accounts: {
@@ -186,5 +188,43 @@ assert.equal(
   'toolbar',
   'prefers the toolbar copy, so un-starring removes what the user can see',
 );
+
+// Exercise the tab-save builders through the real contract and persistence
+// reducer on both networks. In particular qortal:// must retain the binding.
+for (const scheme of ['qdn', 'qortal']) {
+  const empty: BookmarkManagerCollections = {
+    bookmarksState: { ...DEFAULT_BOOKMARKS_STATE, bookmarks: [], toolbar: [] },
+    dashboardPins: [], startPages: [], revision: 0,
+  };
+  const draft = { accountId: 'wallet-b:1', displayUrl: `${scheme}://APP/Chat/default`, title: 'Chat' };
+  const snapshot = createBookmarkManagerSnapshot(empty);
+  const saved = applyBookmarkManagerMutation(empty, buildTabBookmarkToggle(snapshot, draft));
+  assert.equal(locateBookmarkManagerLink(saved.snapshot, draft.displayUrl)?.link.accountId, 'wallet-b:1');
+  const beforeConflict = JSON.stringify(saved.collections);
+  assert.throws(() => buildTabBookmarkToggle(saved.snapshot, { ...draft, accountId: 'wallet-a' }), /another account/);
+  assert.equal(JSON.stringify(saved.collections), beforeConflict, 'a star cannot remove another account’s same-address bookmark');
+  const removed = applyBookmarkManagerMutation(saved.collections, buildTabBookmarkToggle(saved.snapshot, draft));
+  assert.equal(removed.snapshot.bookmarks.length, 0, 'the matching account can still unstar its save');
+
+  const toolbarMutation = buildTabToolbarSave(snapshot, draft)!;
+  const toolbar = applyBookmarkManagerMutation(empty, toolbarMutation);
+  assert.equal(locateBookmarkManagerLink(toolbar.snapshot, draft.displayUrl)?.link.accountId, 'wallet-b:1');
+  assert.equal(buildTabToolbarSave(toolbar.snapshot, draft), null, 'same-account drag is idempotent');
+  assert.throws(() => buildTabToolbarSave(toolbar.snapshot, { ...draft, accountId: 'wallet-a' }), /another account/);
+
+  const pin = applyBookmarkManagerMutation(empty, buildTabDashboardPin(snapshot, draft));
+  assert.equal(pin.snapshot.dashboardPins[0].accountId, 'wallet-b:1');
+  assert.throws(() => buildTabDashboardPin(pin.snapshot, { ...draft, accountId: 'wallet-a' }), /another account/);
+  const labelledPin = applyBookmarkManagerMutation(pin.collections, buildTabDashboardPin(pin.snapshot, draft));
+  assert.equal(labelledPin.snapshot.dashboardPins[0].customLabel, 'Chat');
+  assert.equal(labelledPin.snapshot.dashboardPins[0].accountId, 'wallet-b:1');
+
+  // Existing contract: null is Current/inherit, not an explicit guest identity.
+  const current = applyBookmarkManagerMutation(empty, buildTabBookmarkToggle(snapshot, { ...draft, accountId: null }));
+  assert.equal(locateBookmarkManagerLink(current.snapshot, draft.displayUrl)?.link.accountId ?? null, null);
+  assert.throws(() => buildTabBookmarkToggle(current.snapshot, draft), /another account/, 'an explicit binding cannot silently replace Current');
+  const start = applyBookmarkManagerMutation(empty, { type: 'addStartPage', page: draft });
+  assert.equal(start.snapshot.startPages[0].accountId, 'wallet-b:1');
+}
 
 console.log('Bookmark manager reducer tests passed.');
