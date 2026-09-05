@@ -32,6 +32,13 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## fix(home2): keep preview archive hashes stable across clocks and time zones
+
+Previewing the same folder now produces the same archive bytes even when the
+clock or time zone changes. ZIP entries use a fixed timestamp, so an unchanged
+preview no longer gets a different content hash merely because time passed.
+File contents, compression, upload limits and cleanup behavior are unchanged.
+
 ## fix(home2): apps can go fullscreen, and Home says so while they are
 
 Apps opened in Home could not go fullscreen. A video player, a game or a
