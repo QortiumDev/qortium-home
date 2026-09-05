@@ -2,6 +2,11 @@
 
 // French (Français) catalog.
 export const fr: Record<TranslationKey, string> = {
+  "home2.account.openAppNewTab": "Ouvrir cette application dans un nouvel onglet",
+  "home2.account.newTabAccount": "Compte du nouvel onglet",
+  "home2.account.chooseNewTabAccount": "Choisir un compte",
+  "home2.account.openNewTab": "Ouvrir un nouvel onglet",
+  "home2.account.launchUnavailable": "Cette application ne peut plus être ouverte dans un nouvel onglet.",
   "home2.account.savedLinkConflict": "Cette adresse est enregistrée pour un autre compte. Gérez-la dans les favoris.",
   "home2.account.tabAccount": "Compte de l’onglet",
   "home2.account.defaultAccount": "Compte par défaut des nouveaux onglets",

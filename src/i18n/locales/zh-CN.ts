@@ -2,6 +2,11 @@
 
 // Simplified Chinese (中文（简体）) catalog.
 export const zhCN: Record<TranslationKey, string> = {
+  "home2.account.openAppNewTab": "在新标签页中打开此应用",
+  "home2.account.newTabAccount": "新标签页的账户",
+  "home2.account.chooseNewTabAccount": "选择账户",
+  "home2.account.openNewTab": "打开新标签页",
+  "home2.account.launchUnavailable": "此应用已无法在新标签页中打开。",
   "home2.account.savedLinkConflict": "此地址已为另一个账户保存。请在书签中管理。",
   "home2.account.tabAccount": "标签页账户",
   "home2.account.defaultAccount": "新标签页的默认账户",

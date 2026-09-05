@@ -2,6 +2,11 @@
 
 // Russian (Русский) catalog.
 export const ru: Record<TranslationKey, string> = {
+  "home2.account.openAppNewTab": "Открыть это приложение в новой вкладке",
+  "home2.account.newTabAccount": "Аккаунт для новой вкладки",
+  "home2.account.chooseNewTabAccount": "Выберите аккаунт",
+  "home2.account.openNewTab": "Открыть новую вкладку",
+  "home2.account.launchUnavailable": "Это приложение больше нельзя открыть в новой вкладке.",
   "home2.account.savedLinkConflict": "Этот адрес сохранён для другой учётной записи. Управляйте им в Закладках.",
   "home2.account.tabAccount": "Учётная запись вкладки",
   "home2.account.defaultAccount": "Учётная запись по умолчанию для новых вкладок",

@@ -2,6 +2,11 @@
 
 // Portuguese (Português) catalog — neutral pt for pt-BR and pt-PT readers.
 export const pt: Record<TranslationKey, string> = {
+  "home2.account.openAppNewTab": "Abrir esta aplicação numa nova aba",
+  "home2.account.newTabAccount": "Conta para a nova aba",
+  "home2.account.chooseNewTabAccount": "Escolher uma conta",
+  "home2.account.openNewTab": "Abrir nova aba",
+  "home2.account.launchUnavailable": "Esta aplicação já não está disponível para abrir numa nova aba.",
   "home2.account.savedLinkConflict": "Este endereço está salvo para outra conta. Gerencie-o nos Favoritos.",
   "home2.account.tabAccount": "Conta da aba",
   "home2.account.defaultAccount": "Conta padrão para novas abas",

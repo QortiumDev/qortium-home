@@ -393,6 +393,7 @@ import {
   parseAppResourceLocation,
 } from '../v2/resource-location'
 import { resolveHomeV2PublishPreviewOpen } from './publish-preview-tab'
+import { resolveAccountTabLaunch } from './account-tab-launch'
 import { resolveLaunchIdentifier } from '../v2/shell/render-path-identity'
 import { base58Decode, base58Encode } from '../../electron/base58'
 import {
@@ -2501,6 +2502,7 @@ export function HomeV2LiveApp() {
       app: AppDescriptor,
       requestedLocation?: AppTabContext['resourceLocation'],
       requestedAccountId?: HomeV2AccountBinding,
+      newInstance = false,
     ) => {
       setShellNotice(null)
       // Three-way: a concrete account id, an explicit no-account binding, or
@@ -2525,6 +2527,7 @@ export function HomeV2LiveApp() {
       )
       dispatchProduct({
         type: 'open-app',
+        newInstance,
         app,
         tabId,
         context: {
@@ -2552,6 +2555,30 @@ export function HomeV2LiveApp() {
     },
     [snapshot.identity.id, snapshot.identity.selectedWallet],
   )
+
+  // A trusted chrome action, never an app-supplied account switch. Resolve the
+  // live source and destination synchronously, then create a fresh native tab.
+  // Null here is explicit No account, unlike openApp's legacy Current/null.
+  const openTabWithAccount = useCallback(async (
+    tabId: string,
+    resourceLocation: string,
+    accountId: string | null,
+  ): Promise<void> => {
+    const current = productStateRef.current
+    if (!shellStateReady || current.transient || current.activeTabId !== tabId ||
+      resourceViewer?.sourceTabId === tabId) {
+      throw new Error(t('home2.account.launchUnavailable'))
+    }
+    const launch = resolveAccountTabLaunch({
+      tabs: current.tabs,
+      tabId,
+      resourceLocation,
+      accountId,
+      accounts: accountCatalogueRef.current.accounts,
+    })
+    openApp(launch.app, launch.resourceLocation,
+      launch.accountId === null ? HOME_V2_BIND_NO_ACCOUNT : launch.accountId, true)
+  }, [openApp, resourceViewer, shellStateReady])
 
   // The in-place twin of openApp, behind OPEN_CURRENT_TAB. The tab id always
   // comes from the trusted host's view context, never from the app: see the
@@ -10616,6 +10643,8 @@ export function HomeV2LiveApp() {
       onOpenAddress={openAddress}
       onOpenAddressInTab={openAddressInTab}
       onOpenAsWidget={openTabAsWidget}
+      onOpenTabWithAccount={shellStateReady && resourceViewer?.sourceTabId !== productState.activeTabId
+        ? openTabWithAccount : undefined}
       widgetAvailable={activeWidgetAvailable}
       onResolvePermission={resolveAccountPermission}
       canGoBack={activeNavigationPosition > 0}

@@ -2,6 +2,11 @@
 
 // Dutch (Nederlands) locale catalog. Every key must remain present.
 export const nl: Record<TranslationKey, string> = {
+  "home2.account.openAppNewTab": "Deze app in een nieuw tabblad openen",
+  "home2.account.newTabAccount": "Account voor het nieuwe tabblad",
+  "home2.account.chooseNewTabAccount": "Kies een account",
+  "home2.account.openNewTab": "Nieuw tabblad openen",
+  "home2.account.launchUnavailable": "Deze app kan niet meer in een nieuw tabblad worden geopend.",
   "home2.account.savedLinkConflict": "Dit adres is opgeslagen voor een ander account. Beheer het in Bladwijzers.",
   "home2.account.tabAccount": "Tabbladaccount",
   "home2.account.defaultAccount": "Standaardaccount voor nieuwe tabbladen",

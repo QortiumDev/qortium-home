@@ -2,6 +2,11 @@
 
 // Hungarian (Magyar) catalog.
 export const hu: Record<TranslationKey, string> = {
+  "home2.account.openAppNewTab": "Az alkalmazás megnyitása új lapon",
+  "home2.account.newTabAccount": "Az új lap fiókja",
+  "home2.account.chooseNewTabAccount": "Válassz fiókot",
+  "home2.account.openNewTab": "Új lap megnyitása",
+  "home2.account.launchUnavailable": "Ez az alkalmazás már nem nyitható meg új lapon.",
   "home2.account.savedLinkConflict": "Ez a cím egy másik fiókhoz van mentve. A Könyvjelzőkben kezelhető.",
   "home2.account.tabAccount": "Lap fiókja",
   "home2.account.defaultAccount": "Új lapok alapértelmezett fiókja",

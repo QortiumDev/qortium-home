@@ -53,6 +53,8 @@ const SMOKES = [
   { script: 'smoke:desktop:home-v2-bookmarks', needs: 'none', ci: true },
   { script: 'smoke:desktop:home-v2-default-account-grants', needs: 'none',
     note: 'Default account changes preserve immutable app-tab grants; local disposable vault and node fixture.' },
+  { script: 'smoke:desktop:home-v2-account-launch', needs: 'none',
+    note: 'Explicit account-menu new tab, same-account duplicate and guest; disposable vault/loopback fixture, locally verified, not yet hosted CI.' },
   { script: 'smoke:desktop:home-v2-guest-saved-links', needs: 'none',
     note: 'Guest saved-link reopen acceptance; disposable vault and loopback fixture, locally verified, not yet hosted CI.' },
   { script: 'smoke:desktop:home-v2-inline-unlock', needs: 'none',

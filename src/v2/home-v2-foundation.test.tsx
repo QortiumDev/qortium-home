@@ -264,6 +264,27 @@ function testProductModelKeepsSourceQualifiedTabs(): void {
   )
   assert.equal(reopenedChat.tabs.length, 1)
   assert.equal(reopenedChat.activeTabId, fixtureIds.chatTab)
+  const duplicatedChat = reduceProductState(withChat, {
+    type: 'open-app', app: chat, newInstance: true,
+    context: { ...chatContext, tabId: fixtureIds.tab }, tabId: fixtureIds.tab,
+  })
+  assert.equal(duplicatedChat.tabs.length, 2, 'An explicit new instance bypasses structural dedup')
+  assert.equal(duplicatedChat.activeTabId, fixtureIds.tab)
+  assert.equal(duplicatedChat.tabs[0].id, fixtureIds.chatTab, 'The original tab keeps its identity')
+  assert.deepEqual(duplicatedChat.tabs[0].context, withChat.tabs[0].context)
+  assert.throws(() => reduceProductState(duplicatedChat, {
+    type: 'open-app', app: chat, newInstance: true,
+    context: chatContext, tabId: fixtureIds.chatTab,
+  }), /already exists/, 'New instances still require a fresh tab ID')
+  const duplicateRestored = restoreProductState(JSON.parse(JSON.stringify(duplicatedChat)))
+  assert.equal(duplicateRestored.tabs.length, 2, 'Persisted duplicate instances survive restoration')
+  assert.deepEqual(duplicateRestored.tabs.map((tab) => tab.id), [fixtureIds.chatTab, fixtureIds.tab])
+  const ordinaryAfterDuplicate = reduceProductState(duplicatedChat, {
+    type: 'open-app', app: chat, context: { ...chatContext, tabId: fixtureIds.qortalCompatTab },
+    tabId: fixtureIds.qortalCompatTab,
+  })
+  assert.equal(ordinaryAfterDuplicate.tabs.length, 2, 'Ordinary opens still reuse an existing instance')
+  assert.equal(ordinaryAfterDuplicate.activeTabId, fixtureIds.chatTab)
   const titledChat = reduceProductState(withChat, {
     type: 'set-tab-title',
     tabId: fixtureIds.chatTab,

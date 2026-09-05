@@ -2,6 +2,11 @@ import type { TranslationKey } from './en';
 
 // Norwegian Bokmal (Norsk bokmål) locale catalog.
 export const nb: Record<TranslationKey, string> = {
+  "home2.account.openAppNewTab": "Åpne denne appen i en ny fane",
+  "home2.account.newTabAccount": "Konto for den nye fanen",
+  "home2.account.chooseNewTabAccount": "Velg en konto",
+  "home2.account.openNewTab": "Åpne ny fane",
+  "home2.account.launchUnavailable": "Denne appen kan ikke lenger åpnes i en ny fane.",
   "home2.account.savedLinkConflict": "Denne adressen er lagret for en annen konto. Administrer den i Bokmerker.",
   "home2.account.tabAccount": "Fanens konto",
   "home2.account.defaultAccount": "Standardkonto for nye faner",

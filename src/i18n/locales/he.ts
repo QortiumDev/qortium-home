@@ -2,6 +2,11 @@
 
 // Hebrew (עברית) catalog.
 export const he: Record<TranslationKey, string> = {
+  "home2.account.openAppNewTab": "פתיחת היישום הזה בכרטיסייה חדשה",
+  "home2.account.newTabAccount": "החשבון לכרטיסייה החדשה",
+  "home2.account.chooseNewTabAccount": "בחירת חשבון",
+  "home2.account.openNewTab": "פתיחת כרטיסייה חדשה",
+  "home2.account.launchUnavailable": "היישום הזה כבר אינו זמין לפתיחה בכרטיסייה חדשה.",
   "home2.account.savedLinkConflict": "הכתובת הזו שמורה עבור חשבון אחר. ניתן לנהל אותה בסימניות.",
   "home2.account.tabAccount": "חשבון הכרטיסייה",
   "home2.account.defaultAccount": "חשבון ברירת המחדל לכרטיסיות חדשות",

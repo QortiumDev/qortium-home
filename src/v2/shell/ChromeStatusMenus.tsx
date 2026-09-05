@@ -17,6 +17,7 @@ import { NetworkMark } from './ProductMarks'
 import { VisibleIdentityAvatar } from './VisibleIdentityAvatar'
 import { useDismissablePopover } from './useDismissablePopover'
 import { InlineAccountUnlock, type InlineUnlockSubmission } from './InlineAccountUnlock'
+import { AccountTabLauncher, type AccountTabLauncherProps } from './AccountTabLauncher'
 
 // Same order as the Dashboard's connection-mode select, so the two controls
 // read identically wherever the user meets them first.
@@ -421,6 +422,7 @@ export function NodeStatusMenu({
 }
 
 export interface AccountStatusMenuProps {
+  readonly accountTabLauncher?: AccountTabLauncherProps
   readonly snapshot: HomeV2Snapshot
   readonly contextLabel?: string
   readonly unavailable?: boolean
@@ -461,6 +463,7 @@ function sharedAccountAddress(
  * answering "who am I signed in as, and on which chains".
  */
 export function AccountStatusMenu({
+  accountTabLauncher,
   snapshot,
   contextLabel,
   unavailable = false,
@@ -598,6 +601,7 @@ export function AccountStatusMenu({
           {t('home2.account.lock')}
         </button>
       ) : null}
+      {accountTabLauncher ? <AccountTabLauncher {...accountTabLauncher} onClose={close} /> : null}
       </>}
     </ChromeMenu>
   )

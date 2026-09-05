@@ -2,6 +2,11 @@
 
 // Romanian (Română) catalog.
 export const ro: Record<TranslationKey, string> = {
+  "home2.account.openAppNewTab": "Deschide această aplicație într-o filă nouă",
+  "home2.account.newTabAccount": "Cont pentru fila nouă",
+  "home2.account.chooseNewTabAccount": "Alege un cont",
+  "home2.account.openNewTab": "Deschide o filă nouă",
+  "home2.account.launchUnavailable": "Această aplicație nu mai poate fi deschisă într-o filă nouă.",
   "home2.account.savedLinkConflict": "Această adresă este salvată pentru alt cont. Gestionați-o în Marcaje.",
   "home2.account.tabAccount": "Contul filei",
   "home2.account.defaultAccount": "Cont implicit pentru file noi",

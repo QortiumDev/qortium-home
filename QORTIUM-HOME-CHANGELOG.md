@@ -32,6 +32,16 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## feat(home2): open app tabs with an explicit account
+
+2026-09-05
+
+The account dropdown now lets you open the current app in a new tab with a
+chosen saved account or with no account. Choosing the same account creates
+another instance. The original tab and your default for new tabs stay unchanged;
+locked accounts remain locked. This control stays inside the dropdown and is
+not offered for publish previews or resource viewers.
+
 ## fix(home2): preserve guest accounts in saved links
 
 2026-09-05
