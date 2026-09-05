@@ -154,7 +154,14 @@ try {
     const app = new Cdp(target.webSocketDebuggerUrl)
     clients.push(app)
     await app.ready
-    await until('Native document ready', () => app.evaluate('document.readyState === "complete"'))
+    // A CDP target can advertise its requested URL while its old about:blank
+    // document still reports readyState=complete. Require the actual fixture
+    // document and bridge, otherwise pushState races the first navigation.
+    await until('Native fixture document and bridge ready', () => app.evaluate(`
+      document.readyState === 'complete' &&
+      location.pathname.startsWith(${JSON.stringify(`/render/APP/${name}/published/${route}`)}) &&
+      document.body?.textContent.includes('Disposable navigation fixture') &&
+      typeof window.qdnRequest === 'function'`))
     return app
   }
   const alpha = 'qortal://APP/NavigationAlpha/published/'
