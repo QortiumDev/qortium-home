@@ -1251,6 +1251,7 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
                 appUpdates={props.appUpdates}
                 onChainCoreUpdates={props.onChainCoreUpdates}
                 qdnAppsManagement={props.qdnAppsManagement}
+                onOpenAddress={props.onOpenAddress}
                 resolveAccountLabel={props.resolveAccountLabel}
                 loadVisibleAppIcon={props.loadVisibleAppIcon}
                 notificationPolicy={props.notificationPolicy}

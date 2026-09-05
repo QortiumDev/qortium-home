@@ -32,6 +32,13 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## fix(home2): keep app permissions reachable and restore the notification manager launcher
+
+QDN Apps settings now remain available when Qortium is disabled, including
+Qortal-only and offline profiles, so saved permissions can always be inspected
+and revoked. The Notifications Manager has an Open button again; it opens the
+currently saved app assignment and reports launch failures in Settings.
+
 ## fix(home2): keep preview archive hashes stable across clocks and time zones
 
 Previewing the same folder now produces the same archive bytes even when the
