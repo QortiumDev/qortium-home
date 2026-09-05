@@ -228,7 +228,9 @@ function parseRevoke(value: unknown) {
 // delete a single rule.
 const REVOCABLE_CAPABILITIES = [
   'account.decrypt',
+  'account.directChat',
   'account.encrypt',
+  'account.groupChat',
   'account.read',
   'bookmarks.manage',
   'chat.send',
@@ -237,7 +239,10 @@ const REVOCABLE_CAPABILITIES = [
 export type HomeV2RevocableCapability = (typeof REVOCABLE_CAPABILITIES)[number]
 // The subset stored per (app principal, account). Revoking one of these
 // must name the account, and only that account's grant is dropped.
-const ACCOUNT_SCOPED_REVOCABLE_CAPABILITIES = ['account.read', 'account.encrypt', 'account.decrypt', 'chat.send'] as const
+const ACCOUNT_SCOPED_REVOCABLE_CAPABILITIES = [
+  'account.read', 'account.encrypt', 'account.decrypt',
+  'account.directChat', 'account.groupChat', 'chat.send',
+] as const
 export type HomeV2AccountScopedRevocableCapability =
   (typeof ACCOUNT_SCOPED_REVOCABLE_CAPABILITIES)[number]
 

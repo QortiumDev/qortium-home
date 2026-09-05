@@ -6,6 +6,7 @@ import {
   revokeQdnAccountCapability,
   revokeQdnAppCapability,
   setQdnAppAssignment,
+  storeHoldsQdnAccountCapability,
   type QdnAppAssignmentsStore,
 } from './qdn-manager-permissions.js'
 import {
@@ -99,7 +100,8 @@ const service = createHomeV2QdnSettingsService({
       // silently revoked the wrong grant once there were two.
       assert.ok(
         capability === 'account.read' || capability === 'account.encrypt' ||
-          capability === 'account.decrypt' || capability === 'chat.send',
+          capability === 'account.decrypt' || capability === 'chat.send' ||
+          capability === 'account.directChat' || capability === 'account.groupChat',
         'an account-scoped revoke must name an account-scoped capability',
       )
       assignments = revokeQdnAccountCapability(assignments, appKey, accountId, capability)
@@ -537,6 +539,36 @@ for (const scheme of ['qdn', 'qortal']) {
   const after = service.revokeBookmarks({ ...request, accountId: READ_ACCOUNT_A })
   assert.deepEqual(after.chatSend.apps.filter(({ appKey }) => appKey === app)
     .map(({ accountId }) => accountId), [READ_ACCOUNT_B])
+}
+
+// Both private-chat read cards must revoke only their named account/capability.
+for (const scheme of ['qdn', 'qortal']) {
+  const app = `${scheme}://APP/PrivateChat/PrivateChat`
+  for (const capability of ['account.directChat', 'account.groupChat'] as const) {
+    const otherCapability = capability === 'account.directChat' ? 'account.groupChat' : 'account.directChat'
+    assignments = grantQdnAccountCapability(assignments, app, READ_ACCOUNT_A, capability)
+    assignments = grantQdnAccountCapability(assignments, app, READ_ACCOUNT_B, capability)
+    assignments = grantQdnAccountCapability(assignments, app, READ_ACCOUNT_A, otherCapability)
+    const request = {
+      appKey: app,
+      capability,
+      expectedAssignmentRevision: assignments.revision,
+      revision: 1,
+      schema: 'home-v2-qdn-settings-revoke-bookmarks-request',
+    }
+    const before = assignments
+    assert.throws(() => service.revokeBookmarks(request), /requires the account/)
+    assert.throws(() => service.revokeBookmarks({ ...request, accountId: '' }), /account/i)
+    assert.throws(() => service.revokeBookmarks({ ...request, accountId: READ_ACCOUNT_A, capability: 'account.unknown' }), /cannot be revoked/)
+    assert.throws(() => service.revokeBookmarks({ ...request, accountId: READ_ACCOUNT_A, capability: 'bookmarks.manage' }), /not granted per account/)
+    assert.equal(assignments, before, 'invalid scopes must not mutate any grant')
+    const after = service.revokeBookmarks({ ...request, accountId: READ_ACCOUNT_A })
+    assert.equal(storeHoldsQdnAccountCapability(assignments, app, READ_ACCOUNT_A, capability), false)
+    assert.equal(storeHoldsQdnAccountCapability(assignments, app, READ_ACCOUNT_B, capability), true)
+    assert.equal(storeHoldsQdnAccountCapability(assignments, app, READ_ACCOUNT_A, otherCapability), true)
+    const cards = capability === 'account.directChat' ? after.accountDirectChat.apps : after.accountGroupChat.apps
+    assert.deepEqual(cards.filter(({ appKey }) => appKey === app).map(({ accountId }) => accountId), [READ_ACCOUNT_B])
+  }
 }
 
 console.log('Home 2 QDN settings contract tests passed.')
