@@ -111,6 +111,33 @@ validating unchanged; a manager app should treat their absence the same as
 an empty account list. `BOOKMARKS_APPLY` results include the same two fields
 in `snapshot`, not just the initial `BOOKMARKS_GET`.
 
+### Explicit guest saved links (Home 2.1)
+
+Saved-place `accountId` is an account **reference**: null/omitted remains
+Current, a real `wallet:...` id selects that saved account, and the reserved
+nonempty string `home-v2:guest` explicitly selects no account. Home's tab-save
+controls capture this reference for guest `qdn://` and `qortal://` tabs. Ordinary
+Home/Core addresses retain their existing account-independent behavior. The
+reference survives moves among bookmarks, toolbar, pins and startup pages,
+legacy storage mirrors, and profile backup/restore without changing schema 1.
+
+Manager snapshots include a virtual `home-v2:guest` choice labelled No account
+(localized), unless the 256-choice limit is already occupied. This choice is
+not a vault account and never changes `activeAccountId`. At the limit, existing
+guest references remain valid even though a manager may show them as unavailable.
+Only this exact reserved reference bypasses the saved-account existence check
+in Home 2's `BOOKMARKS_OPEN`; it becomes an explicit guest binding at launch,
+not runtime null (which means Current). Unavailable concrete startup bindings
+are skipped; toolbar, pin and manager opens reject unavailable saved accounts.
+
+Bookmarks 1.5.5 already preserves nonempty account references, displays supplied
+choice labels, and refuses account-bound fallback navigation when
+`BOOKMARKS_OPEN` is unavailable. No manager publication is required. Older Home
+manager bridges reject the reserved reference as an unknown account. This is
+not a general downgrade guarantee: older native startup handling can fall back
+to Current for unknown references, so guest-bearing profiles require updated
+Home for reliable guest launch behavior.
+
 `BOOKMARKS_APPLY` performs one typed mutation against an exact revision:
 
 ```js
@@ -182,8 +209,8 @@ await qdnRequest({
 ```
 
 `address` must be a supported `qdn://`, `home://`, or `core://` address.
-`accountId` is optional and nullable: a non-null id must match one of
-`availableAccounts` from the same snapshot, or the request is rejected;
+`accountId` is optional and nullable: a non-null id must name a saved Home
+account or the reserved `home-v2:guest` reference, or the request is rejected;
 `null` (or omitting the field) means "Current" — inherit whichever account
 the Bookmarks manager's own tab is using, the same meaning `null` has on
 saved links, dashboard pins, and start pages. Home reuses an existing tab

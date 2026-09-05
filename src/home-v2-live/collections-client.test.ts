@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { HomeV2CollectionsClient } from './collections-client'
+import { SAVED_GUEST_ACCOUNT_ID } from '../bookmarkManagerContract'
 import {
   clearFakeCollectionPreferences,
   failNextFakeCollectionWrite,
@@ -50,7 +51,7 @@ assert.equal(migrated.bookmarks[0]?.type, 'bookmark')
 assert.equal(migrated.dashboardPins[0]?.displayUrl, 'qdn://APP/Help/Help')
 assert.equal(migrated.startPages[0]?.displayUrl, 'qdn://APP/Polls/Polls')
 assert.equal(migrated.activeAccountId, 'account-1')
-assert.deepEqual(migrated.availableAccounts, accounts.availableAccounts)
+assert.deepEqual(migrated.availableAccounts, [...accounts.availableAccounts, { id: SAVED_GUEST_ACCOUNT_ID, label: 'No account' }])
 assert.ok(readFakeCollectionPreference('qortium-home-bookmark-manager-snapshot'))
 
 const applied = await migratedClient.apply({
@@ -104,7 +105,7 @@ const reloaded = await new HomeV2CollectionsClient().getSnapshot({
 })
 assert.equal(reloaded.revision, 6)
 assert.equal(reloaded.activeAccountId, null)
-assert.deepEqual(reloaded.availableAccounts, [])
+assert.deepEqual(reloaded.availableAccounts, [{ id: SAVED_GUEST_ACCOUNT_ID, label: 'No account' }])
 
 clearFakeCollectionPreferences()
 const freshClient = new HomeV2CollectionsClient()
@@ -336,6 +337,47 @@ assert.equal((await toolbarClient.getSnapshot(accounts)).revision, toolbarShown.
     { links: [{ displayUrl: 'qdn://APP/Node/Node', title: 'Node' }], shouldSeed: false },
   )
   assert.deepEqual(untouched.toolbar, [], 'no seeding when the caller says not to')
+}
+
+// Reserved references survive schema-1 storage, manager edits, cross-root
+// moves and reloads without turning Current/null into guest or vice versa.
+{
+  clearFakeCollectionPreferences()
+  const client = new HomeV2CollectionsClient()
+  const initial = await client.getSnapshot(accounts)
+  const guestDraft = { accountId: SAVED_GUEST_ACCOUNT_ID, displayUrl: 'qortal://APP/Chat/default', title: 'Guest chat' }
+  const added = await client.apply({
+    expectedRevision: initial.revision,
+    mutation: { type: 'addTreeLink', rootId: 'bookmarks', link: guestDraft },
+  }, accounts)
+  const guest = added.snapshot.bookmarks[0]
+  assert.equal(guest.type, 'bookmark')
+  assert.equal(guest.type === 'bookmark' && guest.accountId, SAVED_GUEST_ACCOUNT_ID)
+  const edited = await client.apply({
+    expectedRevision: added.snapshot.revision,
+    mutation: { type: 'updateTreeLink', rootId: 'bookmarks', itemId: guest.id, link: { ...guestDraft, title: 'Renamed guest' } },
+  }, accounts)
+  const noChange = await client.apply({
+    expectedRevision: edited.snapshot.revision,
+    mutation: { type: 'updateTreeLink', rootId: 'bookmarks', itemId: guest.id, link: { ...guestDraft, title: 'Renamed guest' } },
+  }, accounts)
+  assert.equal(noChange.changed, false)
+  assert.deepEqual(noChange.snapshot.availableAccounts, added.snapshot.availableAccounts)
+  const moved = await client.apply({
+    expectedRevision: edited.snapshot.revision,
+    mutation: { type: 'moveItem', itemId: guest.id, sourceRootId: 'bookmarks', targetRootId: 'startPages' },
+  }, accounts)
+  assert.equal(moved.snapshot.startPages[0].accountId, SAVED_GUEST_ACCOUNT_ID)
+  const restored = await new HomeV2CollectionsClient().getSnapshot(accounts)
+  assert.equal(restored.startPages[0].accountId, SAVED_GUEST_ACCOUNT_ID)
+  assert.equal(restored.activeAccountId, accounts.activeAccountId)
+  const stored = JSON.parse(readFakeCollectionPreference('qortium-home-bookmark-manager-snapshot')!)
+  assert.equal(stored.availableAccounts, undefined, 'virtual choice is never persisted as a real account')
+  assert.equal(stored.activeAccountId, undefined)
+  const fullAccounts = { activeAccountId: null, availableAccounts: Array.from({ length: 256 }, (_, index) => ({ id: `wallet:${index}`, label: `Account ${index}` })) }
+  const full = await client.getSnapshot(fullAccounts)
+  assert.deepEqual(full.availableAccounts, fullAccounts.availableAccounts, 'retain all real choices at the existing contract cap')
+  assert.equal(full.startPages[0].accountId, SAVED_GUEST_ACCOUNT_ID, 'guest saved reference survives even without a virtual picker entry')
 }
 
 console.log('Home 2 collections client tests passed.')

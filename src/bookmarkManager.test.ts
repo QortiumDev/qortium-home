@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { DEFAULT_BOOKMARKS_STATE } from './bookmarks';
+import { SAVED_GUEST_ACCOUNT_ID } from './bookmarkManagerContract';
 import {
   applyBookmarkManagerMutation,
   locateBookmarkManagerLink,
@@ -220,9 +221,25 @@ for (const scheme of ['qdn', 'qortal']) {
   assert.equal(labelledPin.snapshot.dashboardPins[0].accountId, 'wallet-b:1');
 
   // Existing contract: null is Current/inherit, not an explicit guest identity.
-  const current = applyBookmarkManagerMutation(empty, buildTabBookmarkToggle(snapshot, { ...draft, accountId: null }));
+  const current = applyBookmarkManagerMutation(empty, { type: 'addTreeLink', rootId: 'bookmarks', link: { ...draft, accountId: null } });
   assert.equal(locateBookmarkManagerLink(current.snapshot, draft.displayUrl)?.link.accountId ?? null, null);
   assert.throws(() => buildTabBookmarkToggle(current.snapshot, draft), /another account/, 'an explicit binding cannot silently replace Current');
+  assert.throws(() => buildTabBookmarkToggle(current.snapshot, { ...draft, accountId: null }), /another account/, 'guest cannot unstar a legacy Current save');
+  const guestDraft = { ...draft, accountId: null };
+  const guest = applyBookmarkManagerMutation(empty, buildTabBookmarkToggle(snapshot, guestDraft));
+  const guestLink = locateBookmarkManagerLink(guest.snapshot, draft.displayUrl)!.link;
+  assert.equal(guestLink.accountId, SAVED_GUEST_ACCOUNT_ID);
+  assert.equal(applyBookmarkManagerMutation(guest.collections, buildTabBookmarkToggle(guest.snapshot, guestDraft)).snapshot.bookmarks.length, 0);
+  assert.throws(() => buildTabBookmarkToggle(guest.snapshot, draft), /another account/);
+  const guestToolbar = applyBookmarkManagerMutation(empty, buildTabToolbarSave(snapshot, guestDraft)!);
+  assert.equal(locateBookmarkManagerLink(guestToolbar.snapshot, draft.displayUrl)?.link.accountId, SAVED_GUEST_ACCOUNT_ID);
+  assert.equal(buildTabToolbarSave(guestToolbar.snapshot, guestDraft), null);
+  const guestPin = applyBookmarkManagerMutation(empty, buildTabDashboardPin(snapshot, guestDraft));
+  assert.equal(guestPin.snapshot.dashboardPins[0].accountId, SAVED_GUEST_ACCOUNT_ID);
+  const movedGuest = applyBookmarkManagerMutation(guest.collections, {
+    type: 'moveItem', itemId: guestLink.id, sourceRootId: 'bookmarks', targetRootId: 'startPages',
+  });
+  assert.equal(movedGuest.snapshot.startPages[0].accountId, SAVED_GUEST_ACCOUNT_ID);
   const start = applyBookmarkManagerMutation(empty, { type: 'addStartPage', page: draft });
   assert.equal(start.snapshot.startPages[0].accountId, 'wallet-b:1');
 }

@@ -32,6 +32,16 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## fix(home2): preserve guest accounts in saved links
+
+2026-09-05
+
+Saving an app tab with no account now keeps it that way when reopened from
+Bookmarks, the toolbar, Dashboard pins, or startup pages, even if a default
+account is selected later. The Bookmarks manager offers a No account choice;
+existing Current links still follow the current account. Startup pages saved
+for a removed account are skipped instead of opening under a different account.
+
 ## fix(home2): preserve tab permissions when changing the default account
 
 Changing the default account for new tabs no longer clears permissions or
