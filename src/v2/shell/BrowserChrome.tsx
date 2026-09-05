@@ -156,7 +156,7 @@ function browserAddress(
   const activeTab = productState.tabs.find(
     (tab) => tab.id === productState.activeTabId,
   )
-  if (activeTab) {
+  if (activeTab && !productState.transient) {
     return currentAppLocation(activeTab)
   }
   if (productState.destination === 'releases' && releaseNotesAddress) {
@@ -181,6 +181,7 @@ function browserAddress(
  * "no title" signal honest so display code can derive a short label.
  */
 function browserPageTitle(productState: ProductState): string {
+  if (productState.transient) return ''
   const activeEntry = productState.entries.find(
     (entry) => entry.id === productState.activeTabId,
   )

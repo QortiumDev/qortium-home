@@ -31,6 +31,7 @@ function productionFunction(relative, name, sandbox) {
 }
 const helpers = await bundled('src/v2/current-app-location.ts')
 const {createProductState,reduceProductState} = await bundled('src/v2/product-model.ts')
+const {reduceTabNavigation} = await bundled('src/home-v2-live/tab-navigation.ts')
 const {createHomeV2ShellState,serializeHomeV2ShellState,parseHomeV2ShellState} = await bundled('src/home-v2-live/shell-state.ts')
 const {readHomeV2AppNavigationMessage} = await bundled('src/v2/app-frame-messages.ts')
 const {parseAppResourceLocation} = await bundled('src/v2/resource-location.ts')
@@ -43,7 +44,7 @@ const product = {current:reduceProductState(createProductState(),{type:'open-app
 const actions=[], effects=[], saves=[]
 const sandbox = vm.createContext({...helpers,productStateRef:product,savedEntryAccountId,URL,URLSearchParams,
   parseAppResourceLocation,
-  dispatchProduct(action) {actions.push(action);product.current=reduceProductState(product.current,action)},
+  dispatchProduct(action) {actions.push(action);product.current=reduceTabNavigation(product.current,action)},
   setAppNavigation(update) {sandbox.navigation=update(sandbox.navigation)},navigation:{},
   invalidateAndroidRuntime() {throw new Error('SPA navigation must not revoke grants')},
   window:{homeV2Apps:{invalidateRuntime(){throw new Error('SPA navigation must not revoke grants')}}},

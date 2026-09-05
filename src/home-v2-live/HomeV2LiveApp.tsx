@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import { Capacitor } from '@capacitor/core'
+import { reduceTabNavigation, tabDestination, tabHistory, nativeHistoryIndex } from './tab-navigation'
 import {
   clampHomeV2AppZoom,
   defaultHomeV2Appearance,
@@ -39,7 +40,6 @@ import type {
 import {
   createProductState,
   findReplaceableAppTab,
-  reduceProductState,
   type AppTab,
   type ProductState,
   type ReplaceTabTarget,
@@ -394,7 +394,7 @@ import {
 } from '../v2/resource-location'
 import { resolveHomeV2PublishPreviewOpen } from './publish-preview-tab'
 import { resolveAccountTabLaunch } from './account-tab-launch'
-import { rememberClosedAppTab, type ClosedAppTab } from './closed-app-tabs'
+import { rememberClosedTab, type ClosedTab } from './closed-tabs'
 import { currentAppLocation, currentAppLocationFromRender } from '../v2/current-app-location'
 import { resolveLaunchIdentifier } from '../v2/shell/render-path-identity'
 import { base58Decode, base58Encode } from '../../electron/base58'
@@ -1391,7 +1391,7 @@ export function HomeV2LiveApp() {
     )
   }, [isAndroidHost])
   const [productState, dispatchProduct] = useReducer(
-    reduceProductState,
+    reduceTabNavigation,
     undefined,
     createProductState,
   )
@@ -1487,6 +1487,7 @@ export function HomeV2LiveApp() {
     Readonly<Record<string, AppTabNavigationSnapshot>>
   >({})
   const [appReloadVersion, setAppReloadVersion] = useState(0)
+  const [internalReloadVersion, setInternalReloadVersion] = useState(0)
   const [nodeClient, setNodeClient] = useState<HomeV2NodeClient | null>(
     () => window.homeV2Nodes ?? null,
   )
@@ -1936,6 +1937,7 @@ export function HomeV2LiveApp() {
         : null
       if (location) dispatchProduct({ type: 'set-tab-current-location', tabId,
         fromResourceLocation: tab.context.resourceLocation, location })
+      dispatchProduct({ type: 'sync-app-history', tabId, snapshot: navigation })
       // This event is same-app history/hash navigation. The native view blocks
       // cross-resource navigation before it reaches this callback, so changing
       // Chat routes must not revoke the tab's account-read consent.
@@ -1950,7 +1952,10 @@ export function HomeV2LiveApp() {
   const handleAppNavigationControllerChange = useCallback(
     (tabId: TabId, controller: AppTabNavigationController | null) => {
       if (controller) androidNavigationControllers.current.set(tabId, controller)
-      else androidNavigationControllers.current.delete(tabId)
+      else {
+        androidNavigationControllers.current.delete(tabId)
+        dispatchProduct({ type: 'forget-native-history', tabId })
+      }
     },
     [],
   )
@@ -2186,6 +2191,7 @@ export function HomeV2LiveApp() {
         }
         setStartupPreference(restored.startupPreference)
         setSettingsSection(restored.settingsSection)
+        dispatchProduct({ type: 'initialize-settings-history', section: restored.settingsSection })
         setNewTabPreference(restored.newTabPreference)
         setOnboarding(restored.onboarding)
         setRestoredAccountId(restored.selectedAccountId)
@@ -2452,9 +2458,9 @@ export function HomeV2LiveApp() {
     snapshot.appearance.textSize,
     snapshot.appearance.ui,
   ])
-  // Session-only stack of recently closed app-tab bindings (newest last),
+  // Session-only stack of recently closed internal/app tabs (newest last),
   // consumed by the reopen-closed-tab menu command.
-  const closedAppTabs = useRef<ClosedAppTab[]>([])
+  const closedAppTabs = useRef<ClosedTab[]>([])
   // Navigation handlers live late in the render scope; the menu subscription
   // reads them through this ref so it can stay mounted once.
   const menuNavigation = useRef<{
@@ -2644,6 +2650,12 @@ export function HomeV2LiveApp() {
       // without telling anything that the tab is going away.
       invalidateAndroidRuntime('app-replaced', target.tabId)
       window.homeV2Apps?.invalidateRuntime({ kind: 'app-replaced', tabId: target.tabId })
+      // Cross-app history is held by the shell. A fresh native view prevents
+      // earlier visits to the same resource leaking stale native indices.
+      if (current.context.resourceLocation !== (requestedLocation ??
+          buildAppResourceLocation(app.sourceNetwork, app.resourceIdentity))) {
+        void window.homeV2Apps?.destroy({ tabId: target.tabId })
+      }
     },
     [invalidateAndroidRuntime],
   )
@@ -2784,14 +2796,14 @@ export function HomeV2LiveApp() {
         if (coreDocs) {
           setShellNotice(null)
           setCoreDocsNetwork(coreDocs)
-          dispatchProduct({ type: 'navigate', destination: 'core-docs' })
+          dispatchProduct({ type: 'show-transient', destination: { kind: 'core-docs', network: coreDocs } })
           return { status: 'opened' }
         }
         const releaseNotes = parseHomeV2ReleaseNotesAddress(address)
         if (releaseNotes) {
           setShellNotice(null)
           setReleaseNotesTarget(releaseNotes)
-          dispatchProduct({ type: 'navigate', destination: 'releases' })
+          dispatchProduct({ type: 'show-transient', destination: { kind: 'releases', target: releaseNotes } })
           return { status: 'opened' }
         }
         const internal = parseHomeV2InternalAddress(address)
@@ -10304,7 +10316,14 @@ export function HomeV2LiveApp() {
     })
   }, [appOverlayTabId, productState.activeTabId, productState.tabs])
 
-  const activeNavigation = productState.activeTabId
+  const activeHistory = tabHistory(productState)
+  const activeDestination = tabDestination(productState)
+  useEffect(() => {
+    if (activeDestination?.kind === 'internal' && activeDestination.page === 'settings' && activeDestination.section) {
+      setSettingsSection(activeDestination.section)
+    }
+  }, [activeDestination])
+  const activeNavigation = !productState.transient && productState.activeTabId
     ? appNavigation[productState.activeTabId]
     : undefined
   const activeNavigationPosition = activeNavigation
@@ -10313,6 +10332,38 @@ export function HomeV2LiveApp() {
       )
     : -1
   const navigateActiveApp = (offset: -1 | 1) => {
+    if (activeHistory) {
+      const index = activeHistory.index + offset
+      const destination = activeHistory.entries[index]
+      if (!destination) return
+      const tabId = productState.activeTabId
+      const nativeIndex = nativeHistoryIndex(productState, tabId, index)
+      if (destination.kind === 'app' && nativeIndex !== null) {
+        const fromResourceLocation = productState.tabs.find(tab => tab.id === tabId)?.context.resourceLocation
+        const traversal = window.homeV2Apps
+          ? window.homeV2Apps.navigate({ tabId, index: nativeIndex })
+          : androidNavigationControllers.current.get(tabId)?.goToIndex(nativeIndex)
+        void Promise.resolve(traversal).then(reached => {
+          const current = productStateRef.current
+          // A late native acknowledgement must not switch tabs or select an
+          // index in a newer app session after another navigation won.
+          if (current.activeTabId !== tabId ||
+              current.tabs.find(tab => tab.id === tabId)?.context.resourceLocation !== fromResourceLocation ||
+              nativeHistoryIndex(current, tabId, index) !== nativeIndex) return
+          if (reached) dispatchProduct({ type: 'select-native-history', tabId, index })
+          else setShellNotice(t('home2.app.unableToLoad'))
+        }).catch(() => setShellNotice(t('home2.app.unableToLoad')))
+      } else {
+        if (destination.kind === 'app') {
+          invalidateAndroidRuntime('app-replaced', tabId)
+          window.homeV2Apps?.invalidateRuntime({ kind: 'app-replaced', tabId })
+          void window.homeV2Apps?.destroy({ tabId })
+          setAppReloadVersion(current => current + 1)
+        }
+        dispatchProduct({ type: 'traverse-history', tabId, index })
+      }
+      return
+    }
     if (!productState.activeTabId || !activeNavigation) return
     const target = activeNavigation.entries[activeNavigationPosition + offset]
     if (target) {
@@ -10329,13 +10380,14 @@ export function HomeV2LiveApp() {
     }
   }
   const reloadActiveSurface = () => {
-    if (productState.activeTabId) {
+    if (!productState.transient && productState.destination === 'tab') {
       if (window.homeV2Apps) {
         void window.homeV2Apps.reload({ tabId: productState.activeTabId })
       } else {
         setAppReloadVersion((current) => current + 1)
       }
     } else {
+      setInternalReloadVersion(current => current + 1)
       void nodeCoreController.refreshAll()
     }
   }
@@ -10355,6 +10407,13 @@ export function HomeV2LiveApp() {
     const closed = closedAppTabs.current.pop()
     if (!closed) return
     try {
+      if ('page' in closed) {
+        tabSequence.current += 1
+        const tabId = brand<TabId>(`home-v2:internal:reopened:${Date.now().toString(36)}:${tabSequence.current}`)
+        dispatchProduct({ type: 'open-internal', page: closed.page, tabId })
+        if (closed.section) dispatchProduct({ type: 'initialize-settings-history', tabId, section: closed.section })
+        return
+      }
       // New id/native view every time: never select a surviving duplicate or
       // resurrect the closed tab's session grants. openApp checks the current
       // catalogue synchronously and refuses removed accounts without fallback.
@@ -10368,9 +10427,8 @@ export function HomeV2LiveApp() {
   }, [openApp, shellStateReady, accountCatalogueReady])
 
   const closeTab = useCallback((tabId: TabId) => {
-    const closingTab = productStateRef.current.tabs.find((tab) => tab.id === tabId)
     if (shellStateReady) {
-      closedAppTabs.current = rememberClosedAppTab(closedAppTabs.current, closingTab)
+      closedAppTabs.current = rememberClosedTab(closedAppTabs.current, productStateRef.current, tabId)
     }
     invalidateAndroidRuntime('tab-closed', tabId)
     window.homeV2Apps?.invalidateRuntime({ kind: 'tab-closed', tabId })
@@ -10413,8 +10471,12 @@ export function HomeV2LiveApp() {
       startupPreference={startupPreference}
       startPageCount={collectionsSnapshot?.startPages?.length ?? 0}
       onSetStartupPreference={setStartupPreference}
-      settingsSection={settingsSection}
-      onSettingsSectionChange={setSettingsSection}
+      settingsSection={activeDestination?.kind === 'internal' && activeDestination.page === 'settings'
+        ? activeDestination.section ?? settingsSection : settingsSection}
+      onSettingsSectionChange={(section) => {
+        setSettingsSection(section)
+        dispatchProduct({ type: 'settings-section', section })
+      }}
       identityLookup={identityLookup}
       identityLookupBusy={identityLookupBusy}
       identityLookupError={identityLookupError}
@@ -10427,6 +10489,7 @@ export function HomeV2LiveApp() {
       selectedAccountId={selectedAccountId}
       selectedAccountLookup={selectedAccountLookup}
       appReloadVersion={appReloadVersion}
+      internalReloadVersion={internalReloadVersion}
       nodeClient={nodeClient}
       coreManagement={{
         available: nodeCoreController.coreAvailable,
@@ -10461,8 +10524,8 @@ export function HomeV2LiveApp() {
       onDropTabOnBookmarkToolbar={dropTabOnBookmarkToolbar}
       onPinTabToDashboard={pinTabToDashboard}
       onDetachTab={window.homeV2Windows ? detachTab : undefined}
-      releaseNotesTarget={releaseNotesTarget}
-      coreDocsNetwork={coreDocsNetwork}
+      releaseNotesTarget={activeDestination?.kind === 'releases' ? activeDestination.target : releaseNotesTarget}
+      coreDocsNetwork={activeDestination?.kind === 'core-docs' ? activeDestination.network : coreDocsNetwork}
       coreDocsTransport={homeV2CoreDocsTransport()}
       enableCoreDocs={enableHomeV2CoreDocs}
       probeCoreDocs={probeHomeV2CoreDocs}
@@ -10530,11 +10593,11 @@ export function HomeV2LiveApp() {
       }
       onOpenReleaseNotes={(target) => {
         setReleaseNotesTarget(target)
-        dispatchProduct({ type: 'navigate', destination: 'releases' })
+        dispatchProduct({ type: 'show-transient', destination: { kind: 'releases', target } })
       }}
       onOpenCoreDocs={(network) => {
         setCoreDocsNetwork(network)
-        dispatchProduct({ type: 'navigate', destination: 'core-docs' })
+        dispatchProduct({ type: 'show-transient', destination: { kind: 'core-docs', network } })
       }}
       onRestartWelcome={() => {
         setOnboarding(createHomeV2OnboardingState())
@@ -10672,9 +10735,9 @@ export function HomeV2LiveApp() {
         ? openTabWithAccount : undefined}
       widgetAvailable={activeWidgetAvailable}
       onResolvePermission={resolveAccountPermission}
-      canGoBack={activeNavigationPosition > 0}
+      canGoBack={activeHistory ? activeHistory.index > 0 : activeNavigationPosition > 0}
       canGoForward={
-        !!activeNavigation &&
+        activeHistory ? activeHistory.index < activeHistory.entries.length - 1 : !!activeNavigation &&
         activeNavigationPosition >= 0 &&
         activeNavigationPosition < activeNavigation.entries.length - 1
       }

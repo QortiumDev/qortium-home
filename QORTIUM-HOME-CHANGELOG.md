@@ -32,6 +32,17 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## fix(home2): keep navigation history scoped to each tab
+
+2026-09-05
+
+Back and Forward now follow each tab's own journey, including Settings sections
+and visits across apps in the same tab. Switching tabs keeps those histories
+separate. Returning to an earlier app keeps the tab's account but does not restore
+old permissions. Internal pages can be reopened after closing, and Reload refreshes
+the visible page without reloading an app hidden behind Core documentation or
+release notes. Those internal viewers also show their own address correctly.
+
 ## fix(home2): keep displayed and saved app URLs current
 
 2026-09-05
