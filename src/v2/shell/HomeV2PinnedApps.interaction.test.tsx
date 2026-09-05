@@ -367,7 +367,7 @@ try {
     assert(grid)
     assert.equal(
       grid.style.maxWidth,
-      '154px',
+      '186px',
       'the first paint is measured synchronously, not left to the observer',
     )
     assert(observed, 'the section is observed for later resizes')
@@ -377,7 +377,7 @@ try {
     })
     assert.equal(
       grid.style.maxWidth,
-      '154px',
+      '186px',
       'a hidden tab reporting width 0 keeps the last good measurement',
     )
 
@@ -387,7 +387,7 @@ try {
     })
     assert.equal(
       grid.style.maxWidth,
-      '72px',
+      '88px',
       'a real resize still re-balances the grid',
     )
   } finally {
@@ -395,6 +395,43 @@ try {
     layoutContainer.remove()
     HTMLElement.prototype.getBoundingClientRect = priorGetBoundingClientRect
     globalThis.ResizeObserver = priorResizeObserver
+  }
+}
+
+// Catalogue updates change presentation only: saved pin identity and callbacks
+// survive default changes, rename, lock state changes and account removal.
+{
+  const host = document.createElement('div')
+  document.body.appendChild(host)
+  const accountRoot = createRoot(host)
+  const saved = { ...pins[0], accountId: 'wallet:fixture' }
+  const opened: DashboardPin[] = []
+  const render = async (label: string | null, activeAccountId: string | null, isUnlocked = false) => {
+    await act(async () => accountRoot.render(<HomeV2PinnedApps pins={[saved]} status="ready"
+      accountCatalogue={{ activeAccountId, accounts: label === null ? [] : [{
+        id: saved.accountId, label, address: 'QFixture', addressIndex: 0,
+        walletId: 'fixture', isUnlocked, supportsDerivedAddresses: true,
+      }] }} onOpen={(pin) => { opened.push(pin) }}
+      onAdd={() => undefined} onMove={() => undefined} onReorder={() => undefined}
+      onRemove={() => undefined} onRename={() => undefined} />))
+  }
+  try {
+    for (const [label, active, unlocked] of [
+      ['Saved account', 'wallet:other', false], ['Renamed — 二', null, true],
+      [null, 'wallet:other', false],
+    ] as const) {
+      await render(label, active, unlocked)
+      const open = host.querySelector<HTMLButtonElement>('.home-v2-pinned-apps__open')!
+      const description = host.querySelector('.home-v2-pinned-apps__account')!
+      assert.equal(description.textContent, label ?? 'Account unavailable')
+      assert.equal(open.getAttribute('aria-describedby'), description.id)
+      assert.equal(open.disabled, false)
+      await act(async () => open.click())
+      assert.equal(opened.at(-1), saved, 'pass the original pin, never a rebound copy')
+    }
+  } finally {
+    await act(async () => accountRoot.unmount())
+    host.remove()
   }
 }
 

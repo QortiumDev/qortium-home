@@ -229,6 +229,60 @@ try {
   await cdp.evaluate(`(() => { [...document.querySelectorAll('.home-v2-welcome button')].find(button => button.textContent.trim() === 'Skip setup')?.click() })()`)
   await until('Dashboard', () => cdp.evaluate(`!!document.querySelector('.home-v2-page-slot[data-internal-page="dashboard"]:not([hidden])')`))
   await selectDefault(accountA)
+  // Seed only disposable saved-link data, then exercise the real packaged
+  // Dashboard with its production vault catalogue. No renderer methods mocked.
+  const pinCases = [
+    ['pin-current', null, 'Current'],
+    ['pin-guest', 'home-v2:guest', 'No account'],
+    ['pin-saved', accountB.id, accountB.label],
+    ['pin-removed', 'wallet:removed-fixture', 'Account unavailable'],
+  ]
+  const pinFixture = pinCases.map(([id, accountId], index) => ({
+    id, accountId, createdAt: index + 1, label: id,
+    // Use distinct explicit resource identifiers, not ambiguous default-app
+    // path segments (the resource-identity guard deliberately rejects those).
+    displayUrl: `qortal://APP/AccountLaunchFixture/${id}`,
+  }))
+  pinFixture.push({ id: 'pin-home', accountId: null, createdAt: 5,
+    label: 'Dashboard', displayUrl: 'home://dashboard' })
+  await cdp.evaluate(`(() => {
+    const key = 'qortium-home-bookmark-manager-snapshot'
+    const snapshot = JSON.parse(localStorage.getItem(key))
+    snapshot.dashboardPins = ${JSON.stringify(pinFixture)}
+    snapshot.revision++
+    localStorage.setItem(key, JSON.stringify(snapshot))
+  })()`)
+  await cdp.send('Page.reload', { ignoreCache: true })
+  await until('pin attribution from real vault catalogue', () => cdp.evaluate(`
+    document.querySelector('[data-pin-id="pin-saved"] .home-v2-pinned-apps__account')?.textContent === ${JSON.stringify(accountB.label)}
+  `))
+  await click(dashboardTab)
+  for (const [id, , label] of pinCases) {
+    const state = await cdp.evaluate(`(() => {
+      const button = document.querySelector('[data-pin-id="${id}"] .home-v2-pinned-apps__open')
+      const description = document.getElementById(button.getAttribute('aria-describedby'))
+      const tile = button.getBoundingClientRect(), caption = description.getBoundingClientRect()
+      return {label: description.textContent, title: button.title, disabled: button.disabled,
+        fits: caption.top >= tile.top && caption.bottom <= tile.bottom && caption.width <= tile.width}
+    })()`)
+    assert.equal(state.label, label)
+    assert.ok(state.title.endsWith(label))
+    assert.equal(state.disabled, false)
+    assert.ok(state.fits, 'Caption must fit its tile without shrinking the app icon')
+  }
+  assert.equal(await cdp.evaluate(`document.querySelector('[data-pin-id="pin-home"] .home-v2-pinned-apps__account')`), null)
+  await cdp.evaluate(`document.querySelector('.home-v2-pinned-apps').scrollIntoView({block:'center', behavior:'instant'})`)
+  const pinScreenshot = await cdp.send('Page.captureScreenshot', { format: 'png' })
+  writeFileSync(path.join(profile, 'pin-accounts.png'), pinScreenshot.data, 'base64')
+  // Changing the default cannot relabel an explicitly saved or Current pin.
+  await selectDefault(accountB)
+  assert.equal(await cdp.evaluate(`document.querySelector('[data-pin-id="pin-current"] .home-v2-pinned-apps__account').textContent`), 'Current')
+  await selectDefault(accountA)
+  await click('[data-pin-id="pin-saved"] .home-v2-pinned-apps__open')
+  const pinnedB = await attachFixture()
+  assert.deepEqual(await identity(pinnedB), {resolved:true,address:accountB.address})
+  await assertDefaultA()
+  log('Dashboard pin labels, full descriptions, tile fit and saved-B opening under default A passed')
   const original = await openFixture()
   assert.deepEqual(await identity(original), {resolved:true,address:accountA.address})
   const underB = await launchAs(original, accountB)
@@ -254,7 +308,8 @@ try {
   await assertDefaultA()
   writeFileSync(path.join(profile, 'acceptance.json'), JSON.stringify({
     passed:true, appImage:resolveAppImage(repoRoot),
-    checks:['account-dropdown-real-input', 'B-distinct-native-tab', 'source-A-identity-retained',
+    checks:['pin-account-attribution', 'pin-descriptions-and-layout', 'saved-pin-B-default-A',
+      'account-dropdown-real-input', 'B-distinct-native-tab', 'source-A-identity-retained',
       'default-A-unchanged', 'duplicate-A-distinct-native-tab', 'explicit-guest-no-default-identity'],
   }, null, 2))
   log(`PASS: account-specific launch, duplicate and guest. Isolated receipt: ${profile}`)

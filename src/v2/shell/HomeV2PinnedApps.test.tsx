@@ -2,6 +2,8 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { renderToStaticMarkup } from 'react-dom/server'
 import type { DashboardPin } from '../../dashboardPins'
+import { SAVED_GUEST_ACCOUNT_ID } from '../../bookmarkManagerContract'
+import type { HomeV2AccountCatalogueEntry } from '../contracts'
 import { HomeV2PinnedApps, type HomeV2PinnedAppsProps } from './HomeV2PinnedApps'
 
 const callbacks = {
@@ -52,6 +54,35 @@ assert.match(ready, /home-v2-app-icon__monogram">C</)
 assert.doesNotMatch(ready, /qdn:\/\/APP\/Chat\/Chat/)
 assert.doesNotMatch(ready, /home:\/\/bookmarks/)
 assert.doesNotMatch(ready, /home-v2-pinned-apps__actions/)
+
+const savedPins: DashboardPin[] = [
+  { ...pins[0], id: 'current-null', accountId: null },
+  { ...pins[0], id: 'current-missing' },
+  { ...pins[0], id: 'guest', accountId: SAVED_GUEST_ACCOUNT_ID },
+  { ...pins[0], id: 'saved', accountId: 'wallet:fixture' },
+  { ...pins[0], id: 'derived', displayUrl: 'qortal://APP/Chat/default', accountId: 'wallet:fixture:1' },
+  { ...pins[0], id: 'removed', accountId: 'wallet:removed' },
+  { ...pins[1], id: 'home', accountId: 'wallet:removed' },
+  { ...pins[1], id: 'core', displayUrl: 'qortal-core://admin/status', accountId: SAVED_GUEST_ACCOUNT_ID },
+]
+const account = (id: string, label: string): HomeV2AccountCatalogueEntry => ({
+  id, label, walletId: 'fixture', address: 'QFixture', addressIndex: 0,
+  isUnlocked: false, supportsDerivedAddresses: true,
+})
+const attributed = renderToStaticMarkup(<HomeV2PinnedApps {...callbacks}
+  pins={savedPins} status="ready" accountCatalogue={{ activeAccountId: 'wallet:other', accounts: [
+    account('wallet:fixture', 'Named account'), account('wallet:fixture:1', 'Derived <א> & 二'),
+  ] }} />)
+assert.equal((attributed.match(/class="home-v2-pinned-apps__account"/g) ?? []).length, 6)
+assert.equal((attributed.match(/>Current<\/bdi>/g) ?? []).length, 2)
+for (const label of ['No account', 'Named account', 'Derived &lt;א&gt; &amp; 二', 'Account unavailable']) {
+  assert.ok(attributed.includes(`>${label}</bdi>`), label)
+  assert.ok(attributed.includes(`title="Open Chat — ${label}"`), `full tooltip: ${label}`)
+}
+assert.doesNotMatch(attributed, /wallet:removed|wallet:other/)
+const descriptions = [...attributed.matchAll(/aria-describedby="([^"]+)"/g)].map((match) => match[1])
+assert.equal(new Set(descriptions).size, 6)
+for (const id of descriptions) assert.ok(attributed.includes(`<bdi id="${id}"`))
 
 const empty = renderToStaticMarkup(
   <HomeV2PinnedApps {...callbacks} pins={[]} status="ready" />,
