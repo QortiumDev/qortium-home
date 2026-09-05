@@ -47,6 +47,8 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
 // GitHub runner. Not inferred, not expected to -- observed. Anything unproven is
 // simply absent, and a smoke gets promoted only after a green run shows it.
 const SMOKES = [
+  { script: 'smoke:desktop:home-v2-navigation', needs: 'unknown',
+    note: 'Per-tab native/cross-app/internal navigation against a disposable loopback fixture; hosted CI not yet established.' },
   // Verified node-free: passed with all networking removed.
   { script: 'smoke:desktop:home-v2-onboarding', needs: 'none', ci: true },
   { script: 'smoke:desktop:home-v2-tabs', needs: 'none', ci: true },

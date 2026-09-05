@@ -29,7 +29,9 @@ async function bundled(relative) {
   return import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString('base64')}`)
 }
 const { rememberClosedAppTab } = await bundled('../src/home-v2-live/closed-app-tabs.ts')
-const { createProductState, reduceProductState } = await bundled('../src/v2/product-model.ts')
+const { rememberClosedTab } = await bundled('../src/home-v2-live/closed-tabs.ts')
+const { createProductState } = await bundled('../src/v2/product-model.ts')
+const { reduceTabNavigation: reduceProductState } = await bundled('../src/home-v2-live/tab-navigation.ts')
 const { createHomeV2SessionGrantStore, homeV2PermissionGrantKey } = await bundled('../electron/home-v2-session-grants.ts')
 const location = 'qortal://APP/Fixture/published/path?room=7#messages'
 const app = { id: 'fixture', title: 'Fixture', description: '', category: 'utility', sourceNetwork: 'qortal',
@@ -38,7 +40,7 @@ function harness() {
   const effects = [], notices = [], actions = []
   const product = { current: createProductState() }
   const sandbox = vm.createContext({
-    Error, rememberClosedAppTab, productStateRef: product, shellStateReady: true, accountCatalogueReady: true,
+    Error, rememberClosedAppTab, rememberClosedTab, productStateRef: product, shellStateReady: true, accountCatalogueReady: true,
     closedAppTabs: { current: [] }, tabSequence: { current: 0 },
     accountCatalogueRef: { current: { accounts: ['A', 'B:2'].map(id => ({
       id: `wallet:${id}`, walletId: id[0], isUnlocked: false,
@@ -135,5 +137,17 @@ for (const accountId of ['wallet:A', 'wallet:B:2', null]) {
   assert.equal(h.sandbox.closedAppTabs.current.length, 0)
 }
 assert.match(text, /onCloseTab=\{closeTab\}/)
+{
+  const h = harness()
+  h.sandbox.dispatchProduct({ type: 'open-internal', tabId: 'settings-a', page: 'settings' })
+  h.sandbox.dispatchProduct({ type: 'settings-section', section: 'appearance' })
+  h.close('settings-a')
+  h.reopen()
+  const entry = h.product.current.entries.at(-1)
+  assert.equal(entry.page, 'settings')
+  assert.notEqual(entry.id, 'settings-a')
+  assert.equal(h.product.current.navigation[entry.id].entries.length, 1)
+  assert.equal(h.product.current.navigation[entry.id].entries[0].section, 'appearance')
+}
 assert.match(text, /reopenClosedTab: reopenClosedAppTab/)
 console.log('Home v2 production close/reopen identity, duplicate, lifecycle and failure tests passed.')

@@ -18,6 +18,7 @@ type DocsState =
   | { readonly message: string; readonly phase: 'error' }
 
 export interface HomeV2CoreApiDocsPageProps {
+  readonly reloadVersion?: number
   readonly network: HomeV2CoreDocsNetwork
   readonly snapshot: HomeV2Snapshot
   readonly onOpenCoreSettings?: () => void
@@ -30,6 +31,7 @@ export interface HomeV2CoreApiDocsPageProps {
 }
 
 export function HomeV2CoreApiDocsPage({
+  reloadVersion,
   enable,
   network,
   snapshot,
@@ -89,7 +91,7 @@ export function HomeV2CoreApiDocsPage({
     return () => {
       disposed = true
     }
-  }, [frameUrl, network, node.capabilities.read, node.error, node.mode, node.nodeApiUrl, probe, retry])
+  }, [frameUrl, network, node.capabilities.read, node.error, node.mode, node.nodeApiUrl, probe, retry, reloadVersion])
 
   // Enabling the docs PATCHes Core's settings and restarts it, so the control
   // follows ADMIN TRUST, not the node being local (owner decision 2026-09-02):

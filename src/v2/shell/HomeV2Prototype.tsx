@@ -57,6 +57,7 @@ import {
   type AppTabNavigationSnapshot,
 } from './AppTabStage'
 import { BrowserChrome, type AddressOpenResult } from './BrowserChrome'
+import { tabDestination, type NavigationState } from '../../home-v2-live/tab-navigation'
 import type { InlineUnlockSubmission } from './InlineAccountUnlock'
 import { NetworkBadge } from './NetworkBadge'
 import { PermissionDialog } from './PermissionDialog'
@@ -130,6 +131,7 @@ export interface HomeV2PrototypeProps {
   readonly vaultState?: HomeV2VaultState
   readonly selectedAccountId?: string | null
   readonly appReloadVersion?: number
+  readonly internalReloadVersion?: number
   readonly selectedAccountLookup?: DualIdentityLookupResult | null
   readonly nodeClient?: HomeV2NodeClient | null
   readonly coreManagement?: HomeV2CoreManagement
@@ -977,6 +979,7 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
     if (overlayOwnerTabId) return
     setRequestedSettingsSection(section)
     onNavigate?.('settings')
+    props.onSettingsSectionChange?.(section === 'notifications' ? 'qdn-apps' : section)
   }
   // Menu close-tab targets the active app tab. Refused while a trusted
   // overlay owns a tab — closing under a pending prompt would strand it.
@@ -1172,6 +1175,7 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
           props.coreDocsTransport &&
           props.probeCoreDocs ? (
           <HomeV2CoreApiDocsPage
+            reloadVersion={props.internalReloadVersion}
             enable={props.enableCoreDocs}
             network={props.coreDocsNetwork}
             probe={props.probeCoreDocs}
@@ -1181,6 +1185,7 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
           />
           ) : productState.transient === 'releases' && props.releaseNotesTarget ? (
           <HomeV2ReleaseNotesPage
+            key={props.internalReloadVersion}
             target={props.releaseNotesTarget}
             onNavigate={props.onOpenReleaseNotes ?? (() => undefined)}
           />
@@ -1204,6 +1209,7 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
             // survives hidden, on Android the stage is keyed per tab.
             return isActive && !productState.transient ? (
               <AppTabStage
+                key={`${entry.id}:${props.appReloadVersion ?? 0}`}
                 productState={productState}
                 snapshot={snapshot}
                 translationVersion={translationVersion}
@@ -1269,7 +1275,12 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
                 onSetWindowBehavior={props.onSetWindowBehavior}
                 onOpenReleaseNotes={props.onOpenReleaseNotes}
                 onRestartWelcome={props.onRestartWelcome}
-                requestedSection={requestedSettingsSection}
+                requestedSection={(() => {
+                  const destination = (productState as NavigationState).navigation
+                    ? tabDestination(productState, entry.id) : undefined
+                  return destination?.kind === 'internal' && destination.section
+                    ? destination.section : requestedSettingsSection
+                })()}
                 onSectionChange={(section) => {
                   setRequestedSettingsSection(section)
                   props.onSettingsSectionChange?.(section)
@@ -1292,6 +1303,7 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
                 onComplete={(destination) => {
                   if (destination === 'appearance') setRequestedSettingsSection('appearance')
                   props.onWelcomeComplete?.(destination)
+                  if (destination === 'appearance') props.onSettingsSectionChange?.('appearance')
                 }}
                 onConfigureCustomNode={() => props.onConfigureCustomNode?.('qortium')}
                 onOpenNames={() => void props.onOpenAddress?.('qdn://APP/Names/Names')}
