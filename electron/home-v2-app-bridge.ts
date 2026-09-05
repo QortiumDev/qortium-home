@@ -46,6 +46,7 @@ import {
   grantQdnAccountCapabilityPermission,
 } from './qdn-manager-permission-store.js'
 import {
+  SAVED_GUEST_ACCOUNT_ID,
   validateBookmarkManagerMutationRequest,
   validateBookmarksOpenRequest,
 } from './bookmark-manager-contract.js'
@@ -11073,7 +11074,7 @@ async function handleRequestWithRuntime(
           address: requestValue.address,
         },
       )
-      if (request.accountId && !accountExists(request.accountId)) {
+      if (request.accountId && request.accountId !== SAVED_GUEST_ACCOUNT_ID && !accountExists(request.accountId)) {
         throw new Error('BOOKMARKS_OPEN accountId does not match a saved Home account.')
       }
       openHomeV2CollectionAddress(context, request)

@@ -1,5 +1,5 @@
 import type { BookmarkManagerMutation, BookmarkManagerSnapshot } from '../../bookmarkManagerContract'
-import { getSavedAccountContext } from '../../accountContext'
+import { captureSavedAccountContext, getSavedAccountContext } from '../../accountContext'
 import { locateBookmarkManagerLink } from '../../bookmarkManager'
 import { t } from '../../i18n'
 
@@ -13,6 +13,7 @@ function assertMatchingAccount(existing: { accountId?: string | null; displayUrl
 
 /** Resolve against the latest revision, so retries cannot remove another account's save. */
 export function buildTabBookmarkToggle(snapshot: BookmarkManagerSnapshot, draft: SavedTabDraft): BookmarkManagerMutation {
+  draft = { ...draft, accountId: captureSavedAccountContext(draft.displayUrl, draft.accountId) }
   const existing = locateBookmarkManagerLink(snapshot, draft.displayUrl)
   if (existing) {
     assertMatchingAccount(existing.link, draft)
@@ -22,6 +23,7 @@ export function buildTabBookmarkToggle(snapshot: BookmarkManagerSnapshot, draft:
 }
 
 export function buildTabToolbarSave(snapshot: BookmarkManagerSnapshot, draft: SavedTabDraft): BookmarkManagerMutation | null {
+  draft = { ...draft, accountId: captureSavedAccountContext(draft.displayUrl, draft.accountId) }
   const existing = locateBookmarkManagerLink({ bookmarks: [], toolbar: snapshot.toolbar }, draft.displayUrl)
   if (existing) {
     assertMatchingAccount(existing.link, draft)
@@ -31,6 +33,7 @@ export function buildTabToolbarSave(snapshot: BookmarkManagerSnapshot, draft: Sa
 }
 
 export function buildTabDashboardPin(snapshot: BookmarkManagerSnapshot, draft: SavedTabDraft): BookmarkManagerMutation {
+  draft = { ...draft, accountId: captureSavedAccountContext(draft.displayUrl, draft.accountId) }
   const existing = snapshot.dashboardPins.find((pin) => pin.displayUrl === draft.displayUrl)
   if (existing) {
     assertMatchingAccount(existing, draft)

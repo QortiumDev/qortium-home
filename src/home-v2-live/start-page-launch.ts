@@ -1,5 +1,6 @@
 import { parseHomeV2InternalAddress } from '../v2/new-tab-preference'
 import { MAX_START_PAGES, type StartPage } from '../startPages'
+import { SAVED_GUEST_ACCOUNT_ID } from '../bookmarkManagerContract'
 
 export interface StartPageLaunchInput {
   /** App tabs already open (a restored session keeps its tabs). */
@@ -18,12 +19,12 @@ export interface StartPageLaunchInput {
   /** Welcome/onboarding still running suppresses start pages, like v1. */
   readonly onboardingInProgress: boolean
   readonly startPages: readonly StartPage[]
-  /** Account ids that still exist; unknown bindings fall back to current. */
+  /** Account ids that still exist; unavailable concrete bindings are skipped. */
   readonly knownAccountIds: readonly string[]
 }
 
 export interface StartPageLaunchEntry {
-  /** null = open with the currently selected account. */
+  /** null = Current; the reserved guest reference remains explicit until launch. */
   readonly accountId: string | null
   readonly displayUrl: string
 }
@@ -33,8 +34,8 @@ export interface StartPageLaunchEntry {
  * for `when-empty`, which is what an unset "When Home opens" means: start pages
  * apply only when the session would otherwise be just the dashboard — a
  * restored session's tabs always win. Onboarding suppresses them whatever the
- * setting says. Pages bound to an account that no longer exists open with the
- * current account instead of failing.
+ * setting says. Pages bound to an account that no longer exists are skipped,
+ * never opened under a different account. Guest bindings need no saved wallet.
  *
  * The pages themselves come from the bookmark manager's `startPages` root and
  * are edited in the Bookmarks app; Home neither stores a second copy nor offers
@@ -49,10 +50,10 @@ export function planStartPageLaunch(
   return input.startPages.slice(0, MAX_START_PAGES).flatMap((page) => {
     const displayUrl = page.displayUrl.trim()
     if (!displayUrl) return []
+    if (page.accountId && page.accountId !== SAVED_GUEST_ACCOUNT_ID && !known.has(page.accountId)) return []
     return [
       {
-        accountId:
-          page.accountId && known.has(page.accountId) ? page.accountId : null,
+        accountId: page.accountId ?? null,
         displayUrl,
       },
     ]
