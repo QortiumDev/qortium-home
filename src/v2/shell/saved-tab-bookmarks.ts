@@ -1,4 +1,4 @@
-import type { BookmarkManagerMutation, BookmarkManagerSnapshot } from '../../../electron/bookmark-manager-contract'
+import type { BookmarkManagerMutation, BookmarkManagerSnapshot } from '../../bookmarkManagerContract'
 import { getSavedAccountContext } from '../../accountContext'
 import { locateBookmarkManagerLink } from '../../bookmarkManager'
 import { t } from '../../i18n'

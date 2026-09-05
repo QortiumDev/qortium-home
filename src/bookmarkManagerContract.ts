@@ -3,6 +3,7 @@
 export type {
   BookmarkManagerFolder,
   BookmarkManagerLink,
+  BookmarkManagerMutation,
   BookmarkManagerSnapshot,
   BookmarkManagerTreeItem,
 } from '../electron/bookmark-manager-contract'
