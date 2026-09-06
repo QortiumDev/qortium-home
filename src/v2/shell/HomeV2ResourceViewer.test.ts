@@ -18,6 +18,11 @@ const base: HomeV2ResourceViewerState = {
 }
 
 assert.equal(classifyHomeV2ResourceViewer(base), 'document')
+for (const [filename, mimeType, kind] of [
+  ['note.md', 'text/plain', 'markdown'], ['data.csv', 'text/csv', 'csv'],
+  ['data.json', 'application/json', 'json'], ['source.js', 'text/javascript', 'code'],
+  ['note.txt', 'text/plain', 'text'], ['raw.html', 'text/html', 'code'],
+] as const) assert.equal(classifyHomeV2ResourceViewer({ ...base, filename, mimeType }), kind)
 assert.equal(classifyHomeV2ResourceViewer({ ...base, service: 'FILE', filename: 'photo.png' }), 'image')
 assert.equal(classifyHomeV2ResourceViewer({ ...base, service: 'FILE', filename: 'clip.mp4' }), 'video')
 assert.equal(classifyHomeV2ResourceViewer({ ...base, service: 'FILE', filename: 'untrusted.svg' }), 'download')
@@ -82,3 +87,9 @@ await assert.rejects(
 )
 
 console.log('Home v2 retained resource viewer tests passed.')
+
+let canceled = false
+await assert.rejects(readHomeV2RetainedViewerBytes(new Response(new ReadableStream({
+  cancel() { canceled = true },
+}), { headers: { 'content-length': String(1024 * 1024 + 1) } }), 1024 * 1024), /limit/)
+assert.equal(canceled, true, 'Oversized declared bodies are canceled without downloading')

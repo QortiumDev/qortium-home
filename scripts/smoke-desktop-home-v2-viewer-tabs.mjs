@@ -28,10 +28,22 @@ function fixturePdf() {
   return Buffer.from(`${pdf}trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`)
 }
 const pdf = fixturePdf()
+let beaconReads = 0
+const richFixtures = {
+  RichText: { filename: 'note.txt', mimeType: 'text/plain', text: 'Plain text <script>never executed</script>' },
+  RichCode: { filename: 'example.js', mimeType: 'text/javascript', text: 'const value = "<img src=/beacon onerror=alert(1)>";' },
+  RichJson: { filename: 'data.json', mimeType: 'application/json', text: '{"name":"Fixture","nested":{"ok":true}}' },
+  RichCsv: { filename: 'data.csv', mimeType: 'text/csv', text: 'Name,Description\nFixture,"quoted, value"' },
+  RichMarkdown: { filename: 'readme.md', mimeType: 'text/markdown', text: '# Rich preview\n\n**Formatted safely**\n\n![beacon](/beacon) [link](/beacon)\n\n<img src="/beacon"><script>window.richPreviewExecuted=true</script>' },
+  RichLarge: { filename: 'large.txt', mimeType: 'text/plain', text: 'x'.repeat(1024 * 1024 + 1) },
+}
 const fixture = createServer((request, response) => {
   const url = new URL(request.url, 'http://fixture')
+  if (url.pathname === '/beacon') { beaconReads++; response.end('blocked fixture'); return }
+  const rich = Object.entries(richFixtures).find(([name]) => url.pathname.includes(`/${name}/`))?.[1]
   if (url.pathname.startsWith('/render/')) {
-    if (url.pathname.includes('/IMAGE/')) { response.setHeader('Content-Type', 'image/png'); response.end(png) }
+    if (rich) { response.setHeader('Content-Type', rich.mimeType); response.end(rich.text) }
+    else if (url.pathname.includes('/IMAGE/')) { response.setHeader('Content-Type', 'image/png'); response.end(png) }
     else if (url.pathname.includes('/DOCUMENT/')) { response.setHeader('Content-Type', 'application/pdf'); response.end(pdf) }
     else { response.setHeader('Content-Type', 'text/html'); response.end('<!doctype html><html><body><h1>Public viewer source app</h1></body></html>') }
     return
@@ -41,7 +53,7 @@ const fixture = createServer((request, response) => {
   if (url.pathname === '/admin/status') value = { height: 1, isSynchronizing: false, numberOfConnections: 1 }
   else if (url.pathname === '/admin/info') value = { buildVersion: 'smoke', currentTimestamp: Date.now() }
   else if (url.pathname.includes('/resource/status/')) value = { status: 'READY', localChunkCount: 1, totalChunkCount: 1 }
-  else if (url.pathname.includes('/resource/properties/')) value = url.pathname.includes('/DOCUMENT/')
+  else if (url.pathname.includes('/resource/properties/')) value = rich ? { filename: rich.filename, mimeType: rich.mimeType, size: Buffer.byteLength(rich.text) } : url.pathname.includes('/DOCUMENT/')
     ? { filename: 'manual.pdf', mimeType: 'application/pdf', size: pdf.length }
     : { filename: 'art.png', mimeType: 'image/png', size: png.length }
   else if (url.pathname.startsWith('/names/')) value = { name: url.pathname.split('/').at(-1), owner: 'QFixture' }
@@ -64,6 +76,12 @@ let home, xServer, wm, app
 async function until(label, test) {
   const deadline = Date.now() + 45000
   while (Date.now() < deadline) { if (await test()) return; await sleep(150) }
+  if (home?.cdp) {
+    const snapshot = await home.cdp.send('Page.captureScreenshot').catch(() => null)
+    if (snapshot) writeFileSync(path.join(profile, 'failure.png'), Buffer.from(snapshot.data, 'base64'))
+    writeFileSync(path.join(profile, 'failure-state.txt'), await home.cdp.evaluate(`document.body.innerText`).catch(String))
+    log(`failure evidence ${profile}`)
+  }
   throw new Error(`Timed out: ${label}`)
 }
 try {
@@ -158,6 +176,27 @@ try {
   await until('saved viewer start page opens', imageReady)
   assert.equal(await cdp.evaluate(`document.querySelector('.home-v2-address input').value`), imageAddress)
   log(`full process restore and saved viewer start page passed; evidence ${profile}`)
+  for (const [name, kind, selector] of [
+    // Auto-detection may identify the embedded hostile markup as XML; assert
+    // highlighting without requiring a particular grammar's keyword token.
+    ['RichText', 'text', 'pre'], ['RichCode', 'code', '.hljs-string'],
+    ['RichJson', 'json', 'details'], ['RichCsv', 'csv', 'table td'],
+    ['RichMarkdown', 'markdown', 'h1'], ['RichLarge', 'text', '[role="alert"]'],
+  ]) {
+    await open(`qortal://FILE/${name}/default`)
+    await until(`${kind} ${name} rendered`, () => cdp.evaluate(`!!document.querySelector('[data-rich-preview="${kind}"] ${selector}')`))
+    assert.equal(await cdp.evaluate(`!!document.querySelector('[data-rich-preview] script, [data-rich-preview] img, [data-rich-preview] iframe, [data-rich-preview] a[href]')`), false)
+    assert.equal(await cdp.evaluate(`window.richPreviewExecuted === true`), false)
+    assert.equal(await cdp.evaluate(`!!document.querySelector('.home-v2-resource-viewer__open')`), true)
+    if (name === 'RichMarkdown') {
+      assert.equal(await cdp.evaluate(`document.querySelector('[data-rich-preview] strong').textContent`), 'Formatted safely')
+      const shot = await cdp.send('Page.captureScreenshot')
+      writeFileSync(path.join(profile, 'rich-markdown.png'), Buffer.from(shot.data, 'base64'))
+    }
+    if (name === 'RichLarge') assert.match(await cdp.evaluate(`document.querySelector('[data-rich-preview] [role="alert"]').textContent`), /1 MiB/)
+  }
+  assert.equal(beaconReads, 0)
+  log('text/code/JSON/CSV/Markdown, inert publisher HTML/links/images and producer 1 MiB refusal passed')
 } finally {
   app?.socket.close(); home?.cdp.socket.close(); home?.shutdown()
   wm?.kill(); xServer?.kill(); fixture.closeAllConnections(); fixture.close()

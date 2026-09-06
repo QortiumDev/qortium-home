@@ -2,6 +2,10 @@
 
 // Estonian (Eesti) locale catalog.
 export const et: Record<TranslationKey, string> = {
+  "home2.richPreview.tableLimit": "Tabeli eelvaade on piiratud 2000 andmerea, 100 veeru ja 10 000 lahtriga. Kõige nägemiseks salvesta fail.",
+  "home2.richPreview.sourceFallback": "Kuvatakse lähtetekst: seda ressurssi ei saanud eelvaate piirides ohutult vormindada.",
+  "home2.richPreview.unavailable": "Eelvaade pole saadaval. Teksti eelvaade nõuab UTF-8 kodeeringut ja on piiratud 1 MiB-ga. Võid ressursi salvestada või uuesti proovimiseks värskendada.",
+  "home2.richPreview.inertLinks": "Lingid ja pildid kuvatakse tekstina. Avaldaja HTML-i ei renderdata.",
   "home2.account.openAppNewTab": "Ava see rakendus uuel vahelehel",
   "home2.account.newTabAccount": "Uue vahelehe konto",
   "home2.account.chooseNewTabAccount": "Vali konto",

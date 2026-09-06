@@ -1,6 +1,7 @@
 import { detectDocumentFormat } from '../../DocumentViewer'
 import type { HomeV2ResourceViewerState } from './HomeV2ResourceViewer'
 import { getQdnResourceStreamProxyMimeType } from '../../viewerLocation'
+import { classifyRichPreview } from './rich-preview'
 
 export const HOME_V2_RETAINED_VIEWER_MAX_BYTES = 100 * 1024 * 1024
 
@@ -11,6 +12,7 @@ export async function readHomeV2RetainedViewerBytes(
   if (!response.ok) throw new Error(`Resource request returned HTTP ${response.status}.`)
   const declared = Number(response.headers.get('content-length'))
   if (Number.isFinite(declared) && declared > maxBytes) {
+    await response.body?.cancel()
     throw new Error('Resource exceeds the retained viewer byte limit.')
   }
   if (!response.body) return new Uint8Array()
@@ -53,7 +55,7 @@ export function classifyHomeV2ResourceViewer(resource: HomeV2ResourceViewerState
   if (audioServices.has(resource.service) || mime.startsWith('audio/')) return 'audio'
   if (videoServices.has(resource.service) || mime.startsWith('video/')) return 'video'
   const format = detectDocumentFormat(resource.filename ?? undefined, mime)
-  if (format !== 'unsupported') return 'document'
+  if (format !== 'unsupported' && format !== 'txt') return 'document'
   const extension = resource.filename?.split('.').pop()?.toLowerCase() ?? ''
   if (
     extension === 'zip' ||
@@ -64,5 +66,7 @@ export function classifyHomeV2ResourceViewer(resource: HomeV2ResourceViewerState
     mime === 'application/x-rar-compressed' ||
     mime === 'application/vnd.rar'
   ) return 'archive'
+  const rich = classifyRichPreview(resource)
+  if (rich) return rich
   return 'download'
 }

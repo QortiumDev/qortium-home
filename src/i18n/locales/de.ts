@@ -2,6 +2,10 @@
 
 // German (Deutsch) catalog.
 export const de: Record<TranslationKey, string> = {
+  "home2.richPreview.tableLimit": "Die Tabellenvorschau ist auf 2.000 Datenzeilen, 100 Spalten und 10.000 Zellen begrenzt. Speichere die Datei, um alles zu sehen.",
+  "home2.richPreview.sourceFallback": "Quelltext wird angezeigt: Diese Ressource konnte innerhalb der Vorschaugrenzen nicht sicher formatiert werden.",
+  "home2.richPreview.unavailable": "Vorschau nicht verfügbar. Textvorschauen erfordern UTF-8 und sind auf 1 MiB begrenzt. Du kannst die Ressource speichern oder zum erneuten Versuch aktualisieren.",
+  "home2.richPreview.inertLinks": "Links und Bilder werden als Text angezeigt. HTML des Herausgebers wird nicht gerendert.",
   "home2.account.openAppNewTab": "Diese App in einem neuen Tab öffnen",
   "home2.account.newTabAccount": "Konto für den neuen Tab",
   "home2.account.chooseNewTabAccount": "Konto auswählen",

@@ -2,6 +2,10 @@
 
 // Russian (Русский) catalog.
 export const ru: Record<TranslationKey, string> = {
+  "home2.richPreview.tableLimit": "Предпросмотр таблицы ограничен 2 000 строками данных, 100 столбцами и 10 000 ячейками. Сохраните файл, чтобы увидеть его целиком.",
+  "home2.richPreview.sourceFallback": "Показан исходный текст: не удалось безопасно отформатировать ресурс в пределах ограничений предпросмотра.",
+  "home2.richPreview.unavailable": "Предпросмотр недоступен. Текст должен быть в UTF-8 и не превышать 1 MiB. Вы можете сохранить ресурс или обновить страницу, чтобы повторить попытку.",
+  "home2.richPreview.inertLinks": "Ссылки и изображения показаны как текст. HTML издателя не отображается как разметка.",
   "home2.account.openAppNewTab": "Открыть это приложение в новой вкладке",
   "home2.account.newTabAccount": "Аккаунт для новой вкладки",
   "home2.account.chooseNewTabAccount": "Выберите аккаунт",

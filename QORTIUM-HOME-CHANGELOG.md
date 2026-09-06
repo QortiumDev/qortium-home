@@ -32,6 +32,17 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## feat(home2): restore rich text and data resource viewers
+
+2026-09-05
+
+Public resource tabs now preview text, highlighted source code, expandable JSON,
+CSV tables and formatted Markdown, with a Copy text button. Text reads are
+limited to 1 MiB; complex data falls back to source or a bounded table, and the
+original file remains available to save. Markdown links and images stay as text,
+and publisher HTML is never executed or loaded into the shell. Existing document,
+archive and media viewers retain their separate behavior.
+
 ## fix(home2): allow account ratings for the app tab session
 
 2026-09-05

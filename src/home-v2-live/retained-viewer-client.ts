@@ -68,14 +68,18 @@ export type HomeV2RetainedViewerBytes = {
 
 export async function loadHomeV2RetainedViewerBytes(
   url: string,
+  maxBytes = RETAINED_VIEWER_MAX_BYTES,
 ): Promise<HomeV2RetainedViewerBytes> {
+  if (maxBytes !== RETAINED_VIEWER_MAX_BYTES && maxBytes !== 1024 * 1024) {
+    throw new Error('Retained viewer byte limit is invalid.')
+  }
   if (window.homeV2RetainedViewer) {
     const result = await window.homeV2RetainedViewer.readBytes({
-      maxBytes: RETAINED_VIEWER_MAX_BYTES,
+      maxBytes,
       url,
     })
     const bytes = new Uint8Array(result.bytes)
-    if (bytes.byteLength > RETAINED_VIEWER_MAX_BYTES) {
+    if (bytes.byteLength > maxBytes) {
       throw new Error('Resource exceeds the retained viewer byte limit.')
     }
     return { bytes, contentType: result.contentType ?? undefined }
@@ -86,7 +90,7 @@ export async function loadHomeV2RetainedViewerBytes(
   // Android resource capabilities are implemented by the WebView request
   // interceptor. Keep the read inside that boundary; native Capacitor HTTP
   // bypasses the interceptor and would attempt to resolve the reserved host.
-  return readAndroidHomeV2ResourceCapability(url, RETAINED_VIEWER_MAX_BYTES)
+  return readAndroidHomeV2ResourceCapability(url, maxBytes)
 }
 
 export async function saveHomeV2RetainedViewerBytes(

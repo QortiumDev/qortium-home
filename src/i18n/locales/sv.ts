@@ -2,6 +2,10 @@
 
 // Swedish (Svenska) catalog.
 export const sv: Record<TranslationKey, string> = {
+  "home2.richPreview.tableLimit": "Tabellförhandsvisningen är begränsad till 2 000 datarader, 100 kolumner och 10 000 celler. Spara filen för att se allt.",
+  "home2.richPreview.sourceFallback": "Visar källtext: resursen kunde inte formateras säkert inom förhandsvisningens gränser.",
+  "home2.richPreview.unavailable": "Förhandsvisning är inte tillgänglig. Textförhandsvisningar kräver UTF-8 och är begränsade till 1 MiB. Du kan spara resursen eller uppdatera för att försöka igen.",
+  "home2.richPreview.inertLinks": "Länkar och bilder visas som text. Utgivarens HTML renderas inte.",
   "home2.account.openAppNewTab": "Öppna den här appen i en ny flik",
   "home2.account.newTabAccount": "Konto för den nya fliken",
   "home2.account.chooseNewTabAccount": "Välj ett konto",

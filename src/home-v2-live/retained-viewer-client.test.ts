@@ -20,6 +20,22 @@ assert.equal(requestedUrl, capabilityUrl)
 assert.deepEqual([...loaded.bytes], [1, 2, 3])
 assert.equal(loaded.contentType, 'application/epub+zip')
 
+const realFetch = globalThis.fetch
+globalThis.fetch = async () => new Response(new Uint8Array(1024 * 1024 + 1))
+await assert.rejects(loadHomeV2RetainedViewerBytes(capabilityUrl, 1024 * 1024), /limit/)
+globalThis.fetch = async () => new Response(new Uint8Array(1024 * 1024))
+assert.equal((await loadHomeV2RetainedViewerBytes(capabilityUrl, 1024 * 1024)).bytes.length, 1024 * 1024)
+await assert.rejects(loadHomeV2RetainedViewerBytes(capabilityUrl, Infinity), /invalid/)
+globalThis.fetch = realFetch
+let requestedLimit = 0
+window.homeV2RetainedViewer = { save: async () => ({ canceled: true }), saveBytes: async () => ({ canceled: true }), readBytes: async ({ maxBytes }: { maxBytes: number }) => {
+  requestedLimit = maxBytes
+  return { bytes: new Uint8Array(1024 * 1024 + 1), contentType: null }
+} }
+await assert.rejects(loadHomeV2RetainedViewerBytes('qdn-home-stream://resource/test', 1024 * 1024), /limit/)
+assert.equal(requestedLimit, 1024 * 1024)
+delete window.homeV2RetainedViewer
+
 console.log('Home v2 Android retained viewer client tests passed.')
 
 const released: string[] = []

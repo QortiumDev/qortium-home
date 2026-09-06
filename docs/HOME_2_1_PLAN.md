@@ -52,13 +52,18 @@ These entries carry no app identity, wallet context, node URL or stream token.
 Public access is acquired through the selected node each time a viewer mounts;
 private attachment viewers retain their existing source-app approval lifetime.
 Media/document/archive renderers are reused inside the content area. This does
-not complete rich text/data viewers or retained playback/page/scroll position.
+not complete retained playback/page/scroll position.
+The next rich-viewer tranche restores text, code, JSON, CSV and Markdown through
+1 MiB capability-only reads. Markdown uses inert React formatting (no publisher
+HTML, live links or images); code highlighting is converted to text/span nodes.
+Tables, JSON trees and formatting work are bounded, with raw-source/save fallbacks.
+Preview notices are included in every supported locale catalog.
 Viewer queries/fragments are refused for now. Cross-window viewer transfer is
 deferred until the transfer contract preserves account attribution.
 
 Remaining work, in order:
 
-1. **Viewers and navigation:** rich text/data viewers, retained viewer position,
+1. **Viewers and navigation:** accept the rich text/data tranche, retained viewer position,
    visible save/download progress/errors, and correct tab/window transfer context.
 2. **Shell and maintenance consistency:** per-tab Settings state and unique IDs;
    remaining maintenance progress/copy/details, node-settings discovery, and tab

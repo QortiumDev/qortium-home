@@ -2,6 +2,10 @@
 
 // French (Français) catalog.
 export const fr: Record<TranslationKey, string> = {
+  "home2.richPreview.tableLimit": "L’aperçu du tableau est limité à 2 000 lignes de données, 100 colonnes et 10 000 cellules. Enregistrez le fichier pour tout voir.",
+  "home2.richPreview.sourceFallback": "Affichage du texte source : cette ressource n’a pas pu être mise en forme de façon sûre dans les limites de l’aperçu.",
+  "home2.richPreview.unavailable": "Aperçu indisponible. Les aperçus de texte nécessitent UTF-8 et sont limités à 1 MiB. Vous pouvez enregistrer la ressource ou actualiser pour réessayer.",
+  "home2.richPreview.inertLinks": "Les liens et les images sont affichés sous forme de texte. Le HTML de l’éditeur n’est pas rendu.",
   "home2.account.openAppNewTab": "Ouvrir cette application dans un nouvel onglet",
   "home2.account.newTabAccount": "Compte du nouvel onglet",
   "home2.account.chooseNewTabAccount": "Choisir un compte",

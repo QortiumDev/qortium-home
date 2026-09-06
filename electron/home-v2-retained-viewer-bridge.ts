@@ -98,14 +98,14 @@ export function registerHomeV2RetainedViewerBridgeIpcHandlers() {
     assertAuthorizedHomeV2Sender(event)
     if (
       !isRecord(value) ||
-      value.maxBytes !== RETAINED_VIEWER_MAX_BYTES ||
+      (value.maxBytes !== RETAINED_VIEWER_MAX_BYTES && value.maxBytes !== 1024 * 1024) ||
       typeof value.url !== 'string' ||
       value.url.length > 512
     ) {
       throw new Error('Retained viewer request is invalid.')
     }
     return readHomeV2DesktopResourceStreamBytes({
-      maxBytes: RETAINED_VIEWER_MAX_BYTES,
+      maxBytes: value.maxBytes,
       targetSession: event.sender.session,
       url: value.url,
     })

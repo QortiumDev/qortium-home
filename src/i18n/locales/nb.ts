@@ -2,6 +2,10 @@ import type { TranslationKey } from './en';
 
 // Norwegian Bokmal (Norsk bokmål) locale catalog.
 export const nb: Record<TranslationKey, string> = {
+  "home2.richPreview.tableLimit": "Tabellforhåndsvisningen er begrenset til 2 000 datarader, 100 kolonner og 10 000 celler. Lagre filen for å se alt.",
+  "home2.richPreview.sourceFallback": "Viser kildetekst: Denne ressursen kunne ikke formateres trygt innenfor grensene for forhåndsvisning.",
+  "home2.richPreview.unavailable": "Forhåndsvisning er ikke tilgjengelig. Tekstforhåndsvisninger krever UTF-8 og er begrenset til 1 MiB. Du kan lagre ressursen eller oppdatere for å prøve igjen.",
+  "home2.richPreview.inertLinks": "Lenker og bilder vises som tekst. Utgiverens HTML gjengis ikke.",
   "home2.account.openAppNewTab": "Åpne denne appen i en ny fane",
   "home2.account.newTabAccount": "Konto for den nye fanen",
   "home2.account.chooseNewTabAccount": "Velg en konto",

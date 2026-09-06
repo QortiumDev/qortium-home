@@ -2,6 +2,10 @@
 
 // Spanish (Español) catalog.
 export const es: Record<TranslationKey, string> = {
+  "home2.richPreview.tableLimit": "La vista previa de la tabla se limita a 2.000 filas de datos, 100 columnas y 10.000 celdas. Guarda el archivo para verlo completo.",
+  "home2.richPreview.sourceFallback": "Se muestra el código fuente: no se pudo dar formato a este recurso de forma segura dentro de los límites de la vista previa.",
+  "home2.richPreview.unavailable": "Vista previa no disponible. Las vistas previas de texto requieren UTF-8 y se limitan a 1 MiB. Puedes guardar el recurso o actualizar para volver a intentarlo.",
+  "home2.richPreview.inertLinks": "Los enlaces y las imágenes se muestran como texto. No se renderiza el HTML del publicador.",
   "home2.account.openAppNewTab": "Abrir esta aplicación en una pestaña nueva",
   "home2.account.newTabAccount": "Cuenta para la pestaña nueva",
   "home2.account.chooseNewTabAccount": "Elige una cuenta",

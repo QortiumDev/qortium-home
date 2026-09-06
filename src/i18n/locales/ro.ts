@@ -2,6 +2,10 @@
 
 // Romanian (Română) catalog.
 export const ro: Record<TranslationKey, string> = {
+  "home2.richPreview.tableLimit": "Previzualizarea tabelului este limitată la 2.000 de rânduri de date, 100 de coloane și 10.000 de celule. Salvează fișierul pentru a vedea tot.",
+  "home2.richPreview.sourceFallback": "Se afișează textul sursă: această resursă nu a putut fi formatată în siguranță în limitele previzualizării.",
+  "home2.richPreview.unavailable": "Previzualizare indisponibilă. Previzualizările de text necesită UTF-8 și sunt limitate la 1 MiB. Poți salva resursa sau reîmprospăta pentru a încerca din nou.",
+  "home2.richPreview.inertLinks": "Linkurile și imaginile sunt afișate ca text. HTML-ul editorului nu este redat.",
   "home2.account.openAppNewTab": "Deschide această aplicație într-o filă nouă",
   "home2.account.newTabAccount": "Cont pentru fila nouă",
   "home2.account.chooseNewTabAccount": "Alege un cont",
