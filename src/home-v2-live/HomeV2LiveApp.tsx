@@ -4861,14 +4861,14 @@ export function HomeV2LiveApp() {
             ? [homeV2AccountReadAlwaysAllowDetail(account?.label ?? accountId)]
             : []),
         ],
-        allowedScopes: isRatingWrite
-          ? homeV2RatingPermissionScopes(value.action)
-          : isAtMessage
+        allowedScopes: isAtMessage
           // Stated first and unconditionally, ahead of every other arm: one
           // approval signs exactly one transaction. This does not depend on
           // writeSingleRequestOnly reaching us intact, and the main process
           // independently refuses to retain a grant for it.
           ? ['single-request']
+          : isRatingWrite
+          ? homeV2RatingPermissionScopes(value.action)
           : isForeignServerWrite
           ? ['single-request']
           : isForeignWalletRead
