@@ -264,6 +264,9 @@ type DocumentViewerProps = {
   loadBytes?: () => Promise<{ bytes: Uint8Array; contentType?: string }>;
   /** Alternate download action used when the legacy QDN bridge is unavailable. */
   onDownload?: () => Promise<void>;
+  /** Optional Home 2 save state, including native-dialog cancellation/failure. */
+  downloadBusy?: boolean;
+  downloadFeedback?: ReactNode;
   onDismiss: () => void;
   resource: QdnResource;
 };
@@ -276,6 +279,8 @@ export function DocumentViewer({
   knownMimeType,
   onDismiss,
   onDownload,
+  downloadBusy = false,
+  downloadFeedback,
   resource,
 }: DocumentViewerProps) {
   const viewerRef = useRef<HTMLElement>(null);
@@ -453,6 +458,7 @@ export function DocumentViewer({
   }
 
   async function handleDownload() {
+    if (downloadBusy) return;
     if (onDownload) {
       await onDownload();
       return;
@@ -602,6 +608,8 @@ export function DocumentViewer({
           </button>
           <button
             aria-label={t('docViewer.download')}
+            disabled={downloadBusy}
+            aria-busy={downloadBusy}
             className="icon-button"
             type="button"
             onClick={() => { void handleDownload(); }}
@@ -618,6 +626,8 @@ export function DocumentViewer({
           </button>
         </div>
       </header>
+
+      {downloadFeedback}
 
       {tocOpen && toc.length > 0 && (
         <nav aria-label={t('docViewer.tableOfContents')} className="doc-viewer__toc-panel">
@@ -645,7 +655,7 @@ export function DocumentViewer({
 
       {state.phase === 'error' && (
         <StatusContent message={state.message}>
-          <button className="button" type="button" onClick={() => { void handleDownload(); }}>
+          <button className="button" type="button" disabled={downloadBusy} aria-busy={downloadBusy} onClick={() => { void handleDownload(); }}>
             {t('docViewer.download')}
           </button>
         </StatusContent>
@@ -669,7 +679,7 @@ export function DocumentViewer({
 
       {state.phase === 'ready' && state.format === 'unsupported' && (
         <StatusContent message={t('docViewer.unsupported')}>
-          <button className="button" type="button" onClick={() => { void handleDownload(); }}>
+          <button className="button" type="button" disabled={downloadBusy} aria-busy={downloadBusy} onClick={() => { void handleDownload(); }}>
             {t('docViewer.download')}
           </button>
         </StatusContent>

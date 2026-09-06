@@ -32,6 +32,18 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## fix(home2): show viewer save progress and results
+
+2026-09-06
+
+Resource viewers now show when a save is running and whether it finished, was
+canceled in the native dialog or failed. Save controls stay disabled during the
+operation, including when switching away from a viewer and back, and failed saves
+can be retried. The same feedback covers document and archive-entry downloads;
+documents opened inside archives save their extracted file rather than trying
+the old node download path. Messages are translated, errors do not expose private
+paths, and existing save dialogs and size limits are unchanged.
+
 ## feat(home2): restore rich text and data resource viewers
 
 2026-09-05

@@ -89,12 +89,14 @@ function FileTreeRow({
   defaultOpen,
   onOpen,
   onDownload,
+  downloadDisabled,
 }: {
   node: TreeNode;
   depth: number;
   defaultOpen: (depth: number) => boolean;
   onOpen: (path: string) => void;
   onDownload?: (path: string) => void;
+  downloadDisabled?: boolean;
 }) {
   const [open, setOpen] = useState(() => defaultOpen(depth));
   const indent = { paddingLeft: `${depth * 16 + 8}px` };
@@ -122,6 +124,7 @@ function FileTreeRow({
                 defaultOpen={defaultOpen}
                 onOpen={onOpen}
                 onDownload={onDownload}
+                downloadDisabled={downloadDisabled}
               />
             ))
           : null}
@@ -144,6 +147,7 @@ function FileTreeRow({
           type="button"
           title={t('archive.download')}
           aria-label={t('archive.download')}
+          disabled={downloadDisabled}
           onClick={() => onDownload(node.path)}
         >
           <Download size={14} aria-hidden="true" />
@@ -161,6 +165,7 @@ export function FileTree({
   defaultOpen = () => false,
   onOpen,
   onDownload,
+  downloadDisabled = false,
 }: {
   entries: FileTreeEntry[];
   // Decides whether a folder at a given depth starts expanded. Default collapses
@@ -168,6 +173,7 @@ export function FileTree({
   defaultOpen?: (depth: number) => boolean;
   onOpen: (path: string) => void;
   onDownload?: (path: string) => void;
+  downloadDisabled?: boolean;
 }) {
   const tree = useMemo(() => buildFileTree(entries), [entries]);
 
@@ -181,6 +187,7 @@ export function FileTree({
           defaultOpen={defaultOpen}
           onOpen={onOpen}
           onDownload={onDownload}
+          downloadDisabled={downloadDisabled}
         />
       ))}
     </div>

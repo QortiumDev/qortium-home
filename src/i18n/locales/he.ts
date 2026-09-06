@@ -2,6 +2,8 @@
 
 // Hebrew (עברית) catalog.
 export const he: Record<TranslationKey, string> = {
+  "home2.resourceViewer.saveCanceled": "השמירה בוטלה",
+  "home2.resourceViewer.saveRetry": "יש לנסות לשמור שוב.",
   "home2.richPreview.tableLimit": "תצוגת הטבלה המקדימה מוגבלת ל־2,000 שורות נתונים, 100 עמודות ו־10,000 תאים. יש לשמור את הקובץ כדי לראות את כולו.",
   "home2.richPreview.sourceFallback": "מוצג המקור: לא ניתן היה לעצב משאב זה בבטחה במסגרת מגבלות התצוגה המקדימה.",
   "home2.richPreview.unavailable": "התצוגה המקדימה אינה זמינה. תצוגות טקסט מקדימות דורשות UTF-8 ומוגבלות ל־1 MiB. ניתן לשמור את המשאב או לרענן כדי לנסות שוב.",

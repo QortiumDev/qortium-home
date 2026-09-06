@@ -2,6 +2,8 @@
 
 // Finnish (Suomi) catalog.
 export const fi: Record<TranslationKey, string> = {
+  "home2.resourceViewer.saveCanceled": "Tallennus peruutettu",
+  "home2.resourceViewer.saveRetry": "Yritä tallentaa uudelleen.",
   "home2.richPreview.tableLimit": "Taulukon esikatselu on rajattu 2 000 tietoriviin, 100 sarakkeeseen ja 10 000 soluun. Tallenna tiedosto nähdäksesi sen kokonaan.",
   "home2.richPreview.sourceFallback": "Näytetään lähdeteksti: tätä resurssia ei voitu muotoilla turvallisesti esikatselun rajoissa.",
   "home2.richPreview.unavailable": "Esikatselu ei ole käytettävissä. Tekstin esikatselu vaatii UTF-8-koodauksen ja on rajattu 1 MiB:uun. Voit tallentaa resurssin tai yrittää uudelleen päivittämällä.",

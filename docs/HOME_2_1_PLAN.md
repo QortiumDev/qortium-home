@@ -63,8 +63,11 @@ deferred until the transfer contract preserves account attribution.
 
 Remaining work, in order:
 
-1. **Viewers and navigation:** accept the rich text/data tranche, retained viewer position,
-   visible save/download progress/errors, and correct tab/window transfer context.
+1. **Viewers and navigation:** accept the save-feedback tranche, retained viewer
+   position and correct tab/window transfer context. Rich text/data viewers landed
+   in #534. Save feedback uses indeterminate busy status (not byte percentages),
+   distinct native-dialog cancellation/failure/success and guards pending saves
+   across tab remounts. Native dialogs, byte limits and save authority stay unchanged.
 2. **Shell and maintenance consistency:** per-tab Settings state and unique IDs;
    remaining maintenance progress/copy/details, node-settings discovery, and tab
    and keyboard parity.

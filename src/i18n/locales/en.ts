@@ -1,5 +1,7 @@
 // The source-of-truth English catalog. Every other locale must provide exactly these keys.
 export const en = {
+  "home2.resourceViewer.saveCanceled": "Save canceled",
+  "home2.resourceViewer.saveRetry": "Try saving again.",
   "home2.account.openAppNewTab": "Open this app in a new tab",
   "home2.account.newTabAccount": "Account for the new tab",
   "home2.account.chooseNewTabAccount": "Choose an account",

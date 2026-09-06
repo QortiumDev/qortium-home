@@ -2,6 +2,8 @@
 
 // Spanish (Español) catalog.
 export const es: Record<TranslationKey, string> = {
+  "home2.resourceViewer.saveCanceled": "Guardado cancelado",
+  "home2.resourceViewer.saveRetry": "Intenta guardar de nuevo.",
   "home2.richPreview.tableLimit": "La vista previa de la tabla se limita a 2.000 filas de datos, 100 columnas y 10.000 celdas. Guarda el archivo para verlo completo.",
   "home2.richPreview.sourceFallback": "Se muestra el código fuente: no se pudo dar formato a este recurso de forma segura dentro de los límites de la vista previa.",
   "home2.richPreview.unavailable": "Vista previa no disponible. Las vistas previas de texto requieren UTF-8 y se limitan a 1 MiB. Puedes guardar el recurso o actualizar para volver a intentarlo.",

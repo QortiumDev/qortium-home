@@ -1,5 +1,6 @@
 import { ArrowLeft } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
+import type { ReactNode } from 'react';
 import { openArchive, UnsupportedArchiveError, type ArchiveEntry } from './archive';
 import { FileTree, type FileTreeEntry } from './FileTree';
 import { t } from './i18n';
@@ -7,6 +8,7 @@ import { saveBytesToFile } from './platform';
 import { QdnLoadingPanel } from './QdnLoadingPanel';
 import type { QdnDisplaySettings, QdnResource } from './qdn';
 import { QdnEntryContent, type SetViewerActionContext } from './QdnViewer';
+import { DocumentViewer, detectDocumentFormat } from './DocumentViewer';
 
 // Matches the DocumentViewer ceiling — archives are fetched whole before listing.
 const ARCHIVE_MAX_BYTES = 100 * 1024 * 1024;
@@ -52,6 +54,9 @@ export function ArchiveViewer({
   onActionContextChange,
   loadBytes,
   saveBytes,
+  saveEntry,
+  saveBusy = false,
+  saveFeedback,
   resource,
 }: {
   bytes?: Uint8Array;
@@ -60,6 +65,10 @@ export function ArchiveViewer({
   onActionContextChange: SetViewerActionContext;
   loadBytes?: () => Promise<Uint8Array>;
   saveBytes?: (filename: string, bytes: Uint8Array, mimeType?: string) => Promise<unknown>;
+  /** Home 2 owns the whole extraction/save operation and its visible status. */
+  saveEntry?: (entry: { filename: string; read: () => Promise<Uint8Array> }) => Promise<void>;
+  saveBusy?: boolean;
+  saveFeedback?: ReactNode;
   resource: QdnResource;
 }) {
   const [load, setLoad] = useState<LoadState>({ phase: 'loading' });
@@ -162,8 +171,13 @@ export function ArchiveViewer({
   }
 
   async function downloadPath(path: string) {
+    if (saveBusy) return;
     const entry = entryForPath(path);
     if (!entry || entry.dir) {
+      return;
+    }
+    if (saveEntry) {
+      await saveEntry({ filename: entry.name, read: () => entry.read() });
       return;
     }
     setDownloadError(null);
@@ -210,9 +224,23 @@ export function ArchiveViewer({
                 displaySettings={displaySettings}
                 onActionContextChange={onActionContextChange}
                 saveBytes={saveBytes}
+                saveEntry={saveEntry}
+                saveBusy={saveBusy}
+                saveFeedback={saveFeedback}
                 resource={selectedResource}
               />
             )
+          ) : saveEntry && ['pdf', 'epub', 'cbz'].includes(detectDocumentFormat(selection.entry.name)) ? (
+            <DocumentViewer
+              bytes={selection.bytes}
+              knownFilename={selection.entry.name}
+              displaySettings={displaySettings}
+              onDismiss={back}
+              onDownload={() => saveEntry({ filename: selection.entry.name, read: async () => selection.bytes })}
+              downloadBusy={saveBusy}
+              downloadFeedback={saveFeedback}
+              resource={selectedResource}
+            />
           ) : (
             <QdnEntryContent
               displaySettings={displaySettings}
@@ -250,6 +278,7 @@ export function ArchiveViewer({
           defaultOpen={(treeDepth) => treeDepth < 1}
           onOpen={openPath}
           onDownload={downloadPath}
+          downloadDisabled={saveBusy}
         />
       )}
     </div>

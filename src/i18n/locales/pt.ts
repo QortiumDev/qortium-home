@@ -2,6 +2,8 @@
 
 // Portuguese (Português) catalog — neutral pt for pt-BR and pt-PT readers.
 export const pt: Record<TranslationKey, string> = {
+  "home2.resourceViewer.saveCanceled": "Gravação cancelada",
+  "home2.resourceViewer.saveRetry": "Tente guardar novamente.",
   "home2.richPreview.tableLimit": "A pré-visualização da tabela está limitada a 2.000 linhas de dados, 100 colunas e 10.000 células. Guarde o ficheiro para ver tudo.",
   "home2.richPreview.sourceFallback": "A mostrar o texto de origem: não foi possível formatar este recurso com segurança dentro dos limites da pré-visualização.",
   "home2.richPreview.unavailable": "Pré-visualização indisponível. As pré-visualizações de texto exigem UTF-8 e estão limitadas a 1 MiB. Pode guardar o recurso ou atualizar para tentar novamente.",

@@ -2,6 +2,8 @@
 
 // Korean (한국어) catalog.
 export const ko: Record<TranslationKey, string> = {
+  "home2.resourceViewer.saveCanceled": "저장 취소됨",
+  "home2.resourceViewer.saveRetry": "다시 저장해 보세요.",
   "home2.richPreview.tableLimit": "표 미리보기는 데이터 2,000행, 100열, 10,000셀로 제한됩니다. 전체 내용을 보려면 파일을 저장하세요.",
   "home2.richPreview.sourceFallback": "소스를 표시합니다. 미리보기 제한 내에서 이 리소스를 안전하게 서식 지정할 수 없습니다.",
   "home2.richPreview.unavailable": "미리보기를 사용할 수 없습니다. 텍스트 미리보기에는 UTF-8이 필요하며 크기는 1 MiB로 제한됩니다. 리소스를 저장하거나 새로고침하여 다시 시도할 수 있습니다.",
