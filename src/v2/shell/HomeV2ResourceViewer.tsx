@@ -10,6 +10,7 @@ import type { QdnDisplaySettings, QdnResource, QdnService } from '../../qdn'
 import { classifyHomeV2ResourceViewer } from './home-v2-retained-viewer'
 import './home-v2-resource-viewer.css'
 import { HomeV2RichPreview } from './HomeV2RichPreview'
+import { useViewerSave, ViewerSaveFeedback } from './ViewerSaveFeedback'
 
 export type HomeV2ResourceViewerState = {
   readonly filename: string | null
@@ -47,6 +48,20 @@ type HomeV2ResourceViewerProps = {
 export function HomeV2ResourceViewer({ appearance, loadRetainedBytes, saveRetainedBytes, saveRetainedFile, resource, onClose, presentation = 'overlay' }: HomeV2ResourceViewerProps) {
   const kind = classifyHomeV2ResourceViewer(resource)
   const coordinate = `${resource.service}/${resource.name}/${resource.identifier ?? 'default'}`
+  const saveKey = JSON.stringify([resource.sourceTabId, resource.network, resource.service, resource.name, resource.identifier, resource.path])
+  // Public tabs reacquire access when remounted. Source-bound/private overlays
+  // must not inherit another capability's completion after reapproval instead.
+  // Use an opaque key: never store the capability URL in the status registry.
+  const overlaySaveKey = useMemo(() => ({}), [saveKey, resource.streamUrl])
+  const save = useViewerSave(presentation === 'tab' ? saveKey : overlaySaveKey)
+  const filename = resource.filename ?? `${resource.service}_${resource.name}`
+  const saveResource = () => save.run(filename, () => saveRetainedFile(resource.streamUrl, filename, resource.mimeType ?? undefined))
+  const saveEntry = (entry: { filename: string; read: () => Promise<Uint8Array> }) => save.run(entry.filename, async () => {
+    const bytes = await entry.read()
+    if (bytes.byteLength > 100 * 1024 * 1024) throw new Error('Archive entry exceeds the viewer byte limit.')
+    return saveRetainedBytes(entry.filename, bytes)
+  })
+  const saveFeedback = <ViewerSaveFeedback state={save.state} />
   const qdnResource: QdnResource = useMemo(() => ({
     displayUrl: `${resource.network === 'qortal' ? 'qortal' : 'qdn'}://${coordinate}`,
     identifier: resource.identifier ?? undefined,
@@ -93,13 +108,9 @@ export function HomeV2ResourceViewer({ appearance, loadRetainedBytes, saveRetain
           knownMimeType={resource.mimeType}
           loadBytes={loadBytes}
           onDismiss={onClose}
-          onDownload={async () => {
-            await saveRetainedFile(
-              resource.streamUrl,
-              resource.filename ?? `${resource.service}_${resource.name}`,
-              resource.mimeType ?? undefined,
-            )
-          }}
+          onDownload={saveResource}
+          downloadBusy={save.busy}
+          downloadFeedback={saveFeedback}
           resource={qdnResource}
         />
       </div>
@@ -143,6 +154,9 @@ export function HomeV2ResourceViewer({ appearance, loadRetainedBytes, saveRetain
               loadBytes={loadByteArray}
               onActionContextChange={() => undefined}
               saveBytes={saveRetainedBytes}
+              saveEntry={saveEntry}
+              saveBusy={save.busy}
+              saveFeedback={saveFeedback}
               resource={qdnResource}
             />
           ) : kind === 'image' ? (
@@ -160,17 +174,16 @@ export function HomeV2ResourceViewer({ appearance, loadRetainedBytes, saveRetain
         </div>
 
         <footer>
+          {saveFeedback}
           <button
             className="home-v2-primary-button home-v2-resource-viewer__open"
             type="button"
-            onClick={() => void saveRetainedFile(
-              resource.streamUrl,
-              resource.filename ?? `${resource.service}_${resource.name}`,
-              resource.mimeType ?? undefined,
-            )}
+            disabled={save.busy}
+            aria-busy={save.busy}
+            onClick={() => void saveResource()}
           >
             <ExternalLink aria-hidden="true" size={17} />
-            {t('home2.resourceViewer.openOrSave')}
+            {save.busy ? t('common.saving') : t('home2.resourceViewer.openOrSave')}
           </button>
         </footer>
       </section>

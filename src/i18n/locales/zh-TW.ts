@@ -2,6 +2,8 @@
 
 // Traditional Chinese (中文（繁體）) catalog.
 export const zhTW: Record<TranslationKey, string> = {
+  "home2.resourceViewer.saveCanceled": "已取消儲存",
+  "home2.resourceViewer.saveRetry": "請重試儲存。",
   "home2.richPreview.tableLimit": "表格預覽最多顯示 2,000 行資料、100 欄和 10,000 個儲存格。請儲存檔案以查看全部內容。",
   "home2.richPreview.sourceFallback": "正在顯示原始文字：無法在預覽限制內安全地格式化此資源。",
   "home2.richPreview.unavailable": "預覽無法使用。文字預覽需要 UTF-8 編碼，且大小不超過 1 MiB。您仍可儲存資源或重新整理後重試。",

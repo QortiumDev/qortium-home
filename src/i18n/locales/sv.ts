@@ -2,6 +2,8 @@
 
 // Swedish (Svenska) catalog.
 export const sv: Record<TranslationKey, string> = {
+  "home2.resourceViewer.saveCanceled": "Sparandet avbröts",
+  "home2.resourceViewer.saveRetry": "Försök spara igen.",
   "home2.richPreview.tableLimit": "Tabellförhandsvisningen är begränsad till 2 000 datarader, 100 kolumner och 10 000 celler. Spara filen för att se allt.",
   "home2.richPreview.sourceFallback": "Visar källtext: resursen kunde inte formateras säkert inom förhandsvisningens gränser.",
   "home2.richPreview.unavailable": "Förhandsvisning är inte tillgänglig. Textförhandsvisningar kräver UTF-8 och är begränsade till 1 MiB. Du kan spara resursen eller uppdatera för att försöka igen.",

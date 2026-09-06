@@ -2,6 +2,8 @@
 
 // German (Deutsch) catalog.
 export const de: Record<TranslationKey, string> = {
+  "home2.resourceViewer.saveCanceled": "Speichern abgebrochen",
+  "home2.resourceViewer.saveRetry": "Versuche erneut zu speichern.",
   "home2.richPreview.tableLimit": "Die Tabellenvorschau ist auf 2.000 Datenzeilen, 100 Spalten und 10.000 Zellen begrenzt. Speichere die Datei, um alles zu sehen.",
   "home2.richPreview.sourceFallback": "Quelltext wird angezeigt: Diese Ressource konnte innerhalb der Vorschaugrenzen nicht sicher formatiert werden.",
   "home2.richPreview.unavailable": "Vorschau nicht verfügbar. Textvorschauen erfordern UTF-8 und sind auf 1 MiB begrenzt. Du kannst die Ressource speichern oder zum erneuten Versuch aktualisieren.",

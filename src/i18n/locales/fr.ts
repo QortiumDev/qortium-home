@@ -2,6 +2,8 @@
 
 // French (Français) catalog.
 export const fr: Record<TranslationKey, string> = {
+  "home2.resourceViewer.saveCanceled": "Enregistrement annulé",
+  "home2.resourceViewer.saveRetry": "Essayez à nouveau d’enregistrer.",
   "home2.richPreview.tableLimit": "L’aperçu du tableau est limité à 2 000 lignes de données, 100 colonnes et 10 000 cellules. Enregistrez le fichier pour tout voir.",
   "home2.richPreview.sourceFallback": "Affichage du texte source : cette ressource n’a pas pu être mise en forme de façon sûre dans les limites de l’aperçu.",
   "home2.richPreview.unavailable": "Aperçu indisponible. Les aperçus de texte nécessitent UTF-8 et sont limités à 1 MiB. Vous pouvez enregistrer la ressource ou actualiser pour réessayer.",

@@ -2,6 +2,8 @@ import type { TranslationKey } from './en';
 
 // Hindi (हिन्दी) locale catalog.
 export const hi: Record<TranslationKey, string> = {
+  "home2.resourceViewer.saveCanceled": "सहेजना रद्द किया गया",
+  "home2.resourceViewer.saveRetry": "फिर से सहेजने का प्रयास करें।",
   "home2.richPreview.tableLimit": "तालिका पूर्वावलोकन 2,000 डेटा पंक्तियों, 100 स्तंभों और 10,000 कक्षों तक सीमित है। पूरा देखने के लिए फ़ाइल सहेजें।",
   "home2.richPreview.sourceFallback": "स्रोत दिखाया जा रहा है: पूर्वावलोकन की सीमाओं में इस संसाधन को सुरक्षित रूप से स्वरूपित नहीं किया जा सका।",
   "home2.richPreview.unavailable": "पूर्वावलोकन उपलब्ध नहीं है। पाठ पूर्वावलोकन के लिए UTF-8 आवश्यक है और सीमा 1 MiB है। आप संसाधन सहेज सकते हैं या फिर कोशिश करने के लिए रीफ़्रेश कर सकते हैं।",

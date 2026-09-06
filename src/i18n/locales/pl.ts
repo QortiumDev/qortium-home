@@ -2,6 +2,8 @@
 
 // Polish (Polski) translation catalog.
 export const pl: Record<TranslationKey, string> = {
+  "home2.resourceViewer.saveCanceled": "Zapisywanie anulowane",
+  "home2.resourceViewer.saveRetry": "Spróbuj zapisać ponownie.",
   "home2.richPreview.tableLimit": "Podgląd tabeli jest ograniczony do 2 000 wierszy danych, 100 kolumn i 10 000 komórek. Zapisz plik, aby zobaczyć całość.",
   "home2.richPreview.sourceFallback": "Wyświetlono tekst źródłowy: nie udało się bezpiecznie sformatować zasobu w granicach podglądu.",
   "home2.richPreview.unavailable": "Podgląd niedostępny. Podgląd tekstu wymaga UTF-8 i jest ograniczony do 1 MiB. Możesz zapisać zasób lub odświeżyć, aby spróbować ponownie.",

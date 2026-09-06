@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict'
 import { spawn, spawnSync } from 'node:child_process'
 import { createServer } from 'node:http'
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { Cdp, launchHomeV2, resolveAppImage, sleep } from './lib/home-v2-cdp.mjs'
@@ -29,6 +29,7 @@ function fixturePdf() {
 }
 const pdf = fixturePdf()
 let beaconReads = 0
+let saveFailure = false, slowTextRead = false, textReads = 0
 const richFixtures = {
   RichText: { filename: 'note.txt', mimeType: 'text/plain', text: 'Plain text <script>never executed</script>' },
   RichCode: { filename: 'example.js', mimeType: 'text/javascript', text: 'const value = "<img src=/beacon onerror=alert(1)>";' },
@@ -42,6 +43,18 @@ const fixture = createServer((request, response) => {
   if (url.pathname === '/beacon') { beaconReads++; response.end('blocked fixture'); return }
   const rich = Object.entries(richFixtures).find(([name]) => url.pathname.includes(`/${name}/`))?.[1]
   if (url.pathname.startsWith('/render/')) {
+    if (rich === richFixtures.RichText) {
+      textReads++
+      if (saveFailure) {
+        saveFailure = false
+        setTimeout(() => { response.writeHead(500); response.end('Fixture save failure') }, 1000)
+        return
+      }
+      if (slowTextRead) {
+        setTimeout(() => { response.setHeader('Content-Type', rich.mimeType); response.end(rich.text) }, 1000)
+        return
+      }
+    }
     if (rich) { response.setHeader('Content-Type', rich.mimeType); response.end(rich.text) }
     else if (url.pathname.includes('/IMAGE/')) { response.setHeader('Content-Type', 'image/png'); response.end(png) }
     else if (url.pathname.includes('/DOCUMENT/')) { response.setHeader('Content-Type', 'application/pdf'); response.end(pdf) }
@@ -80,6 +93,8 @@ async function until(label, test) {
     const snapshot = await home.cdp.send('Page.captureScreenshot').catch(() => null)
     if (snapshot) writeFileSync(path.join(profile, 'failure.png'), Buffer.from(snapshot.data, 'base64'))
     writeFileSync(path.join(profile, 'failure-state.txt'), await home.cdp.evaluate(`document.body.innerText`).catch(String))
+    const windows = spawnSync('xwininfo', ['-root', '-tree'], { encoding: 'utf8', env: process.env })
+    writeFileSync(path.join(profile, 'failure-windows.txt'), windows.stdout || windows.stderr || '')
     log(`failure evidence ${profile}`)
   }
   throw new Error(`Timed out: ${label}`)
@@ -98,7 +113,10 @@ try {
   process.env.DISPLAY = display
   wm = spawn('openbox', [], { stdio: 'ignore', env: { ...process.env } })
   await sleep(800)
-  const start = () => launchHomeV2({ appImage: resolveAppImage(root), profile, portBase: 11300, log, appArgs: ['--ozone-platform=x11'] })
+  // Electron 39: keep native file choosers on our private X display rather than
+  // delegating to a portal on the developer's inherited desktop session bus.
+  const start = () => launchHomeV2({ appImage: resolveAppImage(root), profile, portBase: 11300, log,
+    appArgs: ['--ozone-platform=x11', '--xdg-portal-required-version=999'] })
   home = await start()
   let cdp = home.cdp
   const click = async selector => { const point = await cdp.box(selector); assert.ok(point, selector); await cdp.click(point.x, point.y) }
@@ -167,6 +185,13 @@ try {
   await cdp.evaluate(`(() => { const key='qortium-home-bookmark-manager-snapshot'; const saved=JSON.parse(localStorage.getItem(key));
     saved.startPages=[{title:'Public art',displayUrl:${JSON.stringify(imageAddress)},accountId:'home-v2:guest'}];
     saved.revision++; localStorage.setItem(key,JSON.stringify(saved)); })()`)
+  // This fixture mutates localStorage directly. Let Chromium flush it through
+  // normal Quit before testing the startup policy, rather than SIGTERM the
+  // storage process immediately after its acknowledgement. The earlier restart
+  // above still exercises the abrupt-shutdown session-restore path.
+  await click('.home-v2-address input')
+  xdo(['key', '--clearmodifiers', 'ctrl+q'])
+  await until('clean fixture shutdown', () => fetch(`http://127.0.0.1:${home.port}/json/list`).then(() => false, () => true))
   home.cdp.socket.close(); home.shutdown(); home = null
   await sleep(2500)
   const startup = JSON.parse(readFileSync(stateFile, 'utf8'))
@@ -197,6 +222,47 @@ try {
   }
   assert.equal(beaconReads, 0)
   log('text/code/JSON/CSV/Markdown, inert publisher HTML/links/images and producer 1 MiB refusal passed')
+  await open('qortal://FILE/RichText/default')
+  await until('text ready for save', () => cdp.evaluate(`!!document.querySelector('[data-rich-preview="text"] pre')`))
+  const savePhase = expected => cdp.evaluate(`document.querySelector('[data-save-phase]')?.dataset.savePhase === ${JSON.stringify(expected)}`)
+  const saveClick = () => click('.home-v2-resource-viewer__open')
+  const nativeSaveDialog = () => {
+    const found = spawnSync('xdotool', ['search', '--onlyvisible', '--name', 'Save'], { encoding: 'utf8', env: process.env })
+    return found.status === 0 && !!found.stdout.trim()
+  }
+  saveFailure = true
+  const beforeFailure = textReads
+  await saveClick()
+  await until('visible saving feedback', () => savePhase('saving'))
+  assert.equal(await cdp.evaluate(`document.querySelector('.home-v2-resource-viewer__open').disabled`), true)
+  await cdp.evaluate(`document.querySelector('.home-v2-resource-viewer__open').click()`)
+  await until('visible failed save', () => savePhase('error'))
+  assert.equal(textReads, beforeFailure + 1, 'No duplicate resource read while saving')
+  assert.equal(await cdp.evaluate(`document.querySelector('.home-v2-resource-viewer__open').disabled`), false)
+  const failedShot = await cdp.send('Page.captureScreenshot')
+  writeFileSync(path.join(profile, 'save-error.png'), Buffer.from(failedShot.data, 'base64'))
+  slowTextRead = true
+  await saveClick()
+  await until('real native save dialog for retry', nativeSaveDialog)
+  xdo(['key', '--clearmodifiers', 'Escape'])
+  await until('native cancellation is not failure or success', () => savePhase('canceled'))
+  await saveClick()
+  await until('real native save dialog for success', nativeSaveDialog)
+  const savedFile = path.join(profile, 'saved-note.txt')
+  xdo(['key', '--clearmodifiers', 'ctrl+l'])
+  // GTK may preselect only the basename, leaving its extension in the field.
+  xdo(['key', '--clearmodifiers', 'ctrl+a'])
+  xdo(['type', '--clearmodifiers', '--delay', '1', savedFile])
+  xdo(['key', '--clearmodifiers', 'Return'])
+  await until('save completed and file written', async () => existsSync(savedFile) && await savePhase('saved'))
+  assert.equal(readFileSync(savedFile, 'utf8'), richFixtures.RichText.text)
+  await open(documentAddress)
+  await until('PDF ready for save', () => cdp.evaluate(`!!document.querySelector('[data-viewer-tab] canvas')`))
+  await click('button[aria-label="Download"]')
+  await until('document native save dialog', nativeSaveDialog)
+  xdo(['key', '--clearmodifiers', 'Escape'])
+  await until('document cancellation feedback', () => savePhase('canceled'))
+  log('save busy/single-flight/error/retry, real native cancel/write and document feedback passed')
 } finally {
   app?.socket.close(); home?.cdp.socket.close(); home?.shutdown()
   wm?.kill(); xServer?.kill(); fixture.closeAllConnections(); fixture.close()

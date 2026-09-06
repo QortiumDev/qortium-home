@@ -2,6 +2,8 @@
 
 // Italian (Italiano) catalog.
 export const it: Record<TranslationKey, string> = {
+  "home2.resourceViewer.saveCanceled": "Salvataggio annullato",
+  "home2.resourceViewer.saveRetry": "Prova a salvare di nuovo.",
   "home2.richPreview.tableLimit": "L’anteprima della tabella è limitata a 2.000 righe di dati, 100 colonne e 10.000 celle. Salva il file per vederlo per intero.",
   "home2.richPreview.sourceFallback": "Visualizzazione del sorgente: non è stato possibile formattare questa risorsa in modo sicuro entro i limiti dell’anteprima.",
   "home2.richPreview.unavailable": "Anteprima non disponibile. Le anteprime di testo richiedono UTF-8 e sono limitate a 1 MiB. Puoi salvare la risorsa o aggiornare per riprovare.",

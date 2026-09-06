@@ -86,6 +86,7 @@
     "test:windows-core-observer-build-script": "node scripts/test-windows-core-observer-build-script.mjs",
     "test:safe-zip-extraction": "npm run build:electron && node dist-electron/safe-zip-extraction.test.js",
     "test:wiring": "node scripts/check-test-wiring.mjs",
+    "test:home-v2-viewer-save": "esbuild src/v2/shell/ViewerSaveFeedback.test.tsx --bundle --platform=node --format=esm --packages=external --loader:.css=empty --outfile=dist-electron/home-v2-viewer-save.test.js && node scripts/run-home-v2-viewer-save-test.mjs",
     "test:home-v2-rich-preview": "esbuild src/v2/shell/HomeV2RichPreview.test.tsx --bundle --platform=node --format=esm --packages=external --outfile=dist-electron/home-v2-rich-preview.test.js && node scripts/run-home-v2-rich-preview-test.mjs",
     "test:home-v2-browser-chrome": "esbuild src/v2/shell/BrowserChrome.test.tsx --bundle --platform=node --format=esm --packages=external --outfile=dist-electron/home-v2-browser-chrome.test.js && node scripts/run-home-v2-browser-chrome-test.mjs",
     "test:home-v2-bookmark-toolbar": "esbuild src/v2/shell/HomeV2BookmarkToolbar.test.tsx --bundle --platform=node --format=esm --packages=external --loader:.css=empty --outfile=dist-electron/home-v2-bookmark-toolbar.test.js && node scripts/run-home-v2-bookmark-toolbar-test.mjs",

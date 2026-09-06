@@ -2,6 +2,8 @@
 
 // Japanese (日本語) catalog.
 export const ja: Record<TranslationKey, string> = {
+  "home2.resourceViewer.saveCanceled": "保存をキャンセルしました",
+  "home2.resourceViewer.saveRetry": "もう一度保存してください。",
   "home2.richPreview.tableLimit": "表のプレビューはデータ2,000行、100列、10,000セルまでです。全体を見るにはファイルを保存してください。",
   "home2.richPreview.sourceFallback": "ソースを表示しています。このリソースはプレビューの制限内で安全に整形できませんでした。",
   "home2.richPreview.unavailable": "プレビューを利用できません。テキストのプレビューにはUTF-8が必要で、上限は1 MiBです。リソースを保存するか、更新して再試行できます。",

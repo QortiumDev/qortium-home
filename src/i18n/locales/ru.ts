@@ -2,6 +2,8 @@
 
 // Russian (Русский) catalog.
 export const ru: Record<TranslationKey, string> = {
+  "home2.resourceViewer.saveCanceled": "Сохранение отменено",
+  "home2.resourceViewer.saveRetry": "Попробуйте сохранить ещё раз.",
   "home2.richPreview.tableLimit": "Предпросмотр таблицы ограничен 2 000 строками данных, 100 столбцами и 10 000 ячейками. Сохраните файл, чтобы увидеть его целиком.",
   "home2.richPreview.sourceFallback": "Показан исходный текст: не удалось безопасно отформатировать ресурс в пределах ограничений предпросмотра.",
   "home2.richPreview.unavailable": "Предпросмотр недоступен. Текст должен быть в UTF-8 и не превышать 1 MiB. Вы можете сохранить ресурс или обновить страницу, чтобы повторить попытку.",
