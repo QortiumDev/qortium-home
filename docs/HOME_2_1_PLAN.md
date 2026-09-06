@@ -63,11 +63,15 @@ deferred until the transfer contract preserves account attribution.
 
 Remaining work, in order:
 
-1. **Viewers and navigation:** accept the save-feedback tranche, retained viewer
-   position and correct tab/window transfer context. Rich text/data viewers landed
-   in #534. Save feedback uses indeterminate busy status (not byte percentages),
-   distinct native-dialog cancellation/failure/success and guards pending saves
-   across tab remounts. Native dialogs, byte limits and save authority stay unchanged.
+1. **Viewers and navigation:** accept per-tab position retention, then correct
+   tab/window transfer context and richer routes. Rich text/data viewers landed
+   in #534 and save feedback in #535. Position retention holds only small values
+   for the current public resource/account in each open tab: document page/zoom,
+   EPUB location, text scroll, paused media time and bounded archive navigation.
+   Inactive viewers still release access. Same-resource refresh retains best-effort
+   position; close, resource/account changes and restart discard it. Private
+   overlays, closed-tab/process position restore and cross-window state transfer
+   remain separate. Native dialogs, byte limits and save authority stay unchanged.
 2. **Shell and maintenance consistency:** per-tab Settings state and unique IDs;
    remaining maintenance progress/copy/details, node-settings discovery, and tab
    and keyboard parity.

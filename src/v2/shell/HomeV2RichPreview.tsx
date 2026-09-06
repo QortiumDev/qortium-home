@@ -1,4 +1,6 @@
-import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
+import type { ViewerPosition } from '../../viewer-position'
+import { useViewerScroll } from '../../use-viewer-scroll'
 import { marked, type Token } from 'marked'
 import { t } from '../../i18n'
 import { parsePreviewCsv, parsePreviewJson, RICH_FORMAT_MAX_CHARS, RICH_PREVIEW_MAX_BYTES, type RichPreviewKind } from './rich-preview'
@@ -112,7 +114,9 @@ export function RichPreviewBody({ kind, text }: { kind: RichPreviewKind; text: s
   return <>{kind === 'json' || kind === 'markdown' ? <p role="status">{t('home2.richPreview.sourceFallback')}</p> : null}<pre><code>{kind === 'code' && highlight?.text === text ? highlight.nodes : text}</code></pre></>
 }
 
-export function HomeV2RichPreview({ kind, url, loadBytes }: {
+export function HomeV2RichPreview({ kind, url, loadBytes, position, scrollRef }: {
+  position?: ViewerPosition
+  scrollRef?: RefObject<HTMLElement | null>
   kind: RichPreviewKind
   url: string
   loadBytes: (url: string, maxBytes?: number) => Promise<{ bytes: Uint8Array }>
@@ -130,6 +134,8 @@ export function HomeV2RichPreview({ kind, url, loadBytes }: {
     return () => { canceled = true }
   }, [loadBytes, url])
   const current = state?.url === url ? state : null
+  const unusedRef = useRef<HTMLElement>(null)
+  useViewerScroll(scrollRef ?? unusedRef, position, current?.text !== undefined)
   return <section className="home-v2-rich-preview" aria-label={kind} data-rich-preview={kind}>
     <div className="home-v2-rich-preview__toolbar"><span>{kind === 'text' ? t('docViewer.format.txt') : t(`viewer.type.${kind}`)}</span><button type="button" disabled={current?.text === undefined} onClick={() => {
       if (current?.text === undefined) return

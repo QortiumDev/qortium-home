@@ -1,5 +1,6 @@
 import { ArrowLeft } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { archiveChildPosition, type ViewerPosition } from './viewer-position';
 import type { ReactNode } from 'react';
 import { openArchive, UnsupportedArchiveError, type ArchiveEntry } from './archive';
 import { FileTree, type FileTreeEntry } from './FileTree';
@@ -57,6 +58,7 @@ export function ArchiveViewer({
   saveEntry,
   saveBusy = false,
   saveFeedback,
+  position,
   resource,
 }: {
   bytes?: Uint8Array;
@@ -69,11 +71,14 @@ export function ArchiveViewer({
   saveEntry?: (entry: { filename: string; read: () => Promise<Uint8Array> }) => Promise<void>;
   saveBusy?: boolean;
   saveFeedback?: ReactNode;
+  position?: ViewerPosition;
   resource: QdnResource;
 }) {
   const [load, setLoad] = useState<LoadState>({ phase: 'loading' });
   const [selection, setSelection] = useState<Selection | null>(null);
   const [downloadError, setDownloadError] = useState<string | null>(null);
+  const selectionVersion = useRef(0);
+  const childPosition = selection ? archiveChildPosition(position, selection.entry.path) : undefined;
   const selectedResource = useMemo(
     () => selection ? { ...resource, path: selection.entry.path } : resource,
     [resource, selection?.entry.path],
@@ -81,6 +86,7 @@ export function ArchiveViewer({
 
   useEffect(() => {
     let canceled = false;
+    selectionVersion.current++;
     setLoad({ phase: 'loading' });
     setSelection(null);
 
@@ -141,6 +147,7 @@ export function ArchiveViewer({
 
     return () => {
       canceled = true;
+      selectionVersion.current++;
     };
   }, [providedBytes, loadBytes, resource]);
 
@@ -153,9 +160,12 @@ export function ArchiveViewer({
     if (!entry || entry.dir) {
       return;
     }
+    const version = ++selectionVersion.current;
+    if (position) position.archivePath = path.length <= 4096 ? path : undefined;
     setSelection({ entry, phase: 'loading' });
     try {
       const bytes = await entry.read();
+      if (version !== selectionVersion.current) return;
       // The top-level fetch is bounded by ARCHIVE_MAX_BYTES, but an entry's
       // *uncompressed* size (or a nested archive) can be far larger — guard each
       // extracted entry independently so a zip bomb can't exhaust memory.
@@ -166,9 +176,17 @@ export function ArchiveViewer({
       }
       setSelection({ entry, phase: 'ready', bytes });
     } catch {
+      if (version !== selectionVersion.current) return;
       setSelection({ entry, phase: 'error', message: t('archive.entryReadFailed') });
     }
   }
+
+  useEffect(() => {
+    if (load.phase !== 'ready' || !position?.archivePath) return;
+    const entry = load.entryByPath.get(position.archivePath);
+    if (entry && !entry.dir) void openPath(position.archivePath);
+    else { delete position.archivePath; delete position.child; }
+  }, [load, position]);
 
   async function downloadPath(path: string) {
     if (saveBusy) return;
@@ -191,7 +209,11 @@ export function ArchiveViewer({
   }
 
   if (selection) {
-    const back = () => setSelection(null);
+    const back = () => {
+      selectionVersion.current++;
+      if (position) { delete position.archivePath; delete position.child; }
+      setSelection(null);
+    };
     const tooDeep = depth + 1 >= MAX_ARCHIVE_DEPTH;
 
     return (
@@ -221,6 +243,7 @@ export function ArchiveViewer({
               <ArchiveViewer
                 bytes={selection.bytes}
                 depth={depth + 1}
+                position={childPosition}
                 displaySettings={displaySettings}
                 onActionContextChange={onActionContextChange}
                 saveBytes={saveBytes}
@@ -233,6 +256,7 @@ export function ArchiveViewer({
           ) : saveEntry && ['pdf', 'epub', 'cbz'].includes(detectDocumentFormat(selection.entry.name)) ? (
             <DocumentViewer
               bytes={selection.bytes}
+              position={childPosition}
               knownFilename={selection.entry.name}
               displaySettings={displaySettings}
               onDismiss={back}
@@ -274,6 +298,7 @@ export function ArchiveViewer({
         </div>
       ) : (
         <FileTree
+          position={position}
           entries={load.fileTreeEntries}
           defaultOpen={(treeDepth) => treeDepth < 1}
           onOpen={openPath}

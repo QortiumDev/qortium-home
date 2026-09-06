@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { Download, ExternalLink, X } from 'lucide-react'
 
 import { t } from '../../i18n'
@@ -11,6 +11,38 @@ import { classifyHomeV2ResourceViewer } from './home-v2-retained-viewer'
 import './home-v2-resource-viewer.css'
 import { HomeV2RichPreview } from './HomeV2RichPreview'
 import { useViewerSave, ViewerSaveFeedback } from './ViewerSaveFeedback'
+import { boundedPosition, type ViewerPosition } from '../../viewer-position'
+import { useViewerScroll } from '../../use-viewer-scroll'
+
+export function PositionedMedia({ kind, url, position }: { kind: 'audio' | 'video'; url: string; position?: ViewerPosition }) {
+  const ref = useRef<HTMLVideoElement | null>(null)
+  useEffect(() => {
+    const media = ref.current
+    if (!media) return
+    let restored = false
+    const restore = () => {
+      if (restored || !Number.isFinite(media.duration) || media.duration <= 0) return
+      try {
+        media.currentTime = boundedPosition(position?.mediaTime ?? 0, media.duration)
+        restored = true
+      } catch { /* Retry on loadeddata if metadata was not enough to seek. */ }
+    }
+    const save = () => { if (position && restored) position.mediaTime = boundedPosition(media.currentTime, 604800) }
+    media.addEventListener('loadedmetadata', restore)
+    media.addEventListener('loadeddata', restore)
+    media.addEventListener('timeupdate', save)
+    if (media.readyState >= 1) restore()
+    return () => {
+      save()
+      media.removeEventListener('loadedmetadata', restore)
+      media.removeEventListener('loadeddata', restore)
+      media.removeEventListener('timeupdate', save)
+      if (!media.paused) media.pause()
+    }
+  }, [position, url])
+  return kind === 'video' ? <video ref={ref} controls playsInline preload="metadata" src={url} />
+    : <audio ref={ref} controls preload="metadata" src={url} />
+}
 
 export type HomeV2ResourceViewerState = {
   readonly filename: string | null
@@ -25,6 +57,7 @@ export type HomeV2ResourceViewerState = {
 }
 
 type HomeV2ResourceViewerProps = {
+  readonly position?: ViewerPosition
   readonly presentation?: 'overlay' | 'tab'
   readonly appearance: HomeV2AppearanceSettings
   readonly loadRetainedBytes: (
@@ -45,8 +78,13 @@ type HomeV2ResourceViewerProps = {
   readonly onClose: () => void
 }
 
-export function HomeV2ResourceViewer({ appearance, loadRetainedBytes, saveRetainedBytes, saveRetainedFile, resource, onClose, presentation = 'overlay' }: HomeV2ResourceViewerProps) {
+export function HomeV2ResourceViewer({ appearance, loadRetainedBytes, saveRetainedBytes, saveRetainedFile, resource, onClose, presentation = 'overlay', position: publicPosition }: HomeV2ResourceViewerProps) {
   const kind = classifyHomeV2ResourceViewer(resource)
+  // Private/source-bound overlays deliberately retain their existing lifetime.
+  const position = presentation === 'tab' ? publicPosition : undefined
+  const contentRef = useRef<HTMLDivElement>(null)
+  const rich = ['text', 'code', 'json', 'csv', 'markdown'].includes(kind)
+  useViewerScroll(contentRef, position, !rich && kind !== 'archive' && kind !== 'document')
   const coordinate = `${resource.service}/${resource.name}/${resource.identifier ?? 'default'}`
   const saveKey = JSON.stringify([resource.sourceTabId, resource.network, resource.service, resource.name, resource.identifier, resource.path])
   // Public tabs reacquire access when remounted. Source-bound/private overlays
@@ -103,6 +141,7 @@ export function HomeV2ResourceViewer({ appearance, loadRetainedBytes, saveRetain
       <div className={`${viewerClass} home-v2-resource-overlay--retained`} role="presentation">
         <DocumentViewer
           presentation={presentation === 'tab' ? 'tab' : 'dialog'}
+          position={position}
           displaySettings={displaySettings}
           knownFilename={resource.filename}
           knownMimeType={resource.mimeType}
@@ -145,12 +184,13 @@ export function HomeV2ResourceViewer({ appearance, loadRetainedBytes, saveRetain
           </button>
         </header>
 
-        <div className="home-v2-resource-viewer__content">
+        <div className="home-v2-resource-viewer__content" ref={contentRef}>
           {kind === 'text' || kind === 'code' || kind === 'json' || kind === 'csv' || kind === 'markdown' ? (
-            <HomeV2RichPreview key={resource.streamUrl} kind={kind} url={resource.streamUrl} loadBytes={loadRetainedBytes} />
+            <HomeV2RichPreview key={resource.streamUrl} kind={kind} url={resource.streamUrl} loadBytes={loadRetainedBytes} position={position} scrollRef={contentRef} />
           ) : kind === 'archive' ? (
             <ArchiveViewer
               displaySettings={displaySettings}
+              position={position}
               loadBytes={loadByteArray}
               onActionContextChange={() => undefined}
               saveBytes={saveRetainedBytes}
@@ -162,9 +202,9 @@ export function HomeV2ResourceViewer({ appearance, loadRetainedBytes, saveRetain
           ) : kind === 'image' ? (
             <img alt={resource.filename ?? t('home2.resourceViewer.resourceAlt', { name: resource.name })} src={resource.streamUrl} />
           ) : kind === 'audio' ? (
-            <audio controls preload="metadata" src={resource.streamUrl} />
+            <PositionedMedia kind="audio" url={resource.streamUrl} position={position} />
           ) : kind === 'video' ? (
-            <video controls playsInline preload="metadata" src={resource.streamUrl} />
+            <PositionedMedia kind="video" url={resource.streamUrl} position={position} />
           ) : (
             <div className="home-v2-resource-viewer__download-panel">
               <Download aria-hidden="true" size={34} />

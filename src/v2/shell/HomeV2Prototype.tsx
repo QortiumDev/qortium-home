@@ -7,6 +7,7 @@ import {
   type ReactNode,
 } from 'react'
 import { t } from '../../i18n'
+import { createViewerPositionStore } from '../../viewer-position'
 import { translateMainProcessMessage } from '../../mainProcessMessage'
 import {
   isHomeV2RtlLanguage,
@@ -994,6 +995,10 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
     void setHomeV2WindowZoom(snapshot.appearance.appZoom)
   }, [nativeZoom, snapshot.appearance.appZoom])
 
+  const viewerPositions = useRef(createViewerPositionStore()).current
+  useEffect(() => {
+    viewerPositions.retain(productState.entries.filter(entry => entry.kind === 'viewer').map(entry => entry.id))
+  }, [viewerPositions, productState.entries])
   const scrollByTab = useRef(new Map<string, number>())
   useLayoutEffect(() => {
     const target = scrollByTab.current.get(productState.activeTabId as string) ?? 0
@@ -1212,6 +1217,7 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
             const node = snapshot.nodes[parseViewerLocation(entry.location).network]
             return isActive && !productState.transient ? <Suspense key={entry.id} fallback={<p role="status">{t('common.loading')}</p>}><HomeV2ViewerTab
               key={entry.id} entry={entry} appearance={snapshot.appearance} nodeClient={props.nodeClient}
+              position={viewerPositions.get(entry.id, JSON.stringify([entry.location, entry.accountId]))}
               reloadVersion={props.appReloadVersion} routeKey={`${node.mode}|${node.nodeApiUrl}`}
               onClose={() => onCloseTab?.(entry.id)} /></Suspense> : null
           }
