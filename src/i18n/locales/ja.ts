@@ -2,6 +2,10 @@
 
 // Japanese (日本語) catalog.
 export const ja: Record<TranslationKey, string> = {
+  "home2.richPreview.tableLimit": "表のプレビューはデータ2,000行、100列、10,000セルまでです。全体を見るにはファイルを保存してください。",
+  "home2.richPreview.sourceFallback": "ソースを表示しています。このリソースはプレビューの制限内で安全に整形できませんでした。",
+  "home2.richPreview.unavailable": "プレビューを利用できません。テキストのプレビューにはUTF-8が必要で、上限は1 MiBです。リソースを保存するか、更新して再試行できます。",
+  "home2.richPreview.inertLinks": "リンクと画像はテキストとして表示されます。公開者のHTMLは描画されません。",
   "home2.account.openAppNewTab": "このアプリを新しいタブで開く",
   "home2.account.newTabAccount": "新しいタブのアカウント",
   "home2.account.chooseNewTabAccount": "アカウントを選択",

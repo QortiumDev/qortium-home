@@ -2,6 +2,10 @@ import type { TranslationKey } from './en';
 
 // Greek (Ελληνικά) locale catalog. Every key must remain present.
 export const el: Record<TranslationKey, string> = {
+  "home2.richPreview.tableLimit": "Η προεπισκόπηση πίνακα περιορίζεται σε 2.000 γραμμές δεδομένων, 100 στήλες και 10.000 κελιά. Αποθηκεύστε το αρχείο για να το δείτε ολόκληρο.",
+  "home2.richPreview.sourceFallback": "Εμφανίζεται η πηγή: δεν ήταν δυνατή η ασφαλής μορφοποίηση αυτού του πόρου εντός των ορίων προεπισκόπησης.",
+  "home2.richPreview.unavailable": "Η προεπισκόπηση δεν είναι διαθέσιμη. Οι προεπισκοπήσεις κειμένου απαιτούν UTF-8 και περιορίζονται σε 1 MiB. Μπορείτε να αποθηκεύσετε τον πόρο ή να ανανεώσετε για νέα προσπάθεια.",
+  "home2.richPreview.inertLinks": "Οι σύνδεσμοι και οι εικόνες εμφανίζονται ως κείμενο. Το HTML του εκδότη δεν αποδίδεται.",
   "home2.account.openAppNewTab": "Άνοιγμα αυτής της εφαρμογής σε νέα καρτέλα",
   "home2.account.newTabAccount": "Λογαριασμός για τη νέα καρτέλα",
   "home2.account.chooseNewTabAccount": "Επιλέξτε λογαριασμό",

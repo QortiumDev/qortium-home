@@ -9,6 +9,7 @@ import { ArchiveViewer } from '../../ArchiveViewer'
 import type { QdnDisplaySettings, QdnResource, QdnService } from '../../qdn'
 import { classifyHomeV2ResourceViewer } from './home-v2-retained-viewer'
 import './home-v2-resource-viewer.css'
+import { HomeV2RichPreview } from './HomeV2RichPreview'
 
 export type HomeV2ResourceViewerState = {
   readonly filename: string | null
@@ -27,6 +28,7 @@ type HomeV2ResourceViewerProps = {
   readonly appearance: HomeV2AppearanceSettings
   readonly loadRetainedBytes: (
     url: string,
+    maxBytes?: number,
   ) => Promise<{ bytes: Uint8Array; contentType?: string }>
   readonly saveRetainedFile: (
     url: string,
@@ -133,7 +135,9 @@ export function HomeV2ResourceViewer({ appearance, loadRetainedBytes, saveRetain
         </header>
 
         <div className="home-v2-resource-viewer__content">
-          {kind === 'archive' ? (
+          {kind === 'text' || kind === 'code' || kind === 'json' || kind === 'csv' || kind === 'markdown' ? (
+            <HomeV2RichPreview key={resource.streamUrl} kind={kind} url={resource.streamUrl} loadBytes={loadRetainedBytes} />
+          ) : kind === 'archive' ? (
             <ArchiveViewer
               displaySettings={displaySettings}
               loadBytes={loadByteArray}

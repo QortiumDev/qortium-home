@@ -2,6 +2,10 @@
 
 // Arabic (العربية) catalog — Modern Standard Arabic, RTL.
 export const ar: Record<TranslationKey, string> = {
+  "home2.richPreview.tableLimit": "معاينة الجدول محدودة بـ 2,000 صف بيانات و100 عمود و10,000 خلية. احفظ الملف لعرضه بالكامل.",
+  "home2.richPreview.sourceFallback": "يُعرض المصدر: تعذّر تنسيق هذا المورد بأمان ضمن حدود المعاينة.",
+  "home2.richPreview.unavailable": "المعاينة غير متاحة. تتطلب معاينات النص UTF-8 وتقتصر على 1 MiB. يمكنك حفظ المورد أو التحديث للمحاولة مجددًا.",
+  "home2.richPreview.inertLinks": "تُعرض الروابط والصور كنص. لا يتم عرض HTML الخاص بالناشر.",
   "home2.account.openAppNewTab": "فتح هذا التطبيق في علامة تبويب جديدة",
   "home2.account.newTabAccount": "حساب علامة التبويب الجديدة",
   "home2.account.chooseNewTabAccount": "اختر حسابًا",

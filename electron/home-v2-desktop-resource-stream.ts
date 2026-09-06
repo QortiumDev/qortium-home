@@ -95,6 +95,7 @@ function boundedStream(body: ReadableStream<Uint8Array> | null) {
 async function readBoundedBytes(response: Response, maxBytes: number) {
   const declaredLength = Number(response.headers.get('content-length'))
   if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
+    await response.body?.cancel()
     throw new Error('Resource exceeds the retained viewer byte limit.')
   }
   if (!response.body) return new Uint8Array()

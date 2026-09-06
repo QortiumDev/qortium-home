@@ -2,6 +2,10 @@
 
 // Dutch (Nederlands) locale catalog. Every key must remain present.
 export const nl: Record<TranslationKey, string> = {
+  "home2.richPreview.tableLimit": "Het tabelvoorbeeld is beperkt tot 2.000 gegevensrijen, 100 kolommen en 10.000 cellen. Sla het bestand op om alles te bekijken.",
+  "home2.richPreview.sourceFallback": "Brontekst wordt getoond: deze bron kon niet veilig worden opgemaakt binnen de grenzen van het voorbeeld.",
+  "home2.richPreview.unavailable": "Voorbeeld niet beschikbaar. Tekstvoorbeelden vereisen UTF-8 en zijn beperkt tot 1 MiB. Je kunt de bron opslaan of vernieuwen om het opnieuw te proberen.",
+  "home2.richPreview.inertLinks": "Links en afbeeldingen worden als tekst getoond. HTML van de uitgever wordt niet weergegeven.",
   "home2.account.openAppNewTab": "Deze app in een nieuw tabblad openen",
   "home2.account.newTabAccount": "Account voor het nieuwe tabblad",
   "home2.account.chooseNewTabAccount": "Kies een account",

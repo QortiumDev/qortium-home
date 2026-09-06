@@ -2,6 +2,10 @@
 
 // Simplified Chinese (中文（简体）) catalog.
 export const zhCN: Record<TranslationKey, string> = {
+  "home2.richPreview.tableLimit": "表格预览最多显示 2,000 行数据、100 列和 10,000 个单元格。请保存文件以查看全部内容。",
+  "home2.richPreview.sourceFallback": "正在显示源文本：无法在预览限制内安全地格式化此资源。",
+  "home2.richPreview.unavailable": "预览不可用。文本预览要求 UTF-8 编码，且大小不超过 1 MiB。您仍可保存资源或刷新后重试。",
+  "home2.richPreview.inertLinks": "链接和图片显示为文本。不渲染发布者的 HTML。",
   "home2.account.openAppNewTab": "在新标签页中打开此应用",
   "home2.account.newTabAccount": "新标签页的账户",
   "home2.account.chooseNewTabAccount": "选择账户",

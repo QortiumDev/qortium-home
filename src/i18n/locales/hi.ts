@@ -2,6 +2,10 @@ import type { TranslationKey } from './en';
 
 // Hindi (हिन्दी) locale catalog.
 export const hi: Record<TranslationKey, string> = {
+  "home2.richPreview.tableLimit": "तालिका पूर्वावलोकन 2,000 डेटा पंक्तियों, 100 स्तंभों और 10,000 कक्षों तक सीमित है। पूरा देखने के लिए फ़ाइल सहेजें।",
+  "home2.richPreview.sourceFallback": "स्रोत दिखाया जा रहा है: पूर्वावलोकन की सीमाओं में इस संसाधन को सुरक्षित रूप से स्वरूपित नहीं किया जा सका।",
+  "home2.richPreview.unavailable": "पूर्वावलोकन उपलब्ध नहीं है। पाठ पूर्वावलोकन के लिए UTF-8 आवश्यक है और सीमा 1 MiB है। आप संसाधन सहेज सकते हैं या फिर कोशिश करने के लिए रीफ़्रेश कर सकते हैं।",
+  "home2.richPreview.inertLinks": "लिंक और चित्र पाठ के रूप में दिखाए जाते हैं। प्रकाशक का HTML रेंडर नहीं किया जाता।",
   "home2.account.openAppNewTab": "इस ऐप को नए टैब में खोलें",
   "home2.account.newTabAccount": "नए टैब के लिए खाता",
   "home2.account.chooseNewTabAccount": "खाता चुनें",

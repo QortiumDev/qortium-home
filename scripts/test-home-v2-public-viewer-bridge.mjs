@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
 import { register } from 'node:module'
 
-const handlers = new Map(), streams = [], requests = []
+const handlers = new Map(), streams = [], requests = [], byteReads = []
 let route = { mode: 'custom', nodeApiUrl: 'https://node.example' }
 let readNode = async () => route
 const mocks = {
@@ -15,7 +15,7 @@ const mocks = {
   } },
   'home-v2-desktop-resource-stream.js': {
     issueHomeV2DesktopResourceStream: options => { streams.push(options); return `qdn-home-stream://resource/${streams.length}` },
-    readHomeV2DesktopResourceStreamBytes: () => { throw new Error('Not part of this test') },
+    readHomeV2DesktopResourceStreamBytes: options => { byteReads.push(options); return { bytes: new Uint8Array([1]) } },
   },
 }
 globalThis.__publicViewerMocks = mocks
@@ -38,6 +38,14 @@ const { registerHomeV2RetainedViewerBridgeIpcHandlers } = await import('../dist-
 registerHomeV2RetainedViewerBridgeIpcHandlers()
 const sender = Object.assign(new EventEmitter(), { id: 41, session: {}, isDestroyed: () => false })
 const event = { sender, authorized: true }
+const read = (maxBytes, source = event) => handlers.get('home-v2-retained-viewer:readBytes')(source, { maxBytes, url: 'qdn-home-stream://resource/test' })
+await read(1024 * 1024)
+assert.equal(byteReads[0].maxBytes, 1024 * 1024)
+assert.equal(byteReads[0].targetSession, sender.session)
+await read(100 * 1024 * 1024)
+for (const limit of [0, -1, NaN, Infinity, 1024 * 1024 + 1, 101 * 1024 * 1024, '1048576']) await assert.rejects(read(limit), /invalid/)
+await assert.rejects(read(1024 * 1024, { sender, authorized: false }), /Unauthorized/)
+assert.equal(byteReads.length, 2)
 const open = (value, source = event) => handlers.get('home-v2-retained-viewer:openPublic')(source, value)
 const close = id => handlers.get('home-v2-retained-viewer:closePublic')(event, id)
 const request = { viewerId: 'viewer-one', location: 'qdn://IMAGE/Art/default' }

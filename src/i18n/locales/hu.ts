@@ -2,6 +2,10 @@
 
 // Hungarian (Magyar) catalog.
 export const hu: Record<TranslationKey, string> = {
+  "home2.richPreview.tableLimit": "A táblázat előnézete legfeljebb 2 000 adatsort, 100 oszlopot és 10 000 cellát jelenít meg. A teljes tartalomhoz mentsd a fájlt.",
+  "home2.richPreview.sourceFallback": "Forrásszöveg látható: az erőforrást nem lehetett biztonságosan formázni az előnézet korlátain belül.",
+  "home2.richPreview.unavailable": "Az előnézet nem érhető el. A szöveges előnézet UTF-8 kódolást igényel, méretkorlátja 1 MiB. Az erőforrást mentheted, vagy frissítéssel újrapróbálhatod.",
+  "home2.richPreview.inertLinks": "A hivatkozások és képek szövegként jelennek meg. A közzétevő HTML-je nem kerül megjelenítésre.",
   "home2.account.openAppNewTab": "Az alkalmazás megnyitása új lapon",
   "home2.account.newTabAccount": "Az új lap fiókja",
   "home2.account.chooseNewTabAccount": "Válassz fiókot",
