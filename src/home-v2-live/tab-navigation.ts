@@ -2,6 +2,7 @@ import type { AppDescriptor, AppResourceLocation, NetworkId, TabId } from '../v2
 import { reduceProductState, type ProductAction, type ProductState, type ShellEntry, type TabPageId } from '../v2/product-model'
 import { currentAppLocation, currentAppLocationFromRender } from '../v2/current-app-location'
 import { appDescriptorForOpenTab } from './publish-preview-tab'
+import { HOME_V2_TAB_TRANSFER_MAX_HISTORY } from './tab-transfer'
 import { mergeQdnAppHistory, spliceQdnAppHistory, type QdnAppHistorySession } from '../qdn-app-history'
 import type { AppTabNavigationSnapshot } from '../v2/shell/AppTabStage'
 import type { HomeV2SettingsSectionId } from '../v2/shell/SettingsPage'
@@ -31,6 +32,13 @@ export type NavigationAction = ProductAction
   | { readonly type: 'sync-app-history'; readonly tabId: TabId; readonly snapshot: AppTabNavigationSnapshot }
   | { readonly type: 'traverse-history'; readonly tabId: TabId; readonly index: number }
   | { readonly type: 'select-native-history'; readonly tabId: TabId; readonly index: number }
+  /**
+   * Installs the history a tab had in the window it was dragged out of, on
+   * the tab this window opened for it. Navigation data only: it can never
+   * change the tab's account binding, and it is refused unless the entry at
+   * `index` is the destination the tab is already showing.
+   */
+  | { readonly type: 'seed-history'; readonly tabId: TabId; readonly entries: readonly TabDestination[]; readonly index: number }
 
 export function destinationForEntry(entry: ShellEntry): TabDestination | null {
   if (entry.kind === 'viewer') return { kind: 'viewer', location: entry.location }
@@ -55,6 +63,22 @@ export function tabDestination(state: NavigationState, id = state.activeTabId) {
 }
 function sameDestination(a: TabDestination | undefined, b: TabDestination) {
   return JSON.stringify(a) === JSON.stringify(b)
+}
+/**
+ * Whether two destinations name the same place, ignoring the display-only
+ * parts. A destination rebuilt from an address carries a rebuilt AppDescriptor
+ * whose title comes from the sender, so identity must be compared by location.
+ */
+function sameDestinationLocation(a: TabDestination, b: TabDestination): boolean {
+  if (a.kind !== b.kind) return false
+  if (a.kind === 'app') return a.location === (b as Extract<TabDestination, { kind: 'app' }>).location
+  if (a.kind === 'viewer') return a.location === (b as Extract<TabDestination, { kind: 'viewer' }>).location
+  if (a.kind === 'internal') return a.page === (b as Extract<TabDestination, { kind: 'internal' }>).page
+  if (a.kind === 'releases') {
+    const target = (b as Extract<TabDestination, { kind: 'releases' }>).target
+    return a.target.product === target.product && a.target.tagName === target.tagName
+  }
+  return a.network === (b as Extract<TabDestination, { kind: 'core-docs' }>).network
 }
 function push(history: TabHistory | undefined, target: TabDestination, keepNative = false): TabHistory {
   if (sameDestination(history?.entries[history.index], target)) return history!
@@ -99,6 +123,29 @@ export function reduceTabNavigation(state: NavigationState, action: NavigationAc
     const history = tabHistory(state, action.tabId)
     if (!history || nativeHistoryIndex(state, action.tabId, action.index) === null) return state
     return showCurrent(withHistory(state, action.tabId, { ...history, index: action.index }))
+  }
+  if (action.type === 'seed-history') {
+    // The tab must exist here, and the seeded history must be describing IT:
+    // an adopted tab is opened through the ordinary open path first, so the
+    // entry the index points at has to be the destination that open produced.
+    // Anything else is a payload that does not match what this window did, and
+    // is dropped rather than applied.
+    const entry = state.entries.find(candidate => candidate.id === action.tabId)
+    const destination = entry && destinationForEntry(entry)
+    const target = action.entries[action.index]
+    if (!entry || !destination || !target || !Number.isInteger(action.index) ||
+        action.index < 0 || action.index >= action.entries.length ||
+        action.entries.length > HOME_V2_TAB_TRANSFER_MAX_HISTORY ||
+        !sameDestinationLocation(target, destination)) return state
+    // Only ever a seed, onto a PRISTINE history: a tab that has already
+    // navigated owns its history, and a late or repeated payload must not
+    // rewrite it. `native` means the tab's own webview has already reported a
+    // session, so even a one-entry history there is no longer pristine.
+    const existing = state.navigation?.[action.tabId]
+    if (existing && (existing.native || existing.entries.length > 1)) return state
+    // Copied, and no `native`: a session that belonged to another window's
+    // webview is meaningless here.
+    return withHistory(state, action.tabId, { entries: [...action.entries], index: action.index })
   }
   if (action.type === 'sync-app-history') {
     const tab = state.tabs.find(entry => entry.id === action.tabId)

@@ -70,19 +70,32 @@ type HomeV2WindowBehavior = {
   warnOnCloseWithMultipleTabs: boolean
 }
 
+// A tab in transit between two windows: addresses and one opaque account id,
+// nothing else. Main rebuilds this from what the sending renderer supplied
+// (sanitizeHomeV2TabTransfer) and the receiving renderer validates it again,
+// so it is declared structurally here rather than trusted as a shape.
+type HomeV2TabTransfer = {
+  revision: number
+  address: string
+  accountId?: string
+  title?: string
+  history?: { entries: { address: string; title?: string }[]; index: number }
+}
+
 contextBridge.exposeInMainWorld('homeV2Windows', {
-  // Null in the window Home started with; an address in one detached from it.
-  getStartup: (): Promise<{ address: string } | null> =>
+  // Null in the window Home started with; the transferred tab in a detached
+  // one. Returned as unknown on purpose: the renderer re-validates it.
+  getStartup: (): Promise<unknown> =>
     ipcRenderer.invoke('home-v2-windows:getStartup'),
-  openTab: (address: string): Promise<void> =>
-    ipcRenderer.invoke('home-v2-windows:openTab', address),
+  openTab: (transfer: HomeV2TabTransfer): Promise<void> =>
+    ipcRenderer.invoke('home-v2-windows:openTab', transfer),
   /**
    * Offers a dragged tab to whichever other Home window is under the pointer.
    * Resolves false when there is none, so the caller opens a new window
    * instead — the previous behaviour, and why a miss cannot lose a tab.
    */
-  adoptTabAt: (address: string, x: number, y: number): Promise<boolean> =>
-    ipcRenderer.invoke('home-v2-windows:adoptTabAt', { address, x, y }),
+  adoptTabAt: (transfer: HomeV2TabTransfer, x: number, y: number): Promise<boolean> =>
+    ipcRenderer.invoke('home-v2-windows:adoptTabAt', { transfer, x, y }),
   /** Fires in the RECEIVING window when a tab is dropped onto it. */
   onAdoptTab: (listener: (event: unknown) => void) => {
     const handler = (_event: unknown, payload: unknown) => listener(payload)

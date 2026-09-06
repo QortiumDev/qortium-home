@@ -98,7 +98,7 @@ const SMOKES = [
   { script: 'smoke:desktop:home-v2-nodes', needs: 'core',
     note: 'FAILING: bridge rejects its own window as unauthorized, unexplained' },
   { script: 'smoke:desktop:home-v2-tab-detach', needs: 'unknown',
-    note: 'FAILING: opens home://apps, not a real address; drag-out is nondeterministic' },
+    note: 'Re-verified 2026-09-06 against the T1 transfer build; drag-out passes headless' },
   { script: 'smoke:desktop:home-v2-prompt', needs: 'core',
     note: 'also needs QDN fixtures READY, not merely DOWNLOADED' },
   { script: 'smoke:desktop:qdn-permissions', needs: 'core', note: 'needs QDN fixtures' },

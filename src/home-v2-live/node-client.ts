@@ -9,6 +9,7 @@ import type {
 } from '../v2/contracts'
 import packageJson from '../../package.json'
 import { parseHomeV2AccountCatalogueStore } from './account-catalogue'
+import type { HomeV2TabTransfer } from './tab-transfer'
 import {
   buildHomeV2AssetReadPath,
   buildHomeV2ChainReadPath,
@@ -2487,15 +2488,20 @@ export function getHomeV2NodeClient() {
 }
 
 export interface HomeV2WindowsBridge {
-  /** Null in the window Home started with; an address in a detached one. */
-  getStartup(): Promise<{ address: string } | null>
-  openTab(address: string): Promise<void>
+  /**
+   * Null in the window Home started with; the transferred tab in a detached
+   * one. Typed as unknown because it crosses the main process from another
+   * renderer: planHomeV2TabTransferOpen validates it before anything is opened.
+   */
+  getStartup(): Promise<unknown>
+  /** Opens a new window holding the transferred tab. */
+  openTab(transfer: HomeV2TabTransfer): Promise<void>
   /**
    * Offers a dragged tab to another Home window under the pointer. Resolves
    * false when there is none, so the caller opens a new window instead.
    * Optional: only the desktop shell has sibling windows.
    */
-  adoptTabAt?(address: string, x: number, y: number): Promise<boolean>
+  adoptTabAt?(transfer: HomeV2TabTransfer, x: number, y: number): Promise<boolean>
   /** Fires in the RECEIVING window when a tab is dropped onto it. */
   onAdoptTab?(listener: (event: unknown) => void): () => void
   /**
