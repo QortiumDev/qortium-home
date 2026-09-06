@@ -1,5 +1,7 @@
 import { ChevronDown, ChevronRight, Download, File as FileIcon, Folder } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
+import type { ViewerPosition } from './viewer-position';
+import { useViewerScroll } from './use-viewer-scroll';
 import { t } from './i18n';
 import { formatByteSize } from './qdn';
 
@@ -90,6 +92,7 @@ function FileTreeRow({
   onOpen,
   onDownload,
   downloadDisabled,
+  position,
 }: {
   node: TreeNode;
   depth: number;
@@ -97,8 +100,9 @@ function FileTreeRow({
   onOpen: (path: string) => void;
   onDownload?: (path: string) => void;
   downloadDisabled?: boolean;
+  position?: ViewerPosition;
 }) {
-  const [open, setOpen] = useState(() => defaultOpen(depth));
+  const [open, setOpen] = useState(() => position?.folders[node.path] ?? defaultOpen(depth));
   const indent = { paddingLeft: `${depth * 16 + 8}px` };
 
   if (node.dir) {
@@ -109,7 +113,14 @@ function FileTreeRow({
           style={indent}
           type="button"
           aria-expanded={open}
-          onClick={() => setOpen((value) => !value)}
+          onClick={() => {
+            if (position && node.path.length <= 4096) {
+              const keys = Object.keys(position.folders);
+              if (keys.length >= 256) delete position.folders[keys[0]];
+              position.folders[node.path] = !open;
+            }
+            setOpen(!open);
+          }}
         >
           {open ? <ChevronDown size={14} aria-hidden="true" /> : <ChevronRight size={14} aria-hidden="true" />}
           <Folder size={14} aria-hidden="true" />
@@ -125,6 +136,7 @@ function FileTreeRow({
                 onOpen={onOpen}
                 onDownload={onDownload}
                 downloadDisabled={downloadDisabled}
+                position={position}
               />
             ))
           : null}
@@ -166,6 +178,7 @@ export function FileTree({
   onOpen,
   onDownload,
   downloadDisabled = false,
+  position,
 }: {
   entries: FileTreeEntry[];
   // Decides whether a folder at a given depth starts expanded. Default collapses
@@ -174,11 +187,14 @@ export function FileTree({
   onOpen: (path: string) => void;
   onDownload?: (path: string) => void;
   downloadDisabled?: boolean;
+  position?: ViewerPosition;
 }) {
   const tree = useMemo(() => buildFileTree(entries), [entries]);
+  const ref = useRef<HTMLDivElement>(null);
+  useViewerScroll(ref, position, true);
 
   return (
-    <div className="qdn-archive__tree">
+    <div className="qdn-archive__tree" ref={ref}>
       {tree.map((node) => (
         <FileTreeRow
           key={node.path}
@@ -188,6 +204,7 @@ export function FileTree({
           onOpen={onOpen}
           onDownload={onDownload}
           downloadDisabled={downloadDisabled}
+          position={position}
         />
       ))}
     </div>

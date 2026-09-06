@@ -9,7 +9,9 @@ import {
   Plus,
   X,
 } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { boundedPosition, type ViewerPosition } from './viewer-position';
+import { useViewerScroll } from './use-viewer-scroll';
 import type { ReactNode, RefObject } from 'react';
 import { openArchive } from './archive';
 import { openEpubBook, type EpubBookLike } from './documentViewerEpub';
@@ -171,11 +173,15 @@ function PdfViewer({
   );
 }
 
-function EpubViewer({
+export function EpubViewer({
   book,
   onRenditionReady,
   scrollRef,
+  position,
+  onPageChange,
 }: {
+  onPageChange?: (page: number) => void;
+  position?: ViewerPosition;
   book: EpubBook;
   onRenditionReady: (rendition: EpubRendition) => void;
   scrollRef: RefObject<HTMLDivElement | null>;
@@ -183,16 +189,37 @@ function EpubViewer({
   const containerRef = useRef<HTMLDivElement>(null);
   const onReadyRef = useRef(onRenditionReady);
   onReadyRef.current = onRenditionReady;
+  const onPageRef = useRef(onPageChange);
+  onPageRef.current = onPageChange;
+  const [error, setError] = useState(false);
 
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
+    let canceled = false;
     const rendition = book.renderTo(container, { width: '100%', height: '100%' });
-    rendition.display().then(() => onReadyRef.current(rendition));
-  }, [book]); // eslint-disable-line react-hooks/exhaustive-deps
+    const capture = (...args: unknown[]) => {
+      const start = (args[0] as { start?: { cfi?: unknown; index?: unknown } } | undefined)?.start;
+      const cfi = start?.cfi;
+      if (!canceled && position && typeof cfi === 'string' && cfi.length <= 2048 && cfi.startsWith('epubcfi(')) position.epubCfi = cfi;
+      if (!canceled && typeof start?.index === 'number' && Number.isInteger(start.index) && start.index >= 0 && start.index < 1_000_000) onPageRef.current?.(start.index + 1);
+    };
+    rendition.on('relocated', capture);
+    rendition.themes.fontSize(`${position?.zoom ?? 100}%`);
+    const target = position?.epubCfi;
+    setError(false);
+    void rendition.display(target).catch(async () => {
+      if (canceled || !target) throw new Error('EPUB display failed');
+      if (position) delete position.epubCfi;
+      await rendition.display();
+    }).then(() => { if (!canceled) onReadyRef.current(rendition); })
+      .catch(() => { if (!canceled) setError(true); });
+    return () => { canceled = true; rendition.off('relocated', capture); };
+  }, [book, position]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="doc-viewer__content" ref={scrollRef}>
+      {error ? <p role="alert">{t('docViewer.error')}</p> : null}
       <div ref={containerRef} className="doc-viewer__epub-frame" />
     </div>
   );
@@ -248,6 +275,7 @@ type ViewerState =
 // ----- Main component -----
 
 type DocumentViewerProps = {
+  position?: ViewerPosition;
   presentation?: 'dialog' | 'tab';
   /** In-memory bytes to render instead of fetching from the node (archive entry). */
   bytes?: Uint8Array;
@@ -281,12 +309,13 @@ export function DocumentViewer({
   onDownload,
   downloadBusy = false,
   downloadFeedback,
+  position,
   resource,
 }: DocumentViewerProps) {
   const viewerRef = useRef<HTMLElement>(null);
   const [state, setState] = useState<ViewerState>({ message: t('viewer.loadingResource'), phase: 'loading' });
-  const [page, setPage] = useState(1);
-  const [zoom, setZoom] = useState(100);
+  const [page, setPage] = useState(position?.page ?? 1);
+  const [zoom, setZoom] = useState(Math.max(25, boundedPosition(position?.zoom ?? 100, 400)));
   const [tocOpen, setTocOpen] = useState(false);
   const [epubRendition, setEpubRendition] = useState<EpubRendition | null>(null);
   const [epubChapter, setEpubChapter] = useState('');
@@ -315,9 +344,19 @@ export function DocumentViewer({
   // Each page/chapter turn swaps content in place inside the same scrollable
   // container, so without this the next page opens wherever the previous one
   // left the scroll position instead of at the top.
+  const previousPage = useRef({ page, epubChapter });
+  useLayoutEffect(() => {
+    const changed = previousPage.current.page !== page || previousPage.current.epubChapter !== epubChapter;
+    previousPage.current = { page, epubChapter };
+    if (!position || changed) {
+      if (position) position.scroll = { top: 0, left: 0 };
+      contentScrollRef.current?.scrollTo({ top: 0 });
+    }
+  }, [page, epubChapter, position]);
+  useViewerScroll(contentScrollRef, position, state.phase === 'ready' ? `${page}|${epubChapter}` : false);
   useEffect(() => {
-    contentScrollRef.current?.scrollTo({ top: 0 });
-  }, [page, epubChapter]);
+    if (position && state.phase === 'ready') { position.page = page; position.zoom = zoom; }
+  }, [position, page, zoom, state.phase]);
 
   useEffect(() => {
     let canceled = false;
@@ -326,8 +365,8 @@ export function DocumentViewer({
     async function load() {
       try {
         setState({ message: t('viewer.loadingResource'), phase: 'loading' });
-        setPage(1);
-        setZoom(100);
+        setPage(Math.max(1, Math.floor(boundedPosition(position?.page ?? 1, 1_000_000))));
+        setZoom(Math.max(25, boundedPosition(position?.zoom ?? 100, 400)));
         setTocOpen(false);
         setEpubRendition(null);
         setEpubChapter('');
@@ -384,6 +423,7 @@ export function DocumentViewer({
           const doc = raw as unknown as PdfDoc;
           if (canceled) { void doc.destroy(); return; }
           cleanup = () => { void doc.destroy(); };
+          setPage(Math.max(1, Math.min(doc.numPages, position?.page ?? 1)));
           setState({ doc, format: 'pdf', pageCount: doc.numPages, phase: 'ready' });
           return;
         }
@@ -405,6 +445,7 @@ export function DocumentViewer({
           const pages = await extractComicPages(bytes);
           if (canceled) { pages.forEach(URL.revokeObjectURL); return; }
           cleanup = () => { pages.forEach(URL.revokeObjectURL); };
+          setPage(Math.max(1, Math.min(pages.length, position?.page ?? 1)));
           setState({ format: 'cbz', pageCount: pages.length, pages, phase: 'ready' });
           return;
         }
@@ -421,7 +462,7 @@ export function DocumentViewer({
       canceled = true;
       cleanup?.();
     };
-  }, [providedBytes, loadBytes, resource, knownFilename, knownMimeType]);
+  }, [providedBytes, loadBytes, resource, knownFilename, knownMimeType, position]);
 
   // Track EPUB location changes
   useEffect(() => {
@@ -670,7 +711,7 @@ export function DocumentViewer({
       )}
 
       {state.phase === 'ready' && state.format === 'epub' && (
-        <EpubViewer book={state.book} scrollRef={contentScrollRef} onRenditionReady={setEpubRendition} />
+        <EpubViewer book={state.book} scrollRef={contentScrollRef} onRenditionReady={setEpubRendition} position={position} onPageChange={setPage} />
       )}
 
       {state.phase === 'ready' && state.format === 'cbz' && (

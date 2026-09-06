@@ -32,6 +32,18 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## fix(home2): retain viewer positions across tab switches
+
+2026-09-06
+
+Open public viewer tabs now remember document page and zoom, EPUB reading location,
+text scroll, media time, and archive navigation when you switch away and back.
+Media returns paused. Home still releases and reacquires resource access; only
+small position values stay in memory. Each tab is independent, and closing a tab,
+changing its resource/account, or restarting Home clears those values. Private
+attachment viewers do not retain positions. Same-resource refresh keeps the
+position where possible, with safe fallback when the resource has changed.
+
 ## fix(home2): show viewer save progress and results
 
 2026-09-06
