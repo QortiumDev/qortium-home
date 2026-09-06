@@ -840,7 +840,7 @@ the same request fields and response shapes. Two Home 2 clarifications:
 ### Rating writes (Home 2)
 
 `RATE_ACCOUNT` and `RATE_RESOURCE` are restored on `qdnRequest` only (the
-rating system is a Qortium Core addition), desktop only, as fee-free signed
+rating system is a Qortium Core addition), on desktop and Android, as fee-free signed
 transactions built ON DEVICE with the local transformer pattern — the 1.x
 path not only used API-keyed node builders, it sent the account's PRIVATE
 KEY to the node's `/transactions/sign`; in Home 2 the key never leaves the
@@ -888,8 +888,15 @@ Core's consensus rules stay authoritative.
 
 `fee` and `txGroupId`, when present, must be 0: rating transactions are
 never group-approved, and Home pays with on-device MemoryPoW (difficulty
-from the node's public capabilities). Both prompts are single-request with
-the never-durable `rating.write` capability. Unknown broadcast outcomes
+from the node's public capabilities). `RATE_ACCOUNT` offers single-request or
+session consent through the never-durable `rating.write` capability. Session
+consent covers rating, updating and removing account ratings across every target
+and role for the same app tab, selected account, Qortium chain and node route.
+It survives internal app navigation, but ends on lock, account/node change,
+app replacement, tab close or Home restart. Concurrent unapproved requests never
+share an Allow once decision. Each request still validates its current edge,
+cooldown, exact signed payload and live signing context. `RATE_RESOURCE` stays
+single-request only. Unknown broadcast outcomes
 journal — RATE_ACCOUNT under its exact target-key + category edge,
 RATE_RESOURCE under its resource coordinate — and block the same logical
 target until reconciled. Results keep the 1.x fields minus Core's `result`

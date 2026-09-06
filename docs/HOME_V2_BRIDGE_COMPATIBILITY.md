@@ -563,9 +563,13 @@ disclosure rule, the cooldown pre-check, the static service-id rule, and
 the remove-vs-rate captions. The 1.x path sent the account private key to
 the node's signing endpoint; Home 2's does not, by construction. **Both work
 on Android**, where the vault verifies the unstamped and the stamped bytes and
-holds the signature to the rating the prompt disclosed — a rating is a
-RELATIVE change, so a current value that moved underneath the approval refuses
-rather than being replaced by a change the user never saw.
+holds the signature to the request and its freshly checked edge. `RATE_ACCOUNT`
+now offers Allow for this tab: consent covers further account ratings, changes
+and removals across all roles for that app tab and account until lock, account
+or node change, app replacement or tab close. Internal navigation preserves it;
+no durable grant is stored. Allow once stays single-request, and `RATE_RESOURCE`
+still prompts each time. Current value and cooldown checks run for every request
+and a changed edge is refused before signing, including under session consent.
 
 `SET_ACCOUNT_AVATAR` is no longer deferred: implemented on `qdnRequest`
 only as the locally-built type-50 pointer transaction — see

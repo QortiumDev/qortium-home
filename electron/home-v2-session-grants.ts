@@ -13,6 +13,7 @@ export interface HomeV2SessionGrantBinding {
 export interface HomeV2SessionGrantStore {
   add(key: string, binding: HomeV2SessionGrantBinding): void
   clear(): void
+  capture(binding: HomeV2SessionGrantBinding): () => boolean
   has(key: string): boolean
   invalidate(
     hostWebContentsId: HomeV2SessionGrantBinding['hostWebContentsId'],
@@ -319,6 +320,7 @@ export function homeV2PermissionGrantFamily(action: string, writeKind?: string):
   // a different disclosure. Its own family keeps one prompt from deduping
   // against, or being satisfied by, the other.
   if (writeKind === 'foreign-send') return 'payment.FOREIGN_SEND'
+  if (action === 'RATE_ACCOUNT' && writeKind === 'rating') return 'account.rating'
   if (isHomeV2ForeignWalletPermissionAction(action)) return 'account.foreign-wallet.read'
   if (isHomeV2AccountReadAction(action)) return 'account.read'
   if (PUBLIC_CHAT_MUTATIONS.has(action)) return 'chat.public.mutate'
@@ -360,12 +362,23 @@ export function homeV2PermissionGrantKey(input: {
     family,
     input.accountUnlocked,
     input.nodeRoute,
-    input.target ?? '',
+    // Session consent explicitly covers every account and role; keep all
+    // principal, account, chain, lock and node-route bindings above.
+    family === 'account.rating' && input.protocol === 'qdnRequest' ? '' : input.target ?? '',
   ].join('|')
 }
 
 export function createHomeV2SessionGrantStore(): HomeV2SessionGrantStore {
   const grants = new Map<string, HomeV2SessionGrantBinding>()
+  // A lifecycle change must also invalidate consent awaiting async rechecks,
+  // including a lock/unlock or account/route switch away and back.
+  const epochs = new Map<string, number>()
+  let clearEpoch = 0
+  const epochKeys = (binding: HomeV2SessionGrantBinding) => [
+    JSON.stringify([binding.hostWebContentsId, 'all']),
+    JSON.stringify([binding.hostWebContentsId, 'tab', binding.tabId]),
+    JSON.stringify([binding.hostWebContentsId, 'network', binding.network]),
+  ]
 
   return {
     add(key, binding) {
@@ -373,11 +386,25 @@ export function createHomeV2SessionGrantStore(): HomeV2SessionGrantStore {
     },
     clear() {
       grants.clear()
+      epochs.clear()
+      clearEpoch += 1
+    },
+    capture(binding) {
+      const keys = epochKeys(binding)
+      const before = keys.map(key => epochs.get(key) ?? 0)
+      const beforeClear = clearEpoch
+      return () => beforeClear === clearEpoch && keys.every((key, index) => (epochs.get(key) ?? 0) === before[index])
     },
     has(key) {
       return grants.has(key)
     },
     invalidate(hostWebContentsId, invalidation) {
+      const key = invalidation.kind === 'account-changed' || invalidation.kind === 'locked'
+        ? JSON.stringify([hostWebContentsId, 'all'])
+        : invalidation.kind === 'node-changed'
+          ? JSON.stringify([hostWebContentsId, 'network', invalidation.network])
+          : JSON.stringify([hostWebContentsId, 'tab', invalidation.tabId])
+      epochs.set(key, (epochs.get(key) ?? 0) + 1)
       for (const [key, binding] of grants) {
         if (binding.hostWebContentsId !== hostWebContentsId) continue
         const isAccountRead = binding.family === 'account.read'
@@ -387,14 +414,14 @@ export function createHomeV2SessionGrantStore(): HomeV2SessionGrantStore {
           // branch so the two cannot drift: the tab now hosts a different app,
           // so every grant bound to that tab goes, account.read included. Only
           // 'navigation-changed' — an app moving around inside itself — keeps
-          // an account.read binding alive (the final branch below).
+          // an account.read or account.rating binding alive (the final branch below).
           : invalidation.kind === 'tab-closed' || invalidation.kind === 'app-replaced'
             ? binding.tabId === invalidation.tabId
             : invalidation.kind === 'locked'
               ? !isAccountRead
               : invalidation.kind === 'node-changed'
                 ? !isAccountRead && binding.network === invalidation.network
-                : !isAccountRead && binding.tabId === invalidation.tabId
+                : !isAccountRead && binding.family !== 'account.rating' && binding.tabId === invalidation.tabId
         if (affected) grants.delete(key)
       }
     },

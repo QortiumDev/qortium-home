@@ -90,9 +90,9 @@ export type PermissionCapability =
   // not a local-copy removal. Never durable: single-request prompt only.
   | 'qdn.delete'
   // Rating or removing a rating of an account or a QDN resource
-  // (RATE_ACCOUNT, RATE_RESOURCE). Signs one fee-free transaction per
-  // approval. Never durable, never reachable through any read grant:
-  // single-request prompt only.
+  // (RATE_ACCOUNT, RATE_RESOURCE). Never covered by a read grant.
+  // Account ratings may be approved for a tab session; resource ratings
+  // remain single-request. Neither receives a durable grant.
   | 'rating.write'
   // Setting or removing the selected account's avatar POINTER
   // (SET_ACCOUNT_AVATAR). Signs one fee-free transaction per approval —
@@ -508,9 +508,11 @@ export function invalidatePermissionState(
       case 'app-replaced':
         // 'app-replaced' takes the same side as 'tab-closed': the tab now
         // hosts a different app, so its account.read binding goes too. Only
-        // 'navigation-changed' (an app navigating within itself) keeps it.
+        // 'navigation-changed' keeps account reads and account-rating consent.
         return grant.scope === 'session' && grant.sourceTabId === change.tabId &&
-          (change.kind !== 'navigation-changed' || grant.capability !== 'account.read')
+          (change.kind !== 'navigation-changed' ||
+            (grant.capability !== 'account.read' &&
+              !(grant.capability === 'rating.write' && grant.action === 'RATE_ACCOUNT' && grant.protocol === 'qdnRequest')))
       case 'node-changed':
         return grant.capability !== 'account.read' && grant.targetNetwork === change.network
     }

@@ -32,6 +32,17 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## fix(home2): allow account ratings for the app tab session
+
+2026-09-05
+
+Account-rating prompts now offer Allow for this tab on desktop and Android.
+Approve once to rate several accounts or roles without waiting for another
+prompt between transactions. The permission covers rating changes and removals,
+stays active while browsing within the app, and expires when the tab closes or
+changes apps, the account locks or changes, or the node changes. Allow once
+remains available. Resource ratings still require an approval each time.
+
 ## fix(home2): keep bookmark toolbar menus above apps
 
 2026-09-05

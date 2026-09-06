@@ -332,6 +332,7 @@
     "test:qdn-at-message-validation": "npm run build:electron && node dist-electron/qdn-at-message-validation.test.js",
     "test:home-v2-prompt-text": "npm run build:electron && node dist-electron/home-v2-prompt-text.test.js",
     "test:home-v2-publish-extras": "npm run build:electron && node dist-electron/home-v2-publish-extras-contract.test.js",
+    "test:home-v2-rating-permissions": "npm run build:electron && esbuild src/v2/bridge-permissions.ts --bundle --platform=node --format=esm --outfile=dist-electron/home-v2-rating-permission-model.js && node scripts/test-home-v2-rating-permissions.mjs",
     "test:home-v2-ratings": "npm run build:electron && node dist-electron/home-v2-rating-actions.test.js",
     "test:home-v2-account-avatar": "npm run build:electron && node dist-electron/home-v2-account-avatar-actions.test.js",
     "test:home-v2-payments": "npm run build:electron && node dist-electron/home-v2-payment-actions.test.js",
