@@ -32,6 +32,25 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## feat(home2): keep account and history when moving tabs between windows
+
+2026-09-06
+
+Dragging a tab into its own window, or onto another Home window, now carries the
+account the tab was using and the back/forward history it had built up, instead
+of reopening the address under whatever account the other window happened to
+have selected and starting from scratch. A tab that was not using an account
+stays that way rather than picking one up, and if the account it was bound to is
+not available in the receiving window the tab reports that instead of quietly
+opening as somebody else. Public resource viewer tabs can be moved between
+windows now too; only their scroll or playback position is left behind. Publish
+previews still cannot be moved, because the temporary permission behind a
+preview is not valid in another window. A moved tab always arrives as its own
+tab, even when the receiving window already has the same app or Home page open,
+so moving one can never quietly merge it into a tab that was already there.
+Nothing else about a tab travels: the receiving window rebuilds everything from
+plain addresses and opens the tab the same way it would open any link.
+
 ## fix(home2): retain viewer positions across tab switches
 
 2026-09-06

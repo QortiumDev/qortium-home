@@ -36,7 +36,10 @@ import { registerHomeV2NodeBridgeIpcHandlers } from './home-v2-node-bridge.js';
 import { registerHomeV2NodeAdminIpcHandlers } from './home-v2-node-admin-bridge.js';
 import { assertAuthorizedHomeV2Sender, authorizeHomeV2Sender } from './home-v2-authorized-senders.js';
 import { assertHomeV2ShellClipboardText } from './home-v2-shell-clipboard.js';
-import { sanitizeHomeV2WindowAddress } from './home-v2-window-startup.js';
+import {
+  sanitizeHomeV2TabTransfer,
+  type HomeV2TabTransfer,
+} from './home-v2-window-startup.js';
 import { readHomeV2ShellState } from './home-v2-shell-store.js';
 import { homeWindowFocus } from './home-window-focus.js';
 import {
@@ -188,12 +191,13 @@ type WindowStartupPayload = {
   tab: WindowTabSnapshot;
 };
 
-// Home 2's detach payload is deliberately just an address: the receiving
-// window opens it through the ordinary address route, so nothing about a tab's
-// internal shape has to survive a trip through the main process.
-type HomeV2WindowStartup = {
-  address: string;
-};
+// Home 2's detach payload is deliberately nothing but addresses and one
+// opaque account identifier: the receiving window re-validates all of it and
+// opens the tab through the ordinary address route, so nothing about a tab's
+// internal shape has to survive a trip through the main process. Main rebuilds
+// the envelope rather than forwarding it (sanitizeHomeV2TabTransfer), so a
+// field one renderer invents cannot reach another.
+type HomeV2WindowStartup = HomeV2TabTransfer;
 
 type CreateWindowOptions = {
   placement?: 'primary' | 'secondary';
@@ -1134,8 +1138,10 @@ function registerZoomIpcHandlers() {
 
 /**
  * Home 2's window channels. The legacy `windows:*` handlers stay v1-only:
- * their payload is a route-history snapshot, and Home 2 needs nothing but an
- * address. Kept separate so neither shell can be handed the other's shape.
+ * their payload is a route-history snapshot of a tab's internals, while Home
+ * 2's is a bounded envelope of addresses plus one opaque account identifier,
+ * rebuilt here by sanitizeHomeV2TabTransfer and re-validated by the receiving
+ * renderer. Kept separate so neither shell can be handed the other's shape.
  */
 function registerHomeV2WindowIpcHandlers() {
   ipcMain.handle('home-v2-windows:getStartup', (event) => {
@@ -1152,8 +1158,9 @@ function registerHomeV2WindowIpcHandlers() {
   ipcMain.handle('home-v2-windows:openTab', (event, value: unknown) => {
     assertAuthorizedHomeV2Sender(event);
 
+    // A bare address is still accepted, as the revision-1 payload it was.
     createWindow({
-      homeV2Startup: { address: sanitizeHomeV2WindowAddress(value) },
+      homeV2Startup: sanitizeHomeV2TabTransfer(value),
       placement: 'secondary',
     });
   });
@@ -1164,9 +1171,9 @@ function registerHomeV2WindowIpcHandlers() {
    * The renderer cannot do this itself: it knows where the pointer was
    * released in screen coordinates, but nothing about the other windows, which
    * only main can see. So the renderer asks "is one of my siblings under this
-   * point?" and main either delivers the address there and answers true, or
-   * answers false so the caller falls back to opening a new window — which is
-   * exactly the previous behaviour, so a miss is never a lost tab.
+   * point?" and main either delivers the sanitised envelope there and answers
+   * true, or answers false so the caller falls back to opening a new window —
+   * which is exactly the previous behaviour, so a miss is never a lost tab.
    *
    * Returns false rather than throwing on every miss: not finding a window is
    * the ordinary case (a drop onto the desktop), not an error.
@@ -1175,7 +1182,11 @@ function registerHomeV2WindowIpcHandlers() {
     assertAuthorizedHomeV2Sender(event);
 
     const request = isRecord(value) ? value : {};
-    const address = sanitizeHomeV2WindowAddress(request.address);
+    // `transfer` is the envelope; `address` is the historical bare-address
+    // form, still accepted so neither half of a mixed pair has to fail.
+    const transfer = sanitizeHomeV2TabTransfer(
+      request.transfer === undefined ? request.address : request.transfer,
+    );
     const x = request.x;
     const y = request.y;
     if (typeof x !== 'number' || !Number.isFinite(x) ||
@@ -1193,7 +1204,7 @@ function registerHomeV2WindowIpcHandlers() {
       const bounds = candidate.getBounds();
       if (point.x < bounds.x || point.x >= bounds.x + bounds.width) continue;
       if (point.y < bounds.y || point.y >= bounds.y + bounds.height) continue;
-      candidate.webContents.send('home-v2-windows:adopt-tab', { address, revision: 1 });
+      candidate.webContents.send('home-v2-windows:adopt-tab', transfer);
       candidate.focus();
       return true;
     }

@@ -3903,8 +3903,38 @@ testIdentityAndImageCachingKeepsChromeStable()
 
   const live = readFileSync('src/home-v2-live/HomeV2LiveApp.tsx', 'utf8')
   const detach = live.slice(live.indexOf('const detachTab = useCallback'))
-  // The fallback is the load-bearing part.
-  assert.match(detach.slice(0, 1400), /if \(!adopted\) await windows\.openTab/)
+  // The fallback is the load-bearing part. Bounded to the callback itself
+  // rather than a character count, so growing detachTab cannot quietly move
+  // the fallback out of view of this check.
+  // indexOf, asserted BEFORE the slice: a missing marker returns -1, and
+  // slice(0, -1) would quietly hand every assertion below almost the whole
+  // file to match against, so the check would pass while checking nothing.
+  const detachEnd = detach.indexOf('[tabAddress],')
+  assert.ok(detachEnd >= 0, 'detachTab must still close over tabAddress')
+  const detachBody = detach.slice(0, detachEnd)
+  assert.match(detachBody, /if \(!adopted\) await windows\.openTab/)
+  // What travels is an envelope built from the tab, never the tab itself.
+  assert.match(detachBody, /buildHomeV2TabTransfer\(\{/)
+  assert.match(detachBody, /previewUrl != null/)
+
+  // The receiving half. The moved tab must get a tab of its OWN — the ordinary
+  // open paths deduplicate, and the sending window has already closed the
+  // original, so a deduplicated open loses the tab and its history. And the
+  // history is seeded onto the id that open reported, never onto a tab id
+  // guessed by diffing the strip, which found nothing whenever the receiving
+  // window already had that destination open.
+  const adopt = live.slice(live.indexOf('const adoptTabTransfer = useCallback'))
+  const adoptEnd = adopt.indexOf('[openAddress],')
+  assert.ok(adoptEnd >= 0, 'adoptTabTransfer must still close over openAddress')
+  const adoptBody = adopt.slice(0, adoptEnd)
+  assert.match(adoptBody, /openAddress\([^)]*\{ forceNewTab: true \}\)/)
+  assert.match(adoptBody, /tabId: result\.tabId/)
+  assert.doesNotMatch(adoptBody, /knownTabIds|pendingHistorySeed/)
+  assert.equal(
+    live.includes('pendingHistorySeed'),
+    false,
+    'the tab-list diffing heuristic is gone entirely',
+  )
 }
 
 // --- The Dashboard never guesses which networks are on -------------------

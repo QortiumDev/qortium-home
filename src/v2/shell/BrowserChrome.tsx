@@ -7,6 +7,7 @@ import type {
   HomeV2AccountCatalogue,
   NetworkId,
   NodeConnectionMode,
+  TabId,
   VisibleAppIconLoader,
   VisibleAvatarLoader,
 } from '../contracts'
@@ -131,7 +132,19 @@ export interface BrowserChromeProps {
 }
 
 export type AddressOpenResult =
-  | { readonly status: 'opened' }
+  | {
+      readonly status: 'opened'
+      /**
+       * The tab this open CREATED, when the caller can rely on there being
+       * one. Present for a viewer (which never reuses a tab) and for a forced
+       * new tab; absent when the open may have activated an existing tab
+       * instead, replaced a tab's app in place, or produced a transient page
+       * that is not a tab at all. Cross-window tab transfer reads it to seed
+       * the moved tab's history onto the exact tab it just made, rather than
+       * inferring the id by diffing the strip.
+       */
+      readonly tabId?: TabId
+    }
   | { readonly message: string; readonly status: 'error' }
   | {
       readonly message: string

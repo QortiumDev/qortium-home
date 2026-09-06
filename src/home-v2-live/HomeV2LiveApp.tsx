@@ -2,6 +2,7 @@ import { homeV2RatingPermissionScopes, homeV2RatingPermissionSummary, homeV2Rati
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import { Capacitor } from '@capacitor/core'
 import { reduceTabNavigation, tabDestination, tabHistory, nativeHistoryIndex } from './tab-navigation'
+import { buildHomeV2TabTransfer, planHomeV2TabTransferOpen } from './tab-transfer'
 import {
   clampHomeV2AppZoom,
   defaultHomeV2Appearance,
@@ -41,6 +42,7 @@ import type {
 import {
   createProductState,
   findReplaceableAppTab,
+  isTransientPage,
   type AppTab,
   type ProductState,
   type ReplaceTabTarget,
@@ -994,6 +996,21 @@ function androidEncryptDetails(publicKeys: readonly string[]) {
 type HomeV2ReplaceTabTarget = ReplaceTabTarget
 
 /**
+ * How an open differs from an ordinary address-bar open.
+ *
+ * `forceNewTab` is set by cross-window tab transfer, and by nothing else. The
+ * ordinary paths deduplicate — an identical app tab is activated rather than
+ * added, an already-open Home page is focused rather than stacked — which is
+ * right for typing an address and wrong for a tab that is MOVING: the sending
+ * window closes the original the moment main accepts the hand-over, so a
+ * deduplicated open would lose the tab and its history outright. It is ignored
+ * alongside `replaceTarget`, which by definition creates no tab.
+ */
+interface HomeV2OpenAddressOptions {
+  readonly forceNewTab?: boolean
+}
+
+/**
  * Throwing form of findReplaceableAppTab, for the OPEN_CURRENT_TAB path.
  *
  * Called before the async resource discovery and again after it, because both
@@ -1553,7 +1570,10 @@ export function HomeV2LiveApp() {
   // A window opened by dragging a tab out. Its tab strip is deliberately
   // session-only: it must not restore the primary window's tabs, and must not
   // save over them. `null` while the answer is still being fetched.
-  const [detachedAddress, setDetachedAddress] = useState<string | null>(null)
+  //
+  // Held as the raw payload main returned, not a decoded one: it crossed the
+  // main process from another renderer, so it is validated at the point of use.
+  const [detachedTransfer, setDetachedTransfer] = useState<unknown>(null)
   const [windowRoleReady, setWindowRoleReady] = useState(false)
   const isDetachedWindow = useRef(false)
   const [vaultState, setVaultState] = useState<HomeV2VaultState>(emptyVaultState)
@@ -2107,7 +2127,7 @@ export function HomeV2LiveApp() {
       .then((startup) => {
         if (cancelled) return
         isDetachedWindow.current = !!startup
-        setDetachedAddress(startup?.address ?? null)
+        setDetachedTransfer(startup ?? null)
       })
       .catch(() => undefined)
       .finally(() => {
@@ -2573,6 +2593,11 @@ export function HomeV2LiveApp() {
               : snapshot.identity.selectedWallet,
         },
       })
+      // The id this call GENERATED. With `newInstance` false the reducer may
+      // activate an identical existing tab instead of adding one, and then
+      // this id names no tab — so only a caller that forced a new instance may
+      // treat it as the resulting tab.
+      return tabId
     },
     [snapshot.identity.id, snapshot.identity.selectedWallet],
   )
@@ -2762,6 +2787,10 @@ export function HomeV2LiveApp() {
     tabSequence.current += 1
     const tabId = brand<TabId>(`home-v2:viewer:${Date.now().toString(36)}:${tabSequence.current}`)
     dispatchProduct({ type: 'open-viewer', location: resource.location, accountId, tabId })
+    // Always a new tab: the open-viewer reducer appends unconditionally, it
+    // never dedupes by location or account, so this id is always the tab that
+    // resulted.
+    return tabId
   }, [])
 
   const openAddress = useCallback(
@@ -2774,7 +2803,15 @@ export function HomeV2LiveApp() {
       // request — and together they are the compare half of a
       // compare-and-swap.
       replaceTarget?: HomeV2ReplaceTabTarget | null,
+      options?: HomeV2OpenAddressOptions,
     ): Promise<AddressOpenResult> => {
+      // A tab MOVING between windows, not an address being navigated to. The
+      // ordinary open paths deduplicate — openApp activates an identical app
+      // tab, `navigate` focuses an internal page that is already open — and
+      // for a transfer that is data loss, because the sending window closes
+      // the original as soon as main accepts the hand-over. So a transfer
+      // always makes its own tab, and reports which one it made.
+      const forceNewTab = options?.forceNewTab === true && !replaceTarget
       try {
         if (replaceTarget) {
           // The tab can close, or be replaced by someone else, between the
@@ -2827,6 +2864,22 @@ export function HomeV2LiveApp() {
           if (internal === 'welcome') {
             setOnboarding(createHomeV2OnboardingState())
           }
+          // Home's own pages are NOT singletons in the product model:
+          // `open-internal` is its "another instance" route, used by the tab
+          // strip's + button and by the always-open-start-pages path, and
+          // TabPageId is documented as "internal pages that can hold a tab,
+          // and may do so more than once". Only the ADDRESS BAR focuses an
+          // open page instead of stacking duplicates, via `navigate`. A
+          // transferred tab is a tab arriving, not an address being typed, so
+          // it takes the same route the + button does.
+          if (forceNewTab && !isTransientPage(internal)) {
+            tabSequence.current += 1
+            const tabId = brand<TabId>(
+              `home-v2:tab:${Date.now().toString(36)}:${tabSequence.current}`,
+            )
+            dispatchProduct({ type: 'open-internal', page: internal, tabId })
+            return { status: 'opened', tabId }
+          }
           dispatchProduct({
             type: 'navigate',
             destination: internal,
@@ -2834,9 +2887,9 @@ export function HomeV2LiveApp() {
           return { status: 'opened' }
         }
         if (!replaceTarget && isViewerAddress(address)) {
-          openViewer(address, requestedAccountId)
+          const tabId = openViewer(address, requestedAccountId)
           setShellNotice(null)
-          return { status: 'opened' }
+          return { status: 'opened', tabId }
         }
         const parsed = parseAppResourceLocation(address)
         let resourceIdentity = parsed.identity
@@ -2917,10 +2970,12 @@ export function HomeV2LiveApp() {
         }
         if (replaceTarget) {
           replaceTabWithApp(replaceTarget, app, resourceLocation)
-        } else {
-          openApp(app, resourceLocation, requestedAccountId)
+          return { status: 'opened' }
         }
-        return { status: 'opened' }
+        const tabId = openApp(app, resourceLocation, requestedAccountId, forceNewTab)
+        // Reported only when a new tab was forced. Otherwise the reducer may
+        // have activated an identical existing tab and this id names nothing.
+        return forceNewTab ? { status: 'opened', tabId } : { status: 'opened' }
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Invalid app address.'
         setShellNotice(message)
@@ -3447,18 +3502,65 @@ export function HomeV2LiveApp() {
     [applyCollectionsMutation, applyCollectionsSnapshot, productState.entries, productState.activeTabId],
   )
 
-  // The tab this window was dragged out with, opened through the ordinary
-  // address route so it behaves exactly like any other tab.
-  const openedDetachedAddress = useRef(false)
-  useEffect(() => {
-    if (!detachedAddress || !shellStateReady || openedDetachedAddress.current) return
-    openedDetachedAddress.current = true
-    void openAddress(detachedAddress).then((result) => {
+  /**
+   * Opens a tab another window handed over, through the ordinary address route
+   * so it behaves exactly like any other tab.
+   *
+   * The payload is untrusted input, whatever main already checked: it is
+   * re-validated here, the account it names is decoded with the same
+   * `savedAccountBinding` rule saved links use — so an explicit guest stays
+   * guest and a bound account that this window does not have fails the open
+   * rather than silently becoming the current one — and the transferred
+   * history is only offered to the tab that open actually produced.
+   */
+  const adoptTabTransfer = useCallback(
+    async (payload: unknown) => {
+      const plan = planHomeV2TabTransferOpen(payload)
+      if (!plan) return
+      // Revision 1 named no account, so it keeps the historical behaviour of
+      // opening under whatever account this window has selected.
+      const binding =
+        plan.accountId === undefined ? undefined : savedAccountBinding(plan.accountId)
+      // No replaceTarget: an adopted tab is a NEW tab in this window, never a
+      // replacement for whatever the user was already looking at. forceNewTab
+      // for the same reason it is never optional here — the sending window has
+      // already closed the original, so an open that merely activated an
+      // identical tab this window happened to have would lose it.
+      const result = await openAddress(plan.address, binding, null, { forceNewTab: true })
       if (result.status !== 'opened') {
-        setShellNotice(result.message ?? 'That tab could not be reopened here.')
+        setShellNotice(
+          result.message ??
+            (plan.title
+              ? `${plan.title} could not be reopened here.`
+              : 'That tab could not be reopened here.'),
+        )
+        return
       }
-    })
-  }, [detachedAddress, openAddress, shellStateReady])
+      // Seeded onto the tab this open actually made, named by its own id
+      // rather than inferred from how the strip changed: two adoptions racing
+      // each other therefore each seed their own tab, and a destination this
+      // window already had still gets its history. `tabId` is absent only for
+      // an address that becomes no tab at all (Core docs, release notes),
+      // which carries nothing worth seeding.
+      if (plan.history && result.tabId) {
+        dispatchProduct({
+          type: 'seed-history',
+          tabId: result.tabId,
+          entries: plan.history.entries,
+          index: plan.history.index,
+        })
+      }
+    },
+    [openAddress],
+  )
+
+  // The tab this window was dragged out with.
+  const openedDetachedTransfer = useRef(false)
+  useEffect(() => {
+    if (!detachedTransfer || !shellStateReady || openedDetachedTransfer.current) return
+    openedDetachedTransfer.current = true
+    void adoptTabTransfer(detachedTransfer)
+  }, [adoptTabTransfer, detachedTransfer, shellStateReady])
 
   /** The address a tab carries when it is bookmarked or moved to a window. */
   const tabAddress = useCallback(
@@ -3477,39 +3579,45 @@ export function HomeV2LiveApp() {
   )
 
   // The receiving half of a reattach: another window handed us a tab.
+  // Validated in adoptTabTransfer, not trusted: this arrives over IPC like any
+  // other input, and an unusable payload must do nothing rather than open a
+  // broken tab.
   useEffect(() => {
     const windows = window.homeV2Windows
     if (!windows?.onAdoptTab) return undefined
     return windows.onAdoptTab((event) => {
-      const address = isRecord(event) && typeof event.address === 'string'
-        ? event.address
-        : null
-      // Validated here, not trusted: this arrives over IPC like any other
-      // input, and an unusable address must do nothing rather than open a
-      // broken tab.
-      if (!address) return
-      // No replaceTarget: an adopted tab is a NEW tab in this window, never a
-      // replacement for whatever the user was already looking at.
-      void openAddress(address).catch(() => undefined)
+      void adoptTabTransfer(event).catch(() => undefined)
     })
-  }, [openAddress])
+  }, [adoptTabTransfer])
 
   /**
-   * Moves a tab into its own window, as Home 1.x did. Only the address travels
-   * to the new window, which then opens it through the ordinary address route,
-   * so no tab internals have to survive a trip through the main process.
+   * Moves a tab into its own window, as Home 1.x did. What travels is a
+   * bounded envelope of ADDRESSES plus the account the tab was bound to; the
+   * new window re-validates it and opens the tab through the ordinary address
+   * route, so no tab internals have to survive a trip through the main
+   * process.
    */
   const detachTab = useCallback(
     async (tabId: TabId, position?: { screenX: number; screenY: number }) => {
       const windows = window.homeV2Windows
       const target = tabAddress(tabId)
-      if (!windows || !target) return
-      // Cross-window transfer currently carries a URL only. Do not silently
-      // rebind a viewer's saved account to the destination window's default.
-      if (productStateRef.current.entries.find(entry => entry.id === tabId)?.kind === 'viewer') {
-        setShellNotice('Resource viewer window transfer is not available yet. Open its saved link in the other window.')
+      const entry = productStateRef.current.entries.find(candidate => candidate.id === tabId)
+      if (!windows || !target || !entry) return
+      // A publish preview's capability is expiring and window-scoped, so its
+      // URL must never be replayed somewhere else. The app itself can still be
+      // opened there from its address.
+      if (entry.kind === 'app' && entry.context.previewUrl != null) {
+        setShellNotice('A publish preview cannot be moved to another window. Open the app from its address there instead.')
         return
       }
+      // Explicit, never inherited: a tab with no account moves as an explicit
+      // guest rather than widening to whatever account the other window has.
+      const transfer = buildHomeV2TabTransfer({
+        address: target.address,
+        title: target.title,
+        accountId: savedEntryAccountId(entry),
+        history: tabHistory(productStateRef.current, tabId),
+      })
       try {
         // Dropped ONTO another Home window? Then this is a reattach, not a
         // detach: the tab moves there instead of opening a third window. Main
@@ -3517,10 +3625,10 @@ export function HomeV2LiveApp() {
         // A miss falls through to the original behaviour, so a drop onto the
         // desktop still gets its own window and no tab is ever lost.
         const adopted = position && windows.adoptTabAt
-          ? await windows.adoptTabAt(target.address, position.screenX, position.screenY)
+          ? await windows.adoptTabAt(transfer, position.screenX, position.screenY)
               .catch(() => false)
           : false
-        if (!adopted) await windows.openTab(target.address)
+        if (!adopted) await windows.openTab(transfer)
         // Closed only after the new window is asked for, so a rejected request
         // leaves the tab where it was rather than losing it.
         dispatchProduct({ type: 'close-tab', tabId })

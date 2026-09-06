@@ -106,6 +106,7 @@
     "test:home-v2-account-tab-launch": "esbuild src/home-v2-live/account-tab-launch.test.ts --bundle --platform=node --format=esm --outfile=dist-electron/account-tab-launch.test.js && node dist-electron/account-tab-launch.test.js",
     "test:home-v2-account-launch": "node scripts/test-home-v2-account-launch.mjs",
     "test:home-v2-closed-app-tabs": "esbuild src/home-v2-live/closed-app-tabs.test.ts --bundle --platform=node --format=esm --outfile=dist-electron/closed-app-tabs.test.js && node dist-electron/closed-app-tabs.test.js && node scripts/test-home-v2-closed-app-tabs.mjs",
+    "test:home-v2-tab-transfer": "esbuild src/home-v2-live/tab-transfer.test.ts --bundle --platform=node --format=esm --outfile=dist-electron/home-v2-tab-transfer.test.js && node dist-electron/home-v2-tab-transfer.test.js",
     "test:home-v2-tab-navigation": "esbuild src/home-v2-live/tab-navigation.test.ts --bundle --platform=node --format=esm --outfile=dist-electron/tab-navigation.test.js && node dist-electron/tab-navigation.test.js && node scripts/test-home-v2-navigation-wiring.mjs",
     "test:home-v2-current-app-url": "esbuild src/v2/current-app-location.test.ts --bundle --platform=node --format=esm --outfile=dist-electron/current-app-location.test.js && node dist-electron/current-app-location.test.js && node scripts/test-home-v2-current-app-url.mjs",
     "test:home-v2-guest-saved-links": "node scripts/test-home-v2-guest-saved-links.mjs",
