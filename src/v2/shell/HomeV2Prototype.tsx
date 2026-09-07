@@ -138,6 +138,8 @@ export interface HomeV2PrototypeProps {
   readonly appReloadVersion?: number
   readonly internalReloadVersion?: number
   readonly selectedAccountLookup?: DualIdentityLookupResult | null
+  /** Per-account identities behind the tab strip's account avatars. */
+  readonly accountIdentityLookups?: ReadonlyMap<string, DualIdentityLookupResult>
   readonly nodeClient?: HomeV2NodeClient | null
   readonly coreManagement?: HomeV2CoreManagement
   // The app's one set of maintenance controllers, for the Settings and Welcome
@@ -270,6 +272,9 @@ export interface HomeV2PrototypeProps {
   readonly onSetWindowBehavior?: (change: HomeV2WindowBehaviorChange) => Promise<void>
   readonly onOpenReleaseNotes?: (target: HomeV2ReleaseNotesTarget) => void
   readonly onPinTabToDashboard?: (tabId: ProductState['tabs'][number]['id']) => void | Promise<void>
+  /** Reopens the most recently closed tab, from the tab context menu. */
+  readonly onReopenClosedTab?: () => void
+  readonly canReopenClosedTab?: boolean
   readonly onWelcomeAccountAction?: (action: 'create' | 'import' | 'private') => void
   readonly onWelcomeComplete?: (
     destination: 'appearance' | 'dashboard',
@@ -1144,6 +1149,7 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
             : undefined
         }
         selectedAccountLookup={props.selectedAccountLookup}
+        accountIdentityLookups={props.accountIdentityLookups}
         accountCatalogue={props.accountCatalogue}
         loadVisibleAvatar={props.loadVisibleAvatar}
         loadVisibleAppIcon={props.loadVisibleAppIcon}
@@ -1161,6 +1167,8 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
         onSetBookmarkToolbarVisibility={props.onSetBookmarkToolbarVisibility}
         onDropTabOnBookmarkToolbar={props.onDropTabOnBookmarkToolbar}
         onPinTabToDashboard={props.onPinTabToDashboard}
+        onReopenClosedTab={props.onReopenClosedTab}
+        canReopenClosedTab={props.canReopenClosedTab}
         onDetachTab={props.onDetachTab}
         onLockAccount={props.onLockAccount}
         onUnlockAccount={props.onSubmitAccountUnlock}

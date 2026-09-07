@@ -37,8 +37,11 @@ import { registerHomeV2NodeAdminIpcHandlers } from './home-v2-node-admin-bridge.
 import { assertAuthorizedHomeV2Sender, authorizeHomeV2Sender } from './home-v2-authorized-senders.js';
 import { assertHomeV2ShellClipboardText } from './home-v2-shell-clipboard.js';
 import {
+  placeHomeV2WindowAtPoint,
   sanitizeHomeV2TabTransfer,
+  sanitizeHomeV2WindowPoint,
   type HomeV2TabTransfer,
+  type HomeV2WindowPoint,
 } from './home-v2-window-startup.js';
 import { readHomeV2ShellState } from './home-v2-shell-store.js';
 import { homeWindowFocus } from './home-window-focus.js';
@@ -203,6 +206,12 @@ type CreateWindowOptions = {
   placement?: 'primary' | 'secondary';
   startupPayload?: WindowStartupPayload;
   homeV2Startup?: HomeV2WindowStartup;
+  /**
+   * Where a dragged-out tab was RELEASED, in screen coordinates. Present only
+   * for a detach, and the reason the new window lands under the pointer rather
+   * than offset from the window the tab came from.
+   */
+  releasePoint?: HomeV2WindowPoint;
 };
 
 type MenuCommand =
@@ -507,11 +516,32 @@ function getInitialWindowState(
 ): WindowState | undefined {
   const savedState = initialWindowState(readWindowStates(), role);
 
-  if (role === 'secondary') {
-    return getSecondaryWindowState(savedState);
+  if (role !== 'secondary') {
+    return savedState;
   }
 
-  return savedState;
+  const secondaryState = getSecondaryWindowState(savedState);
+
+  // A tab dragged out and released on the desktop opens where it was DROPPED.
+  // The offset-from-the-focused-window placement above is still the fallback:
+  // it is what a new window with no release point (a menu command, or a point
+  // the sender did not supply) has always used.
+  if (!options.releasePoint) {
+    return secondaryState;
+  }
+
+  const width = secondaryState?.width ?? savedState?.width ?? DEFAULT_WINDOW_WIDTH;
+  const height = secondaryState?.height ?? savedState?.height ?? DEFAULT_WINDOW_HEIGHT;
+  // Clamped to the display the pointer was over, so a drop onto a second
+  // monitor opens there instead of being pulled back to the primary one.
+  const { workArea } = screen.getDisplayNearestPoint(options.releasePoint);
+  const { x, y } = placeHomeV2WindowAtPoint(
+    options.releasePoint,
+    { height, width },
+    workArea,
+  );
+
+  return { height, isMaximized: false, width, x, y };
 }
 
 // --- closing the main window ------------------------------------------------
@@ -1155,13 +1185,17 @@ function registerHomeV2WindowIpcHandlers() {
     return payload;
   });
 
-  ipcMain.handle('home-v2-windows:openTab', (event, value: unknown) => {
+  ipcMain.handle('home-v2-windows:openTab', (event, value: unknown, point: unknown) => {
     assertAuthorizedHomeV2Sender(event);
 
     // A bare address is still accepted, as the revision-1 payload it was.
+    // The release point travels as a SEPARATE argument: it says where to draw
+    // the window, never what it opens, so it is validated on its own and an
+    // invalid one is ignored rather than refusing the tab.
     createWindow({
       homeV2Startup: sanitizeHomeV2TabTransfer(value),
       placement: 'secondary',
+      releasePoint: sanitizeHomeV2WindowPoint(point),
     });
   });
 

@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict';
 import {
   HOME_V2_WINDOW_ADDRESS_MAX_LENGTH,
+  HOME_V2_WINDOW_RELEASE_GRAB_OFFSET,
   mergeHomeV2ShellGlobalState,
+  placeHomeV2WindowAtPoint,
   sanitizeHomeV2TabTransfer,
   sanitizeHomeV2WindowAddress,
+  sanitizeHomeV2WindowPoint,
 } from './home-v2-window-startup.js';
 
 // --- address validation -----------------------------------------------------
@@ -300,5 +303,81 @@ for (const invalid of [null, undefined, 'state', 7, [1, 2]]) {
     `${JSON.stringify(invalid)} is refused`,
   );
 }
+
+// --- placing a detached window where the tab was released --------------------
+
+// The point is optional and separate from the envelope: anything that is not a
+// pair of finite numbers is ignored rather than throwing, so a bad point falls
+// back to the historical offset placement instead of losing the tab.
+for (const invalid of [
+  undefined,
+  null,
+  'point',
+  42,
+  [10, 20],
+  {},
+  { x: 10 },
+  { y: 20 },
+  { x: '10', y: 20 },
+  { x: 10, y: Number.NaN },
+  { x: Number.POSITIVE_INFINITY, y: 20 },
+  { x: Number.MAX_VALUE, y: 20 },
+  { x: 20, y: -2147483649 },
+]) {
+  assert.equal(
+    sanitizeHomeV2WindowPoint(invalid),
+    undefined,
+    `${JSON.stringify(invalid)} is not a placement point`,
+  );
+}
+
+assert.deepEqual(sanitizeHomeV2WindowPoint({ x: 120.4, y: -30.6 }), { x: 120, y: -31 });
+assert.deepEqual(
+  sanitizeHomeV2WindowPoint({ x: 120, y: 30, width: 4000 }),
+  { x: 120, y: 30 },
+  'only the two coordinates are kept',
+);
+
+const workArea = { x: 0, y: 24, width: 1920, height: 1056 };
+const size = { width: 1100, height: 720 };
+
+// The ordinary case: the title bar lands under the release point.
+assert.deepEqual(
+  placeHomeV2WindowAtPoint({ x: 600, y: 200 }, size, workArea),
+  {
+    x: 600 - HOME_V2_WINDOW_RELEASE_GRAB_OFFSET.x,
+    y: 200 - HOME_V2_WINDOW_RELEASE_GRAB_OFFSET.y,
+  },
+);
+
+// Released near an edge: the window is pulled back inside the work area, never
+// half off-screen and never above the reserved strip at the top.
+assert.deepEqual(
+  placeHomeV2WindowAtPoint({ x: 1900, y: 1050 }, size, workArea),
+  { x: 1920 - 1100, y: 24 + 1056 - 720 },
+);
+assert.deepEqual(
+  placeHomeV2WindowAtPoint({ x: 4, y: 8 }, size, workArea),
+  { x: 0, y: 24 },
+);
+
+// A second display sitting to the left of the primary one has negative
+// coordinates; clamping is to THAT display's work area, not to the origin.
+const leftDisplay = { x: -1600, y: 0, width: 1600, height: 900 };
+assert.deepEqual(
+  placeHomeV2WindowAtPoint({ x: -1580, y: 12 }, size, leftDisplay),
+  { x: -1600, y: 0 },
+);
+assert.deepEqual(
+  placeHomeV2WindowAtPoint({ x: -100, y: 880 }, size, leftDisplay),
+  { x: -1600 + 1600 - 1100, y: 900 - 720 },
+);
+
+// A window bigger than the display it was dropped on still gets a reachable
+// title bar rather than a negative offset that hides it.
+assert.deepEqual(
+  placeHomeV2WindowAtPoint({ x: 500, y: 500 }, { width: 2400, height: 1400 }, workArea),
+  { x: 0, y: 24 },
+);
 
 console.log('Home v2 window startup tests passed.');

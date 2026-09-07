@@ -7,12 +7,14 @@ import { homeV2Fixture, fixtureApp, fixtureIds, fixtureTabContext } from '../tes
 import { accountsLosingAccess, chromeAccountContext, savedEntryAccountId } from './account-context'
 import { BrowserChrome, type AddressOpenResult } from './BrowserChrome'
 import { useDismissablePopover } from './useDismissablePopover'
+import { useTabAccountIdentities, type TabIdentityTarget } from '../../home-v2-live/useTabAccountIdentities'
 import type { HomeV2CoreManagement } from './CoreManagerCards'
 import type {
   DualIdentityLookupResult,
   HomeV2Snapshot,
   HomeV2AccountCatalogue,
   IdentityId,
+  VisibleAvatarReadResult,
   WalletRef,
   NetworkId,
   TabId,
@@ -1304,6 +1306,240 @@ try {
   act(() => renderLauncher(createProductState()))
   act(() => accountButton().click())
   assert.equal(launchForm(), null, 'internal pages do not offer app launch')
+
+  // --- the tab account chip shows a published avatar --------------------------
+  // The chip printed two initials and never attempted an image, so a tab bound
+  // to an account WITH a published avatar looked exactly like one without.
+  const bobLookup = (identifier: string): DualIdentityLookupResult => ({
+    ...accountLookup,
+    networks: {
+      qortium: {
+        ...accountLookup.networks.qortium,
+        address: 'QBobAddress',
+        avatar: { identifier, name: 'Bob', service: 'THUMBNAIL', source: 'account-pointer' },
+        names: ['Bob'],
+        primaryName: 'Bob',
+      },
+      qortal: {
+        ...accountLookup.networks.qortal,
+        address: 'QBobAddress',
+        avatar: null,
+        names: ['Bob'],
+        primaryName: 'Bob',
+      },
+    },
+    query: 'QBobAddress',
+    sharedAddress: 'QBobAddress',
+  })
+  const avatarRequests: string[] = []
+  const renderChipChrome = (
+    lookups: ReadonlyMap<string, DualIdentityLookupResult> | undefined,
+    result: VisibleAvatarReadResult,
+  ) => root.render(
+    <BrowserChrome key="tab-account-chip" snapshot={homeV2Fixture} productState={bobState}
+      accountCatalogue={catalogue} accountIdentityLookups={lookups}
+      loadVisibleAvatar={async (network, request) => {
+        avatarRequests.push(`${network}:${request.pointer.identifier}`)
+        return result
+      }} />,
+  )
+  const tabChip = () => container.querySelector<HTMLElement>('.home-v2-tab__account')!
+  const flush = async (times = 6) => {
+    for (let index = 0; index < times; index += 1) await Promise.resolve()
+  }
+  await act(async () => {
+    renderChipChrome(new Map([['wallet-b:1', bobLookup('bob-avatar-ready')]]), {
+      body: 'iVBORw0KGgo=',
+      contentLength: 8,
+      contentType: 'image/png',
+      status: 'ready',
+    })
+    await flush()
+  })
+  const chipImage = () => tabChip().querySelector('img')
+  assert.ok(chipImage(), 'a published avatar must render as an image in the tab chip')
+  assert.equal(
+    chipImage()?.getAttribute('class'),
+    'home-v2-presence__avatar home-v2-tab__account-avatar',
+    'the chip class is what bounds the image to the tab strip',
+  )
+  // The tab's OWN network decides which chain's avatar is asked for.
+  assert.deepEqual(avatarRequests, ['qortium:bob-avatar-ready'])
+  assert.equal(
+    tabChip().getAttribute('aria-label'),
+    'Tab account: Bob',
+    'the packaged detach smoke reads this label, so it must not change',
+  )
+
+  act(() => chipImage()!.dispatchEvent(new window.Event('error')))
+  assert.equal(chipImage(), null, 'a failed decode must return to the initials')
+  assert.equal(tabChip().textContent, 'BO')
+
+  // No avatar published (or one that never resolves): exactly the initials the
+  // chip has always shown, and no image element at all.
+  await act(async () => {
+    renderChipChrome(new Map([['wallet-b:1', bobLookup('bob-avatar-missing')]]), {
+      status: 'missing',
+    })
+    await flush()
+  })
+  assert.equal(tabChip().querySelector('img'), null)
+  assert.equal(tabChip().textContent, 'BO')
+  await act(async () => {
+    renderChipChrome(undefined, { status: 'missing' })
+    await flush()
+  })
+  assert.equal(tabChip().querySelector('img'), null, 'no identity, no image')
+  assert.equal(tabChip().textContent, 'BO')
+
+  // --- Reopen Closed Tab lives in the tab context menu ------------------------
+  // The command existed only as Ctrl/Cmd+Shift+T, which is invisible.
+  const reopenCalls: string[] = []
+  const renderReopenChrome = (canReopen: boolean) => root.render(
+    <BrowserChrome key="tab-menu-reopen" snapshot={homeV2Fixture} productState={bobState}
+      accountCatalogue={catalogue} onCloseTab={() => undefined}
+      canReopenClosedTab={canReopen}
+      onReopenClosedTab={() => reopenCalls.push('reopen')} />,
+  )
+  const openTabMenu = () => act(() => {
+    container.querySelector<HTMLElement>('.home-v2-tab')!.dispatchEvent(
+      new window.MouseEvent('contextmenu', { bubbles: true, cancelable: true }),
+    )
+  })
+  const reopenItem = () =>
+    container.querySelector<HTMLButtonElement>('[data-home-v2-tab-menu-action="reopen"]')
+  act(() => renderReopenChrome(false))
+  openTabMenu()
+  assert.ok(reopenItem(), 'the tab context menu must offer the reopen command')
+  assert.equal(reopenItem()?.textContent, 'Reopen Closed Tab')
+  assert.equal(
+    reopenItem()?.disabled,
+    true,
+    'an empty closed-tab stack disables the item rather than hiding it',
+  )
+  act(() => container.querySelector<HTMLElement>('.home-v2-tab-menu__backdrop')!.click())
+  act(() => renderReopenChrome(true))
+  openTabMenu()
+  assert.equal(reopenItem()?.disabled, false)
+  act(() => reopenItem()!.click())
+  assert.deepEqual(reopenCalls, ['reopen'], 'the item runs the reopen command')
+  assert.equal(
+    container.querySelector('[data-home-v2-tab-context-menu]'),
+    null,
+    'the menu closes behind the command',
+  )
+
+  // --- Settings is reachable from the phone top bar ---------------------------
+  // The phone layout hid every .home-v2-toolbar-button, and Settings was one of
+  // them, so the page had no top-bar route on a phone at all.
+  const phoneContainer = document.createElement('div')
+  phoneContainer.className = 'home-v2-shell'
+  phoneContainer.setAttribute('data-layout', 'phone')
+  document.body.appendChild(phoneContainer)
+  const phoneRoot = createRoot(phoneContainer)
+  try {
+    const phoneDestinations: string[] = []
+    act(() =>
+      phoneRoot.render(
+        <BrowserChrome
+          snapshot={homeV2Fixture}
+          productState={createProductState()}
+          onNavigate={(destination) => phoneDestinations.push(destination)}
+        />,
+      ),
+    )
+    const phoneSettings = phoneContainer.querySelector<HTMLButtonElement>(
+      '[data-home-v2-toolbar-action="settings"]',
+    )
+    assert.ok(phoneSettings, 'the phone top bar must keep a Settings button')
+    assert.equal(phoneSettings.getAttribute('aria-label'), 'Settings')
+    assert.equal(phoneSettings.textContent, '', 'icon only at phone width')
+    // The class is load-bearing: the phone rules exclude exactly this modifier
+    // from the blanket display:none over toolbar buttons.
+    assert.equal(phoneSettings.classList.contains('home-v2-toolbar-button--settings'), true)
+    assert.equal(
+      phoneContainer.querySelectorAll('.home-v2-toolbar-button').length,
+      1,
+      'nothing else was added back to the phone toolbar',
+    )
+    act(() => phoneSettings.click())
+    assert.deepEqual(phoneDestinations, ['settings'])
+  } finally {
+    act(() => phoneRoot.unmount())
+    phoneContainer.remove()
+  }
+  // Keep an in-flight lookup through ordinary tab/catalogue rerenders, while
+  // rejecting results from a removed or rebound account. Exercise the hook
+  // used by the live shell rather than passing an already-resolved fixture.
+  const pendingIdentities: {
+    address: string
+    resolve: (result: DualIdentityLookupResult) => void
+    reject: (error: Error) => void
+  }[] = []
+  const lookupIdentity = (address: string) => new Promise<DualIdentityLookupResult>((resolve, reject) => {
+    pendingIdentities.push({ address, resolve, reject })
+  })
+  function IdentityProbe({ targets }: { targets: readonly TabIdentityTarget[] }) {
+    const identities = useTabAccountIdentities(targets, lookupIdentity)
+    return <output>{JSON.stringify([...identities].map(([id, value]) => [id, value.state]))}</output>
+  }
+  const renderIdentities = (targets: readonly TabIdentityTarget[]) =>
+    root.render(<React.StrictMode><IdentityProbe targets={targets} /></React.StrictMode>)
+  act(() => renderIdentities([{ id: 'bob', address: 'old-address' }]))
+  const initialRequests = pendingIdentities.length
+  act(() => renderIdentities([{ id: 'bob', address: 'old-address' }]))
+  assert.equal(pendingIdentities.length, initialRequests, 'tab/catalogue rerenders keep the pending lookup')
+  await act(async () => {
+    pendingIdentities.slice(0, initialRequests).forEach((request) => request.resolve(bobLookup('ready')))
+  })
+  assert.equal(container.textContent, '[["bob","resolved"]]')
+
+  act(() => renderIdentities([{ id: 'bob', address: 'obsolete-address' }]))
+  const obsolete = pendingIdentities.at(-1)!
+  act(() => renderIdentities([{ id: 'bob', address: 'current-address' }]))
+  const current = pendingIdentities.at(-1)!
+  await act(async () => { obsolete.resolve(bobLookup('obsolete')) })
+  assert.equal(container.textContent, '[]', 'a stale request must not resolve a rebound account')
+  await act(async () => { current.resolve(bobLookup('current')) })
+  assert.equal(container.textContent, '[["bob","resolved"]]')
+
+  const originalSetTimeout = window.setTimeout
+  const originalClearTimeout = window.clearTimeout
+  let retryCallback: (() => void) | undefined
+  let retryCleared = false
+  window.setTimeout = ((callback: () => void, delay: number) => {
+    assert.equal(delay, 30_000, 'transient retry must outlive the resolver failure cache')
+    retryCallback = callback
+    return 123
+  }) as typeof window.setTimeout
+  window.clearTimeout = ((id: number) => { if (id === 123) retryCleared = true }) as typeof window.clearTimeout
+  try {
+    for (const state of ['partial', 'unavailable', 'throw'] as const) {
+      act(() => renderIdentities([{ id: state, address: state }]))
+      await act(async () => {
+        const request = pendingIdentities.at(-1)!
+        if (state === 'throw') request.reject(new Error('node unavailable'))
+        else request.resolve({ ...bobLookup(state), state })
+      })
+      assert.ok(retryCallback, `${state} must schedule a retry`)
+      const beforeRetry = pendingIdentities.length
+      act(() => retryCallback!())
+      assert.equal(pendingIdentities.length, beforeRetry + 1)
+      retryCallback = undefined
+      await act(async () => pendingIdentities.at(-1)!.resolve(bobLookup('recovered')))
+      assert.equal(container.textContent, JSON.stringify([[state, 'resolved']]))
+      assert.equal(retryCallback, undefined, 'a successful retry must stop polling')
+    }
+    act(() => renderIdentities([{ id: 'removed', address: 'removed' }]))
+    await act(async () => pendingIdentities.at(-1)!.reject(new Error('offline')))
+    retryCleared = false
+    act(() => renderIdentities([]))
+    assert.equal(retryCleared, true, 'removing the account cancels its retry timer')
+    assert.equal(container.textContent, '[]')
+  } finally {
+    window.setTimeout = originalSetTimeout
+    window.clearTimeout = originalClearTimeout
+  }
 } finally {
   act(() => root.unmount())
   container.remove()
