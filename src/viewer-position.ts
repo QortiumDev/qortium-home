@@ -43,10 +43,9 @@ export function applyViewerPositionSeed(position: ViewerPosition, seed: ViewerPo
 // Opening positions handed from the tab being opened to the position store the
 // viewer reads from. Keyed PER TAB: a seed is consumed by that tab's first read,
 // discarded when the tab is no longer retained, and never evicted by another
-// tab's open, so a burst of seeded opens all land. The cap is only a memory
-// backstop against ids recorded and never opened, far above any real burst, and
-// it never drops the entry just recorded.
-const PENDING_SEED_LIMIT = 512;
+// tab's open, so a burst of seeded opens of any size all land. No size cap: a
+// record is always followed by the tab's dispatch, and `retain()` runs with the
+// live viewer ids, so the map is bounded by the number of open viewer tabs.
 const pendingSeeds = new Map<string, { identity: string; seed: ViewerPositionSeed }>();
 // The identity each tab's position was last handed out under. A seed recorded
 // after that read is already too late for the reader that asked, so it is
@@ -57,10 +56,6 @@ export function recordViewerPositionSeed(tabId: string, identity: string, seed: 
   pendingSeeds.delete(tabId);
   if (!seed || readIdentities.get(tabId) === identity) return;
   pendingSeeds.set(tabId, { identity, seed });
-  if (pendingSeeds.size > PENDING_SEED_LIMIT) {
-    const oldest = pendingSeeds.keys().next();
-    if (!oldest.done && oldest.value !== tabId) pendingSeeds.delete(oldest.value);
-  }
 }
 
 export function createViewerPositionStore() {

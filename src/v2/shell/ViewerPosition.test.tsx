@@ -51,8 +51,8 @@ applyViewerPositionSeed(seedAll, { page: 5, zoom: 200, mediaTime: 31.5, line: 12
   archivePath: 'folder/inner.zip' })
 assert.deepEqual(seedAll, { scroll: { top: 0, left: 0 }, page: 5, zoom: 200, mediaTime: 31.5, line: 12,
   archivePath: 'folder/inner.zip', folders: seedAll.folders })
-// A burst of seeded opens: no tab's pending seed is ever evicted by another's.
-const burst = Array.from({ length: 20 }, (_value, index) => `burst-${index}`)
+// A burst of seeded opens, larger than any former cap: no tab's pending seed is ever evicted by another's.
+const burst = Array.from({ length: 600 }, (_value, index) => `burst-${index}`)
 for (const [index, tab] of burst.entries()) recordViewerPositionSeed(tab, seedIdentity, { page: index + 1 })
 for (const [index, tab] of burst.entries()) {
   assert.equal(store.get(tab, seedIdentity).page, index + 1, `Burst-opened tab ${tab} kept its own seed`)
