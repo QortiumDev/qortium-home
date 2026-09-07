@@ -399,7 +399,7 @@
   },
   "overrides": {
     "epubjs": {
-      "@xmldom/xmldom": "0.8.13"
+      "@xmldom/xmldom": "0.8.15"
     },
     "tmp": "0.2.7",
     "xcode": {

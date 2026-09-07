@@ -17,7 +17,7 @@ const CPU_TYPES = new Map([
 ]);
 
 function printHelp() {
-  console.log(`Usage: node scripts/verify-macos-min-version.mjs <app-or-binary-path> <max-version>
+  console.log(`Usage: node scripts/verify-macos-min-version.mjs <app-or-binary-path> <max-version> [--arch=x86_64|--arch=arm64]
 
 Examples:
   node scripts/verify-macos-min-version.mjs "dist-release/mac-universal/Qortium Home.app" 11.0.0
@@ -192,7 +192,7 @@ function collectFiles(entry) {
 }
 
 function main() {
-  const [inputPath, maxVersion] = process.argv.slice(2);
+  const [inputPath, maxVersion, architectureOption, ...extra] = process.argv.slice(2);
 
   if (!inputPath || !maxVersion || inputPath === '--help' || inputPath === '-h') {
     printHelp();
@@ -200,8 +200,15 @@ function main() {
   }
 
   const maxParts = versionNumberToParts(maxVersion);
+  if (extra.length || (architectureOption && !['--arch=x86_64', '--arch=arm64'].includes(architectureOption))) {
+    throw new Error('Optional architecture must be --arch=x86_64 or --arch=arm64.');
+  }
+  const architecture = architectureOption?.slice('--arch='.length);
   const files = collectFiles(path.resolve(inputPath));
-  const machVersions = files.flatMap((file) => parseFile(file));
+  // Catalina packages also carry the arm64 observer for shared packaging
+  // rules, but only Intel slices can execute on that OS. Default remains all.
+  const machVersions = files.flatMap((file) => parseFile(file))
+    .filter((entry) => !architecture || entry.arch === architecture);
 
   if (machVersions.length === 0) {
     throw new Error(`No Mach-O minimum-version load commands found under ${inputPath}.`);
