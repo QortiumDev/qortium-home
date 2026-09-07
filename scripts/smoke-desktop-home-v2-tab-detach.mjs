@@ -513,16 +513,30 @@ async function main() {
     })()`)
     assert.deepEqual(avatarSize, {width:16, height:16, chipHeight:20})
     log('published account avatar decoded through packaged bridge; locked chip stays on one line')
-    await aProbe.send('Emulation.setDeviceMetricsOverride', {width:390,height:844,deviceScaleFactor:1,mobile:false})
-    await sleep(500)
-    const phone = await aProbe.evaluate(`(() => {
-      const settings = document.querySelector('[data-home-v2-toolbar-action="settings"]')
-      const rect = settings.getBoundingClientRect()
-      const address = document.querySelector('.home-v2-address').getBoundingClientRect()
-      return {visible:getComputedStyle(settings).display !== 'none', width:rect.width, height:rect.height,
-        right:rect.right, viewport:innerWidth, addressWidth:address.width}
-    })()`)
-    assert.ok(phone.visible && phone.width >= 40 && phone.height >= 40 && phone.right <= phone.viewport && phone.addressWidth >= 70, JSON.stringify(phone))
+    const originalLayout = await aProbe.evaluate(`document.querySelector('.home-v2-shell').dataset.layout`)
+    let phone
+    for (const layout of [originalLayout, 'phone']) {
+      for (const width of [320, 390]) {
+        await aProbe.send('Emulation.setDeviceMetricsOverride', {width,height:844,deviceScaleFactor:1,mobile:false})
+        await aProbe.evaluate(`document.querySelector('.home-v2-shell').dataset.layout = ${JSON.stringify(layout)}`)
+        await sleep(200)
+        phone = await aProbe.evaluate(`(() => {
+          const settings = document.querySelector('[data-home-v2-toolbar-action="settings"]')
+          const rect = settings.getBoundingClientRect()
+          const address = document.querySelector('.home-v2-address input').getBoundingClientRect()
+          const viewport = document.documentElement.clientWidth
+          const clipped = [...document.querySelectorAll('.home-v2-browser-toolbar button')].filter(button => {
+            const box = button.getBoundingClientRect()
+            return box.width > 0 && (box.left < 0 || box.right > viewport + 1)
+          }).map(button => button.getAttribute('aria-label'))
+          return {visible:getComputedStyle(settings).display !== 'none', width:rect.width, height:rect.height,
+            viewport, addressWidth:address.width, clipped}
+        })()`)
+        assert.ok(phone.visible && phone.width >= 40 && phone.height >= 40 && phone.addressWidth >= 70 && !phone.clipped.length,
+          JSON.stringify({layout, width, ...phone}))
+        log(`phone controls PASS: ${JSON.stringify({layout,width,...phone})}`)
+      }
+    }
     await aProbe.evaluate(`document.querySelector('[data-home-v2-toolbar-action="settings"]').click()`)
     await until('phone Settings opens', () => aProbe.evaluate(`!!document.querySelector('.home-v2-page-slot:not([hidden]) .home-v2-settings-shell')`))
     const phoneScreenshot = await aProbe.send('Page.captureScreenshot', {format:'png'})
