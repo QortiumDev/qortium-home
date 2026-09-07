@@ -6,8 +6,8 @@ import path from 'node:path';
 
 const appPath = process.argv[2] ? path.resolve(process.argv[2]) : null;
 const targets = [
-  { directory: 'x64', lipoArch: 'x86_64' },
-  { directory: 'arm64', lipoArch: 'arm64' },
+  { directory: 'x64', lipoArch: 'x86_64', minimumVersion: '10.15' },
+  { directory: 'arm64', lipoArch: 'arm64', minimumVersion: '11.0' },
 ];
 
 function fail(message) {
@@ -60,8 +60,9 @@ function verifyBinary(target) {
   }
 
   const loadCommands = capture('xcrun', ['otool', '-l', binaryPath]);
-  if (!/\bminos 11\.0(?:\.0)?\b/.test(loadCommands) && !/\bversion 11\.0(?:\.0)?\b/.test(loadCommands)) {
-    fail(`Observer does not declare the required macOS 11.0 minimum: ${binaryPath}`);
+  const minimumVersion = target.minimumVersion.replaceAll('.', '\\.');
+  if (!new RegExp(`\\b(?:minos|version) ${minimumVersion}(?:\\.0)?\\b`).test(loadCommands)) {
+    fail(`Observer does not declare the required macOS ${target.minimumVersion} minimum: ${binaryPath}`);
   }
 
   return { architectures, binary: binaryPath, dependencies };
