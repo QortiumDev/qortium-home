@@ -31,7 +31,8 @@ let renderer = null
 const snapshot = {
   activeAccountId: 'account-1',
   availableAccounts: [{ id: 'account-1', label: 'Main account' }],
-  bookmarks: [],
+  bookmarks: [{ accountId: null, createdAt: 1, displayUrl: 'qdn://APP/Chat/Chat',
+    id: 'chat-other-copy', title: 'Other Chat bookmark', type: 'bookmark' }],
   dashboardPins: [],
   revision: 9,
   schemaVersion: 1,
@@ -167,6 +168,35 @@ try {
 
   const narrow = await renderer.send('Page.captureScreenshot', { format: 'png' })
   writeFileSync(narrowScreenshot, narrow.data, 'base64')
+
+  const removeLink = async (id) => {
+    await renderer.evaluate(`document.querySelector('[data-bookmark-id="${id}"]').dispatchEvent(
+      new MouseEvent('contextmenu', {bubbles:true, clientX:30, clientY:100}))`)
+    await waitUntil('Remove from Bookmarks menu item', 10_000, () => renderer.evaluate(
+      `!!document.querySelector('[data-bookmark-action="remove"]')`))
+    if (id === 'chat') {
+      const menu = await renderer.send('Page.captureScreenshot', {format:'png'})
+      writeFileSync(path.join(os.tmpdir(), 'qortium-home-v2-bookmark-remove.png'), menu.data, 'base64')
+    }
+    await renderer.evaluate(`document.querySelector('[data-bookmark-action="remove"]').click()`)
+    await waitUntil('bookmark removed from the toolbar', 10_000, () => renderer.evaluate(
+      `!document.querySelector('[data-bookmark-id="${id}"]')`))
+  }
+  await removeLink('chat')
+  await renderer.evaluate(`document.querySelector('[data-bookmark-folder-id="qdn-apps"]').click()`)
+  await renderer.evaluate(`document.querySelector('.home-v2-bookmark-toolbar__nested-folder > summary').click()`)
+  await removeLink('trust')
+  const saved = await renderer.evaluate(`JSON.parse(localStorage.getItem('qortium-home-bookmark-manager-snapshot'))`)
+  assert.equal(saved.toolbar.length, 1, 'only the selected top-level bookmark is removed')
+  assert.equal(saved.toolbar[0].id, 'qdn-apps')
+  assert.equal(saved.toolbar[0].children[0].id, 'help', 'the sibling bookmark survives')
+  assert.deepEqual(saved.toolbar[0].children[1].children, [], 'only the selected nested link is removed')
+  assert.equal(saved.bookmarks[0].id, 'chat-other-copy', 'the same address in another collection survives')
+  await renderer.send('Page.reload', {ignoreCache:true})
+  await waitUntil('persisted toolbar after reload', 10_000, () => renderer.evaluate(
+    `!!document.querySelector('[data-bookmark-folder-id="qdn-apps"]')`))
+  assert.equal(await renderer.evaluate(`!!document.querySelector('[data-bookmark-id="chat"]')`), false)
+  console.log('Toolbar removal persisted across reload; nested siblings and other copies preserved.')
   console.log(`Home 2 bookmark toolbar smoke passed: ${desktopScreenshot}, ${narrowScreenshot}`)
 } finally {
   renderer?.close()

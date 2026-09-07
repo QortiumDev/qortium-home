@@ -1,4 +1,4 @@
-import { Copy, ExternalLink, Folder } from 'lucide-react'
+import { Copy, ExternalLink, Folder, Trash2 } from 'lucide-react'
 import {
   useEffect,
   useRef,
@@ -55,6 +55,7 @@ export interface HomeV2BookmarkToolbarProps {
     link: BookmarkManagerLink,
   ) => readonly HomeV2ContextMenuPresentationItem[]
   readonly onOpen: (link: BookmarkManagerLink) => void | Promise<void>
+  readonly onRemove?: (link: BookmarkManagerLink) => void | Promise<void>
   /** Surfaces toolbar open/context-action failures (they have no inline alert). */
   readonly onActionError?: (message: string) => void
   /** Reports visible popups so the chrome can suspend the native app view. */
@@ -350,6 +351,7 @@ export function HomeV2BookmarkToolbar({
   loadVisibleAppIcon,
   onContextMenuAction,
   onOpen,
+  onRemove,
   onActionError,
   keepEmptyStrip,
   onOpenChange,
@@ -367,7 +369,7 @@ export function HomeV2BookmarkToolbar({
   const menuItems = menu && getContextMenuItems
     ? getContextMenuItems(menu.link)
     : []
-  const popupOpen = visible && (!!folderMenu || (!!menu && menuItems.length > 0))
+  const popupOpen = visible && (!!folderMenu || (!!menu && (menuItems.length > 0 || !!onRemove)))
   const onOpenChangeRef = useRef(onOpenChange)
   useEffect(() => {
     onOpenChangeRef.current = onOpenChange
@@ -412,7 +414,7 @@ export function HomeV2BookmarkToolbar({
 
   const openMenu = (link: BookmarkManagerLink, x: number, y: number) => {
     const items = getContextMenuItems?.(link) ?? []
-    if (items.length === 0) return
+    if (disabled || (items.length === 0 && !onRemove)) return
     setFolderMenu(null)
     setMenu({
       link,
@@ -472,7 +474,7 @@ export function HomeV2BookmarkToolbar({
           />
         </div>
       ) : null}
-      {menu && menuItems.length > 0 ? (
+      {menu && (menuItems.length > 0 || onRemove) ? (
         <div
           className="home-v2-bookmark-toolbar__context-menu"
           ref={menuRef}
@@ -500,6 +502,24 @@ export function HomeV2BookmarkToolbar({
               </button>
             )
           })}
+          {onRemove ? (
+            <button
+              data-bookmark-action="remove"
+              disabled={disabled}
+              role="menuitem"
+              type="button"
+              onClick={() => {
+                const link = menu.link
+                setMenu(null)
+                void Promise.resolve().then(() => onRemove(link)).catch((error) =>
+                  onActionError?.(toolbarErrorMessage(error)),
+                )
+              }}
+            >
+              <Trash2 aria-hidden="true" size={17} />
+              {t('bookmarks.removeFromBookmarks')}
+            </button>
+          ) : null}
         </div>
       ) : null}
     </nav>

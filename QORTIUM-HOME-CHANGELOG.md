@@ -32,6 +32,14 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## fix(home2): remove bookmarks from the toolbar context menu
+
+2026-09-07
+
+Right-click a bookmark on the toolbar, or a bookmark inside one of its folders,
+to remove that saved entry. Other copies of the same address stay in place, and
+the toolbar updates as soon as the change is saved.
+
 ## fix(home2): tab avatars, drag-out placement, phone Settings and reopen from the tab menu
 
 2026-09-07
