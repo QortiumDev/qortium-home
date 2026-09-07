@@ -45,39 +45,52 @@ async function createDisposableAccounts(profile) {
   const password = randomUUID()
   log('creating two disposable accounts for the receiving-window attribution case')
   const bootstrap = await launchHome({ repoRoot, profileDirectory: profile })
-  await bootstrap.main.evaluate(mainRequire(`
-    let backupIndex = 0
-    require('electron').dialog.showSaveDialog = async () => ({ canceled: false,
-      filePath: ${JSON.stringify(profile)} + '/fixture-backup-' + (++backupIndex) + '.json' })
-    return true
-  `))
-  const setup = await bootstrap.renderer((url) => url.includes('v2-live.html'), 'vault fixture setup')
-  setup.close()
-  await bootstrap.main.evaluate(mainRequire(`
-    const accounts = require(${JSON.stringify(path.join(repoRoot, 'dist-electron/accounts.js'))})
-    const sender = require('electron').BrowserWindow.getAllWindows()[0].webContents
-    globalThis.__fixtureResult = null
-    globalThis.__fixturePromise = (async () => {
-      for (const label of ['Tab detach account A', 'Tab detach account B']) {
-        const result = await accounts.createWallet({sender}, label, ${JSON.stringify(password)})
-        if (result.canceled) throw new Error('Fixture account creation canceled')
-      }
-      return accounts.getHomeV2VaultState().accounts.map(({id, label, addresses}) => ({id, label, address: addresses[0].address}))
-    })().then(accounts => { globalThis.__fixtureResult = {accounts} },
-      error => { globalThis.__fixtureResult = {error:error.message} })
-    return true
-  `))
-  await until('disposable vault setup', () => bootstrap.main.evaluate('globalThis.__fixtureResult !== null'), 300_000)
-  const created = await bootstrap.main.evaluate('globalThis.__fixtureResult')
-  if (created.error) fail(`disposable account bootstrap failed: ${created.error}`)
-  const accountA = created.accounts.find((account) => account.label === 'Tab detach account A')
-  const accountB = created.accounts.find((account) => account.label === 'Tab detach account B')
-  if (!accountA?.id || !accountB?.id) fail('disposable accounts were not created')
-  if (accountA.address === accountB.address) fail('disposable accounts A and B must not share an address')
-  log(`disposable accounts ready: A=${accountA.id} B=${accountB.id}`)
-  bootstrap.main.close()
-  await bootstrap.stop()
-  return { accountA, accountB }
+  // Keep vault work in the main process; inspector awaitPromise can collect
+  // an in-flight promise before the native KDF finishes.
+  const mainSnapshot = async (expression) => {
+    const result = await bootstrap.main.send('Runtime.evaluate', {
+      expression, returnByValue: true, awaitPromise: false,
+    })
+    assert.ok(!result.exceptionDetails, result.exceptionDetails?.text)
+    return result.result?.value
+  }
+  try {
+    await mainSnapshot(mainRequire(`
+      let backupIndex = 0
+      require('electron').dialog.showSaveDialog = async () => ({ canceled: false,
+        filePath: ${JSON.stringify(profile)} + '/fixture-backup-' + (++backupIndex) + '.json' })
+      return true
+    `))
+    const setup = await bootstrap.renderer((url) => url.includes('v2-live.html'), 'vault fixture setup')
+    setup.close()
+    await mainSnapshot(mainRequire(`
+      const accounts = require(${JSON.stringify(path.join(repoRoot, 'dist-electron/accounts.js'))})
+      const sender = require('electron').BrowserWindow.getAllWindows()[0].webContents
+      globalThis.__fixtureResult = null
+      globalThis.__fixturePromise = (async () => {
+        for (const label of ['Tab detach account A', 'Tab detach account B']) {
+          const result = await accounts.createWallet({sender}, label, ${JSON.stringify(password)})
+          if (result.canceled) throw new Error('Fixture account creation canceled')
+        }
+        return accounts.getHomeV2VaultState().accounts.map(({id, label, addresses}) => ({id, label, address: addresses[0].address}))
+      })().then(accounts => { globalThis.__fixtureResult = {accounts} },
+        error => { globalThis.__fixtureResult = {error:error.message} })
+      return true
+    `))
+    await until('disposable vault setup', () => mainSnapshot('globalThis.__fixtureResult !== null'), 300_000)
+    const created = await mainSnapshot('globalThis.__fixtureResult')
+    if (created.error) fail(`disposable account bootstrap failed: ${created.error}`)
+    const accountA = created.accounts.find((account) => account.label === 'Tab detach account A')
+    const accountB = created.accounts.find((account) => account.label === 'Tab detach account B')
+    if (!accountA?.id || !accountB?.id) fail('disposable accounts were not created')
+    if (accountA.address === accountB.address) fail('disposable accounts A and B must not share an address')
+    log(`disposable accounts ready: A=${accountA.id} B=${accountB.id}`)
+
+    return { accountA, accountB }
+  } finally {
+    bootstrap.main.close()
+    await bootstrap.stop()
+  }
 }
 
 const TAB_KEYS = `JSON.stringify(
