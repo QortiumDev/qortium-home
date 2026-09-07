@@ -67,7 +67,7 @@ jobs:
           shasum -a 256 native-artifacts/*.dmg > native-artifacts/SHA256SUMS
           printf '%s\n' "$TARGET_REF" > native-artifacts/SOURCE_COMMIT
           npm run test:core-native-observer
-          npm run test:qortal-adoption
+          npm run test:home-v2-qortal-maintenance-contract
       - name: Retain verified assets
         uses: actions/upload-artifact@v7
         with:
