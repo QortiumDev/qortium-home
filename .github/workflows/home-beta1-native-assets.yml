@@ -4,8 +4,11 @@ on:
     branches: [codex/home-beta1-native-assets]
 permissions:
   contents: read
+concurrency:
+  group: home-beta1-native-assets
+  cancel-in-progress: true
 env:
-  TARGET_REF: e7e2f44702a5912698324d50eb839a845e44e241
+  TARGET_REF: f1edaa35d9cefb89b5f58b2d98318dfe97652ab8
 jobs:
   mac:
     name: macOS ${{ matrix.variant }}
@@ -60,7 +63,11 @@ jobs:
             "-c.electronVersion=$electron_version" "-c.mac.minimumSystemVersion=$MINIMUM"
           app="dist-release/$APPDIR/Qortium Home.app"
           npm run check:macos:core-observer -- "$app"
-          node scripts/verify-macos-min-version.mjs "$app" "$MINIMUM"
+          if [ "$ARCH" = x64 ]; then
+            node scripts/verify-macos-min-version.mjs "$app" "$MINIMUM" --arch=x86_64
+          else
+            node scripts/verify-macos-min-version.mjs "$app" "$MINIMUM"
+          fi
           mkdir -p native-artifacts
           version=$(node -p "require('./package.json').version")
           cp "dist-release/Qortium-Home-$version-$ARCH.dmg" "native-artifacts/Qortium-Home-$version-$VARIANT.dmg"
@@ -68,6 +75,13 @@ jobs:
           printf '%s\n' "$TARGET_REF" > native-artifacts/SOURCE_COMMIT
           npm run test:core-native-observer
           npm run test:home-v2-qortal-maintenance-contract
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          path: build-driver
+          sparse-checkout: .github/scripts
+      - name: Launch packaged native shell
+        run: node build-driver/.github/scripts/smoke-beta-native.mjs "dist-release/${{ matrix.appdir }}/Qortium Home.app/Contents/MacOS/Qortium Home"
       - name: Retain verified assets
         uses: actions/upload-artifact@v7
         with:
@@ -93,10 +107,17 @@ jobs:
       - run: npm run dist:win:x64
       - run: npm run test:windows-core-observation
       - run: npm run test:core-install-transaction
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          path: build-driver
+          sparse-checkout: .github/scripts
+      - name: Launch packaged native shell
+        run: node build-driver/.github/scripts/smoke-beta-native.mjs "dist-release/win-unpacked/Qortium Home.exe"
       - name: Record artifact provenance
         shell: pwsh
         run: |
-          New-Item -ItemType Directory native-artifacts | Out-Null
+          New-Item -ItemType Directory -Force native-artifacts | Out-Null
           Copy-Item dist-release/*.exe native-artifacts/
           Get-ChildItem native-artifacts/*.exe | ForEach-Object {
             $digest = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
