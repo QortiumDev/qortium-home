@@ -15,7 +15,9 @@ import type {
   NodeConnectionMode,
 } from '../contracts'
 import { deriveI2pCoreHealth, type I2pCorePlaneHealth } from '../i2p-health'
+import { coreReleaseGate } from '../../home-v2-live/core-release-offer'
 import { CoreManagerCard, type HomeV2CoreManagement } from './CoreManagerCards'
+import { useScopedIds } from './dom-ids'
 import { homeUpdateStatusText } from './HomeUpdateSettings'
 import { NetworkBadge, networkLabels } from './NetworkBadge'
 import { ensureLabel, routerStatusMessage, samStatusMessage } from './TransportMaintenancePanel'
@@ -250,27 +252,37 @@ function coreLifecyclePlan(
   onChainCoreUpdates?: HomeV2OnChainCoreUpdates,
 ) {
   const status = coreMaintenance?.status
-  const release = coreMaintenance?.release
   const showJava = !!status?.capabilities.canInstallJava
   const showOnChain = !showJava && !!onChainCoreUpdates?.canInstall
-  const showRelease = !showJava && !showOnChain &&
-    !!release?.tag && release.action !== 'none'
-  // An UPDATE to a Home-started Core no longer needs the Core stopped first:
-  // Home stops it, replaces it and starts it again, restoring the old install
-  // if that fails. Initial installs still require a stopped Core — there is no
-  // previous version to fall back to.
-  const canUpdateInPlace = release?.action !== undefined &&
-    release.action !== 'initial-install' &&
-    !!status?.capabilities.canUpdateRunningInPlace
+  // The offer that would actually install, from the same derivation the
+  // mutation uses. Reading `release.action` here described the forward move on
+  // the checked channel while `runCore()` installed the selected offer or the
+  // newest stable, so this tile could label a downgrade "Update and restart
+  // Core".
+  const gate = coreReleaseGate(
+    coreMaintenance?.release,
+    coreMaintenance?.selectedReleaseTag,
+    status,
+  )
+  // A downgrade is deliberately NOT offered here. It is a deliberate, confirmed
+  // choice with its own release picker and confirmation prompt, and this
+  // compact row has neither; Settings keeps it, under the stopped-only rule.
+  const releaseOffer = gate.offer?.relation === 'downgrade' ? null : gate.offer
+  const showRelease = !showJava && !showOnChain && !!releaseOffer
   return {
     showJava,
     showOnChain,
     showRelease,
-    // Home stops and restarts the Core itself; the button says so.
-    releaseRestartsCore: showRelease && canUpdateInPlace && status?.core.runtime === 'running',
+    // Which release the button installs, so its label and the release-notes
+    // link name the same build the mutation targets.
+    releaseOffer: showRelease ? releaseOffer : null,
+    // Home stops and restarts the Core itself; the button says so. Requires an
+    // update, an observed 'running' runtime and the capability — all three.
+    releaseRestartsCore: showRelease && gate.restartsCore,
     // A verified release Home cannot install yet needs the reason spelled out;
     // a disabled button on its own reads as a broken tile.
-    releaseBlocked: showRelease && status?.core.runtime !== 'stopped' && !canUpdateInPlace,
+    releaseBlocked: showRelease && gate.blocked,
+    releaseBlockedReason: showRelease ? gate.blockedReason : null,
   } as const
 }
 
@@ -395,9 +407,9 @@ function CoreLifecycleActions({
       </span>
     )
   }
-  const { busy, release } = coreMaintenance
+  const { busy } = coreMaintenance
   const plan = coreLifecyclePlan(coreMaintenance, onChainCoreUpdates)
-  const { showJava, showOnChain, showRelease } = plan
+  const { releaseOffer, showJava, showOnChain, showRelease } = plan
   return (
     <>
       {!showRelease && coreMaintenance.onCheckRelease ? (
@@ -439,17 +451,18 @@ function CoreLifecycleActions({
             : t('core.installApprovedUpdate')}
         </button>
       ) : null}
-      {showRelease && release && coreMaintenance.onRunRelease ? (
+      {releaseOffer && coreMaintenance.onRunRelease ? (
         <button
           type="button"
           className="home-v2-primary-button"
           data-home-v2-node-core-action="core-release"
+          data-home-v2-core-release-target={releaseOffer.tag}
           disabled={busy !== null || plan.releaseBlocked}
           onClick={coreMaintenance.onRunRelease}
         >
           {busy === 'core'
             ? t('home2.common.working')
-            : release.action === 'initial-install'
+            : releaseOffer.relation === 'initial-install'
               ? t('core.installCore')
               // Naming the restart on the button is the disclosure: Home is
               // about to stop a Core the user is relying on.
@@ -458,12 +471,12 @@ function CoreLifecycleActions({
                 : t('updates.installUpdate')}
         </button>
       ) : null}
-      {onOpenReleaseNotes && showRelease && release?.tag ? (
+      {onOpenReleaseNotes && releaseOffer ? (
         <button
           type="button"
           className="home-v2-link-button"
           data-home-v2-node-core-action="core-release-notes"
-          onClick={() => onOpenReleaseNotes({ product: 'core', tagName: release.tag! })}
+          onClick={() => onOpenReleaseNotes({ product: 'core', tagName: releaseOffer.tag })}
         >
           {t('releaseNotes.open')}
         </button>
@@ -485,13 +498,14 @@ function coreLifecycleNotice({
   readonly qortalMaintenance?: HomeV2QortalMaintenanceManagement
 }) {
   if (network === 'qortal') return qortalMaintenance?.notice ?? null
-  if (coreLifecyclePlan(coreMaintenance, onChainCoreUpdates).releaseBlocked) {
+  const plan = coreLifecyclePlan(coreMaintenance, onChainCoreUpdates)
+  if (plan.releaseBlocked) {
     // 'unknown' is NOT 'running', and telling the user to stop a Core that
     // Home cannot see is how someone ends up stopping it repeatedly and being
     // told to stop it again. The install gate stays closed either way — that
     // conservatism is deliberate, because installing over a running Core
     // corrupts it — but the reason has to be truthful about which case it is.
-    return coreMaintenance?.status?.core.runtime === 'unknown'
+    return plan.releaseBlockedReason === 'core-state-unknown'
       ? t('home2.nodeCore.coreStateUnknown')
       : t('home2.nodeCore.stopCoreFirst')
   }
@@ -503,6 +517,7 @@ function TransportRow({
 }: {
   readonly transport: HomeV2TransportManagement
 }) {
+  const id = useScopedIds()
   const status = transport.status
   if (!status) {
     // A placeholder rather than nothing. Returning null here meant that while
@@ -534,9 +549,9 @@ function TransportRow({
     >
       <div className="home-v2-node-core-row__copy">
         <strong>{t('home2.transportMaintenance.title')}</strong>
-        <small id="node-core-transport-state">{routerStatusMessage(status)}</small>
+        <small id={id('node-core-transport-state')}>{routerStatusMessage(status)}</small>
         <small data-home-v2-node-core-sam-state>{samStatusMessage(status)}</small>
-        <small id="node-core-transport-mode-note">
+        <small id={id('node-core-transport-mode-note')}>
           {status.core.runtime === 'stopped'
             ? t('home2.transportMaintenance.mode.stoppedNote')
             : status.core.runtime === 'running'
@@ -550,7 +565,7 @@ function TransportRow({
         {transport.mode && transport.onSetTransportMode ? (
           <select
             aria-label={t('home2.transportMaintenance.mode.label')}
-            aria-describedby="node-core-transport-mode-note"
+            aria-describedby={id('node-core-transport-mode-note')}
             disabled={blocked ||
               (status.core.runtime !== 'stopped' && !status.capabilities.canSetModeWhileRunning)}
             value={selectedMode ?? transport.mode}
@@ -582,7 +597,7 @@ function TransportRow({
         ) : null}
         {transport.mode && transport.onSetTransportMode ? (
           <button type="button" className="home-v2-primary-button"
-            aria-describedby="node-core-transport-mode-note"
+            aria-describedby={id('node-core-transport-mode-note')}
             data-home-v2-node-core-action="set-transport-mode"
             disabled={blocked || selectedMode === transport.mode || !modeAllowed}
             onClick={() => {
@@ -605,7 +620,7 @@ function TransportRow({
           <button
             type="button"
             className="home-v2-secondary-button"
-            aria-describedby="node-core-transport-state"
+            aria-describedby={id('node-core-transport-state')}
             data-home-v2-node-core-action="ensure-router"
             disabled={blocked}
             onClick={transport.onEnsureRouter}
@@ -619,7 +634,7 @@ function TransportRow({
           <button
             type="button"
             className="home-v2-secondary-button"
-            aria-describedby="node-core-transport-state"
+            aria-describedby={id('node-core-transport-state')}
             data-home-v2-node-core-action="stop-router"
             disabled={blocked}
             onClick={transport.onStopRouter}
@@ -686,6 +701,14 @@ function HomeUpdateRow({
     >
       <div className="home-v2-node-core-row__copy">
         <strong>{t('common.appName')}</strong>
+        {result?.currentVersion ? (
+          // WHICH Home is installed. 1.x put its own version on the dashboard;
+          // Home 2 showed only an update state, so "up to date" never said up
+          // to date at WHAT.
+          <small data-home-v2-home-version={result.currentVersion}>
+            {t('home2.core.installedVersion', { version: result.currentVersion })}
+          </small>
+        ) : null}
         <small aria-live="polite" role="status">{homeUpdateStatusText(updates)}</small>
       </div>
       <div className="home-v2-node-core-row__controls">
@@ -736,6 +759,19 @@ function HomeUpdateRow({
           </button>
         ) : null}
       </div>
+      {/* A download the reader started from here has to be visible from here.
+          The full byte counts stay in Settings; this is the same compact bar
+          the Core rows use, so the section reads as one thing. */}
+      <CoreProgressBar
+        progress={updates.progress
+          ? {
+              action: updates.progress.action,
+              kind: 'home',
+              message: updates.progress.message,
+              percent: updates.progress.percent,
+            }
+          : null}
+      />
     </div>
   )
 }
@@ -762,13 +798,14 @@ export function HomeV2NodeCoreSection({
   onSetNodeMode,
   snapshot,
 }: HomeV2NodeCoreSectionProps) {
+  const id = useScopedIds()
   if (networks.length === 0) return null
   const coreAvailable = !!coreManagement?.available
   return (
-    <section className="home-v2-node-core" aria-labelledby="node-core-title">
+    <section className="home-v2-node-core" aria-labelledby={id('node-core-title')}>
       <div className="home-v2-section-heading">
         <div>
-          <h2 id="node-core-title">{t('home2.nodeCore.title')}</h2>
+          <h2 id={id('node-core-title')}>{t('home2.nodeCore.title')}</h2>
           <p>{t('home2.nodeCore.description')}</p>
         </div>
         {onOpenSettings ? (
@@ -809,6 +846,15 @@ export function HomeV2NodeCoreSection({
               />
               {coreAvailable && coreManagement ? (
                 <CoreManagerCard
+                  // Which BUILD, not just which version: two builds of one
+                  // version are otherwise indistinguishable on the tile. Only
+                  // Qortium reports a channel and a commit.
+                  channel={network === 'qortium'
+                    ? coreManagement.coreMaintenance?.status?.core.channel ?? null
+                    : null}
+                  installedCommit={network === 'qortium'
+                    ? coreManagement.coreMaintenance?.status?.core.installedCommit ?? null
+                    : null}
                   installedVersion={network === 'qortium'
                     ? coreManagement.coreMaintenance?.status?.core.installedVersion ?? null
                     : coreManagement.qortalMaintenance?.status?.installedVersion ?? null}

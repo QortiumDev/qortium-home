@@ -40,6 +40,7 @@ import type {
 } from '../../home-v2-live/window-behavior-client'
 import type { HomeV2OnChainCoreUpdates } from '../../home-v2-live/on-chain-core-update-controller'
 import { OnChainCoreUpdateSettings } from './OnChainCoreUpdateSettings'
+import { useScopedIds } from './dom-ids'
 
 export type HomeV2SettingsSectionId =
   | 'general'
@@ -135,6 +136,15 @@ export interface SettingsPageProps extends AppearanceSettingsPageProps {
     network: NetworkId,
     mode: NodeConnectionMode,
   ) => void | Promise<void>
+  /**
+   * Opens the shell's custom-node dialog — the SAME overlay the Dashboard's
+   * node card opens. Settings > Core could describe a Core in detail and offer
+   * no way to reach the node it belongs to; this links out rather than growing
+   * a second copy of the connection controls.
+   */
+  readonly onConfigureCustomNode?: (network: NetworkId) => void
+  /** Opens the Core API documentation page for one network. */
+  readonly onOpenCoreDocs?: (network: NetworkId) => void
   readonly loadVisibleAppIcon?: VisibleAppIconLoader
 }
 
@@ -340,6 +350,7 @@ function GeneralSettings({
   const [customAddress, setCustomAddress] = useState(
     newTabPreference.kind === 'custom' ? newTabPreference.address : '',
   )
+  const id = useScopedIds()
   const [error, setError] = useState<string | null>(null)
   const [notificationMutationStatus, setNotificationMutationStatus] = useState<
     'idle' | 'saving' | 'error'
@@ -377,10 +388,10 @@ function GeneralSettings({
   return (
     <section
       className="home-v2-settings-panel"
-      aria-labelledby="general-settings-title"
+      aria-labelledby={id('general-settings-title')}
     >
       <div className="home-v2-settings-panel__heading">
-        <h2 id="general-settings-title">{t('home2.settings.general')}</h2>
+        <h2 id={id('general-settings-title')}>{t('home2.settings.general')}</h2>
         <p>{t('home2.settings.newTabDescription')}</p>
       </div>
       <NetworkAvailabilitySettings
@@ -537,7 +548,50 @@ function GeneralSettings({
   )
 }
 
+/**
+ * The two ways out of a network's Runtime section: the shell's custom-node
+ * dialog and that network's Core API docs. Both are the Dashboard card's own
+ * actions, reached through the same callbacks, so there is one implementation
+ * of each and one set of labels.
+ */
+function NodeConnectionActions({
+  network,
+  onConfigureCustomNode,
+  onOpenCoreDocs,
+}: {
+  readonly network: NetworkId
+  readonly onConfigureCustomNode?: (network: NetworkId) => void
+  readonly onOpenCoreDocs?: (network: NetworkId) => void
+}) {
+  if (!onConfigureCustomNode && !onOpenCoreDocs) return null
+  return (
+    <div className="home-v2-settings-node-actions" data-home-v2-settings-node-actions={network}>
+      {onConfigureCustomNode ? (
+        <button
+          type="button"
+          className="home-v2-link-button"
+          data-home-v2-settings-node-action="configure"
+          onClick={() => onConfigureCustomNode(network)}
+        >
+          {t('home2.node.configure')}
+        </button>
+      ) : null}
+      {onOpenCoreDocs ? (
+        <button
+          type="button"
+          className="home-v2-link-button"
+          data-home-v2-settings-node-action="core-docs"
+          onClick={() => onOpenCoreDocs(network)}
+        >
+          {t('coreApi.title')}
+        </button>
+      ) : null}
+    </div>
+  )
+}
+
 export function SettingsPage(props: SettingsPageProps) {
+  const id = useScopedIds()
   const nodes = props.nodes ?? DEFAULT_SETTINGS_NODES
   const enabledNetworks = (['qortium', 'qortal'] as const).filter(
     (network) => nodes[network].mode !== 'disabled',
@@ -653,12 +707,17 @@ export function SettingsPage(props: SettingsPageProps) {
               {networkCoreAvailable && props.coreManagement && qortiumEnabled ? (
                 <section
                   className="home-v2-settings-panel home-v2-core-settings"
-                  aria-labelledby="core-settings-title"
+                  aria-labelledby={id('core-settings-title')}
                 >
                   <div className="home-v2-settings-panel__heading">
-                    <h2 id="core-settings-title">{t('home2.core.qortiumTitle')}</h2>
+                    <h2 id={id('core-settings-title')}>{t('home2.core.qortiumTitle')}</h2>
                     <p>{t('home2.core.settingsDescription')}</p>
                   </div>
+                  <NodeConnectionActions
+                    network="qortium"
+                    onConfigureCustomNode={props.onConfigureCustomNode}
+                    onOpenCoreDocs={props.onOpenCoreDocs}
+                  />
                   <CoreManagerCards
                     management={props.coreManagement}
                     networks={['qortium']}
@@ -675,12 +734,17 @@ export function SettingsPage(props: SettingsPageProps) {
                 enabledNetworks.includes('qortal') ? (
                 <section
                   className="home-v2-settings-panel home-v2-core-settings"
-                  aria-labelledby="qortal-core-settings-title"
+                  aria-labelledby={id('qortal-core-settings-title')}
                 >
                   <div className="home-v2-settings-panel__heading">
-                    <h2 id="qortal-core-settings-title">{t('home2.core.qortalTitle')}</h2>
+                    <h2 id={id('qortal-core-settings-title')}>{t('home2.core.qortalTitle')}</h2>
                     <p>{t('home2.core.settingsDescription')}</p>
                   </div>
+                  <NodeConnectionActions
+                    network="qortal"
+                    onConfigureCustomNode={props.onConfigureCustomNode}
+                    onOpenCoreDocs={props.onOpenCoreDocs}
+                  />
                   <CoreManagerCards
                     management={props.coreManagement}
                     networks={['qortal']}
@@ -689,6 +753,7 @@ export function SettingsPage(props: SettingsPageProps) {
                     onOpenReleaseNotes={props.onOpenReleaseNotes}
                     maintenance={props.maintenance?.core}
                     networks={['qortal']}
+                    showJavaPolicy={!qortiumEnabled}
                   />
                   <QortalMaintenancePanel maintenance={props.maintenance?.qortal} />
                 </section>

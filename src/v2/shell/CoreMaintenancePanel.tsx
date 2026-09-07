@@ -1,6 +1,8 @@
 import type { HomeV2CoreUpdatePolicy } from '../../home-v2-live/core-manager-client'
 import type { HomeV2CoreMaintenance } from '../../home-v2-live/core-maintenance-controller'
+import { coreReleaseGate } from '../../home-v2-live/core-release-offer'
 import { CoreProgressBar } from './HomeV2NodeCoreSection'
+import { useScopedIds } from './dom-ids'
 import { t } from '../../i18n'
 import type { NetworkId } from '../contracts'
 
@@ -37,11 +39,22 @@ export function CoreMaintenancePanel({
   maintenance,
   networks = ['qortium', 'qortal'],
   onOpenReleaseNotes,
+  showJavaPolicy = true,
 }: {
   readonly maintenance?: HomeV2CoreMaintenance
   readonly networks?: readonly NetworkId[]
   readonly onOpenReleaseNotes?: (target: { product: 'core' | 'home'; tagName: string }) => void
+  /**
+   * Whether this instance owns the managed-Java update policy.
+   *
+   * Java belongs to the MACHINE, not to a network, but Settings renders one
+   * panel per enabled network — so the same policy appeared twice on one page,
+   * under two different network headings. The Qortal panel gives it up
+   * whenever a Qortium panel is on the page to carry it.
+   */
+  readonly showJavaPolicy?: boolean
 }) {
+  const id = useScopedIds()
   const qortiumEnabled = networks.includes('qortium')
   const qortalEnabled = networks.includes('qortal')
 
@@ -70,9 +83,9 @@ export function CoreMaintenancePanel({
   if (!status || !policy) {
     return (
       <section className="home-v2-core-maintenance" aria-busy={!initialLoadFailed}
-        aria-labelledby="core-maintenance-title">
+        aria-labelledby={id('core-maintenance-title')}>
         <div className="home-v2-settings-panel__heading">
-          <h3 id="core-maintenance-title">Core maintenance</h3>
+          <h3 id={id('core-maintenance-title')}>Core maintenance</h3>
           {initialLoadFailed ? (
             <p className="home-v2-core-notice" role="alert">
               Core maintenance status is unavailable.
@@ -83,6 +96,20 @@ export function CoreMaintenancePanel({
     )
   }
 
+  // The install gate, computed ONCE for the button, its label and the notice
+  // below. They used to disagree twice over: the button offered "Update and
+  // restart Core" while the notice underneath still told the reader to stop
+  // Core first, and both were derived from `release.action` while `runCore()`
+  // installed the effective offer instead -- which can be a DOWNGRADE while
+  // `action` reads 'strict-update'. One derivation now feeds the label, the
+  // enablement, the notice, the release-notes link and the mutation, here and
+  // on the dashboard tile and the toolbar node menu.
+  const gate = coreReleaseGate(release, selectedReleaseTag, status)
+  const releaseBlocked = qortiumEnabled && gate.blocked
+  // The checked tag is still worth linking when nothing is installable from it
+  // ("already up to date"), so this falls back to it rather than disappearing.
+  const releaseNotesTag = gate.offer?.tag ?? release?.tag ?? null
+
   const coreVersion = status.core.installedVersion ?? 'Not installed'
   const javaVersion = status.java.version
     ? `${status.java.version} (${status.java.source})`
@@ -90,9 +117,9 @@ export function CoreMaintenancePanel({
 
   return (
     <section className="home-v2-core-maintenance" aria-busy={busy !== null}
-      aria-labelledby="core-maintenance-title">
+      aria-labelledby={id('core-maintenance-title')}>
       <div className="home-v2-settings-panel__heading">
-        <h3 id="core-maintenance-title">
+        <h3 id={id('core-maintenance-title')}>
           {qortiumEnabled
             ? 'Qortium Core maintenance'
             : 'Qortal Core maintenance'}
@@ -102,13 +129,13 @@ export function CoreMaintenancePanel({
       {qortiumEnabled && status.core.installedVersion ? (
         <div className="home-v2-setting-row">
           <div className="home-v2-setting-row__copy">
-            <strong id="qortium-core-update-policy-label">{t('core.coreUpdatePolicyLabel')}</strong>
-            <span id="qortium-core-update-policy-description">
+            <strong id={id('qortium-core-update-policy-label')}>{t('core.coreUpdatePolicyLabel')}</strong>
+            <span id={id('qortium-core-update-policy-description')}>
               {corePolicyDescription(policy.coreUpdatePolicy)}
             </span>
           </div>
-          <select aria-labelledby="qortium-core-update-policy-label"
-            aria-describedby="qortium-core-update-policy-description"
+          <select aria-labelledby={id('qortium-core-update-policy-label')}
+            aria-describedby={id('qortium-core-update-policy-description')}
             data-home-v2-core-update-policy disabled={busy !== null}
             value={policy.coreUpdatePolicy}
             onChange={(event) => void setUpdatePolicy(
@@ -121,16 +148,16 @@ export function CoreMaintenancePanel({
           </select>
         </div>
       ) : null}
-      {status.java.source === 'managed' ? (
+      {showJavaPolicy && status.java.source === 'managed' ? (
         <div className="home-v2-setting-row">
           <div className="home-v2-setting-row__copy">
-            <strong id="managed-java-update-policy-label">{t('core.javaUpdatePolicyLabel')}</strong>
-            <span id="managed-java-update-policy-description">
+            <strong id={id('managed-java-update-policy-label')}>{t('core.javaUpdatePolicyLabel')}</strong>
+            <span id={id('managed-java-update-policy-description')}>
               {javaPolicyDescription(policy.javaUpdatePolicy)}
             </span>
           </div>
-          <select aria-labelledby="managed-java-update-policy-label"
-            aria-describedby="managed-java-update-policy-description"
+          <select aria-labelledby={id('managed-java-update-policy-label')}
+            aria-describedby={id('managed-java-update-policy-description')}
             data-home-v2-java-update-policy disabled={busy !== null}
             value={policy.javaUpdatePolicy}
             onChange={(event) => void setUpdatePolicy(
@@ -145,13 +172,13 @@ export function CoreMaintenancePanel({
       ) : null}
       {qortalEnabled ? <div className="home-v2-setting-row">
         <div className="home-v2-setting-row__copy">
-          <strong id="qortal-core-update-policy-label">{t('core.qortalUpdatePolicyLabel')}</strong>
-          <span id="qortal-core-update-policy-description">
+          <strong id={id('qortal-core-update-policy-label')}>{t('core.qortalUpdatePolicyLabel')}</strong>
+          <span id={id('qortal-core-update-policy-description')}>
             {qortalPolicyDescription(policy.qortalUpdatePolicy)}
           </span>
         </div>
-        <select aria-labelledby="qortal-core-update-policy-label"
-          aria-describedby="qortal-core-update-policy-description"
+        <select aria-labelledby={id('qortal-core-update-policy-label')}
+          aria-describedby={id('qortal-core-update-policy-description')}
           data-home-v2-qortal-update-policy disabled={busy !== null}
           value={policy.qortalUpdatePolicy}
           onChange={(event) => void setUpdatePolicy(
@@ -364,41 +391,32 @@ export function CoreMaintenancePanel({
               </select>
             </label>
           ) : null}
-          {release?.tag && (release.action !== 'none' || release.offers.length > 0) ? (() => {
-            // `action` only ever describes the forward move, so a release that
-            // is offered ONLY as a downgrade would otherwise have no button.
-            const chosen = release.offers.find((offer) => offer.tag === selectedReleaseTag)
-              ?? release.offers[0]
-              ?? null
-            const isDowngrade = chosen?.relation === 'downgrade'
-            // Same rule as the dashboard tile, deliberately read from the same
-            // capability rather than re-derived: an update to a Home-started
-            // Core no longer needs it stopped first. Leaving this panel on the
-            // old gate would have shipped the feature half-wired — enabled on
-            // the dashboard, disabled in Settings.
-            const canUpdateInPlace = release.action !== 'initial-install' &&
-              status.capabilities.canUpdateRunningInPlace
-            const blocked = status.core.runtime !== 'stopped' && !canUpdateInPlace
-            const restarts = canUpdateInPlace && status.core.runtime === 'running'
-            return (
-              <button className="home-v2-primary-button" type="button"
-                disabled={busy !== null || blocked} onClick={() => void runCore()}>
-                {busy === 'core'
-                  ? 'Working…'
-                  : isDowngrade
-                    ? t('home2.core.downgradeStart')
-                    : release.action === 'initial-install'
-                      ? 'Install Core'
-                      : restarts ? 'Update and restart Core' : 'Update Core'}
-              </button>
-            )
-          })() : null}
-          {release?.tag && onOpenReleaseNotes ? (
+          {gate.offer ? (
+            // The button describes the offer that will actually install: the
+            // one the user picked, else the newest stable. `release.action`
+            // describes only the forward move on the checked channel, so a
+            // release offered ONLY as a downgrade has no action at all and a
+            // downgrade can sit first while `action` reads 'strict-update'.
+            <button className="home-v2-primary-button" type="button"
+              data-home-v2-core-release-target={gate.offer.tag}
+              disabled={busy !== null || releaseBlocked} onClick={() => void runCore()}>
+              {busy === 'core'
+                ? 'Working…'
+                : gate.offer.relation === 'downgrade'
+                  ? t('home2.core.downgradeStart')
+                  : gate.offer.relation === 'initial-install'
+                    ? 'Install Core'
+                    : gate.restartsCore ? 'Update and restart Core' : 'Update Core'}
+            </button>
+          ) : null}
+          {releaseNotesTag && onOpenReleaseNotes ? (
+            // The notes for the release that would install, not for whichever
+            // tag the last check happened to name.
             <button
               className="home-v2-link-button"
-              data-home-v2-core-release-notes={release.tag}
+              data-home-v2-core-release-notes={releaseNotesTag}
               type="button"
-              onClick={() => onOpenReleaseNotes({ product: 'core', tagName: release.tag! })}
+              onClick={() => onOpenReleaseNotes({ product: 'core', tagName: releaseNotesTag })}
             >
               {t('releaseNotes.open')}
             </button>
@@ -428,8 +446,16 @@ export function CoreMaintenancePanel({
           </button>
         </div>
       </div>
-      {qortiumEnabled && status.core.runtime !== 'stopped' && release?.action !== 'none' ? (
-        <p className="home-v2-core-notice">Stop Qortium Core before installing or updating it.</p>
+      {releaseBlocked ? (
+        // 'unknown' is NOT 'running': telling someone to stop a Core Home
+        // cannot see is how they end up stopping it again and being told the
+        // same thing. The gate stays closed either way, but the reason has to
+        // be truthful about which case it is.
+        <p className="home-v2-core-notice">
+          {gate.blockedReason === 'core-state-unknown'
+            ? t('home2.nodeCore.coreStateUnknown')
+            : t('home2.nodeCore.stopCoreFirst')}
+        </p>
       ) : null}
       {notice ? <p className="home-v2-core-notice" role="status">{notice}</p> : null}
     </section>

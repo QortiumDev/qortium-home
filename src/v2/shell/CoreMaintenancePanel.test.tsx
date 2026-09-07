@@ -8,6 +8,11 @@ import type {
 } from '../../home-v2-live/core-manager-client'
 import { parseHomeV2CoreUpdatePolicySetResult } from '../../home-v2-live/core-manager-client'
 import { useHomeV2CoreMaintenance } from '../../home-v2-live/core-maintenance-controller'
+import {
+  canRunCoreOfferInPlace,
+  coreReleaseGate,
+  effectiveCoreReleaseOffer,
+} from '../../home-v2-live/core-release-offer'
 import type { NetworkId } from '../contracts'
 import type { HomeV2CoreManagement } from './CoreManagerCards'
 import { CoreMaintenancePanel } from './CoreMaintenancePanel'
@@ -115,15 +120,24 @@ const management: HomeV2CoreManagement = {
 // still exercises the live polling, busy gating and serialized policy writes.
 function CoreMaintenanceHarness({
   networks = ['qortium', 'qortal'],
+  onOpenReleaseNotes,
+  showJavaPolicy = true,
 }: {
   readonly networks?: readonly NetworkId[]
+  readonly onOpenReleaseNotes?: (target: { product: 'core' | 'home'; tagName: string }) => void
+  readonly showJavaPolicy?: boolean
 }) {
   const maintenance = useHomeV2CoreMaintenance({
     onCoreRefresh: management.onRefresh,
     qortalEnabled: networks.includes('qortal'),
     qortiumEnabled: networks.includes('qortium'),
   })
-  return <CoreMaintenancePanel maintenance={maintenance} networks={networks} />
+  return <CoreMaintenancePanel
+    maintenance={maintenance}
+    networks={networks}
+    onOpenReleaseNotes={onOpenReleaseNotes}
+    showJavaPolicy={showJavaPolicy}
+  />
 }
 
 const container = document.createElement('div')
@@ -134,6 +148,107 @@ function button(label: string) {
   const found = [...container.querySelectorAll('button')].find((item) => item.textContent?.trim() === label)
   assert(found, `expected button ${label}`)
   return found as HTMLButtonElement
+}
+
+// The effective offer: what an install button would ACTUALLY install. Every
+// surface labels and gates on this, and `runCore()` installs it, because
+// `release.action` describes something else -- the forward move on the channel
+// that happened to be checked. An installed prerelease is the reachable case
+// where the two disagree: stable is then a downgrade and sits FIRST.
+{
+  const stableDowngrade =
+    { channel: 'stable' as const, relation: 'downgrade' as const, tag: 'v1.7.1' }
+  const prereleaseUpdate =
+    { channel: 'prerelease' as const, relation: 'update' as const, tag: 'v1.8.0-rc1' }
+  const mixed = {
+    action: 'strict-update' as const,
+    available: true,
+    channel: 'prerelease' as const,
+    offers: [stableDowngrade, prereleaseUpdate],
+    revision: 1 as const,
+    schema: 'home-v2-core-maintenance-release' as const,
+    tag: 'v1.8.0-rc1',
+  }
+  // No selection: the default is offers[0], the DOWNGRADE -- while `action`
+  // reads 'strict-update'.
+  assert.deepEqual(effectiveCoreReleaseOffer(mixed, null), stableDowngrade)
+  assert.deepEqual(effectiveCoreReleaseOffer(mixed, 'v1.8.0-rc1'), prereleaseUpdate)
+  // A selection that is no longer on offer falls back to the default rather
+  // than installing a tag nobody offered.
+  assert.deepEqual(effectiveCoreReleaseOffer(mixed, 'v9.9.9'), stableDowngrade)
+  // `action: 'none'` only means the checked channel had nothing newer.
+  assert.deepEqual(
+    effectiveCoreReleaseOffer({ ...mixed, action: 'none', offers: [prereleaseUpdate] }, null),
+    prereleaseUpdate,
+  )
+  // A channel that failed its own check leaves `tag` null while the other
+  // channel still produced offers; reading `tag` first stranded them.
+  assert.deepEqual(
+    effectiveCoreReleaseOffer({ ...mixed, offers: [prereleaseUpdate], tag: null }, null),
+    prereleaseUpdate,
+  )
+  assert.equal(effectiveCoreReleaseOffer({ ...mixed, offers: [], tag: null }, null), null)
+  assert.equal(effectiveCoreReleaseOffer({ ...mixed, action: 'none', offers: [] }, null), null)
+  assert.equal(effectiveCoreReleaseOffer(null, null), null)
+  // No offers at all (an older main process): `action` is the only description
+  // there is, and it is what the mutation falls back to as well.
+  assert.deepEqual(
+    effectiveCoreReleaseOffer({ ...mixed, channel: 'stable', offers: [], tag: 'v1.8.0' }, null),
+    { channel: 'stable', relation: 'update', tag: 'v1.8.0' },
+  )
+  assert.deepEqual(
+    effectiveCoreReleaseOffer(
+      { ...mixed, action: 'initial-install', channel: 'stable', offers: [], tag: 'v1.8.0' },
+      null,
+    ),
+    { channel: 'stable', relation: 'initial-install', tag: 'v1.8.0' },
+  )
+
+  // In-place installation requires ALL THREE: an update, a runtime observed as
+  // exactly 'running', and the capability.
+  const runtimeStatus = (
+    runtime: 'running' | 'stopped' | 'unknown',
+    canUpdateRunningInPlace: boolean,
+  ): HomeV2CoreMaintenanceStatus => ({
+    ...status,
+    capabilities: { ...status.capabilities, canUpdateRunningInPlace },
+    core: { ...status.core, installedVersion: '1.7.2', runtime },
+  })
+  assert.equal(canRunCoreOfferInPlace(prereleaseUpdate, runtimeStatus('running', true)), true)
+  assert.equal(canRunCoreOfferInPlace(prereleaseUpdate, runtimeStatus('running', false)), false)
+  // The capability says Home STARTED this Core, not that Home can see it now.
+  assert.equal(canRunCoreOfferInPlace(prereleaseUpdate, runtimeStatus('unknown', true)), false)
+  assert.equal(canRunCoreOfferInPlace(stableDowngrade, runtimeStatus('running', true)), false)
+  assert.equal(canRunCoreOfferInPlace(
+    { channel: 'stable', relation: 'initial-install', tag: 'v1.8.0' },
+    runtimeStatus('running', true),
+  ), false)
+  assert.equal(canRunCoreOfferInPlace(null, runtimeStatus('running', true)), false)
+
+  // ...and the gate every surface reads reports WHY it is closed.
+  const gate = (
+    runtime: 'running' | 'stopped' | 'unknown',
+    canUpdateRunningInPlace: boolean,
+    selected: string | null = null,
+  ) => coreReleaseGate(mixed, selected, runtimeStatus(runtime, canUpdateRunningInPlace))
+  assert.deepEqual(gate('running', true, 'v1.8.0-rc1'), {
+    blocked: false,
+    blockedReason: null,
+    offer: prereleaseUpdate,
+    restartsCore: true,
+  })
+  assert.equal(gate('unknown', true, 'v1.8.0-rc1').blockedReason, 'core-state-unknown')
+  assert.equal(gate('running', false, 'v1.8.0-rc1').blockedReason, 'stop-core-first')
+  assert.equal(gate('stopped', false, 'v1.8.0-rc1').blocked, false)
+  // A downgrade is stopped-only, whatever the capability says.
+  assert.equal(gate('running', true).blockedReason, 'stop-core-first')
+  assert.equal(gate('stopped', true).blocked, false)
+  // Nothing on offer is not a blocked state; it is no state at all.
+  assert.deepEqual(
+    coreReleaseGate({ ...mixed, action: 'none', offers: [], tag: null }, null,
+      runtimeStatus('running', false)),
+    { blocked: false, blockedReason: null, offer: null, restartsCore: false },
+  )
 }
 
 assert.throws(() => parseHomeV2CoreUpdatePolicySetResult({
@@ -563,6 +678,258 @@ try {
     assert.match(partial.textContent ?? '', /QDN: nothing newer/)
 
     client.getMaintenanceStatus = originalStatus
+  }
+
+  // The notice under the panel must say the same thing as the button above it.
+  // It used to be printed from `runtime !== 'stopped'` alone, so a Core that
+  // Home can update in place offered "Update and restart Core" and then told
+  // the reader to stop Core first.
+  {
+    const originalStatus = client.getMaintenanceStatus
+    const originalCheck = client.checkMaintenanceRelease
+    client.checkMaintenanceRelease = async () => ({
+      action: 'strict-update' as const, available: true, channel: 'stable' as const, revision: 1 as const,
+      offers: [{ channel: 'stable' as const, relation: 'update' as const, tag: 'v1.8.0' }],
+      schema: 'home-v2-core-maintenance-release' as const, tag: 'v1.8.0',
+    })
+    const runningCore = (
+      canUpdateRunningInPlace: boolean,
+      runtime: 'running' | 'unknown',
+    ): HomeV2CoreMaintenanceStatus => ({
+      ...status,
+      capabilities: { ...status.capabilities, canInitialInstall: false, canUpdateRunningInPlace },
+      core: { ...status.core, installedVersion: '1.7.2', runtime },
+      java: { source: 'managed', targetMajorVersion: 25, updateAvailable: false, version: '25.0.1' },
+    })
+    const renderChecked = async () => {
+      act(() => root.unmount())
+      root = createRoot(container)
+      await act(async () => {
+        root.render(<CoreMaintenanceHarness />)
+        await Promise.resolve()
+        await Promise.resolve()
+      })
+      await act(async () => {
+        button('Check release').click()
+        await Promise.resolve()
+        await Promise.resolve()
+      })
+    }
+
+    // In-place update allowed: the button restarts Core itself, so there is
+    // nothing for the reader to do first and no notice to print.
+    client.getMaintenanceStatus = async () => runningCore(true, 'running')
+    await renderChecked()
+    const restart = button('Update and restart Core')
+    assert.equal(restart.disabled, false, 'an in-place update must be offered')
+    assert.doesNotMatch(container.textContent ?? '', /Stop Core before/)
+
+    // Not allowed: the button is closed and the notice says why.
+    client.getMaintenanceStatus = async () => runningCore(false, 'running')
+    await renderChecked()
+    assert.equal(button('Update Core').disabled, true)
+    assert.match(container.textContent ?? '', /Stop Core before installing or updating it/)
+
+    // 'unknown' is not 'running'. Telling someone to stop a Core that Home
+    // cannot see is how they stop it again and get told the same thing.
+    client.getMaintenanceStatus = async () => runningCore(false, 'unknown')
+    await renderChecked()
+    assert.match(container.textContent ?? '', /cannot confirm whether Core is stopped/)
+    assert.doesNotMatch(container.textContent ?? '', /Stop Core before installing or updating it/)
+
+    // Nothing to install -> no gate notice at all, whatever the runtime is.
+    client.checkMaintenanceRelease = async () => ({
+      action: 'none' as const, available: true, channel: 'stable' as const, revision: 1 as const,
+      offers: [], schema: 'home-v2-core-maintenance-release' as const, tag: null,
+    })
+    client.getMaintenanceStatus = async () => runningCore(false, 'running')
+    await renderChecked()
+    assert.doesNotMatch(container.textContent ?? '', /Stop Core before/)
+    assert.doesNotMatch(container.textContent ?? '', /cannot confirm whether Core is stopped/)
+
+    client.getMaintenanceStatus = originalStatus
+    client.checkMaintenanceRelease = originalCheck
+  }
+
+  // Settings labels, gates and LINKS the release that would actually install.
+  // All three used to come from `release.action` -- the forward move on the
+  // channel that happened to be checked -- while `runCore()` installs the
+  // selected offer, else offers[0], which is stable-first. An installed
+  // prerelease makes the two disagree: stable is a downgrade and goes first.
+  {
+    const originalStatus = client.getMaintenanceStatus
+    const originalCheck = client.checkMaintenanceRelease
+    const stableDowngrade =
+      { channel: 'stable' as const, relation: 'downgrade' as const, tag: 'v1.7.1' }
+    const prereleaseUpdate =
+      { channel: 'prerelease' as const, relation: 'update' as const, tag: 'v1.8.0-rc1' }
+    const initialInstall =
+      { channel: 'stable' as const, relation: 'initial-install' as const, tag: 'v1.7.3' }
+    const notesTargets: string[] = []
+    const setup = async (options: {
+      readonly action?: 'initial-install' | 'none' | 'strict-update'
+      readonly canUpdateRunningInPlace?: boolean
+      readonly installedVersion?: string | null
+      readonly offers: ReadonlyArray<{
+        readonly channel: 'prerelease' | 'stable'
+        readonly relation: 'downgrade' | 'initial-install' | 'update'
+        readonly tag: string
+      }>
+      readonly runtime: 'running' | 'stopped' | 'unknown'
+      readonly tag?: string | null
+    }) => {
+      client.getMaintenanceStatus = async () => ({
+        ...status,
+        capabilities: {
+          ...status.capabilities,
+          canInitialInstall: options.installedVersion === null,
+          canInstallJava: false,
+          canUpdateRunningInPlace: options.canUpdateRunningInPlace ?? false,
+        },
+        core: {
+          ...status.core,
+          installedVersion: options.installedVersion === undefined
+            ? '1.7.2'
+            : options.installedVersion,
+          runtime: options.runtime,
+        },
+        java: { source: 'managed', targetMajorVersion: 25, updateAvailable: false, version: '25.0.1' },
+      })
+      client.checkMaintenanceRelease = async () => ({
+        action: options.action ?? 'strict-update' as const,
+        available: true,
+        channel: 'stable' as const,
+        offers: options.offers,
+        revision: 1 as const,
+        schema: 'home-v2-core-maintenance-release' as const,
+        tag: options.tag === undefined ? 'v1.8.0-rc1' : options.tag,
+      })
+      act(() => root.unmount())
+      root = createRoot(container)
+      await act(async () => {
+        root.render(<CoreMaintenanceHarness
+          onOpenReleaseNotes={(target) => notesTargets.push(target.tagName)}
+        />)
+        await Promise.resolve()
+        await Promise.resolve()
+      })
+      await act(async () => {
+        button('Check release').click()
+        await Promise.resolve()
+        await Promise.resolve()
+      })
+    }
+    const installButton = () =>
+      container.querySelector<HTMLButtonElement>('[data-home-v2-core-release-target]')
+    const select = async (tag: string) => {
+      const chooser = container.querySelector<HTMLSelectElement>('[data-home-v2-core-release-choice]')
+      assert(chooser, 'expected a release chooser')
+      await act(async () => {
+        chooser.value = tag
+        chooser.dispatchEvent(new Event('change', { bubbles: true }))
+        await Promise.resolve()
+      })
+    }
+
+    // Default target is the DOWNGRADE even though `action` is 'strict-update'.
+    // Settings keeps offering it -- it has the picker and the confirmation --
+    // but a downgrade is never done in place, so a running Core blocks it.
+    await setup({
+      canUpdateRunningInPlace: true,
+      offers: [stableDowngrade, prereleaseUpdate],
+      runtime: 'running',
+    })
+    assert.equal(installButton()?.getAttribute('data-home-v2-core-release-target'), 'v1.7.1')
+    assert.equal(installButton()?.textContent?.trim(), 'Install older version')
+    assert.equal(installButton()?.disabled, true)
+    assert.match(container.textContent ?? '', /Stop Core before installing or updating it/)
+    // The release notes follow the target too, not the checked tag.
+    notesTargets.length = 0
+    await act(async () => {
+      button('Open release notes').click()
+      await Promise.resolve()
+    })
+    assert.deepEqual(notesTargets, ['v1.7.1'])
+
+    // Selecting the newer prerelease turns the same panel into an in-place
+    // update, and installs THAT tag.
+    await select('v1.8.0-rc1')
+    assert.equal(installButton()?.textContent?.trim(), 'Update and restart Core')
+    assert.equal(installButton()?.disabled, false)
+    assert.doesNotMatch(container.textContent ?? '', /Stop Core before installing or updating it/)
+    actions.length = 0
+    await act(async () => {
+      installButton()?.click()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    assert.deepEqual([...actions], ['strict-update:v1.8.0-rc1'])
+
+    // 'unknown' is blocked even with the capability: the capability says Home
+    // started this Core, not that Home can see it now.
+    await setup({
+      canUpdateRunningInPlace: true,
+      offers: [prereleaseUpdate],
+      runtime: 'unknown',
+    })
+    assert.equal(installButton()?.disabled, true)
+    assert.match(container.textContent ?? '', /cannot confirm whether Core is stopped/)
+    assert.doesNotMatch(container.textContent ?? '', /Stop Core before installing or updating it/)
+
+    // An initial install has no previous version to restore, so it needs a
+    // stopped Core whatever the capability says.
+    await setup({
+      canUpdateRunningInPlace: true,
+      installedVersion: null,
+      offers: [initialInstall],
+      runtime: 'stopped',
+    })
+    assert.equal(installButton()?.textContent?.trim(), 'Install Core')
+    assert.equal(installButton()?.disabled, false)
+    await setup({
+      canUpdateRunningInPlace: true,
+      installedVersion: null,
+      offers: [initialInstall],
+      runtime: 'running',
+    })
+    assert.equal(installButton()?.disabled, true)
+    assert.match(container.textContent ?? '', /Stop Core before installing or updating it/)
+
+    // `action: 'none'` with an offer still installs: the checked channel had
+    // nothing newer, another channel did.
+    await setup({ action: 'none', offers: [prereleaseUpdate], runtime: 'stopped' })
+    assert.equal(installButton()?.getAttribute('data-home-v2-core-release-target'), 'v1.8.0-rc1')
+
+    // A null tag with offers present used to strand them: no button at all,
+    // even though `runCore()` had something to install.
+    await setup({ offers: [prereleaseUpdate], runtime: 'stopped', tag: null })
+    assert.equal(installButton()?.getAttribute('data-home-v2-core-release-target'), 'v1.8.0-rc1')
+    actions.length = 0
+    await act(async () => {
+      installButton()?.click()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    assert.deepEqual([...actions], ['strict-update:v1.8.0-rc1'])
+
+    client.getMaintenanceStatus = originalStatus
+    client.checkMaintenanceRelease = originalCheck
+  }
+
+  // One managed-Java policy per page: Settings renders one panel per network,
+  // and Java belongs to the machine rather than to either of them.
+  {
+    act(() => root.unmount())
+    root = createRoot(container)
+    await act(async () => {
+      root.render(<>
+        <CoreMaintenanceHarness networks={['qortium']} />
+        <CoreMaintenanceHarness networks={['qortal']} showJavaPolicy={false} />
+      </>)
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    assert.equal(container.querySelectorAll('[data-home-v2-java-update-policy]').length, 1)
   }
 
 } finally {

@@ -55,10 +55,15 @@ function fixture(os: 'android' | 'linux', withDownload = false): HomeV2AppUpdate
 await act(async () => { root.render(<HomeUpdateSettings updates={fixture('linux')} />) })
 assert.equal(rootElement.querySelector('[data-home-v2-app-updates="desktop"]') !== null, true)
 assert.equal((rootElement.querySelector('[data-home-v2-update-policy]') as HTMLSelectElement).value, 'notify')
-assert.equal(
-  rootElement.querySelector('[data-home-v2-update-policy]')?.getAttribute('aria-labelledby'),
-  'home-update-policy-label',
-)
+{
+  // Ids are scoped per instance now (Settings can be open in two tabs at once),
+  // so assert that the reference RESOLVES rather than pinning a literal id.
+  const labelId = rootElement
+    .querySelector('[data-home-v2-update-policy]')
+    ?.getAttribute('aria-labelledby') ?? ''
+  assert.match(labelId, /^home-update-policy-label/)
+  assert.ok(document.getElementById(labelId)?.textContent)
+}
 assert.equal(rootElement.querySelector('[role="status"][aria-live="polite"]') !== null, true)
 assert.deepEqual(
   [...rootElement.querySelectorAll('[data-home-v2-update-policy] option')].map((option) => option.textContent),

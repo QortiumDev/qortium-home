@@ -532,6 +532,200 @@ try {
   act(() => qortalInstall.click())
   assert.ok(nodeMenuCalls.includes('qortal:install'))
 
+  // The toolbar menu is the THIRD surface offering this update, and it gated on
+  // `runtime !== 'stopped'` alone: it disabled the button and told the reader to
+  // stop Core while the dashboard tile and Settings offered "Update and restart
+  // Core" for exactly the same Core.
+  {
+    const runningQortiumCore = (canUpdateRunningInPlace: boolean): HomeV2CoreManagement => {
+      const status = coreMaintenance.status
+      assert.ok(status)
+      return {
+        ...coreManagementFixture,
+        coreMaintenance: {
+          ...coreMaintenance,
+          release: {
+            action: 'strict-update',
+            available: true,
+            channel: 'stable',
+            revision: 1,
+            offers: [{ channel: 'stable' as const, relation: 'update' as const, tag: '1.7.3' }],
+            schema: 'home-v2-core-maintenance-release',
+            tag: 'v1.7.3',
+          },
+          status: {
+            ...status,
+            capabilities: { ...status.capabilities, canUpdateRunningInPlace },
+            core: { ...status.core, runtime: 'running' },
+          },
+        },
+      }
+    }
+
+    await act(async () => {
+      renderChrome({ kind: 'search' }, { coreManagement: runningQortiumCore(true) })
+      await Promise.resolve()
+    })
+    const inPlace = menuControl(nodePanel('qortium'), 'install')
+    assert.ok(inPlace, 'an in-place update must still be offered while Core runs')
+    assert.equal(inPlace.disabled, false)
+    assert.equal(inPlace.textContent, 'Update and restart Core')
+    assert.doesNotMatch(nodePanel('qortium').textContent ?? '', /Stop Core before/)
+
+    await act(async () => {
+      renderChrome({ kind: 'search' }, { coreManagement: runningQortiumCore(false) })
+      await Promise.resolve()
+    })
+    const blocked = menuControl(nodePanel('qortium'), 'install')
+    assert.ok(blocked)
+    assert.equal(blocked.disabled, true)
+    assert.match(
+      nodePanel('qortium').textContent ?? '',
+      /Stop Core before installing or updating it/,
+    )
+  }
+
+  // ...and it labelled and gated `release.action` while the mutation installs
+  // the SELECTED offer, else offers[0] -- which is stable-first, so an
+  // installed prerelease made the menu offer "Update and restart Core" for a
+  // downgrade. The menu has no release picker and no confirmation prompt, so a
+  // downgrade is not offered here at all; Settings keeps it.
+  {
+    const status = coreMaintenance.status
+    assert.ok(status)
+    const stableDowngrade =
+      { channel: 'stable' as const, relation: 'downgrade' as const, tag: 'v1.7.1' }
+    const prereleaseUpdate =
+      { channel: 'prerelease' as const, relation: 'update' as const, tag: 'v1.8.0-rc1' }
+    const initialInstall =
+      { channel: 'stable' as const, relation: 'initial-install' as const, tag: 'v1.7.3' }
+    const menuFixture = (options: {
+      readonly action?: 'initial-install' | 'none' | 'strict-update'
+      readonly canUpdateRunningInPlace?: boolean
+      readonly installedVersion?: string | null
+      readonly offers: ReadonlyArray<{
+        readonly channel: 'prerelease' | 'stable'
+        readonly relation: 'downgrade' | 'initial-install' | 'update'
+        readonly tag: string
+      }>
+      readonly runtime: 'running' | 'stopped' | 'unknown'
+      readonly selectedReleaseTag?: string | null
+      readonly tag?: string | null
+    }): HomeV2CoreManagement => ({
+      ...coreManagementFixture,
+      coreMaintenance: {
+        ...coreMaintenance,
+        release: {
+          action: options.action ?? 'strict-update',
+          available: true,
+          channel: 'stable',
+          offers: options.offers,
+          revision: 1,
+          schema: 'home-v2-core-maintenance-release',
+          tag: options.tag === undefined ? 'v1.8.0-rc1' : options.tag,
+        },
+        selectedReleaseTag: options.selectedReleaseTag ?? null,
+        status: {
+          ...status,
+          capabilities: {
+            ...status.capabilities,
+            canUpdateRunningInPlace: options.canUpdateRunningInPlace ?? false,
+          },
+          core: {
+            ...status.core,
+            installedVersion: options.installedVersion === undefined
+              ? '1.7.2'
+              : options.installedVersion,
+            runtime: options.runtime,
+          },
+        },
+      },
+    })
+    const showMenu = async (management: HomeV2CoreManagement) => {
+      await act(async () => {
+        renderChrome({ kind: 'search' }, { coreManagement: management })
+        await Promise.resolve()
+      })
+    }
+
+    await showMenu(menuFixture({
+      canUpdateRunningInPlace: true,
+      offers: [stableDowngrade, prereleaseUpdate],
+      runtime: 'running',
+    }))
+    assert.equal(menuControl(nodePanel('qortium'), 'install'), null,
+      'a downgrade must never be offered from the toolbar menu')
+    assert.doesNotMatch(nodePanel('qortium').textContent ?? '', /Update and restart Core/)
+    // Nothing installable from here still leaves the check action reachable.
+    assert.ok(menuControl(nodePanel('qortium'), 'check'))
+
+    await showMenu(menuFixture({
+      canUpdateRunningInPlace: true,
+      offers: [stableDowngrade, prereleaseUpdate],
+      runtime: 'running',
+      selectedReleaseTag: 'v1.8.0-rc1',
+    }))
+    const selected = menuControl(nodePanel('qortium'), 'install')
+    assert.ok(selected)
+    assert.equal(selected.textContent, 'Update and restart Core')
+    assert.equal(selected.disabled, false)
+
+    // 'unknown' is blocked even with the capability, and says which case it is.
+    await showMenu(menuFixture({
+      canUpdateRunningInPlace: true,
+      offers: [prereleaseUpdate],
+      runtime: 'unknown',
+    }))
+    const unknown = menuControl(nodePanel('qortium'), 'install')
+    assert.ok(unknown)
+    assert.equal(unknown.disabled, true)
+    assert.match(nodePanel('qortium').textContent ?? '', /cannot confirm whether Core is stopped/)
+    assert.doesNotMatch(
+      nodePanel('qortium').textContent ?? '',
+      /Stop Core before installing or updating it/,
+    )
+
+    // An initial install never runs in place, capability or not.
+    await showMenu(menuFixture({
+      canUpdateRunningInPlace: true,
+      installedVersion: null,
+      offers: [initialInstall],
+      runtime: 'stopped',
+    }))
+    const initialStopped = menuControl(nodePanel('qortium'), 'install')
+    assert.ok(initialStopped)
+    assert.equal(initialStopped.textContent, 'Install Core')
+    assert.equal(initialStopped.disabled, false)
+    await showMenu(menuFixture({
+      canUpdateRunningInPlace: true,
+      installedVersion: null,
+      offers: [initialInstall],
+      runtime: 'running',
+    }))
+    const initialRunning = menuControl(nodePanel('qortium'), 'install')
+    assert.ok(initialRunning)
+    assert.equal(initialRunning.disabled, true)
+    assert.match(
+      nodePanel('qortium').textContent ?? '',
+      /Stop Core before installing or updating it/,
+    )
+
+    // `action: 'none'` with an offer, and offers with a null tag, both used to
+    // render nothing here while Settings rendered and ran them.
+    await showMenu(menuFixture({
+      action: 'none',
+      offers: [prereleaseUpdate],
+      runtime: 'stopped',
+    }))
+    assert.ok(menuControl(nodePanel('qortium'), 'install'))
+    await showMenu(menuFixture({
+      offers: [prereleaseUpdate],
+      runtime: 'stopped',
+      tag: null,
+    }))
+    assert.ok(menuControl(nodePanel('qortium'), 'install'))
+  }
+
   // Interactive controls inside the panel must not trip the outside-pointerdown
   // dismissal, or the menu would close the instant a control is pressed.
   const openTrigger = container.querySelector<HTMLButtonElement>(

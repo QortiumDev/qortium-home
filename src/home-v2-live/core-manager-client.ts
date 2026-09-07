@@ -40,6 +40,7 @@ export type {
   HomeV2CoreMaintenanceActionResult,
   HomeV2CoreMaintenanceRelease,
   HomeV2CoreMaintenanceStatus,
+  HomeV2CoreReleaseOffer,
   HomeV2CoreUpdatePolicy,
   HomeV2CoreUpdatePolicySetResult,
   HomeV2CoreUpdatePolicyState,

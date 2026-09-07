@@ -4,6 +4,7 @@ import type {
 } from '../../home-v2-live/core-manager-client'
 import type { HomeV2QortalMaintenance } from '../../home-v2-live/qortal-maintenance-controller'
 import { t } from '../../i18n'
+import { useScopedIds } from './dom-ids'
 
 function statusMessage(status: HomeV2QortalMaintenanceStatus) {
   if (status.issue) return t('home2.qortalMaintenance.status.unavailable')
@@ -67,6 +68,7 @@ export function QortalMaintenancePanel({
 }: {
   readonly maintenance?: HomeV2QortalMaintenance
 }) {
+  const id = useScopedIds()
   if (!maintenance?.available) return null
   const {
     actionAllowed,
@@ -92,9 +94,9 @@ export function QortalMaintenancePanel({
   if (!status) {
     return (
       <section className="home-v2-core-maintenance home-v2-qortal-maintenance"
-        aria-busy={!initialLoadFailed} aria-labelledby="qortal-maintenance-title">
+        aria-busy={!initialLoadFailed} aria-labelledby={id('qortal-maintenance-title')}>
         <div className="home-v2-settings-panel__heading">
-          <h3 id="qortal-maintenance-title">{t('home2.qortalMaintenance.title')}</h3>
+          <h3 id={id('qortal-maintenance-title')}>{t('home2.qortalMaintenance.title')}</h3>
           {initialLoadFailed ? (
             <>
               <p className="home-v2-core-notice" role="alert">{t('home2.qortalMaintenance.status.unavailable')}</p>
@@ -108,9 +110,9 @@ export function QortalMaintenancePanel({
 
   return (
     <section className="home-v2-core-maintenance home-v2-qortal-maintenance"
-      aria-busy={busy !== null} aria-labelledby="qortal-maintenance-title" data-network="qortal">
+      aria-busy={busy !== null} aria-labelledby={id('qortal-maintenance-title')} data-network="qortal">
       <div className="home-v2-settings-panel__heading">
-        <h3 id="qortal-maintenance-title">{t('home2.qortalMaintenance.title')}</h3>
+        <h3 id={id('qortal-maintenance-title')}>{t('home2.qortalMaintenance.title')}</h3>
         <p>{t('home2.qortalMaintenance.description')}</p>
       </div>
       <div className="home-v2-setting-row">
@@ -130,7 +132,7 @@ export function QortalMaintenancePanel({
           ) : null}
           {release?.tag && release.action !== 'none' ? (
             <button className="home-v2-primary-button" type="button"
-              aria-describedby="qortal-maintenance-state"
+              aria-describedby={id('qortal-maintenance-state')}
               disabled={busy !== null || !actionAllowed} onClick={() => void run()}>
               {busy === 'action'
                 ? t('home2.common.working')
@@ -143,12 +145,12 @@ export function QortalMaintenancePanel({
       </div>
       {adoptionAvailable && status.install === 'missing' ? (
         <div className="home-v2-qortal-adoption" aria-busy={adoptionBusy}
-          aria-labelledby="qortal-adoption-title" role="region" data-home-v2-qortal-adoption={
+          aria-labelledby={id('qortal-adoption-title')} role="region" data-home-v2-qortal-adoption={
           adoptionList?.state ?? (busy === 'adoption-list' ? 'loading' : 'idle')
         }>
           <div className="home-v2-setting-row">
             <div className="home-v2-setting-row__copy">
-              <strong id="qortal-adoption-title">{t('home2.qortalMaintenance.adoption.title')}</strong>
+              <strong id={id('qortal-adoption-title')}>{t('home2.qortalMaintenance.adoption.title')}</strong>
               <span>{t('home2.qortalMaintenance.adoption.description')}</span>
             </div>
             <div className="home-v2-setting-row__control home-v2-core-maintenance__actions">
@@ -207,7 +209,13 @@ export function QortalMaintenancePanel({
                     <input aria-label={candidateLabel} checked={
                       selectedCandidateId === candidate.candidateId
                     } disabled={busy !== null || !adoptionList.canSelect || candidate.version === null}
-                      name="qortal-adoption-candidate" type="radio" value={candidate.candidateId}
+                      // Radio grouping is DOCUMENT-wide when the inputs share no
+                      // form owner, and Home keeps every open page mounted: a
+                      // static name grouped the candidates in one Settings tab
+                      // with those in another, so picking one there cleared the
+                      // selection here. Scoped per panel instance.
+                      name={id('qortal-adoption-candidate')} type="radio"
+                      value={candidate.candidateId}
                       onChange={() => setSelectedCandidateId(candidate.candidateId)} />
                     <span>
                       <strong>{candidateLabel}: {candidateSource(candidate)}</strong>
@@ -226,7 +234,7 @@ export function QortalMaintenancePanel({
               })}
               <div className="home-v2-core-maintenance__actions">
                 <button className="home-v2-primary-button" type="button"
-                  aria-describedby="qortal-maintenance-state"
+                  aria-describedby={id('qortal-maintenance-state')}
                   disabled={busy !== null || !adoptionSelectionAllowed}
                   onClick={() => void adoptCandidate()}>
                   {busy === 'adoption-select'
@@ -238,7 +246,7 @@ export function QortalMaintenancePanel({
           ) : null}
         </div>
       ) : null}
-      <p className="home-v2-core-notice" id="qortal-maintenance-state">{statusMessage(status)}</p>
+      <p className="home-v2-core-notice" id={id('qortal-maintenance-state')}>{statusMessage(status)}</p>
       {notice ? <p className="home-v2-core-notice" role="status">{notice}</p> : null}
     </section>
   )

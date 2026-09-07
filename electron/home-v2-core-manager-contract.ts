@@ -802,8 +802,9 @@ async function checkMaintenanceRelease(
  *
  * Always the newest verified stable. The prerelease joins it only when it is
  * strictly newer, so the list never offers a prerelease that trails the stable
- * one. Each entry says how it relates to the installed build, including
- * `reinstall` for the same version again -- the repair case.
+ * one. Each entry says how it relates to the installed build: initial-install,
+ * update or downgrade. The SAME version is never offered -- core-manager has
+ * exactly two install modes and neither one reinstalls (see `relationFor`).
  */
 type ReleaseCandidate = { readonly available: boolean; readonly commit?: unknown; readonly tagName?: unknown }
 

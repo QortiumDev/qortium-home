@@ -32,6 +32,40 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## fix(home2): make Settings and Dashboard maintenance surfaces consistent
+
+2026-09-07
+
+Settings and the Dashboard now tell the same story about a running Core, and the
+pages behave correctly when more than one of them is open at once. Home used to
+offer "Update and restart Core" and then, in the same panel, tell you to stop
+Core before updating it; the toolbar node menu went further and refused the
+update outright. All three places now use one rule: an update to a Core that
+Home started needs no stopping, a first-time install still does, and when Home
+genuinely cannot tell whether Core is running it says so rather than telling you
+to stop something again. They also agree on WHICH release is about to be
+installed. Home can offer more than one — the newest stable and, when it is
+newer still, a prerelease — and the Dashboard row and toolbar menu used to
+describe whichever release the last check had found while the install would have
+taken the one selected instead; with a prerelease already installed that could
+have quietly moved Core backwards. Both compact places now name exactly the
+release they will install, and moving to an older release stays in Settings,
+where it is picked deliberately and confirmed. Because Home keeps every open
+page loaded, two Settings tabs, two Dashboards or two New Tab pages used to
+share the same internal element names, which quietly pointed a screen reader at
+the wrong panel and made some labels and help text belong to the other tab; each
+page now gets its own, and the managed Java update setting appears once per page
+instead of repeating under both the Qortium and Qortal headings. The Dashboard
+also says a little more without becoming a second Settings: the Home row names
+the version you have installed and shows a small progress bar while an update
+downloads, and the Qortium Core tile now names the release channel and short
+build alongside the version, so two builds of the same version are no longer
+indistinguishable. (The Qortal tile still shows its version alone: Qortal
+reports no channel or build commit to Home.) Finally, Settings' Core section can
+reach the node itself: it links out to the same "Configure" dialog and the same
+Core API documentation the Dashboard card already offered, rather than growing a
+second copy of those controls.
+
 ## feat(home2): keep account and history when moving tabs between windows
 
 2026-09-06

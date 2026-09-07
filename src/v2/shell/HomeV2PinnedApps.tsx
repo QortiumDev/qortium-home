@@ -133,6 +133,8 @@ export function HomeV2PinnedApps({
   loadVisibleAppIcon,
 }: HomeV2PinnedAppsProps) {
   const accountDescriptionId = useId();
+  // One dashboard is mounted per tab, so this heading id would otherwise repeat.
+  const pinnedAppsTitleId = `pinned-apps-title${useId()}`;
   const [showAddForm, setShowAddForm] = useState(false);
   const [addAddress, setAddAddress] = useState("");
   const [addTitle, setAddTitle] = useState("");
@@ -524,12 +526,12 @@ export function HomeV2PinnedApps({
     <section
       ref={sectionRef}
       className="home-v2-pinned-apps"
-      aria-labelledby="pinned-apps-title"
+      aria-labelledby={pinnedAppsTitleId}
       aria-busy={status === "loading" || controlsDisabled}
     >
       <div className="home-v2-section-heading">
         <div>
-          <h2 id="pinned-apps-title">{t("home2.dashboard.pinnedApps")}</h2>
+          <h2 id={pinnedAppsTitleId}>{t("home2.dashboard.pinnedApps")}</h2>
         </div>
         {onFindMoreApps ? (
           <button

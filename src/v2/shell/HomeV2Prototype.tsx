@@ -60,6 +60,7 @@ import {
   type AppTabNavigationController,
   type AppTabNavigationSnapshot,
 } from './AppTabStage'
+import { useScopedIds } from './dom-ids'
 import { BrowserChrome, type AddressOpenResult } from './BrowserChrome'
 import { tabDestination, type NavigationState } from '../../home-v2-live/tab-navigation'
 import type { InlineUnlockSubmission } from './InlineAccountUnlock'
@@ -290,6 +291,7 @@ export interface HomeV2PrototypeProps {
 }
 
 function NewTabPage(props: HomeV2PrototypeProps) {
+  const id = useScopedIds()
   const result = props.identityLookup
   const stateLabel = props.identityLookupBusy
     ? t('home2.newTab.state.searching')
@@ -305,10 +307,10 @@ function NewTabPage(props: HomeV2PrototypeProps) {
               ? t('home2.newTab.state.resolved')
               : t('home2.newTab.state.publicLookup')
   return (
-    <section className="home-v2-new-tab-page" aria-labelledby="new-tab-title">
+    <section className="home-v2-new-tab-page" aria-labelledby={id('new-tab-title')}>
       <header className="home-v2-new-tab-intro">
         <span className="home-v2-eyebrow">home://newtab</span>
-        <h1 id="new-tab-title">{t('home2.newTab.title')}</h1>
+        <h1 id={id('new-tab-title')}>{t('home2.newTab.title')}</h1>
         <p>{t('home2.newTab.subtitle')}</p>
       </header>
       <div className="home-v2-panel home-v2-identity-lookup">
@@ -1276,6 +1278,8 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
                 }
                 onSetNewTabPreference={props.onSetNewTabPreference}
                 onSetNodeMode={props.onSetNodeMode}
+                onConfigureCustomNode={props.onConfigureCustomNode}
+                onOpenCoreDocs={props.onOpenCoreDocs}
                 onToggleRememberUnlock={props.onToggleRememberUnlock}
                 onToggleLockOnExit={props.onToggleLockOnExit}
                 coreManagement={props.coreManagement}

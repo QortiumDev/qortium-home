@@ -14,6 +14,7 @@ import {
   parseHomeV2CoreUpdatePolicySetResult,
   parseHomeV2CoreUpdatePolicyState,
 } from './core-manager-client'
+import { effectiveCoreReleaseOffer } from './core-release-offer'
 
 export type HomeV2CoreMaintenanceBusy = 'check' | 'core' | 'java' | 'policy'
 export type HomeV2CoreUpdatePolicyField =
@@ -192,35 +193,27 @@ export function useHomeV2CoreMaintenance(options: {
 
   const runCore = async (confirmDowngrade = false) => {
     if (!client) return
-    //  describes only the forward move, so a release offered ONLY as a
-    // downgrade reports 'none'. An offer is enough to act on.
-    if (!release?.tag) return
-    if (release.action === 'none' && release.offers.length === 0) return
-    // Install whichever release the user picked. The default is the newest
-    // stable, which is offers[0]; a newer prerelease sits after it. Falling back
-    // to release.tag keeps the old single-target behaviour when the node offers
-    // nothing to choose between.
-    const offer = release.offers.find((entry) => entry.tag === selectedReleaseTag)
-      ?? release.offers[0]
-      ?? null
-    const action = offer
-      ? (offer.relation === 'initial-install'
-          ? 'initial-install' as const
-          : offer.relation === 'downgrade'
-            ? 'downgrade' as const
-            : 'strict-update' as const)
-      : release.action
-    // With no offer to fall back on and no forward action, there is nothing to
-    // install. Narrowed here so 'none' can never reach the mutation request.
-    if (action === 'none') return
+    // `release.action` describes only the forward move on the channel that was
+    // checked, so a release offered ONLY as a downgrade reports 'none'. The
+    // effective offer -- whichever release the user picked, else the newest
+    // stable, else what `action` alone describes -- is what installs here, and
+    // it is the same derivation every surface labels and gates on.
+    const offer = effectiveCoreReleaseOffer(release, selectedReleaseTag)
+    // Nothing to install. Narrowed here so 'none' can never reach the mutation.
+    if (!offer) return
+    const action = offer.relation === 'initial-install'
+      ? 'initial-install' as const
+      : offer.relation === 'downgrade'
+        ? 'downgrade' as const
+        : 'strict-update' as const
     setBusy('core')
     setNotice(null)
     try {
       const result = parseHomeV2CoreMaintenanceActionResult(await client.runMaintenanceAction(
         action,
         {
-          channel: offer?.channel ?? release.channel,
-          expectedTag: offer?.tag ?? release.tag,
+          channel: offer.channel,
+          expectedTag: offer.tag,
           ...(action === 'downgrade' ? { confirmDowngrade } : {}),
         },
       ))
@@ -393,6 +386,14 @@ export interface HomeV2CoreMaintenanceManagement {
   readonly notice: string | null
   readonly policy: HomeV2CoreUpdatePolicyState | null
   readonly release: HomeV2CoreMaintenanceRelease | null
+  /**
+   * Which offered release the user picked, or null for the default.
+   *
+   * Carried across because the compact surfaces label and gate an install that
+   * `runCore()` resolves from this same value: without it the dashboard tile
+   * could describe one release and install another.
+   */
+  readonly selectedReleaseTag?: string | null
   readonly status: HomeV2CoreMaintenanceStatus | null
   readonly onCheckRelease?: () => void
   readonly onInstallJava?: () => void
@@ -416,6 +417,7 @@ export function toHomeV2CoreMaintenanceManagement(
     onSetUpdatePolicy: maintenance.setUpdatePolicy,
     policy: maintenance.policy,
     release: maintenance.release,
+    selectedReleaseTag: maintenance.selectedReleaseTag,
     status: maintenance.status,
   }
 }

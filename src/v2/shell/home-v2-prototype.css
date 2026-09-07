@@ -1804,6 +1804,17 @@ body,
   gap: 16px;
 }
 
+/* The two links out of a Runtime section: the shell's custom-node dialog and
+   that network's Core API docs. Left-aligned rather than reusing the node
+   card's space-between row, which would throw them to opposite edges of a wide
+   settings panel. */
+.home-v2-settings-node-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+}
+
 .home-v2-dialog-backdrop {
   position: fixed;
   z-index: 1000;

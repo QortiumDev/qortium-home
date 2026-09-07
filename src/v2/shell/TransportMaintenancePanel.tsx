@@ -7,6 +7,7 @@ import {
   type HomeV2TransportMaintenance,
 } from '../../home-v2-live/transport-maintenance-controller'
 import { t } from '../../i18n'
+import { useScopedIds } from './dom-ids'
 import { CoreProgressBar } from './HomeV2NodeCoreSection'
 
 type SettableTransportMode = Exclude<HomeV2TransportMode, 'unknown'>
@@ -92,6 +93,7 @@ export function TransportMaintenancePanel({
 }: {
   readonly maintenance?: HomeV2TransportMaintenance
 }) {
+  const id = useScopedIds()
   if (!transport?.available) return null
   const {
     busy,
@@ -114,9 +116,9 @@ export function TransportMaintenancePanel({
   if (!status) {
     return (
       <section className="home-v2-core-maintenance home-v2-transport-maintenance"
-        aria-busy={!initialLoadFailed} aria-labelledby="transport-maintenance-title">
+        aria-busy={!initialLoadFailed} aria-labelledby={id('transport-maintenance-title')}>
         <div className="home-v2-settings-panel__heading">
-          <h3 id="transport-maintenance-title">{t('home2.transportMaintenance.title')}</h3>
+          <h3 id={id('transport-maintenance-title')}>{t('home2.transportMaintenance.title')}</h3>
           {initialLoadFailed ? (
             <>
               <p className="home-v2-core-notice" role="alert">
@@ -138,19 +140,19 @@ export function TransportMaintenancePanel({
 
   return (
     <section className="home-v2-core-maintenance home-v2-transport-maintenance"
-      aria-busy={busy !== null} aria-labelledby="transport-maintenance-title"
+      aria-busy={busy !== null} aria-labelledby={id('transport-maintenance-title')}
       data-home-v2-transport-maintenance="desktop" data-network="qortium">
       <div className="home-v2-settings-panel__heading">
-        <h3 id="transport-maintenance-title">{t('home2.transportMaintenance.title')}</h3>
+        <h3 id={id('transport-maintenance-title')}>{t('home2.transportMaintenance.title')}</h3>
         <p>{t('home2.transportMaintenance.description')}</p>
       </div>
 
       <div className="home-v2-setting-row">
         <div className="home-v2-setting-row__copy">
-          <label htmlFor="transport-maintenance-mode">
+          <label htmlFor={id('transport-maintenance-mode')}>
             <strong>{t('home2.transportMaintenance.mode.label')}</strong>
           </label>
-          <span id="transport-maintenance-mode-note">
+          <span id={id('transport-maintenance-mode-note')}>
             {selectedMode ? modeDescription(selectedMode) : t('home2.transportMaintenance.mode.unavailable')}
             {' '}
             {status.core.runtime === 'stopped'
@@ -167,7 +169,7 @@ export function TransportMaintenancePanel({
         </div>
         <div className="home-v2-setting-row__control home-v2-core-maintenance__actions">
           {currentMode ? (
-            <select id="transport-maintenance-mode" aria-describedby="transport-maintenance-mode-note"
+            <select id={id('transport-maintenance-mode')} aria-describedby={id('transport-maintenance-mode-note')}
               disabled={busy !== null || stale ||
                 (status.core.runtime !== 'stopped' && !status.capabilities.canSetModeWhileRunning)}
               value={selectedMode ?? currentMode}
@@ -187,7 +189,7 @@ export function TransportMaintenancePanel({
             </select>
           ) : null}
           {currentMode ? (
-            <button className="home-v2-primary-button" type="button" aria-describedby="transport-maintenance-mode-note"
+            <button className="home-v2-primary-button" type="button" aria-describedby={id('transport-maintenance-mode-note')}
               disabled={busy !== null || stale || !modeChanged || !modeAllowed}
               onClick={() => {
                 if (!selectedMode) return
@@ -220,7 +222,7 @@ export function TransportMaintenancePanel({
         <div className="home-v2-setting-row__control home-v2-core-maintenance__actions">
           {status.capabilities.canEnsureRouter ? (
             <button className="home-v2-primary-button" type="button"
-              aria-describedby="transport-maintenance-router-state"
+              aria-describedby={id('transport-maintenance-router-state')}
               disabled={busy !== null || stale}
               onClick={() => void run('ensure-router', null)}>
               {busy === 'ensure-router' ? t('home2.common.working') : ensureLabel(status)}
@@ -228,7 +230,7 @@ export function TransportMaintenancePanel({
           ) : null}
           {status.capabilities.canStopRouter ? (
             <button className="home-v2-secondary-button" type="button"
-              aria-describedby="transport-maintenance-router-state"
+              aria-describedby={id('transport-maintenance-router-state')}
               disabled={busy !== null || stale}
               onClick={() => void run('stop-router', null)}>
               {busy === 'stop-router'
@@ -238,7 +240,7 @@ export function TransportMaintenancePanel({
           ) : null}
           {status.router.maintenance === 'update' ? (
             <button className="home-v2-primary-button" type="button"
-              aria-describedby="transport-maintenance-router-state"
+              aria-describedby={id('transport-maintenance-router-state')}
               disabled={busy !== null || stale || !status.capabilities.canUpdateRouter}
               onClick={() => void run('update-router', null)}>
               {busy === 'update-router'
@@ -254,7 +256,7 @@ export function TransportMaintenancePanel({
           off the legacy progress channel i2pd was publishing on. Reuses the
           Core's bar rather than growing a second one. */}
       <CoreProgressBar progress={progress} />
-      <p className="home-v2-core-notice" id="transport-maintenance-router-state">
+      <p className="home-v2-core-notice" id={id('transport-maintenance-router-state')}>
         {routerStatusMessage(status)}
       </p>
       <p className="home-v2-core-notice" data-home-v2-transport-sam-state>
