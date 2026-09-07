@@ -32,6 +32,17 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## release: prepare home 2.1.0-beta.1
+
+2026-09-07
+
+Prepare the first Home 2.1 public testing prerelease with a shared version for
+app developers and testers. It includes the Home 2 shell, account-aware tabs,
+resource viewers, publishing and app bridge capabilities, and recent toolbar
+and mobile fixes. Android advances to code 43 so it can update both public
+Home 1.8.0 and development Home 2.1 builds. Stable users remain on Home 1.8.0.
+The developer testing guide documents feature detection and known open reports.
+
 ## fix(home2): remove bookmarks from the toolbar context menu
 
 2026-09-07
