@@ -3740,6 +3740,16 @@ export function HomeV2LiveApp() {
     }
   }, [openAddress, qdnAppsManagement.client])
 
+  const removeBookmarkToolbarLink = useCallback(
+    async (link: BookmarkManagerLink) => {
+      const result = await applyCollectionsMutation({
+        type: 'removeTreeItem', rootId: 'toolbar', itemId: link.id,
+      })
+      applyCollectionsSnapshot(result.snapshot)
+    },
+    [applyCollectionsMutation, applyCollectionsSnapshot],
+  )
+
   const getBookmarkToolbarContextMenuItems = useCallback(
     (link: BookmarkManagerLink) => {
       const target = getSavedResourceContextMenuTarget(link.displayUrl)
@@ -10732,6 +10742,7 @@ export function HomeV2LiveApp() {
         loadVisibleAppIcon,
         onContextMenuAction: runBookmarkToolbarContextMenuAction,
         onOpen: openBookmarkToolbarLink,
+        onRemove: removeBookmarkToolbarLink,
         onActionError: setShellNotice,
       }}
       bookmarkToolbarVisibility={collectionsSnapshot?.toolbarVisibility}

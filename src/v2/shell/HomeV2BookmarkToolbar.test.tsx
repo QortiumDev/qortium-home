@@ -14,6 +14,7 @@ document.body.appendChild(container)
 const root = createRoot(container)
 const opened: Array<{ accountId?: string | null; id: string }> = []
 const contextActions: string[] = []
+const removed: string[] = []
 const popupReports: boolean[] = []
 
 const link = {
@@ -99,6 +100,7 @@ function renderToolbar(
       onOpen={(item) => {
         opened.push({ accountId: item.accountId, id: item.id })
       }}
+      onRemove={(item) => { removed.push(item.id) }}
       snapshot={current}
     />,
   )
@@ -192,6 +194,22 @@ try {
   assert.equal(popupReports.at(-1), false, 'context action releases the native app')
   assert.deepEqual(contextActions, ['resource.copy-address'])
 
+  await act(async () => {
+    linkButton.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true }))
+  })
+  const removeButton = container.querySelector<HTMLButtonElement>('[data-bookmark-action="remove"]')!
+  assert.equal(removeButton.textContent?.trim(), 'Remove from Bookmarks')
+  await act(async () => removeButton.click())
+  assert.deepEqual(removed, ['chat'])
+  assert.equal(popupReports.at(-1), false, 'removing closes the popup and releases the native view')
+
+  act(() => container.querySelector<HTMLButtonElement>('[data-bookmark-folder-id="tools"]')!.click())
+  act(() => container.querySelector<HTMLElement>('[data-bookmark-id="help"]')!.dispatchEvent(
+    new MouseEvent('contextmenu', { bubbles: true }),
+  ))
+  await act(async () => container.querySelector<HTMLButtonElement>('[data-bookmark-action="remove"]')!.click())
+  assert.deepEqual(removed, ['chat', 'help'], 'nested links remove their own entry, not the enclosing folder')
+
   const openContext = () => act(() => linkButton.dispatchEvent(
     new MouseEvent('contextmenu', { bubbles: true }),
   ))
@@ -212,6 +230,21 @@ try {
   act(() => container.querySelector<HTMLButtonElement>('[data-bookmark-folder-id="tools"]')!.click())
   act(() => root.render(<div />))
   assert.equal(popupReports.at(-1), false, 'unmounting an open folder releases the app')
+
+  // Internal/ordinary web bookmarks have no QDN resource context actions.
+  // They must still offer removal, and a failed save must retain the entry.
+  const errors: string[] = []
+  const localSnapshot = { ...snapshot, toolbar: [{ ...link, id: 'local', displayUrl: 'home://settings' }] }
+  act(() => root.render(<HomeV2BookmarkToolbar snapshot={localSnapshot} isDashboardRoute={false}
+    onOpen={() => undefined} onRemove={async () => { throw new Error('Save failed') }}
+    onActionError={(message) => errors.push(message)} />))
+  act(() => container.querySelector<HTMLElement>('[data-bookmark-id="local"]')!.dispatchEvent(
+    new MouseEvent('contextmenu', { bubbles: true }),
+  ))
+  assert.equal(container.querySelectorAll('.home-v2-bookmark-toolbar__context-menu button').length, 1)
+  await act(async () => container.querySelector<HTMLButtonElement>('[data-bookmark-action="remove"]')!.click())
+  assert.deepEqual(errors, ['Save failed'])
+  assert.ok(container.querySelector('[data-bookmark-id="local"]'), 'save errors do not hide the bookmark')
 
   let selectedVisibility = ''
   act(() => {
