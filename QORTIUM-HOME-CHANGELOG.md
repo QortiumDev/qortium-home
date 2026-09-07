@@ -32,6 +32,25 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## feat(home2): open resource viewers at a page, time, line or archive entry
+
+2026-09-07
+
+A public resource address can now say where in the resource to start: a link can
+open a document at a particular page and zoom, a recording at a particular time,
+a plain text or code file at a particular line, or a file inside an archive. The
+position is used once, when the tab opens, and then the tab behaves exactly as
+any other viewer tab does: what you see in the address bar, what saving an open
+tab as a bookmark or start page records, what back and forward step through,
+what is restored after a restart, and what moves with a tab dragged to another
+window is always the plain resource address, without the position on the end. A
+bookmark or start page you wrote out yourself keeps exactly what you typed, so
+it can still carry a position and open there every time. Anything the address
+asks for that is missing, out of range, or that the view cannot honour — a line
+in a rendered Markdown page or a formatted table, for instance — is ignored
+rather than refusing to open the resource, and once you turn a page, seek or
+scroll yourself, the address is never allowed to pull you back.
+
 ## feat(home2): keep account and history when moving tabs between windows
 
 2026-09-06

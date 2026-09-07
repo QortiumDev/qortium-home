@@ -1,2 +1,2 @@
-export { parseViewerLocation, isViewerAddress, viewerLocationFromResource } from '../viewerLocation'
-export type { ViewerLocation } from '../viewerLocation'
+export { parseViewerAddress, parseViewerLocation, isViewerAddress, viewerLocationFromResource } from '../viewerLocation'
+export type { ViewerAddress, ViewerLocation, ViewerPositionSeed } from '../viewerLocation'

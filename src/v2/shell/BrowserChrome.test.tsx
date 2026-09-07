@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import React, { act } from 'react'
 import { createRoot } from 'react-dom/client'
-import { createProductState, reduceProductState } from '../product-model'
+import { createProductState, reduceProductState, type ProductState } from '../product-model'
+import { parseViewerAddress } from '../viewer-location'
 import { homeV2Fixture, fixtureApp, fixtureIds, fixtureTabContext } from '../test-kit/fixtures'
 import { accountsLosingAccess, chromeAccountContext, savedEntryAccountId } from './account-context'
 import { BrowserChrome, type AddressOpenResult } from './BrowserChrome'
@@ -14,6 +15,7 @@ import type {
   IdentityId,
   WalletRef,
   NetworkId,
+  TabId,
 } from '../contracts'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -139,6 +141,7 @@ function renderChrome(
     readonly coreManagement?: HomeV2CoreManagement
     readonly navigationDisabled?: boolean
     readonly openResult?: AddressOpenResult
+    readonly productState?: ProductState
     readonly selectedAccountLookup?: DualIdentityLookupResult
     readonly snapshot?: HomeV2Snapshot
   } = {},
@@ -146,7 +149,7 @@ function renderChrome(
   root.render(
     <BrowserChrome
       snapshot={options.snapshot ?? homeV2Fixture}
-      productState={createProductState()}
+      productState={options.productState ?? createProductState()}
       navigationDisabled={options.navigationDisabled}
       newTabPreference={newTabPreference}
       onNavigate={(destination) => destinations.push(destination)}
@@ -209,6 +212,29 @@ try {
   assert.ok(
     container.querySelector('select[aria-label="App resource identifier"]'),
     'custom new-tab targets should keep the existing identifier-choice UI',
+  )
+
+  // A viewer opened from an address carrying an opening position shows the BARE
+  // coordinate. That string is also what a bookmark, toolbar save or dashboard
+  // pin records for the tab, so identity never picks up the fragment.
+  const seededViewer = parseViewerAddress('qdn://DOCUMENT/Library/book#page=4&zoom=150')
+  assert.deepEqual(seededViewer.seed, { page: 4, zoom: 150 })
+  act(() =>
+    renderChrome(
+      { kind: 'search' },
+      {
+        productState: reduceProductState(createProductState(), {
+          type: 'open-viewer',
+          tabId: 'home-v2:viewer:seeded' as TabId,
+          location: seededViewer.location,
+          accountId: null,
+        }),
+      },
+    ),
+  )
+  assert.equal(
+    container.querySelector<HTMLInputElement>('input[aria-label="Address and search"]')?.value,
+    'qdn://DOCUMENT/Library/book',
   )
 
   act(() =>

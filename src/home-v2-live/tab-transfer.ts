@@ -21,7 +21,7 @@ import {
   validateCustomNewTabAddress,
 } from '../v2/new-tab-preference'
 import { parseAppResourceLocation } from '../v2/resource-location'
-import { isViewerAddress, parseViewerLocation } from '../v2/viewer-location'
+import { isViewerAddress, parseViewerAddress } from '../v2/viewer-location'
 import type { TabDestination, TabHistory } from './tab-navigation'
 
 /** The envelope revision this build sends. Revision 1 was a bare address. */
@@ -130,7 +130,9 @@ export function homeV2TabTransferDestination(
   if (coreDocs) return { kind: 'core-docs', network: coreDocs }
   if (isViewerAddress(value)) {
     try {
-      return { kind: 'viewer', location: parseViewerLocation(value).location }
+      // A position never travels with a tab, so an address that arrives with a
+      // fragment is adopted at its bare coordinate.
+      return { kind: 'viewer', location: parseViewerAddress(value).location }
     } catch {
       return null
     }
