@@ -87,8 +87,17 @@ contextBridge.exposeInMainWorld('homeV2Windows', {
   // one. Returned as unknown on purpose: the renderer re-validates it.
   getStartup: (): Promise<unknown> =>
     ipcRenderer.invoke('home-v2-windows:getStartup'),
-  openTab: (transfer: HomeV2TabTransfer): Promise<void> =>
-    ipcRenderer.invoke('home-v2-windows:openTab', transfer),
+  /**
+   * Opens the tab in a NEW window. The optional screen point is where the drag
+   * was released: main places the window there rather than offsetting it from
+   * the window the tab came from. Sent as a second argument so the envelope
+   * itself keeps the exact shape main already validates.
+   */
+  openTab: (
+    transfer: HomeV2TabTransfer,
+    point?: { x: number; y: number },
+  ): Promise<void> =>
+    ipcRenderer.invoke('home-v2-windows:openTab', transfer, point),
   /**
    * Offers a dragged tab to whichever other Home window is under the pointer.
    * Resolves false when there is none, so the caller opens a new window

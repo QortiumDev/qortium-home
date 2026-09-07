@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useState, type ReactNode } from 'react'
 import type {
   NetworkIdentityLookup,
   NetworkId,
@@ -32,12 +32,21 @@ export function validateVisibleAvatarPayload(
 
 export function VisibleIdentityAvatar({
   className,
+  fallback,
   identity,
   loader,
   network,
   query,
 }: {
   readonly className?: string
+  /**
+   * What to show while there is no image — a not-yet-resolved avatar, an
+   * account that has published none, or one that failed to decode. Defaults to
+   * the monogram tile the presence lists use; the tab strip passes its own
+   * initials so a tab chip looks exactly as it did before this could show an
+   * image at all.
+   */
+  readonly fallback?: ReactNode
   readonly identity: NetworkIdentityLookup
   readonly loader?: VisibleAvatarLoader
   readonly network: NetworkId
@@ -89,6 +98,8 @@ export function VisibleIdentityAvatar({
       />
     )
   }
+
+  if (fallback !== undefined) return <>{fallback}</>
 
   return (
     <div

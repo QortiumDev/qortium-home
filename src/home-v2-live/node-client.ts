@@ -2494,8 +2494,14 @@ export interface HomeV2WindowsBridge {
    * renderer: planHomeV2TabTransferOpen validates it before anything is opened.
    */
   getStartup(): Promise<unknown>
-  /** Opens a new window holding the transferred tab. */
-  openTab(transfer: HomeV2TabTransfer): Promise<void>
+  /**
+   * Opens a new window holding the transferred tab. `point` is where the drag
+   * was released, in SCREEN coordinates: main places the new window's title
+   * bar under it, clamped to that display's work area. Optional because a
+   * window opened any other way has no release point, and an absent or
+   * invalid point falls back to the historical offset placement.
+   */
+  openTab(transfer: HomeV2TabTransfer, point?: { x: number; y: number }): Promise<void>
   /**
    * Offers a dragged tab to another Home window under the pointer. Resolves
    * false when there is none, so the caller opens a new window instead.

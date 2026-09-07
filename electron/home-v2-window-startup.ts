@@ -209,3 +209,88 @@ export function mergeHomeV2ShellGlobalState(stored: unknown, next: unknown): unk
 
   return merged;
 }
+
+// --- placing a window where a dragged tab was released -----------------------
+// A tab dragged clear of the strip and released on the desktop opens its own
+// window. That window used to be placed by getSecondaryWindowState, which
+// offsets from the FOCUSED window — so the new window appeared next to the one
+// the tab came from, wherever the pointer had actually been let go (and on
+// whichever monitor). These two helpers turn the release point into a bounded
+// screen position instead. Both are pure so main only has to supply the work
+// area of the display the point is on.
+
+/**
+ * How far the window's top-left corner sits up and to the left of the release
+ * point, so the pointer lands ON the new window's title bar / tab strip rather
+ * than on the page below it. Small and fixed: the grab offset inside the
+ * dragged tab is a renderer detail that never crosses the IPC boundary.
+ */
+export const HOME_V2_WINDOW_RELEASE_GRAB_OFFSET = { x: 48, y: 16 };
+
+export interface HomeV2WindowPoint {
+  x: number;
+  y: number;
+}
+
+export interface HomeV2WindowArea {
+  height: number;
+  width: number;
+  x: number;
+  y: number;
+}
+
+/**
+ * Validates the optional screen point a renderer sends with a detached tab.
+ *
+ * Deliberately separate from sanitizeHomeV2TabTransfer: the envelope is what
+ * the new window OPENS and is bounded by its own rules, while this is only
+ * where it is drawn. Anything that is not a pair of finite numbers returns
+ * undefined so the caller falls back to the historical offset placement — a
+ * bad point must never be a reason to lose the tab.
+ */
+export function sanitizeHomeV2WindowPoint(value: unknown): HomeV2WindowPoint | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const { x, y } = value as { x?: unknown; y?: unknown };
+  if (typeof x !== 'number' || !Number.isFinite(x)) return undefined;
+  if (typeof y !== 'number' || !Number.isFinite(y)) return undefined;
+  if (x < -2147483648 || x > 2147483647 || y < -2147483648 || y > 2147483647) {
+    return undefined;
+  }
+  return { x: Math.round(x), y: Math.round(y) };
+}
+
+function clampAxis(value: number, start: number, extent: number, size: number) {
+  // A window larger than the work area cannot be fully inside it; pinning it to
+  // the start keeps its title bar reachable, which is what matters.
+  if (size >= extent) return start;
+  return Math.min(Math.max(value, start), start + extent - size);
+}
+
+/**
+ * Where to put a window whose title bar should sit under `point`, kept inside
+ * `workArea` so no part of the title bar lands off-screen or under a taskbar.
+ */
+export function placeHomeV2WindowAtPoint(
+  point: HomeV2WindowPoint,
+  size: { height: number; width: number },
+  workArea: HomeV2WindowArea,
+): HomeV2WindowPoint {
+  return {
+    x: Math.round(
+      clampAxis(
+        point.x - HOME_V2_WINDOW_RELEASE_GRAB_OFFSET.x,
+        workArea.x,
+        workArea.width,
+        size.width,
+      ),
+    ),
+    y: Math.round(
+      clampAxis(
+        point.y - HOME_V2_WINDOW_RELEASE_GRAB_OFFSET.y,
+        workArea.y,
+        workArea.height,
+        size.height,
+      ),
+    ),
+  };
+}

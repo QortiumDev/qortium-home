@@ -388,6 +388,7 @@ import {
   type HomeV2WindowBehaviorState,
 } from './window-behavior-client'
 import { resolveDualIdentity } from './identity-resolver'
+import { useTabAccountIdentities } from './useTabAccountIdentities'
 import { completeUnlockAfterAccountStatePropagation } from './unlock-account-state'
 import {
   parseHomeV2ShellState,
@@ -2112,6 +2113,19 @@ export function HomeV2LiveApp() {
     }
   }, [nodeClient, nodeCoreController.markNodesUnavailable])
 
+  const lookupTabIdentity = useMemo(
+    () => nodeClient
+      ? (address: string) => resolveDualIdentity(address, (network, request) =>
+          nodeClient.readIdentity(network, request))
+      : undefined,
+    [nodeClient],
+  )
+  const tabAccountIds = new Set(productState.entries.map(savedEntryAccountId))
+  const accountIdentityLookups = useTabAccountIdentities(
+    accountCatalogue.accounts.filter((account) => tabAccountIds.has(account.id)),
+    lookupTabIdentity,
+  )
+
   // Asked once, before any shell state is restored, because the answer decides
   // whether this window restores tabs at all.
   useEffect(() => {
@@ -2485,6 +2499,10 @@ export function HomeV2LiveApp() {
   // Session-only stack of recently closed internal/app tabs (newest last),
   // consumed by the reopen-closed-tab menu command.
   const closedAppTabs = useRef<ClosedTab[]>([])
+  // Whether that stack has anything in it, as RENDER state: the tab context
+  // menu offers the same command and has to disable the item when there is
+  // nothing to reopen, and a ref alone never re-renders the menu.
+  const [closedAppTabsAvailable, setClosedAppTabsAvailable] = useState(false)
   // Navigation handlers live late in the render scope; the menu subscription
   // reads them through this ref so it can stay mounted once.
   const menuNavigation = useRef<{
@@ -3637,7 +3655,16 @@ export function HomeV2LiveApp() {
           ? await windows.adoptTabAt(transfer, position.screenX, position.screenY)
               .catch(() => false)
           : false
-        if (!adopted) await windows.openTab(transfer)
+        // The same release point decides where the NEW window is drawn: main
+        // puts its title bar under the pointer instead of offsetting it from
+        // the window the tab was dragged out of, which is what a drag onto a
+        // second monitor (or anywhere but beside the source) looked like.
+        if (!adopted) {
+          await windows.openTab(
+            transfer,
+            position ? { x: position.screenX, y: position.screenY } : undefined,
+          )
+        }
         // Closed only after the new window is asked for, so a rejected request
         // leaves the tab where it was rather than losing it.
         dispatchProduct({ type: 'close-tab', tabId })
@@ -10554,6 +10581,7 @@ export function HomeV2LiveApp() {
     // Do not consume history before the real account catalogue is available.
     if (!shellStateReady || !accountCatalogueReady) return
     const closed = closedAppTabs.current.pop()
+    setClosedAppTabsAvailable(closedAppTabs.current.length > 0)
     if (!closed) return
     try {
       if ('location' in closed) {
@@ -10582,6 +10610,7 @@ export function HomeV2LiveApp() {
   const closeTab = useCallback((tabId: TabId) => {
     if (shellStateReady) {
       closedAppTabs.current = rememberClosedTab(closedAppTabs.current, productStateRef.current, tabId)
+      setClosedAppTabsAvailable(closedAppTabs.current.length > 0)
     }
     if (productStateRef.current.entries.find(entry => entry.id === tabId)?.kind === 'viewer') {
       // Its component owns the public lease. A viewer has no app grants to
@@ -10647,6 +10676,7 @@ export function HomeV2LiveApp() {
       vaultState={vaultState}
       selectedAccountId={selectedAccountId}
       selectedAccountLookup={selectedAccountLookup}
+      accountIdentityLookups={accountIdentityLookups}
       appReloadVersion={appReloadVersion}
       internalReloadVersion={internalReloadVersion}
       nodeClient={nodeClient}
@@ -10682,6 +10712,13 @@ export function HomeV2LiveApp() {
       onManageBookmarks={openBookmarksManager}
       onDropTabOnBookmarkToolbar={dropTabOnBookmarkToolbar}
       onPinTabToDashboard={pinTabToDashboard}
+      onReopenClosedTab={reopenClosedAppTab}
+      // Mirrors reopenClosedAppTab's own guard: it declines to consume the
+      // stack until the shell state and the account catalogue are loaded, so
+      // the menu item must not look available before then.
+      canReopenClosedTab={
+        closedAppTabsAvailable && shellStateReady && accountCatalogueReady
+      }
       onDetachTab={window.homeV2Windows ? detachTab : undefined}
       releaseNotesTarget={activeDestination?.kind === 'releases' ? activeDestination.target : releaseNotesTarget}
       coreDocsNetwork={activeDestination?.kind === 'core-docs' ? activeDestination.network : coreDocsNetwork}

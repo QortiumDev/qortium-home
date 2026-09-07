@@ -13,8 +13,14 @@ import { NetworkBadge, networkLabels } from './NetworkBadge'
 import { HomeMark } from './ProductMarks'
 import { HomeV2AppIcon } from './HomeV2AppIcon'
 import type { VisibleAppIconLoader } from '../contracts'
-import type { HomeV2AccountCatalogue } from '../contracts'
+import type {
+  DualIdentityLookupResult,
+  HomeV2AccountCatalogue,
+  NetworkId,
+  VisibleAvatarLoader,
+} from '../contracts'
 import { savedEntryAccountId } from './account-context'
+import { VisibleIdentityAvatar } from './VisibleIdentityAvatar'
 import { parseViewerLocation } from '../viewer-location'
 
 export interface TabStripProps {
@@ -47,6 +53,14 @@ export interface TabStripProps {
   readonly onTabContextMenu?: (tabId: TabId, position: { x: number; y: number }) => void
   readonly newTabDisabled?: boolean
   readonly loadVisibleAppIcon?: VisibleAppIconLoader
+  /**
+   * Resolved identities for the accounts tabs are bound to, keyed by account
+   * id. The chip needs one to show a published avatar: an account id alone
+   * carries no avatar pointer, and only an identity lookup has it. Absent (or
+   * missing an entry) the chip shows the initials it always did.
+   */
+  readonly accountIdentityLookups?: ReadonlyMap<string, DualIdentityLookupResult>
+  readonly loadVisibleAvatar?: VisibleAvatarLoader
 }
 
 export const internalTabLabelKeys: Readonly<Record<TabPageId, TranslationKey>> = {
@@ -147,6 +161,16 @@ function setBookmarkToolbarDropTarget(active: boolean) {
   else toolbar.removeAttribute('data-drop-target')
 }
 
+/**
+ * Which chain a tab belongs to: its badge, and its account avatar, follow it.
+ * Null for an internal page, which belongs to neither.
+ */
+function tabNetwork(entry: ShellEntry): NetworkId | null {
+  if (entry.kind === 'app') return entry.context.sourceNetwork
+  if (entry.kind === 'viewer') return parseViewerLocation(entry.location).network
+  return null
+}
+
 function entryLabel(entry: ShellEntry): string {
   return entry.kind === 'internal'
     ? t(internalTabLabelKeys[entry.page])
@@ -166,6 +190,8 @@ export function TabStrip({
   onTabContextMenu,
   newTabDisabled,
   loadVisibleAppIcon,
+  accountIdentityLookups,
+  loadVisibleAvatar,
 }: TabStripProps) {
   const tabElements = useRef(new Map<string, HTMLDivElement>())
   const stripRef = useRef<HTMLDivElement | null>(null)
@@ -389,8 +415,29 @@ export function TabStrip({
                 const accountId = savedEntryAccountId(entry)
                 const account = accountCatalogue.accounts.find((candidate) => candidate.id === accountId)
                 const accountLabel = account?.label ?? (accountId ? rememberedAccountLabels?.get(accountId) ?? t('home2.account.unavailableAccount') : t('account.noAccount'))
+                const initials = accountId ? accountLabel.slice(0, 2).toUpperCase() : '–'
+                // The tab's own network decides which chain's avatar to show,
+                // the same way its badge does — one account can have published
+                // a different avatar on each.
+                const network = tabNetwork(entry)
+                const identity = accountId && network
+                  ? accountIdentityLookups?.get(accountId)?.networks[network]
+                  : undefined
                 return <span className="home-v2-tab__account" title={`${t('home2.account.tabAccount')}: ${accountLabel}${account ? ` · ${account.address}` : ''}${accountId && !account?.isUnlocked ? ` · ${t('account.statusLocked')}` : ''}`} aria-label={`${t('home2.account.tabAccount')}: ${accountLabel}`}>
-                  {accountId ? accountLabel.slice(0, 2).toUpperCase() : '–'}
+                  <span className="home-v2-tab__account-image">
+                    {identity?.avatar && network && loadVisibleAvatar ? (
+                      <VisibleIdentityAvatar
+                        className="home-v2-tab__account-avatar"
+                        fallback={initials}
+                        identity={identity}
+                        loader={loadVisibleAvatar}
+                        network={network}
+                        query={identity.primaryName ?? accountLabel}
+                      />
+                    ) : (
+                      initials
+                    )}
+                  </span>
                   {accountId && !account?.isUnlocked ? <Lock size={10} aria-hidden="true" /> : null}
                 </span>
               })() : null}

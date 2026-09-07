@@ -2894,6 +2894,27 @@ function testAppearanceSettingsAndLegacyMigration(): void {
   assert.ok(desktopViewportRule)
   assert.match(desktopViewportRule[1], /width:\s*calc\(100% - 36px\)/)
   assert.doesNotMatch(desktopViewportRule[1], /1180px|max-width/)
+
+  // The narrow layouts (the phone shell, and a narrow desktop window) hide the
+  // toolbar-button cluster to give the address input its width back. Settings
+  // is the ONE exception: it is the only top-bar route to the settings page,
+  // and hiding it left a phone with no way there from the chrome at all. Both
+  // rules must carry the exception, and neither may go back to hiding every
+  // toolbar button.
+  assert.equal(
+    (css.match(/\.home-v2-toolbar-button:not\(\.home-v2-toolbar-button--settings\)/g) ?? [])
+      .length,
+    2,
+    'the phone and narrow-window rules must both spare the Settings button',
+  )
+  assert.doesNotMatch(css, /\.home-v2-toolbar-button \{\s*display: none;/)
+  // A real touch target rather than the 34px desktop icon box.
+  assert.equal(
+    (css.match(/\.home-v2-toolbar-button--settings \{\s*width: 40px;\s*height: 40px;/g) ?? [])
+      .length,
+    2,
+    'the Settings button must be touch-sized in both narrow layouts',
+  )
 }
 
 function testPermissionDialogsOnDesktopAndPhone(): void {
@@ -3208,6 +3229,10 @@ function testProductionHomeV2EntryIsCapabilityScoped(): void {
   // or a dropped tab silently opens a third window instead of moving.
   assert.match(preload, /home-v2-windows:adoptTabAt/)
   assert.match(preload, /ipcRenderer\.on\('home-v2-windows:adopt-tab'/)
+  // A miss opens a new window, and it must open WHERE THE TAB WAS DROPPED, so
+  // the release point travels beside the envelope on this hop too. The
+  // renderer and main halves are pinned with the detach fallback below.
+  assert.match(preload, /home-v2-windows:openTab', transfer, point/)
   assert.match(preload, /home-v2-windows:getBehavior/)
   assert.match(preload, /home-v2-windows:setBehavior/)
   assert.match(preload, /qdn-views:capture/)
@@ -4197,7 +4222,18 @@ testIdentityAndImageCachingKeepsChromeStable()
   const detachEnd = detach.indexOf('[tabAddress],')
   assert.ok(detachEnd >= 0, 'detachTab must still close over tabAddress')
   const detachBody = detach.slice(0, detachEnd)
-  assert.match(detachBody, /if \(!adopted\) await windows\.openTab/)
+  assert.match(detachBody, /if \(!adopted\) \{\s*await windows\.openTab\(/)
+  // And the fallback carries the release point, or the new window opens offset
+  // from the window the tab came from instead of under the pointer.
+  assert.match(
+    detachBody,
+    /position \? \{ x: position\.screenX, y: position\.screenY \} : undefined/,
+  )
+  // Main's half: the point is validated on its own (never through the envelope
+  // sanitiser) and placed against the display it was released on.
+  assert.match(main, /releasePoint: sanitizeHomeV2WindowPoint\(point\)/)
+  assert.match(main, /placeHomeV2WindowAtPoint\(/)
+  assert.match(main, /screen\.getDisplayNearestPoint\(options\.releasePoint\)/)
   // What travels is an envelope built from the tab, never the tab itself.
   assert.match(detachBody, /buildHomeV2TabTransfer\(\{/)
   assert.match(detachBody, /previewUrl != null/)

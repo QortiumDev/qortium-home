@@ -11,7 +11,8 @@
 import path from 'node:path'
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { createServer } from 'node:http'
 import os from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { Cdp, launchHomeV2, resolveAppImage, sleep } from './lib/home-v2-cdp.mjs'
@@ -119,8 +120,39 @@ async function listShellTargets(port) {
 async function main() {
   const profile = mkdtempSync(path.join(os.tmpdir(), 'home-tab-detach-accounts-'))
   const { accountA, accountB } = await createDisposableAccounts(profile)
-  const { cdp, port, shutdown } = await launchHomeV2({ appImage, log, portBase: 9200, profile })
+  // Serve the two disposable accounts locally: A publishes a valid avatar,
+  // B publishes none. The packaged renderer and native bridge load the image.
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=', 'base64')
+  const fixture = createServer((request, response) => {
+    const url = new URL(request.url, 'http://127.0.0.1')
+    if (request.method !== 'GET') { response.writeHead(405); response.end(); return }
+    if (url.pathname === `/addresses/${accountA.address}/avatar`) {
+      response.setHeader('Content-Type', 'image/png')
+      response.end(png)
+      return
+    }
+    response.setHeader('Content-Type', 'application/json')
+    let value = []
+    if (url.pathname === '/admin/status') value = { height: 1, isSynchronizing: false, numberOfConnections: 1 }
+    else if (url.pathname === '/admin/info') value = { buildVersion: 'smoke', currentTimestamp: Date.now() }
+    else if (url.pathname.startsWith('/names/address/')) value = [{ name: url.pathname.endsWith(accountA.address) ? 'AvatarFixtureA' : 'AvatarFixtureB' }]
+    else if (url.pathname.startsWith('/names/primary/')) value = { name: url.pathname.endsWith(accountA.address) ? 'AvatarFixtureA' : 'AvatarFixtureB' }
+    else if (url.pathname === `/addresses/${accountA.address}/avatar/info`) value = { service: 'THUMBNAIL', name: 'AvatarFixtureA', identifier: 'avatar' }
+    else if (url.pathname.endsWith('/avatar/info')) { response.writeHead(404); value = null }
+    else if (url.pathname.includes('/resources/search') && url.searchParams.get('name') === 'AvatarFixtureA') {
+      value = [{ service: 'THUMBNAIL', name: 'AvatarFixtureA', identifier: url.searchParams.get('identifier') || 'avatar', latestSignature: '1'.repeat(88) }]
+    }
+    response.end(JSON.stringify(value))
+  })
+  await new Promise(resolve => fixture.listen(0, '127.0.0.1', resolve))
+  const customUrl = `http://127.0.0.1:${fixture.address().port}`
+  for (const file of ['node-settings.json', 'qortal-node-settings.json']) {
+    writeFileSync(path.join(profile, file), JSON.stringify({ mode: 'custom', customUrl, lastEnabledMode: 'custom' }))
+  }
+  let home
   try {
+    home = await launchHomeV2({ appImage, log, portBase: 9200, profile, windowManager: true })
+    const { cdp, port } = home
     // Two internal tabs, so the detached window can be checked for exactly one.
     //
     // 'home://apps' was used here and is not an address the shell has -- it
@@ -205,6 +237,9 @@ async function main() {
     // Home 1.x used, so go comfortably past it.
     const tab = await cdp.box('.home-v2-tab[data-internal-page="settings"] button[role=tab]')
     if (!tab) fail('the settings tab is not rendered')
+    await cdp.evaluate(`window.addEventListener('pointerup', event => {
+      window.__tabReleasePoint = {x: event.screenX, y: event.screenY}
+    }, {once:true, capture:true})`)
     await cdp.drag(tab, { x: tab.x + 40, y: tab.y + 260 }, 16)
     await sleep(4000)
 
@@ -233,6 +268,15 @@ async function main() {
     }
     if (!detached) fail('neither window holds the dragged-out tab')
     const detachedProbe = detached.probe
+    const point = await cdp.evaluate('window.__tabReleasePoint')
+    const bounds = await detachedProbe.evaluate(`({x:screenX, y:screenY, width:outerWidth, height:outerHeight,
+      area:{x:screen.availLeft, y:screen.availTop, width:screen.availWidth, height:screen.availHeight}})`)
+    const clamp = (value, start, extent, size) => size >= extent ? start : Math.min(Math.max(value, start), start + extent - size)
+    const expected = {x:clamp(point.x - 48, bounds.area.x, bounds.area.width, bounds.width),
+      y:clamp(point.y - 16, bounds.area.y, bounds.area.height, bounds.height)}
+    assert.ok(Math.abs(bounds.x - expected.x) <= 3 && Math.abs(bounds.y - expected.y) <= 3,
+      `detached window must follow the release point: ${JSON.stringify({point,bounds,expected})}`)
+    log(`release-point placement PASS: ${JSON.stringify({point, actual:{x:bounds.x,y:bounds.y},expected})}`)
     log(`detached window tabs: ${detached.keys.join(' ')}`)
     if (detached.keys.includes('newtab')) {
       fail(
@@ -445,6 +489,32 @@ async function main() {
       `a tab transferred with account A must show A, not the receiving window's ` +
         `current account (${accountB.label}) or guest -- saw ${aChip}`,
     )
+    await until('published account avatar decodes', () => aProbe.evaluate(`(() => {
+      const image = document.querySelector('.home-v2-tab__account img')
+      return !!image && image.complete && image.naturalWidth > 0
+    })()`))
+    const avatarSize = await aProbe.evaluate(`(() => {
+      const chip = document.querySelector('.home-v2-tab__account').getBoundingClientRect()
+      const image = document.querySelector('.home-v2-tab__account img').getBoundingClientRect()
+      return {width:image.width, height:image.height, chipHeight:chip.height}
+    })()`)
+    assert.deepEqual(avatarSize, {width:16, height:16, chipHeight:20})
+    log('published account avatar decoded through packaged bridge; locked chip stays on one line')
+    await aProbe.send('Emulation.setDeviceMetricsOverride', {width:390,height:844,deviceScaleFactor:1,mobile:false})
+    await sleep(500)
+    const phone = await aProbe.evaluate(`(() => {
+      const settings = document.querySelector('[data-home-v2-toolbar-action="settings"]')
+      const rect = settings.getBoundingClientRect()
+      const address = document.querySelector('.home-v2-address').getBoundingClientRect()
+      return {visible:getComputedStyle(settings).display !== 'none', width:rect.width, height:rect.height,
+        right:rect.right, viewport:innerWidth, addressWidth:address.width}
+    })()`)
+    assert.ok(phone.visible && phone.width >= 40 && phone.height >= 40 && phone.right <= phone.viewport && phone.addressWidth >= 70, JSON.stringify(phone))
+    await aProbe.evaluate(`document.querySelector('[data-home-v2-toolbar-action="settings"]').click()`)
+    await until('phone Settings opens', () => aProbe.evaluate(`!!document.querySelector('.home-v2-page-slot:not([hidden]) .home-v2-settings-shell')`))
+    const phoneScreenshot = await aProbe.send('Page.captureScreenshot', {format:'png'})
+    writeFileSync(path.join(os.tmpdir(), 'home-tester-phone-settings.png'), Buffer.from(phoneScreenshot.data, 'base64'))
+    log(`phone Settings PASS: ${JSON.stringify(phone)}`)
     aProbe.socket.close()
 
     // The control: the same address named with account B must show B. This is
@@ -471,11 +541,26 @@ async function main() {
       `a tab transferred with account B must show B -- the control that shows ` +
         `the check above discriminates by account, not just by chance`,
     )
+    assert.equal(await bProbe.evaluate(`document.querySelector('.home-v2-tab__account img') !== null`), false)
+    assert.equal(await bProbe.evaluate(`document.querySelector('.home-v2-tab__account-image').textContent`), 'TA')
+    log('unpublished avatar keeps account initials')
     bProbe.socket.close()
 
+    // Use the tab context menu to restore a real closed internal tab.
+    await cdp.evaluate(`document.querySelector('.home-v2-new-tab').click()`)
+    await cdp.evaluate(`document.querySelector('[data-home-v2-toolbar-action="settings"]').click()`)
+    await until('Settings tab to close', () => cdp.evaluate(`!!document.querySelector('.home-v2-tab[data-internal-page="settings"]')`))
+    await cdp.evaluate(`document.querySelector('.home-v2-tab[data-internal-page="settings"] .home-v2-tab__close').click()`)
+    await cdp.evaluate(`document.querySelector('.home-v2-tab').dispatchEvent(new MouseEvent('contextmenu', {bubbles:true, clientX:100,clientY:30}))`)
+    assert.equal(await cdp.evaluate(`document.querySelector('[data-home-v2-tab-menu-action="reopen"]').disabled`), false)
+    await cdp.evaluate(`document.querySelector('[data-home-v2-tab-menu-action="reopen"]').click()`)
+    await until('reopened Settings tab', () => cdp.evaluate(`!!document.querySelector('.home-v2-tab[data-internal-page="settings"]')`))
+    log('Reopen closed tab context menu restores Settings')
     log('PASS')
   } finally {
-    shutdown()
+    home?.shutdown()
+    fixture.closeAllConnections()
+    fixture.close()
     await sleep(2500)
     try { rmSync(profile, { recursive: true, force: true }) } catch {}
   }

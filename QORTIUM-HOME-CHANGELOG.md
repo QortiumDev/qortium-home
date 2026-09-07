@@ -32,6 +32,16 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## fix(home2): tab avatars, drag-out placement, phone Settings and reopen from the tab menu
+
+2026-09-07
+
+Tabs now show their account's published avatar for the tab's network, with the
+same initials when an image is unavailable. Dragging a tab into a new window
+places it at the release point, adjusted to keep its title bar on the display.
+Settings stays reachable through the cog at the top on phones, and right-clicking
+a tab offers Reopen closed tab, disabled when there is nothing to restore.
+
 ## fix(home2): make Settings and Dashboard maintenance surfaces consistent
 
 2026-09-07

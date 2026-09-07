@@ -79,6 +79,11 @@ export interface BrowserChromeProps {
   readonly releaseNotesAddress?: string
   readonly coreDocsAddress?: string
   readonly selectedAccountLookup?: DualIdentityLookupResult | null
+  /**
+   * Resolved identities for the accounts open tabs are bound to, keyed by
+   * account id, so a tab chip can show that account's published avatar.
+   */
+  readonly accountIdentityLookups?: ReadonlyMap<string, DualIdentityLookupResult>
   readonly loadVisibleAvatar?: VisibleAvatarLoader
   readonly loadVisibleAppIcon?: VisibleAppIconLoader
   readonly bookmarkToolbar?: Omit<
@@ -106,6 +111,15 @@ export interface BrowserChromeProps {
   readonly onPinTabToDashboard?: (
     tabId: ProductState['tabs'][number]['id'],
   ) => void | Promise<void>
+  /**
+   * Reopens the most recently closed tab — the same command the main menu's
+   * Ctrl/Cmd+Shift+T runs. It is offered in the tab context menu because that
+   * accelerator is the only route to it, and a tab strip is where someone
+   * looks after closing the wrong tab.
+   */
+  readonly onReopenClosedTab?: () => void
+  /** False when the closed-tab stack is empty, which disables the item. */
+  readonly canReopenClosedTab?: boolean
   readonly onLockAccount?: (accountId?: string) => void
   readonly onUnlockAccount?: (accountId: string | undefined, value: InlineUnlockSubmission) => Promise<void>
   readonly onOpenTabWithAccount?: (tabId: string, resourceLocation: string, accountId: string | null) => Promise<void>
@@ -228,6 +242,7 @@ export function BrowserChrome({
   releaseNotesAddress,
   coreDocsAddress,
   selectedAccountLookup,
+  accountIdentityLookups,
   loadVisibleAvatar,
   loadVisibleAppIcon,
   bookmarkToolbar,
@@ -236,6 +251,8 @@ export function BrowserChrome({
   onSetBookmarkToolbarVisibility,
   onDropTabOnBookmarkToolbar,
   onPinTabToDashboard,
+  onReopenClosedTab,
+  canReopenClosedTab = false,
   onDetachTab,
   onLockAccount,
   onUnlockAccount,
@@ -508,6 +525,8 @@ export function BrowserChrome({
             setTabMenu({ tabId, x: position.x, y: position.y })}
           newTabDisabled={navigationDisabled}
           loadVisibleAppIcon={loadVisibleAppIcon}
+          accountIdentityLookups={accountIdentityLookups}
+          loadVisibleAvatar={loadVisibleAvatar}
         />
       </div>
       <div className="home-v2-browser-toolbar">
@@ -664,9 +683,17 @@ export function BrowserChrome({
               <PictureInPicture2 aria-hidden="true" size={18} strokeWidth={2} />
             </button>
           ) : null}
+          {/* Settings is the one toolbar button that survives the phone
+              layout: everything else in this cluster has another route (the
+              widget button only ever appears for an app that publishes one),
+              but Settings had none at the top of a phone screen at all. The
+              modifier class is what the phone rules exclude from the blanket
+              `display: none`, and the data attribute is how tests find it
+              without asserting on CSS. */}
           <button
             type="button"
-            className="home-v2-toolbar-button"
+            className="home-v2-toolbar-button home-v2-toolbar-button--settings"
+            data-home-v2-toolbar-action="settings"
             aria-label={t('common.settings')}
             title={t('common.settings')}
             onClick={() => onNavigate?.('settings')}
@@ -761,6 +788,20 @@ export function BrowserChrome({
                 }}
               >
                 {t('tabs.closeTab')}
+              </button>
+            ) : null}
+            {onReopenClosedTab ? (
+              <button
+                type="button"
+                role="menuitem"
+                data-home-v2-tab-menu-action="reopen"
+                disabled={!canReopenClosedTab}
+                onClick={() => {
+                  onReopenClosedTab()
+                  setTabMenu(null)
+                }}
+              >
+                {t('tabs.reopenClosedTab')}
               </button>
             ) : null}
           </div>
