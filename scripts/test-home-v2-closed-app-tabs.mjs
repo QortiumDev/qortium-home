@@ -48,6 +48,8 @@ function harness() {
     isRecord: value => !!value && typeof value === 'object' && !Array.isArray(value),
     rememberClosedAppTab, rememberClosedTab, productStateRef: product, shellStateReady: true, accountCatalogueReady: true,
     closedAppTabs: { current: [] }, tabSequence: { current: 0 },
+    closedAppTabsAvailable: false,
+    setClosedAppTabsAvailable(value) { sandbox.closedAppTabsAvailable = value },
     accountCatalogueRef: { current: { activeAccountId: 'wallet:A', accounts: ['A', 'B:2'].map(id => ({
       id: `wallet:${id}`, walletId: id[0], isUnlocked: false,
     })) } },
@@ -85,6 +87,7 @@ for (const accountId of ['wallet:A', 'wallet:B:2', null]) {
   h.sandbox.navigation = { [original.id]: { entries: [] }, [surviving.id]: { entries: [] } }
   h.sandbox.androidNavigationControllers.current.set(original.id, {})
   h.close(original.id)
+  assert.equal(h.sandbox.closedAppTabsAvailable, true, 'closing a tab enables the reopen menu')
   assert.equal(h.product.current.tabs.length, 1)
   assert.equal(h.sandbox.androidNavigationControllers.current.has(original.id), false)
   assert.deepEqual(Object.keys(h.sandbox.navigation), [surviving.id])
@@ -101,6 +104,7 @@ for (const accountId of ['wallet:A', 'wallet:B:2', null]) {
   assert.equal(reopened.context.resourceLocation, location)
   assert.equal(reopened.context.previewUrl, null)
   assert.equal(h.sandbox.closedAppTabs.current.length, 0)
+  assert.equal(h.sandbox.closedAppTabsAvailable, false, 'consuming the last closed tab disables the menu')
   const grants = createHomeV2SessionGrantStore()
   const input = { accountId, accountUnlocked: false, action: 'GET_USER_ACCOUNT', appIdentity: location,
     nodeRoute: 'none', principalId: 'android', protocol: 'qortalRequest', tabId: original.id }
@@ -123,6 +127,7 @@ for (const accountId of ['wallet:A', 'wallet:B:2', null]) {
   assert.equal(h.product.current.tabs.length, 0, 'Removed account must not fall back to default B')
   assert.match(h.notices.at(-1), /account is no longer available/)
   assert.equal(h.sandbox.closedAppTabs.current.length, 1, 'Failed entry cannot block older history')
+  assert.equal(h.sandbox.closedAppTabsAvailable, true, 'older history remains available after a refused reopen')
   h.reopen()
   assert.equal(h.product.current.tabs[0].context.identityId, 'home-v2:identity:wallet:A')
 }
