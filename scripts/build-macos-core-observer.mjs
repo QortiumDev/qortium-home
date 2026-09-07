@@ -10,8 +10,8 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
 const sourcePath = path.join(repoRoot, 'native', 'macos', 'qortium-core-observer.c');
 const buildRoot = path.join(repoRoot, '.native-build', 'macos');
 const targets = [
-  { directory: 'x64', clangArch: 'x86_64' },
-  { directory: 'arm64', clangArch: 'arm64' },
+  { directory: 'x64', clangArch: 'x86_64', minimumVersion: '10.15' },
+  { directory: 'arm64', clangArch: 'arm64', minimumVersion: '11.0' },
 ];
 
 function run(command, args, options = {}) {
@@ -47,7 +47,7 @@ function compileTarget(target) {
     'clang',
     '-arch',
     target.clangArch,
-    '-mmacosx-version-min=11.0',
+    `-mmacosx-version-min=${target.minimumVersion}`,
     '-std=c11',
     '-O2',
     '-Wall',
