@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
 import type { ViewerPosition } from '../../viewer-position'
 import { useViewerScroll } from '../../use-viewer-scroll'
 import { marked, type Token } from 'marked'
@@ -81,6 +81,45 @@ function JsonNode({ name, value, depth = 0 }: { name?: string; value: unknown; d
   return <div>{name !== undefined ? `${name}: ` : ''}{JSON.stringify(value)}</div>
 }
 
+// The plain source view renders ONE element per source line, tagged with its
+// 1-based number, so an address that asks to open at a line is answered by
+// measuring that element instead of guessing a proportion of the content
+// height. The spans are inline and carry their own newline, so the laid-out
+// text, selection and copying are byte-identical to a single text node.
+export const PREVIEW_SOURCE_LINE_ATTRIBUTE = 'data-source-line'
+// A guard for pathological single-line-per-byte files: past this the preview
+// stays one text node and `line` simply finds no element to measure.
+const PREVIEW_MAX_SOURCE_LINE_ELEMENTS = 20_000
+
+export function renderPreviewSourceLines(text: string): ReactNode {
+  const lines = text.split('\n')
+  if (lines.length > PREVIEW_MAX_SOURCE_LINE_ELEMENTS) return text
+  return lines.map((line, index) =>
+    <span key={index} data-source-line={index + 1}>{index === lines.length - 1 ? line : `${line}\n`}</span>)
+}
+
+/**
+ * Scroll offset of a laid-out element inside its scrolling ancestor, measured
+ * through the offsetParent chain, so wrapping, formatting and the preview's own
+ * toolbar are all accounted for rather than assumed away.
+ */
+export function offsetTopWithin(target: HTMLElement, container: HTMLElement): number {
+  let top = 0
+  let node: HTMLElement | null = target
+  while (node && node !== container) {
+    top += node.offsetTop
+    const parent: Element | null = node.offsetParent
+    // An unpositioned container is not an offsetParent, so the chain steps
+    // straight past it to a shared ancestor: the container's own offset in that
+    // ancestor is then exactly what separates the two.
+    if (!(parent instanceof HTMLElement) || parent === container || !container.contains(parent)) {
+      return Math.max(0, parent === container ? top : top - container.offsetTop)
+    }
+    node = parent
+  }
+  return Math.max(0, top)
+}
+
 export function RichPreviewBody({ kind, text }: { kind: RichPreviewKind; text: string }) {
   const formatted = useMemo(() => {
     if (kind === 'json') {
@@ -111,7 +150,7 @@ export function RichPreviewBody({ kind, text }: { kind: RichPreviewKind; text: s
     return () => { canceled = true }
   }, [kind, text])
   if (formatted !== null) return formatted
-  return <>{kind === 'json' || kind === 'markdown' ? <p role="status">{t('home2.richPreview.sourceFallback')}</p> : null}<pre><code>{kind === 'code' && highlight?.text === text ? highlight.nodes : text}</code></pre></>
+  return <>{kind === 'json' || kind === 'markdown' ? <p role="status">{t('home2.richPreview.sourceFallback')}</p> : null}<pre><code>{kind === 'code' && highlight?.text === text ? highlight.nodes : renderPreviewSourceLines(text)}</code></pre></>
 }
 
 export function HomeV2RichPreview({ kind, url, loadBytes, position, scrollRef }: {
@@ -135,6 +174,23 @@ export function HomeV2RichPreview({ kind, url, loadBytes, position, scrollRef }:
   }, [loadBytes, url])
   const current = state?.url === url ? state : null
   const unusedRef = useRef<HTMLElement>(null)
+  // An address may ask to open at a line. It becomes an ordinary scroll target
+  // only where the preview laid out an element for that source line, MEASURED
+  // against the scroll container: a formatted preview (Markdown, parsed JSON,
+  // CSV cells) has no such element and simply ignores the key. Either way the
+  // request is consumed in this same pass, so it applies once and the reader's
+  // own scrolling wins from then on. Runs before useViewerScroll below, which
+  // reads position.scroll.
+  useLayoutEffect(() => {
+    const element = scrollRef?.current
+    if (!position || position.line === undefined || current?.text === undefined || !element) return
+    const line = position.line
+    position.line = undefined
+    // `line` is a validated positive integer, so the selector needs no escaping.
+    const target = Number.isSafeInteger(line) && line > 0
+      ? element.querySelector<HTMLElement>(`[${PREVIEW_SOURCE_LINE_ATTRIBUTE}="${line}"]`) : null
+    if (target) position.scroll = { top: offsetTopWithin(target, element), left: 0 }
+  }, [current?.text, position, scrollRef])
   useViewerScroll(scrollRef ?? unusedRef, position, current?.text !== undefined)
   return <section className="home-v2-rich-preview" aria-label={kind} data-rich-preview={kind}>
     <div className="home-v2-rich-preview__toolbar"><span>{kind === 'text' ? t('docViewer.format.txt') : t(`viewer.type.${kind}`)}</span><button type="button" disabled={current?.text === undefined} onClick={() => {

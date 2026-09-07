@@ -31,7 +31,8 @@ async function bundled(relative) {
 const { rememberClosedAppTab } = await bundled('../src/home-v2-live/closed-app-tabs.ts')
 const { rememberClosedTab } = await bundled('../src/home-v2-live/closed-tabs.ts')
 const { createProductState } = await bundled('../src/v2/product-model.ts')
-const { parseViewerLocation, viewerLocationFromResource } = await bundled('../src/v2/viewer-location.ts')
+const { parseViewerAddress, parseViewerLocation, viewerLocationFromResource } = await bundled('../src/v2/viewer-location.ts')
+const { recordViewerPositionSeed } = await bundled('../src/viewer-position.ts')
 const { savedEntryAccountId } = await bundled('../src/v2/shell/account-context.ts')
 const { reduceTabNavigation: reduceProductState } = await bundled('../src/home-v2-live/tab-navigation.ts')
 const { createHomeV2SessionGrantStore, homeV2PermissionGrantKey } = await bundled('../electron/home-v2-session-grants.ts')
@@ -42,7 +43,8 @@ function harness() {
   const effects = [], notices = [], actions = []
   const product = { current: createProductState() }
   const sandbox = vm.createContext({
-    Error, parseViewerLocation, viewerLocationFromResource, savedEntryAccountId,
+    Error, JSON, parseViewerAddress, parseViewerLocation, viewerLocationFromResource,
+    recordViewerPositionSeed, savedEntryAccountId,
     isRecord: value => !!value && typeof value === 'object' && !Array.isArray(value),
     rememberClosedAppTab, rememberClosedTab, productStateRef: product, shellStateReady: true, accountCatalogueReady: true,
     closedAppTabs: { current: [] }, tabSequence: { current: 0 },

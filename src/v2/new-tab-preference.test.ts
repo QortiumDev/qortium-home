@@ -91,6 +91,18 @@ function testCustomAddressValidation(): void {
     'qortal://GAME/Example',
   )
 
+  // A public viewer address is normalised to its bare coordinate, fragment or
+  // not: this value is also the cross-window transfer gate, and a viewer
+  // position never travels.
+  assert.equal(
+    validateCustomNewTabAddress('qdn://DOCUMENT/Library/book#page=4&zoom=150'),
+    'qdn://DOCUMENT/Library/book',
+  )
+  assert.equal(
+    validateCustomNewTabAddress('qdn://document/Library/book'),
+    'qdn://DOCUMENT/Library/book',
+  )
+
   const rejected = [
     '',
     '   ',

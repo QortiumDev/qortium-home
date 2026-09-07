@@ -357,6 +357,37 @@ try {
   assert.notEqual(await current(), positionEpubId)
   assert.equal(/epubCfi|mediaTime|archivePath/.test(readFileSync(stateFile, 'utf8')), false, 'Positions are not persisted in session state')
   log('per-tab PDF page/zoom, EPUB location, asynchronous text scroll, paused native media and nested archive position passed')
+  // A position fragment on a public address seeds the OPENING position once.
+  // The tab itself keeps the bare coordinate everywhere: address bar, saved
+  // session state, and its own later position changes.
+  await open(`${documentAddress}#page=2&zoom=150`)
+  const seededDocId = await current()
+  await until('address fragment opens the PDF at page 2, 150%', () => cdp.evaluate(`document.querySelector('.doc-viewer__page-indicator')?.textContent === '2 / 2' && document.querySelector('.doc-viewer__zoom-level')?.textContent.includes('150')`))
+  assert.equal(await cdp.evaluate(`document.querySelector('.home-v2-address input').value`), documentAddress, 'The address bar shows the bare coordinate')
+  await click('button[aria-label="Previous page"]')
+  await until('reader turns back from the seeded page', () => cdp.evaluate(`document.querySelector('.doc-viewer__page-indicator')?.textContent === '1 / 2'`))
+  await switchTo(positionTextId)
+  await until('text ready while the seeded PDF is inactive', () => cdp.evaluate(`!!document.querySelector('[data-rich-preview="text"] pre')`))
+  await switchTo(seededDocId)
+  await until('the seed is not re-applied over the reader position', () => cdp.evaluate(`document.querySelector('.doc-viewer__page-indicator')?.textContent === '1 / 2'`))
+  await open('qortal://AUDIO/ViewerAudio/default#t=7.5')
+  const seededAudioId = await current()
+  await until('address fragment opens native audio at 7.5s, paused', () => cdp.evaluate(`document.querySelector('audio')?.paused && Math.abs(document.querySelector('audio').currentTime - 7.5) < 0.3`))
+  assert.equal(await cdp.evaluate(`document.querySelector('.home-v2-address input').value`), 'qortal://AUDIO/ViewerAudio/default')
+  // Asserted on THE TWO SEEDED TAB IDS: the same bare audio coordinate is
+  // already open in an earlier tab, so a location-only check would pass on that
+  // one and never look at the tab the fragment opened.
+  const positionFields = ['page', 'zoom', 'mediaTime', 'scroll', 'line', 'archivePath', 'epubCfi']
+  await until('bare coordinates saved for both fragment-opened tabs', () => {
+    const entries = JSON.parse(readFileSync(stateFile, 'utf8')).product.entries
+    const saved = id => entries.find(entry => entry.kind === 'viewer' && entry.id === id)
+    const seededTabs = [[saved(seededDocId), documentAddress],
+      [saved(seededAudioId), 'qortal://AUDIO/ViewerAudio/default']]
+    return seededTabs.every(([entry, location]) => entry && entry.location === location &&
+      !positionFields.some(field => field in entry)) &&
+      !entries.some(entry => entry.kind === 'viewer' && /[#?]/.test(entry.location))
+  })
+  log('address position fragments seed page/zoom and media time once, with bare coordinates kept everywhere')
 } finally {
   app?.socket.close(); home?.cdp.socket.close(); home?.shutdown()
   wm?.kill(); xServer?.kill(); fixture.closeAllConnections(); fixture.close()
