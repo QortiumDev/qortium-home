@@ -61,7 +61,8 @@ import {
 } from '../v2/startup-preference'
 import { HomeV2Prototype } from '../v2/shell/HomeV2Prototype'
 import { accountsLosingAccess, savedEntryAccountId } from '../v2/shell/account-context'
-import { isViewerAddress, parseViewerLocation, viewerLocationFromResource } from '../v2/viewer-location'
+import { isViewerAddress, parseViewerAddress, viewerLocationFromResource } from '../v2/viewer-location'
+import { recordViewerPositionSeed } from '../viewer-position'
 import { createAccountRequestEpochs, isBoundAccountRequestCurrent } from './account-request-guard'
 import { buildTabBookmarkToggle, buildTabDashboardPin, buildTabToolbarSave } from '../v2/shell/saved-tab-bookmarks'
 import type { HomeV2SettingsSectionId } from '../v2/shell/SettingsPage'
@@ -2777,8 +2778,13 @@ export function HomeV2LiveApp() {
     }
   }, [])
 
-  const openViewer = useCallback((location: string, requestedAccountId?: HomeV2AccountBinding) => {
-    const resource = parseViewerLocation(location)
+  // `address` may carry an opening-position fragment (#page=, #zoom=, #t=,
+  // #line=, #entry=). The TAB keeps the bare coordinate — location, address bar,
+  // history, restore, bookmarks and cross-window transfer all stay keyed on it
+  // — and the position is handed to the position store for this tab alone,
+  // where it is consumed by the viewer's first read and never re-applied.
+  const openViewer = useCallback((address: string, requestedAccountId?: HomeV2AccountBinding) => {
+    const resource = parseViewerAddress(address)
     const accountId = typeof requestedAccountId === 'string' ? requestedAccountId
       : requestedAccountId && requestedAccountId.bind === 'none' ? null : accountCatalogueRef.current.activeAccountId
     if (accountId && !accountCatalogueRef.current.accounts.some(account => account.id === accountId)) {
@@ -2786,6 +2792,9 @@ export function HomeV2LiveApp() {
     }
     tabSequence.current += 1
     const tabId = brand<TabId>(`home-v2:viewer:${Date.now().toString(36)}:${tabSequence.current}`)
+    // Recorded BEFORE the dispatch that mounts the tab, under the same identity
+    // the shell reads positions with: JSON.stringify([location, accountId]).
+    recordViewerPositionSeed(tabId, JSON.stringify([resource.location, accountId]), resource.seed)
     dispatchProduct({ type: 'open-viewer', location: resource.location, accountId, tabId })
     // Always a new tab: the open-viewer reducer appends unconditionally, it
     // never dedupes by location or account, so this id is always the tab that

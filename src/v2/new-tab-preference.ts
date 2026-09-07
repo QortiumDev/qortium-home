@@ -1,5 +1,5 @@
 import { parseAppResourceLocation } from './resource-location'
-import { isViewerAddress, parseViewerLocation } from './viewer-location'
+import { isViewerAddress, parseViewerAddress } from './viewer-location'
 import type { ShellDestination } from './product-model'
 
 export type NewTabPreference =
@@ -62,7 +62,9 @@ export function validateCustomNewTabAddress(value: string): string {
   if (parseHomeV2InternalAddress(address)) return address
   if (parseHomeV2ReleaseNotesAddress(address)) return address
   if (parseHomeV2CoreDocsAddress(address)) return address
-  if (isViewerAddress(address)) return parseViewerLocation(address).location
+  // A viewer address may carry an opening-position fragment; what is STORED
+  // and transferred is always the bare coordinate.
+  if (isViewerAddress(address)) return parseViewerAddress(address).location
   try {
     parseAppResourceLocation(address)
   } catch {

@@ -49,6 +49,16 @@ await show('fresh')
 await act(async () => finishOld(bytes('stale text')))
 assert.match(container.textContent!, /fresh text/)
 assert.doesNotMatch(container.textContent!, /stale/)
+// The plain source view lays out one element per source line, so an opening
+// line can be measured rather than guessed. Formatted views have none.
+assert.equal(container.querySelectorAll('[data-source-line]').length, 1)
+assert.equal(container.querySelector('[data-source-line="1"]')!.textContent, 'fresh text')
+await act(async () => { root.render(<HomeV2RichPreview kind="text" url="lines" loadBytes={async () => bytes('one\ntwo\nthree')} />) })
+assert.deepEqual([...container.querySelectorAll('[data-source-line]')].map(node => node.textContent),
+  ['one\n', 'two\n', 'three'])
+assert.equal(container.querySelector('pre')!.textContent, 'one\ntwo\nthree', 'Line elements do not change the text')
+assert.equal(renderToStaticMarkup(<RichPreviewBody kind="markdown" text={'# Title'} />).includes('data-source-line'), false)
+await show('fresh')
 let copied = ''
 Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (text: string) => { copied = text } } })
 await act(async () => container.querySelector('button')!.click())

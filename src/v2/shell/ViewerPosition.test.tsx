@@ -2,7 +2,8 @@ import assert from 'node:assert/strict'
 import React, { act, useRef } from 'react'
 import { createRoot } from 'react-dom/client'
 import JSZip from 'jszip'
-import { createViewerPosition, createViewerPositionStore, archiveChildPosition } from '../../viewer-position'
+import { applyViewerPositionSeed, createViewerPosition, createViewerPositionStore, archiveChildPosition,
+  recordViewerPositionSeed } from '../../viewer-position'
 import { HomeV2ResourceViewer, PositionedMedia, type HomeV2ResourceViewerState } from './HomeV2ResourceViewer'
 import { defaultHomeV2Appearance } from '../appearance'
 import { EpubViewer } from '../../DocumentViewer'
@@ -22,6 +23,45 @@ child.page = 2
 assert.equal(archiveChildPosition(one, 'nested.zip'), child)
 assert.notEqual(archiveChildPosition(one, 'other.zip'), child)
 assert.equal(archiveChildPosition(one, 'x'.repeat(4097)), undefined)
+
+// --- Fragment seeds ---------------------------------------------------------
+// A public address may carry an opening position. It is applied to the tab's
+// position ONCE, when the tab first reads it, and never again.
+const seedIdentity = JSON.stringify(['qdn://DOCUMENT/Library/book/default', null])
+const otherIdentity = JSON.stringify(['qdn://DOCUMENT/Library/book/default', 'wallet:A'])
+recordViewerPositionSeed('seeded', seedIdentity, { page: 3, zoom: 150 })
+const seeded = store.get('seeded', seedIdentity)
+assert.equal(seeded.page, 3)
+assert.equal(seeded.zoom, 150)
+seeded.page = 9
+assert.equal(store.get('seeded', seedIdentity).page, 9, 'A later position change is never re-seeded')
+store.retain([])
+assert.equal(store.get('seeded', seedIdentity).page, 1, 'The seed is consumed once, not on every fresh tab')
+// A tab whose identity changed before its first read drops the seed rather
+// than applying an address position to a different resource or account.
+recordViewerPositionSeed('moved', seedIdentity, { mediaTime: 12 })
+assert.equal(store.get('moved', otherIdentity).mediaTime, 0)
+assert.equal(store.get('moved', seedIdentity).mediaTime, 0, 'A dropped seed is not applied later')
+recordViewerPositionSeed('cleared', seedIdentity, { page: 4 })
+recordViewerPositionSeed('cleared', seedIdentity, null)
+assert.equal(store.get('cleared', seedIdentity).page, 1, 'A bare address clears any pending seed')
+const seedAll = createViewerPosition()
+// No epubCfi: an address can never hand epub.js a CFI to resolve.
+applyViewerPositionSeed(seedAll, { page: 5, zoom: 200, mediaTime: 31.5, line: 12,
+  archivePath: 'folder/inner.zip' })
+assert.deepEqual(seedAll, { scroll: { top: 0, left: 0 }, page: 5, zoom: 200, mediaTime: 31.5, line: 12,
+  archivePath: 'folder/inner.zip', folders: seedAll.folders })
+// A burst of seeded opens, larger than any former cap: no tab's pending seed is ever evicted by another's.
+const burst = Array.from({ length: 600 }, (_value, index) => `burst-${index}`)
+for (const [index, tab] of burst.entries()) recordViewerPositionSeed(tab, seedIdentity, { page: index + 1 })
+for (const [index, tab] of burst.entries()) {
+  assert.equal(store.get(tab, seedIdentity).page, index + 1, `Burst-opened tab ${tab} kept its own seed`)
+}
+// A tab closed before its viewer ever read the position drops the seed with it.
+recordViewerPositionSeed('closed-early', seedIdentity, { page: 6 })
+store.retain(burst)
+assert.equal(store.get('closed-early', seedIdentity).page, 1, 'A closed tab\'s unread seed is discarded')
+store.retain([])
 
 const container = document.createElement('div')
 document.body.append(container)
@@ -59,6 +99,46 @@ await unmount()
 await render(base, one, 'overlay')
 assert.equal(scroll().scrollTop, 0, 'Private overlays never consume public position')
 await unmount()
+
+// A seeded line is MEASURED against the element the preview laid out for that
+// source line, so wrapping cannot land it in the wrong place, and it is
+// consumed once: the reader's own scrolling afterwards is never overwritten.
+// This fixture wraps — the first 50 lines occupy two visual rows each — so the
+// old proportional guess (1010px of content over 101 lines) would have scrolled
+// to 500 instead of the line's real top.
+const offsets = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetTop')
+Object.defineProperty(HTMLElement.prototype, 'offsetTop', { configurable: true, get(this: HTMLElement) {
+  const line = Number(this.getAttribute('data-source-line'))
+  if (!Number.isInteger(line) || line < 1) return 0
+  return line <= 51 ? (line - 1) * 40 : 50 * 40 + (line - 51) * 20
+} })
+const lineSeeded = createViewerPosition()
+lineSeeded.line = 51
+await render(base, lineSeeded)
+assert.equal(container.querySelectorAll('[data-source-line]').length, 101, 'One element per source line')
+assert.equal(lineSeeded.line, undefined, 'The seeded line is consumed at the first display')
+assert.equal(lineSeeded.scroll.top, 2000, 'The measured top of line 51, not a proportion of the height')
+assert.equal(scroll().scrollTop, 2000)
+scroll().scrollTop = 120
+scroll().dispatchEvent(new Event('scroll'))
+await unmount()
+await render({ ...base, streamUrl: 'capability:line-again' }, lineSeeded)
+assert.equal(scroll().scrollTop, 120, 'A consumed line seed never re-applies over the reader')
+await unmount()
+// A formatted preview lays out no per-line element, so it ignores the key
+// rather than guessing where the line would have been.
+bytes = new TextEncoder().encode('# Title\n\nOne\n\nTwo\n\nThree\n')
+const markdownSeeded = createViewerPosition()
+markdownSeeded.line = 51
+await render({ ...base, filename: 'notes.md', streamUrl: 'capability:markdown' }, markdownSeeded)
+assert.equal(container.querySelector('[data-rich-preview="markdown"] h1')!.textContent, 'Title')
+assert.equal(container.querySelectorAll('[data-source-line]').length, 0)
+assert.equal(markdownSeeded.line, undefined, 'The request is consumed even where it cannot be honoured')
+assert.deepEqual(markdownSeeded.scroll, { top: 0, left: 0 }, 'Markdown ignores a line rather than guessing')
+assert.equal(scroll().scrollTop, 0)
+await unmount()
+if (offsets) Object.defineProperty(HTMLElement.prototype, 'offsetTop', offsets)
+else Reflect.deleteProperty(HTMLElement.prototype, 'offsetTop')
 
 // Actual comic ZIP extraction exercises the document load/reset and page clamp.
 const comic = new JSZip()
@@ -117,6 +197,25 @@ archive.archivePath = 'missing.zip'
 await render({ ...base, filename: 'outer.zip' }, archive)
 await waitFor(() => !!container.querySelector('.qdn-archive__tree'))
 assert.equal(archive.archivePath, undefined, 'No arbitrary path fetch for a missing archive member')
+await unmount()
+
+// A media time seed reaches the element as an ordinary opening position.
+// A seed recorded after that identity was already read is DISCARDED, not held
+// pending to revive the next time the tab's position is cleared or reset.
+store.get('read-already', seedIdentity)
+recordViewerPositionSeed('read-already', seedIdentity, { mediaTime: 7.5 })
+assert.equal(store.get('read-already', seedIdentity).mediaTime, 0, 'A tab that already read its position is not re-seeded')
+assert.equal(store.get('read-already', otherIdentity).mediaTime, 0, 'A late seed cannot revive on an account change')
+store.retain([])
+assert.equal(store.get('read-already', seedIdentity).mediaTime, 0, 'A late seed cannot revive after a reset')
+recordViewerPositionSeed('seeded-media', seedIdentity, { mediaTime: 7.5 })
+const openedMedia = store.get('seeded-media', seedIdentity)
+await act(async () => root.render(<PositionedMedia kind="audio" url="capability:seeded" position={openedMedia} />))
+const seededAudio = container.querySelector<HTMLMediaElement>('audio')!
+Object.defineProperty(seededAudio, 'duration', { value: 60 })
+seededAudio.dispatchEvent(new Event('loadedmetadata'))
+assert.equal(seededAudio.currentTime, 7.5)
+assert.equal(seededAudio.paused, true, 'A seeded time never starts playback')
 await unmount()
 
 const mediaPosition = createViewerPosition(); mediaPosition.mediaTime = 42
@@ -196,4 +295,4 @@ assert.equal(displays.length, 2); assert.equal(displays[1], undefined)
 assert.equal(epub.epubCfi, undefined)
 assert.equal(displayedPage, 1, 'Fallback and the first relocated event update the visible page too')
 await act(async () => root.unmount())
-console.log('Viewer position ownership, scroll, document page/zoom/clamp, nested archives and paused media passed')
+console.log('Viewer position ownership, address seeds, scroll, document page/zoom/clamp, nested archives and paused media passed')
