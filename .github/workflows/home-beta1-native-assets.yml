@@ -1,0 +1,110 @@
+name: Home beta.1 native assets
+on:
+  push:
+    branches: [codex/home-beta1-native-assets]
+permissions:
+  contents: read
+env:
+  TARGET_REF: e7e2f44702a5912698324d50eb839a845e44e241
+jobs:
+  mac:
+    name: macOS ${{ matrix.variant }}
+    runs-on: macos-14
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: universal
+            arch: universal
+            minimum: 12.0.0
+            electron: ''
+            appdir: mac-universal
+          - variant: macos11-universal
+            arch: universal
+            minimum: 11.0.0
+            electron: 36.9.5
+            appdir: mac-universal
+          - variant: macos1015-x64
+            arch: x64
+            minimum: 10.15.0
+            electron: 32.3.3
+            appdir: mac
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ env.TARGET_REF }}
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: test "$(git rev-parse HEAD)" = "$TARGET_REF"
+      - run: npm ci
+      - name: Build and verify DMG
+        env:
+          VARIANT: ${{ matrix.variant }}
+          ARCH: ${{ matrix.arch }}
+          MINIMUM: ${{ matrix.minimum }}
+          LEGACY_ELECTRON: ${{ matrix.electron }}
+          APPDIR: ${{ matrix.appdir }}
+        run: |
+          set -euo pipefail
+          npm run build:native:macos
+          npm run build
+          if [ -n "$LEGACY_ELECTRON" ]; then
+            npm install --no-save --package-lock=false "electron@$LEGACY_ELECTRON"
+          fi
+          electron_version=$(node -p "require('electron/package.json').version")
+          QORTIUM_HOME_EXPECTED_ELECTRON_VERSION="$electron_version" node scripts/test-qdn-app-preload.mjs
+          ./node_modules/.bin/electron-builder --mac dmg "--$ARCH" --publish never \
+            "-c.electronVersion=$electron_version" "-c.mac.minimumSystemVersion=$MINIMUM"
+          app="dist-release/$APPDIR/Qortium Home.app"
+          npm run check:macos:core-observer -- "$app"
+          node scripts/verify-macos-min-version.mjs "$app" "$MINIMUM"
+          mkdir -p native-artifacts
+          version=$(node -p "require('./package.json').version")
+          cp "dist-release/Qortium-Home-$version-$ARCH.dmg" "native-artifacts/Qortium-Home-$version-$VARIANT.dmg"
+          shasum -a 256 native-artifacts/*.dmg > native-artifacts/SHA256SUMS
+          printf '%s\n' "$TARGET_REF" > native-artifacts/SOURCE_COMMIT
+          npm run test:core-native-observer
+          npm run test:qortal-adoption
+      - name: Retain verified assets
+        uses: actions/upload-artifact@v7
+        with:
+          name: home-beta1-${{ matrix.variant }}
+          path: native-artifacts/
+          if-no-files-found: error
+  windows:
+    name: Windows x64
+    runs-on: windows-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ env.TARGET_REF }}
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - shell: pwsh
+        run: |
+          if ((git rev-parse HEAD) -ne $env:TARGET_REF) { throw 'Source mismatch' }
+      - run: npm ci
+      - run: npm run dist:win:x64
+      - run: npm run test:windows-core-observation
+      - run: npm run test:core-install-transaction
+      - name: Record artifact provenance
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory native-artifacts | Out-Null
+          Copy-Item dist-release/*.exe native-artifacts/
+          Get-ChildItem native-artifacts/*.exe | ForEach-Object {
+            $digest = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
+            "$digest  $($_.Name)" | Out-File -Append -Encoding ascii native-artifacts/SHA256SUMS
+          }
+          $env:TARGET_REF | Out-File -Encoding ascii native-artifacts/SOURCE_COMMIT
+      - uses: actions/upload-artifact@v7
+        with:
+          name: home-beta1-windows-x64
+          path: native-artifacts/
+          if-no-files-found: error
