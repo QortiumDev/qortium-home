@@ -348,7 +348,7 @@ try {
   assert.match(container.textContent ?? '', /Qortal Hub/)
   assert.match(container.textContent ?? '', /Version 6\.2\.0/)
   const onlyCandidate = container.querySelector<HTMLInputElement>(
-    'input[name="qortal-adoption-candidate"]',
+    'input[name^="qortal-adoption-candidate"]',
   )
   assert.equal(onlyCandidate?.checked, true)
   await act(async () => {
@@ -379,7 +379,7 @@ try {
     await Promise.resolve()
   })
   const multipleRadios = [...container.querySelectorAll<HTMLInputElement>(
-    'input[name="qortal-adoption-candidate"]',
+    'input[name^="qortal-adoption-candidate"]',
   )]
   assert.equal(multipleRadios.length, 2)
   assert.equal(multipleRadios.some((radio) => radio.checked), false)
@@ -401,7 +401,7 @@ try {
   })
   assert.match(container.textContent ?? '', /Version unavailable/)
   assert.equal(container.querySelector<HTMLInputElement>(
-    'input[name="qortal-adoption-candidate"]',
+    'input[name^="qortal-adoption-candidate"]',
   )?.disabled, true)
   assert.equal(button('Use this installation').disabled, true)
 
@@ -436,7 +436,7 @@ try {
   })
   assert.match(container.textContent ?? '', /Selected in the system folder picker/)
   assert.equal(container.querySelector<HTMLInputElement>(
-    'input[name="qortal-adoption-candidate"]',
+    'input[name^="qortal-adoption-candidate"]',
   )?.checked, true)
   assert.doesNotMatch(
     container.querySelector('[data-home-v2-qortal-adoption]')?.textContent ?? '',
@@ -472,7 +472,7 @@ try {
   assert.equal(container.querySelector('[data-home-v2-qortal-adoption]')
     ?.getAttribute('aria-busy'), 'false')
   assert.equal(container.querySelector<HTMLInputElement>(
-    'input[name="qortal-adoption-candidate"]',
+    'input[name^="qortal-adoption-candidate"]',
   )?.checked, false, 'canceling Browse must clear tokens from the prior snapshot')
   assert.equal(button('Use this installation').disabled, true)
   assert.match(container.textContent ?? '', /No folder was selected/)
@@ -492,7 +492,7 @@ try {
     await Promise.resolve()
   })
   assert.equal(container.querySelector<HTMLInputElement>(
-    'input[name="qortal-adoption-candidate"]',
+    'input[name^="qortal-adoption-candidate"]',
   ), null, 'a failed Browse must discard candidates with invalidated tokens')
   assert.equal([...container.querySelectorAll('button')]
     .some((item) => item.textContent?.trim() === 'Use this installation'), false)
@@ -524,7 +524,7 @@ try {
       await Promise.resolve()
     })
     assert.equal(container.querySelector<HTMLInputElement>(
-      'input[name="qortal-adoption-candidate"]',
+      'input[name^="qortal-adoption-candidate"]',
     ), null, 'a failed selection must discard candidates with consumed tokens')
     assert.ok(button('Review existing installations'), 'a failed selection must require fresh review')
     assert.match(container.textContent ?? '', /could not save this installation selection/)
@@ -551,7 +551,7 @@ try {
     await Promise.resolve()
   })
   assert.equal(container.querySelector<HTMLInputElement>(
-    'input[name="qortal-adoption-candidate"]',
+    'input[name^="qortal-adoption-candidate"]',
   )?.checked, true, 'operation-in-progress must preserve its unconsumed token')
   assert.equal(button('Use this installation').disabled, false)
 
@@ -596,7 +596,7 @@ try {
   assert.equal(button('Browse for Qortal installation').disabled, true)
   assert.equal(button('Use this installation').disabled, true)
   assert.equal(container.querySelector<HTMLInputElement>(
-    'input[name="qortal-adoption-candidate"]',
+    'input[name^="qortal-adoption-candidate"]',
   )?.disabled, true)
   assert.match(container.textContent ?? '', /Qortal Hub/)
   assert.match(container.textContent ?? '', /Version 6\.2\.0/)
@@ -630,7 +630,7 @@ try {
   assert.equal(staleListCalls, 2, 'expired selection should refresh candidates once')
   assert.match(container.textContent ?? '', /candidate list changed or could not be refreshed/i)
   assert.equal([...container.querySelectorAll<HTMLInputElement>(
-    'input[name="qortal-adoption-candidate"]',
+    'input[name^="qortal-adoption-candidate"]',
   )].some((radio) => radio.checked), false, 'refreshed stale state must require review')
   assert.equal(button('Use this installation').disabled, true)
 
@@ -683,8 +683,10 @@ try {
   })
   assert.match(container.textContent ?? '', /v6\.2\.0 is ready to install/)
   const installButton = button('Install Qortal Core')
-  assert.equal(installButton.getAttribute('aria-describedby'), 'qortal-maintenance-state')
-  assert.match(document.getElementById('qortal-maintenance-state')?.textContent ?? '', /not installed/)
+  // Scoped per panel instance, so resolve the reference instead of pinning it.
+  const stateId = installButton.getAttribute('aria-describedby') ?? ''
+  assert.match(stateId, /^qortal-maintenance-state/)
+  assert.match(document.getElementById(stateId)?.textContent ?? '', /not installed/)
   await act(async () => {
     installButton.click()
     await Promise.resolve()
@@ -869,6 +871,67 @@ try {
       `Install must be offered from the cached release; saw ${JSON.stringify(buttons)}`,
     )
     assert.equal(checkCalls, 0, 'showing a cached release must not call GitHub')
+  } finally {
+    act(() => root.unmount())
+    delete window.homeV2CoreManagers
+    container.remove()
+  }
+}
+
+// Radio grouping is DOCUMENT-wide when the inputs share no form owner, and Home
+// keeps every open page mounted: two Settings tabs put two of these panels in
+// one document. With a static `name` they were ONE radio group, so choosing a
+// candidate in one tab cleared the choice in the other even though each panel
+// owns its own state.
+{
+  const container = document.createElement('div')
+  document.body.appendChild(container)
+  const root = createRoot(container)
+  const multipleList: HomeV2QortalAdoptionList = {
+    ...adoptionList,
+    candidates: [firstCandidate, secondCandidate],
+  }
+  try {
+    window.homeV2CoreManagers = client({
+      listQortalAdoptionCandidates: async () => multipleList,
+    })
+    await act(async () => {
+      root.render(<>
+        <QortalMaintenanceHarness management={management} />
+        <QortalMaintenanceHarness management={management} />
+      </>)
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    const panels = [...container.querySelectorAll('[data-home-v2-qortal-adoption]')]
+    assert.equal(panels.length, 2, 'both Settings tabs mount their own panel')
+    const review = (panel: Element) => [...panel.querySelectorAll('button')]
+      .find((item) => item.textContent?.trim() === 'Review existing installations')
+    for (const panel of panels) {
+      const trigger = review(panel)
+      assert.ok(trigger)
+      await act(async () => {
+        trigger.click()
+        await Promise.resolve()
+        await Promise.resolve()
+      })
+    }
+    const radios = panels.map((panel) => [...panel.querySelectorAll<HTMLInputElement>(
+      'input[type="radio"]',
+    )])
+    assert.deepEqual(radios.map((group) => group.length), [2, 2])
+    // Different groups, so the browser never treats them as one.
+    assert.notEqual(radios[0][0].name, radios[1][0].name)
+    assert.equal(radios[0][0].name, radios[0][1].name, 'one group per panel')
+
+    act(() => radios[1][1].click())
+    assert.equal(radios[1][1].checked, true)
+    act(() => radios[0][0].click())
+    assert.equal(radios[0][0].checked, true)
+    assert.equal(radios[1][1].checked, true,
+      'choosing in one Settings tab must not clear the other tab')
+    assert.equal(radios[1][0].checked, false)
+    assert.equal(radios[0][1].checked, false)
   } finally {
     act(() => root.unmount())
     delete window.homeV2CoreManagers

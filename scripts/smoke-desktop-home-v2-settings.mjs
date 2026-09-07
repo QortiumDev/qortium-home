@@ -419,7 +419,9 @@ try {
           const runtime = [...document.querySelectorAll('.home-v2-settings-nav button')]
             .find((button) => button.textContent.trim() === 'Runtime');
           return runtime?.getAttribute('aria-current') === 'page' &&
-            Boolean(document.querySelector('#core-settings-title'));
+            // The heading id carries a per-instance suffix (Settings can be
+            // open in two tabs), so match the stable prefix.
+            Boolean(document.querySelector('[id^="core-settings-title"]'));
         })()`,
       ),
     )
@@ -445,7 +447,7 @@ try {
       evaluate(
         client,
         `(() => {
-          const heading = document.querySelector('#general-settings-title');
+          const heading = document.querySelector('[id^="general-settings-title"]');
           const select = document.querySelector('select[aria-label="New tab opens"]');
           return heading && select ? {
             heading: heading.textContent,

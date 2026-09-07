@@ -161,12 +161,23 @@ export function useCoreLifecycleControl(
  * confirmation and the busy gating instead of reimplementing them.
  */
 export function CoreManagerCard({
+  channel,
+  installedCommit,
   installedVersion,
   maintenanceActions,
   maintenanceNotice,
   management,
   network,
 }: {
+  /**
+   * The installed release channel and build commit, shown beside the version.
+   *
+   * The version alone does not identify a build: a stable and a prerelease of
+   * the same number look identical on the tile, which is exactly the case a
+   * tester hit mid-rollout. Both are optional — only Qortium reports them.
+   */
+  readonly channel?: string | null
+  readonly installedCommit?: string | null
   /**
    * The installed Core version, shown on the tile.
    *
@@ -220,8 +231,15 @@ export function CoreManagerCard({
       <div className="home-v2-core-card__body">
         <strong>{statusText}</strong>
         {installedVersion ? (
-          <small data-home-v2-core-version={installedVersion}>
-            {t('home2.core.installedVersion', { version: installedVersion })}
+          <small
+            data-home-v2-core-version={installedVersion}
+            data-home-v2-core-channel={channel ?? undefined}
+          >
+            {[
+              t('home2.core.installedVersion', { version: installedVersion }),
+              channel,
+              installedCommit ? installedCommit.slice(0, 12) : null,
+            ].filter(Boolean).join(' · ')}
           </small>
         ) : null}
         {issueText && issueText !== statusText ? <small>{issueText}</small> : null}

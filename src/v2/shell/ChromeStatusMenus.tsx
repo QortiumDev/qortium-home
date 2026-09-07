@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { Lock, LockOpen } from 'lucide-react'
+import { coreReleaseGate } from '../../home-v2-live/core-release-offer'
 import { t, type TranslationKey } from '../../i18n'
 import type {
   DualIdentityLookupResult,
@@ -141,11 +142,21 @@ function nodeMenuMaintenance(
   const maintenance = management.coreMaintenance
   const status = maintenance?.status
   if (!maintenance || !status) return null
-  const { busy, release } = maintenance
-  const showInstall = !!release?.tag && release.action !== 'none'
-  // Home replaces the jar in place, so it cannot install over a running Core.
-  // A disabled button with no explanation reads as a broken menu.
-  const blocked = showInstall && status.core.runtime !== 'stopped'
+  const { busy } = maintenance
+  // Same gate as the dashboard tile and the Settings panel, from the same
+  // derivation: an UPDATE to a Home-started Core no longer needs it stopped,
+  // because Home stops it, replaces it and starts it again. An initial install
+  // still does — there is no previous version to restore. This menu used to
+  // check the runtime alone, so it refused an update the other two surfaces
+  // were offering at the same moment; it also read `release.action`, which
+  // describes the checked channel rather than the release that would install.
+  const gate = coreReleaseGate(maintenance.release, maintenance.selectedReleaseTag, status)
+  // A downgrade belongs to Settings, which has the release picker and the
+  // confirmation prompt this menu does not. Offering it from a two-line menu
+  // would be an unlabelled way to move a Core backwards.
+  const offer = gate.offer?.relation === 'downgrade' ? null : gate.offer
+  const showInstall = !!offer
+  const blocked = showInstall && gate.blocked
   return {
     canCheck: true,
     checkBusy: busy === 'check',
@@ -153,10 +164,20 @@ function nodeMenuMaintenance(
     installBusy: busy === 'core',
     installDisabled: busy !== null || blocked,
     installLabel:
-      release?.action === 'initial-install'
+      offer?.relation === 'initial-install'
         ? t('core.installCore')
-        : t('updates.installUpdate'),
-    notice: blocked ? t('home2.nodeCore.stopCoreFirst') : maintenance.notice,
+        // Naming the restart on the button is the disclosure: Home is about to
+        // stop a Core the user is relying on.
+        : gate.restartsCore
+          ? t('home2.nodeCore.updateAndRestartCore')
+          : t('updates.installUpdate'),
+    notice: blocked
+      // 'unknown' is NOT 'running'. Telling someone to stop a Core Home cannot
+      // see is how they stop it again and are told the same thing.
+      ? (gate.blockedReason === 'core-state-unknown'
+          ? t('home2.nodeCore.coreStateUnknown')
+          : t('home2.nodeCore.stopCoreFirst'))
+      : maintenance.notice,
     onCheck: maintenance.onCheckRelease,
     onInstall: maintenance.onRunRelease,
     showInstall,

@@ -2,6 +2,7 @@ import type { HomeV2AppUpdates } from '../../home-v2-live/app-update-controller'
 import type { HomeV2AppUpdatePolicy } from '../../home-v2-live/app-update-preferences'
 import { formatUpdateBytes } from '../../home-v2-live/app-update-controller'
 import { t } from '../../i18n'
+import { useScopedIds } from './dom-ids'
 
 export function homeUpdateStatusText(updates: HomeV2AppUpdates) {
   const result = updates.result
@@ -33,6 +34,7 @@ export function HomeUpdateSettings({
   readonly onOpenReleaseNotes?: (target: { product: 'core' | 'home'; tagName: string }) => void
   readonly updates: HomeV2AppUpdates
 }) {
+  const id = useScopedIds()
   const result = updates.result
   const isAndroid = updates.isAndroid
   const busy = updates.busy !== null
@@ -41,17 +43,17 @@ export function HomeUpdateSettings({
       className="home-v2-settings-panel home-v2-app-updates"
       data-home-v2-app-updates={isAndroid ? 'android' : 'desktop'}
       aria-busy={busy}
-      aria-labelledby="home-update-settings-title"
+      aria-labelledby={id('home-update-settings-title')}
     >
       <div className="home-v2-settings-panel__heading">
-        <h2 id="home-update-settings-title">{t('common.appName')}</h2>
+        <h2 id={id('home-update-settings-title')}>{t('common.appName')}</h2>
         <p aria-live="polite" role="status">{homeUpdateStatusText(updates)}</p>
       </div>
 
       <div className="home-v2-setting-row">
         <div className="home-v2-setting-row__copy">
-          <strong id="home-update-policy-label">{t('updates.homeUpdatePolicyLabel')}</strong>
-          <span id="home-update-policy-description">{updates.homeUpdatePolicy === 'auto-download'
+          <strong id={id('home-update-policy-label')}>{t('updates.homeUpdatePolicyLabel')}</strong>
+          <span id={id('home-update-policy-description')}>{updates.homeUpdatePolicy === 'auto-download'
             ? t('updates.homeUpdatePolicy.autoDownload')
             : updates.homeUpdatePolicy === 'notify'
               ? t('updates.homeUpdatePolicy.notify')
@@ -59,8 +61,8 @@ export function HomeUpdateSettings({
         </div>
         <select
           aria-label={t('updates.homeUpdatePolicyLabel')}
-          aria-labelledby="home-update-policy-label"
-          aria-describedby="home-update-policy-description"
+          aria-labelledby={id('home-update-policy-label')}
+          aria-describedby={id('home-update-policy-description')}
           data-home-v2-update-policy
           disabled={busy || !updates.preferencesLoaded}
           value={updates.homeUpdatePolicy}

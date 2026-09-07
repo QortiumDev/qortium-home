@@ -19,6 +19,7 @@ import {
 } from '../../home-v2-live/qdn-settings-client'
 import { t } from '../../i18n'
 import type { VisibleAppIconLoader } from '../contracts'
+import { useScopedIds } from './dom-ids'
 import { HomeV2AppIcon } from './HomeV2AppIcon'
 import type { AddressOpenResult } from './BrowserChrome'
 
@@ -104,6 +105,7 @@ function AssignmentRow({
   onSave: (assignment: HomeV2QdnAssignmentRow, url: string) => Promise<void>
   loadVisibleAppIcon?: VisibleAppIconLoader
 }>) {
+  const id = useScopedIds()
   const [url, setUrl] = useState(assignment.url ?? '')
   const [invalid, setInvalid] = useState(false)
 
@@ -119,7 +121,7 @@ function AssignmentRow({
     normalized = null
   }
   const changed = normalized !== null && normalized !== assignment.url
-  const errorId = `home-v2-qdn-assignment-error-${assignment.role}`
+  const errorId = id(`home-v2-qdn-assignment-error-${assignment.role}`)
 
   const save = (event: FormEvent) => {
     event.preventDefault()
@@ -409,6 +411,7 @@ export function QdnAppsSettings({
   loadVisibleAppIcon,
   resolveAccountLabel,
 }: QdnAppsSettingsProps) {
+  const id = useScopedIds()
   const [snapshot, setSnapshot] = useState<HomeV2QdnSettingsState | null>(null)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState<string | null>(null)
@@ -644,12 +647,12 @@ export function QdnAppsSettings({
 
   return (
     <section
-      aria-labelledby="home-v2-qdn-apps-title"
+      aria-labelledby={id('home-v2-qdn-apps-title')}
       className="home-v2-settings-panel"
       data-home-v2-qdn-settings={stale ? 'stale' : loading ? 'loading' : 'ready'}
     >
       <div className="home-v2-settings-panel__heading">
-        <h2 id="home-v2-qdn-apps-title">{t('qdnApps.sectionTitle')}</h2>
+        <h2 id={id('home-v2-qdn-apps-title')}>{t('qdnApps.sectionTitle')}</h2>
         <p>{t('qdnApps.description')}</p>
       </div>
 
@@ -709,9 +712,9 @@ export function QdnAppsSettings({
       ) : null}
 
       {snapshot?.accountRead.apps.length ? (
-        <section aria-labelledby="home-v2-qdn-account-read-controls-title">
+        <section aria-labelledby={id('home-v2-qdn-account-read-controls-title')}>
           <div className="home-v2-settings-panel__heading">
-            <h3 id="home-v2-qdn-account-read-controls-title">
+            <h3 id={id('home-v2-qdn-account-read-controls-title')}>
               {t('qdnApps.accountReadControlsTitle')}
             </h3>
             <p>{t('managerPermissions.access.accountRead')}</p>
@@ -732,9 +735,9 @@ export function QdnAppsSettings({
       ) : null}
 
       {snapshot?.accountDecrypt.apps.length ? (
-        <section aria-labelledby="home-v2-qdn-account-decrypt-controls-title">
+        <section aria-labelledby={id('home-v2-qdn-account-decrypt-controls-title')}>
           <div className="home-v2-settings-panel__heading">
-            <h3 id="home-v2-qdn-account-decrypt-controls-title">
+            <h3 id={id('home-v2-qdn-account-decrypt-controls-title')}>
               {t('qdnApps.accountDecryptControlsTitle')}
             </h3>
             <p>{t('managerPermissions.access.accountDecrypt')}</p>
@@ -755,9 +758,9 @@ export function QdnAppsSettings({
       ) : null}
 
       {snapshot?.accountDirectChat.apps.length ? (
-        <section aria-labelledby="home-v2-qdn-account-direct-chat-controls-title">
+        <section aria-labelledby={id('home-v2-qdn-account-direct-chat-controls-title')}>
           <div className="home-v2-settings-panel__heading">
-            <h3 id="home-v2-qdn-account-direct-chat-controls-title">
+            <h3 id={id('home-v2-qdn-account-direct-chat-controls-title')}>
               {t('qdnApps.accountDirectChatControlsTitle')}
             </h3>
             <p>{t('managerPermissions.access.accountDirectChat')}</p>
@@ -778,9 +781,9 @@ export function QdnAppsSettings({
       ) : null}
 
       {snapshot?.accountGroupChat.apps.length ? (
-        <section aria-labelledby="home-v2-qdn-account-group-chat-controls-title">
+        <section aria-labelledby={id('home-v2-qdn-account-group-chat-controls-title')}>
           <div className="home-v2-settings-panel__heading">
-            <h3 id="home-v2-qdn-account-group-chat-controls-title">
+            <h3 id={id('home-v2-qdn-account-group-chat-controls-title')}>
               {t('qdnApps.accountGroupChatControlsTitle')}
             </h3>
             <p>{t('managerPermissions.access.accountGroupChat')}</p>
@@ -801,9 +804,9 @@ export function QdnAppsSettings({
       ) : null}
 
       {snapshot?.accountEncrypt.apps.length ? (
-        <section aria-labelledby="home-v2-qdn-account-encrypt-controls-title">
+        <section aria-labelledby={id('home-v2-qdn-account-encrypt-controls-title')}>
           <div className="home-v2-settings-panel__heading">
-            <h3 id="home-v2-qdn-account-encrypt-controls-title">
+            <h3 id={id('home-v2-qdn-account-encrypt-controls-title')}>
               {t('qdnApps.accountEncryptControlsTitle')}
             </h3>
             <p>{t('managerPermissions.access.accountEncrypt')}</p>
@@ -824,9 +827,9 @@ export function QdnAppsSettings({
       ) : null}
 
       {snapshot?.chatSend.apps.length ? (
-        <section aria-labelledby="home-v2-qdn-chat-send-controls-title">
+        <section aria-labelledby={id('home-v2-qdn-chat-send-controls-title')}>
           <div className="home-v2-settings-panel__heading">
-            <h3 id="home-v2-qdn-chat-send-controls-title">
+            <h3 id={id('home-v2-qdn-chat-send-controls-title')}>
               {t('qdnApps.chatSendControlsTitle')}
             </h3>
             <p>{t('managerPermissions.access.chatSend')}</p>
@@ -847,9 +850,9 @@ export function QdnAppsSettings({
       ) : null}
 
       {snapshot?.bookmarks.apps.length ? (
-        <section aria-labelledby="home-v2-qdn-bookmark-controls-title">
+        <section aria-labelledby={id('home-v2-qdn-bookmark-controls-title')}>
           <div className="home-v2-settings-panel__heading">
-            <h3 id="home-v2-qdn-bookmark-controls-title">
+            <h3 id={id('home-v2-qdn-bookmark-controls-title')}>
               {t('bookmarks.manageTitle')}
             </h3>
             <p>{t('managerPermissions.access.bookmarks')}</p>
@@ -869,9 +872,9 @@ export function QdnAppsSettings({
       ) : null}
 
       {snapshot?.notificationsManage.apps.length ? (
-        <section aria-labelledby="home-v2-qdn-notification-manager-controls-title">
+        <section aria-labelledby={id('home-v2-qdn-notification-manager-controls-title')}>
           <div className="home-v2-settings-panel__heading">
-            <h3 id="home-v2-qdn-notification-manager-controls-title">
+            <h3 id={id('home-v2-qdn-notification-manager-controls-title')}>
               {t('managerPermissions.action.notifications')}
             </h3>
             <p>{t('managerPermissions.access.notifications')}</p>
@@ -891,9 +894,9 @@ export function QdnAppsSettings({
       ) : null}
 
       {snapshot ? (
-        <section aria-labelledby="home-v2-qdn-notification-controls-title">
+        <section aria-labelledby={id('home-v2-qdn-notification-controls-title')}>
           <div className="home-v2-settings-panel__heading">
-            <h3 id="home-v2-qdn-notification-controls-title">
+            <h3 id={id('home-v2-qdn-notification-controls-title')}>
               {t('qdnApps.notificationControlsTitle')}
             </h3>
             <p>{t('qdnApps.notificationControlsDescription')}</p>

@@ -223,11 +223,13 @@ try {
     ['Direct + I2P', 'Direct only', 'I2P only'],
   )
   const ensureButton = button('Install and start I2P router')
-  assert.equal(ensureButton.getAttribute('aria-describedby'), 'transport-maintenance-router-state')
-  assert.equal(
-    container.querySelector('select')?.getAttribute('aria-describedby'),
-    'transport-maintenance-mode-note',
-  )
+  // Scoped per panel instance, so resolve each reference instead of pinning it.
+  const routerStateId = ensureButton.getAttribute('aria-describedby') ?? ''
+  assert.match(routerStateId, /^transport-maintenance-router-state/)
+  assert.ok(document.getElementById(routerStateId)?.textContent)
+  const modeNoteId = container.querySelector('select')?.getAttribute('aria-describedby') ?? ''
+  assert.match(modeNoteId, /^transport-maintenance-mode-note/)
+  assert.ok(document.getElementById(modeNoteId)?.textContent)
   await act(async () => {
     ensureButton.click()
     await Promise.resolve()

@@ -1,4 +1,5 @@
 import { t } from '../../i18n'
+import { useScopedIds } from './dom-ids'
 import type { HomeV2OnChainCoreUpdates } from '../../home-v2-live/on-chain-core-update-controller'
 
 export function OnChainCoreUpdateSettings({
@@ -6,17 +7,18 @@ export function OnChainCoreUpdateSettings({
 }: {
   readonly updates: HomeV2OnChainCoreUpdates
 }) {
+  const id = useScopedIds()
   const busy = updates.busy !== null
 
   return (
     <section
       aria-busy={busy}
-      aria-labelledby="on-chain-core-update-title"
+      aria-labelledby={id('on-chain-core-update-title')}
       className="home-v2-settings-panel home-v2-on-chain-core-updates"
       data-home-v2-on-chain-core-updates
     >
       <div className="home-v2-settings-panel__heading">
-        <h2 id="on-chain-core-update-title">{t('core.sectionTitle')}</h2>
+        <h2 id={id('on-chain-core-update-title')}>{t('core.sectionTitle')}</h2>
         <p aria-live="polite" data-tone={updates.tone} role="status">
           {updates.message}
         </p>

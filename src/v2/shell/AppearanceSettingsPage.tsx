@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react'
 import { t } from '../../i18n'
+import { useScopedIds } from './dom-ids'
 import {
   BOOKMARK_TOOLBAR_VISIBILITIES,
   type BookmarkToolbarVisibility,
@@ -74,6 +75,7 @@ export function AppearanceSettingsPage({
   section = 'all',
   showHeading = true,
 }: AppearanceSettingsPageProps) {
+  const id = useScopedIds()
   const [toolbarSaving, setToolbarSaving] = useState(false)
   const [toolbarError, setToolbarError] = useState(false)
   const resolvedThemeLabel = t(
@@ -92,10 +94,10 @@ export function AppearanceSettingsPage({
       {section !== 'account' ? (
         <section
           className="home-v2-settings-panel"
-          aria-labelledby="appearance-title"
+          aria-labelledby={id('appearance-title')}
         >
           <div className="home-v2-settings-panel__heading">
-            <h2 id="appearance-title">{t('home2.settings.appearance')}</h2>
+            <h2 id={id('appearance-title')}>{t('home2.settings.appearance')}</h2>
             <p>{t('home2.settings.appearanceDescription')}</p>
           </div>
 
@@ -301,10 +303,10 @@ export function AppearanceSettingsPage({
       {section !== 'appearance' && account.state !== 'none' ? (
         <section
           className="home-v2-settings-panel"
-          aria-labelledby="account-security-title"
+          aria-labelledby={id('account-security-title')}
         >
           <div className="home-v2-settings-panel__heading">
-            <h2 id="account-security-title">{t('home2.settings.accountSecurity')}</h2>
+            <h2 id={id('account-security-title')}>{t('home2.settings.accountSecurity')}</h2>
             <p>{t('home2.settings.accountSecurityDescription')}</p>
           </div>
 

@@ -1816,7 +1816,7 @@ function testSettingsScaffoldAndNewTabPreference(): void {
     assert.notEqual(account, -1)
     assert.ok(general < appearance && appearance < account)
     assert.match(html, /aria-current="page">General<\/button>/)
-    assert.match(html, /<h2 id="general-settings-title">General<\/h2>/)
+    assert.match(html, /<h2 id="general-settings-title[^"]*">General<\/h2>/)
     assert.match(html, />New tab</)
     assert.match(html, /aria-label="New tab opens"/)
     assert.match(html, /data-home-v2-notification-policy="available"/)
@@ -2076,6 +2076,143 @@ function testCoreManagementRenderingAndAndroidDegrade(): void {
     1,
   )
   {
+    // The dashboard says WHICH Home is installed and shows the download it is
+    // doing, and the Core tile names which BUILD is running. A tester asked for
+    // "version numbers of Home and Cores" and for progress they could see
+    // without opening Settings. Everything heavier -- the asset table, the
+    // per-source breakdown, the local API URL -- stays in Settings behind the
+    // link this section already has.
+    const coreMaintenance2 = coreManagement.coreMaintenance
+    assert.ok(coreMaintenance2?.status)
+    const detailed = renderToStaticMarkup(
+      <HomeV2Prototype
+        snapshot={homeV2Fixture}
+        productState={createProductState()}
+        permissionState={createPermissionState()}
+        layout="desktop"
+        appUpdates={{
+          ...appUpdates,
+          progress: {
+            action: 'downloading',
+            fileName: 'Qortium-Home-x86_64.AppImage',
+            message: 'Downloading update',
+            percent: 42,
+            receivedBytes: 42,
+            releaseTag: 'v2.1.1',
+            totalBytes: 100,
+          },
+          result: {
+            asset: null,
+            channel: 'stable',
+            checkedAt: '2026-09-07T12:00:00.000Z',
+            currentVersion: '2.1.0',
+            issue: null,
+            platform: { arch: 'x64', label: 'Linux x64', os: 'linux', supported: true },
+            release: null,
+            revision: 1,
+            schema: 'home-v2-app-update-check',
+            state: 'up-to-date',
+          },
+        } as unknown as HomeV2AppUpdates}
+        coreManagement={{
+          ...coreManagement,
+          coreMaintenance: {
+            ...coreMaintenance2,
+            status: {
+              ...coreMaintenance2.status,
+              core: {
+                ...coreMaintenance2.status.core,
+                installedCommit: 'abcdef1234567890',
+                localApiUrl: 'http://127.0.0.1:24891',
+                updateSources: {
+                  github: { commit: null, version: '1.7.3' },
+                  onChain: null,
+                },
+              },
+            },
+          },
+          // Qortal reports no channel and no build commit to Home, so the
+          // Qortal tile must render its version alone rather than an empty
+          // separator or a borrowed Qortium build identity.
+          qortalMaintenance: {
+            actionAllowed: false,
+            busy: null,
+            notice: null,
+            release: null,
+            status: {
+              capabilities: { canCheckRelease: true, canInitialInstall: false, canUpdate: true },
+              discovery: 'not-applicable',
+              install: 'home-managed',
+              installedVersion: '6.2.0',
+              issue: null,
+              lastRelease: null,
+              lastReleaseCheckedAt: null,
+              network: 'qortal',
+              revision: 1,
+              runtime: 'stopped',
+              schema: 'home-v2-qortal-maintenance',
+              updateAuthority: 'home-github',
+            },
+          },
+        }}
+        onOpenReleaseNotes={() => undefined}
+      />,
+    )
+    assert.match(detailed, /data-home-v2-home-version="2\.1\.0"/)
+    assert.match(detailed, /Version 2\.1\.0/)
+    assert.match(detailed, /data-home-v2-core-progress="downloading"/)
+    assert.match(detailed, /data-home-v2-core-progress-kind="home"/)
+    // Channel and a SHORT commit beside the version: two builds of one version
+    // are otherwise indistinguishable on the tile.
+    assert.match(detailed, /data-home-v2-core-channel="stable"/)
+    assert.match(detailed, /abcdef123456/)
+    assert.doesNotMatch(detailed, /abcdef1234567890/, 'the commit is shortened on the tile')
+    // Settings-only detail stays in Settings.
+    assert.doesNotMatch(detailed, /data-home-v2-core-update-sources/)
+    assert.doesNotMatch(detailed, /data-home-v2-core-local-api-url/)
+    {
+      // D2 is Qortium-only, and the Qortal tile has to read cleanly without it.
+      const qortalCardAt = detailed.indexOf('class="home-v2-node-core-card" data-network="qortal"')
+      assert.ok(qortalCardAt > 0)
+      const qortalCard = detailed.slice(qortalCardAt)
+      assert.match(qortalCard, /data-home-v2-core-version="6\.2\.0"/)
+      assert.match(qortalCard, />Version 6\.2\.0</,
+        'the Qortal version stands alone, with no dangling separator')
+      assert.doesNotMatch(qortalCard, /data-home-v2-core-channel/)
+      assert.doesNotMatch(qortalCard, /abcdef123456/)
+    }
+    {
+      // A phase with no honest denominator ("checking", "extracting") reports a
+      // null percent and must get an INDETERMINATE bar rather than 0%.
+      const indeterminate = renderToStaticMarkup(
+        <HomeV2Prototype
+          snapshot={homeV2Fixture}
+          productState={createProductState()}
+          permissionState={createPermissionState()}
+          layout="desktop"
+          appUpdates={{
+            ...appUpdates,
+            progress: {
+              action: 'checking',
+              fileName: null,
+              message: 'Checking for updates',
+              percent: null,
+              receivedBytes: null,
+              releaseTag: null,
+              totalBytes: null,
+            },
+          } as unknown as HomeV2AppUpdates}
+          coreManagement={coreManagement}
+        />,
+      )
+      assert.match(indeterminate, /data-home-v2-core-progress="checking"/)
+      assert.match(indeterminate, /data-home-v2-core-progress-kind="home"/)
+      assert.match(indeterminate, /data-indeterminate="true"/)
+      assert.doesNotMatch(indeterminate, /aria-valuenow/)
+      assert.doesNotMatch(indeterminate, /Checking for updates 0%/)
+    }
+  }
+  {
     // Release notes reachable from the DASHBOARD once a release IS on offer —
     // for the Home app and, the part Home 2 had lost, for the Core. 1.x
     // offered these from six places; Home 2 had exactly one, in Settings,
@@ -2115,6 +2252,154 @@ function testCoreManagementRenderingAndAndroidDegrade(): void {
     )
     assert.doesNotMatch(withoutHandler, /data-home-v2-node-core-action="home-release-notes"/)
     assert.doesNotMatch(withoutHandler, /data-home-v2-node-core-action="core-release-notes"/)
+  }
+  {
+    // The compact row labels and gates the release that would ACTUALLY be
+    // installed. It read `release.action` -- the forward move on the CHECKED
+    // channel -- while the mutation installs the selected offer, else
+    // `offers[0]`, which is stable-first. With a prerelease installed, stable
+    // is a downgrade and sits first: the tile said "Update and restart Core"
+    // and would have run a downgrade.
+    const base = coreManagement.coreMaintenance
+    const baseStatus = base?.status
+    assert.ok(base && baseStatus)
+    type Offer = {
+      readonly channel: 'prerelease' | 'stable'
+      readonly relation: 'downgrade' | 'initial-install' | 'update'
+      readonly tag: string
+    }
+    const stableDowngrade: Offer = { channel: 'stable', relation: 'downgrade', tag: 'v1.7.1' }
+    const prereleaseUpdate: Offer =
+      { channel: 'prerelease', relation: 'update', tag: 'v1.8.0-rc1' }
+    const initialInstall: Offer =
+      { channel: 'stable', relation: 'initial-install', tag: 'v1.7.3' }
+    const tile = (options: {
+      readonly action?: 'initial-install' | 'none' | 'strict-update'
+      readonly canUpdateRunningInPlace?: boolean
+      readonly installedVersion?: string | null
+      readonly offers: readonly Offer[]
+      readonly runtime: 'running' | 'stopped' | 'unknown'
+      readonly selectedReleaseTag?: string | null
+      readonly tag?: string | null
+    }) => renderToStaticMarkup(
+      <HomeV2Prototype
+        snapshot={homeV2Fixture}
+        productState={createProductState()}
+        permissionState={createPermissionState()}
+        layout="desktop"
+        appUpdates={appUpdates}
+        coreManagement={{
+          ...coreManagement,
+          coreMaintenance: {
+            ...base,
+            release: {
+              action: options.action ?? 'strict-update',
+              available: true,
+              channel: 'stable',
+              offers: options.offers,
+              revision: 1,
+              schema: 'home-v2-core-maintenance-release',
+              tag: options.tag === undefined ? 'v1.7.3' : options.tag,
+            },
+            selectedReleaseTag: options.selectedReleaseTag ?? null,
+            status: {
+              ...baseStatus,
+              capabilities: {
+                ...baseStatus.capabilities,
+                // Java is checked BEFORE the release, so it would hide this
+                // whole row; the fixture offers it and this matrix is about
+                // the release.
+                canInstallJava: false,
+                canUpdateRunningInPlace: options.canUpdateRunningInPlace ?? false,
+              },
+              core: {
+                ...baseStatus.core,
+                installedVersion: options.installedVersion === undefined
+                  ? '1.7.2'
+                  : options.installedVersion,
+                runtime: options.runtime,
+              },
+            },
+          },
+        }}
+        onOpenReleaseNotes={() => undefined}
+      />,
+    )
+    const releaseButton = (html: string) =>
+      /<button[^>]*data-home-v2-node-core-action="core-release"[^>]*>[^<]*/
+        .exec(html)?.[0] ?? null
+
+    // Stable downgrade first, newer prerelease second, nothing selected: the
+    // default target is the DOWNGRADE, so this row offers nothing at all. The
+    // downgrade stays in Settings, which has the picker and the confirmation.
+    const defaultsToDowngrade = tile({
+      canUpdateRunningInPlace: true,
+      offers: [stableDowngrade, prereleaseUpdate],
+      runtime: 'running',
+      tag: 'v1.8.0-rc1',
+    })
+    assert.equal(releaseButton(defaultsToDowngrade), null,
+      'a downgrade must never be offered from the compact row')
+    assert.doesNotMatch(defaultsToDowngrade, /Update and restart Core/)
+    assert.doesNotMatch(defaultsToDowngrade, /data-home-v2-node-core-action="core-release-notes"/)
+    // Nothing installable from here still leaves the check action reachable.
+    assert.match(defaultsToDowngrade, /data-home-v2-node-core-action="core-check"/)
+
+    // The same release, with the prerelease SELECTED: now the effective offer
+    // is an update, and an update to a Home-started Core restarts it in place.
+    const selectedUpdate = tile({
+      canUpdateRunningInPlace: true,
+      offers: [stableDowngrade, prereleaseUpdate],
+      runtime: 'running',
+      selectedReleaseTag: 'v1.8.0-rc1',
+      tag: 'v1.8.0-rc1',
+    })
+    assert.match(selectedUpdate, /data-home-v2-core-release-target="v1\.8\.0-rc1"/)
+    assert.match(releaseButton(selectedUpdate) ?? '', /Update and restart Core/)
+    assert.doesNotMatch(releaseButton(selectedUpdate) ?? '', /disabled/)
+
+    // `action: 'none'` with an offer: the checked channel had nothing newer,
+    // but another channel did. Settings rendered it and this row rendered
+    // nothing, for the release the mutation would have installed.
+    assert.match(
+      tile({ action: 'none', offers: [prereleaseUpdate], runtime: 'stopped' }),
+      /data-home-v2-core-release-target="v1\.8\.0-rc1"/,
+    )
+    // A null `tag` with offers present used to strand them entirely.
+    assert.match(
+      tile({ offers: [prereleaseUpdate], runtime: 'stopped', tag: null }),
+      /data-home-v2-core-release-target="v1\.8\.0-rc1"/,
+    )
+
+    // 'unknown' is blocked REGARDLESS of the in-place capability: the
+    // capability says Home started this Core, not that Home can see it now.
+    const unknownRuntime = tile({
+      canUpdateRunningInPlace: true,
+      offers: [prereleaseUpdate],
+      runtime: 'unknown',
+    })
+    assert.match(releaseButton(unknownRuntime) ?? '', /disabled/)
+    assert.match(unknownRuntime, /cannot confirm whether Core is stopped/)
+    assert.doesNotMatch(unknownRuntime, /Stop Core before installing or updating it/)
+
+    // An initial install never runs in place -- there is no previous version to
+    // restore -- so a stopped Core is required whatever the capability says.
+    const initialStopped = tile({
+      canUpdateRunningInPlace: true,
+      installedVersion: null,
+      offers: [initialInstall],
+      runtime: 'stopped',
+    })
+    assert.match(releaseButton(initialStopped) ?? '', /Install Core/)
+    assert.doesNotMatch(releaseButton(initialStopped) ?? '', /disabled/)
+    const initialRunning = tile({
+      canUpdateRunningInPlace: true,
+      installedVersion: null,
+      offers: [initialInstall],
+      runtime: 'running',
+    })
+    assert.match(releaseButton(initialRunning) ?? '', /disabled/)
+    assert.match(initialRunning, /Stop Core before installing or updating it/)
   }
 
   const qortalDisabledSnapshot = {
@@ -2277,7 +2562,7 @@ function testCoreManagementRenderingAndAndroidDegrade(): void {
         coreManagement={coreManagement}
       />,
     )
-    const headings = [...runtime.matchAll(/id="(qortal-)?core-settings-title"/g)]
+    const headings = [...runtime.matchAll(/id="(qortal-)?core-settings-title[^"]*"/g)]
       .map((match) => match[1] ?? '')
     assert.deepEqual(
       headings,
@@ -2288,7 +2573,7 @@ function testCoreManagementRenderingAndAndroidDegrade(): void {
     // transport panel's placement is not asserted here because it needs the
     // maintenance controllers, which this fixture does not build; the card
     // order is what proves the split.
-    const qortalHeadingAt = runtime.indexOf('id="qortal-core-settings-title"')
+    const qortalHeadingAt = runtime.search(/id="qortal-core-settings-title[^"]*"/)
     const qortiumCardAt = runtime.indexOf('data-network="qortium"')
     const qortalCardAt = runtime.indexOf('data-network="qortal"')
     assert.ok(qortiumCardAt !== -1 && qortalCardAt !== -1, 'both cards must render')
@@ -2417,7 +2702,7 @@ function testCoreManagementRenderingAndAndroidDegrade(): void {
     />,
   )
   assert.match(unavailableTarget, /aria-current="page">General<\/button>/)
-  assert.match(unavailableTarget, /<h2 id="general-settings-title">General<\/h2>/)
+  assert.match(unavailableTarget, /<h2 id="general-settings-title[^"]*">General<\/h2>/)
 
   const android = renderToStaticMarkup(
     <HomeV2Prototype
