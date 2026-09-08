@@ -67,10 +67,14 @@ jobs:
           if ((Get-FileHash $exe.FullName -Algorithm SHA256).Hash.ToLower() -ne $expected.ToLower()) { throw 'Hash mismatch' }
           New-Item -ItemType Directory native-artifacts -Force
           Get-AuthenticodeSignature $exe.FullName | Select-Object Status,StatusMessage | ConvertTo-Json > native-artifacts/signing.txt
-      - name: Exercise downloaded portable package
+      - name: Build disposable diagnostic package
+        run: |
+          npm ci
+          npm run dist:win:x64
+      - name: Exercise diagnostic portable package
         shell: pwsh
         run: |
-          $exe = (Get-Item downloaded/*.exe).FullName
+          $exe = (Get-Item dist-release/*.exe).FullName
           node .github/scripts/smoke-beta-native.mjs $exe
       - uses: actions/upload-artifact@v7
         with:

@@ -1,4 +1,9 @@
 import type { IpcMainInvokeEvent, WebContents } from 'electron'
+import { appendFileSync } from 'node:fs'
+
+function betaDiagnostic(value: unknown) {
+  if (process.env.HOME_BETA_DIAGNOSTIC_LOG) appendFileSync(process.env.HOME_BETA_DIAGNOSTIC_LOG, JSON.stringify(value) + '\n')
+}
 
 type AuthorizedHomeV2Sender = {
   readonly sender: WebContents
@@ -16,6 +21,7 @@ function normalizedDocumentUrl(value: string) {
 }
 
 function revokeHomeV2Sender(sender: WebContents) {
+  betaDiagnostic({ event: 'revoke', id: sender.id, url: sender.getURL() })
   const authorized = authorizedHomeV2Senders.get(sender.id)
   if (authorized?.sender === sender) authorizedHomeV2Senders.delete(sender.id)
 }
@@ -25,6 +31,7 @@ export function authorizeHomeV2Sender(
   trustedDocumentUrl: string,
 ) {
   const normalizedTrustedUrl = normalizedDocumentUrl(trustedDocumentUrl)
+  betaDiagnostic({ event: 'register', id: sender.id, trustedDocumentUrl, normalizedTrustedUrl })
   if (!normalizedTrustedUrl) {
     throw new Error('The trusted Home v2 document URL is invalid.')
   }
@@ -35,6 +42,7 @@ export function authorizeHomeV2Sender(
   })
   sender.once('destroyed', () => revokeHomeV2Sender(sender))
   sender.on('did-start-navigation', (_event, url, _isInPlace, isMainFrame) => {
+    betaDiagnostic({ event: 'navigation', id: sender.id, url, isMainFrame, normalizedTrustedUrl })
     if (
       isMainFrame &&
       normalizedDocumentUrl(url) !== normalizedTrustedUrl
@@ -59,6 +67,7 @@ export function assertAuthorizedHomeV2Sender(event: IpcMainInvokeEvent) {
     senderUrl !== authorized.trustedDocumentUrl ||
     frameUrl !== authorized.trustedDocumentUrl
   ) {
+    betaDiagnostic({event: 'rejected', id: sender.id, registered: !!authorized, sameSender: authorized?.sender === sender, destroyed: sender.isDestroyed(), sameFrame: senderFrame === sender.mainFrame, senderUrl, frameUrl, trusted: authorized?.trustedDocumentUrl})
     throw new Error(
       'Home v2 data is only available to an authorized top-level Home v2 document.',
     )
