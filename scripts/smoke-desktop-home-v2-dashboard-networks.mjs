@@ -77,7 +77,9 @@ try {
     await sleep(250)
     state = await cdp.evaluate('JSON.stringify(window.__dashboardNetworks ?? null)')
     const parsed = state ? JSON.parse(state) : null
-    if (parsed?.sawBoth) break
+    // A fast first render can show both panels before the minimum sample
+    // count. Keep recording until both acceptance conditions are satisfied.
+    if (parsed?.sawBoth && parsed.frames > 30) break
   }
   const observed = state ? JSON.parse(state) : null
   assert.ok(observed, 'the recorder never ran')

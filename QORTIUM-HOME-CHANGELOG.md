@@ -47,6 +47,8 @@ legacy package; Apple Silicon continues to require macOS 11 or later.
 Update the EPUB XML dependency to its patched 0.8.15 version.
 Keep browser visibility checks and navigation history compatible with the
 Catalina Electron runtime while retaining hidden-view permission guards.
+Import valid Home 1.x saved-link snapshots even when their older mirror
+records are absent, so upgrading does not block the bookmark manager.
 
 ## fix(home2): remove bookmarks from the toolbar context menu
 

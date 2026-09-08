@@ -99,6 +99,11 @@ export function parseHomeV2LegacyCollectionsRaw(raw: HomeV2LegacyCollectionRawVa
     .filter((key) => key !== 'qortium-home-bookmark-manager-snapshot')
     .some((key) => raw[key] !== null)
 
+  // Home 1.x can retain only the canonical commit record. There is no
+  // competing mirror to reconcile in that case, and the snapshot above has
+  // already passed the full validator.
+  if (canonical && !mirrorHadData) return { hadData, snapshot: canonical }
+
   let mirror: BookmarkManagerSnapshot | null = null
   let mirrorError: unknown = null
   if (mirrorHadData || !canonical) {
