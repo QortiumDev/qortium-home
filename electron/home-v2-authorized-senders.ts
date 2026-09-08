@@ -9,7 +9,13 @@ const authorizedHomeV2Senders = new Map<number, AuthorizedHomeV2Sender>()
 
 function normalizedDocumentUrl(value: string) {
   try {
-    return new URL(value).href
+    const url = new URL(value)
+    // Node's pathToFileURL escapes ~, while Chromium's file navigation keeps
+    // it literal (notably Windows portable paths such as RUNNER~1). They name
+    // the same file. Normalize only that pathname character; never decode
+    // separators, percent signs, query strings or fragments here.
+    if (url.protocol === 'file:') url.pathname = url.pathname.replace(/%7e/gi, '~')
+    return url.href
   } catch {
     return null
   }
