@@ -383,7 +383,7 @@
     "yauzl": "2.10.0"
   },
   "devDependencies": {
-    "@capacitor/cli": "^8.5.0",
+    "@capacitor/cli": "^8.5.1",
     "@types/ed2curve": "0.2.4",
     "@types/node": "^24.13.3",
     "@types/react": "^19.2.18",
