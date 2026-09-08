@@ -8,7 +8,7 @@ concurrency:
   group: home-beta1-native-assets
   cancel-in-progress: true
 env:
-  TARGET_REF: 6d823d33788f6bae286423c9ef4f4350d36b0c8e
+  TARGET_REF: cab84fde179922c6b376ea319b22f71044a39d02
 jobs:
   mac:
     name: macOS ${{ matrix.variant }}
@@ -54,8 +54,15 @@ jobs:
           set -euo pipefail
           npm run build:native:macos
           npm run build
+          npm run test:core-native-observer
+          npm run test:home-v2-qortal-maintenance-contract
+          npm run test:qdn-view-visibility
           if [ -n "$LEGACY_ELECTRON" ]; then
-            npm install --no-save --package-lock=false "electron@$LEGACY_ELECTRON"
+            npm pack "electron@$LEGACY_ELECTRON" --pack-destination "$RUNNER_TEMP"
+            mv node_modules/electron "$RUNNER_TEMP/electron-original"
+            mkdir node_modules/electron
+            tar -xzf "$RUNNER_TEMP/electron-$LEGACY_ELECTRON.tgz" -C node_modules/electron --strip-components=1
+            node node_modules/electron/install.js
           fi
           electron_version=$(node -p "require('electron/package.json').version")
           QORTIUM_HOME_EXPECTED_ELECTRON_VERSION="$electron_version" node scripts/test-qdn-app-preload.mjs
@@ -73,8 +80,6 @@ jobs:
           cp "dist-release/Qortium-Home-$version-$ARCH.dmg" "native-artifacts/Qortium-Home-$version-$VARIANT.dmg"
           shasum -a 256 native-artifacts/*.dmg > native-artifacts/SHA256SUMS
           printf '%s\n' "$TARGET_REF" > native-artifacts/SOURCE_COMMIT
-          npm run test:core-native-observer
-          npm run test:home-v2-qortal-maintenance-contract
       - uses: actions/checkout@v6
         with:
           ref: ${{ github.sha }}
