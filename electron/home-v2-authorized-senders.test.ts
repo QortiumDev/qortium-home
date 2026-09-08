@@ -61,6 +61,33 @@ function senderFixture(id: number, initialUrl: string) {
 const trustedUrl = 'file:///opt/qortium-home/dist/v2-live.html'
 
 {
+  const encoded = 'file:///C:/Users/RUNNER%7E1/Temp/Home/resources/app.asar/dist/v2-live.html'
+  const literal = encoded.replace('%7E', '~')
+  const home = senderFixture(90, literal)
+  authorizeHomeV2Sender(home.sender, encoded)
+  assert.doesNotThrow(() => assertAuthorizedHomeV2Sender(home.event()))
+  home.navigate(literal)
+  assert.doesNotThrow(() => assertAuthorizedHomeV2Sender(home.event()))
+  assert.equal(sendToHomeV2Window(90, 'example', null), true)
+  home.navigate(literal.replace('RUNNER~1', 'OTHER~1'))
+  assert.throws(() => assertAuthorizedHomeV2Sender(home.event()), /authorized top-level/)
+
+  for (const [index, untrusted] of [
+    encoded.replace('%7E', '%257E'),
+    literal.replace('/Temp/', '%2FTemp/'),
+    literal + '?extra=1',
+    literal + '#other',
+  ].entries()) {
+    const other = senderFixture(91 + index, untrusted)
+    authorizeHomeV2Sender(other.sender, encoded)
+    assert.throws(() => assertAuthorizedHomeV2Sender(other.event()), /authorized top-level/)
+  }
+  const remote = senderFixture(95, 'https://example.test/~home')
+  authorizeHomeV2Sender(remote.sender, 'https://example.test/%7Ehome')
+  assert.throws(() => assertAuthorizedHomeV2Sender(remote.event()), /authorized top-level/)
+}
+
+{
   const widget = senderFixture(100, trustedUrl)
   assert.throws(() => assertAuthorizedHomeV2Sender(widget.event()), /authorized top-level/)
 }
