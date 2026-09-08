@@ -35,11 +35,32 @@ try {
     await new Promise(resolve => setTimeout(resolve, 1000));
   }
   assert.ok(state?.tabs, 'Packaged shell must render its tab strip');
+  const core = await cdp.evaluate(`(async () => ({
+    qortium: await window.homeV2CoreManagers.getStatus('qortium'),
+    qortal: await window.homeV2CoreManagers.getStatus('qortal'),
+    adoption: await window.homeV2CoreManagers.listQortalAdoptionCandidates(),
+  }))()`);
+  for (const network of ['qortium', 'qortal']) {
+    assert.equal(core[network].network, network);
+    assert.equal(core[network].install, 'missing');
+  }
+  assert.equal(core.adoption.schema, 'home-v2-qortal-adoption-list');
+  if (process.platform === 'darwin') {
+    assert.equal(core.adoption.state, 'complete');
+    assert.equal(core.adoption.canBrowse, true);
+  } else {
+    assert.equal(core.adoption.state, 'unsupported');
+    assert.equal(core.adoption.code, 'unsupported-platform');
+    assert.equal(core.adoption.canBrowse, false);
+    const rejected = await cdp.evaluate("window.homeV2CoreManagers.selectQortalAdoptionCandidate('00000000-0000-0000-0000-000000000000')");
+    assert.equal(rejected.outcome, 'blocked');
+    assert.equal(rejected.code, 'unsupported-platform');
+  }
   await cdp.send('Page.enable');
   const screenshot = await cdp.send('Page.captureScreenshot', {format: 'png'});
   mkdirSync('native-artifacts', {recursive: true});
   writeFileSync('native-artifacts/native-shell.png', screenshot.data, 'base64');
-  writeFileSync('native-artifacts/native-shell.json', JSON.stringify({platform: process.platform, arch: process.arch, ...state}, null, 2));
+  writeFileSync('native-artifacts/native-shell.json', JSON.stringify({platform: process.platform, arch: process.arch, os: os.release(), ...state, core}, null, 2));
   console.log('Native packaged Home shell PASS');
 } finally {
   cdp?.socket.close();

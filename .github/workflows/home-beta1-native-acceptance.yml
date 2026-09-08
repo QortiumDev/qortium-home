@@ -1,0 +1,79 @@
+name: Home beta.1 downloaded native acceptance
+on:
+  push:
+    branches: [codex/home-beta1-native-acceptance]
+permissions:
+  contents: read
+  actions: read
+env:
+  ASSET_RUN: '34173532026'
+  SOURCE_COMMIT: 57e98d67210874bff459741565a3c96cbf3b3208
+jobs:
+  mac:
+    name: Downloaded ${{ matrix.variant }}
+    runs-on: macos-14
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [universal, macos11-universal, macos1015-x64]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - name: Download and verify candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VARIANT: ${{ matrix.variant }}
+        run: |
+          gh run download "$ASSET_RUN" --name "home-beta1-$VARIANT" --dir downloaded
+          test "$(cat downloaded/SOURCE_COMMIT)" = "$SOURCE_COMMIT"
+          mkdir -p native-artifacts
+          cp downloaded/*.dmg native-artifacts/
+          shasum -a 256 -c downloaded/SHA256SUMS
+          mkdir "$RUNNER_TEMP/home-beta-mount"
+          hdiutil attach downloaded/*.dmg -nobrowse -readonly -mountpoint "$RUNNER_TEMP/home-beta-mount"
+      - name: Exercise downloaded package
+        run: |
+          app="$RUNNER_TEMP/home-beta-mount/Qortium Home.app"
+          codesign -dv "$app" > native-artifacts/signing.txt 2>&1 || true
+          node .github/scripts/smoke-beta-native.mjs "$app/Contents/MacOS/Qortium Home"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: native-acceptance-${{ matrix.variant }}
+          path: |
+            native-artifacts/native-shell.*
+            native-artifacts/signing.txt
+  windows:
+    name: Downloaded Windows x64
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - name: Download and verify candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          gh run download $env:ASSET_RUN --name home-beta1-windows-x64 --dir downloaded
+          if ((Get-Content downloaded/SOURCE_COMMIT).Trim() -ne $env:SOURCE_COMMIT) { throw 'Source mismatch' }
+          $exe = Get-Item downloaded/*.exe
+          $expected = ((Get-Content downloaded/SHA256SUMS) -split '\s+')[0]
+          if ((Get-FileHash $exe.FullName -Algorithm SHA256).Hash.ToLower() -ne $expected.ToLower()) { throw 'Hash mismatch' }
+          New-Item -ItemType Directory native-artifacts -Force
+          Get-AuthenticodeSignature $exe.FullName | Select-Object Status,StatusMessage | ConvertTo-Json > native-artifacts/signing.txt
+      - name: Exercise downloaded portable package
+        shell: pwsh
+        run: |
+          $exe = (Get-Item downloaded/*.exe).FullName
+          node .github/scripts/smoke-beta-native.mjs $exe
+      - uses: actions/upload-artifact@v7
+        with:
+          name: native-acceptance-windows-x64
+          path: |
+            native-artifacts/native-shell.*
+            native-artifacts/signing.txt
