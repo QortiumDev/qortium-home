@@ -89,7 +89,7 @@ try {
       version: 3,
       appearance: {
         accent: 'clay',
-        appZoom: 1,
+        appZoom: 100,
         language: 'system',
         textSize: 'medium',
         theme: 'dark',

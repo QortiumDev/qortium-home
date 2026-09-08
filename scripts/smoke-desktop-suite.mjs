@@ -16,6 +16,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { resolveAppImage } from './lib/home-v2-cdp.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -125,7 +126,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const nodeless = args.includes('--no-node');
   const ciOnly = args.includes('--ci');
 
-  const appImage = path.join(repoRoot, 'dist-release', 'Qortium-Home-2.1.0-x86_64.AppImage');
+  const appImage = resolveAppImage(repoRoot);
   if (!existsSync(appImage)) {
     console.error(`No packaged AppImage at ${appImage}. Run "npm run dist:linux:x64" first.`);
     process.exit(1);

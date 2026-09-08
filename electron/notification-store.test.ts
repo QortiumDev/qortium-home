@@ -23,7 +23,8 @@ import {
 } from './notification-store.js';
 import { registerWidget, unregisterWidget } from './widget-registry.js';
 
-const root = mkdtempSync(path.join(os.tmpdir(), 'qortium-notification-store-'));
+const managedTestRoot = process.env.QORTIUM_HOME_ELECTRON_TEST_DATA_DIR?.trim();
+const root = managedTestRoot || mkdtempSync(path.join(os.tmpdir(), 'qortium-notification-store-'));
 const storePath = path.join(root, 'notification-store.json');
 const appKey = 'qdn://APP/Wallet/Wallet';
 
@@ -238,5 +239,7 @@ try {
 
   console.log('Notification store hardening tests passed.');
 } finally {
-  rmSync(root, { force: true, recursive: true });
+  if (!managedTestRoot) {
+    rmSync(root, { force: true, recursive: true, maxRetries: 5, retryDelay: 100 });
+  }
 }

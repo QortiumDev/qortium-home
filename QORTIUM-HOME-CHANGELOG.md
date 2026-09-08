@@ -32,6 +32,16 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## test: make beta release acceptance reproducible
+
+2026-09-07
+
+Resolve the packaged smoke asset from the current version or the CI-provided
+path so beta filenames work. Seed the toolbar smoke with 100 percent zoom,
+and let the test runner remove the notification fixture after Electron exits
+so its cache writes cannot race cleanup. These validation changes do not alter
+the packaged application.
+
 ## release: prepare home 2.1.0-beta.1
 
 2026-09-07
