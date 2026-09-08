@@ -51,6 +51,8 @@ Import valid Home 1.x saved-link snapshots even when their older mirror
 records are absent, so upgrading does not block the bookmark manager.
 Keep the Windows portable shell authorized when its temporary installation
 path contains a tilde, so its own Settings and Core controls remain available.
+Refresh the icon library and React DOM types, and align the Android runtime,
+Capacitor bridge and build tools on 8.5.1 before the public testing build.
 
 ## fix(home2): remove bookmarks from the toolbar context menu
 
