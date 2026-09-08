@@ -77,7 +77,17 @@ jobs:
           QORTIUM_CORE_REPOSITORY: ${{ github.workspace }}/.interop/qortium-core
 
       - name: Verify widget transparency
-        run: npm run smoke:desktop:widgets
+        # Placement/restore assertions need a real window manager; bare Xvfb
+        # does not implement window positioning consistently.
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends openbox
+          xvfb-run -a -s '-screen 0 1800x1300x24' bash -c '
+            openbox > "$RUNNER_TEMP/widget-openbox.log" 2>&1 &
+            widget_wm_pid=$!
+            trap "kill $widget_wm_pid 2>/dev/null || true" EXIT
+            npm run smoke:desktop:widgets
+          '
 
   # The packaged smokes drive the REAL AppImage over CDP, so they are the only
   # checks that exercise what ships. Nothing ran them until 2026-08-30, and by
