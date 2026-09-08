@@ -8,7 +8,7 @@ concurrency:
   group: home-beta1-native-assets
   cancel-in-progress: true
 env:
-  TARGET_REF: 57e98d67210874bff459741565a3c96cbf3b3208
+  TARGET_REF: 1321873543206a868344cd058aee5c8bc4e9654d
 jobs:
   mac:
     name: macOS ${{ matrix.variant }}
