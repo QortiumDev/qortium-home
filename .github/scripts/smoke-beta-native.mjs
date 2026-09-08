@@ -35,11 +35,26 @@ try {
     await new Promise(resolve => setTimeout(resolve, 1000));
   }
   assert.ok(state?.tabs, 'Packaged shell must render its tab strip');
-  const core = await cdp.evaluate(`(async () => ({
+  console.log('Packaged document', await cdp.evaluate('location.href'));
+  const coreExpression = `(async () => ({
     qortium: await window.homeV2CoreManagers.getStatus('qortium'),
     qortal: await window.homeV2CoreManagers.getStatus('qortal'),
     adoption: await window.homeV2CoreManagers.listQortalAdoptionCandidates(),
-  }))()`);
+  }))()`;
+  let core;
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      core = await cdp.evaluate(coreExpression);
+      break;
+    } catch (error) {
+      console.log('Bridge readiness attempt', attempt + 1, String(error));
+      if (attempt === 4) {
+        console.log('Packaged shell state', await cdp.evaluate('document.body.innerText.slice(0, 6000)'));
+        throw error;
+      }
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    }
+  }
   for (const network of ['qortium', 'qortal']) {
     assert.equal(core[network].network, network);
     assert.equal(core[network].install, 'missing');
