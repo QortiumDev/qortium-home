@@ -67,7 +67,7 @@ try {
     assert.equal(core.adoption.state, 'unsupported');
     assert.equal(core.adoption.code, 'unsupported-platform');
     assert.equal(core.adoption.canBrowse, false);
-    const rejected = await cdp.evaluate("window.homeV2CoreManagers.selectQortalAdoptionCandidate('00000000-0000-0000-0000-000000000000')");
+    const rejected = await cdp.evaluate("window.homeV2CoreManagers.selectQortalAdoptionCandidate('00000000-0000-4000-8000-000000000000')");
     assert.equal(rejected.outcome, 'blocked');
     assert.equal(rejected.code, 'unsupported-platform');
   }
