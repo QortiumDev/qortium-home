@@ -71,6 +71,15 @@ try {
     assert.equal(rejected.outcome, 'blocked');
     assert.equal(rejected.code, 'unsupported-platform');
   }
+  // A tab strip alone can render while shell initialization is still blocked.
+  // Wait for either the initialized Dashboard or the first-run setup page.
+  while (Date.now() < deadline) {
+    state = await cdp.evaluate(`({ tabs: !!document.querySelector('.home-v2-tabs'), text: document.body?.innerText.slice(0, 6000) ?? '' })`);
+    if (state.text.includes('Skip setup') || state.text.includes('Node & Core')) break;
+    await new Promise(resolve => setTimeout(resolve, 1000));
+  }
+  assert.ok(state.text.includes('Skip setup') || state.text.includes('Node & Core'),
+    `The packaged shell must finish initialization: ${state.text}`);
   await cdp.send('Page.enable');
   const screenshot = await cdp.send('Page.captureScreenshot', {format: 'png'});
   mkdirSync('native-artifacts', {recursive: true});
