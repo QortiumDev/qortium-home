@@ -32,6 +32,18 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## fix: preserve published app publishing and minting compatibility
+
+2026-09-08
+
+Restore the publishing request format used by the published Boards, Help,
+Paint and Recipes apps, so they can work with Home 2 without rebuilding their
+bundles. Home validates and temporarily stages their files before using the
+existing approval and signing flow, with a 25 MiB total limit and cleanup
+when the request finishes. Minting can now request its 250-member pages and
+pages up to 500 members without Home rejecting them; other group-read limits
+stay unchanged.
+
 ## test: make beta release acceptance reproducible
 
 2026-09-07

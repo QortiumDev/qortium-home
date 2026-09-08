@@ -17,6 +17,7 @@ const DISALLOWED_SOURCE_FIELDS = [
   'base64',
   'data',
   'data64',
+  'dataBase64',
   'bytes',
   'bytesBase64',
   'file',

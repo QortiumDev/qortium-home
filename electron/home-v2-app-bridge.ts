@@ -329,6 +329,7 @@ import {
   isHomeV2PreviewRenderPath,
   type HomeV2PreviewUploadTarget,
 } from './home-v2-preview-upload.js'
+import { withHomeV2LegacyPublishSources } from './home-v2-legacy-publish-source.js'
 import {
   normalizeHomeV2PublicPublishRequest,
   sha256Hex,
@@ -2823,6 +2824,40 @@ async function selectHomeV2PublicPublishSource(
     ...HOME_V2_PUBLISH_DIRECTORY_LIMITS,
     maximumFileBytes: publishRoute.limit.maximumBytes,
   })
+}
+
+// Keep the production token publishers below as the sole consent/signing path.
+// The legacy lease is bound through the same stager as an explicit STAGE call.
+async function publishHomeV2CompatibleSources(
+  sender: WebContents,
+  context: QdnViewContext,
+  protocol: HomeV2AppBridgeProtocol,
+  network: HomeV2AppNetwork,
+  routeRevision: string,
+  requestValue: Record<string, unknown>,
+  multiple: boolean,
+) {
+  if (!context.accountId) throw new Error('No account is selected for this tab.')
+  if (!isAccountUnlocked(context.accountId)) throw createHomeV2BridgeError('The selected account is locked.', {
+    action: multiple ? 'PUBLISH_MULTIPLE_QDN_RESOURCES' : 'PUBLISH_QDN_RESOURCE',
+    code: 'ACCOUNT_LOCKED',
+    network,
+    retryable: false,
+    routeRevision,
+  })
+  return withHomeV2LegacyPublishSources<
+    Awaited<ReturnType<typeof publishHomeV2PublicPublishSource>> |
+    Awaited<ReturnType<typeof publishHomeV2MultiplePublishSources>>
+  >(
+    network,
+    requestValue,
+    multiple,
+    (source) => stageHomeV2PublicPublishSource(context, protocol, network, routeRevision, source),
+    (token) => homeV2DesktopPublishSources.release(token),
+    (request) => multiple
+      ? publishHomeV2MultiplePublishSources(sender, context, protocol, network, routeRevision, request)
+      : publishHomeV2PublicPublishSource(sender, context, protocol, network, routeRevision, request),
+  )
 }
 
 async function publishHomeV2PublicPublishSource(
@@ -11201,24 +11236,15 @@ async function handleRequestWithRuntime(
       requestValue,
     )
   }
-  if (action === 'PUBLISH_QDN_RESOURCE') {
-    return publishHomeV2PublicPublishSource(
+  if (action === 'PUBLISH_QDN_RESOURCE' || action === 'PUBLISH_MULTIPLE_QDN_RESOURCES') {
+    return publishHomeV2CompatibleSources(
       sender,
       context,
       protocol,
       network,
       hostInfo.route.revision,
       requestValue,
-    )
-  }
-  if (action === 'PUBLISH_MULTIPLE_QDN_RESOURCES') {
-    return publishHomeV2MultiplePublishSources(
-      sender,
-      context,
-      protocol,
-      network,
-      hostInfo.route.revision,
-      requestValue,
+      action === 'PUBLISH_MULTIPLE_QDN_RESOURCES',
     )
   }
   if (action === 'DELETE_QDN_RESOURCE') {

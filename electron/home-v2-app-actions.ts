@@ -1004,9 +1004,11 @@ const TRANSACTION_CONFIRMATION_STATUSES = new Set(['BOTH', 'CONFIRMED', 'UNCONFI
 // ALL, OPEN, CLOSED. Not the Hub-facing PUBLIC/PRIVATE terminology.
 const GROUP_SEARCH_VISIBILITIES = new Set(['ALL', 'OPEN', 'CLOSED'])
 // Core has no server-side cap on /groups/search or /groups/members page
-// sizes; Home imposes the same conservative cap used by the other new-page
-// families above before the request goes out.
+// sizes. Keep the shared group-list cap at 100 for the existing search and
+// moderation reads, while allowing Minting's GET_GROUP_MEMBERS reader to use
+// its Core-compatible 500-member page size.
 const GROUP_LIST_LIMIT_MAX = 100
+const GROUP_MEMBERS_LIMIT_MAX = 500
 
 const CHAIN_READ_ACTIONS = new Set<string>([
   'FETCH_BLOCK',
@@ -1218,7 +1220,7 @@ export function buildHomeV2ChainReadPath(action: string, request: Record<string,
     const query = new URLSearchParams()
     const onlyAdmins = optionalStrictBoolean(request, 'onlyAdmins')
     if (onlyAdmins !== undefined) query.set('onlyAdmins', String(onlyAdmins))
-    appendPageQuery(query, request, GROUP_LIST_LIMIT_MAX)
+    appendPageQuery(query, request, GROUP_MEMBERS_LIMIT_MAX)
     return `/groups/members/${groupId}${query.size ? `?${query.toString()}` : ''}`
   }
   if (action === 'GET_GROUP_JOIN_REQUESTS') {
