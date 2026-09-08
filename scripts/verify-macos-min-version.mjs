@@ -157,7 +157,12 @@ function parseFile(file) {
     return results;
   }
 
-  return parseMachO(buffer, 0, file, 'thin');
+  const magicLe = buffer.readUInt32LE(0);
+  const littleEndian = magicLe === MH_MAGIC || magicLe === MH_MAGIC_64;
+  const knownMagic = [MH_MAGIC, MH_CIGAM, MH_MAGIC_64, MH_CIGAM_64].includes(magicLe);
+  if (!knownMagic) return [];
+  if (buffer.length < 28) throw new Error(`${file} has a truncated Mach-O header.`);
+  return parseMachO(buffer, 0, file, cpuTypeName(readUInt32(buffer, 4, littleEndian)));
 }
 
 function collectFiles(entry) {
