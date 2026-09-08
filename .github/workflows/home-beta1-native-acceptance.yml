@@ -6,8 +6,8 @@ permissions:
   contents: read
   actions: read
 env:
-  ASSET_RUN: '34179267385'
-  SOURCE_COMMIT: eabf38bc231f1a81c3548352f44bdfcca711a62e
+  ASSET_RUN: '34180879027'
+  SOURCE_COMMIT: 0fa4b428c880d7163aa944e918643da53f4cb5b7
 jobs:
   mac:
     name: Downloaded ${{ matrix.variant }}
