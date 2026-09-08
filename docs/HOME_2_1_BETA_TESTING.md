@@ -73,6 +73,10 @@ APP/WEBSITE navigation and a resource viewer are distinct operations.
 
 ## Reports still being investigated
 
+The Android 1.8.0 upgrade currently starts Home 2 with its default appearance;
+reapply your theme and accent in Settings. Existing appearance preferences are
+not yet imported into the new shell's settings record.
+
 Some testers report discarded Chat messages, attachment publishing/display
 failures, missing Trust/Wiki images or avatars on mobile, and Android app
 refreshes after roughly a minute. These reports remain open; a previously
