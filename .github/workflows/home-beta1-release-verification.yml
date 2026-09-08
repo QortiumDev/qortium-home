@@ -50,7 +50,7 @@ jobs:
         working-directory: source
         run: |
           node scripts/check-release-assets.mjs --skip-github
-          node scripts/publish-release.mjs --dry-run
+          node scripts/publish-release.mjs --dry-run --reuse-release
   public:
     needs: draft
     runs-on: ubuntu-latest
