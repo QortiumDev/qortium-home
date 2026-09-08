@@ -6,7 +6,7 @@ import {
   type HomeV2PublishSourceBinding,
 } from '../../electron/home-v2-publish-source-tokens'
 import { HOME_V2_PUBLISH_MULTIPLE_MAX_ITEMS } from '../../electron/home-v2-publish-extras-contract'
-import { HOME_V2_PUBLISH_BLOB_MAX_BYTES } from '../../electron/home-v2-publish-blob-source'
+import { homeV2PublishBlobByteLength } from '../../electron/home-v2-publish-blob-source'
 
 type NativeSelection =
   | { canceled: true }
@@ -132,20 +132,8 @@ export function stageHomeV2AndroidPublishBlob(
   binding: HomeV2PublishSourceBinding,
   requestValue: Record<string, unknown>,
 ) {
-  const encoded = requestValue.bytesBase64
-  if (typeof encoded !== 'string' || !encoded) {
-    throw new Error('STAGE_QDN_PUBLISH_SOURCE requires bytesBase64.')
-  }
-  if (encoded.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(encoded)) {
-    throw new Error('STAGE_QDN_PUBLISH_SOURCE bytesBase64 must be valid base64.')
-  }
-  if (encoded.length > Math.ceil(HOME_V2_PUBLISH_BLOB_MAX_BYTES / 3) * 4) {
-    throw new Error('STAGE_QDN_PUBLISH_SOURCE accepts at most 25 MiB.')
-  }
-  const bytes = decodeHomeV2AndroidPublishSource(encoded)
-  if (bytes.byteLength > HOME_V2_PUBLISH_BLOB_MAX_BYTES) {
-    throw new Error('STAGE_QDN_PUBLISH_SOURCE accepts at most 25 MiB.')
-  }
+  const size = homeV2PublishBlobByteLength(requestValue.bytesBase64)
+  const encoded = requestValue.bytesBase64 as string
   const mimeValue = requestValue.mimeType
   let mimeType: string | null = null
   if (mimeValue !== undefined && mimeValue !== null && mimeValue !== '') {
@@ -160,7 +148,7 @@ export function stageHomeV2AndroidPublishBlob(
     dataBase64: encoded,
     fileName,
     mimeType,
-    size: bytes.byteLength,
+    size,
   })
   return {
     canceled: false as const,

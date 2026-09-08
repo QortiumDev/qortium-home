@@ -287,8 +287,8 @@ lazy-loading guidance.
 `SELECT_QDN_PUBLISH_SOURCE` and `PUBLISH_QDN_RESOURCE` are the Home 2 QDN
 publication pair on both globals. They are advertised only while the invoked
 network has a reachable selected route. Selection returns a 30-minute token
-bound to the app, tab, account, chain, and route; no native path or inline
-bytes cross the bridge. Desktop Qortium uses the streamed authenticated
+bound to the app, tab, account, chain, and route; selection returns no native
+path or inline bytes. Desktop Qortium uses the streamed authenticated
 builder and its node-advertised limit when that exact route is admin-trusted;
 otherwise the existing keyless public builder and public limit remain in use.
 Publication always uses a single-request `qdn.publish` approval, verifies
@@ -298,15 +298,18 @@ rejects mutable resource metadata. See [Home 2 QDN publishing](QDN_PUBLIC_PUBLIS
 for request, result, route selection, unknown-broadcast, and operator-denial
 behavior.
 
-`STAGE_QDN_PUBLISH_SOURCE` complements the picker for bytes an app already
+`STAGE_QDN_PUBLISH_SOURCE` is the preferred path for bytes an app already
 legitimately holds — a pasted screenshot or a drag-dropped file. The app sends
 `{ bytesBase64, fileName, mimeType? }` (at most 25 MiB, validated before
 decoding) and receives the same selection shape the picker returns, whose
 `sourceToken` the publish actions redeem unchanged. Staging never prompts and
 grants nothing by itself: the redeeming publish still runs its full approval
 flow, staged bytes live in the same bounded, TTL-limited store as picker
-selections, and the publish contracts continue to refuse inline bytes on the
-publish actions themselves.
+selections, and the token-only Home 2 publish contract still rejects inline
+bytes. A narrow compatibility adapter also recognizes the deployed Home 1.x
+`{ base64, filename }` shape; see the next section. It stages those bytes into
+the same source-token store and then runs the unchanged binding, consent,
+signing, broadcast, result, and cleanup path.
 
 Home 2 private chat attachments use `PUBLISH_CHAT_ATTACHMENT`,
 `GET_CHAT_ATTACHMENT_STREAM_URL`, `OPEN_CHAT_ATTACHMENT_VIEWER`, and
@@ -551,22 +554,34 @@ Publishing and pointer assignment remain deliberately separate actions.
 
 Home 2's clean, network-qualified single-resource replacement is documented in
 [Home 2 public QDN publishing](QDN_PUBLIC_PUBLISHING.md), including `kind:
-'directory'` support on desktop for the Qortium global. The following broader
-inline-payload and preview surface remains specific to the retained
-compatibility bridge; Home 2 does not advertise those legacy variants. Folder
+'directory'` support on desktop for the Qortium global. The token-only Home 2
+contract accepts a Home-issued `sourceToken`; it rejects native paths, URIs,
+inline bytes, filenames, MIME claims, and every other source encoding. Folder
 sources do not extend to Qortal: a `kind: 'directory'` request on
-`qortalRequest` is REFUSED by name rather than quietly downgraded to a file
+`qortalRequest` is refused by name rather than quietly downgraded to a file
 picker, because a token no Qortal path can redeem is worse than an error.
 
-Single-resource publishing can use inline `data64`/`base64` payloads or a
-Home-owned file/folder picker on desktop and a Home-owned single-file native
-picker on Android. `SELECT_QDN_PUBLISH_SOURCE` can return a `sourceToken` and
-`sourceToken` is accepted on `PUBLISH_QDN_RESOURCE` and each entry of
-`PUBLISH_MULTIPLE_QDN_RESOURCES` as an alternative to inline `data64`/`base64`.
-`PUBLISH_MULTIPLE_QDN_RESOURCES` still requires either inline data or a token
-for each resource. `SELECT_QDN_PUBLISH_SOURCE` accepts optional `kind` (`file`
-or `directory`) and returns `{ canceled: true }` or a source result with
-`fileName`, `kind`, `size`, and `sourceToken`.
+For published Home 1.x apps, Home 2 has one deliberately narrow compatibility
+adapter. A single `PUBLISH_QDN_RESOURCE` request may carry the deployed
+top-level `{ base64, filename }` pair. A
+`PUBLISH_MULTIPLE_QDN_RESOURCES` request may instead carry an all-inline,
+top-level `resources` array whose every item has that same pair. The batch is
+bounded to ten resources and 25 MiB of decoded bytes in aggregate; Home checks
+the complete shape, resource metadata, and budget before staging any item.
+Mixed inline and token sources, batch-level source fields, nested/payload
+forms, native paths or URIs, and other encodings such as `data64`, `data`,
+`dataBase64`, `bytesBase64`, `filePath`, `fileName`, or `mimeType` are refused,
+as are encryption and recipient-key options. The adapter
+leases ordinary source tokens, then delegates to the existing app/tab/account/
+network/node-route binding, approval, signing, broadcast, result, and
+`finally` cleanup path; tokens it issued are released on staging failure,
+consent denial, cancellation or invalidation, and unknown outcomes. An
+explicit `STAGE_QDN_PUBLISH_SOURCE` request remains preferred for new code.
+
+`SELECT_QDN_PUBLISH_SOURCE` can return a `sourceToken`, and token-only publish
+requests continue to redeem it unchanged. Examples retained from the Home 1.x
+bridge that use broader inline or path-shaped fields describe that old
+surface; they are not additional Home 2 compatibility forms.
 
 Apps can show the selected source in Home before publishing it with
 `PREVIEW_QDN_PUBLISH_SOURCE`. First request a source from Home, then pass back

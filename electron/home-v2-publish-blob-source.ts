@@ -1,9 +1,9 @@
 // STAGE_QDN_PUBLISH_SOURCE (attachments-matrix B1): lets an app hand Home
 // bytes it already legitimately holds — a pasted screenshot, a drag-dropped
 // file — and receive an ordinary Home-issued publish sourceToken back. The
-// publish contracts' inline-bytes denylist stays exactly as it is: bytes
-// enter through this one narrow, size-capped, explicitly named action and
-// nothing else, and the returned token then flows through the SAME pipeline
+// token-only publish contracts keep their inline-bytes denylist. The legacy
+// public-publish adapter also uses this same bounded validator and store;
+// its temporary tokens flow through the SAME pipeline
 // as a picker selection (30-minute TTL, tab/account/route binding, the
 // qdn.publish approval prompt, PUBLISH_QDN_RESOURCE / PUBLISH_CHAT_ATTACHMENT
 // / PUBLISH_MULTIPLE_QDN_RESOURCES). Staging alone grants nothing: without
@@ -40,27 +40,38 @@ export function sanitizeHomeV2BlobFileName(value: unknown) {
   return sanitized || 'qdn-resource'
 }
 
-export function normalizeHomeV2PublishBlobRequest(value: unknown): HomeV2PublishBlobRequest {
-  if (!isRecord(value)) throw new Error('STAGE_QDN_PUBLISH_SOURCE request is required.')
-
-  const encoded = value.bytesBase64
+// Validate without decoding: the compatibility adapter uses this to budget a
+// whole legacy batch before allocating even its first source.
+export function homeV2PublishBlobByteLength(encoded: unknown): number {
   if (typeof encoded !== 'string' || !encoded) {
     throw new Error('STAGE_QDN_PUBLISH_SOURCE requires bytesBase64.')
+  }
+  if (encoded.length > Math.ceil(HOME_V2_PUBLISH_BLOB_MAX_BYTES / 3) * 4) {
+    throw new Error('STAGE_QDN_PUBLISH_SOURCE accepts at most 25 MiB.')
   }
   if (encoded.length % 4 !== 0 || !BASE64_SHAPE.test(encoded)) {
     throw new Error('STAGE_QDN_PUBLISH_SOURCE bytesBase64 must be valid base64.')
   }
-  // 4 base64 chars encode 3 bytes: refuse an oversized payload BEFORE
-  // decoding it, so a hostile app cannot make Home materialize the copy.
-  if (encoded.length > Math.ceil(HOME_V2_PUBLISH_BLOB_MAX_BYTES / 3) * 4) {
+  const padding = encoded.endsWith('==') ? 2 : encoded.endsWith('=') ? 1 : 0
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+  const lastValue = alphabet.indexOf(encoded[encoded.length - padding - 1] ?? '')
+  if (padding && (lastValue < 0 || lastValue % (padding === 2 ? 16 : 4) !== 0)) {
+    throw new Error('STAGE_QDN_PUBLISH_SOURCE bytesBase64 must be canonical base64.')
+  }
+  const size = encoded.length / 4 * 3 - padding
+  if (size < 1) throw new Error('STAGE_QDN_PUBLISH_SOURCE bytes cannot be empty.')
+  if (size > HOME_V2_PUBLISH_BLOB_MAX_BYTES) {
     throw new Error('STAGE_QDN_PUBLISH_SOURCE accepts at most 25 MiB.')
   }
+  return size
+}
 
-  const bytes = Uint8Array.from(Buffer.from(encoded, 'base64'))
-  if (bytes.byteLength < 1) throw new Error('STAGE_QDN_PUBLISH_SOURCE bytes cannot be empty.')
-  if (bytes.byteLength > HOME_V2_PUBLISH_BLOB_MAX_BYTES) {
-    throw new Error('STAGE_QDN_PUBLISH_SOURCE accepts at most 25 MiB.')
-  }
+export function normalizeHomeV2PublishBlobRequest(value: unknown): HomeV2PublishBlobRequest {
+  if (!isRecord(value)) throw new Error('STAGE_QDN_PUBLISH_SOURCE request is required.')
+
+  const encoded = value.bytesBase64
+  homeV2PublishBlobByteLength(encoded)
+  const bytes = Uint8Array.from(Buffer.from(encoded as string, 'base64'))
 
   const mimeValue = value.mimeType
   let mimeType: string | null = null

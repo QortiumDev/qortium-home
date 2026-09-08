@@ -368,8 +368,38 @@ assert.equal(
   buildHomeV2ChainReadPath('GET_GROUP_MEMBERS', { groupId: 4, limit: 20, onlyAdmins: true }),
   '/groups/members/4?onlyAdmins=true&limit=20',
 )
+for (const limit of [100, 101, 250, 500]) {
+  assert.equal(
+    buildHomeV2ChainReadPath('GET_GROUP_MEMBERS', { groupId: 4, limit }),
+    `/groups/members/4?limit=${limit}`,
+    `GET_GROUP_MEMBERS must preserve a valid ${limit}-member page request`,
+  )
+}
+// Core treats zero as its unlimited-page sentinel. Preserve the explicit
+// value while the executor still applies Home's response-byte bound.
+assert.equal(
+  buildHomeV2ChainReadPath('GET_GROUP_MEMBERS', { groupId: 4, limit: 0 }),
+  '/groups/members/4?limit=0',
+)
 assert.throws(
-  () => buildHomeV2ChainReadPath('GET_GROUP_MEMBERS', { groupId: 4, limit: 101 }),
+  () => buildHomeV2ChainReadPath('GET_GROUP_MEMBERS', { groupId: 4, limit: 501 }),
+  /between 0 and 500/,
+)
+for (const limit of ['501', 500.5, 'not-a-number']) {
+  assert.throws(
+    () => buildHomeV2ChainReadPath('GET_GROUP_MEMBERS', { groupId: 4, limit }),
+    /between 0 and 500/,
+    `GET_GROUP_MEMBERS must reject malformed or oversized limit ${String(limit)}`,
+  )
+}
+// The 500-member exception is action-specific; existing group search and
+// moderation reads retain their 100-member cap.
+assert.throws(
+  () => buildHomeV2ChainReadPath('SEARCH_GROUPS', { query: 'Chess', limit: 101 }),
+  /between 0 and 100/,
+)
+assert.throws(
+  () => buildHomeV2ChainReadPath('GET_GROUP_KICKS', { groupId: 4, limit: 101 }),
   /between 0 and 100/,
 )
 assert.equal(
