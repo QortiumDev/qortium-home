@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import packageJson from '../../package.json'
 import {
   buildHomeV2AvatarPath,
   buildHomeV2AppResourceSearchPath,
@@ -340,7 +341,7 @@ const disabledQortiumHostInfo = await client.requestApp(
   'qdnRequest',
   { action: 'GET_HOST_INFO' },
 ) as { hostVersion: string; network: string; platform: string; protocol: string; route: Record<string, unknown> }
-assert.equal(disabledQortiumHostInfo.hostVersion, '2.1.0')
+assert.equal(disabledQortiumHostInfo.hostVersion, packageJson.version)
 assert.equal(disabledQortiumHostInfo.network, 'qortium')
 assert.equal(disabledQortiumHostInfo.platform, 'android')
 assert.equal(disabledQortiumHostInfo.protocol, 'qdnRequest')

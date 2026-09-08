@@ -45,6 +45,8 @@ The developer testing guide documents feature detection and known open reports.
 The Intel macOS Core observer now targets Catalina, matching the supported
 legacy package; Apple Silicon continues to require macOS 11 or later.
 Update the EPUB XML dependency to its patched 0.8.15 version.
+Keep browser visibility checks and navigation history compatible with the
+Catalina Electron runtime while retaining hidden-view permission guards.
 
 ## fix(home2): remove bookmarks from the toolbar context menu
 

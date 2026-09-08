@@ -502,7 +502,10 @@ async function main() {
       (url) => url.startsWith('http') && new URL(url).pathname.endsWith('/widget.html'),
       'widget face',
     )
-    const widgetCapture = await home.main.evaluate(CAPTURE_WIDGET_FACE)
+    const widgetCapture = await waitUntil('the first composited widget frame', STEP_TIMEOUT_MS, async () => {
+      const capture = await home.main.evaluate(CAPTURE_WIDGET_FACE)
+      return capture.size.width > 4 && capture.size.height > 4 ? capture : null
+    })
     assert.ok(widgetCapture.size.width > 4 && widgetCapture.size.height > 4, 'The captured QDN face must contain pixels.')
     const widgetPixels = await face.evaluate(sampleWidgetCapture(widgetCapture.dataUrl))
     assert.equal(
