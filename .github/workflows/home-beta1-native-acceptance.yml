@@ -32,6 +32,7 @@ jobs:
           mkdir -p native-artifacts
           cp downloaded/*.dmg native-artifacts/
           shasum -a 256 -c downloaded/SHA256SUMS
+          cat downloaded/SHA256SUMS
           mkdir "$RUNNER_TEMP/home-beta-mount"
           hdiutil attach downloaded/*.dmg -nobrowse -readonly -mountpoint "$RUNNER_TEMP/home-beta-mount"
       - name: Exercise downloaded package
@@ -64,6 +65,7 @@ jobs:
           $exe = Get-Item downloaded/*.exe
           $expected = ((Get-Content downloaded/SHA256SUMS) -split '\s+')[0]
           if ((Get-FileHash $exe.FullName -Algorithm SHA256).Hash.ToLower() -ne $expected.ToLower()) { throw 'Hash mismatch' }
+          Write-Output "$expected  $($exe.Name)"
           New-Item -ItemType Directory native-artifacts -Force
           Get-AuthenticodeSignature $exe.FullName | Select-Object Status,StatusMessage | ConvertTo-Json > native-artifacts/signing.txt
       - name: Exercise downloaded portable package
