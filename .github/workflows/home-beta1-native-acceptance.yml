@@ -6,11 +6,10 @@ permissions:
   contents: read
   actions: read
 env:
-  ASSET_RUN: '34173532026'
-  SOURCE_COMMIT: 57e98d67210874bff459741565a3c96cbf3b3208
+  ASSET_RUN: '34174409408'
+  SOURCE_COMMIT: 1321873543206a868344cd058aee5c8bc4e9654d
 jobs:
   mac:
-    if: false # These exact DMGs passed in run 34173799615; isolate Windows retry.
     name: Downloaded ${{ matrix.variant }}
     runs-on: macos-14
     timeout-minutes: 15
@@ -67,14 +66,10 @@ jobs:
           if ((Get-FileHash $exe.FullName -Algorithm SHA256).Hash.ToLower() -ne $expected.ToLower()) { throw 'Hash mismatch' }
           New-Item -ItemType Directory native-artifacts -Force
           Get-AuthenticodeSignature $exe.FullName | Select-Object Status,StatusMessage | ConvertTo-Json > native-artifacts/signing.txt
-      - name: Build disposable diagnostic package
-        run: |
-          npm ci
-          npm run dist:win:x64
-      - name: Exercise diagnostic portable package
+      - name: Exercise downloaded portable package
         shell: pwsh
         run: |
-          $exe = (Get-Item dist-release/*.exe).FullName
+          $exe = (Get-Item downloaded/*.exe).FullName
           node .github/scripts/smoke-beta-native.mjs $exe
       - uses: actions/upload-artifact@v7
         with:

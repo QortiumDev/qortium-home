@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -9,9 +9,8 @@ const { Cdp } = await import(pathToFileURL(path.resolve('scripts/lib/home-v2-cdp
 const binary = path.resolve(process.argv[2]);
 const profile = mkdtempSync(path.join(os.tmpdir(), 'home-beta-native-'));
 const port = 9842;
-const diagnosticLog = path.join(profile, 'auth-diagnostic.log');
 const child = spawn(binary, [`--remote-debugging-port=${port}`], {
-  env: { ...process.env, QORTIUM_HOME_USER_DATA_DIR: profile, HOME_BETA_DIAGNOSTIC_LOG: diagnosticLog },
+  env: { ...process.env, QORTIUM_HOME_USER_DATA_DIR: profile },
   stdio: 'ignore',
 });
 let cdp;
@@ -79,7 +78,6 @@ try {
   writeFileSync('native-artifacts/native-shell.json', JSON.stringify({platform: process.platform, arch: process.arch, os: os.release(), ...state, core}, null, 2));
   console.log('Native packaged Home shell PASS');
 } finally {
-  if (existsSync(diagnosticLog)) console.log(readFileSync(diagnosticLog, 'utf8'));
   cdp?.socket.close();
   if (process.platform === 'win32') {
     spawnSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], {stdio: 'ignore'});
