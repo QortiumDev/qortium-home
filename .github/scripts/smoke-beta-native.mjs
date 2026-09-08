@@ -30,7 +30,7 @@ try {
   assert.ok(cdp, 'Packaged Home 2 renderer must open');
   let state;
   while (Date.now() < deadline) {
-    state = await cdp.evaluate(`({ tabs: !!document.querySelector('.home-v2-tabs'), text: document.body.innerText.slice(0, 3000) })`);
+    state = await cdp.evaluate(`({ tabs: !!document.querySelector('.home-v2-tabs'), text: document.body?.innerText.slice(0, 3000) ?? '' })`);
     if (state.tabs) break;
     await new Promise(resolve => setTimeout(resolve, 1000));
   }
