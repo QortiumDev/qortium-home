@@ -32,6 +32,28 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## release: prepare home 2.1.0-beta.1
+
+2026-09-07
+
+Prepare the first Home 2.1 public testing prerelease with a shared version for
+app developers and testers. It includes the Home 2 shell, account-aware tabs,
+resource viewers, publishing and app bridge capabilities, and recent toolbar
+and mobile fixes. Android advances to code 43 so it can update both public
+Home 1.8.0 and development Home 2.1 builds. Stable users remain on Home 1.8.0.
+The developer testing guide documents feature detection and known open reports.
+The Intel macOS Core observer now targets Catalina, matching the supported
+legacy package; Apple Silicon continues to require macOS 11 or later.
+Update the EPUB XML dependency to its patched 0.8.15 version.
+Keep browser visibility checks and navigation history compatible with the
+Catalina Electron runtime while retaining hidden-view permission guards.
+Import valid Home 1.x saved-link snapshots even when their older mirror
+records are absent, so upgrading does not block the bookmark manager.
+Keep the Windows portable shell authorized when its temporary installation
+path contains a tilde, so its own Settings and Core controls remain available.
+Refresh the icon library and React DOM types, and align the Android runtime,
+Capacitor bridge and build tools on 8.5.1 before the public testing build.
+
 ## fix(home2): remove bookmarks from the toolbar context menu
 
 2026-09-07

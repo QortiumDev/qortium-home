@@ -360,7 +360,9 @@ try {
       )
     }
     assert.equal(qortiumOnlyLayout.pinned.length, 2)
-    assert.equal(qortiumOnlyLayout.pinned.every((width) => width <= 80), true)
+    // Current icon-and-label cards are 5.5rem (88px at the default size).
+    // Keep the compact-card guard without asserting the retired 80px layout.
+    assert.equal(qortiumOnlyLayout.pinned.every((width) => width > 0 && width <= 96), true)
     assert.equal(qortiumOnlyLayout.pinnedText.includes('qdn://'), false)
     assert.equal(qortiumOnlyLayout.permanentPinActions, false)
     await evaluate(

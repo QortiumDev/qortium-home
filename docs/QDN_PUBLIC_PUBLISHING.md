@@ -39,7 +39,18 @@ larger than the whole budget is refused outright.
 
 Apps cannot provide native paths, URIs, inline bytes, Base64, filenames, or
 MIME claims to the publish action. Home reopens and verifies the desktop file
-at use time; Android uses only the bytes returned by its native picker.
+at use time; Android uses the retained bytes from its native picker or the
+staging action described below.
+
+## Stage bytes already held by the app
+
+Feature-detect `STAGE_QDN_PUBLISH_SOURCE` for pasted or dropped content. Send
+`{ action: 'STAGE_QDN_PUBLISH_SOURCE', bytesBase64, fileName, mimeType? }`,
+with at most 25 MiB of decoded content. The result has the same selection shape
+as the picker, including an opaque `sourceToken`. Staging grants no publication
+permission and does not broadcast anything; the later publish request still
+requires approval. The same bounded, expiring source store and context bindings
+apply. See [Bridge actions](BRIDGE_ACTIONS.md) for the contract.
 
 ## Folder sources (desktop, Qortium only)
 

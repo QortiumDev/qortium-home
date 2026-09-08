@@ -135,7 +135,10 @@ const DEFAULT_QDN_DISPLAY_SETTINGS: QdnDisplaySettings = {
   ui: 'classic',
 };
 
+import { isQdnNativeViewVisible } from './qdn-view-visibility.js';
+
 type QdnViewEntry = {
+  requestedVisible: boolean;
   accountId: string | null;
   accountUnlocked: boolean;
   bridgeStates: QdnBridgeStateDetail[];
@@ -886,7 +889,7 @@ const getPartition = getQdnViewPartition;
 export function isQdnViewFocused(windowId: number, tabId: string) {
   const entry = qdnViewsByWindow.get(windowId)?.get(tabId);
 
-  return !!entry && !entry.window.isDestroyed() && entry.window.isFocused() && entry.view.getVisible();
+  return !!entry && !entry.window.isDestroyed() && entry.window.isFocused() && isQdnNativeViewVisible(entry.view, entry.requestedVisible);
 }
 
 // Permission prompts need trusted Home chrome. A hidden background tab may
@@ -895,7 +898,7 @@ export function isQdnViewFocused(windowId: number, tabId: string) {
 export function isQdnViewVisible(windowId: number, tabId: string) {
   const entry = qdnViewsByWindow.get(windowId)?.get(tabId);
 
-  return !!entry && !entry.window.isDestroyed() && entry.view.getVisible();
+  return !!entry && !entry.window.isDestroyed() && isQdnNativeViewVisible(entry.view, entry.requestedVisible);
 }
 
 function getCanonicalQdnAppKey(resourceUrl: string | null) {
@@ -916,7 +919,7 @@ export function isQdnAppResourceFocused(resourceUrl: string) {
         getCanonicalQdnAppKey(entry.resourceUrl) === appKey &&
         !entry.window.isDestroyed() &&
         entry.window.isFocused() &&
-        entry.view.getVisible()
+        isQdnNativeViewVisible(entry.view, entry.requestedVisible)
       ) {
         return true;
       }
@@ -983,7 +986,7 @@ export function getQdnViewContextMenuPopupHost(
         entry.window.isDestroyed() ||
         !entry.window.isFocused() ||
         entry.view.webContents.isDestroyed() ||
-        !entry.view.getVisible()
+        !isQdnNativeViewVisible(entry.view, entry.requestedVisible)
       ) {
         return null
       }
@@ -1239,7 +1242,7 @@ function showQdnViewLinkContextMenu(entry: QdnViewEntry, params: Electron.Contex
         entry.window.isDestroyed() ||
         entry.view.webContents.isDestroyed() ||
         !entry.window.isFocused() ||
-        !entry.view.getVisible() ||
+        !isQdnNativeViewVisible(entry.view, entry.requestedVisible) ||
         entry.resourceUrl !== capturedResourceUrl
       ) {
         return;
@@ -1283,9 +1286,10 @@ function applyViewGuards(entry: QdnViewEntry) {
 
     const navigationHistory = entry.view.webContents.navigationHistory;
     const activeIndex = navigationHistory.getActiveIndex();
-    const entries = navigationHistory
-      .getAllEntries()
-      .map((navigationEntry, index) => ({ index, url: navigationEntry.url }))
+    const entries = Array.from({ length: navigationHistory.length() }, (_, index) => ({
+      index,
+      url: navigationHistory.getEntryAtIndex(index).url,
+    }))
       .filter((navigationEntry) => isAllowedInViewNavigation(navigationEntry.url, entry))
       .slice(-200);
 
@@ -1766,6 +1770,7 @@ function createViewEntry(
   }
 
   const entry: QdnViewEntry = {
+    requestedVisible: false,
     accountId,
     accountUnlocked: false,
     bridgeStates,
@@ -2102,6 +2107,7 @@ export function registerQdnViewIpcHandlers() {
     applyHostViewBounds(entry, request.bounds);
     window.contentView.addChildView(entry.view);
     entry.view.setVisible(true);
+    entry.requestedVisible = true;
 
     // Reload only when React actually asked for a different page. A pure
     // suspend→show with the same requested URL must NOT reload, otherwise an
@@ -2176,7 +2182,7 @@ export function registerQdnViewIpcHandlers() {
     const entry = qdnViewsByWindow.get(window.webContents.id)?.get(tabId);
 
     // Capturing a hidden view yields an empty image, so only capture live views.
-    if (!entry || !entry.view.getVisible() || entry.view.webContents.isDestroyed()) {
+    if (!entry || !isQdnNativeViewVisible(entry.view, entry.requestedVisible) || entry.view.webContents.isDestroyed()) {
       return null;
     }
 
@@ -2213,7 +2219,10 @@ export function registerQdnViewIpcHandlers() {
       exitHtmlFullscreen(entry);
     }
 
-    entry?.view.setVisible(false);
+    if (entry) {
+      entry.view.setVisible(false);
+      entry.requestedVisible = false;
+    }
 
     // The isolated view is an out-of-process WebContentsView that holds OS keyboard
     // focus while it is on screen. Hiding it (e.g. when a permission dialog opens)

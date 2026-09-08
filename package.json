@@ -1,6 +1,6 @@
 {
   "name": "qortium-home",
-  "version": "2.1.0",
+  "version": "2.1.0-beta.1",
   "private": true,
   "license": "0BSD",
   "author": "QortiumDev",
@@ -82,7 +82,7 @@
     "smoke:desktop:qdn-permissions": "node scripts/smoke-desktop-qdn-write.mjs --scenario=all",
     "smoke:qdn-services": "node scripts/ensure-electron-build.mjs && node scripts/smoke-qdn-services.mjs",
     "test": "node scripts/check-test-wiring.mjs && node scripts/check-smoke-wiring.mjs && node scripts/test-all.mjs",
-    "test:release-metadata": "node scripts/test-release-metadata.mjs",
+    "test:release-metadata": "node scripts/test-release-metadata.mjs && node scripts/test-macos-min-version.mjs",
     "test:windows-core-observer-build-script": "node scripts/test-windows-core-observer-build-script.mjs",
     "test:safe-zip-extraction": "npm run build:electron && node dist-electron/safe-zip-extraction.test.js",
     "test:wiring": "node scripts/check-test-wiring.mjs",
@@ -247,6 +247,7 @@
     "test:qdn-host-contract": "node scripts/ensure-electron-build.mjs && node dist-electron/qdn-host-contract.test.js",
     "test:qdn-identity-avatar": "node scripts/ensure-electron-build.mjs && node dist-electron/qdn-identity-avatar.test.js",
     "test:qdn-view-fullscreen": "node scripts/ensure-electron-build.mjs && node dist-electron/qdn-view-fullscreen.test.js",
+    "test:qdn-view-visibility": "node scripts/ensure-electron-build.mjs && node dist-electron/qdn-view-visibility.test.js",
     "test:qdn-poll-options-input": "node scripts/ensure-electron-build.mjs && node dist-electron/qdn-poll-options-input.test.js",
     "test:qdn-poll-vote-input": "node scripts/ensure-electron-build.mjs && node dist-electron/qdn-poll-vote-input.test.js",
     "test:qdn-publish-routing": "node scripts/ensure-electron-build.mjs && node dist-electron/qdn-publish-routing.test.js",
@@ -399,7 +400,7 @@
   },
   "overrides": {
     "epubjs": {
-      "@xmldom/xmldom": "0.8.13"
+      "@xmldom/xmldom": "0.8.15"
     },
     "tmp": "0.2.7",
     "xcode": {

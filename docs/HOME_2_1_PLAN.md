@@ -439,8 +439,8 @@ metadata during release preparation rather than reusing an old estimate.
   unreachable trusted-main/preload compatibility branches remain a separate
   security-reviewed cleanup rather than release-preparation churn.
 - [x] Prepare Home 2.1.0 release metadata and mechanics. Desktop/package
-  metadata is 2.1.0, Android is version name 2.1.0 and code 39, both Home 2
-  hosts advertise QAVS 2.1 and host version 2.1.0, CI explicitly type-checks
+  metadata is 2.1.0-beta.1, Android is version name 2.1.0-beta.1 and code 43, both Home 2
+  hosts advertise QAVS 2.1 and host version 2.1.0-beta.1, CI explicitly type-checks
   the renderer, and the release matrix includes the Catalina x64 DMG. The new
   runbook keeps native-host acceptance, signing, tagging, upload, and
   publication behind their explicit checkpoints.

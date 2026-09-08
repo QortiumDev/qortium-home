@@ -194,7 +194,7 @@ assert.match(desktopBridgeSource, /closeQdnViewContextMenus\(/)
 assert.match(viewHostSource, /registration\.menu\.closePopup\(registration\.window\)/)
 assert.match(desktopBridgeSource, /getQdnViewContextForWebContents\(sender\)/)
 assert.match(viewHostSource, /!entry\.window\.isFocused\(\)/)
-assert.match(viewHostSource, /!entry\.view\.getVisible\(\)/)
+assert.match(viewHostSource, /!isQdnNativeViewVisible\(entry\.view, entry\.requestedVisible\)/)
 
 // R4-4: the app view registers a native context-menu handler that reads the
 // link from the trusted event params, routes it through the shared backend,

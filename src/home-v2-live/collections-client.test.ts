@@ -7,7 +7,7 @@ import {
   readFakeCollectionPreference,
   setFakeCollectionPreference,
 } from './test-kit/fake-collections-preferences'
-import { parseHomeV2LegacyCollectionsRaw } from './legacy-collections-contract'
+import { HOME_V2_LEGACY_COLLECTION_KEYS, parseHomeV2LegacyCollectionsRaw } from './legacy-collections-contract'
 
 Object.assign(globalThis, { window: {} })
 
@@ -15,6 +15,21 @@ const accounts = {
   activeAccountId: 'account-1',
   availableAccounts: [{ id: 'account-1', label: 'Main' }],
 }
+
+const canonicalOnlySnapshot = {
+  bookmarks: [], dashboardPins: [], revision: 7, schemaVersion: 1,
+  startPages: [{ accountId: null, displayUrl: 'qdn://APP/Help/Help', title: 'Help' }],
+  toolbar: [], toolbarVisibility: 'always',
+}
+const canonicalOnlyRaw = Object.fromEntries(HOME_V2_LEGACY_COLLECTION_KEYS.map(key => [key,
+  key === 'qortium-home-bookmark-manager-snapshot' ? JSON.stringify(canonicalOnlySnapshot) : null,
+])) as Parameters<typeof parseHomeV2LegacyCollectionsRaw>[0]
+assert.deepEqual(parseHomeV2LegacyCollectionsRaw(canonicalOnlyRaw), {
+  hadData: true, snapshot: canonicalOnlySnapshot,
+}, 'A valid canonical-only legacy commit must migrate without inventing a conflicting empty mirror')
+assert.throws(() => parseHomeV2LegacyCollectionsRaw({
+  ...canonicalOnlyRaw, 'qortium-home-bookmark-manager-snapshot': '{broken',
+}), /invalid JSON/)
 
 clearFakeCollectionPreferences()
 setFakeCollectionPreference('qortium-home-bookmarks', JSON.stringify({

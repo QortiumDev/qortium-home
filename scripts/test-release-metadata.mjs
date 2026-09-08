@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { findForbiddenProductionEntry } from './packaged-entry-policy.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const expectedVersion = '2.1.0';
+const expectedVersion = '2.1.0-beta.1';
 // versionCode is ONE monotonic space shared by both release lines, so 2.1 does
 // not get to pick freely:
 //   37  Home 1.7.0
@@ -20,7 +20,8 @@ const expectedVersion = '2.1.0';
 // enable. The in-app updater compares semver and would still offer it; the OS
 // installer is what rejects it, so the failure surfaces late and reads like a
 // packaging bug.
-const expectedAndroidVersionCode = 42;
+// 42 was used by Home 2.1 development APKs; beta.1 advances to 43.
+const expectedAndroidVersionCode = 43;
 const expectedPlatformVersion = '2.1';
 
 function read(relativePath) {
