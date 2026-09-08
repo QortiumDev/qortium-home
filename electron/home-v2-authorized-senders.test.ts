@@ -62,7 +62,7 @@ const trustedUrl = 'file:///opt/qortium-home/dist/v2-live.html'
 
 {
   const encoded = 'file:///C:/Users/RUNNER%7E1/Temp/Home/resources/app.asar/dist/v2-live.html'
-  const literal = encoded.replace('%7E', '~')
+  const literal = encoded.replaceAll('%7E', '~')
   const home = senderFixture(90, literal)
   authorizeHomeV2Sender(home.sender, encoded)
   assert.doesNotThrow(() => assertAuthorizedHomeV2Sender(home.event()))
@@ -73,7 +73,7 @@ const trustedUrl = 'file:///opt/qortium-home/dist/v2-live.html'
   assert.throws(() => assertAuthorizedHomeV2Sender(home.event()), /authorized top-level/)
 
   for (const [index, untrusted] of [
-    encoded.replace('%7E', '%257E'),
+    encoded.replaceAll('%7E', '%257E'),
     literal.replace('/Temp/', '%2FTemp/'),
     literal + '?extra=1',
     literal + '#other',
