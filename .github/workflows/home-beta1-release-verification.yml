@@ -3,7 +3,8 @@ on:
   push:
     branches: [codex/home-beta1-release-verification]
 permissions:
-  contents: read
+  # GitHub requires write access to inspect an unpublished draft.
+  contents: write
 jobs:
   draft:
     runs-on: ubuntu-latest
