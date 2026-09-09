@@ -62,9 +62,9 @@ const pin=productionFunction(shell,'pinTabToDashboard',sandbox)
 const toolbar=productionFunction(shell,'dropTabOnBookmarkToolbar',sandbox)
 const bookmark=productionFunction(shell,'toggleCurrentBookmark',sandbox)
 const browserAddress=productionFunction('src/v2/shell/BrowserChrome.tsx','browserAddress',sandbox)
-const wanted='qortal://APP/Fixture/published/page?room=2#end'
-const render='https://node/render/APP/Fixture/published/launch?theme=dark'
-const live='https://node/render/APP/Fixture/published/page?room=2&theme=dark#end'
+const wanted='qortal://APP/Fixture/published/page?identifier=published&room=2#end'
+const render='https://node/render/APP/Fixture/launch?identifier=published&theme=dark'
+const live='https://node/render/APP/Fixture/page?identifier=published&room=2&theme=dark#end'
 const snapshot={resourceUrl:location,renderUrl:render,activeIndex:1,entries:[{index:0,url:render},{index:1,url:live}]}
 const before=product.current.tabs[0].context
 const grantContext = {appIdentity:location,tabId:context.tabId,action:'GET_USER_ACCOUNT',accountId:'wallet:B',
@@ -94,12 +94,12 @@ navigate(context.tabId,{...snapshot,entries:[{index:1,url:'https://node/render/A
 assert.equal(product.current,unchanged)
 // Back/forward read the active entry, not the last entry in history.
 navigate(context.tabId,{...snapshot,activeIndex:0})
-assert.equal(browserAddress(product.current),location)
+assert.equal(browserAddress(product.current),'qortal://APP/Fixture/published/launch?identifier=published')
 // Android's authenticated relative-URL normalizer feeds the SAME callback.
-const android=readHomeV2AppNavigationMessage({type:'qortium:qdn-navigation',bridgeToken:'test-token',activeIndex:0,entries:[{index:0,url:'/render/APP/Fixture/published/mobile?room=3&qdnHomeBridge=test-token#chat'}]},'test-token',render)
+const android=readHomeV2AppNavigationMessage({type:'qortium:qdn-navigation',bridgeToken:'test-token',activeIndex:0,entries:[{index:0,url:'/render/APP/Fixture/mobile?identifier=published&room=3&qdnHomeBridge=test-token#chat'}]},'test-token',render)
 assert.ok(android)
 navigate(context.tabId,{...android,resourceUrl:location,renderUrl:render})
-assert.equal(browserAddress(product.current),'qortal://APP/Fixture/published/mobile?room=3#chat')
+assert.equal(browserAddress(product.current),'qortal://APP/Fixture/published/mobile?identifier=published&room=3#chat')
 assert.deepEqual(effects,[])
 const stage = 'src/v2/shell/AppTabStage.tsx'
 const resolveRender = productionFunction(stage,'resolveRender',sandbox)
@@ -109,10 +109,11 @@ const nodeSnapshot = {appearance,nodes:{qortal:{capabilities:{read:true},nodeApi
 const inputsBefore = renderInputs(unchanged,nodeSnapshot,0)
 const inputsAfter = renderInputs(product.current,nodeSnapshot,0)
 assert.deepEqual(inputsAfter,inputsBefore,'Current URL must not invalidate the active document memo')
-assert.equal(new URL(resolveRender(product.current,nodeSnapshot).url).pathname,'/render/APP/Fixture/published/launch',
+assert.equal(new URL(resolveRender(product.current,nodeSnapshot).url).pathname,'/render/APP/Fixture/launch',
   'Desktop cached view keeps its original load request')
 const androidResume = new URL(resolveRender(product.current,nodeSnapshot,true).url)
-assert.equal(androidResume.pathname,'/render/APP/Fixture/published/mobile')
+assert.equal(androidResume.pathname,'/render/APP/Fixture/mobile')
+assert.equal(androidResume.searchParams.get('identifier'),'published')
 assert.equal(androidResume.hash,'#chat')
 assert.equal(androidResume.searchParams.get('room'),'3')
 assert.equal(androidResume.searchParams.has('qdnHomeBridge'),false,'Fresh proxy authorization does not reuse a saved token')

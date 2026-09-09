@@ -20,9 +20,18 @@ function open(state: NavigationState, name: string, tabId = id) {
 function snapshot(state: NavigationState, routes: string[], activeIndex: number, tabId = id) {
   const tab = state.tabs.find(entry => entry.id === tabId)!
   const name = parseAppResourceLocation(tab.context.resourceLocation).identity.name
+  const renderEntry = (route: string) => {
+    const hashIndex = route.indexOf('#')
+    const hash = hashIndex >= 0 ? route.slice(hashIndex) : ''
+    const withoutHash = hashIndex >= 0 ? route.slice(0, hashIndex) : route
+    const queryIndex = withoutHash.indexOf('?')
+    const pathname = queryIndex >= 0 ? withoutHash.slice(0, queryIndex) : withoutHash
+    const query = queryIndex >= 0 ? withoutHash.slice(queryIndex + 1) : ''
+    return `https://node.example/render/APP/${name}/${pathname}?identifier=published${query ? `&${query}` : ''}${hash}`
+  }
   return reduce(state, { type: 'sync-app-history', tabId, snapshot: {
-    resourceUrl: tab.context.resourceLocation, renderUrl: `https://node.example/render/APP/${name}/published/one`,
-    activeIndex, entries: routes.map((route, index) => ({ index, url: `https://node.example/render/APP/${name}/published/${route}` })) } })
+    resourceUrl: tab.context.resourceLocation, renderUrl: renderEntry('one'),
+    activeIndex, entries: routes.map((route, index) => ({ index, url: renderEntry(route) })) } })
 }
 function replace(state: NavigationState, name: string) {
   const current = state.tabs.find(entry => entry.id === id)!
@@ -54,7 +63,7 @@ assert.equal(locations(state).length, 5, 'A reloaded prior app retains the outer
 assert.equal(tabHistory(state)!.index, 2)
 state = snapshot(state, ['three', 'new'], 1)
 assert.equal(locations(state).length, 4, 'A new in-app navigation drops outer forward destinations')
-assert.match(locations(state).at(-1)!, /Alpha\/published\/new$/)
+assert.match(locations(state).at(-1)!, /Alpha\/published\/new\?identifier=published$/)
 state = reduce(state, { type: 'select-native-history', tabId: id, index: 2 })
 assert.equal(tabHistory(state)!.index, 2)
 state = snapshot(state, ['three', 'new'], 0)

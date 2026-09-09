@@ -59,10 +59,10 @@ function harness() {
   }
   function native() {
     const tab = product.current.tabs[0]
-    const root = `https://node.example/render/APP/${tab.appId}/published/`
+    const root = `https://node.example/render/APP/${tab.appId}/`
     sandbox.dispatchProduct({ type: 'sync-app-history', tabId: 'tab', snapshot: {
-      resourceUrl: tab.context.resourceLocation, renderUrl: `${root}one`, activeIndex: 1,
-      entries: [{ index: 0, url: `${root}one` }, { index: 1, url: `${root}two` }],
+      resourceUrl: tab.context.resourceLocation, renderUrl: `${root}one?identifier=published`, activeIndex: 1,
+      entries: [{ index: 0, url: `${root}one?identifier=published` }, { index: 1, url: `${root}two?identifier=published` }],
     } })
   }
   return { sandbox, product, effects, notices, go, reload, app, native,

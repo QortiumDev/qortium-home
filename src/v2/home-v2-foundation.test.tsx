@@ -3709,7 +3709,7 @@ function testGrantIdentityAndSendRateLimitHardening(): void {
   )
   assert.match(
     appTabStage,
-    /identifier: resolveLaunchIdentifier\(resolved\.identity\.identifier, resolved\.url\),/,
+    /identifier: resolveLaunchIdentifier\(\s*resolved\.identity\.identifier,\s*resolved\.url,\s*resolved\.tab\.context\.sourceNetwork,\s*\),/,
     'the (now UX-only) launchIdentity self-report check may still use resolveLaunchIdentifier',
   )
   assert.match(renderPathIdentity, /export function resolveLaunchIdentifier/)
