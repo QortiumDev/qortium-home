@@ -582,7 +582,11 @@ function AndroidAppStage(props: AppTabStageProps) {
     if (liveResourcePath && !isSameRenderResourcePath(liveResourcePath, {
       service: resolved.identity.service,
       name: resolved.identity.name,
-      identifier: resolveLaunchIdentifier(resolved.identity.identifier, resolved.url),
+      identifier: resolveLaunchIdentifier(
+        resolved.identity.identifier,
+        resolved.url,
+        resolved.tab.context.sourceNetwork,
+      ),
     }, resolved.tab.context.sourceNetwork)) return
     frameWindow.postMessage({
       type: 'qortium:home-settings-changed',
@@ -724,7 +728,11 @@ function AndroidAppStage(props: AppTabStageProps) {
             // which is a separately published resource with its own owner.
             service: resolved.identity.service,
             name: resolved.identity.name,
-            identifier: resolveLaunchIdentifier(resolved.identity.identifier, resolved.url),
+            identifier: resolveLaunchIdentifier(
+              resolved.identity.identifier,
+              resolved.url,
+              resolved.tab.context.sourceNetwork,
+            ),
           }
         : null
       const liveResourcePath = liveResourcePathRef.current

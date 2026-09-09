@@ -237,6 +237,24 @@ public class QdnRenderProxyTest {
                 "qortal"
             )
         );
+        assertFalse(
+            "Qortal arbitrary path identity must not be overridden by a conflicting query",
+            isAuthorizedAppResource(
+                parts("arbitrary", "APP", "xnetwork", "other"),
+                "published",
+                qortalNamed,
+                "qortal"
+            )
+        );
+        assertTrue(
+            "Qortal arbitrary query parameters cannot change a matching path identity",
+            isAuthorizedAppResource(
+                parts("arbitrary", "APP", "xnetwork", "published"),
+                "other",
+                qortalNamed,
+                "qortal"
+            )
+        );
 
         // The exact document gate remains independent: a permitted asset is
         // plain content and must never inherit the launch document's bridge.

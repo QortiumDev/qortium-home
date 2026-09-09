@@ -33,8 +33,8 @@ export function validateCurrentAppLocation(
         current.sourceNetwork !== launch.sourceNetwork ||
         current.identity.service !== launch.identity.service ||
         current.identity.name !== launch.identity.name ||
-        resolveLaunchIdentifier(current.identity.identifier, candidate) !==
-          resolveLaunchIdentifier(launch.identity.identifier, context.resourceLocation)) return null
+        resolveLaunchIdentifier(current.identity.identifier, candidate, context.sourceNetwork) !==
+          resolveLaunchIdentifier(launch.identity.identifier, context.resourceLocation, context.sourceNetwork)) return null
     return `${buildAppResourceLocation(current.sourceNetwork, current.identity)}${current.routePath}${cleanQuery(current.search)}${current.hash}` as AppResourceLocation
   } catch { return null }
 }
@@ -66,7 +66,7 @@ export function currentAppLocationFromRender(
         live.protocol !== render.protocol || live.origin !== render.origin) return null
     if (live.protocol !== 'http:' && live.protocol !== 'https:') return null
     const identity = { ...launch.identity,
-      identifier: resolveLaunchIdentifier(launch.identity.identifier, context.resourceLocation) }
+      identifier: resolveLaunchIdentifier(launch.identity.identifier, context.resourceLocation, context.sourceNetwork) }
     if (!isSameRenderResourcePath(currentUrl, identity, launch.sourceNetwork) ||
         !isSameRenderResourcePath(renderUrl, identity, launch.sourceNetwork)) return null
     const segments = live.pathname.split('/').slice(4)
@@ -74,7 +74,9 @@ export function currentAppLocationFromRender(
     // Core strips an actual identifier (also when repeated in ?identifier=).
     // For a default resource, literal default/Default is an IN-APP path: Core
     // does not peel it (RenderResource.getPathByName's equalsIgnoreCase guard).
-    if (identity.identifier !== null && first === identity.identifier) segments.shift()
+    if (launch.sourceNetwork !== 'qortal' &&
+        identity.identifier !== null &&
+        first === identity.identifier) segments.shift()
     const route = segments.length ? `/${segments.join('/')}` : ''
     return validateCurrentAppLocation(context,
       `${buildAppResourceLocation(launch.sourceNetwork, identity)}${route}${cleanQuery(live.search)}${live.hash}`)

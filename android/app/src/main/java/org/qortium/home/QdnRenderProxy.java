@@ -958,11 +958,14 @@ final class QdnRenderProxy {
     }
 
     /**
-     * Resolves the candidate identifier for a RENDER path's segments exactly
+     * Resolves the candidate identifier for a RENDER or PUBLIC_ARBITRARY
+     * path's segments exactly
      * the way Core's RenderResource.getPathByName resolves it — mirrors
      * electron/qdn-resource-identity.ts's resolveCandidateIdentifier and
      * src/v2/shell/render-path-identity.ts's twin: an explicit {@code
-     * identifier} query parameter wins when non-blank; otherwise a
+     * identifier} query parameter wins when non-blank for render paths;
+     * Qortal arbitrary paths use their explicit path identifier and ignore
+     * unrelated query parameters. Otherwise a
      * non-"default" (case-insensitive) first path segment after the name is
      * a POSSIBLE identifier. This proxy cannot verify a segment is a REAL
      * published identifier the way Core's isRealIdentifier does, so it fails
@@ -977,6 +980,23 @@ final class QdnRenderProxy {
         String queryIdentifier,
         String hostingNetwork
     ) {
+        // Qortal's /arbitrary/APP/<name>/<identifier> endpoint has a
+        // path-bound identity. Its query parameters describe the data read
+        // and must not override the identifier in the path (unlike
+        // /render/APP/<name>, where RenderResource passes ?identifier to the
+        // renderer). Keep this branch before render query handling so a
+        // conflicting query cannot authorize another resource.
+        if ("qortal".equalsIgnoreCase(hostingNetwork)
+            && segments != null
+            && !segments.isEmpty()
+            && "arbitrary".equalsIgnoreCase(segments.get(0))) {
+            if (segments.size() < 4) {
+                return null;
+            }
+            String candidate = segments.get(3);
+            return candidate.isEmpty() || "default".equalsIgnoreCase(candidate) ? null : candidate;
+        }
+
         if (queryIdentifier != null && !queryIdentifier.trim().isEmpty()) {
             if ("qortal".equalsIgnoreCase(hostingNetwork)
                 && segments != null

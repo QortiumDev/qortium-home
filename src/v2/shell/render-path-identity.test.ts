@@ -140,6 +140,16 @@ const ORIGIN = 'https://n0123456789abcdef.qdn.androidplatform.net'
     'an explicit ?identifier= query overrides an explicit path-based identifier too — query always wins',
   )
   assert.equal(
+    resolveLaunchIdentifier(null, `${chatUrl}?identifier=default`, 'qortal'),
+    null,
+    'Qortal treats an explicit default query identifier as the default resource',
+  )
+  assert.equal(
+    resolveLaunchIdentifier('docs', `${chatUrl}?identifier=default`, 'qortal'),
+    null,
+    'Qortal default query selection overrides a path-derived launch identifier',
+  )
+  assert.equal(
     resolveLaunchIdentifier(null, `${chatUrl}?accent=clay`),
     null,
     'with no ?identifier= query, the already-correct path-based identifier is used unchanged',

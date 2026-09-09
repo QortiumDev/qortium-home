@@ -14,15 +14,26 @@ function context(location: string): AppTabContext {
 for (const scheme of ['qdn', 'qortal']) for (const service of ['APP', 'WEBSITE', 'GAME']) {
   const base = `${scheme}://${service}/Fixture/published`
   const ctx = context(`${base}/start?old=1#initial`)
-  const render = `https://node.example/render/${service}/Fixture/published/start?theme=dark`
-  const live = `https://node.example/render/${service}/Fixture/published/a//page%20two/?x=hello%20world&x=two+words&homeV2Bridge=1&qdn%48omeBridge=secret&apiKey=secret&theme=light#message`
-  const wanted = `${base}/a//page%20two/?x=hello%20world&x=two+words#message`
+  const render = scheme === 'qortal'
+    ? `https://node.example/render/${service}/Fixture/start?identifier=published&theme=dark`
+    : `https://node.example/render/${service}/Fixture/published/start?theme=dark`
+  const live = scheme === 'qortal'
+    ? `https://node.example/render/${service}/Fixture/published/a//page%20two/?identifier=published&x=hello%20world&x=two+words&homeV2Bridge=1&qdn%48omeBridge=secret&apiKey=secret&theme=light#message`
+    : `https://node.example/render/${service}/Fixture/published/a//page%20two/?x=hello%20world&x=two+words&homeV2Bridge=1&qdn%48omeBridge=secret&apiKey=secret&theme=light#message`
+  const wanted = scheme === 'qortal'
+    ? `${base}/published/a//page%20two/?identifier=published&x=hello%20world&x=two+words#message`
+    : `${base}/a//page%20two/?x=hello%20world&x=two+words#message`
   assert.equal(currentAppLocationFromRender(ctx, live, render), wanted)
   assert.equal(parseAppResourceLocation(wanted).location, wanted)
-  assert.equal(currentAppLocationFromRender(ctx, render, render), `${base}/start`)
+  assert.equal(currentAppLocationFromRender(ctx, render, render),
+    scheme === 'qortal' ? `${base}/start?identifier=published` : `${base}/start`)
   assert.equal(currentAppLocationFromRender(ctx, live.replace('node.example', 'other.example'), render), null)
   assert.equal(currentAppLocationFromRender(ctx, live.replace('/Fixture/', '/Other/'), render), null)
-  assert.equal(currentAppLocationFromRender(ctx, live.replace('/published/', '/other/'), render), null)
+  if (scheme === 'qdn') {
+    assert.equal(currentAppLocationFromRender(ctx, live.replace('/published/', '/other/'), render), null)
+  } else {
+    assert.equal(currentAppLocationFromRender(ctx, live.replace('identifier=published', 'identifier=other'), render), null)
+  }
   assert.equal(currentAppLocationFromRender(ctx, live.replace(`/render/${service}/`, '/render/IMAGE/'), render), null)
   assert.equal(currentAppLocationFromRender(ctx, live.replace('https://', 'https://user:password@'), render), null)
   assert.equal(currentAppLocationFromRender({...ctx, previewUrl: render}, live, render), null)
@@ -53,6 +64,21 @@ for (const scheme of ['qdn', 'qortal']) for (const service of ['APP', 'WEBSITE',
   const replaced = reduceProductState(state, {type:'replace-tab-app', app, tabId:ctx.tabId,
     context:{...ctx,resourceLocation:`${base}/replacement` as AppTabContext['resourceLocation']}, fromResourceLocation:ctx.resourceLocation})
   assert.equal(replaced.tabs[0].currentResourceLocation, undefined)
+}
+
+// Qortal keeps every path segment after APP/name as the app's in-resource
+// route. A route segment equal to the named resource identifier must survive
+// current-location reconstruction rather than being peeled as a Qortium
+// identifier prefix.
+{
+  const ctx = context('qortal://APP/xnetwork/published/home')
+  const render = 'https://node.example/render/APP/xnetwork/home?identifier=published'
+  const live = 'https://node.example/render/APP/xnetwork/published/settings?identifier=published#account'
+  assert.equal(
+    currentAppLocationFromRender(ctx, live, render),
+    'qortal://APP/xnetwork/published/published/settings?identifier=published#account',
+    'Qortal named-resource collision preserves the first in-app route segment',
+  )
 }
 
 const base = 'qdn://APP/Fixture/default'

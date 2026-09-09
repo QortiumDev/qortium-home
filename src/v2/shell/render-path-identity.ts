@@ -125,10 +125,12 @@ export function isSameRenderResourcePath(
 // an address like `qdn://APP/Chat/default?identifier=evil` is parsed as
 // identity {name:'Chat', identifier:null} even though resolveRender's own
 // URL-building carries the raw query (including `identifier=evil`) straight
-// through into `resolved.url`. Core resolves an explicit `?identifier=`
-// query as the identifier OUTRIGHT (it wins over any path position, no
-// "is this a real identifier" check needed the way a bare path segment
-// requires) — so the content Core actually serves for `resolved.url` IS the
+// through into `resolved.url`. Core resolves an explicit non-default
+// `?identifier=` query as the identifier OUTRIGHT (it wins over any path
+// position, no "is this a real identifier" check needed the way a bare path
+// segment requires). Qortal's explicit `identifier=default` selects its
+// default resource and therefore normalizes to a null launch identifier — so
+// the content Core actually serves for `resolved.url` IS the
 // "evil" resource, while Home's own bookkeeping (the tab title, the native
 // proxy's registered launch identity, permission-grant lookups) would keep
 // calling it "Chat/default": a real resource ends up running with a
@@ -146,12 +148,21 @@ export function isSameRenderResourcePath(
 // unambiguous `qdn://` address parsing (parseAppResourceLocation), which is
 // authoritative for the path case — unlike a raw `/render/...` path segment,
 // there is no ambiguity to resolve there.
-export function resolveLaunchIdentifier(pathIdentifier: string | null, renderUrl: string): string | null {
+export function resolveLaunchIdentifier(
+  pathIdentifier: string | null,
+  renderUrl: string,
+  network: QdnRenderNetwork = 'qortium',
+): string | null {
   let query: string | null = null
   try {
     query = new URL(renderUrl).searchParams.get('identifier')
   } catch {
     return pathIdentifier
   }
-  return query !== null && query.trim() !== '' ? query : pathIdentifier
+  if (query !== null && query.trim() !== '') {
+    return network === 'qortal' && query.trim().toLowerCase() === 'default'
+      ? null
+      : query
+  }
+  return pathIdentifier
 }
