@@ -569,7 +569,7 @@ const androidResponse = appTabStage.slice(
 );
 assert.ok(androidResponse.length > 0, 'the Android response revalidation block must exist');
 assert.ok(
-  /HOME_SETTINGS_VALUE_RESPONSE_ACTIONS\.has\(requestAction\)[\s\S]*?!isSameRenderResourcePath\(live, launchIdentity\)/
+  /HOME_SETTINGS_VALUE_RESPONSE_ACTIONS\.has\(requestAction\)[\s\S]*?!isSameRenderResourcePath\(live, launchIdentity,\s*resolved\?\.tab\.context\.sourceNetwork \?\? 'qortium'\)/
     .test(androidResponse),
   'the Home settings reply must revalidate the requesting document at completion',
 );

@@ -118,8 +118,14 @@ function resolveRender(productState: ProductState, snapshot: HomeV2Snapshot, res
   const resource = parseAppResourceLocation(resumeCurrentLocation ? currentAppLocation(tab) : tab.context.resourceLocation)
   const name = resource.identity.name
   const identifier = resource.identity.identifier
-  const suffix = identifier ? `/${encodeURIComponent(identifier)}` : ''
   const query = new URLSearchParams(resource.search)
+  // Qortal Core's RenderResource treats every path segment after APP/name as
+  // the file path and reads a named resource identifier only from `?identifier`.
+  // Qortium keeps its existing identifier path segment convention.
+  const suffix = resource.sourceNetwork === 'qortal' ? '' : identifier ? `/${encodeURIComponent(identifier)}` : ''
+  if (resource.sourceNetwork === 'qortal' && identifier && !query.get('identifier')) {
+    query.set('identifier', identifier)
+  }
   query.set('accent', snapshot.appearance.accent)
   query.set('lang', snapshot.appearance.resolvedLanguage)
   query.set('textSize', snapshot.appearance.textSize)
@@ -576,8 +582,12 @@ function AndroidAppStage(props: AppTabStageProps) {
     if (liveResourcePath && !isSameRenderResourcePath(liveResourcePath, {
       service: resolved.identity.service,
       name: resolved.identity.name,
-      identifier: resolveLaunchIdentifier(resolved.identity.identifier, resolved.url),
-    })) return
+      identifier: resolveLaunchIdentifier(
+        resolved.identity.identifier,
+        resolved.url,
+        resolved.tab.context.sourceNetwork,
+      ),
+    }, resolved.tab.context.sourceNetwork)) return
     frameWindow.postMessage({
       type: 'qortium:home-settings-changed',
       bridgeToken: token,
@@ -630,7 +640,11 @@ function AndroidAppStage(props: AppTabStageProps) {
         // created below, so QdnBridgeWebViewClient can refuse the bridge
         // token / injection to anything else from the very
         // first request — see QdnRenderProxy.authorize's doc comment.
-        authorizeHomeV2AndroidAppOrigin(resolved.nodeApiUrl, authorizedDocument.toString()),
+        authorizeHomeV2AndroidAppOrigin(
+          resolved.nodeApiUrl,
+          authorizedDocument.toString(),
+          resolved.tab.context.sourceNetwork,
+        ),
       )
       .then((proxyOrigin) => {
         if (cancelled) return
@@ -714,14 +728,18 @@ function AndroidAppStage(props: AppTabStageProps) {
             // which is a separately published resource with its own owner.
             service: resolved.identity.service,
             name: resolved.identity.name,
-            identifier: resolveLaunchIdentifier(resolved.identity.identifier, resolved.url),
+            identifier: resolveLaunchIdentifier(
+              resolved.identity.identifier,
+              resolved.url,
+              resolved.tab.context.sourceNetwork,
+            ),
           }
         : null
       const liveResourcePath = liveResourcePathRef.current
       if (
         !launchIdentity ||
         !liveResourcePath ||
-        !isSameRenderResourcePath(liveResourcePath, launchIdentity)
+        !isSameRenderResourcePath(liveResourcePath, launchIdentity, resolved?.tab.context.sourceNetwork ?? 'qortium')
       ) {
         ;(event.source as Window | null)?.postMessage({
           type: 'qortium:qdn-response', bridgeToken: token, requestId: data.requestId,
@@ -811,7 +829,7 @@ function AndroidAppStage(props: AppTabStageProps) {
           : '*'
         if (HOME_SETTINGS_VALUE_RESPONSE_ACTIONS.has(requestAction)) {
           const live = liveResourcePathRef.current
-          if (!launchIdentity || !live || !isSameRenderResourcePath(live, launchIdentity)) {
+          if (!launchIdentity || !live || !isSameRenderResourcePath(live, launchIdentity, resolved?.tab.context.sourceNetwork ?? 'qortium')) {
             ;(event.source as Window | null)?.postMessage({
               type: 'qortium:qdn-response', bridgeToken: token, requestId: data.requestId,
               error: {

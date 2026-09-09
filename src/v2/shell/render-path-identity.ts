@@ -25,6 +25,8 @@ export type QdnRenderPathIdentity = {
   readonly nextSegment: string | null
 }
 
+export type QdnRenderNetwork = 'qortal' | 'qortium'
+
 // Parses the `/render/<service>/<name>[/<segment>]` prefix of a rendered QDN
 // URL's pathname (proxied or direct — both mirror the node's real render
 // path).
@@ -52,8 +54,22 @@ export function parseRenderPathIdentity(pathname: string): QdnRenderPathIdentity
 // src/shared-fixtures/qdn-render-candidate-identifier-vectors.json, instead
 // of each side hand-copying/translating its own literal vectors (which can
 // silently drift from each other without either test going red).
-export function resolveCandidateIdentifier(queryIdentifier: string | null, parsed: QdnRenderPathIdentity): string | null {
-  if (queryIdentifier !== null && queryIdentifier.trim() !== '') return queryIdentifier
+export function resolveCandidateIdentifier(
+  queryIdentifier: string | null,
+  parsed: QdnRenderPathIdentity,
+  network: QdnRenderNetwork = 'qortium',
+): string | null {
+  if (queryIdentifier !== null && queryIdentifier.trim() !== '') {
+    if (network === 'qortal' && queryIdentifier.trim().toLowerCase() === 'default') {
+      return null
+    }
+    return queryIdentifier
+  }
+  // Qortal Core's RenderResource treats all service/name path segments as the
+  // file path; a named resource is selected only by ?identifier=. Qortium
+  // retains the path-based identifier convention used by this module's
+  // existing callers.
+  if (network === 'qortal') return null
   if (parsed.nextSegment !== null && parsed.nextSegment.toLowerCase() !== 'default') return parsed.nextSegment
   return null
 }
@@ -76,6 +92,7 @@ export function isSameRenderResourcePath(
     readonly name: string
     readonly identifier: string | null
   },
+  network: QdnRenderNetwork = 'qortium',
 ): boolean {
   let url: URL
   try {
@@ -89,7 +106,7 @@ export function isSameRenderResourcePath(
     parsed.service !== launch.service.toUpperCase() ||
     parsed.name !== launch.name
   ) return false
-  const candidateIdentifier = resolveCandidateIdentifier(url.searchParams.get('identifier'), parsed)
+  const candidateIdentifier = resolveCandidateIdentifier(url.searchParams.get('identifier'), parsed, network)
   return launch.identifier === null
     ? candidateIdentifier === null
     : candidateIdentifier === launch.identifier
@@ -108,10 +125,12 @@ export function isSameRenderResourcePath(
 // an address like `qdn://APP/Chat/default?identifier=evil` is parsed as
 // identity {name:'Chat', identifier:null} even though resolveRender's own
 // URL-building carries the raw query (including `identifier=evil`) straight
-// through into `resolved.url`. Core resolves an explicit `?identifier=`
-// query as the identifier OUTRIGHT (it wins over any path position, no
-// "is this a real identifier" check needed the way a bare path segment
-// requires) — so the content Core actually serves for `resolved.url` IS the
+// through into `resolved.url`. Core resolves an explicit non-default
+// `?identifier=` query as the identifier OUTRIGHT (it wins over any path
+// position, no "is this a real identifier" check needed the way a bare path
+// segment requires). Qortal's explicit `identifier=default` selects its
+// default resource and therefore normalizes to a null launch identifier — so
+// the content Core actually serves for `resolved.url` IS the
 // "evil" resource, while Home's own bookkeeping (the tab title, the native
 // proxy's registered launch identity, permission-grant lookups) would keep
 // calling it "Chat/default": a real resource ends up running with a
@@ -129,12 +148,21 @@ export function isSameRenderResourcePath(
 // unambiguous `qdn://` address parsing (parseAppResourceLocation), which is
 // authoritative for the path case — unlike a raw `/render/...` path segment,
 // there is no ambiguity to resolve there.
-export function resolveLaunchIdentifier(pathIdentifier: string | null, renderUrl: string): string | null {
+export function resolveLaunchIdentifier(
+  pathIdentifier: string | null,
+  renderUrl: string,
+  network: QdnRenderNetwork = 'qortium',
+): string | null {
   let query: string | null = null
   try {
     query = new URL(renderUrl).searchParams.get('identifier')
   } catch {
     return pathIdentifier
   }
-  return query !== null && query.trim() !== '' ? query : pathIdentifier
+  if (query !== null && query.trim() !== '') {
+    return network === 'qortal' && query.trim().toLowerCase() === 'default'
+      ? null
+      : query
+  }
+  return pathIdentifier
 }

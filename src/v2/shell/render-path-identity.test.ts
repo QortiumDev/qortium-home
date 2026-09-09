@@ -73,6 +73,59 @@ const ORIGIN = 'https://n0123456789abcdef.qdn.androidplatform.net'
   )
 }
 
+// Qortal Core's APP render route keeps the identifier in the query and treats
+// every path segment after the name as an in-app file path. This is separate
+// from Qortium's path-based rule above, and matches the Android proxy's
+// network-scoped containment check.
+{
+  const qortalDefault = { service: 'APP', name: 'xnetwork', identifier: null }
+  assert.equal(
+    isSameRenderResourcePath(`${ORIGIN}/render/APP/xnetwork/assets/index.js`, qortalDefault, 'qortal'),
+    true,
+  )
+  assert.equal(
+    isSameRenderResourcePath(`${ORIGIN}/render/APP/xnetwork/assets/index.js?identifier=evil`, qortalDefault, 'qortal'),
+    false,
+  )
+  assert.equal(
+    isSameRenderResourcePath(`${ORIGIN}/render/APP/OtherNetwork/assets/index.js`, qortalDefault, 'qortal'),
+    false,
+  )
+
+  const qortalNamed = { service: 'APP', name: 'xnetwork', identifier: 'published' }
+  assert.equal(
+    isSameRenderResourcePath(
+      `${ORIGIN}/render/APP/xnetwork/assets/index.js?identifier=published`,
+      qortalNamed,
+      'qortal',
+    ),
+    true,
+  )
+  assert.equal(
+    isSameRenderResourcePath(
+      `${ORIGIN}/render/APP/xnetwork/assets/index.js?identifier=other`,
+      qortalNamed,
+      'qortal',
+    ),
+    false,
+  )
+  assert.equal(
+    isSameRenderResourcePath(`${ORIGIN}/render/APP/xnetwork/assets/index.js?identifier=default`, qortalDefault, 'qortal'),
+    true,
+  )
+
+  // RenderResource applies the query-only Qortal identity rule to every
+  // supported app-tab service, not only APP.
+  for (const service of ['APP', 'WEBSITE', 'GAME']) {
+    const defaultLaunch = { service, name: 'xnetwork', identifier: null }
+    const namedLaunch = { service, name: 'xnetwork', identifier: 'published' }
+    const asset = `${ORIGIN}/render/${service}/xnetwork/assets/index.js`
+    assert.equal(isSameRenderResourcePath(`${asset}?identifier=default`, defaultLaunch, 'qortal'), true)
+    assert.equal(isSameRenderResourcePath(`${asset}?identifier=published`, namedLaunch, 'qortal'), true)
+    assert.equal(isSameRenderResourcePath(`${asset}?identifier=other`, namedLaunch, 'qortal'), false)
+  }
+}
+
 // Round 4, Defect B (Sol round-3 re-review): resolveLaunchIdentifier is what
 // AppTabStage.tsx now feeds into the native authorize() registration AND its
 // own launchIdentity self-report check, instead of the raw
@@ -96,6 +149,16 @@ const ORIGIN = 'https://n0123456789abcdef.qdn.androidplatform.net'
     resolveLaunchIdentifier('docs', `${chatUrl}?identifier=evil`),
     'evil',
     'an explicit ?identifier= query overrides an explicit path-based identifier too — query always wins',
+  )
+  assert.equal(
+    resolveLaunchIdentifier(null, `${chatUrl}?identifier=default`, 'qortal'),
+    null,
+    'Qortal treats an explicit default query identifier as the default resource',
+  )
+  assert.equal(
+    resolveLaunchIdentifier('docs', `${chatUrl}?identifier=default`, 'qortal'),
+    null,
+    'Qortal default query selection overrides a path-derived launch identifier',
   )
   assert.equal(
     resolveLaunchIdentifier(null, `${chatUrl}?accent=clay`),

@@ -184,11 +184,18 @@ final class QdnRenderProxy {
     private static final class AuthorizedOrigin {
         final String origin;
         final boolean homeV2;
+        final String hostingNetwork;
         final AuthorizedDocument authorizedDocument;
 
-        AuthorizedOrigin(String origin, boolean homeV2, AuthorizedDocument authorizedDocument) {
+        AuthorizedOrigin(
+            String origin,
+            boolean homeV2,
+            String hostingNetwork,
+            AuthorizedDocument authorizedDocument
+        ) {
             this.origin = origin;
             this.homeV2 = homeV2;
+            this.hostingNetwork = hostingNetwork;
             this.authorizedDocument = authorizedDocument;
         }
     }
@@ -253,16 +260,52 @@ final class QdnRenderProxy {
      *     app tab's launch — every check below then fails closed).
      */
     static String authorize(String origin, boolean homeV2, String authorizedDocumentUrl) {
+        return authorize(origin, homeV2, authorizedDocumentUrl, "qortium");
+    }
+
+    /**
+     * Registers the node origin and the shell-selected hosting network for a
+     * Home v2 app tab. The network is supplied by the trusted shell route,
+     * alongside the exact document URL; it is never inferred from app content
+     * or from a request's path/query. Qortal and Qortium Core use different
+     * render identifier layouts, so this context is required for containment.
+     */
+    static String authorize(
+        String origin,
+        boolean homeV2,
+        String authorizedDocumentUrl,
+        String hostingNetwork
+    ) {
         String normalizedOrigin = normalizeOrigin(origin);
 
         if (normalizedOrigin == null) {
             return null;
         }
 
-        String label = getLabel(normalizedOrigin);
-        AuthorizedDocument authorizedDocument = parseAuthorizedDocument(normalizedOrigin, authorizedDocumentUrl);
+        String normalizedNetwork = normalizeHostingNetwork(hostingNetwork);
 
-        AUTHORIZED_ORIGINS.put(label, new AuthorizedOrigin(normalizedOrigin, homeV2, authorizedDocument));
+        // Legacy non-Home-v2 callers do not carry a hosting-network field and
+        // retain the historical Qortium behavior. Home v2 must provide the
+        // shell-selected network explicitly so Qortal cannot be misclassified.
+        if (normalizedNetwork == null && !homeV2) {
+            normalizedNetwork = "qortium";
+        }
+
+        if (normalizedNetwork == null) {
+            return null;
+        }
+
+        String label = getLabel(normalizedOrigin);
+        AuthorizedDocument authorizedDocument = parseAuthorizedDocument(
+            normalizedOrigin,
+            authorizedDocumentUrl,
+            normalizedNetwork
+        );
+
+        AUTHORIZED_ORIGINS.put(
+            label,
+            new AuthorizedOrigin(normalizedOrigin, homeV2, normalizedNetwork, authorizedDocument)
+        );
 
         return "https://" + label + PROXY_HOST_SUFFIX;
     }
@@ -500,7 +543,8 @@ final class QdnRenderProxy {
                 && !isAuthorizedAppResource(
                     segments,
                     url.getQueryParameter("identifier"),
-                    authorization.authorizedDocument
+                    authorization.authorizedDocument,
+                    authorization.hostingNetwork
                 )
         ) {
             return RouteKind.DENIED;
@@ -547,6 +591,15 @@ final class QdnRenderProxy {
         String queryIdentifier,
         AuthorizedDocument authorized
     ) {
+        return isAuthorizedAppResource(segments, queryIdentifier, authorized, "qortium");
+    }
+
+    static boolean isAuthorizedAppResource(
+        List<String> segments,
+        String queryIdentifier,
+        AuthorizedDocument authorized,
+        String hostingNetwork
+    ) {
         // segments = [render|arbitrary, service, name, identifierOrPathSegment, ...].
         if (segments == null || segments.size() < 3 || !"APP".equalsIgnoreCase(segments.get(1))) {
             return true;
@@ -564,7 +617,7 @@ final class QdnRenderProxy {
             return false;
         }
 
-        String candidateIdentifier = resolveCandidateIdentifier(segments, queryIdentifier);
+        String candidateIdentifier = resolveCandidateIdentifier(segments, queryIdentifier, hostingNetwork);
 
         return authorized.identifier == null
             ? candidateIdentifier == null
@@ -626,6 +679,14 @@ final class QdnRenderProxy {
      * {@code Uri}/String-typed production wrapper used by {@link #authorize}.
      */
     static AuthorizedDocument buildAuthorizedDocument(List<String> segments, String encodedQuery) {
+        return buildAuthorizedDocument(segments, encodedQuery, "qortium");
+    }
+
+    static AuthorizedDocument buildAuthorizedDocument(
+        List<String> segments,
+        String encodedQuery,
+        String hostingNetwork
+    ) {
         String pathname = normalizePathnameFromSegments(segments);
         String query = normalizeQuery(encodedQuery);
         String name = null;
@@ -638,7 +699,11 @@ final class QdnRenderProxy {
                 "APP".equalsIgnoreCase(segments.get(1))
         ) {
             name = segments.get(2);
-            identifier = resolveCandidateIdentifier(segments, extractQueryParam(encodedQuery, "identifier"));
+            identifier = resolveCandidateIdentifier(
+                segments,
+                extractQueryParam(encodedQuery, "identifier"),
+                hostingNetwork
+            );
         }
 
         return new AuthorizedDocument(pathname, query, name, identifier);
@@ -651,6 +716,14 @@ final class QdnRenderProxy {
      * origin check this delegates to.
      */
     static AuthorizedDocument parseAuthorizedDocument(String expectedOrigin, String authorizedDocumentUrl) {
+        return parseAuthorizedDocument(expectedOrigin, authorizedDocumentUrl, "qortium");
+    }
+
+    static AuthorizedDocument parseAuthorizedDocument(
+        String expectedOrigin,
+        String authorizedDocumentUrl,
+        String hostingNetwork
+    ) {
         if (authorizedDocumentUrl == null || authorizedDocumentUrl.trim().isEmpty()) {
             return null;
         }
@@ -663,7 +736,8 @@ final class QdnRenderProxy {
             parsed.getHost(),
             parsed.getPort(),
             parsed.getPathSegments(),
-            parsed.getEncodedQuery()
+            parsed.getEncodedQuery(),
+            hostingNetwork
         );
     }
 
@@ -697,13 +771,33 @@ final class QdnRenderProxy {
         List<String> segments,
         String encodedQuery
     ) {
+        return buildAuthorizedDocumentIfOriginMatches(
+            expectedOrigin,
+            documentScheme,
+            documentHost,
+            documentPort,
+            segments,
+            encodedQuery,
+            "qortium"
+        );
+    }
+
+    static AuthorizedDocument buildAuthorizedDocumentIfOriginMatches(
+        String expectedOrigin,
+        String documentScheme,
+        String documentHost,
+        int documentPort,
+        List<String> segments,
+        String encodedQuery,
+        String hostingNetwork
+    ) {
         String documentOrigin = canonicalizeOrigin(documentScheme, documentHost, documentPort);
 
         if (expectedOrigin == null || documentOrigin == null || !documentOrigin.equals(expectedOrigin)) {
             return null;
         }
 
-        return buildAuthorizedDocument(segments, encodedQuery);
+        return buildAuthorizedDocument(segments, encodedQuery, hostingNetwork);
     }
 
     /**
@@ -864,19 +958,64 @@ final class QdnRenderProxy {
     }
 
     /**
-     * Resolves the candidate identifier for a RENDER path's segments exactly
+     * Resolves the candidate identifier for a RENDER or PUBLIC_ARBITRARY
+     * path's segments exactly
      * the way Core's RenderResource.getPathByName resolves it — mirrors
      * electron/qdn-resource-identity.ts's resolveCandidateIdentifier and
      * src/v2/shell/render-path-identity.ts's twin: an explicit {@code
-     * identifier} query parameter wins when non-blank; otherwise a
+     * identifier} query parameter wins when non-blank for render paths;
+     * Qortal arbitrary paths use their explicit path identifier and ignore
+     * unrelated query parameters. Otherwise a
      * non-"default" (case-insensitive) first path segment after the name is
      * a POSSIBLE identifier. This proxy cannot verify a segment is a REAL
      * published identifier the way Core's isRealIdentifier does, so it fails
      * closed and treats ANY non-default first segment as one.
      */
     static String resolveCandidateIdentifier(List<String> segments, String queryIdentifier) {
+        return resolveCandidateIdentifier(segments, queryIdentifier, "qortium");
+    }
+
+    static String resolveCandidateIdentifier(
+        List<String> segments,
+        String queryIdentifier,
+        String hostingNetwork
+    ) {
+        // Qortal's /arbitrary/APP/<name>/<identifier> endpoint has a
+        // path-bound identity. Its query parameters describe the data read
+        // and must not override the identifier in the path (unlike
+        // /render/APP/<name>, where RenderResource passes ?identifier to the
+        // renderer). Keep this branch before render query handling so a
+        // conflicting query cannot authorize another resource.
+        if ("qortal".equalsIgnoreCase(hostingNetwork)
+            && segments != null
+            && !segments.isEmpty()
+            && "arbitrary".equalsIgnoreCase(segments.get(0))) {
+            if (segments.size() < 4) {
+                return null;
+            }
+            String candidate = segments.get(3);
+            return candidate.isEmpty() || "default".equalsIgnoreCase(candidate) ? null : candidate;
+        }
+
         if (queryIdentifier != null && !queryIdentifier.trim().isEmpty()) {
+            if ("qortal".equalsIgnoreCase(hostingNetwork)
+                && segments != null
+                && !segments.isEmpty()
+                && "render".equalsIgnoreCase(segments.get(0))
+                && "default".equalsIgnoreCase(queryIdentifier.trim())) {
+                return null;
+            }
             return queryIdentifier;
+        }
+
+        // Qortal's RenderResource passes every path segment after APP/name as
+        // inPath; only its `identifier` query parameter selects a named
+        // resource. Qortium retains its path-based identifier convention.
+        if ("qortal".equalsIgnoreCase(hostingNetwork)
+            && segments != null
+            && !segments.isEmpty()
+            && "render".equalsIgnoreCase(segments.get(0))) {
+            return null;
         }
 
         if (segments != null && segments.size() >= 4) {
@@ -888,6 +1027,16 @@ final class QdnRenderProxy {
         }
 
         return null;
+    }
+
+    private static String normalizeHostingNetwork(String hostingNetwork) {
+        if (hostingNetwork == null) {
+            return null;
+        }
+
+        String normalized = hostingNetwork.trim().toLowerCase(Locale.ROOT);
+
+        return "qortal".equals(normalized) || "qortium".equals(normalized) ? normalized : null;
     }
 
     static RouteKind classifyProxyPath(

@@ -4,6 +4,7 @@ interface QdnRenderProxyPlugin {
   authorize(options: {
     authorizedDocumentUrl?: string | null
     homeV2: boolean
+    network: 'qortal' | 'qortium'
     origin: string
   }): Promise<{ proxyOrigin: string }>
   authorizeStream(options: {
@@ -36,8 +37,12 @@ const QdnRenderProxy = registerPlugin<QdnRenderProxyPlugin>('QdnRenderProxy')
 // (separate, coarser) data-read containment from this SAME URL server-side,
 // rather than the caller computing and passing them independently — closing
 // the drift risk a caller-computed identifier always carried.
-export async function authorizeHomeV2AndroidAppOrigin(origin: string, authorizedDocumentUrl: string) {
-  const result = await QdnRenderProxy.authorize({ authorizedDocumentUrl, homeV2: true, origin })
+export async function authorizeHomeV2AndroidAppOrigin(
+  origin: string,
+  authorizedDocumentUrl: string,
+  network: 'qortal' | 'qortium',
+) {
+  const result = await QdnRenderProxy.authorize({ authorizedDocumentUrl, homeV2: true, network, origin })
   if (!result.proxyOrigin?.startsWith('https://')) {
     throw new Error('Android did not return a secure QDN proxy origin.')
   }

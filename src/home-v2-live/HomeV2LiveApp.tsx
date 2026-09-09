@@ -5282,7 +5282,7 @@ export function HomeV2LiveApp() {
       const resolveAppIdentity = () => {
         try {
           const parsed = parseAppResourceLocation(context.resourceLocation)
-          const identifier = resolveLaunchIdentifier(parsed.identity.identifier, context.resourceLocation)
+          const identifier = resolveLaunchIdentifier(parsed.identity.identifier, context.resourceLocation, parsed.sourceNetwork)
           return {
             identityKey: sanitizeQdnManagerAppKey(
               buildAppResourceLocation(parsed.sourceNetwork, { ...parsed.identity, identifier }),
@@ -5580,7 +5580,7 @@ export function HomeV2LiveApp() {
         const parsedApp = (() => {
           try {
             const parsed = parseAppResourceLocation(context.resourceLocation)
-            const identifier = resolveLaunchIdentifier(parsed.identity.identifier, context.resourceLocation)
+            const identifier = resolveLaunchIdentifier(parsed.identity.identifier, context.resourceLocation, parsed.sourceNetwork)
             return {
               identityKey: sanitizeQdnManagerAppKey(
                 buildAppResourceLocation(parsed.sourceNetwork, { ...parsed.identity, identifier }),
@@ -7195,7 +7195,7 @@ export function HomeV2LiveApp() {
         const parsedApp = (() => {
           try {
             const parsed = parseAppResourceLocation(context.resourceLocation)
-            const identifier = resolveLaunchIdentifier(parsed.identity.identifier, context.resourceLocation)
+            const identifier = resolveLaunchIdentifier(parsed.identity.identifier, context.resourceLocation, parsed.sourceNetwork)
             return {
               identityKey: buildAppResourceLocation(parsed.sourceNetwork, { ...parsed.identity, identifier }),
               title: parsed.identity.name,
@@ -8454,7 +8454,7 @@ export function HomeV2LiveApp() {
             const parsedApp = (() => {
               try {
                 const parsed = parseAppResourceLocation(context.resourceLocation)
-                const identifier = resolveLaunchIdentifier(parsed.identity.identifier, context.resourceLocation)
+                const identifier = resolveLaunchIdentifier(parsed.identity.identifier, context.resourceLocation, parsed.sourceNetwork)
                 return {
                   identityKey: buildAppResourceLocation(parsed.sourceNetwork, { ...parsed.identity, identifier }),
                   title: parsed.identity.name,
@@ -8732,6 +8732,7 @@ export function HomeV2LiveApp() {
               const identifier = resolveLaunchIdentifier(
                 parsed.identity.identifier,
                 context.resourceLocation,
+                parsed.sourceNetwork,
               )
               return {
                 identityKey: buildAppResourceLocation(parsed.sourceNetwork, {
@@ -8929,7 +8930,7 @@ export function HomeV2LiveApp() {
         const parsedApp = (() => {
           try {
             const parsed = parseAppResourceLocation(context.resourceLocation)
-            const identifier = resolveLaunchIdentifier(parsed.identity.identifier, context.resourceLocation)
+            const identifier = resolveLaunchIdentifier(parsed.identity.identifier, context.resourceLocation, parsed.sourceNetwork)
             return {
               identityKey: buildAppResourceLocation(parsed.sourceNetwork, { ...parsed.identity, identifier }),
               title: parsed.identity.name,
@@ -9101,7 +9102,7 @@ export function HomeV2LiveApp() {
           const parsedApp = (() => {
             try {
               const parsed = parseAppResourceLocation(context.resourceLocation)
-              const identifier = resolveLaunchIdentifier(parsed.identity.identifier, context.resourceLocation)
+              const identifier = resolveLaunchIdentifier(parsed.identity.identifier, context.resourceLocation, parsed.sourceNetwork)
               return {
                 identityKey: buildAppResourceLocation(parsed.sourceNetwork, { ...parsed.identity, identifier }),
                 title: parsed.identity.name,
@@ -9407,7 +9408,7 @@ export function HomeV2LiveApp() {
           const parsedApp = (() => {
             try {
               const parsed = parseAppResourceLocation(context.resourceLocation)
-              const identifier = resolveLaunchIdentifier(parsed.identity.identifier, context.resourceLocation)
+              const identifier = resolveLaunchIdentifier(parsed.identity.identifier, context.resourceLocation, parsed.sourceNetwork)
               return {
                 identityKey: buildAppResourceLocation(parsed.sourceNetwork, { ...parsed.identity, identifier }),
                 title: parsed.identity.name,
@@ -9653,6 +9654,7 @@ export function HomeV2LiveApp() {
               const identifier = resolveLaunchIdentifier(
                 parsed.identity.identifier,
                 context.resourceLocation,
+                parsed.sourceNetwork,
               )
               return buildAppResourceLocation(parsed.sourceNetwork, {
                 ...parsed.identity,

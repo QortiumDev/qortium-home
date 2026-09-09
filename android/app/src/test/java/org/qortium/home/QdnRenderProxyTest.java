@@ -150,6 +150,130 @@ public class QdnRenderProxyTest {
         assertTrue(isAuthorizedAppResource(parts("render", "APP"), null, defaultChat));
     }
 
+    @Test
+    public void qortalRenderAssetsUseQueryIdentifiersButArbitraryKeepsPathIdentifiers() {
+        QdnRenderProxy.AuthorizedDocument qortalDefault =
+            QdnRenderProxy.buildAuthorizedDocument(parts("render", "APP", "xnetwork"), null, "qortal");
+
+        // Qortal RenderResource passes every segment after APP/name as the
+        // file path, so a default app's assets remain on the authorized
+        // resource instead of treating "assets" as an identifier.
+        assertTrue(
+            isAuthorizedAppResource(
+                parts("render", "APP", "xnetwork", "assets", "index.js"),
+                null,
+                qortalDefault,
+                "qortal"
+            )
+        );
+        assertTrue(
+            isAuthorizedAppResource(
+                parts("render", "APP", "xnetwork", "assets", "index.js"),
+                "default",
+                qortalDefault,
+                "qortal"
+            )
+        );
+        assertFalse(
+            isAuthorizedAppResource(
+                parts("render", "APP", "OtherNetwork", "assets", "index.js"),
+                null,
+                qortalDefault,
+                "qortal"
+            )
+        );
+
+        QdnRenderProxy.AuthorizedDocument qortalNamed =
+            QdnRenderProxy.buildAuthorizedDocument(parts("render", "APP", "xnetwork"), "identifier=published", "qortal");
+        assertTrue(
+            isAuthorizedAppResource(
+                parts("render", "APP", "xnetwork", "assets", "index.js"),
+                "published",
+                qortalNamed,
+                "qortal"
+            )
+        );
+        assertFalse(
+            isAuthorizedAppResource(
+                parts("render", "APP", "xnetwork", "assets", "index.js"),
+                "other",
+                qortalNamed,
+                "qortal"
+            )
+        );
+
+        // /arbitrary/APP/<name>/<identifier> is a data-read shape shared by
+        // both chains; for Qortal it still carries the explicit identifier in
+        // the path, while the file path itself is a filepath query parameter.
+        assertTrue(
+            isAuthorizedAppResource(
+                parts("arbitrary", "APP", "xnetwork"),
+                null,
+                qortalDefault,
+                "qortal"
+            )
+        );
+        assertFalse(
+            isAuthorizedAppResource(
+                parts("arbitrary", "APP", "xnetwork", "assets", "index.js"),
+                null,
+                qortalDefault,
+                "qortal"
+            )
+        );
+        assertTrue(
+            isAuthorizedAppResource(
+                parts("arbitrary", "APP", "xnetwork", "published"),
+                null,
+                qortalNamed,
+                "qortal"
+            )
+        );
+        assertFalse(
+            isAuthorizedAppResource(
+                parts("arbitrary", "APP", "xnetwork", "other"),
+                null,
+                qortalNamed,
+                "qortal"
+            )
+        );
+        assertFalse(
+            "Qortal arbitrary path identity must not be overridden by a conflicting query",
+            isAuthorizedAppResource(
+                parts("arbitrary", "APP", "xnetwork", "other"),
+                "published",
+                qortalNamed,
+                "qortal"
+            )
+        );
+        assertTrue(
+            "Qortal arbitrary query parameters cannot change a matching path identity",
+            isAuthorizedAppResource(
+                parts("arbitrary", "APP", "xnetwork", "published"),
+                "other",
+                qortalNamed,
+                "qortal"
+            )
+        );
+
+        // The exact document gate remains independent: a permitted asset is
+        // plain content and must never inherit the launch document's bridge.
+        assertTrue(
+            isExactAuthorizedRenderDocument(
+                parts("render", "APP", "xnetwork"),
+                null,
+                qortalDefault
+            )
+        );
+        assertFalse(
+            isExactAuthorizedRenderDocument(
+                parts("render", "APP", "xnetwork", "assets", "index.js"),
+                null,
+                qortalDefault
+            )
+        );
+    }
+
     // Round 4, Defect C (Sol round-3 re-review): /arbitrary/APP/<name>/... must
     // be bound to the SAME authorized app resource as /render/... — otherwise
     // an authorized tab could load ANOTHER app's (or the same app's OTHER
@@ -555,6 +679,15 @@ public class QdnRenderProxyTest {
         return QdnRenderProxy.isAuthorizedAppResource(segments, queryIdentifier, authorized);
     }
 
+    private static boolean isAuthorizedAppResource(
+        List<String> segments,
+        String queryIdentifier,
+        QdnRenderProxy.AuthorizedDocument authorized,
+        String hostingNetwork
+    ) {
+        return QdnRenderProxy.isAuthorizedAppResource(segments, queryIdentifier, authorized, hostingNetwork);
+    }
+
     private static boolean isExactAuthorizedRenderDocument(
         List<String> segments,
         String encodedQuery,
@@ -579,6 +712,11 @@ public class QdnRenderProxyTest {
         assertNull(QdnRenderProxy.resolveCandidateIdentifier(parts("render", "APP", "Chat", "default"), null));
         assertNull(QdnRenderProxy.resolveCandidateIdentifier(parts("render", "APP", "Chat", "DEFAULT"), null));
         assertNull(QdnRenderProxy.resolveCandidateIdentifier(parts("render", "APP", "Chat"), null));
+        for (String service : new String[] {"APP", "WEBSITE", "GAME"}) {
+            List<String> assetPath = parts("render", service, "Chat", "assets", "index.js");
+            assertNull(QdnRenderProxy.resolveCandidateIdentifier(assetPath, "default", "qortal"));
+            assertEquals("published", QdnRenderProxy.resolveCandidateIdentifier(assetPath, "published", "qortal"));
+        }
     }
 
     // Round 5, Minor 2 (Sol round-4 re-review): this used to be a hand-copied,
