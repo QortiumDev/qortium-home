@@ -330,6 +330,7 @@ async function testAndroidIframeSrcIncludesInitialHashWhileAuthorizationDropsIt(
   const newCalls = recordedAuthorizeCalls.slice(priorAuthorizeCallCount)
   assert.equal(newCalls.length, 1, 'exactly one native authorize() call should have been made')
   const registeredUrl = String(newCalls[0]?.authorizedDocumentUrl)
+  assert.equal(newCalls[0]?.network, 'qortium', 'the shell passes the hosting network to native authorization')
   assert.doesNotMatch(
     registeredUrl,
     /#/,

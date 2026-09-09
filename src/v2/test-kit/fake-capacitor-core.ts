@@ -20,11 +20,21 @@
 // never appears in the registered authorizedDocumentUrl (see
 // AppTabStage.test.tsx's hash test), which no assertion on the iframe's own
 // `src` alone could prove.
-export const recordedAuthorizeCalls: { authorizedDocumentUrl?: string | null; homeV2?: boolean; origin?: string }[] = []
+export const recordedAuthorizeCalls: {
+  authorizedDocumentUrl?: string | null
+  homeV2?: boolean
+  network?: 'qortal' | 'qortium'
+  origin?: string
+}[] = []
 
 export function registerPlugin(_name: string) {
   return {
-    async authorize(options: { authorizedDocumentUrl?: string | null; homeV2?: boolean; origin?: string }) {
+    async authorize(options: {
+      authorizedDocumentUrl?: string | null
+      homeV2?: boolean
+      network?: 'qortal' | 'qortium'
+      origin?: string
+    }) {
       recordedAuthorizeCalls.push(options)
       // A single fixed origin: production also authorizes ONE proxy origin
       // per node regardless of which app tab is active (see

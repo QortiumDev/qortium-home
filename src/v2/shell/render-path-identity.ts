@@ -25,6 +25,8 @@ export type QdnRenderPathIdentity = {
   readonly nextSegment: string | null
 }
 
+export type QdnRenderNetwork = 'qortal' | 'qortium'
+
 // Parses the `/render/<service>/<name>[/<segment>]` prefix of a rendered QDN
 // URL's pathname (proxied or direct — both mirror the node's real render
 // path).
@@ -52,8 +54,22 @@ export function parseRenderPathIdentity(pathname: string): QdnRenderPathIdentity
 // src/shared-fixtures/qdn-render-candidate-identifier-vectors.json, instead
 // of each side hand-copying/translating its own literal vectors (which can
 // silently drift from each other without either test going red).
-export function resolveCandidateIdentifier(queryIdentifier: string | null, parsed: QdnRenderPathIdentity): string | null {
-  if (queryIdentifier !== null && queryIdentifier.trim() !== '') return queryIdentifier
+export function resolveCandidateIdentifier(
+  queryIdentifier: string | null,
+  parsed: QdnRenderPathIdentity,
+  network: QdnRenderNetwork = 'qortium',
+): string | null {
+  if (queryIdentifier !== null && queryIdentifier.trim() !== '') {
+    if (network === 'qortal' && parsed.service === 'APP' && queryIdentifier.trim().toLowerCase() === 'default') {
+      return null
+    }
+    return queryIdentifier
+  }
+  // Qortal Core's RenderResource treats all APP/name path segments as the
+  // file path; a named resource is selected only by ?identifier=. Qortium
+  // retains the path-based identifier convention used by this module's
+  // existing callers.
+  if (network === 'qortal' && parsed.service === 'APP') return null
   if (parsed.nextSegment !== null && parsed.nextSegment.toLowerCase() !== 'default') return parsed.nextSegment
   return null
 }
@@ -76,6 +92,7 @@ export function isSameRenderResourcePath(
     readonly name: string
     readonly identifier: string | null
   },
+  network: QdnRenderNetwork = 'qortium',
 ): boolean {
   let url: URL
   try {
@@ -89,7 +106,7 @@ export function isSameRenderResourcePath(
     parsed.service !== launch.service.toUpperCase() ||
     parsed.name !== launch.name
   ) return false
-  const candidateIdentifier = resolveCandidateIdentifier(url.searchParams.get('identifier'), parsed)
+  const candidateIdentifier = resolveCandidateIdentifier(url.searchParams.get('identifier'), parsed, network)
   return launch.identifier === null
     ? candidateIdentifier === null
     : candidateIdentifier === launch.identifier

@@ -3698,7 +3698,7 @@ function testGrantIdentityAndSendRateLimitHardening(): void {
   )
   assert.match(
     appTabStage,
-    /authorizeHomeV2AndroidAppOrigin\(resolved\.nodeApiUrl, authorizedDocument\.toString\(\)\)/,
+    /authorizeHomeV2AndroidAppOrigin\(\s*resolved\.nodeApiUrl,\s*authorizedDocument\.toString\(\),\s*resolved\.tab\.context\.sourceNetwork,\s*\)/,
     'authorize() must register the EXACT shell-computed document URL, not a caller-derived ' +
       'name/identifier pair that could drift from it',
   )
@@ -3719,7 +3719,7 @@ function testGrantIdentityAndSendRateLimitHardening(): void {
   )
   assert.match(
     androidAppHost,
-    /authorizeHomeV2AndroidAppOrigin\(origin: string, authorizedDocumentUrl: string\)/,
+    /authorizeHomeV2AndroidAppOrigin\(\s*origin: string,\s*authorizedDocumentUrl: string,\s*network: 'qortal' \| 'qortium',\s*\)/,
     'android-app-host.ts must register a single trusted document URL, not separate ' +
       'appName/appIdentifier/initialPathname fields',
   )

@@ -30,7 +30,8 @@ public class QdnRenderProxyPlugin extends Plugin {
         String proxyOrigin = QdnRenderProxy.authorize(
             call.getString("origin"),
             homeV2,
-            authorizedDocumentUrl
+            authorizedDocumentUrl,
+            call.getString("network")
         );
 
         if (proxyOrigin == null) {

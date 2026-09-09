@@ -67,7 +67,8 @@ export function currentAppLocationFromRender(
     if (live.protocol !== 'http:' && live.protocol !== 'https:') return null
     const identity = { ...launch.identity,
       identifier: resolveLaunchIdentifier(launch.identity.identifier, context.resourceLocation) }
-    if (!isSameRenderResourcePath(currentUrl, identity) || !isSameRenderResourcePath(renderUrl, identity)) return null
+    if (!isSameRenderResourcePath(currentUrl, identity, launch.sourceNetwork) ||
+        !isSameRenderResourcePath(renderUrl, identity, launch.sourceNetwork)) return null
     const segments = live.pathname.split('/').slice(4)
     const first = segments[0] ? decodeURIComponent(segments[0]) : null
     // Core strips an actual identifier (also when repeated in ?identifier=).
