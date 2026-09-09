@@ -60,16 +60,16 @@ export function resolveCandidateIdentifier(
   network: QdnRenderNetwork = 'qortium',
 ): string | null {
   if (queryIdentifier !== null && queryIdentifier.trim() !== '') {
-    if (network === 'qortal' && parsed.service === 'APP' && queryIdentifier.trim().toLowerCase() === 'default') {
+    if (network === 'qortal' && queryIdentifier.trim().toLowerCase() === 'default') {
       return null
     }
     return queryIdentifier
   }
-  // Qortal Core's RenderResource treats all APP/name path segments as the
+  // Qortal Core's RenderResource treats all service/name path segments as the
   // file path; a named resource is selected only by ?identifier=. Qortium
   // retains the path-based identifier convention used by this module's
   // existing callers.
-  if (network === 'qortal' && parsed.service === 'APP') return null
+  if (network === 'qortal') return null
   if (parsed.nextSegment !== null && parsed.nextSegment.toLowerCase() !== 'default') return parsed.nextSegment
   return null
 }

@@ -113,6 +113,17 @@ const ORIGIN = 'https://n0123456789abcdef.qdn.androidplatform.net'
     isSameRenderResourcePath(`${ORIGIN}/render/APP/xnetwork/assets/index.js?identifier=default`, qortalDefault, 'qortal'),
     true,
   )
+
+  // RenderResource applies the query-only Qortal identity rule to every
+  // supported app-tab service, not only APP.
+  for (const service of ['APP', 'WEBSITE', 'GAME']) {
+    const defaultLaunch = { service, name: 'xnetwork', identifier: null }
+    const namedLaunch = { service, name: 'xnetwork', identifier: 'published' }
+    const asset = `${ORIGIN}/render/${service}/xnetwork/assets/index.js`
+    assert.equal(isSameRenderResourcePath(`${asset}?identifier=default`, defaultLaunch, 'qortal'), true)
+    assert.equal(isSameRenderResourcePath(`${asset}?identifier=published`, namedLaunch, 'qortal'), true)
+    assert.equal(isSameRenderResourcePath(`${asset}?identifier=other`, namedLaunch, 'qortal'), false)
+  }
 }
 
 // Round 4, Defect B (Sol round-3 re-review): resolveLaunchIdentifier is what

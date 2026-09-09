@@ -712,6 +712,11 @@ public class QdnRenderProxyTest {
         assertNull(QdnRenderProxy.resolveCandidateIdentifier(parts("render", "APP", "Chat", "default"), null));
         assertNull(QdnRenderProxy.resolveCandidateIdentifier(parts("render", "APP", "Chat", "DEFAULT"), null));
         assertNull(QdnRenderProxy.resolveCandidateIdentifier(parts("render", "APP", "Chat"), null));
+        for (String service : new String[] {"APP", "WEBSITE", "GAME"}) {
+            List<String> assetPath = parts("render", service, "Chat", "assets", "index.js");
+            assertNull(QdnRenderProxy.resolveCandidateIdentifier(assetPath, "default", "qortal"));
+            assertEquals("published", QdnRenderProxy.resolveCandidateIdentifier(assetPath, "published", "qortal"));
+        }
     }
 
     // Round 5, Minor 2 (Sol round-4 re-review): this used to be a hand-copied,
