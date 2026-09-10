@@ -57,6 +57,9 @@ type Snapshot = {
       nodeApiUrl: string | null
     }
     qortium: {
+      state: string
+      adminBindingId: string | null
+      adminTrusted: boolean
       capabilities: { admin: boolean }
       customAuthenticated: boolean
       lastEnabledMode: string
@@ -1498,6 +1501,51 @@ await client.setCustomUrl(
   'https://qortium-admin.example',
   'private-test-api-key',
 )
+
+// A transient probe miss on the SAME configured custom endpoint keeps the
+// readable route alive for the short cache window. The cached status is read
+// evidence only: it must never carry stale administration trust or its binding
+// id into the snapshot.
+{
+  const customOrigin = 'https://qortium-admin.example'
+  const healthy = (await client.getSnapshot()) as Snapshot
+  assert.equal(healthy.nodes.qortium.nodeApiUrl, customOrigin)
+  assert.equal(healthy.nodes.qortium.adminTrusted, true)
+  assert.ok(healthy.nodes.qortium.adminBindingId)
+
+  unavailable.add(customOrigin)
+  const transient = (await client.getSnapshot()) as Snapshot
+  assert.equal(transient.nodes.qortium.nodeApiUrl, customOrigin)
+  assert.equal(transient.nodes.qortium.state, 'online')
+  assert.equal(transient.nodes.qortium.adminTrusted, false)
+  assert.equal(transient.nodes.qortium.adminBindingId, null)
+
+  currentNow += 30_001
+  const expired = (await client.getSnapshot()) as Snapshot
+  assert.equal(expired.nodes.qortium.nodeApiUrl, null)
+  assert.equal(expired.nodes.qortium.adminTrusted, false)
+  assert.equal(expired.nodes.qortium.adminBindingId, null)
+  unavailable.delete(customOrigin)
+
+  // A disabled route must not resurrect from the recent custom read cache.
+  await client.setCustomUrl('qortium', customOrigin, 'private-test-api-key')
+  const disabled = (await client.setMode('qortium', 'disabled')) as Snapshot
+  assert.equal(disabled.nodes.qortium.nodeApiUrl, null)
+  assert.equal(disabled.nodes.qortium.adminTrusted, false)
+  assert.equal(disabled.nodes.qortium.adminBindingId, null)
+
+  // Changing the configured endpoint must not reuse the previous endpoint's
+  // recent read, even when the replacement is currently unavailable.
+  unavailable.add('https://different-admin.example')
+  const changedWhileUnavailable = (await client.setCustomUrl(
+    'qortium',
+    'https://different-admin.example',
+  )) as Snapshot
+  assert.equal(changedWhileUnavailable.nodes.qortium.nodeApiUrl, null)
+  assert.equal(changedWhileUnavailable.nodes.qortium.adminTrusted, false)
+  assert.equal(changedWhileUnavailable.nodes.qortium.adminBindingId, null)
+  unavailable.delete('https://different-admin.example')
+}
 
 const changedHost = (await client.setCustomUrl(
   'qortium',

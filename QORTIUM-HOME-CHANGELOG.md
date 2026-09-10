@@ -46,6 +46,9 @@ retaining the separate private-byte memory limit. Streamed documents remain
 sandboxed. Bundled app assets support HEAD checks under the same authorization
 as GET.
 Media services retain their existing render routes and stream protections.
+Android also retains a recently verified custom read route for the existing
+30-second grace period during transient health-probe failures, without carrying
+stale admin trust or switching endpoints.
 
 ## fix: preserve published app publishing and minting compatibility
 

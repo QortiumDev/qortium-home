@@ -123,6 +123,10 @@ retains its separate shell-origin capability. All Android stream capabilities
 carry a sandboxed document policy so streamed HTML cannot execute as the app.
 Upstream URL capabilities have a separate bounded pool from buffered private
 bytes; preparing a multi-file bundle does not consume the private-byte quota.
+Android custom nodes share the existing 30-second recent-read grace period
+when the configured endpoint is unchanged. This prevents a transient health
+probe failure from discarding an active read route; it grants no stale admin
+trust and does not extend capability expiry.
 
 Other resource services retain their render routes. APP, WEBSITE and GAME
 navigation uses `OPEN_NEW_TAB` or `OPEN_CURRENT_TAB`; this change does not

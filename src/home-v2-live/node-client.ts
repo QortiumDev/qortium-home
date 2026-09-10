@@ -1158,9 +1158,16 @@ export function createPortableNodeClient(
       ? await probe(network, nodeApiUrl)
       : await resolvePublic(network)
     const freshlyVerified = !!result
-    if (!result && settings.mode === 'public') {
+    if (!result) {
       const recent = recentReadableNodes[network]
-      if (recent && dependencies.now() - recent.verifiedAt < RECENT_READABLE_NODE_TTL_MS) {
+      const sameConfiguredCustomNode =
+        settings.mode === 'custom' &&
+        !!settings.customUrl &&
+        recent?.nodeApiUrl === settings.customUrl
+      const recentReadStillValid = recent &&
+        dependencies.now() - recent.verifiedAt < RECENT_READABLE_NODE_TTL_MS &&
+        (settings.mode === 'public' || sameConfiguredCustomNode)
+      if (recentReadStillValid) {
         result = {
           latencyMs: 0,
           nodeApiUrl: recent.nodeApiUrl,
@@ -1184,7 +1191,11 @@ export function createPortableNodeClient(
       }
     }
     const status = result.status
-    const adminTrust = network === 'qortium'
+    // A same-endpoint read grace keeps a transient custom-node probe miss from
+    // tearing down an already-readable route, but it is not fresh proof of the
+    // node's administration credential. Only a successful probe may advertise
+    // admin trust or its binding id.
+    const adminTrust = network === 'qortium' && freshlyVerified
       ? evaluateHomeV2AdminTrust({
           attached: settings.apiKey
             ? { apiKey: settings.apiKey, bindingId: settings.bindingId, origin: settings.customUrl }
