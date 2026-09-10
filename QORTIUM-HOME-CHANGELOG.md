@@ -32,6 +32,24 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## fix: restore raw QDN file URLs in Home 2
+
+2026-09-10
+
+Home 2 now resolves FILE and FILES resources to their raw bytes, restoring
+Home 1's Qortal resource URL behavior for apps such as Emulator. Nested ROM
+and external core files no longer receive an unsuitable render URL. Android
+routes these raw resource URLs through its authorized HTTPS proxy on the
+requesting app’s origin, allowing cross-network reads without relaxing app
+connection policies. URL capability capacity supports multi-file bundles while
+retaining the separate private-byte memory limit. Streamed documents remain
+sandboxed. Bundled app assets support HEAD checks under the same authorization
+as GET.
+Media services retain their existing render routes and stream protections.
+Android also retains a recently verified custom read route for the existing
+30-second grace period during transient health-probe failures, without carrying
+stale admin trust or switching endpoints.
+
 ## fix: preserve published app publishing and minting compatibility
 
 2026-09-08

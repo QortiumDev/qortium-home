@@ -649,6 +649,65 @@ assert.equal(
   ),
   '/render/APP/Trust/profile/Qabc?view=compact&theme=dark&lang=en&textSize=medium&accent=orange&uiStyle=classic',
 )
+// Media/app resources are unaffected by the FILE/FILES raw-byte branch below:
+// they keep rendering through Core's /render endpoint exactly as before.
+for (const service of ['AUDIO', 'VIDEO', 'IMAGE', 'DOCUMENT', 'ATTACHMENT', 'WEBSITE', 'GAME']) {
+  assert.equal(
+    buildHomeV2ResourceRenderPath({ name: 'Example', service }),
+    `/render/${service}/Example`,
+  )
+}
+
+// FILE and FILES URL actions restore the raw-byte contract, so these
+// build a raw /arbitrary/<service>/<name>...?filepath=... URL instead: the
+// path travels in the query string (not as path segments, unlike /render),
+// and display settings — meaningless for raw bytes — are never applied.
+for (const service of ['FILE', 'FILES']) {
+  // No path/identifier: the minimal shape.
+  assert.equal(
+    buildHomeV2ResourceRenderPath({ name: 'Roms', service }),
+    `/arbitrary/${service}/Roms`,
+  )
+  // Nested path + identifier, with display settings ignored.
+  {
+    const expectedQuery = new URLSearchParams()
+    expectedQuery.set('filepath', 'cores/reports/nestopia.json')
+    assert.equal(
+      buildHomeV2ResourceRenderPath(
+        { identifier: 'default', name: 'QDNES', path: 'cores/reports/nestopia.json', service },
+        { accent: 'orange', language: 'en', textSize: 'medium', theme: 'dark', ui: 'classic' },
+      ),
+      `/arbitrary/${service}/QDNES/default?${expectedQuery.toString()}`,
+    )
+  }
+  // Special characters in the path survive, and an embedded query string on
+  // the path is preserved alongside the filepath the path itself resolves to.
+  {
+    const expectedQuery = new URLSearchParams('raw=1')
+    expectedQuery.set('filepath', "roms/Sonic & Knuckles (USA).md")
+    assert.equal(
+      buildHomeV2ResourceRenderPath({ name: 'Roms', path: "roms/Sonic & Knuckles (USA).md?raw=1", service }),
+      `/arbitrary/${service}/Roms?${expectedQuery.toString()}`,
+    )
+  }
+  // Still bound by the same traversal guard as every other resource path.
+  assert.throws(
+    () => buildHomeV2ResourceRenderPath({ name: 'Roms', path: '../secrets', service }),
+    /file paths/,
+  )
+}
+
+for (const path of ['?filepath=../secret', '?filepath=%252e%252e%252fsecret', '?filepath=a&filepath=b']) {
+  assert.throws(() => buildHomeV2ResourceRenderPath({ service: 'FILES', name: 'QDNES', path }), /file paths/)
+}
+assert.equal(
+  buildHomeV2ResourceRenderPath({ service: 'FILES', name: 'QDNES', identifier: 'cores', filepath: 'cores/reports/nestopia.json' }),
+  '/arbitrary/FILES/QDNES/cores?filepath=cores%2Freports%2Fnestopia.json',
+)
+assert.equal(
+  buildHomeV2ResourceRenderPath({ service: 'FILE', name: 'Example', path: '?filepath=docs%2Fa%20%26%20b.txt' }),
+  '/arbitrary/FILE/Example?filepath=docs%2Fa+%26+b.txt',
+)
 
 assert.equal(
   buildHomeV2NamePath('GET_ACCOUNT_NAMES', {

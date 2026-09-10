@@ -886,6 +886,12 @@ export function buildHomeV2ResourcePath(
   throw new Error(`${action} is not a supported QDN resource read.`)
 }
 
+// Raw FILE/FILES callers need the original bytes, including nested core/ROM
+// files. Home 1's Qortal resource URL used /arbitrary for this contract.
+export function isHomeV2RawByteResourceService(service: unknown): boolean {
+  return typeof service === 'string' && ['FILE', 'FILES'].includes(service.trim().toUpperCase())
+}
+
 export function buildHomeV2ResourceRenderPath(
   request: Record<string, unknown>,
   displaySettings?: {
@@ -904,6 +910,34 @@ export function buildHomeV2ResourceRenderPath(
   )
   const [unsafePathOnly, rawQuery = ''] = rawPath.split('?', 2)
   const pathOnly = assertSafeHomeV2ResourceFilePath(unsafePathOnly)
+  const identifierSegment = identifier ? `/${encodeURIComponent(identifier)}` : ''
+
+  if (isHomeV2RawByteResourceService(service)) {
+    const query = new URLSearchParams(rawQuery)
+    const queryPaths = query.getAll('filepath')
+    if (queryPaths.length > 1) throw new Error('QDN resource file paths must be unambiguous.')
+    const effectivePath = assertSafeHomeV2ResourceFilePath(pathOnly || queryPaths[0] || '')
+    // Validate decoded forms too: URL query parsing and node file selection
+    // must not disagree about an encoded traversal or absolute path.
+    let inspectedPath = effectivePath
+    for (let depth = 0; depth < 8; depth += 1) {
+      assertSafeHomeV2ResourceFilePath(inspectedPath)
+      if (inspectedPath.startsWith('/') || /[\u0000-\u001f\u007f]/.test(inspectedPath)) {
+        throw new Error('QDN resource file paths must be relative and contain no control characters.')
+      }
+      let decoded: string
+      try { decoded = decodeURIComponent(inspectedPath) } catch { break }
+      if (decoded === inspectedPath) break
+      if (depth === 7) throw new Error('QDN resource file paths contain excessive encoding.')
+      inspectedPath = decoded
+    }
+    query.delete('filepath')
+    if (effectivePath) query.set('filepath', effectivePath)
+    return `/arbitrary/${encodeURIComponent(service)}/${encodeURIComponent(name)}${identifierSegment}${
+      query.size ? `?${query.toString()}` : ''
+    }`
+  }
+
   const encodedPath = pathOnly
     .split('/')
     .filter(Boolean)
@@ -917,9 +951,9 @@ export function buildHomeV2ResourceRenderPath(
     if (displaySettings.accent) query.set('accent', displaySettings.accent)
     if (displaySettings.ui) query.set('uiStyle', displaySettings.ui)
   }
-  return `/render/${encodeURIComponent(service)}/${encodeURIComponent(name)}${
-    identifier ? `/${encodeURIComponent(identifier)}` : ''
-  }${encodedPath ? `/${encodedPath}` : ''}${query.size ? `?${query.toString()}` : ''}`
+  return `/render/${encodeURIComponent(service)}/${encodeURIComponent(name)}${identifierSegment}${
+    encodedPath ? `/${encodedPath}` : ''
+  }${query.size ? `?${query.toString()}` : ''}`
 }
 
 export function buildHomeV2NamePath(action: string, request: Record<string, unknown>) {
