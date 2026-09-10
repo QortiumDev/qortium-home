@@ -811,10 +811,11 @@ public class QdnBridgeWebViewClientTest {
     }
 
     @Test
-    public void proxyCompatibilityReadsRemainGetOnly() {
+    public void proxyCompatibilityReadsAllowGetAndHeadOnly() {
         assertTrue(QdnBridgeWebViewClient.isAllowedProxyMethod("GET"));
         assertTrue(QdnBridgeWebViewClient.isAllowedProxyMethod("get"));
-        assertFalse(QdnBridgeWebViewClient.isAllowedProxyMethod("HEAD"));
+        assertTrue(QdnBridgeWebViewClient.isAllowedProxyMethod("HEAD"));
+        assertTrue(QdnBridgeWebViewClient.isAllowedProxyMethod("head"));
         assertFalse(QdnBridgeWebViewClient.isAllowedProxyMethod("POST"));
         assertFalse(QdnBridgeWebViewClient.isAllowedProxyMethod(null));
     }

@@ -339,11 +339,23 @@ final class QdnRenderProxy {
         }
         Uri resource = Uri.parse(resourceUrl);
         String resourceOrigin = canonicalizeOrigin(resource.getScheme(), resource.getHost(), resource.getPort());
+        RouteKind resourceRoute = classifyProxyPath(resource.getPathSegments(), resource.getEncodedQuery(), false);
+        boolean allowedRawByteResource = isAllowedRawByteResourcePath(
+            resource.getPathSegments(),
+            resource.getEncodedQuery()
+        );
+        boolean safeFilepathQuery = hasSafeFilepathQuery(resource.getEncodedQuery());
         if (
             !normalizedOrigin.equals(resourceOrigin) ||
             resource.getUserInfo() != null ||
             resource.getFragment() != null ||
-            classifyProxyPath(resource.getPathSegments(), resource.getEncodedQuery(), false) != RouteKind.RENDER
+            !safeFilepathQuery ||
+            // RENDER covers the existing rendered/streamable resources. Raw
+            // bytes are a deliberately narrower capability: only the exact
+            // /arbitrary/FILE|FILES/<name>[/<identifier>] coordinate shape
+            // produced by Home is eligible. classifyProxyPath remains broad
+            // for ordinary public reads, but must not widen this minting API.
+            (resourceRoute != RouteKind.RENDER && !allowedRawByteResource)
         ) {
             return null;
         }
@@ -1088,6 +1100,123 @@ final class QdnRenderProxy {
         }
 
         return RouteKind.DENIED;
+    }
+
+    /**
+     * The raw-byte stream capability is intentionally narrower than the
+     * ordinary PUBLIC_ARBITRARY proxy route. Home uses it for FILE/FILES
+     * resources whose bytes are served by Core's /arbitrary endpoint. A
+     * capability minted for an arbitrary DOCUMENT, APP, search, metadata, or
+     * malformed coordinate would turn that response into a stable proxy URL
+     * without the route's normal app/resource checks.
+     */
+    static boolean isAllowedRawByteResourcePath(List<String> segments, String encodedQuery) {
+        if (segments == null || (segments.size() != 3 && segments.size() != 4)) {
+            return false;
+        }
+
+        if (!"arbitrary".equalsIgnoreCase(segments.get(0))) {
+            return false;
+        }
+
+        String service = segments.get(1);
+        if (!"FILE".equalsIgnoreCase(service) && !"FILES".equalsIgnoreCase(service)) {
+            return false;
+        }
+
+        for (int index = 2; index < segments.size(); index += 1) {
+            if (segments.get(index) == null || segments.get(index).isEmpty()
+                || ".".equals(segments.get(index)) || "..".equals(segments.get(index))) {
+                return false;
+            }
+        }
+
+        return hasSafeFilepathQuery(encodedQuery);
+    }
+
+    /** Reject traversal hidden behind one or more layers of URL encoding. */
+    private static boolean hasSafeFilepathQuery(String encodedQuery) {
+        if (encodedQuery == null || encodedQuery.isEmpty()) {
+            return true;
+        }
+
+        int filepathCount = 0;
+
+        for (String pair : encodedQuery.split("&", -1)) {
+            int separator = pair.indexOf('=');
+            String rawKey = separator >= 0 ? pair.substring(0, separator) : pair;
+            String key = strictPercentDecode(rawKey);
+            if (key == null) {
+                return false;
+            }
+            if (!"filepath".equalsIgnoreCase(key)) {
+                continue;
+            }
+
+            filepathCount += 1;
+            if (filepathCount > 1) {
+                return false;
+            }
+
+            String decoded = separator >= 0 ? pair.substring(separator + 1) : "";
+            // Decode repeatedly so %2e%2e%2f and %252e%252e%252f are both
+            // treated as traversal. If a value keeps changing beyond the
+            // bound, reject it rather than allowing an unexamined encoding
+            // layer through to Core.
+            for (int round = 0; round < 8; round += 1) {
+                if (containsDotTraversal(decoded)) {
+                    return false;
+                }
+                String next = strictPercentDecode(decoded);
+                if (next == null) {
+                    // A literal percent in an already decoded filename is
+                    // valid; malformed encoding in the actual query is not.
+                    if (round == 0) return false;
+                    break;
+                }
+                if (next.equals(decoded)) {
+                    break;
+                }
+                decoded = next;
+                if (round == 7) {
+                    String afterBound = strictPercentDecode(next);
+                    return afterBound != null && afterBound.equals(next)
+                        && !containsDotTraversal(next);
+                }
+            }
+
+            if (containsDotTraversal(decoded)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static boolean containsDotTraversal(String value) {
+        if (value == null || value.startsWith("/") || value.indexOf('\\') >= 0) {
+            return true;
+        }
+        for (int index = 0; index < value.length(); index += 1) {
+            char character = value.charAt(index);
+            if (character < 0x20 || character == 0x7f) {
+                return true;
+            }
+        }
+        for (String segment : value.split("/", -1)) {
+            if (".".equals(segment) || "..".equals(segment)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static String strictPercentDecode(String value) {
+        try {
+            return URLDecoder.decode(value, StandardCharsets.UTF_8.name());
+        } catch (UnsupportedEncodingException | IllegalArgumentException ignored) {
+            return null;
+        }
     }
 
     private static AuthorizedOrigin getAuthorization(Uri url) {

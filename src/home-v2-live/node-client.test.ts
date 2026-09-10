@@ -381,6 +381,23 @@ assert.deepEqual(
   }),
   { address: 'qortal://APP/Q-Tube', openIn: 'new-tab' },
 )
+// Exercise the real portable dispatch on both networks, not just URL helpers.
+for (const protocol of ['qdnRequest', 'qortalRequest'] as const) {
+  for (const action of ['GET_QDN_RESOURCE_URL', 'GET_QDN_RESOURCE_STREAM_URL']) {
+    for (const service of ['FILE', 'FILES']) {
+      const url = new URL(String(await client.requestApp(protocol, {
+        action, service, name: 'QDNES', identifier: 'cores', path: 'cores/reports/nestopia.json',
+      }, resourceContext)))
+      assert.equal(url.pathname, `/arbitrary/${service}/QDNES/cores`)
+      assert.equal(url.search, '?filepath=cores%2Freports%2Fnestopia.json')
+      assert.match(url.hostname, protocol === 'qortalRequest' ? /^(api\.qortal\.org|ext-node\.qortal\.link)$/ : /^node[12]\.qortium\.app$/)
+    }
+    await assert.rejects(() => client.requestApp(protocol, {
+      action, service: 'FILES', name: 'QDNES', path: '?filepath=../secret',
+    }, resourceContext), /file paths/)
+  }
+}
+
 const qortalStreamUrl = await client.requestApp('qortalRequest', {
   action: 'GET_QDN_RESOURCE_STREAM_URL',
   service: 'IMAGE',

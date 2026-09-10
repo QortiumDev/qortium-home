@@ -299,7 +299,7 @@ import {
   normalizeHomeV2SetAccountAvatarRequest,
   selectHomeV2AccountAvatarPointer,
 } from '../../electron/home-v2-account-avatar-actions'
-import { canonicalHomeV2VoteSelection, normalizeHomeV2CreatePollRequest, normalizeHomeV2UpdatePollRequest, normalizeHomeV2VoteOnPollRequest, selectHomeV2PollTarget, resolveHomeV2AppAlias, homeV2NameOperationLabel, homeV2PollOperationLabel, homeV2PublishExtraOperationLabel, isHomeV2ListAction, isHomeV2ListWriteAction, isHomeV2NameWriteAction, isHomeV2PollWriteAction, isHomeV2PublishExtraAction, normalizeHomeV2BuyNameRequest, normalizeHomeV2CancelSellNameRequest, normalizeHomeV2ListItems, normalizeHomeV2ListName, normalizeHomeV2RegisterNameRequest, normalizeHomeV2SellNameRequest, normalizeHomeV2UpdateNameRequest, selectHomeV2NameTarget, serializeHomeV2ListItemsForApproval } from '../../electron/home-v2-app-actions'
+import { isHomeV2RawByteResourceService, canonicalHomeV2VoteSelection, normalizeHomeV2CreatePollRequest, normalizeHomeV2UpdatePollRequest, normalizeHomeV2VoteOnPollRequest, selectHomeV2PollTarget, resolveHomeV2AppAlias, homeV2NameOperationLabel, homeV2PollOperationLabel, homeV2PublishExtraOperationLabel, isHomeV2ListAction, isHomeV2ListWriteAction, isHomeV2NameWriteAction, isHomeV2PollWriteAction, isHomeV2PublishExtraAction, normalizeHomeV2BuyNameRequest, normalizeHomeV2CancelSellNameRequest, normalizeHomeV2ListItems, normalizeHomeV2ListName, normalizeHomeV2RegisterNameRequest, normalizeHomeV2SellNameRequest, normalizeHomeV2UpdateNameRequest, selectHomeV2NameTarget, serializeHomeV2ListItemsForApproval } from '../../electron/home-v2-app-actions'
 import { HOME_V2_RESTART_NODE_IMPACT, isHomeV2NodeSettingsWriteAction } from '../../electron/home-v2-node-settings'
 import { homeV2GroupMutationOperationLabel, isHomeV2GroupMutationAction } from '../../electron/home-v2-group-mutation-actions'
 import { homeV2RatingOperationLabel, isHomeV2RatingAction } from '../../electron/home-v2-rating-actions'
@@ -7143,6 +7143,7 @@ export function HomeV2LiveApp() {
       }
       if (
         action === 'UNLOCK_SELECTED_ACCOUNT' ||
+        action === 'GET_QDN_RESOURCE_URL' ||
         action === 'GET_QDN_RESOURCE_STREAM_URL' ||
         action === 'OPEN_QDN_RESOURCE_VIEWER' ||
         action === 'SAVE_QDN_RESOURCE' ||
@@ -8549,7 +8550,10 @@ export function HomeV2LiveApp() {
           },
         )
       }
-      if (action === 'GET_QDN_RESOURCE_STREAM_URL') {
+      if (
+        action === 'GET_QDN_RESOURCE_STREAM_URL' ||
+        (action === 'GET_QDN_RESOURCE_URL' && isRecord(requestValue) && isHomeV2RawByteResourceService(requestValue.service))
+      ) {
         if (!isAndroidHost) return nodeClient.requestApp(protocol, requestValue, context)
         const [rawUrl, hostInfo] = await Promise.all([
           nodeClient.requestApp(protocol, requestValue, context),

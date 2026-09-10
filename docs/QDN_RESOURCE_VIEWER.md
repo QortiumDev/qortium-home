@@ -91,6 +91,36 @@ Media should be loaded lazily. In long feeds or result lists, prefer
 `preload="metadata"` and assign the returned URL only when the item becomes
 visible or the user asks to preview it.
 
+## Obtain a resource URL
+
+`GET_QDN_RESOURCE_URL` accepts `service`, `name`, optional `identifier`, and
+`path` (or `filepath`). In Home 2, FILE and FILES use the raw `/arbitrary`
+endpoint with a validated `filepath` query. This restores the raw-file
+behavior previously available through Home 1's `GET_QORTAL_RESOURCE_URL`:
+
+```js
+const url = await qortalRequest({
+  action: 'GET_QDN_RESOURCE_URL',
+  service: 'FILES',
+  name: 'QDNES',
+  identifier: 'cores',
+  path: 'cores/reports/nestopia.json',
+});
+const report = await fetch(url).then(response => response.json());
+```
+
+The invoked global selects the network: `qortalRequest` for Qortal,
+`qdnRequest` for Qortium. Desktop returns the selected node's raw URL for
+this action; Android returns an authorized HTTPS capability for FILE/FILES
+so apps can fetch the bytes through Home. Treat the returned URL as opaque.
+For `GET_QDN_RESOURCE_STREAM_URL`, FILE/FILES use the same raw upstream
+through the existing expiring stream capability on both platforms.
+
+Other resource services retain their render routes. APP, WEBSITE and GAME
+navigation uses `OPEN_NEW_TAB` or `OPEN_CURRENT_TAB`; this change does not
+add them to the resource viewer or stream service allowlist. Existing
+network, route, app and account bindings continue to apply to capabilities.
+
 ## Save a resource
 
 `SAVE_QDN_RESOURCE` uses the same network-qualified coordinate fields and an

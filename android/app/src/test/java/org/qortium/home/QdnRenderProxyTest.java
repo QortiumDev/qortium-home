@@ -20,6 +20,12 @@ import org.junit.Test;
 public class QdnRenderProxyTest {
 
     @Test
+    public void rawFilepathAllowsLiteralPercentAndRejectsAbsolutePaths() {
+        assertTrue(QdnRenderProxy.isAllowedRawByteResourcePath(parts("arbitrary", "FILE", "Example"), "filepath=docs%2F100%25.txt"));
+        assertFalse(QdnRenderProxy.isAllowedRawByteResourcePath(parts("arbitrary", "FILE", "Example"), "filepath=%2Fetc%2Fpasswd"));
+    }
+
+    @Test
     public void streamMimeHintLabelsVideoAndIsNotForwardedUpstream() {
         assertEquals("video/webm", QdnRenderProxy.sanitizeResponseMimeType(" Video/WebM "));
         assertEquals(
@@ -44,6 +50,43 @@ public class QdnRenderProxyTest {
         assertRoute(parts("admin", "status"), null, true, QdnRenderProxy.RouteKind.DENIED);
         assertRoute(parts("transactions", "search"), null, true, QdnRenderProxy.RouteKind.DENIED);
         assertRoute(parts("arbitrary", "..", "admin", "status"), null, true, QdnRenderProxy.RouteKind.DENIED);
+    }
+
+    @Test
+    public void rawByteStreamCapabilityIsLimitedToFileAndFilesCoordinates() {
+        assertTrue(QdnRenderProxy.isAllowedRawByteResourcePath(
+            parts("arbitrary", "FILE", "Report", "v1"),
+            "filepath=reports%2Fsummary.json"
+        ));
+        assertTrue(QdnRenderProxy.isAllowedRawByteResourcePath(
+            parts("arbitrary", "FILES", "QDNES"),
+            null
+        ));
+
+        assertFalse(QdnRenderProxy.isAllowedRawByteResourcePath(
+            parts("arbitrary", "DOCUMENT", "Report", "v1"), null
+        ));
+        assertFalse(QdnRenderProxy.isAllowedRawByteResourcePath(
+            parts("arbitrary", "APP", "Chat", "Chat"), null
+        ));
+        assertFalse(QdnRenderProxy.isAllowedRawByteResourcePath(
+            parts("arbitrary", "resources", "search"), null
+        ));
+        assertFalse(QdnRenderProxy.isAllowedRawByteResourcePath(
+            parts("arbitrary", "FILES", "QDNES", "default", "extra"), null
+        ));
+    }
+
+    @Test
+    public void rawByteFilepathRejectsPlainEncodedAndDoubleEncodedTraversal() {
+        List<String> resource = parts("arbitrary", "FILES", "QDNES", "default");
+        assertFalse(QdnRenderProxy.isAllowedRawByteResourcePath(resource, "filepath=../secret"));
+        assertFalse(QdnRenderProxy.isAllowedRawByteResourcePath(resource, "filepath=%2E%2E%2Fsecret"));
+        assertFalse(QdnRenderProxy.isAllowedRawByteResourcePath(resource, "filepath=%252E%252E%252Fsecret"));
+        assertFalse(QdnRenderProxy.isAllowedRawByteResourcePath(resource, "filepath=dir%5C..%5Csecret"));
+        assertFalse(QdnRenderProxy.isAllowedRawByteResourcePath(resource, "filepath=ok%00name"));
+        assertFalse(QdnRenderProxy.isAllowedRawByteResourcePath(resource, "filepath=ok&filepath=../secret"));
+        assertTrue(QdnRenderProxy.isAllowedRawByteResourcePath(resource, "filepath=cores%2Freports%2Fnestopia.json"));
     }
 
     @Test

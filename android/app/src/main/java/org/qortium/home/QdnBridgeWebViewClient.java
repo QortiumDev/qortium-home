@@ -169,8 +169,7 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
      */
     private WebResourceResponse serveProxiedQdnRequest(WebResourceRequest request) {
         boolean streamCapability = QdnRenderProxy.isStreamCapabilityUrl(request.getUrl());
-        if (!isAllowedProxyMethod(request.getMethod()) &&
-            !(streamCapability && "HEAD".equalsIgnoreCase(request.getMethod()))) {
+        if (!isAllowedProxyMethod(request.getMethod())) {
             return forbiddenResponse();
         }
 
@@ -403,7 +402,10 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
     }
 
     static boolean isAllowedProxyMethod(String method) {
-        return "GET".equalsIgnoreCase(method);
+        // HEAD follows the exact same route/origin authorization as GET and
+        // returns headers without a body. Keeping the parity here means every
+        // proxy entry point applies the same method policy.
+        return "GET".equalsIgnoreCase(method) || "HEAD".equalsIgnoreCase(method);
     }
 
     private WebResourceResponse emptyHomeV2BridgeClientResponse() {
