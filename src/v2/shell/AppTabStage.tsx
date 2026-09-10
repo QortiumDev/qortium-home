@@ -757,6 +757,7 @@ function AndroidAppStage(props: AppTabStageProps) {
         ? identityId.slice('home-v2:identity:'.length)
         : null
       const context: HomeV2AppRequestContext = {
+        resourceOrigin: new URL(source).origin,
         resourceLocation: resolved?.tab.context.resourceLocation ?? '',
         selectedAccountId: launchAccountId === 'none' ? null : launchAccountId,
         tabId: resolved?.tab.id ?? '',

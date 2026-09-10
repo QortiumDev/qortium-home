@@ -285,6 +285,8 @@ export interface HomeV2AppResourceCandidate {
 export type HomeV2AppBridgeProtocol = 'qdnRequest' | 'qortalRequest'
 
 export interface HomeV2AppRequestContext {
+  /** Actual frame origin supplied by the host after source/token/origin checks. */
+  readonly resourceOrigin?: string
   readonly resourceLocation: string
   readonly selectedAccountId: string | null
   /** Trusted host state; app-supplied request data never populates this. */

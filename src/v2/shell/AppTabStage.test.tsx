@@ -170,6 +170,25 @@ async function testTabSwitchNeverRendersAStaleIframeUnderTheNewTabsContext(): Pr
   assert.equal(typeof frameAToken, 'string', "tab A's iframe src must carry its own qdnHomeBridge token")
   assert.ok(frameAToken && frameAToken.length >= 16, "tab A's extracted token must be a real bridge token")
 
+  // A resource request cannot choose its capability audience. The host takes
+  // the checked iframe origin even when the request tries to supply another.
+  await act(async () => {
+    window.dispatchEvent(new MessageEvent('message', {
+      data: {
+        type: 'qortium:qdn-request', bridgeToken: frameAToken,
+        requestId: 'resource-origin-request', protocol: 'qortalRequest',
+        request: { action: 'GET_QDN_RESOURCE_URL', service: 'FILES', name: 'Example', resourceOrigin: 'https://attacker.example' },
+      },
+      origin: new URL(frameASrc).origin,
+      source: frameAWindow as unknown as MessageEventSource,
+    }))
+    await flushAsync()
+  })
+  assert.equal(requestAppCalls.length, 1, 'the current frame resource request is dispatched')
+  assert.equal((requestAppCalls[0] as { context: { resourceOrigin: string } }).context.resourceOrigin,
+    new URL(frameASrc).origin, 'capability audience comes from the host frame, not app data')
+  requestAppCalls.length = 0
+
   // Switch to tab B (Trust) — this is the exact moment the round-3 finding
   // describes: `resolved` flips to B synchronously (it's derived via
   // useMemo), while B's own native-proxy authorization is only just

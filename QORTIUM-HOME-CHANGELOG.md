@@ -39,8 +39,12 @@ both networks through explicit compatibility and security boundaries.
 Home 2 now resolves FILE and FILES resources to their raw bytes, restoring
 Home 1's Qortal resource URL behavior for apps such as Emulator. Nested ROM
 and external core files no longer receive an unsuitable render URL. Android
-routes these raw resource URLs through its authorized HTTPS proxy, and
-bundled app assets support HEAD checks under the same authorization as GET.
+routes these raw resource URLs through its authorized HTTPS proxy on the
+requesting app’s origin, allowing cross-network reads without relaxing app
+connection policies. URL capability capacity supports multi-file bundles while
+retaining the separate private-byte memory limit. Streamed documents remain
+sandboxed. Bundled app assets support HEAD checks under the same authorization
+as GET.
 Media services retain their existing render routes and stream protections.
 
 ## fix: preserve published app publishing and minting compatibility

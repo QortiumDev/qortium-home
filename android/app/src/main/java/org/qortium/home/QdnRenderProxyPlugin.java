@@ -53,12 +53,14 @@ public class QdnRenderProxyPlugin extends Plugin {
 
     @PluginMethod
     public void authorizeStream(PluginCall call) {
+        boolean shellStream = Boolean.TRUE.equals(call.getBoolean("shellStream", false));
         String streamUrl = QdnRenderProxy.authorizeStream(
             call.getString("origin"),
             call.getString("resourceUrl"),
             call.getString("mimeType"),
             call.getString("binding"),
-            Boolean.TRUE.equals(call.getBoolean("shellStream", false))
+            shellStream,
+            call.getString("appOrigin")
         );
         if (streamUrl == null) {
             call.reject("An exact public QDN render URL and capability binding are required.");

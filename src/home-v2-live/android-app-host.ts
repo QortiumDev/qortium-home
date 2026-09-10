@@ -8,6 +8,7 @@ interface QdnRenderProxyPlugin {
     origin: string
   }): Promise<{ proxyOrigin: string }>
   authorizeStream(options: {
+    appOrigin?: string | null
     binding: string
     mimeType?: string | null
     origin: string
@@ -60,12 +61,20 @@ export async function authorizeHomeV2AndroidResourceStream(
   // interceptor-only virtual origins, so a viewer <video>/<audio>/<img> needs
   // a same-origin URL. The token stays the whole authority either way.
   shellStream = false,
+  appOrigin?: string,
 ) {
   const upstream = new URL(resourceUrl)
   if ((upstream.protocol !== 'http:' && upstream.protocol !== 'https:') || upstream.username || upstream.password || upstream.hash) {
     throw new Error('Home requires an exact public QDN render URL for Android streaming.')
   }
+  if (appOrigin) {
+    const audience = new URL(appOrigin)
+    if (shellStream || audience.protocol !== 'https:' || !audience.hostname.endsWith('.qdn.androidplatform.net') || audience.origin !== appOrigin) {
+      throw new Error('Home requires the requesting app proxy origin for Android streaming.')
+    }
+  }
   const result = await QdnRenderProxy.authorizeStream({
+    appOrigin,
     binding,
     mimeType,
     origin: upstream.origin,
@@ -80,7 +89,7 @@ export async function authorizeHomeV2AndroidResourceStream(
   const proxyForm =
     capability.protocol === 'https:' &&
     capability.hostname.endsWith('.qdn.androidplatform.net')
-  if (shellStream ? !shellForm : !proxyForm) {
+  if ((shellStream ? !shellForm : !proxyForm) || (appOrigin && capability.origin !== appOrigin)) {
     throw new Error('Android did not return a secure QDN stream capability.')
   }
   return capability.toString()

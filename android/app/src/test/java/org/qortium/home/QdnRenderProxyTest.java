@@ -12,6 +12,8 @@ import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -23,6 +25,107 @@ public class QdnRenderProxyTest {
     public void rawFilepathAllowsLiteralPercentAndRejectsAbsolutePaths() {
         assertTrue(QdnRenderProxy.isAllowedRawByteResourcePath(parts("arbitrary", "FILE", "Example"), "filepath=docs%2F100%25.txt"));
         assertFalse(QdnRenderProxy.isAllowedRawByteResourcePath(parts("arbitrary", "FILE", "Example"), "filepath=%2Fetc%2Fpasswd"));
+    }
+
+    @Test
+    public void streamPoolEvictionKeepsPrivateMemoryQuotaSeparateFromUrlQuota() {
+        Map<String, QdnRenderProxy.AuthorizedStream> bundle = new LinkedHashMap<>();
+        for (int index = 0; index < 92; index += 1) {
+            QdnRenderProxy.enforceStreamPoolCapacity(bundle, false);
+            bundle.put("bundle-" + index, streamFixture(100L + index, false));
+        }
+        assertEquals(92, bundle.size());
+        assertTrue(bundle.containsKey("bundle-0"));
+
+        Map<String, QdnRenderProxy.AuthorizedStream> streams = new LinkedHashMap<>();
+        for (int index = 0; index < QdnRenderProxy.UPSTREAM_STREAM_CAPABILITY_MAX_ENTRIES + 1; index += 1) {
+            streams.put(
+                String.format("url-%03d", index),
+                streamFixture(10_000L + index, false)
+            );
+        }
+        streams.put("private-old", streamFixture(1L, true));
+
+        QdnRenderProxy.enforceStreamPoolCapacity(streams, false);
+
+        // Minting calls this before insertion, so one slot is reserved.
+        assertEquals(QdnRenderProxy.UPSTREAM_STREAM_CAPABILITY_MAX_ENTRIES - 1, streams.size() - 1);
+        assertFalse(streams.containsKey("url-000"));
+        assertTrue(streams.containsKey("private-old"));
+
+        Map<String, QdnRenderProxy.AuthorizedStream> privateOnly = new LinkedHashMap<>();
+        for (int index = 0; index < QdnRenderProxy.PRIVATE_STREAM_CAPABILITY_MAX_ENTRIES + 1; index += 1) {
+            privateOnly.put(
+                String.format("private-%03d", index),
+                streamFixture(20_000L + index, true)
+            );
+        }
+        privateOnly.put("url-young", streamFixture(1L, false));
+
+        byte[] evictedBytes = privateOnly.get("private-000").privateBytes;
+        QdnRenderProxy.enforceStreamPoolCapacity(privateOnly, true);
+        assertEquals(0, evictedBytes[0]);
+
+        assertEquals(QdnRenderProxy.PRIVATE_STREAM_CAPABILITY_MAX_ENTRIES - 1, privateOnly.size() - 1);
+        assertFalse(privateOnly.containsKey("private-000"));
+        assertTrue(privateOnly.containsKey("url-young"));
+    }
+
+    private static QdnRenderProxy.AuthorizedStream streamFixture(long expiresAt, boolean privateBytes) {
+        return new QdnRenderProxy.AuthorizedStream(
+            "fixture-binding",
+            expiresAt,
+            "proxy-host",
+            "/fixture",
+            null,
+            "https://node.example/fixture",
+            privateBytes ? new byte[] { 1 } : null,
+            null,
+            null
+        );
+    }
+
+    @Test
+    public void appOriginSelectionKeepsUpstreamAudienceSeparateAndValidated() {
+        String defaultHost = "nnode" + QdnRenderProxy.PROXY_HOST_SUFFIX;
+        String appHost = "napp" + QdnRenderProxy.PROXY_HOST_SUFFIX;
+        String appOrigin = "https://" + appHost + "/";
+
+        assertEquals(
+            appHost,
+            QdnRenderProxy.selectStreamCapabilityHost(defaultHost, appOrigin, appHost, true, false)
+        );
+        assertEquals(
+            defaultHost,
+            QdnRenderProxy.selectStreamCapabilityHost(defaultHost, null, null, false, false)
+        );
+        assertEquals(null, QdnRenderProxy.selectStreamCapabilityHost(
+            defaultHost, "http://" + appHost + "/", appHost, true, false
+        ));
+        assertEquals(null, QdnRenderProxy.selectStreamCapabilityHost(
+            defaultHost, appOrigin, null, true, false
+        ));
+        assertEquals(null, QdnRenderProxy.selectStreamCapabilityHost(
+            defaultHost, appOrigin, appHost, false, false
+        ));
+        assertEquals(null, QdnRenderProxy.selectStreamCapabilityHost(
+            defaultHost, appOrigin, appHost, true, true
+        ));
+        assertEquals(null, QdnRenderProxy.selectStreamCapabilityHost(
+            defaultHost, "https://" + appHost + "/?x=1", appHost, true, false
+        ));
+        assertEquals(null, QdnRenderProxy.selectStreamCapabilityHost(
+            defaultHost, "https://" + appHost + "/#fragment", appHost, true, false
+        ));
+        assertEquals(null, QdnRenderProxy.selectStreamCapabilityHost(
+            defaultHost, "https://" + appHost + ":443/", appHost, true, false
+        ));
+        assertEquals(null, QdnRenderProxy.selectStreamCapabilityHost(
+            defaultHost, "https://user@" + appHost + "/", appHost, true, false
+        ));
+        assertEquals(null, QdnRenderProxy.selectStreamCapabilityHost(
+            defaultHost, "https://" + appHost + "/nested", appHost, true, false
+        ));
     }
 
     @Test

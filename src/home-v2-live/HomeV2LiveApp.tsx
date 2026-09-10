@@ -8566,6 +8566,7 @@ export function HomeV2LiveApp() {
         const resource = getQdnResourceStreamRequest(requestValue as QdnAppRequest)
         const network = protocol === 'qortalRequest' ? 'qortal' : 'qortium'
         const { authorizeHomeV2AndroidResourceStream } = await import('./android-app-host')
+        if (!context.resourceOrigin) throw new Error('The requesting app origin is unavailable.')
         return authorizeHomeV2AndroidResourceStream(
           rawUrl,
           getQdnResourceStreamProxyMimeType(resource),
@@ -8577,6 +8578,8 @@ export function HomeV2LiveApp() {
             routeRevision: hostInfo.route.revision,
             tabId: context.tabId,
           }),
+          false,
+          context.resourceOrigin,
         )
       }
       if (action === 'OPEN_QDN_RESOURCE_VIEWER') {

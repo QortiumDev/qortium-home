@@ -112,9 +112,17 @@ const report = await fetch(url).then(response => response.json());
 The invoked global selects the network: `qortalRequest` for Qortal,
 `qdnRequest` for Qortium. Desktop returns the selected node's raw URL for
 this action; Android returns an authorized HTTPS capability for FILE/FILES
-so apps can fetch the bytes through Home. Treat the returned URL as opaque.
+on the requesting app’s proxy origin so WebView can fetch the bytes. The
+capability still targets the exact selected upstream node and resource; it
+does not authorize a node-origin change. Treat the returned URL as opaque.
 For `GET_QDN_RESOURCE_STREAM_URL`, FILE/FILES use the same raw upstream
-through the existing expiring stream capability on both platforms.
+through the existing expiring stream capability on both platforms. Android
+app streams use the host-verified requesting frame origin as their audience,
+including when the source resource is on the other network. The shell viewer
+retains its separate shell-origin capability. All Android stream capabilities
+carry a sandboxed document policy so streamed HTML cannot execute as the app.
+Upstream URL capabilities have a separate bounded pool from buffered private
+bytes; preparing a multi-file bundle does not consume the private-byte quota.
 
 Other resource services retain their render routes. APP, WEBSITE and GAME
 navigation uses `OPEN_NEW_TAB` or `OPEN_CURRENT_TAB`; this change does not

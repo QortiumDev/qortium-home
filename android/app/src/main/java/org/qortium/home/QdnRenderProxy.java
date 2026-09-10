@@ -3,6 +3,8 @@ package org.qortium.home;
 import android.net.Uri;
 import android.util.Base64;
 import java.io.UnsupportedEncodingException;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -52,7 +54,8 @@ final class QdnRenderProxy {
     static final String SHELL_STREAM_HOST = "localhost";
     static final String SHELL_STREAM_PATH = "/qdn-home-stream";
     static final long STREAM_CAPABILITY_TTL_MS = 10L * 60L * 1000L;
-    static final int STREAM_CAPABILITY_MAX_ENTRIES = 64;
+    static final int PRIVATE_STREAM_CAPABILITY_MAX_ENTRIES = 64;
+    static final int UPSTREAM_STREAM_CAPABILITY_MAX_ENTRIES = 256;
 
     /**
      * Round 6: shared with {@link QdnBridgeWebViewClient}, which reads the live
@@ -206,9 +209,9 @@ final class QdnRenderProxy {
     // point it at attacker-controlled HTML, and top-navigate the shell origin
     // to it — running scripts as https://localhost. Only the viewer's own
     // SHELL_STREAM tokens serve on the shell route.
-    private enum StreamAudience { APP_PROXY, PRIVATE_BYTES, SHELL_STREAM }
+    enum StreamAudience { APP_PROXY, PRIVATE_BYTES, SHELL_STREAM }
 
-    private static final class AuthorizedStream {
+    static final class AuthorizedStream {
         final String binding;
         final long expiresAt;
         final String proxyHost;
@@ -333,6 +336,23 @@ final class QdnRenderProxy {
      * the proxy form does not, it only changes which origin may embed it.
      */
     static String authorizeStream(String origin, String resourceUrl, String mimeType, String binding, boolean shellStream) {
+        return authorizeStream(origin, resourceUrl, mimeType, binding, shellStream, null);
+    }
+
+    /**
+     * Authorizes a stream for a Home v2 app proxy origin while retaining the
+     * node origin as the fixed upstream. The app origin is supplied by Home's
+     * trusted shell context, never by QDN app input; legacy callers omit it and
+     * retain the node-derived proxy origin.
+     */
+    static String authorizeStream(
+        String origin,
+        String resourceUrl,
+        String mimeType,
+        String binding,
+        boolean shellStream,
+        String appOrigin
+    ) {
         String normalizedOrigin = normalizeOrigin(origin);
         if (normalizedOrigin == null || resourceUrl == null || binding == null || binding.trim().isEmpty()) {
             return null;
@@ -359,14 +379,26 @@ final class QdnRenderProxy {
         ) {
             return null;
         }
-        sweepExpiredStreams();
-        while (AUTHORIZED_STREAMS.size() >= STREAM_CAPABILITY_MAX_ENTRIES) {
-            String oldest = AUTHORIZED_STREAMS.keySet().stream().findFirst().orElse(null);
-            if (oldest == null) break;
-            removeStream(oldest);
+
+        // Validate the optional audience before sweeping or evicting existing
+        // capabilities. An invalid caller must not consume capability-table
+        // maintenance work or alter another stream's lifetime.
+        String defaultProxyHost = getLabel(normalizedOrigin) + PROXY_HOST_SUFFIX;
+        String registeredAppProxyHost = getAppProxyHost(appOrigin);
+        String proxyHost = selectStreamCapabilityHost(
+            defaultProxyHost,
+            appOrigin,
+            registeredAppProxyHost,
+            isAuthorizedHomeV2ProxyHost(registeredAppProxyHost),
+            shellStream
+        );
+        if (proxyHost == null) {
+            return null;
         }
+
+        sweepExpiredStreams();
+        enforceStreamPoolCapacity(AUTHORIZED_STREAMS, false);
         String token = UUID.randomUUID().toString();
-        String proxyHost = getLabel(normalizedOrigin) + PROXY_HOST_SUFFIX;
         String upstreamQuery = resource.getEncodedQuery();
         AUTHORIZED_STREAMS.put(token, new AuthorizedStream(
             binding,
@@ -413,11 +445,7 @@ final class QdnRenderProxy {
             return null;
         }
         sweepExpiredStreams();
-        while (AUTHORIZED_STREAMS.size() >= STREAM_CAPABILITY_MAX_ENTRIES) {
-            String oldest = AUTHORIZED_STREAMS.keySet().stream().findFirst().orElse(null);
-            if (oldest == null) break;
-            removeStream(oldest);
-        }
+        enforceStreamPoolCapacity(AUTHORIZED_STREAMS, true);
         String token = UUID.randomUUID().toString();
         String proxyHost = "private-" + token.substring(0, 8) + PROXY_HOST_SUFFIX;
         String proxyPath = "/home-v2-private-attachment";
@@ -1103,6 +1131,80 @@ final class QdnRenderProxy {
     }
 
     /**
+     * Returns the canonical proxy host from a candidate app origin. This is a
+     * shape check only; callers must still check the host against the
+     * authorized-origin table before using it as a capability audience.
+     */
+    static String getAppProxyHost(String appOrigin) {
+        if (appOrigin == null || appOrigin.trim().isEmpty()) {
+            return null;
+        }
+
+        final URI parsed;
+        try {
+            parsed = new URI(appOrigin.trim());
+        } catch (URISyntaxException ignored) {
+            return null;
+        }
+
+        if (
+            !"https".equalsIgnoreCase(parsed.getScheme()) ||
+            parsed.getHost() == null ||
+            parsed.getPort() != -1 ||
+            parsed.getUserInfo() != null ||
+            parsed.getQuery() != null ||
+            parsed.getFragment() != null ||
+            (parsed.getPath() != null && !parsed.getPath().isEmpty() && !"/".equals(parsed.getPath()))
+        ) {
+            return null;
+        }
+
+        String host = parsed.getHost().toLowerCase(Locale.ROOT);
+        if (host.length() <= PROXY_HOST_SUFFIX.length() || !host.endsWith(PROXY_HOST_SUFFIX)) {
+            return null;
+        }
+
+        return host;
+    }
+
+    static boolean isAuthorizedHomeV2ProxyHost(String proxyHost) {
+        if (proxyHost == null || proxyHost.length() <= PROXY_HOST_SUFFIX.length()) {
+            return false;
+        }
+
+        String normalizedHost = proxyHost.toLowerCase(Locale.ROOT);
+        if (!normalizedHost.endsWith(PROXY_HOST_SUFFIX)) {
+            return false;
+        }
+
+        AuthorizedOrigin authorization = AUTHORIZED_ORIGINS.get(
+            normalizedHost.substring(0, normalizedHost.length() - PROXY_HOST_SUFFIX.length())
+        );
+        return authorization != null && authorization.homeV2;
+    }
+
+    /** Pure selection rule used by authorizeStream and JVM tests. */
+    static String selectStreamCapabilityHost(
+        String defaultProxyHost,
+        String appOrigin,
+        String registeredAppProxyHost,
+        boolean registeredHomeV2,
+        boolean shellStream
+    ) {
+        if (appOrigin == null) {
+            return defaultProxyHost;
+        }
+        if (shellStream || !registeredHomeV2 || registeredAppProxyHost == null) {
+            return null;
+        }
+
+        String candidateHost = getAppProxyHost(appOrigin);
+        return candidateHost != null && candidateHost.equalsIgnoreCase(registeredAppProxyHost)
+            ? candidateHost
+            : null;
+    }
+
+    /**
      * The raw-byte stream capability is intentionally narrower than the
      * ordinary PUBLIC_ARBITRARY proxy route. Home uses it for FILE/FILES
      * resources whose bytes are served by Core's /arbitrary endpoint. A
@@ -1387,8 +1489,69 @@ final class QdnRenderProxy {
     }
 
     private static void removeStream(String token) {
-        AuthorizedStream removed = AUTHORIZED_STREAMS.remove(token);
+        removeStream(AUTHORIZED_STREAMS, token);
+    }
+
+    private static void removeStream(Map<String, AuthorizedStream> streams, String token) {
+        AuthorizedStream removed = streams.remove(token);
         if (removed != null && removed.privateBytes != null) Arrays.fill(removed.privateBytes, (byte) 0);
+    }
+
+    /**
+     * Enforces one capability quota without allowing one pool to evict the
+     * other. URL-only streams carry no private bytes and may use a larger
+     * metadata quota; private-byte streams retain the 64-entry memory bound.
+     * Ties are broken by token so eviction is deterministic despite the
+     * backing ConcurrentHashMap's iteration order.
+     */
+    static void enforceStreamPoolCapacity(Map<String, AuthorizedStream> streams, boolean privatePool) {
+        int maximum = privatePool
+            ? PRIVATE_STREAM_CAPABILITY_MAX_ENTRIES
+            : UPSTREAM_STREAM_CAPABILITY_MAX_ENTRIES;
+
+        while (countStreamPool(streams, privatePool) >= maximum) {
+            String oldest = oldestStreamToken(streams, privatePool);
+            if (oldest == null) {
+                return;
+            }
+            removeStream(streams, oldest);
+        }
+    }
+
+    private static int countStreamPool(Map<String, AuthorizedStream> streams, boolean privatePool) {
+        int count = 0;
+        for (AuthorizedStream stream : streams.values()) {
+            if (isPrivateStream(stream) == privatePool) {
+                count += 1;
+            }
+        }
+        return count;
+    }
+
+    private static String oldestStreamToken(Map<String, AuthorizedStream> streams, boolean privatePool) {
+        String oldestToken = null;
+        long oldestExpiry = Long.MAX_VALUE;
+
+        for (Map.Entry<String, AuthorizedStream> entry : streams.entrySet()) {
+            if (isPrivateStream(entry.getValue()) != privatePool) {
+                continue;
+            }
+            long expiresAt = entry.getValue().expiresAt;
+            if (
+                oldestToken == null ||
+                expiresAt < oldestExpiry ||
+                (expiresAt == oldestExpiry && entry.getKey().compareTo(oldestToken) < 0)
+            ) {
+                oldestToken = entry.getKey();
+                oldestExpiry = expiresAt;
+            }
+        }
+
+        return oldestToken;
+    }
+
+    private static boolean isPrivateStream(AuthorizedStream stream) {
+        return stream != null && stream.privateBytes != null;
     }
 
     /** A stable, opaque host label: same node origin, same label, same storage. */

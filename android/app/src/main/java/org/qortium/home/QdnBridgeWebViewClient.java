@@ -76,6 +76,13 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
         "base-uri 'self'; " +
         "object-src 'none'; " +
         "webrtc 'block';";
+    /**
+     * Stream capabilities may be redeemed on an app's own proxy origin. Their
+     * upstream body must remain non-scriptable even when Core labels it HTML;
+     * the capability is for bytes/media, not a document principal.
+     */
+    static final String HOME_QDN_STREAM_POLICY =
+        "default-src 'none'; sandbox; frame-ancestors 'none'";
     // Round 6: moved to QdnRenderProxy so its exact-URL document-identity
     // normalization (which must ignore this exact param) and this class's own
     // use of it as the actual carried credential can never drift apart — see
@@ -267,7 +274,7 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
         headers.put("Access-Control-Allow-Origin", "*");
         headers.put("Cache-Control", "no-store");
         headers.put("Content-Length", String.valueOf(payloadLength));
-        headers.put("Content-Security-Policy", "default-src 'none'; sandbox");
+        headers.put("Content-Security-Policy", HOME_QDN_STREAM_POLICY);
         headers.put("Cross-Origin-Resource-Policy", "cross-origin");
         headers.put("X-Content-Type-Options", "nosniff");
         if (status == 206) headers.put("Content-Range", "bytes " + start + "-" + end + "/" + total);
@@ -300,6 +307,8 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
         Map<String, String> headers = new HashMap<>();
         headers.put("Content-Range", "bytes */" + total);
         headers.put("Cache-Control", "no-store");
+        headers.put("Content-Security-Policy", HOME_QDN_STREAM_POLICY);
+        headers.put("X-Content-Type-Options", "nosniff");
         return new WebResourceResponse(
             "text/plain",
             StandardCharsets.UTF_8.name(),
@@ -694,9 +703,9 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
             return forbiddenResponse();
         }
 
-        Map<String, String> responseHeaders = prepareProxiedResponseHeaders(
-            withoutContentTypeHeader(getResponseHeaders(connection))
-        );
+        Map<String, String> responseHeaders = streamCapability
+            ? prepareStreamResponseHeaders(withoutContentTypeHeader(getResponseHeaders(connection)))
+            : prepareProxiedResponseHeaders(withoutContentTypeHeader(getResponseHeaders(connection)));
 
         if (
             streamCapability &&
@@ -783,11 +792,6 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
             );
         }
 
-        if (shellStream) {
-            responseHeaders.put("Content-Security-Policy", "default-src 'none'; sandbox; frame-ancestors 'none'");
-            responseHeaders.put("X-Content-Type-Options", "nosniff");
-        }
-
         return new WebResourceResponse(
             getMimeType(contentType),
             getResponseEncoding(contentType),
@@ -838,6 +842,8 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
         Map<String, String> headers = new HashMap<>();
 
         headers.put("Cache-Control", "no-store");
+        headers.put("Content-Security-Policy", HOME_QDN_STREAM_POLICY);
+        headers.put("X-Content-Type-Options", "nosniff");
 
         return new WebResourceResponse(
             "text/plain",
@@ -1213,6 +1219,14 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
         // can only ever tighten a cooperative node's policy.
         upstreamPolicies.add(HOME_QDN_MINIMUM_POLICY);
         headers.put("Content-Security-Policy", String.join(", ", upstreamPolicies));
+        return headers;
+    }
+
+    /** Applies the document boundary to every upstream stream-capability response. */
+    static Map<String, String> prepareStreamResponseHeaders(Map<String, String> headers) {
+        prepareProxiedResponseHeaders(headers);
+        headers.put("Content-Security-Policy", HOME_QDN_STREAM_POLICY);
+        headers.put("X-Content-Type-Options", "nosniff");
         return headers;
     }
 
