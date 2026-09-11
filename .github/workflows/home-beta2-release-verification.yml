@@ -1,0 +1,86 @@
+name: Verify Home beta.2 draft and public release
+on:
+  push:
+    branches: [release/home-beta2-release-verification]
+permissions:
+  # GitHub requires write access to inspect an unpublished draft.
+  contents: write
+jobs:
+  draft:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: QortiumDev/qortium-home
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          path: driver
+      - uses: actions/checkout@v6
+        with:
+          ref: 9ac82bdafde6a5e612bad59248ec08e64b09826c
+          path: source
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - name: Wait for and verify all draft assets
+        run: |
+          python3 - <<'PYCODE'
+          import hashlib,json,pathlib,subprocess,time
+          expected=json.loads(pathlib.Path('driver/.github/scripts/beta2-expected-assets.json').read_text())
+          for attempt in range(90):
+              release=json.loads(subprocess.check_output(['gh','api','repos/QortiumDev/qortium-home/releases/387069349'],text=True))
+              assert release['draft'] and release['prerelease']
+              assert release['target_commitish']=='9ac82bdafde6a5e612bad59248ec08e64b09826c'
+              if len(release['assets'])==7: break
+              time.sleep(10)
+          else: raise RuntimeError('Draft uploads incomplete')
+          assert {a['name'] for a in release['assets']}==set(expected)
+          for a in release['assets']:
+              e=expected[a['name']]
+              assert a['state']=='uploaded' and a['size']==e['size'] and a['digest']=='sha256:'+e['sha256']
+          subprocess.run(['gh','release','download','v2.1.0-beta.2','--dir','source/dist-release'],check=True)
+          for name,e in expected.items():
+              p=pathlib.Path('source/dist-release')/name
+              assert p.stat().st_size==e['size'] and hashlib.sha256(p.read_bytes()).hexdigest()==e['sha256']
+              if name.endswith('.AppImage'): p.chmod(0o755)
+          print('All seven downloaded draft assets match independently validated hashes and sizes.')
+          PYCODE
+      - name: Release platform matrix and publisher dry run
+        working-directory: source
+        run: |
+          node scripts/check-release-assets.mjs --skip-github
+          node scripts/publish-release.mjs --dry-run --reuse-release
+  public:
+    needs: draft
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: QortiumDev/qortium-home
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: 9ac82bdafde6a5e612bad59248ec08e64b09826c
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - name: Wait for approved publication
+        run: |
+          python3 - <<'PYCODE'
+          import json,subprocess,time
+          for attempt in range(90):
+              r=json.loads(subprocess.check_output(['gh','api','repos/QortiumDev/qortium-home/releases/387069349'],text=True))
+              if not r['draft']:
+                  assert r['prerelease'] and len(r['assets'])==7
+                  break
+              time.sleep(10)
+          else: raise RuntimeError('Release remains draft')
+          PYCODE
+      - name: Download and check public release
+        run: |
+          gh release download v2.1.0-beta.2 --dir dist-release
+          chmod +x dist-release/*.AppImage
+          node scripts/check-release-assets.mjs
+          test "$(gh api repos/QortiumDev/qortium-home/releases/latest --jq .tag_name)" = v1.8.0
+          test "$(gh api repos/QortiumDev/qortium-home/git/ref/tags/v2.1.0-beta.2 --jq .object.sha)" = 9ac82bdafde6a5e612bad59248ec08e64b09826c

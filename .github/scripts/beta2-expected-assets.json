@@ -1,0 +1,30 @@
+{
+  "Qortium-Home-2.1.0-beta.2-universal.dmg": {
+    "size": 226380994,
+    "sha256": "55708e4487699dfdd1493bd605b417ae7ae93205d57e33faa72f7d101b5be079"
+  },
+  "Qortium-Home-2.1.0-beta.2-macos11-universal.dmg": {
+    "size": 219678457,
+    "sha256": "a6110bc9fa5ce5ac5462e011700cfd56bf07416bb42ddb40073f2ba0f951cd53"
+  },
+  "Qortium-Home-2.1.0-beta.2-macos1015-x64.dmg": {
+    "size": 126671923,
+    "sha256": "8c7559e558aada0c007e6ef6131a013c840430eb22a9250d993d4d4482dea2aa"
+  },
+  "Qortium-Home-2.1.0-beta.2-x64.exe": {
+    "size": 95765588,
+    "sha256": "2bf32ae778dcd672c457ee9f9be4faa9496b3f44046ca3a87949f14aa5155944"
+  },
+  "Qortium-Home-2.1.0-beta.2-android-release.apk": {
+    "size": 5469278,
+    "sha256": "e64af73930a560e9135449acbdc3146d9a9b7d73f6da5783a461e26025e9a19a"
+  },
+  "Qortium-Home-2.1.0-beta.2-x86_64.AppImage": {
+    "size": 140612474,
+    "sha256": "53273c3b77bbe5f3239ded41d5a1fe680f6ec8eeb3f1406ab041aa229d0bca7d"
+  },
+  "Qortium-Home-2.1.0-beta.2-arm64.AppImage": {
+    "size": 141224057,
+    "sha256": "af6d9dd0e54d37448565384b4a4447a5c0e6c714fdbfe6ec0dff79b902f23c8c"
+  }
+}
