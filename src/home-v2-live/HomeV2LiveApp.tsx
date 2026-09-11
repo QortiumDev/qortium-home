@@ -394,6 +394,7 @@ import {
   parseHomeV2ShellState,
   serializeHomeV2ShellState,
 } from './shell-state'
+import { homeV2ShellStateHasPublishPreview } from '../../electron/home-v2-window-startup'
 import {
   buildAppResourceLocation,
   parseAppResourceLocation,
@@ -2162,11 +2163,15 @@ export function HomeV2LiveApp() {
           startup: record.startup ?? null,
         }
       }
-      const [startup, shellState, adminTrust] = await Promise.all([
+      const [startup, shellState] = await Promise.all([
         windows ? windows.getStartup().catch(() => null) : Promise.resolve(null),
         nodeClient.getShellState(),
-        nodeClient.adminTrust?.().catch(() => null) ?? Promise.resolve(null),
       ])
+      // Same rule as main's bootstrap: the admin resolver probes the node, so
+      // it is asked only when there is a publish-preview tab to bind.
+      const adminTrust = homeV2ShellStateHasPublishPreview(shellState)
+        ? await nodeClient.adminTrust?.().catch(() => null) ?? null
+        : null
       return { adminTrust, shellState, startup }
     }
     void readBootstrap()

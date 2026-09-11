@@ -38,11 +38,12 @@ import { registerHomeV2NodeAdminIpcHandlers } from './home-v2-node-admin-bridge.
 import { assertAuthorizedHomeV2Sender, authorizeHomeV2Sender } from './home-v2-authorized-senders.js';
 import { assertHomeV2ShellClipboardText } from './home-v2-shell-clipboard.js';
 import {
+  homeV2ShellStateHasPublishPreview,
+  type HomeV2TabTransfer,
+  type HomeV2WindowPoint,
   placeHomeV2WindowAtPoint,
   sanitizeHomeV2TabTransfer,
   sanitizeHomeV2WindowPoint,
-  type HomeV2TabTransfer,
-  type HomeV2WindowPoint,
 } from './home-v2-window-startup.js';
 import { readHomeV2ShellState } from './home-v2-shell-store.js';
 import { homeWindowFocus } from './home-window-focus.js';
@@ -1274,13 +1275,19 @@ function registerHomeV2WindowIpcHandlers() {
 
   // The three reads the shell used to issue one after another before it could
   // apply the saved appearance and restore tabs, answered together. The admin
-  // resolver fails independently to null so a refusal (no node to administer,
-  // say) never withholds the shell state the rest depends on.
+  // resolver is consulted only when the stored strip has a publish-preview
+  // tab to bind: it reads the node snapshot, which probes every configured
+  // node, and waiting on it for every launch was what held the appearance
+  // and the tabs back by seconds. It fails independently to null so a refusal
+  // (no node to administer, say) never withholds the shell state.
   ipcMain.handle('home-v2-shell:getBootstrap', async (event) => {
     assertAuthorizedHomeV2Sender(event);
     const startup = takeWindowStartup(event.sender.id);
-    const adminTrust = await getHomeV2ShellAdminTrust().catch(() => null);
-    return { adminTrust, shellState: readHomeV2ShellState(), startup };
+    const shellState = readHomeV2ShellState();
+    const adminTrust = homeV2ShellStateHasPublishPreview(shellState)
+      ? await getHomeV2ShellAdminTrust().catch(() => null)
+      : null;
+    return { adminTrust, shellState, startup };
   });
 
   ipcMain.handle('home-v2-windows:openTab', (event, value: unknown, point: unknown) => {
