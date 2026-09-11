@@ -535,7 +535,7 @@ export function HomeV2PinnedApps({
   return (
     <section
       ref={sectionRef}
-      className="home-v2-pinned-apps"
+      className="home-v2-panel home-v2-pinned-apps"
       aria-labelledby={pinnedAppsTitleId}
       aria-busy={status === "loading" || controlsDisabled}
     >
