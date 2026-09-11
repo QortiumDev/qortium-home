@@ -80,6 +80,13 @@ usable right now — still downloading from QDN, or unreadable — not only when
 the node says it is missing; a pin whose app was still arriving used to show
 a monogram for minutes.
 
+The Qortium Home tile is the same enclosed panel as the two above it, with
+its title inside, and it now carries the release-channel switch
+(stable / prerelease) and the "Show install folder" button that used to be
+Settings-only, beside Check for updates. In Settings, the runtime page now
+leads with the Qortium Home block, before the Qortium and Qortal Core
+sections.
+
 For measuring rather than guessing, the startup log now also records when the
 renderer mounted, when the shell state landed, when the first complete frame
 was reported and when the window was revealed.

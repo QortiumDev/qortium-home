@@ -2019,6 +2019,9 @@ function testCoreManagementRenderingAndAndroidDegrade(): void {
     openDownloaded: async () => undefined,
     preferencesLoaded: true,
     result: null,
+    canRevealInstallFolder: true,
+    revealInstallFolder: async () => undefined,
+    setChannel: () => undefined,
   } as unknown as HomeV2AppUpdates
   const dashboard = renderToStaticMarkup(
     <HomeV2Prototype
@@ -2119,7 +2122,30 @@ function testCoreManagementRenderingAndAndroidDegrade(): void {
     [...dashboard.matchAll(/data-home-v2-node-core-home-update="dashboard"/g)].length,
     1,
   )
-  assert.equal([...dashboard.matchAll(/class="home-v2-home-section"/g)].length, 1)
+  assert.equal([...dashboard.matchAll(/home-v2-home-section"/g)].length, 1)
+  // The tile is the same enclosed panel as Account and Pinned apps, and it
+  // carries the release-channel switch and the install-folder button that
+  // used to be Settings-only.
+  assert.match(dashboard, /class="home-v2-panel home-v2-home-section"/)
+  assert.match(dashboard, /<select[^>]*data-home-v2-node-core-action="home-channel"/)
+  assert.match(dashboard, /data-home-v2-node-core-action="home-install-folder"/)
+  {
+    // Settings' runtime page leads with Home, before either network's block.
+    const runtime = renderToStaticMarkup(
+      <SettingsPage
+        account={homeV2Fixture.account}
+        appearance={homeV2Fixture.appearance}
+        nodes={homeV2Fixture.nodes}
+        newTabPreference={DEFAULT_NEW_TAB_PREFERENCE}
+        requestedSection="core"
+        appUpdates={appUpdates}
+        coreManagement={coreManagement}
+      />,
+    )
+    const home = runtime.indexOf('home-update-settings-title')
+    const core = runtime.indexOf('id="core-settings-title')
+    assert.ok(home !== -1 && core !== -1 && home < core, `Home settings (${home}) precede Qortium Core settings (${core})`)
+  }
   assert.ok(
     dashboard.indexOf('data-home-v2-node-core-home-update="dashboard"')
       < dashboard.indexOf('class="home-v2-node-core"'),
@@ -2135,7 +2161,7 @@ function testCoreManagementRenderingAndAndroidDegrade(): void {
   {
     const account = dashboard.indexOf('home-v2-account-panel')
     const pins = dashboard.indexOf('data-home-v2-dashboard-slot="pinned-apps"')
-    const home = dashboard.indexOf('class="home-v2-home-section"')
+    const home = dashboard.indexOf('home-v2-home-section"')
     const nodeCore = dashboard.indexOf('data-home-v2-dashboard-slot="node-core"')
     assert.ok(account !== -1 && account < pins && pins < home && home < nodeCore,
       `dashboard order account(${account}) < pins(${pins}) < home(${home}) < node-core(${nodeCore})`)

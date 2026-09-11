@@ -679,8 +679,9 @@ function TransportRow({
 }
 
 /**
- * One compact Home-update row for the whole section. The policy and channel
- * controls stay in Settings; this is only check / download / open.
+ * The Home tile's body: version and update state on the left, the release
+ * channel, check, install folder, release notes and download / open on the
+ * right. The update policy and the byte-level details stay in Settings.
  */
 function HomeUpdateRow({
   onOpenReleaseNotes,
@@ -713,6 +714,20 @@ function HomeUpdateRow({
         <small aria-live="polite" role="status">{homeUpdateStatusText(updates)}</small>
       </div>
       <div className="home-v2-node-core-row__controls">
+        {/* The release channel and the install folder used to be Settings-
+            only; the tile now carries the same controls as its Settings
+            block, minus the policy and the byte-level details. */}
+        <select
+          aria-label={t('updates.releaseChannelLabel')}
+          data-home-v2-node-core-action="home-channel"
+          disabled={busy || !updates.preferencesLoaded}
+          value={updates.channel}
+          onChange={(event) =>
+            updates.setChannel(event.target.value as 'prerelease' | 'stable')}
+        >
+          <option value="stable">{t('updates.channelStable')}</option>
+          <option value="prerelease">{t('updates.channelPrerelease')}</option>
+        </select>
         <button
           type="button"
           className="home-v2-secondary-button"
@@ -722,6 +737,17 @@ function HomeUpdateRow({
         >
           {updates.busy === 'check' ? t('common.checking') : t('updates.checkForUpdates')}
         </button>
+        {!updates.isAndroid && updates.canRevealInstallFolder ? (
+          <button
+            type="button"
+            className="home-v2-secondary-button"
+            data-home-v2-node-core-action="home-install-folder"
+            disabled={busy}
+            onClick={() => void updates.revealInstallFolder()}
+          >
+            {t('updates.showInstallFolder')}
+          </button>
+        ) : null}
         {onOpenReleaseNotes && result?.release?.tagName ? (
           <button
             type="button"
@@ -893,7 +919,7 @@ export function HomeV2HomeSection({
 }) {
   const id = useScopedIds()
   return (
-    <section className="home-v2-home-section" aria-labelledby={id('home-title')}>
+    <section className="home-v2-panel home-v2-home-section" aria-labelledby={id('home-title')}>
       <div className="home-v2-section-heading">
         <h2 id={id('home-title')}>{t('common.appName')}</h2>
         {onOpenSettings ? (

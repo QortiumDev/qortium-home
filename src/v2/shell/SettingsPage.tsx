@@ -692,6 +692,15 @@ export function SettingsPage(props: SettingsPageProps) {
               props.appUpdates?.available ||
               props.onChainCoreUpdates?.available) ? (
             <div className="home-v2-runtime-settings">
+              {/* Home itself first: its version, channel and update state
+                * are what a reader arriving from the dashboard's Home tile
+                * came for, and they are not part of either network. */}
+              {props.appUpdates?.available ? (
+                <HomeUpdateSettings
+                  updates={props.appUpdates}
+                  onOpenReleaseNotes={props.onOpenReleaseNotes}
+                />
+              ) : null}
               {/* One section PER NETWORK, each complete.
                 *
                 * These used to share a single "Core management" section: both
@@ -760,12 +769,6 @@ export function SettingsPage(props: SettingsPageProps) {
               ) : null}
               {qortiumEnabled && props.onChainCoreUpdates?.available ? (
                 <OnChainCoreUpdateSettings updates={props.onChainCoreUpdates} />
-              ) : null}
-              {props.appUpdates?.available ? (
-                <HomeUpdateSettings
-                  updates={props.appUpdates}
-                  onOpenReleaseNotes={props.onOpenReleaseNotes}
-                />
               ) : null}
             </div>
           ) : activeSection === 'qdn-apps' &&
