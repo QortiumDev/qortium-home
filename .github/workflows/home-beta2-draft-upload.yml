@@ -1,10 +1,7 @@
 name: Upload verified Home beta.2 native assets to draft
 on:
-  workflow_dispatch:
-    inputs:
-      asset_run:
-        description: Native assets workflow run id (release/home-beta2-native-assets)
-        required: true
+  push:
+    branches: [release/home-beta2-draft-upload]
 permissions:
   contents: write
   actions: read
@@ -15,7 +12,7 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: QortiumDev/qortium-home
-      ASSET_RUN: ${{ inputs.asset_run }}
+      ASSET_RUN: '34605797373'
     steps:
       - uses: actions/checkout@v6
       - name: Verify and upload existing native assets
