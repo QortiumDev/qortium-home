@@ -1,0 +1,136 @@
+name: Home beta.2 native assets
+on:
+  push:
+    branches: [release/home-beta2-native-assets]
+permissions:
+  contents: read
+concurrency:
+  group: home-beta2-native-assets
+  cancel-in-progress: true
+env:
+  TARGET_REF: 6b6062edf612f0d8035e77d589864bc6ad3d5d31
+jobs:
+  mac:
+    name: macOS ${{ matrix.variant }}
+    runs-on: macos-14
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: universal
+            arch: universal
+            minimum: 12.0.0
+            electron: ''
+            appdir: mac-universal
+          - variant: macos11-universal
+            arch: universal
+            minimum: 11.0.0
+            electron: 36.9.5
+            appdir: mac-universal
+          - variant: macos1015-x64
+            arch: x64
+            minimum: 10.15.0
+            electron: 32.3.3
+            appdir: mac
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ env.TARGET_REF }}
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: test "$(git rev-parse HEAD)" = "$TARGET_REF"
+      - run: npm ci
+      - name: Build and verify DMG
+        env:
+          VARIANT: ${{ matrix.variant }}
+          ARCH: ${{ matrix.arch }}
+          MINIMUM: ${{ matrix.minimum }}
+          LEGACY_ELECTRON: ${{ matrix.electron }}
+          APPDIR: ${{ matrix.appdir }}
+        run: |
+          set -euo pipefail
+          npm run build:native:macos
+          npm run build
+          npm run test:core-native-observer
+          npm run test:home-v2-qortal-maintenance-contract
+          npm run test:qdn-view-visibility
+          if [ -n "$LEGACY_ELECTRON" ]; then
+            npm pack "electron@$LEGACY_ELECTRON" --pack-destination "$RUNNER_TEMP"
+            mv node_modules/electron "$RUNNER_TEMP/electron-original"
+            mkdir node_modules/electron
+            tar -xzf "$RUNNER_TEMP/electron-$LEGACY_ELECTRON.tgz" -C node_modules/electron --strip-components=1
+            node node_modules/electron/install.js
+          fi
+          electron_version=$(node -p "require('electron/package.json').version")
+          QORTIUM_HOME_EXPECTED_ELECTRON_VERSION="$electron_version" node scripts/test-qdn-app-preload.mjs
+          ./node_modules/.bin/electron-builder --mac dmg "--$ARCH" --publish never \
+            "-c.electronVersion=$electron_version" "-c.mac.minimumSystemVersion=$MINIMUM"
+          app="dist-release/$APPDIR/Qortium Home.app"
+          npm run check:macos:core-observer -- "$app"
+          if [ "$ARCH" = x64 ]; then
+            node scripts/verify-macos-min-version.mjs "$app" "$MINIMUM" --arch=x86_64
+          else
+            node scripts/verify-macos-min-version.mjs "$app" "$MINIMUM"
+          fi
+          mkdir -p native-artifacts
+          version=$(node -p "require('./package.json').version")
+          cp "dist-release/Qortium-Home-$version-$ARCH.dmg" "native-artifacts/Qortium-Home-$version-$VARIANT.dmg"
+          shasum -a 256 native-artifacts/*.dmg > native-artifacts/SHA256SUMS
+          printf '%s\n' "$TARGET_REF" > native-artifacts/SOURCE_COMMIT
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          path: build-driver
+          sparse-checkout: .github/scripts
+      - name: Launch packaged native shell
+        run: node build-driver/.github/scripts/smoke-beta-native.mjs "dist-release/${{ matrix.appdir }}/Qortium Home.app/Contents/MacOS/Qortium Home"
+      - name: Retain verified assets
+        uses: actions/upload-artifact@v7
+        with:
+          name: home-beta2-${{ matrix.variant }}
+          path: native-artifacts/
+          if-no-files-found: error
+  windows:
+    name: Windows x64
+    runs-on: windows-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ env.TARGET_REF }}
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - shell: pwsh
+        run: |
+          if ((git rev-parse HEAD) -ne $env:TARGET_REF) { throw 'Source mismatch' }
+      - run: npm ci
+      - run: npm run dist:win:x64
+      - run: npm run test:windows-core-observation
+      - run: npm run test:core-install-transaction
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          path: build-driver
+          sparse-checkout: .github/scripts
+      - name: Launch packaged native shell
+        run: node build-driver/.github/scripts/smoke-beta-native.mjs "dist-release/win-unpacked/Qortium Home.exe"
+      - name: Record artifact provenance
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force native-artifacts | Out-Null
+          Copy-Item dist-release/*.exe native-artifacts/
+          Get-ChildItem native-artifacts/*.exe | ForEach-Object {
+            $digest = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
+            "$digest  $($_.Name)" | Out-File -Append -Encoding ascii native-artifacts/SHA256SUMS
+          }
+          $env:TARGET_REF | Out-File -Encoding ascii native-artifacts/SOURCE_COMMIT
+      - uses: actions/upload-artifact@v7
+        with:
+          name: home-beta2-windows-x64
+          path: native-artifacts/
+          if-no-files-found: error
