@@ -2275,8 +2275,10 @@ export function HomeV2LiveApp() {
   // armWindowReveal in electron/main.ts), so "ready" has to mean the frame the
   // user should see first: shell state restored, the enabled networks known,
   // the account catalogue read and the pins loaded -- every dashboard section
-  // in its final slot. Reported after two animation frames so the commit that
-  // satisfied the condition has actually painted. A deadline from the moment
+  // in its final slot. Reported from a zero-delay timer after the commit that
+  // satisfied the condition -- NOT an animation frame: the window is hidden
+  // until this report, and a hidden document's animation frames never run,
+  // so an rAF-scheduled report would wait forever. A deadline from the moment
   // the shell state landed caps the wait, so one slow read can never hold the
   // window back; main keeps its own fallbacks for a renderer that never
   // reaches this point at all.
@@ -2295,16 +2297,10 @@ export function HomeV2LiveApp() {
         shellStateMs: startupTiming.current.shellStateMs,
       })?.catch(() => undefined)
     }
-    if (firstFrameReady) {
-      let frame = requestAnimationFrame(() => {
-        frame = requestAnimationFrame(report)
-      })
-      return () => cancelAnimationFrame(frame)
-    }
     shellReadyDeadline.current ??= performance.now() + FIRST_FRAME_DEADLINE_MS
     const timer = window.setTimeout(
       report,
-      Math.max(0, shellReadyDeadline.current - performance.now()),
+      firstFrameReady ? 0 : Math.max(0, shellReadyDeadline.current - performance.now()),
     )
     return () => window.clearTimeout(timer)
   }, [firstFrameReady, shellStateReady])
