@@ -440,6 +440,10 @@ function brand<Type extends string>(value: string): Type {
   return value as Type
 }
 
+// How long after the shell state lands the first-frame report waits for the
+// remaining dashboard reads before revealing the window regardless.
+const FIRST_FRAME_DEADLINE_MS = 1500
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
 }
@@ -1577,8 +1581,13 @@ export function HomeV2LiveApp() {
   // Held as the raw payload main returned, not a decoded one: it crossed the
   // main process from another renderer, so it is validated at the point of use.
   const [detachedTransfer, setDetachedTransfer] = useState<unknown>(null)
-  const [windowRoleReady, setWindowRoleReady] = useState(false)
   const isDetachedWindow = useRef(false)
+  // Milliseconds since navigation start, for the main process's startup log:
+  // when this component first rendered and when the bootstrap reply landed.
+  // The shell-ready report below adds the moment of the first complete frame.
+  const startupTiming = useRef({ mountMs: performance.now(), shellStateMs: 0 })
+  const shellReadyReported = useRef(false)
+  const shellReadyDeadline = useRef<number | null>(null)
   const [vaultState, setVaultState] = useState<HomeV2VaultState>(emptyVaultState)
   const [accountCatalogue, setAccountCatalogue] =
     useState<HomeV2AccountCatalogue>(emptyAccountCatalogue)
@@ -2127,40 +2136,45 @@ export function HomeV2LiveApp() {
     lookupTabIdentity,
   )
 
-  // Asked once, before any shell state is restored, because the answer decides
-  // whether this window restores tabs at all.
+  // The reads the first visible frame depends on -- the window's startup
+  // payload (which decides whether this window restores tabs at all), the
+  // stored shell state, and the admin-trust envelope -- issued together and
+  // applied in one commit. They used to run one after another, so the shell
+  // painted with the default appearance and an empty tab strip, then took on
+  // the user's colours, then reopened their tabs, each on its own frame. The
+  // desktop bridge answers all three in one round trip; a bridge without that
+  // channel (Android) gets the same three reads in parallel.
   useEffect(() => {
+    if (!nodeClient) return
     let cancelled = false
     const windows = window.homeV2Windows
-    if (!windows) {
-      setWindowRoleReady(true)
-      return () => {
-        cancelled = true
+    const readBootstrap = async (): Promise<{
+      adminTrust: unknown
+      shellState: unknown
+      startup: unknown
+    }> => {
+      if (windows?.getBootstrap) {
+        const reply = await windows.getBootstrap()
+        const record = isRecord(reply) ? reply : {}
+        return {
+          adminTrust: record.adminTrust ?? null,
+          shellState: record.shellState ?? null,
+          startup: record.startup ?? null,
+        }
       }
+      const [startup, shellState, adminTrust] = await Promise.all([
+        windows ? windows.getStartup().catch(() => null) : Promise.resolve(null),
+        nodeClient.getShellState(),
+        nodeClient.adminTrust?.().catch(() => null) ?? Promise.resolve(null),
+      ])
+      return { adminTrust, shellState, startup }
     }
-    void windows
-      .getStartup()
-      .then((startup) => {
+    void readBootstrap()
+      .then(async ({ adminTrust, shellState: rawState, startup }) => {
         if (cancelled) return
+        startupTiming.current.shellStateMs = performance.now()
         isDetachedWindow.current = !!startup
         setDetachedTransfer(startup ?? null)
-      })
-      .catch(() => undefined)
-      .finally(() => {
-        if (!cancelled) setWindowRoleReady(true)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  useEffect(() => {
-    if (!nodeClient || !windowRoleReady) return
-    let cancelled = false
-    void nodeClient
-      .getShellState()
-      .then(async (rawState) => {
-        if (cancelled) return
         const isFreshShell = rawState === null || rawState === undefined
         if (isFreshShell) {
           await collectionsClient.markFreshShellForDashboardDefaults()
@@ -2173,13 +2187,12 @@ export function HomeV2LiveApp() {
         // a client without the resolver, or a node that has since changed all
         // land the same way: the preview is dropped and the tab comes back as
         // its ordinary app address.
-        const previewTrust = await nodeClient
-          .adminTrust?.()
-          .then((trust) => (trust.trusted && trust.origin && trust.revision
-            ? { origin: trust.origin, revision: trust.revision }
-            : null))
-          .catch(() => null) ?? null
-        if (cancelled) return
+        const previewTrust = isRecord(adminTrust)
+          && adminTrust.trusted === true
+          && typeof adminTrust.origin === 'string' && adminTrust.origin
+          && typeof adminTrust.revision === 'string' && adminTrust.revision
+          ? { origin: adminTrust.origin, revision: adminTrust.revision }
+          : null
         const restored = parseHomeV2ShellState(
           rawState,
           currentSystemTheme(),
@@ -2256,7 +2269,45 @@ export function HomeV2LiveApp() {
     return () => {
       cancelled = true
     }
-  }, [collectionsClient, nodeClient, windowRoleReady])
+  }, [collectionsClient, nodeClient])
+
+  // The window is created hidden and main shows it on this report (see
+  // armWindowReveal in electron/main.ts), so "ready" has to mean the frame the
+  // user should see first: shell state restored, the enabled networks known,
+  // the account catalogue read and the pins loaded -- every dashboard section
+  // in its final slot. Reported after two animation frames so the commit that
+  // satisfied the condition has actually painted. A deadline from the moment
+  // the shell state landed caps the wait, so one slow read can never hold the
+  // window back; main keeps its own fallbacks for a renderer that never
+  // reaches this point at all.
+  const firstFrameReady = shellStateReady
+    && nodeCoreController.nodesReady
+    && accountCatalogueReady
+    && dashboardPinsPhase !== 'loading'
+  useEffect(() => {
+    if (!shellStateReady || shellReadyReported.current) return
+    const report = () => {
+      if (shellReadyReported.current) return
+      shellReadyReported.current = true
+      void window.homeV2Windows?.reportShellReady?.({
+        mountMs: startupTiming.current.mountMs,
+        readyMs: performance.now(),
+        shellStateMs: startupTiming.current.shellStateMs,
+      })?.catch(() => undefined)
+    }
+    if (firstFrameReady) {
+      let frame = requestAnimationFrame(() => {
+        frame = requestAnimationFrame(report)
+      })
+      return () => cancelAnimationFrame(frame)
+    }
+    shellReadyDeadline.current ??= performance.now() + FIRST_FRAME_DEADLINE_MS
+    const timer = window.setTimeout(
+      report,
+      Math.max(0, shellReadyDeadline.current - performance.now()),
+    )
+    return () => window.clearTimeout(timer)
+  }, [firstFrameReady, shellStateReady])
 
   useEffect(() => {
     if (!nodeClient || !vaultClient) return
@@ -10693,7 +10744,7 @@ export function HomeV2LiveApp() {
       surfaceNotice={
         nodeCoreController.nodeBusyNetwork
           ? `Updating ${nodeCoreController.nodeBusyNetwork === 'qortal' ? 'Qortal' : 'Qortium'}…`
-          : shellNotice ?? 'Accounts, connections, and QDN apps'
+          : shellNotice ?? undefined
       }
       overlay={customNodeDialog ?? accountDialogOverlay ?? contextMenuOverlay ?? resourceViewerOverlay}
       appOverlayTabId={appOverlayTabId ? brand<TabId>(appOverlayTabId) : null}

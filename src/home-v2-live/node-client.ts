@@ -2508,6 +2508,24 @@ export interface HomeV2WindowsBridge {
    */
   getStartup(): Promise<unknown>
   /**
+   * Everything the shell needs before its first visible frame, in ONE round
+   * trip: the window startup payload (consumed, like getStartup), the stored
+   * shell state and the admin-trust envelope. Optional: a bridge without it
+   * is served by the same reads issued in parallel. Every field is unknown
+   * because each is re-validated by its existing parser.
+   */
+  getBootstrap?(): Promise<unknown>
+  /**
+   * Tells main the shell is restored -- appearance applied, tabs back, the
+   * dashboard in its final shape -- so the window can be revealed. Timing is
+   * milliseconds since navigation start, for the startup log.
+   */
+  reportShellReady?(timing: {
+    mountMs: number
+    shellStateMs: number
+    readyMs: number
+  }): Promise<void>
+  /**
    * Opens a new window holding the transferred tab. `point` is where the drag
    * was released, in SCREEN coordinates: main places the new window's title
    * bar under it, clamped to that display's work area. Optional because a

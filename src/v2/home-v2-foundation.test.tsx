@@ -2066,11 +2066,50 @@ function testCoreManagementRenderingAndAndroidDegrade(): void {
       'the live row must not render before its status arrives',
     )
   }
-  // One Home-update row for the whole section, not one per network.
+  // One Home-update row for the whole dashboard, not one per network -- and
+  // in its own "Home" section, outside Node & Core, since it depends on no
+  // network.
   assert.equal(
     [...dashboard.matchAll(/data-home-v2-node-core-home-update="dashboard"/g)].length,
     1,
   )
+  assert.equal([...dashboard.matchAll(/class="home-v2-home-section"/g)].length, 1)
+  assert.ok(
+    dashboard.indexOf('data-home-v2-node-core-home-update="dashboard"')
+      < dashboard.indexOf('class="home-v2-node-core"'),
+    'the Home section comes before Node & Core',
+  )
+  assert.ok(
+    !dashboard.slice(dashboard.indexOf('class="home-v2-node-core"')).includes('node-core-home-update'),
+    'Node & Core no longer carries the Home row',
+  )
+  // Section order is fixed: the account strip first, then the pinned apps
+  // slot, then Home, then Node & Core. The old title and standing tagline are
+  // gone; the dashboard has no h1 and shows a notice only when there is one.
+  {
+    const account = dashboard.indexOf('home-v2-account-panel')
+    const pins = dashboard.indexOf('data-home-v2-dashboard-slot="pinned-apps"')
+    const home = dashboard.indexOf('class="home-v2-home-section"')
+    const nodeCore = dashboard.indexOf('data-home-v2-dashboard-slot="node-core"')
+    assert.ok(account !== -1 && account < pins && pins < home && home < nodeCore,
+      `dashboard order account(${account}) < pins(${pins}) < home(${home}) < node-core(${nodeCore})`)
+    assert.doesNotMatch(dashboard, /<h1/)
+    assert.doesNotMatch(dashboard, /home-v2-surface-notice/)
+    const noticed = renderToStaticMarkup(
+      <HomeV2Prototype
+        snapshot={homeV2Fixture}
+        productState={createProductState()}
+        permissionState={createPermissionState()}
+        layout="desktop"
+        surfaceNotice="Updating Qortium…"
+      />,
+    )
+    assert.match(noticed, /home-v2-surface-notice[^>]*>Updating Qortium…</)
+    assert.ok(
+      noticed.indexOf('home-v2-surface-notice') < noticed.indexOf('home-v2-account-panel'),
+      'a real notice sits above the account strip',
+    )
+  }
   assert.equal(
     [...dashboard.matchAll(/data-home-v2-node-core-action="home-check"/g)].length,
     1,
@@ -4311,11 +4350,20 @@ testIdentityAndImageCachingKeepsChromeStable()
   // (Security review, 2026-09-02.)
   {
     const appBridge = readFileSync('electron/home-v2-app-bridge.ts', 'utf8')
-    const start = appBridge.indexOf("ipcMain.handle('home-v2-nodes:adminTrust'")
-    assert.notEqual(start, -1, 'the adminTrust channel must exist')
-    const handler = appBridge.slice(start, appBridge.indexOf('\n  ipcMain.handle(', start + 1))
-    assert.match(handler, /revision: resolved\.trust\.bindingId/)
-    assert.doesNotMatch(handler, /resolved\.trust\.revision/)
+    const channel = appBridge.indexOf("ipcMain.handle('home-v2-nodes:adminTrust'")
+    assert.notEqual(channel, -1, 'the adminTrust channel must exist')
+    // The envelope is built once, in getHomeV2ShellAdminTrust, and handed out
+    // by both the adminTrust channel and the startup bootstrap reply; the rule
+    // is pinned on the builder so neither route can drift from it.
+    const start = appBridge.indexOf('export async function getHomeV2ShellAdminTrust()')
+    assert.notEqual(start, -1, 'the shared admin-trust envelope builder must exist')
+    const builder = appBridge.slice(start, appBridge.indexOf('\nexport function ', start + 1))
+    assert.match(builder, /revision: resolved\.trust\.bindingId/)
+    assert.doesNotMatch(builder, /resolved\.trust\.revision/)
+    assert.match(
+      appBridge.slice(channel, appBridge.indexOf('\n  ipcMain.handle(', channel + 1)),
+      /return getHomeV2ShellAdminTrust\(\)/,
+    )
     // Same rule for the value written into the profile on a preview tab.
     assert.match(appBridge, /previewTrustRevision: admin\.trust\.bindingId/)
   }

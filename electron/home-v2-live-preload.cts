@@ -87,6 +87,16 @@ contextBridge.exposeInMainWorld('homeV2Windows', {
   // one. Returned as unknown on purpose: the renderer re-validates it.
   getStartup: (): Promise<unknown> =>
     ipcRenderer.invoke('home-v2-windows:getStartup'),
+  // The startup payload, shell state and admin trust together, so
+  // the first frame is built from one reply instead of a chain of them.
+  getBootstrap: (): Promise<unknown> =>
+    ipcRenderer.invoke('home-v2-shell:getBootstrap'),
+  // The window is created hidden; this is what shows it.
+  reportShellReady: (timing: {
+    mountMs: number
+    shellStateMs: number
+    readyMs: number
+  }): Promise<void> => ipcRenderer.invoke('home-v2-shell:ready', timing),
   /**
    * Opens the tab in a NEW window. The optional screen point is where the drag
    * was released: main places the window there rather than offsetting it from

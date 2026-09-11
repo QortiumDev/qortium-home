@@ -32,6 +32,38 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## fix: open the Home window finished, and settle the dashboard layout
+
+2026-09-11
+
+Starting Home on the desktop used to show its work: the window appeared with
+an unstyled "could not start" placeholder, went black, drew a dashboard with
+only the account card, then added the pinned apps and the Node & Core section
+above it (pushing it down), then switched to the user's accent colour, and
+finally reopened the previous tabs. Every one of those was a real intermediate
+state being painted. The window is now created hidden and shown once the
+shell reports itself restored: appearance applied, tabs back, the enabled
+networks known, the account catalogue and pinned apps loaded. The three reads
+that gate that moment (the window's startup payload, the saved shell state
+and the node admin-trust check) are answered in one round trip instead of
+one after another. Three fallbacks (a grace period after the renderer can
+paint, a failed load, and a hard cap) still show the window if the renderer
+never gets that far, and the window's own background now matches the saved
+theme so a light-theme profile never flashes dark.
+
+The dashboard itself lost its "Dashboard" title and the standing "Accounts,
+connections, and QDN apps" tagline; the same slot now shows only real
+notices, such as "Updating Qortium…". Sections have a fixed order — a compact
+account strip first, then Pinned apps, then Home (its installed version and
+update state, now its own section rather than a row inside Node & Core), then
+Node & Core — and each section owns its place from the first render, so a
+read that arrives late fills a reserved space instead of moving what is
+already on screen.
+
+For measuring rather than guessing, the startup log now also records when the
+renderer mounted, when the shell state landed, when the first complete frame
+was reported and when the window was revealed.
+
 ## release: prepare home 2.1.0-beta.2
 
 2026-09-11

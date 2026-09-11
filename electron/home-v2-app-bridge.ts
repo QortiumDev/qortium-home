@@ -11932,32 +11932,37 @@ async function handleRequest(
   }
 }
 
+// The shell's read-only view of node administration: whether the selected
+// Qortium node is one the user administers, its origin, and the trust
+// revision. The KEY never crosses this boundary -- the renderer learns only
+// what it needs to bind a restored publish preview to the node it was built
+// on. Mirrors HomeV2NodeClient.adminTrust(), which the Android client
+// already implements. Shared by the adminTrust channel and the startup
+// bootstrap reply, so both hand the renderer exactly the same envelope.
+export async function getHomeV2ShellAdminTrust() {
+  const resolved = await resolveHomeV2AdminNode('qortium')
+  return resolved.trust.trusted
+    ? {
+        origin: resolved.trust.origin,
+        // The BINDING ID, never `trust.revision`: that one is a digest of
+        // the API key, and handing it to a renderer (or letting it be
+        // persisted in a profile) would give anyone who read it an offline
+        // check for a guessed key. Security review, 2026-09-02.
+        revision: resolved.trust.bindingId,
+        trusted: true as const,
+      }
+    : {
+        origin: '',
+        reason: homeV2AdminTrustMessage(resolved.trust.reason, 'Administering this node'),
+        revision: '',
+        trusted: false as const,
+      }
+}
+
 export function registerHomeV2AppBridgeIpcHandlers() {
-  // The shell's read-only view of node administration: whether the selected
-  // Qortium node is one the user administers, its origin, and the trust
-  // revision. The KEY never crosses this boundary -- the renderer learns only
-  // what it needs to bind a restored publish preview to the node it was built
-  // on. Mirrors HomeV2NodeClient.adminTrust(), which the Android client
-  // already implements.
   ipcMain.handle('home-v2-nodes:adminTrust', async (event) => {
     assertAuthorizedHomeV2Sender(event)
-    const resolved = await resolveHomeV2AdminNode('qortium')
-    return resolved.trust.trusted
-      ? {
-          origin: resolved.trust.origin,
-          // The BINDING ID, never `trust.revision`: that one is a digest of
-          // the API key, and handing it to a renderer (or letting it be
-          // persisted in a profile) would give anyone who read it an offline
-          // check for a guessed key. Security review, 2026-09-02.
-          revision: resolved.trust.bindingId,
-          trusted: true as const,
-        }
-      : {
-          origin: '',
-          reason: homeV2AdminTrustMessage(resolved.trust.reason, 'Administering this node'),
-          revision: '',
-          trusted: false as const,
-        }
+    return getHomeV2ShellAdminTrust()
   })
   // An app view that navigates replaces the document that asked, so its pending
   // Home-settings prompts are dropped rather than left to expire. Registered

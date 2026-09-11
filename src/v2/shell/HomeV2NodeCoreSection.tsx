@@ -91,7 +91,6 @@ function I2pCoreHealthDetails({ node }: { readonly node: HomeV2Snapshot['nodes']
 export interface HomeV2NodeCoreSectionProps {
   /** Opens the release-notes page for a product. Absent = no links shown. */
   readonly onOpenReleaseNotes?: (target: { product: 'core' | 'home'; tagName: string }) => void
-  readonly appUpdates?: HomeV2AppUpdates
   readonly coreManagement?: HomeV2CoreManagement
   /** The networks the user has enabled, in shell order. */
   readonly networks: readonly NetworkId[]
@@ -700,15 +699,17 @@ function HomeUpdateRow({
       data-home-v2-node-core-home-update="dashboard"
     >
       <div className="home-v2-node-core-row__copy">
-        <strong>{t('common.appName')}</strong>
         {result?.currentVersion ? (
           // WHICH Home is installed. 1.x put its own version on the dashboard;
           // Home 2 showed only an update state, so "up to date" never said up
-          // to date at WHAT.
-          <small data-home-v2-home-version={result.currentVersion}>
+          // to date at WHAT. The section heading names Home, so the row leads
+          // with the version.
+          <strong data-home-v2-home-version={result.currentVersion}>
             {t('home2.core.installedVersion', { version: result.currentVersion })}
-          </small>
-        ) : null}
+          </strong>
+        ) : (
+          <strong>{t('common.appName')}</strong>
+        )}
         <small aria-live="polite" role="status">{homeUpdateStatusText(updates)}</small>
       </div>
       <div className="home-v2-node-core-row__controls">
@@ -779,14 +780,13 @@ function HomeUpdateRow({
 /**
  * The dashboard's single "Node & Core" section: one card per enabled network
  * carrying that network's connection, its Core lifecycle and — for Qortium —
- * its i2p transport, plus one Home-update row for the section.
+ * its i2p transport. Home's own update row is HomeV2HomeSection below.
  *
  * Every live value arrives through props. The maintenance controllers are
  * instantiated once in HomeV2LiveApp and reach this component as the optional
  * slices on `coreManagement`, which keeps this file renderable from a fixture.
  */
 export function HomeV2NodeCoreSection({
-  appUpdates,
   coreManagement,
   networks,
   onChainCoreUpdates,
@@ -804,10 +804,7 @@ export function HomeV2NodeCoreSection({
   return (
     <section className="home-v2-node-core" aria-labelledby={id('node-core-title')}>
       <div className="home-v2-section-heading">
-        <div>
-          <h2 id={id('node-core-title')}>{t('home2.nodeCore.title')}</h2>
-          <p>{t('home2.nodeCore.description')}</p>
-        </div>
+        <h2 id={id('node-core-title')}>{t('home2.nodeCore.title')}</h2>
         {onOpenSettings ? (
           <button
             type="button"
@@ -876,9 +873,41 @@ export function HomeV2NodeCoreSection({
           )
         })}
       </div>
-      {appUpdates?.available
-        ? <HomeUpdateRow onOpenReleaseNotes={onOpenReleaseNotes} updates={appUpdates} />
-        : null}
+    </section>
+  )
+}
+
+/**
+ * The dashboard's "Home" section: the installed Home version and its update
+ * state. It depends on no network, so it lives outside Node & Core and is
+ * drawn before the enabled networks are known.
+ */
+export function HomeV2HomeSection({
+  appUpdates,
+  onOpenReleaseNotes,
+  onOpenSettings,
+}: {
+  readonly appUpdates: HomeV2AppUpdates
+  readonly onOpenReleaseNotes?: (target: { product: 'core' | 'home'; tagName: string }) => void
+  readonly onOpenSettings?: () => void
+}) {
+  const id = useScopedIds()
+  return (
+    <section className="home-v2-home-section" aria-labelledby={id('home-title')}>
+      <div className="home-v2-section-heading">
+        <h2 id={id('home-title')}>{t('common.appName')}</h2>
+        {onOpenSettings ? (
+          <button
+            type="button"
+            className="home-v2-link-button"
+            aria-label={`${t('common.settings')}: ${t('common.appName')}`}
+            onClick={onOpenSettings}
+          >
+            {t('common.settings')}
+          </button>
+        ) : null}
+      </div>
+      <HomeUpdateRow onOpenReleaseNotes={onOpenReleaseNotes} updates={appUpdates} />
     </section>
   )
 }

@@ -73,7 +73,7 @@ import {
   type HomeV2SettingsSectionTarget,
 } from './SettingsPage'
 import type { HomeV2CoreManagement } from './CoreManagerCards'
-import { HomeV2NodeCoreSection } from './HomeV2NodeCoreSection'
+import { HomeV2HomeSection, HomeV2NodeCoreSection } from './HomeV2NodeCoreSection'
 import type {
   HomeV2AppBridgeProtocol,
   HomeV2AppRequestContext,
@@ -752,27 +752,34 @@ function Dashboard(props: DashboardProps) {
     }
     return qortiumEnabled
   })
+  // Section order is fixed and every section owns its slot from the first
+  // render, so a read that lands late fills a space that was already reserved
+  // instead of pushing what is above it down. The account strip comes first
+  // because it never waits on the node reads; the pinned apps and the Node &
+  // Core section wait for the enabled networks (see `nodesReady`) inside slots
+  // that are already in place. Home's own update row does not depend on any
+  // network, so it is its own section rather than a tail on Node & Core.
   return (
     <div className="home-v2-dashboard">
-      <header className="home-v2-dashboard-intro">
-        <h1>{t('common.dashboard')}</h1>
-        {props.surfaceNotice ? (
+      {props.surfaceNotice ? (
+        <p className="home-v2-dashboard-status" role="status">
           <span className="home-v2-surface-notice">
             {translateMainProcessMessage(props.surfaceNotice)}
           </span>
-        ) : null}
-      </header>
-
-      {!nodesReady ? (
-        <p
-          className="home-v2-dashboard-loading"
-          data-home-v2-dashboard="loading-networks"
-        >
-          {t('home2.common.loading')}
         </p>
-      ) : (
-        <>
-        {qortiumEnabled || visiblePins.length > 0 ? (
+      ) : null}
+
+      <AccountCard {...props} />
+
+      <div className="home-v2-dashboard-slot" data-home-v2-dashboard-slot="pinned-apps">
+        {!nodesReady ? (
+          <p
+            className="home-v2-dashboard-loading"
+            data-home-v2-dashboard="loading-networks"
+          >
+            {t('home2.common.loading')}
+          </p>
+        ) : qortiumEnabled || visiblePins.length > 0 ? (
           <HomeV2PinnedApps
             {...pinnedApps}
             accountCatalogue={props.accountCatalogue}
@@ -781,17 +788,11 @@ function Dashboard(props: DashboardProps) {
             pins={visiblePins}
           />
         ) : null}
+      </div>
 
-        <HomeV2NodeCoreSection
-          snapshot={snapshot}
-          networks={enabledNetworks}
+      {props.appUpdates?.available ? (
+        <HomeV2HomeSection
           appUpdates={props.appUpdates}
-          coreManagement={props.coreManagement}
-          onChainCoreUpdates={props.onChainCoreUpdates}
-          onSetNodeMode={onSetNodeMode}
-          onRefreshNode={onRefreshNode}
-          onConfigureCustomNode={onConfigureCustomNode}
-          onOpenCoreDocs={props.onOpenCoreDocs}
           onOpenReleaseNotes={props.onOpenReleaseNotes}
           onOpenSettings={
             props.onOpenSettingsSection
@@ -799,11 +800,28 @@ function Dashboard(props: DashboardProps) {
               : undefined
           }
         />
-        </>
-      )}
+      ) : null}
 
-      <AccountCard {...props} />
-
+      <div className="home-v2-dashboard-slot" data-home-v2-dashboard-slot="node-core">
+        {nodesReady ? (
+          <HomeV2NodeCoreSection
+            snapshot={snapshot}
+            networks={enabledNetworks}
+            coreManagement={props.coreManagement}
+            onChainCoreUpdates={props.onChainCoreUpdates}
+            onSetNodeMode={onSetNodeMode}
+            onRefreshNode={onRefreshNode}
+            onConfigureCustomNode={onConfigureCustomNode}
+            onOpenCoreDocs={props.onOpenCoreDocs}
+            onOpenReleaseNotes={props.onOpenReleaseNotes}
+            onOpenSettings={
+              props.onOpenSettingsSection
+                ? () => props.onOpenSettingsSection?.('core')
+                : undefined
+            }
+          />
+        ) : null}
+      </div>
     </div>
   )
 }
