@@ -105,4 +105,60 @@ assert.deepEqual(calls, [
   )
 }
 
+// A favicon that is not READY -- still being fetched (pending), or unreadable
+// (unavailable) -- falls back to the publisher's avatar just as a missing one
+// does. A fresh pin's app is usually still downloading, and it used to sit as
+// a monogram through two minutes of favicon retries.
+for (const outcome of [
+  { retryAfterSeconds: 5, status: 'pending' as const },
+  { message: 'App icon response was not a supported image.', status: 'unavailable' as const },
+]) {
+  const withAvatar = createHomeV2AppIconLoader({
+    ...client,
+    async readAppIcon() {
+      return outcome
+    },
+  } as unknown as HomeV2NodeClient)
+  assert.deepEqual(
+    await withAvatar('qortium', { identifier: 'Chat', name: 'Publisher', service: 'APP' }),
+    ready,
+    `${outcome.status} favicon must fall back to the publisher avatar`,
+  )
+
+  // No avatar anywhere: the ORIGINAL outcome goes back, so a pending favicon
+  // keeps its retry loop instead of being negatively cached as missing.
+  const noAvatar = createHomeV2AppIconLoader({
+    ...client,
+    async readAppIcon() {
+      return outcome
+    },
+    async readAvatar() {
+      return { status: 'missing' as const }
+    },
+  } as unknown as HomeV2NodeClient)
+  assert.deepEqual(
+    await noAvatar('qortium', { identifier: 'Chat', name: 'Publisher', service: 'APP' }),
+    outcome,
+    `${outcome.status} favicon with no avatar keeps its own outcome`,
+  )
+}
+
+// A failing identity read is not a reason to lose the favicon outcome either.
+// (A name the earlier cases never resolved: identity lookups are cached.)
+{
+  const brokenIdentity = createHomeV2AppIconLoader({
+    ...client,
+    async readAppIcon() {
+      return { status: 'missing' as const }
+    },
+    async readIdentity() {
+      throw new Error('node unreachable')
+    },
+  } as unknown as HomeV2NodeClient)
+  assert.deepEqual(
+    await brokenIdentity('qortium', { identifier: 'Chat', name: 'Unreachable', service: 'APP' }),
+    { status: 'missing' },
+  )
+}
+
 console.log('Home v2 app icon fallback loader tests passed.')

@@ -783,6 +783,7 @@ export const hu: Record<TranslationKey, string> = {
   "welcome.subtitle": "Néhány választás most segít abban, hogy a Qortium Home úgy működjön, ahogyan szeretnéd.",
   "welcome.title": "Üdvözli a Qortium Home",
   "home2.apps": "Alkalmazások",
+  "home2.explore": "Felfedezés",
   "home2.account.labelNotRegisteredName": "{label} (nem regisztrált név)",
   "home2.account.actions": "Fiókműveletek",
   "home2.account.addAddress": "Cím hozzáadása",

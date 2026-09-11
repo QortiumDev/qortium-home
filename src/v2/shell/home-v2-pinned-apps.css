@@ -4,9 +4,42 @@
   gap: 12px;
 }
 
+.home-v2-pinned-apps__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 14px;
+  min-block-size: 30px;
+}
+
+.home-v2-pinned-apps__header h2 {
+  margin: 0;
+}
+
+/* The section's actions sit beside the title and wrap under it as one row
+   when the section is narrow; the fold chevron keeps the far edge. */
+.home-v2-pinned-apps__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 10px;
+}
+
+.home-v2-pinned-apps__header > .home-v2-section-toggle {
+  margin-inline-start: auto;
+}
+
+.home-v2-pinned-apps__body {
+  display: grid;
+  min-width: 0;
+  gap: 12px;
+}
+
+.home-v2-pinned-apps__find-button,
+.home-v2-pinned-apps__explore-button,
 .home-v2-pinned-apps__add-button {
   display: inline-flex;
-  min-block-size: 40px;
+  min-block-size: 32px;
   align-items: center;
   gap: 6px;
 }
@@ -181,6 +214,8 @@
 }
 
 .home-v2-pinned-apps__open:disabled,
+.home-v2-pinned-apps__find-button:disabled,
+.home-v2-pinned-apps__explore-button:disabled,
 .home-v2-pinned-apps__add-button:disabled {
   cursor: default;
   opacity: 0.5;

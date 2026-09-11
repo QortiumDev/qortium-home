@@ -80,6 +80,10 @@ import type {
   HomeV2NodeClient,
 } from '../../home-v2-live/node-client'
 import type { HomeV2AppUpdates } from '../../home-v2-live/app-update-controller'
+import type {
+  HomeV2DashboardCollapsed,
+  HomeV2DashboardSection,
+} from '../../home-v2-live/shell-state'
 import type { HomeV2MaintenanceControllers } from '../../home-v2-live/maintenance-controllers'
 import type { HomeV2QdnSettingsManagement } from '../../home-v2-live/qdn-settings-client'
 import type { HomeV2NotificationPolicyState } from '../../home-v2-live/notification-policy-client'
@@ -247,9 +251,9 @@ export interface HomeV2PrototypeProps {
   readonly onAccountManage?: (action: HomeV2AccountManageAction) => void
   readonly onCreateAccount?: () => void
   readonly onImportAccount?: () => void
-  /** The dashboard's Account section folded to its header line. */
-  readonly dashboardAccountCollapsed?: boolean
-  readonly onToggleDashboardAccountCollapsed?: () => void
+  /** Which dashboard sections are folded to their header line. */
+  readonly dashboardCollapsed?: HomeV2DashboardCollapsed
+  readonly onToggleDashboardSection?: (section: HomeV2DashboardSection) => void
   readonly onToggleRememberUnlock?: () => void
   readonly onToggleLockOnExit?: () => void
   readonly onSetTheme?: (theme: HomeV2ThemePreference) => void
@@ -477,6 +481,42 @@ function IdentityPresence({
   )
 }
 
+/**
+ * The chevron that folds a dashboard section to its header line. One control
+ * for every section so they look and read alike: the label is the section's
+ * title and aria-expanded carries the state.
+ */
+export function HomeV2SectionToggle({
+  collapsed,
+  controls,
+  label,
+  onToggle,
+  testId,
+}: {
+  readonly collapsed: boolean
+  readonly controls: string
+  readonly label: string
+  readonly onToggle: () => void
+  readonly testId: string
+}) {
+  return (
+    <button
+      type="button"
+      className="home-v2-section-toggle"
+      {...{ [testId]: '' }}
+      aria-label={label}
+      aria-expanded={!collapsed}
+      aria-controls={controls}
+      data-collapsed={collapsed ? 'true' : 'false'}
+      onClick={onToggle}
+    >
+      <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">
+        <path d="M3.5 6 8 10.5 12.5 6" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    </button>
+  )
+}
+
 function AccountCard({
   snapshot,
   onUnlockAccount,
@@ -492,8 +532,8 @@ function AccountCard({
   onSelectAddress,
   onAccountManage,
   onOpenAddress,
-  dashboardAccountCollapsed = false,
-  onToggleDashboardAccountCollapsed,
+  dashboardCollapsed,
+  onToggleDashboardSection,
 }: Pick<
   HomeV2PrototypeProps,
   | 'snapshot'
@@ -510,9 +550,10 @@ function AccountCard({
   | 'loadVisibleAvatar'
   | 'onSelectAddress'
   | 'onAccountManage'
-  | 'dashboardAccountCollapsed'
-  | 'onToggleDashboardAccountCollapsed'
+  | 'dashboardCollapsed'
+  | 'onToggleDashboardSection'
 >) {
+  const collapsed = dashboardCollapsed?.account === true
   const id = useScopedIds()
   const hasAccount = snapshot.account.state !== 'none'
   const isLocked = snapshot.account.state === 'locked'
@@ -587,7 +628,7 @@ function AccountCard({
   return (
     <section
       className="home-v2-panel home-v2-account-panel"
-      data-home-v2-account-collapsed={dashboardAccountCollapsed ? 'true' : 'false'}
+      data-home-v2-account-collapsed={collapsed ? 'true' : 'false'}
     >
       <div className="home-v2-account-header">
         <h2>{t('account.menuLabel')}</h2>
@@ -609,23 +650,17 @@ function AccountCard({
             {t('home2.account.notSelected')}
           </span>
         )}
-        {onToggleDashboardAccountCollapsed ? (
-          <button
-            type="button"
-            className="home-v2-account-toggle"
-            data-home-v2-account-toggle
-            aria-label={t('account.menuLabel')}
-            aria-expanded={!dashboardAccountCollapsed}
-            aria-controls={bodyId}
-            onClick={onToggleDashboardAccountCollapsed}
-          >
-            <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">
-              <path d="M3.5 6 8 10.5 12.5 6" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </button>
+        {onToggleDashboardSection ? (
+          <HomeV2SectionToggle
+            collapsed={collapsed}
+            controls={bodyId}
+            label={t('account.menuLabel')}
+            testId="data-home-v2-account-toggle"
+            onToggle={() => onToggleDashboardSection('account')}
+          />
         ) : null}
       </div>
-      {dashboardAccountCollapsed ? null : (
+      {collapsed ? null : (
         <div className="home-v2-account-body" id={bodyId}>
           <div className="home-v2-account-controls">
             <label className="home-v2-account-select home-v2-account-select--account">
@@ -797,6 +832,12 @@ function Dashboard(props: DashboardProps) {
             allowAdd={qortiumEnabled}
             loadVisibleAppIcon={props.loadVisibleAppIcon}
             pins={visiblePins}
+            collapsed={props.dashboardCollapsed?.pinnedApps === true}
+            onToggleCollapsed={
+              props.onToggleDashboardSection
+                ? () => props.onToggleDashboardSection?.('pinnedApps')
+                : undefined
+            }
           />
         ) : null}
       </div>

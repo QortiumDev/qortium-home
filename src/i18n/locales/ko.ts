@@ -783,6 +783,7 @@ export const ko: Record<TranslationKey, string> = {
   "welcome.subtitle": "지금 몇 가지를 선택하면 Qortium Home을 원하는 방식으로 사용할 수 있습니다.",
   "welcome.title": "Qortium Home에 오신 것을 환영합니다",
   "home2.apps": "앱",
+  "home2.explore": "탐색",
   "home2.account.labelNotRegisteredName": "{label}(등록된 이름 아님)",
   "home2.account.actions": "계정 작업",
   "home2.account.addAddress": "주소 추가",

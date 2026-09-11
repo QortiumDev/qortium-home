@@ -71,6 +71,15 @@ panel is too narrow, where the chip also shrinks to the network mark. The
 standing New Account / Lock / Unlock button is gone; creating and importing
 stay in the account dropdown's action group.
 
+Pinned apps gets the same fold, remembered separately, and its actions now sit
+beside the title in one row — Apps (the app directory), a new Explore button
+(the assigned Explore app), then Create — wrapping under the title on a
+narrow dashboard instead of breaking onto separate lines. Pinned app tiles
+also fall back to the publisher's avatar whenever the app's favicon is not
+usable right now — still downloading from QDN, or unreadable — not only when
+the node says it is missing; a pin whose app was still arriving used to show
+a monogram for minutes.
+
 For measuring rather than guessing, the startup log now also records when the
 renderer mounted, when the shell state landed, when the first complete frame
 was reported and when the window was revealed.

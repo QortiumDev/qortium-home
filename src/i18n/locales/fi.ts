@@ -783,6 +783,7 @@ export const fi: Record<TranslationKey, string> = {
   "welcome.subtitle": "Muutama valinta auttaa Qortium Homea toimimaan haluamallasi tavalla.",
   "welcome.title": "Tervetuloa Qortium Homeen",
   "home2.apps": "Sovellukset",
+  "home2.explore": "Tutki",
   "home2.account.labelNotRegisteredName": "{label} (ei rekisteröity nimi)",
   "home2.account.actions": "Tilin toiminnot",
   "home2.account.addAddress": "Lisää osoite",

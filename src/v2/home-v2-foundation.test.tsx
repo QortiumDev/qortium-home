@@ -1725,8 +1725,8 @@ function testStartupStatesAndAppearance(): void {
         productState={homeV2ProductFixture}
         permissionState={createPermissionState()}
         layout="desktop"
-        dashboardAccountCollapsed
-        onToggleDashboardAccountCollapsed={() => undefined}
+        dashboardCollapsed={{ account: true, pinnedApps: false }}
+        onToggleDashboardSection={() => undefined}
       />,
     )
     assert.match(folded, /data-home-v2-account-collapsed="true"/)
@@ -1735,13 +1735,21 @@ function testStartupStatesAndAppearance(): void {
     assert.match(folded, /<button[^>]*home-v2-lock-state/, 'the lock control stays on the header line')
     const stored = JSON.parse(JSON.stringify(serializeHomeV2ShellState({
       ...createHomeV2ShellState('dark', 'en'),
-      dashboardAccountCollapsed: true,
+      dashboardCollapsed: { account: true, pinnedApps: false },
     })))
-    assert.equal(parseHomeV2ShellState(stored, 'dark', 'en').dashboardAccountCollapsed, true)
-    assert.equal(
-      parseHomeV2ShellState({ ...stored, dashboardAccountCollapsed: undefined }, 'dark', 'en').dashboardAccountCollapsed,
-      false,
+    assert.deepEqual(
+      parseHomeV2ShellState(stored, 'dark', 'en').dashboardCollapsed,
+      { account: true, pinnedApps: false },
+    )
+    assert.deepEqual(
+      parseHomeV2ShellState({ ...stored, dashboardCollapsed: undefined }, 'dark', 'en').dashboardCollapsed,
+      { account: false, pinnedApps: false },
       'a record from before the setting existed stays expanded',
+    )
+    assert.deepEqual(
+      parseHomeV2ShellState({ ...stored, dashboardCollapsed: { account: 'yes', bogus: true } }, 'dark', 'en').dashboardCollapsed,
+      { account: false, pinnedApps: false },
+      'only a literal true folds a section, and unknown sections are ignored',
     )
   }
   assert.doesNotMatch(unlocked, /Good to see you|Welcome back|Your browser/)
@@ -2147,6 +2155,52 @@ function testCoreManagementRenderingAndAndroidDegrade(): void {
       noticed.indexOf('home-v2-surface-notice') < noticed.indexOf('home-v2-account-panel'),
       'a real notice sits above the account strip',
     )
+  }
+  // Pinned apps: the title, then Apps, Explore and Create beside it in that
+  // order, then the fold chevron; folded, only the header line remains.
+  {
+    const pinnedApps = {
+      pins: [],
+      status: 'ready' as const,
+      onAdd: () => undefined,
+      onExplore: () => undefined,
+      onFindMoreApps: () => undefined,
+      onMove: () => undefined,
+      onReorder: () => undefined,
+      onOpen: () => undefined,
+      onRemove: () => undefined,
+      onRename: () => undefined,
+    }
+    const render = (pinnedAppsCollapsed: boolean) => renderToStaticMarkup(
+      <HomeV2Prototype
+        snapshot={homeV2Fixture}
+        productState={homeV2ProductFixture}
+        permissionState={createPermissionState()}
+        layout="desktop"
+        pinnedApps={pinnedApps}
+        dashboardCollapsed={{ account: false, pinnedApps: pinnedAppsCollapsed }}
+        onToggleDashboardSection={() => undefined}
+      />,
+    )
+    const open = render(false)
+    const header = open.slice(open.indexOf('home-v2-pinned-apps__header'))
+    const at = (marker: string) => {
+      const index = header.indexOf(marker)
+      assert.notEqual(index, -1, `${marker} must be in the pinned apps header`)
+      return index
+    }
+    assert.ok(
+      at('id="pinned-apps-title') < at('data-home-v2-pinned-apps-action="apps"')
+        && at('data-home-v2-pinned-apps-action="apps"') < at('data-home-v2-pinned-apps-action="explore"')
+        && at('data-home-v2-pinned-apps-action="explore"') < at('data-home-v2-pinned-apps-action="create"')
+        && at('data-home-v2-pinned-apps-action="create"') < at('data-home-v2-pinned-apps-toggle'),
+      'pinned apps header order is title, Apps, Explore, Create, toggle',
+    )
+    assert.match(open, /home-v2-pinned-apps__body/)
+    const folded = render(true)
+    assert.match(folded, /<button[^>]*data-home-v2-pinned-apps-toggle[^>]*aria-expanded="false"/)
+    assert.doesNotMatch(folded, /home-v2-pinned-apps__body/)
+    assert.match(folded, /data-home-v2-pinned-apps-action="apps"/, 'the actions stay on the header line')
   }
   assert.equal(
     [...dashboard.matchAll(/data-home-v2-node-core-action="home-check"/g)].length,
@@ -3972,7 +4026,7 @@ function testShellStateMigratesAddressSelection(): void {
     // reproduces the old behaviour exactly.
     startupPreference: DEFAULT_STARTUP_PREFERENCE,
     settingsSection: 'general',
-    dashboardAccountCollapsed: false,
+    dashboardCollapsed: { account: false, pinnedApps: false },
     onboarding: legacy.onboarding,
     selectedAccountId: 'wallet:Qprimary',
     selectedAddressId: 'wallet:Qprimary:2',

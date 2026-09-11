@@ -30,14 +30,33 @@ import {
   type HomeV2OnboardingState,
 } from './onboarding-state'
 
+export type HomeV2DashboardSection = 'account' | 'pinnedApps'
+export type HomeV2DashboardCollapsed = Readonly<Record<HomeV2DashboardSection, boolean>>
+
+export const HOME_V2_DASHBOARD_SECTIONS: readonly HomeV2DashboardSection[] = ['account', 'pinnedApps']
+
+export function createHomeV2DashboardCollapsed(): HomeV2DashboardCollapsed {
+  return Object.freeze({ account: false, pinnedApps: false })
+}
+
+// Absent before the setting existed, and unknown sections are ignored:
+// everything stays expanded, which is what the dashboard showed.
+export function parseHomeV2DashboardCollapsed(value: unknown): HomeV2DashboardCollapsed {
+  const record = isRecord(value) ? value : {}
+  return Object.freeze({
+    account: record.account === true,
+    pinnedApps: record.pinnedApps === true,
+  })
+}
+
 export interface HomeV2ShellState {
   readonly version: 4
   readonly appearance: HomeV2AppearanceSettings
   readonly newTabPreference: NewTabPreference
   readonly startupPreference: HomeV2StartupPreference
   readonly settingsSection: HomeV2SettingsSectionId
-  /** The dashboard's Account section folded to its header line. */
-  readonly dashboardAccountCollapsed: boolean
+  /** Which dashboard sections are folded to their header line. */
+  readonly dashboardCollapsed: HomeV2DashboardCollapsed
   readonly onboarding: HomeV2OnboardingState
   readonly selectedAccountId: string | null
   readonly selectedAddressId: string | null
@@ -60,7 +79,7 @@ export function createHomeV2ShellState(
     newTabPreference: DEFAULT_NEW_TAB_PREFERENCE,
     startupPreference: DEFAULT_STARTUP_PREFERENCE,
     settingsSection: 'general',
-    dashboardAccountCollapsed: false,
+    dashboardCollapsed: createHomeV2DashboardCollapsed(),
     onboarding: createHomeV2OnboardingState(),
     selectedAccountId: null,
     selectedAddressId: null,
@@ -118,8 +137,7 @@ export function parseHomeV2ShellState(
     // the user chooses otherwise.
     startupPreference: parseHomeV2StartupPreference(value.startupPreference),
     settingsSection: parseHomeV2SettingsSection(value.settingsSection),
-    // Absent before this field existed: expanded, which is what it showed.
-    dashboardAccountCollapsed: value.dashboardAccountCollapsed === true,
+    dashboardCollapsed: parseHomeV2DashboardCollapsed(value.dashboardCollapsed),
     onboarding:
       value.version === 3 || value.version === 4
         ? parseHomeV2OnboardingState(value.onboarding) ??
@@ -145,7 +163,7 @@ export function serializeHomeV2ShellState(state: HomeV2ShellState) {
     newTabPreference: state.newTabPreference,
     startupPreference: state.startupPreference,
     settingsSection: state.settingsSection,
-    dashboardAccountCollapsed: state.dashboardAccountCollapsed,
+    dashboardCollapsed: { ...state.dashboardCollapsed },
     onboarding: state.onboarding,
     selectedAccountId: state.selectedAccountId,
     selectedAddressId: state.selectedAddressId,

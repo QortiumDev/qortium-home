@@ -139,6 +139,7 @@ import {
 } from './start-page-launch'
 import {
   resolveHomeV2AppsAppUrl,
+  resolveHomeV2ExploreAppUrl,
   resolveHomeV2BookmarksAppUrl,
 } from './qdn-settings-client'
 import { internalTabLabelKeys } from '../v2/shell/TabStrip'
@@ -393,6 +394,8 @@ import { completeUnlockAfterAccountStatePropagation } from './unlock-account-sta
 import {
   parseHomeV2ShellState,
   serializeHomeV2ShellState,
+  createHomeV2DashboardCollapsed,
+  type HomeV2DashboardCollapsed,
 } from './shell-state'
 import { homeV2ShellStateHasPublishPreview } from '../../electron/home-v2-window-startup'
 import {
@@ -1430,7 +1433,8 @@ export function HomeV2LiveApp() {
   // prototype so it survives a restart, not just a navigation.
   const [settingsSection, setSettingsSection] =
     useState<HomeV2SettingsSectionId>('general')
-  const [dashboardAccountCollapsed, setDashboardAccountCollapsed] = useState(false)
+  const [dashboardCollapsed, setDashboardCollapsed] =
+    useState<HomeV2DashboardCollapsed>(createHomeV2DashboardCollapsed)
   // What THIS launch owes, captured when the stored state was read.
   const pendingStartup = useRef<{
     readonly closeInitialTab: boolean
@@ -2249,7 +2253,7 @@ export function HomeV2LiveApp() {
         }
         setStartupPreference(restored.startupPreference)
         setSettingsSection(restored.settingsSection)
-        setDashboardAccountCollapsed(restored.dashboardAccountCollapsed)
+        setDashboardCollapsed(restored.dashboardCollapsed)
         dispatchProduct({ type: 'initialize-settings-history', section: restored.settingsSection })
         setNewTabPreference(restored.newTabPreference)
         setOnboarding(restored.onboarding)
@@ -2370,7 +2374,7 @@ export function HomeV2LiveApp() {
           newTabPreference,
           startupPreference,
           settingsSection,
-          dashboardAccountCollapsed,
+          dashboardCollapsed,
           onboarding,
           selectedAccountId:
             accountCatalogue.accounts.find((account) => account.id === selectedAccountId)?.walletId ?? null,
@@ -2382,7 +2386,7 @@ export function HomeV2LiveApp() {
     return () => window.clearTimeout(timeout)
   }, [
     accountCatalogueReady,
-    dashboardAccountCollapsed,
+    dashboardCollapsed,
     nodeClient,
     newTabPreference,
     onboarding,
@@ -10756,8 +10760,9 @@ export function HomeV2LiveApp() {
       nodesReady={nodeCoreController.nodesReady}
       startupPreference={startupPreference}
       startPageCount={collectionsSnapshot?.startPages?.length ?? 0}
-      dashboardAccountCollapsed={dashboardAccountCollapsed}
-      onToggleDashboardAccountCollapsed={() => setDashboardAccountCollapsed((current) => !current)}
+      dashboardCollapsed={dashboardCollapsed}
+      onToggleDashboardSection={(section) =>
+        setDashboardCollapsed((current) => ({ ...current, [section]: !current[section] }))}
       onSetStartupPreference={setStartupPreference}
       settingsSection={activeDestination?.kind === 'internal' && activeDestination.page === 'settings'
         ? activeDestination.section ?? settingsSection : settingsSection}
@@ -10845,6 +10850,12 @@ export function HomeV2LiveApp() {
           // shipped default when settings are unavailable.
           const settings = await qdnAppsManagement.client?.get().catch(() => null)
           await openAddress(resolveHomeV2AppsAppUrl(settings ?? null))
+        },
+        // Same resolution for Explore: the user's assigned Explore app, else
+        // the shipped default.
+        onExplore: async () => {
+          const settings = await qdnAppsManagement.client?.get().catch(() => null)
+          await openAddress(resolveHomeV2ExploreAppUrl(settings ?? null))
         },
         pins: collectionsSnapshot?.dashboardPins ?? [],
         status: dashboardPinsPhase,
