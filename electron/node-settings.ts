@@ -1472,6 +1472,18 @@ export async function getNodeSettingsForHomeV2() {
   return getNodeSettingsSnapshot();
 }
 
+/**
+ * The connection mode alone, straight from the settings file. The snapshot
+ * above resolves the managed Core's API key and the node's TLS trust before
+ * it returns, which for a local node is a runtime lookup and a certificate
+ * bootstrap -- seconds, not microseconds -- so anything that only needs to
+ * know whether the network is on must not go through it.
+ */
+export function readNodeModeForHomeV2() {
+  const settings = readNodeSettings();
+  return { lastEnabledMode: settings.lastEnabledMode, mode: settings.mode };
+}
+
 export async function getNodeStatusForHomeV2() {
   return testNodeSettings(readNodeSettings());
 }

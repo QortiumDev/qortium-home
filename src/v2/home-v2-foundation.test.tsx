@@ -4407,8 +4407,15 @@ testIdentityAndImageCachingKeepsChromeStable()
     !/Status(?:ForHomeV2)?\(/.test(modeReader),
     'the mode read must not probe node status; that is what makes it instant',
   )
-  assert.match(modeReader, /getQortalNodeSettingsForHomeV2\(\)/)
-  assert.match(modeReader, /getNodeSettingsForHomeV2\(\)/)
+  // Nor the settings SNAPSHOTS: for a local node those resolve the managed
+  // Core's API key and bootstrap TLS trust before returning (measured 2-3 s
+  // on the startup path). Only the raw mode readers are instant.
+  assert.ok(
+    !/get(?:Qortal)?NodeSettingsForHomeV2\(/.test(modeReader),
+    'the mode read must not resolve the settings snapshot',
+  )
+  assert.match(modeReader, /readQortalNodeModeForHomeV2/)
+  assert.match(modeReader, /readNodeModeForHomeV2/)
 }
 
 // --- What Home opens with ------------------------------------------------

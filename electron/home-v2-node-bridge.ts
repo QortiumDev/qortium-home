@@ -4,6 +4,7 @@ import { assertAuthorizedHomeV2Sender } from './home-v2-authorized-senders.js'
 import {
   getLocalNodeStatusForHomeV2,
   getNodeSettingsForHomeV2,
+  readNodeModeForHomeV2,
   getNodeStatusForHomeV2,
   saveNodeCustomUrlForHomeV2,
   saveNodeModeForHomeV2,
@@ -17,6 +18,7 @@ import { summarizeHomeV2AdminNodeTrust } from './home-v2-admin-node-trust.js'
 import {
   getQortalLocalNodeStatusForHomeV2,
   getQortalNodeSettingsForHomeV2,
+  readQortalNodeModeForHomeV2,
   getQortalNodeStatusForHomeV2,
   saveQortalCustomUrlForHomeV2,
   saveQortalNodeModeForHomeV2,
@@ -470,12 +472,24 @@ function settingsMode(
   settings: unknown,
   fallback: (typeof NODE_CONNECTION_MODES)[number],
 ) {
-  const mode = stringField(settings, 'mode')
+  const stored = stringField(settings, 'mode')
+  // Settings spell the public mode 'network'; the shell calls it 'public'.
+  // Same mapping as normalizeNodeSummary, so this answer and the snapshot's
+  // can never disagree about whether a network is on.
+  const mode = stored === 'network' ? 'public' : stored
   return NODE_CONNECTION_MODES.includes(
     mode as (typeof NODE_CONNECTION_MODES)[number],
   )
     ? (mode as (typeof NODE_CONNECTION_MODES)[number])
     : fallback
+}
+
+function tryRead<T>(read: () => T): T | null {
+  try {
+    return read()
+  } catch {
+    return null
+  }
 }
 
 /**
@@ -493,10 +507,12 @@ function settingsMode(
  * one cannot fail slowly, and nothing downstream can mistake it for status.
  */
 export async function getHomeV2NodeModes() {
-  const [qortalSettings, qortiumSettings] = await Promise.all([
-    getQortalNodeSettingsForHomeV2().catch(() => null),
-    getNodeSettingsForHomeV2().catch(() => null),
-  ])
+  // The raw mode readers, NOT the settings snapshots: for a local node the
+  // snapshot resolves the managed Core's API key and bootstraps TLS trust
+  // first, which measured 2-3 s on the startup path -- the whole reason this
+  // call exists was to avoid a wait like that.
+  const qortalSettings = tryRead(readQortalNodeModeForHomeV2)
+  const qortiumSettings = tryRead(readNodeModeForHomeV2)
   return {
     version: 1,
     modes: {
