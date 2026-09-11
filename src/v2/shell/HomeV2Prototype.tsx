@@ -247,6 +247,9 @@ export interface HomeV2PrototypeProps {
   readonly onAccountManage?: (action: HomeV2AccountManageAction) => void
   readonly onCreateAccount?: () => void
   readonly onImportAccount?: () => void
+  /** The dashboard's Account section folded to its header line. */
+  readonly dashboardAccountCollapsed?: boolean
+  readonly onToggleDashboardAccountCollapsed?: () => void
   readonly onToggleRememberUnlock?: () => void
   readonly onToggleLockOnExit?: () => void
   readonly onSetTheme?: (theme: HomeV2ThemePreference) => void
@@ -456,13 +459,20 @@ function IdentityPresence({
           {presence.avatar?.value ?? '?'}
         </div>
       )}
-      <div className="home-v2-presence__details">
-        <NetworkBadge network={network} />
-        <strong>
-          {presence.primaryName ?? t('home2.identity.noRegisteredName')}
-        </strong>
-        <code>{presence.address ?? t('home2.identity.noAddress')}</code>
-      </div>
+      {/* One chip, two renderings: the name at width, the mark alone when the
+          panel is narrow. The account panel's container query picks. */}
+      <span className="home-v2-presence__network home-v2-presence__network--text">
+        <NetworkBadge network={network} textOnly />
+      </span>
+      <span className="home-v2-presence__network home-v2-presence__network--mark">
+        <NetworkBadge network={network} compact />
+      </span>
+      <strong className="home-v2-presence__name">
+        {presence.primaryName ?? t('home2.identity.noRegisteredName')}
+      </strong>
+      <code className="home-v2-presence__address">
+        {presence.address ?? t('home2.identity.noAddress')}
+      </code>
     </article>
   )
 }
@@ -482,6 +492,8 @@ function AccountCard({
   onSelectAddress,
   onAccountManage,
   onOpenAddress,
+  dashboardAccountCollapsed = false,
+  onToggleDashboardAccountCollapsed,
 }: Pick<
   HomeV2PrototypeProps,
   | 'snapshot'
@@ -498,7 +510,10 @@ function AccountCard({
   | 'loadVisibleAvatar'
   | 'onSelectAddress'
   | 'onAccountManage'
+  | 'dashboardAccountCollapsed'
+  | 'onToggleDashboardAccountCollapsed'
 >) {
+  const id = useScopedIds()
   const hasAccount = snapshot.account.state !== 'none'
   const isLocked = snapshot.account.state === 'locked'
   const handleSelection = (selection: HomeV2AccountSelection) => {
@@ -536,182 +551,178 @@ function AccountCard({
   const enabledNetworks = (['qortium', 'qortal'] as const).filter(
     (network) => snapshot.nodes[network].mode !== 'disabled',
   )
+  const lockToggle = !hasAccount
+    ? null
+    : isLocked
+      ? { action: () => onUnlockAccount?.(), enabled: !!onUnlockAccount, label: t('home2.account.unlock') }
+      : { action: () => onLockAccount?.(), enabled: !!onLockAccount, label: t('home2.account.lock') }
+  const bodyId = id('account-body')
+  const manageSelect = (
+    <label className="home-v2-account-select">
+      <span>{t('home2.account.manage')}</span>
+      <select
+        aria-label={t('home2.account.manageLabel')}
+        defaultValue=""
+        onChange={(event) => {
+          if (event.target.value) onAccountManage?.(event.target.value as HomeV2AccountManageAction)
+          event.target.value = ''
+        }}
+      >
+        <option value="" disabled>{t('home2.account.chooseAction')}</option>
+        <option value="rename">{t('home2.account.rename')}</option>
+        <option value="export">{t('home2.account.exportWallet')}</option>
+        <option value="add-address" disabled={!selectedVaultAccount?.supportsDerivedAddresses}>{t('home2.account.addAddress')}</option>
+        {selectedVaultAccount && selectedVaultAccount.addresses.length > 1 ? (
+          <option value="remove-address" disabled={(vaultState?.selectedAddressId ?? selectedVaultAccount.id) === selectedVaultAccount.id}>{t('home2.account.removeAddress')}</option>
+        ) : null}
+        <option value="import-private-key">{t('home2.account.importPrivateKey')}</option>
+        <option value="remove-account">{t('home2.account.remove')}</option>
+      </select>
+    </label>
+  )
 
+  // A strip, not a card: the header line is the whole section when folded.
+  // The lock state is the lock/unlock control itself; create and import live
+  // in the account dropdown's action group, so no standing button is needed.
   return (
-    <section className="home-v2-panel home-v2-account-panel">
-      <div className="home-v2-section-heading">
+    <section
+      className="home-v2-panel home-v2-account-panel"
+      data-home-v2-account-collapsed={dashboardAccountCollapsed ? 'true' : 'false'}
+    >
+      <div className="home-v2-account-header">
         <h2>{t('account.menuLabel')}</h2>
-        <span
-          className="home-v2-lock-state"
-          data-account-state={snapshot.account.state}
-        >
-          {!hasAccount
-            ? t('home2.account.notSelected')
-            : isLocked
-              ? t('account.statusLocked')
-              : t('account.statusUnlocked')}
-        </span>
-      </div>
-      <div className="home-v2-account-control-row">
-        <label className="home-v2-account-select">
-          <span>{t('home2.account.selected')}</span>
-          <select
-            aria-label={t('home2.account.selected')}
-            value={selectedValue}
-            disabled={!onSelectAccount && !onCreateAccount && !onImportAccount}
-            onChange={(event) =>
-              handleSelection(event.target.value as HomeV2AccountSelection)
-            }
+        {lockToggle ? (
+          <button
+            type="button"
+            className="home-v2-lock-state"
+            data-account-state={snapshot.account.state}
+            data-home-v2-account-lock-toggle
+            aria-label={lockToggle.label}
+            title={lockToggle.label}
+            disabled={!lockToggle.enabled}
+            onClick={lockToggle.action}
           >
-            <optgroup label={t('account.title')}>
-              <option value="none">{t('account.noAccountSelected')}</option>
-              {vaultState ? (
-                accountOptions.map((account) => (
-                  <option value={`account:${account.id}`} key={account.id}>
-                    {account.label} · {account.addresses[0]?.address.slice(0, 8)}…
-                  </option>
-                ))
-              ) : (
-                <option value="current">
-                  {snapshot.identity.displayLabelIsRegisteredName
-                    ? snapshot.identity.displayLabel
-                    : t('home2.account.labelNotRegisteredName', {
-                      label: snapshot.identity.displayLabel,
-                    })}
-                </option>
-              )}
-            </optgroup>
-            <optgroup label={t('home2.account.actions')}>
-              <option value="create" disabled={!onCreateAccount}>{t('home2.account.create')}</option>
-              <option value="import" disabled={!onImportAccount}>{t('home2.account.import')}</option>
-              <option value="private" disabled={!onAccountManage}>{t('home2.account.importPrivateKey')}</option>
-            </optgroup>
-          </select>
-        </label>
-        <button
-          type="button"
-          className="home-v2-primary-button"
-          disabled={
-            !hasAccount
-              ? !onCreateAccount
-              : isLocked
-                ? !onUnlockAccount
-                : !onLockAccount
-          }
-          onClick={
-            !hasAccount
-              ? onCreateAccount
-              : isLocked
-                ? () => onUnlockAccount?.()
-                : () => onLockAccount?.()
-          }
-        >
-          {!hasAccount
-            ? t('home2.account.new')
-            : isLocked
-              ? t('home2.account.unlock')
-              : t('home2.account.lock')}
-        </button>
-      </div>
-      {selectedVaultAccount && selectedVaultAccount.addresses.length > 1 ? (
-        <div className="home-v2-account-secondary-row">
-          <label className="home-v2-account-select">
-            <span>{t('home2.account.selectedAddress')}</span>
-            <select
-              aria-label={t('home2.account.selectedAddress')}
-              value={vaultState?.selectedAddressId ?? selectedVaultAccount.addresses[0].id}
-              onChange={(event) => onSelectAddress?.(event.target.value)}
-            >
-              {selectedVaultAccount.addresses.map((address) => (
-                <option key={address.id} value={address.id}>
-                  {address.label} · {address.address.slice(0, 8)}…
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="home-v2-account-select">
-            <span>{t('home2.account.manage')}</span>
-            <select
-              aria-label={t('home2.account.manageLabel')}
-              defaultValue=""
-              onChange={(event) => {
-                if (event.target.value) onAccountManage?.(event.target.value as HomeV2AccountManageAction)
-                event.target.value = ''
-              }}
-            >
-              <option value="" disabled>{t('home2.account.chooseAction')}</option>
-              <option value="rename">{t('home2.account.rename')}</option>
-              <option value="export">{t('home2.account.exportWallet')}</option>
-              <option value="add-address" disabled={!selectedVaultAccount.supportsDerivedAddresses}>{t('home2.account.addAddress')}</option>
-              <option value="remove-address" disabled={(vaultState?.selectedAddressId ?? selectedVaultAccount.id) === selectedVaultAccount.id}>{t('home2.account.removeAddress')}</option>
-              <option value="import-private-key">{t('home2.account.importPrivateKey')}</option>
-              <option value="remove-account">{t('home2.account.remove')}</option>
-            </select>
-          </label>
-        </div>
-      ) : selectedVaultAccount ? (
-        <div className="home-v2-account-secondary-row home-v2-account-secondary-row--single">
-          <span className="home-v2-account-address">{selectedVaultAccount.addresses[0]?.address}</span>
-          <label className="home-v2-account-select">
-            <span>{t('home2.account.manage')}</span>
-            <select
-              aria-label={t('home2.account.manageLabel')}
-              defaultValue=""
-              onChange={(event) => {
-                if (event.target.value) onAccountManage?.(event.target.value as HomeV2AccountManageAction)
-                event.target.value = ''
-              }}
-            >
-              <option value="" disabled>{t('home2.account.chooseAction')}</option>
-              <option value="rename">{t('home2.account.rename')}</option>
-              <option value="export">{t('home2.account.exportWallet')}</option>
-              <option value="add-address" disabled={!selectedVaultAccount.supportsDerivedAddresses}>{t('home2.account.addAddress')}</option>
-              <option value="import-private-key">{t('home2.account.importPrivateKey')}</option>
-              <option value="remove-account">{t('home2.account.remove')}</option>
-            </select>
-          </label>
-        </div>
-      ) : null}
-      {vaultState?.readiness === 'recovery' ? (
-        <p className="home-v2-account-recovery" role="alert">
-          {vaultState.recoveryMessage ?? t('home2.account.recoveryRequired')}
-        </p>
-      ) : null}
-      {hasAccount && !snapshot.identity.displayLabelIsRegisteredName && onOpenAddress ? (
-        // The first-run welcome offers name registration, but an account added
-        // later from here never passes through it. Same offer, same wording,
-        // shown where the account actually is.
-        <p className="home-v2-account-register-name" data-home-v2-register-name>
-          <span>{t('home2.account.registerNamePrompt')}</span>
-          {' '}
-          <button className="home-v2-link-button" type="button"
-            onClick={() => void onOpenAddress('qdn://APP/Names/Names')}>
-            {t('welcome.account.openNames')}
+            {isLocked ? t('account.statusLocked') : t('account.statusUnlocked')}
           </button>
-        </p>
-      ) : null}
-      <div className="home-v2-account-content">
-        {hasAccount ? (
-          enabledNetworks.length > 0 ? (
-            <div className="home-v2-presence-list">
-              {enabledNetworks.map((network) => (
-                <IdentityPresence
-                  key={network}
-                  snapshot={snapshot}
-                  network={network}
-                  lookup={selectedAccountLookup}
-                  loader={loadVisibleAvatar}
-                />
-              ))}
-            </div>
-          ) : null
         ) : (
-          <div className="home-v2-account-placeholder">
-            <strong>{t('account.noAccountSelected')}</strong>
-            <span>{t('home2.account.publicControlsAvailable')}</span>
-          </div>
+          <span className="home-v2-lock-state" data-account-state={snapshot.account.state}>
+            {t('home2.account.notSelected')}
+          </span>
         )}
+        {onToggleDashboardAccountCollapsed ? (
+          <button
+            type="button"
+            className="home-v2-account-toggle"
+            data-home-v2-account-toggle
+            aria-label={t('account.menuLabel')}
+            aria-expanded={!dashboardAccountCollapsed}
+            aria-controls={bodyId}
+            onClick={onToggleDashboardAccountCollapsed}
+          >
+            <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">
+              <path d="M3.5 6 8 10.5 12.5 6" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+        ) : null}
       </div>
+      {dashboardAccountCollapsed ? null : (
+        <div className="home-v2-account-body" id={bodyId}>
+          <div className="home-v2-account-controls">
+            <label className="home-v2-account-select home-v2-account-select--account">
+              <span>{t('home2.account.selected')}</span>
+              <select
+                aria-label={t('home2.account.selected')}
+                value={selectedValue}
+                disabled={!onSelectAccount && !onCreateAccount && !onImportAccount}
+                onChange={(event) =>
+                  handleSelection(event.target.value as HomeV2AccountSelection)
+                }
+              >
+                <optgroup label={t('account.title')}>
+                  <option value="none">{t('account.noAccountSelected')}</option>
+                  {vaultState ? (
+                    accountOptions.map((account) => (
+                      // The whole address: the closed control clips what does
+                      // not fit on its own, and the open list sizes to fit.
+                      <option value={`account:${account.id}`} key={account.id}>
+                        {account.label} · {account.addresses[0]?.address}
+                      </option>
+                    ))
+                  ) : (
+                    <option value="current">
+                      {snapshot.identity.displayLabelIsRegisteredName
+                        ? snapshot.identity.displayLabel
+                        : t('home2.account.labelNotRegisteredName', {
+                          label: snapshot.identity.displayLabel,
+                        })}
+                    </option>
+                  )}
+                </optgroup>
+                <optgroup label={t('home2.account.actions')}>
+                  <option value="create" disabled={!onCreateAccount}>{t('home2.account.create')}</option>
+                  <option value="import" disabled={!onImportAccount}>{t('home2.account.import')}</option>
+                  <option value="private" disabled={!onAccountManage}>{t('home2.account.importPrivateKey')}</option>
+                </optgroup>
+              </select>
+            </label>
+            {selectedVaultAccount && selectedVaultAccount.addresses.length > 1 ? (
+              <label className="home-v2-account-select home-v2-account-select--address">
+                <span>{t('home2.account.selectedAddress')}</span>
+                <select
+                  aria-label={t('home2.account.selectedAddress')}
+                  value={vaultState?.selectedAddressId ?? selectedVaultAccount.addresses[0].id}
+                  onChange={(event) => onSelectAddress?.(event.target.value)}
+                >
+                  {selectedVaultAccount.addresses.map((address) => (
+                    <option key={address.id} value={address.id}>
+                      {address.label} · {address.address}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+            {selectedVaultAccount ? manageSelect : null}
+          </div>
+          {vaultState?.readiness === 'recovery' ? (
+            <p className="home-v2-account-recovery" role="alert">
+              {vaultState.recoveryMessage ?? t('home2.account.recoveryRequired')}
+            </p>
+          ) : null}
+          {hasAccount && !snapshot.identity.displayLabelIsRegisteredName && onOpenAddress ? (
+            // The first-run welcome offers name registration, but an account added
+            // later from here never passes through it. Same offer, same wording,
+            // shown where the account actually is.
+            <p className="home-v2-account-register-name" data-home-v2-register-name>
+              <span>{t('home2.account.registerNamePrompt')}</span>
+              {' '}
+              <button className="home-v2-link-button" type="button"
+                onClick={() => void onOpenAddress('qdn://APP/Names/Names')}>
+                {t('welcome.account.openNames')}
+              </button>
+            </p>
+          ) : null}
+          {hasAccount ? (
+            enabledNetworks.length > 0 ? (
+              <div className="home-v2-presence-list">
+                {enabledNetworks.map((network) => (
+                  <IdentityPresence
+                    key={network}
+                    snapshot={snapshot}
+                    network={network}
+                    lookup={selectedAccountLookup}
+                    loader={loadVisibleAvatar}
+                  />
+                ))}
+              </div>
+            ) : null
+          ) : (
+            <div className="home-v2-account-placeholder">
+              <strong>{t('account.noAccountSelected')}</strong>
+              <span>{t('home2.account.publicControlsAvailable')}</span>
+            </div>
+          )}
+        </div>
+      )}
     </section>
   )
 }

@@ -36,6 +36,8 @@ export interface HomeV2ShellState {
   readonly newTabPreference: NewTabPreference
   readonly startupPreference: HomeV2StartupPreference
   readonly settingsSection: HomeV2SettingsSectionId
+  /** The dashboard's Account section folded to its header line. */
+  readonly dashboardAccountCollapsed: boolean
   readonly onboarding: HomeV2OnboardingState
   readonly selectedAccountId: string | null
   readonly selectedAddressId: string | null
@@ -58,6 +60,7 @@ export function createHomeV2ShellState(
     newTabPreference: DEFAULT_NEW_TAB_PREFERENCE,
     startupPreference: DEFAULT_STARTUP_PREFERENCE,
     settingsSection: 'general',
+    dashboardAccountCollapsed: false,
     onboarding: createHomeV2OnboardingState(),
     selectedAccountId: null,
     selectedAddressId: null,
@@ -115,6 +118,8 @@ export function parseHomeV2ShellState(
     // the user chooses otherwise.
     startupPreference: parseHomeV2StartupPreference(value.startupPreference),
     settingsSection: parseHomeV2SettingsSection(value.settingsSection),
+    // Absent before this field existed: expanded, which is what it showed.
+    dashboardAccountCollapsed: value.dashboardAccountCollapsed === true,
     onboarding:
       value.version === 3 || value.version === 4
         ? parseHomeV2OnboardingState(value.onboarding) ??
@@ -140,6 +145,7 @@ export function serializeHomeV2ShellState(state: HomeV2ShellState) {
     newTabPreference: state.newTabPreference,
     startupPreference: state.startupPreference,
     settingsSection: state.settingsSection,
+    dashboardAccountCollapsed: state.dashboardAccountCollapsed,
     onboarding: state.onboarding,
     selectedAccountId: state.selectedAccountId,
     selectedAddressId: state.selectedAddressId,

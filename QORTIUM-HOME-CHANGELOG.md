@@ -60,6 +60,17 @@ Node & Core — and each section owns its place from the first render, so a
 read that arrives late fills a reserved space instead of moving what is
 already on screen.
 
+The Account section is now a strip that folds to one line: the title, the
+Locked/Unlocked chip — which is itself the lock/unlock control — and a
+chevron at the right that collapses or expands the rest (remembered across
+restarts). Expanded, it shows the Selected account dropdown with whole
+addresses, the Manage dropdown beside it when the panel is wide enough (and
+the Selected address dropdown for multi-address accounts), and one line per
+network — avatar, network chip, name, address — that wraps only when the
+panel is too narrow, where the chip also shrinks to the network mark. The
+standing New Account / Lock / Unlock button is gone; creating and importing
+stay in the account dropdown's action group.
+
 For measuring rather than guessing, the startup log now also records when the
 renderer mounted, when the shell state landed, when the first complete frame
 was reported and when the window was revealed.

@@ -1430,6 +1430,7 @@ export function HomeV2LiveApp() {
   // prototype so it survives a restart, not just a navigation.
   const [settingsSection, setSettingsSection] =
     useState<HomeV2SettingsSectionId>('general')
+  const [dashboardAccountCollapsed, setDashboardAccountCollapsed] = useState(false)
   // What THIS launch owes, captured when the stored state was read.
   const pendingStartup = useRef<{
     readonly closeInitialTab: boolean
@@ -2248,6 +2249,7 @@ export function HomeV2LiveApp() {
         }
         setStartupPreference(restored.startupPreference)
         setSettingsSection(restored.settingsSection)
+        setDashboardAccountCollapsed(restored.dashboardAccountCollapsed)
         dispatchProduct({ type: 'initialize-settings-history', section: restored.settingsSection })
         setNewTabPreference(restored.newTabPreference)
         setOnboarding(restored.onboarding)
@@ -2368,6 +2370,7 @@ export function HomeV2LiveApp() {
           newTabPreference,
           startupPreference,
           settingsSection,
+          dashboardAccountCollapsed,
           onboarding,
           selectedAccountId:
             accountCatalogue.accounts.find((account) => account.id === selectedAccountId)?.walletId ?? null,
@@ -2379,6 +2382,7 @@ export function HomeV2LiveApp() {
     return () => window.clearTimeout(timeout)
   }, [
     accountCatalogueReady,
+    dashboardAccountCollapsed,
     nodeClient,
     newTabPreference,
     onboarding,
@@ -10752,6 +10756,8 @@ export function HomeV2LiveApp() {
       nodesReady={nodeCoreController.nodesReady}
       startupPreference={startupPreference}
       startPageCount={collectionsSnapshot?.startPages?.length ?? 0}
+      dashboardAccountCollapsed={dashboardAccountCollapsed}
+      onToggleDashboardAccountCollapsed={() => setDashboardAccountCollapsed((current) => !current)}
       onSetStartupPreference={setStartupPreference}
       settingsSection={activeDestination?.kind === 'internal' && activeDestination.page === 'settings'
         ? activeDestination.section ?? settingsSection : settingsSection}

@@ -1682,7 +1682,10 @@ function testStartupStatesAndAppearance(): void {
   assert.match(noAccount, /aria-label="Selected account"/)
   assert.match(noAccount, />Create account…</)
   assert.match(noAccount, />Import account…</)
-  assert.match(noAccount, />New Account</)
+  // No standing button: create and import live in the dropdown's action
+  // group, and with no account the state chip is text, not a lock control.
+  assert.doesNotMatch(noAccount, />New Account</)
+  assert.doesNotMatch(noAccount, /data-home-v2-account-lock-toggle/)
   assert.doesNotMatch(noAccount, />Switch account</)
   assert.doesNotMatch(noAccount, /Browse first|Your start page/)
 
@@ -1701,13 +1704,46 @@ function testStartupStatesAndAppearance(): void {
   assert.match(locked, /data-theme="dark"/)
   assert.match(locked, /data-account-state="locked"/)
   assert.match(locked, /home-v2-account-panel/)
-  assert.match(locked, />Unlock account</)
+  // The state chip IS the lock control: it reads "Locked" and acts as Unlock.
+  assert.match(locked, /<button[^>]*home-v2-lock-state[^>]*aria-label="Unlock account"[^>]*>Locked</)
   assert.doesNotMatch(locked, />Lock on exit</)
   assert.doesNotMatch(locked, />Remember unlock</)
 
   const unlocked = render(homeV2Fixture.account)
   assert.match(unlocked, /data-account-state="unlocked"/)
-  assert.match(unlocked, />Lock account</)
+  assert.match(unlocked, /<button[^>]*home-v2-lock-state[^>]*aria-label="Lock account"[^>]*>Unlocked</)
+  // No toggle handler, no toggle -- and the body is shown.
+  assert.doesNotMatch(unlocked, /data-home-v2-account-toggle/)
+  assert.match(unlocked, /home-v2-account-body/)
+
+  // The section folds to its header line, and the fold is a stored setting
+  // that survives a restart (round-tripped through the shell state).
+  {
+    const folded = renderToStaticMarkup(
+      <HomeV2Prototype
+        snapshot={homeV2Fixture}
+        productState={homeV2ProductFixture}
+        permissionState={createPermissionState()}
+        layout="desktop"
+        dashboardAccountCollapsed
+        onToggleDashboardAccountCollapsed={() => undefined}
+      />,
+    )
+    assert.match(folded, /data-home-v2-account-collapsed="true"/)
+    assert.match(folded, /<button[^>]*data-home-v2-account-toggle[^>]*aria-expanded="false"/)
+    assert.doesNotMatch(folded, /home-v2-account-body/)
+    assert.match(folded, /<button[^>]*home-v2-lock-state/, 'the lock control stays on the header line')
+    const stored = JSON.parse(JSON.stringify(serializeHomeV2ShellState({
+      ...createHomeV2ShellState('dark', 'en'),
+      dashboardAccountCollapsed: true,
+    })))
+    assert.equal(parseHomeV2ShellState(stored, 'dark', 'en').dashboardAccountCollapsed, true)
+    assert.equal(
+      parseHomeV2ShellState({ ...stored, dashboardAccountCollapsed: undefined }, 'dark', 'en').dashboardAccountCollapsed,
+      false,
+      'a record from before the setting existed stays expanded',
+    )
+  }
   assert.doesNotMatch(unlocked, /Good to see you|Welcome back|Your browser/)
 
   const catalogue = renderToStaticMarkup(
@@ -1756,7 +1792,9 @@ function testStartupStatesAndAppearance(): void {
     />,
   )
   assert.match(catalogue, /value="account:wallet:main" selected=""/)
-  assert.match(catalogue, /Main account · QH143K2q…/)
+  // The whole address, not a prefix: the closed control clips on its own
+  // when it is narrow, and the open list has room for it.
+  assert.match(catalogue, /Main account · QH143K2qjVdn864NSY7aNESo88ao1ZnALH</)
   assert.match(catalogue, /value="create" disabled=""/)
   assert.match(catalogue, /value="import" disabled=""/)
 
@@ -3934,6 +3972,7 @@ function testShellStateMigratesAddressSelection(): void {
     // reproduces the old behaviour exactly.
     startupPreference: DEFAULT_STARTUP_PREFERENCE,
     settingsSection: 'general',
+    dashboardAccountCollapsed: false,
     onboarding: legacy.onboarding,
     selectedAccountId: 'wallet:Qprimary',
     selectedAddressId: 'wallet:Qprimary:2',
