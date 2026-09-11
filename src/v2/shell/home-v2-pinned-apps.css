@@ -18,7 +18,7 @@
 
 /* The section's actions sit beside the title and wrap under it as one row
    when the section is narrow; the fold chevron keeps the far edge. */
-.home-v2-pinned-apps__actions {
+.home-v2-pinned-apps__header-actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;

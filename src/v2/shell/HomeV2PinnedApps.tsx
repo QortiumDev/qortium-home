@@ -545,7 +545,7 @@ export function HomeV2PinnedApps({
           section is narrow rather than each taking a line. */}
       <div className="home-v2-pinned-apps__header">
         <h2 id={pinnedAppsTitleId}>{t("home2.dashboard.pinnedApps")}</h2>
-        <div className="home-v2-pinned-apps__actions">
+        <div className="home-v2-pinned-apps__header-actions">
           {onFindMoreApps ? (
             <button
               type="button"
