@@ -15,7 +15,9 @@ const child = spawn(binary, [`--remote-debugging-port=${port}`], {
 });
 let cdp;
 try {
-  const deadline = Date.now() + 90_000;
+  // Rosetta x64 first launches on the arm64 runner took ~85 s to open the renderer
+  // during beta.2 acceptance, leaving no time for shell initialization.
+  const deadline = Date.now() + 300_000;
   while (!cdp && Date.now() < deadline) {
     await new Promise(resolve => setTimeout(resolve, 1000));
     try {
