@@ -1,20 +1,20 @@
 # Home 2.1 beta testing and app development
 
-Home 2.1.0-beta.1 is a testing prerelease. Home 1.8.0 remains the latest stable
+Home 2.1.0-beta.2 is a testing prerelease. Home 1.8.0 remains the latest stable
 release. Choose Prerelease in Home's update settings to follow the Home 2 line,
 or install the matching platform asset manually. Report the Home version,
 platform, app version, selected network, node route and reproduction steps.
 Keep passwords, recovery material and private message contents out of reports.
 
-Android beta.1 uses versionCode 43. It can update release-signed Home 1.8.0
-(code 41) and release-signed development Home 2.1.0 (code 42). Development
+Android beta.2 uses versionCode 44. It can update release-signed beta.1 (code 43),
+Home 1.8.0 (code 41) and release-signed development Home 2.1.0 (code 42). Development
 builds named 2.1.0 sort above the beta in semantic-version comparisons, so
 install the beta APK manually in that case. Debug-signed APKs have a different
 signer and cannot be updated in place by the release APK.
 
 ## Start with the runtime contract
 
-Home's application version is 2.1.0-beta.1; its QAVS platform version is 2.1.
+Home's application version is 2.1.0-beta.2; its QAVS platform version is 2.1.
 Feature-detect actions instead of treating either version as a capability list.
 Use `qdnRequest` for Qortium and `qortalRequest` for Qortal. The invoked bridge
 determines the network; a network field in the payload does not switch it.
@@ -44,10 +44,22 @@ requesting tab; changing its account or route can invalidate prior context.
 For a user-selected file, call `SELECT_QDN_PUBLISH_SOURCE`. For bytes your app
 already holds, feature-detect `STAGE_QDN_PUBLISH_SOURCE` and pass
 `{ action, bytesBase64, fileName, mimeType? }` within its size limit. Both paths
-return a Home-issued `sourceToken` for the publish action. Do not pass inline
-bytes or filesystem paths to `PUBLISH_QDN_RESOURCE`. Staging does not publish
-or grant permission; publication still requires approval. Tokens expire and
-are bound to account, tab and route.
+return a Home-issued `sourceToken` for the publish action. Since beta.2, Home
+also accepts the `{ base64, filename }` request shape used by already-published
+apps such as Boards, Help, Paint and Recipes, validating and staging those bytes
+through the same path with a 25 MiB total limit; new apps should still prefer
+the token flow. Filesystem paths and other inline encodings are rejected. Staging
+does not publish or grant permission; publication still requires approval.
+Tokens expire and are bound to account, tab and route.
+
+Since beta.2, FILE and FILES resource URLs resolve to raw bytes (as in Home 1),
+so apps that load nested files such as ROMs or external cores get usable URLs;
+media services keep their render routes. Android answers those raw URLs through
+its authorized proxy on the requesting app's origin. Bundled app assets accept
+HEAD requests under the same authorization as GET. Group member listings accept
+page sizes up to 500 for `GET_GROUP_MEMBERS`. Qortal apps on Android keep their
+resource paths, so their relative asset loads and in-app navigation resolve
+against the correct app root.
 
 Use Home's resource-viewer actions for supported images, documents, media,
 text and archives; inspect the action contract before using position options.
@@ -80,6 +92,8 @@ not yet imported into the new shell's settings record.
 Some testers report discarded Chat messages, attachment publishing/display
 failures, missing Trust/Wiki images or avatars on mobile, and Android app
 refreshes after roughly a minute. These reports remain open; a previously
-merged fix is not proof that every reported device case is resolved. Legacy
-apps that submit inline publication bytes must adapt to the source-token flow.
-This beta provides a shared baseline for reproducing those cases.
+merged fix is not proof that every reported device case is resolved. Android
+beta.2 keeps a recently verified custom node route for 30 seconds during a
+transient health-probe failure, which may reduce the refresh reports, but the
+underlying probe failure is still being diagnosed. This beta provides a shared
+baseline for reproducing those cases.
