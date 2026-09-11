@@ -1,6 +1,6 @@
 # Qortium Home
 
-Home 2.1.0-beta.1 testing and app development:
+Home 2.1.0-beta.2 testing and app development:
 [beta testing guide](docs/HOME_2_1_BETA_TESTING.md).
 
 Qortium Home is a desktop and Android application for managing Qortium

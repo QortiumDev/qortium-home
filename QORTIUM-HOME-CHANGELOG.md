@@ -32,6 +32,20 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## release: prepare home 2.1.0-beta.2
+
+2026-09-11
+
+Prepare the second Home 2.1 public testing prerelease. It carries the three
+compatibility fixes merged since beta.1: already-published apps such as Boards,
+Help, Paint and Recipes can publish again with their existing request format,
+Minting's member listing pages load, Qortal apps on Android keep their resource
+paths, and FILE and FILES resources resolve to raw bytes so apps such as
+Emulator can load ROMs and external cores. Android advances to code 44 so it
+can update beta.1, public Home 1.8.0 and development Home 2.1 builds. Stable
+users remain on Home 1.8.0. The beta testing guide describes the restored
+publishing shape, raw resource URLs and the Android custom-route grace period.
+
 ## fix: restore raw QDN file URLs in Home 2
 
 2026-09-10
@@ -49,6 +63,21 @@ Media services retain their existing render routes and stream protections.
 Android also retains a recently verified custom read route for the existing
 30-second grace period during transient health-probe failures, without carrying
 stale admin trust or switching endpoints.
+
+## fix: respect Qortal app resource paths on Android
+
+2026-09-09
+
+Opening a Qortal app in Home on Android could leave a blank page, because the
+native proxy treated the app's own asset paths as a Qortium resource
+identifier and refused them. The shell now tells the proxy which network is
+hosting the app, so Qortal render paths keep file paths after the app name and
+use the query identifier while Qortium keeps its existing path rules. The exact
+registered document still controls bridge injection, a conflicting query cannot
+authorize another resource, and named Qortal apps keep their page path when
+saving and restoring their current location. Already-published Qortal apps
+work without rebuilds. (Entry recorded with the beta.2 release preparation;
+the fix itself merged on 2026-09-09.)
 
 ## fix: preserve published app publishing and minting compatibility
 
