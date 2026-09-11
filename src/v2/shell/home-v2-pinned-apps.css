@@ -1,13 +1,13 @@
 /* The same enclosed tile as the Account strip above it (home-v2-panel gives
    the border, surface and shadow), with the strip's tighter padding. */
-.home-v2-pinned-apps {
+.home-v2-panel.home-v2-pinned-apps {
   display: grid;
   min-width: 0;
   gap: 12px;
   padding: 12px 18px 16px;
 }
 
-.home-v2-pinned-apps:has(> .home-v2-pinned-apps__header:last-child) {
+.home-v2-panel.home-v2-pinned-apps:has(> .home-v2-pinned-apps__header:last-child) {
   padding-block-end: 12px;
 }
 
@@ -19,7 +19,7 @@
   min-block-size: 30px;
 }
 
-.home-v2-pinned-apps__header h2 {
+.home-v2-dashboard .home-v2-pinned-apps__header h2 {
   margin: 0;
 }
 
