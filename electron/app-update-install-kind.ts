@@ -76,8 +76,14 @@ function batchQuoted(value: string) {
  * The batch helper that finishes a Windows portable update after Home exits:
  * a running exe cannot be overwritten, so the helper waits for Home's PID
  * to go away, moves the verified download over the running exe (when its
- * folder is writable) and starts it, then removes itself. Pure so the text
- * can be checked without Windows.
+ * folder is writable) and starts it, then removes itself.
+ *
+ * The portable launcher (the stub that unpacked Home into a temp folder) is a
+ * separate process that outlives Home's own PID by a moment and keeps the exe
+ * open until it has cleaned up, so the move is retried for up to a minute.
+ * If the exe still cannot be replaced, the download is started where it is
+ * rather than leaving the user with nothing running. Pure so the text can be
+ * checked without Windows.
  */
 export function windowsPortableUpdateHelper(options: {
   readonly pid: number;
@@ -88,16 +94,32 @@ export function windowsPortableUpdateHelper(options: {
   if (!Number.isSafeInteger(options.pid) || options.pid <= 0) {
     throw new Error('The update helper needs the running process id.');
   }
-  const target = options.writable ? options.runningFile : options.downloadedFile;
+  const downloaded = batchQuoted(options.downloadedFile);
+  const running = batchQuoted(options.runningFile);
   const lines = [
     '@echo off',
+    'setlocal',
     ':wait',
     `tasklist /FI "PID eq ${options.pid}" 2>nul | find "${options.pid}" >nul`,
     'if not errorlevel 1 (timeout /t 1 /nobreak >nul & goto wait)',
     ...(options.writable
-      ? [`move /y ${batchQuoted(options.downloadedFile)} ${batchQuoted(options.runningFile)} >nul`]
+      ? [
+          'set tries=0',
+          ':move',
+          `move /y ${downloaded} ${running} >nul 2>nul`,
+          'if not errorlevel 1 goto replaced',
+          'set /a tries+=1',
+          'if %tries% geq 60 goto fallback',
+          'timeout /t 1 /nobreak >nul',
+          'goto move',
+          ':replaced',
+          `start "" ${running}`,
+          'goto done',
+          ':fallback',
+        ]
       : []),
-    `start "" ${batchQuoted(target)}`,
+    `start "" ${downloaded}`,
+    ':done',
     'del "%~f0"',
   ];
   return `${lines.join('\r\n')}\r\n`;

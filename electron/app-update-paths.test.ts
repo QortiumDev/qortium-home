@@ -78,7 +78,9 @@ console.log('Home 2 private app update path tests passed.')
   assert.equal(lines[0], '@echo off')
   assert.ok(lines.some((line) => line.includes('PID eq 4242')), 'waits for the running Home pid')
   assert.ok(lines.some((line) => line.startsWith('move /y "C:\\Users\\u\\AppData') && line.includes('"C:\\Users\\u\\Desktop\\Qortium-Home.exe"')), 'moves the download over the running exe')
+  assert.ok(lines.includes('if %tries% geq 60 goto fallback'), 'retries the move while the portable launcher still holds the exe')
   assert.ok(lines.some((line) => line === 'start "" "C:\\Users\\u\\Desktop\\Qortium-Home.exe"'), 'starts the replaced exe')
+  assert.ok(lines.some((line) => line === 'start "" "C:\\Users\\u\\AppData\\Roaming\\qortium-home\\app-updates\\v2\\Qortium-Home-2.1.0-x64.exe"'), 'falls back to starting the download in place')
   assert.equal(lines.at(-2), 'del "%~f0"', 'removes itself')
   // Read-only install folder: no move; the download is started where it is.
   const readOnly = windowsPortableUpdateHelper({
