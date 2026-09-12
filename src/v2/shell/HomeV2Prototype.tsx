@@ -871,6 +871,12 @@ function Dashboard(props: DashboardProps) {
                 ? () => props.onOpenSettingsSection?.('core')
                 : undefined
             }
+            collapsed={props.dashboardCollapsed?.nodeCore === true}
+            onToggleCollapsed={
+              props.onToggleDashboardSection
+                ? () => props.onToggleDashboardSection?.('nodeCore')
+                : undefined
+            }
           />
         ) : null}
       </div>
@@ -1336,6 +1342,7 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
                 appearance={snapshot.appearance}
                 account={snapshot.account}
                 nodes={snapshot.nodes}
+                nodeSummaries={snapshot.nodes}
                 newTabPreference={
                   // Was `{ kind: 'search' }`, which disagreed with the app's
                   // actual default for the very same setting.

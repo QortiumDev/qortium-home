@@ -1496,21 +1496,33 @@ body,
 .home-v2-node-core-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr));
-  gap: 14px;
+  gap: 10px;
 }
 
-/* One card per enabled network: connection, Core lifecycle and — for Qortium —
-   the i2p transport row. The blocks inside are the same components Settings
-   renders, so their own card chrome is flattened here and the card frame is
-   drawn once, by the wrapper. */
+/* The Node & Core tile is the same enclosed panel as the sections above it;
+   inside, one soft card per enabled network holding two lines: the
+   connection (chip, status, mode, height and peers) and the Core (state,
+   version, actions). The configuration -- URL, docs, Configure, I2P
+   transport and plane health -- lives in Settings > Runtime. */
+.home-v2-panel.home-v2-node-core {
+  display: grid;
+  gap: 10px;
+  padding: 12px 18px 16px;
+}
+
+.home-v2-panel.home-v2-node-core:has(> .home-v2-section-heading:last-child) {
+  padding-block-end: 12px;
+}
+
 .home-v2-node-core-card {
   position: relative;
   display: grid;
   align-content: start;
+  gap: 8px;
+  padding: 10px 12px;
   border: 1px solid var(--v2-line);
-  border-radius: 15px;
-  background: var(--v2-surface);
-  box-shadow: var(--v2-shadow);
+  border-radius: 12px;
+  background: var(--v2-surface-soft);
 }
 
 .home-v2-node-core-card > .home-v2-node-card,
@@ -1518,32 +1530,106 @@ body,
   min-block-size: 0;
   border: 0;
   border-radius: 0;
+  padding: 0;
   background: none;
   box-shadow: none;
 }
 
-/* The Core block is no longer tall enough to hold the external-stop
-   confirmation, so the combined card becomes its containing block and the
-   confirmation covers the whole card instead of overflowing one row of it. */
+/* The Core line is not tall enough to hold the external-stop confirmation,
+   so the network card becomes its containing block and the confirmation
+   covers the whole card. */
 .home-v2-node-core-card > .home-v2-core-card {
   position: static;
 }
 
-.home-v2-node-core-card > .home-v2-core-card,
-.home-v2-node-core-card > .home-v2-node-core-row {
+.home-v2-node-core-card > .home-v2-core-card {
   border-top: 1px solid var(--v2-line);
+  padding-block-start: 8px;
 }
 
-/* Refresh stays on the left; install, update and start/stop pack to the right
-   and wrap instead of squeezing when several are offered at once. */
-.home-v2-node-core-card .home-v2-core-card__actions {
+/* Connection line: chip, status, mode select and the height/peer summary,
+   wrapping when the card is narrow. */
+.home-v2-node-core-card > .home-v2-node-card {
+  display: flex;
   flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 10px;
+  align-items: center;
+  gap: 6px 12px;
 }
 
-.home-v2-node-core-card .home-v2-core-card__actions > :first-child {
+.home-v2-node-card__network {
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+
+.home-v2-node-core-card .home-v2-node-mode-control {
+  grid-template-columns: auto minmax(110px, auto);
+  gap: 8px;
+}
+
+.home-v2-node-core-card .home-v2-node-mode-control select {
+  padding-block: 5px;
+}
+
+.home-v2-node-card__detail {
+  flex: 1 1 220px;
+  min-width: 0;
+  color: var(--v2-muted);
+  font-size: var(--v2-type-small);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Core line: state and version on the left, actions packed to the right.
+   Scoped under the network card so it outranks the Settings card's own grid
+   layout, which .home-v2-core-card still carries for Settings. */
+.home-v2-node-core-card > .home-v2-core-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+}
+
+/* Title, Settings link and the fold chevron: the chevron keeps the far edge
+   and the link sits just inside it, like the Home tile. */
+.home-v2-node-core > .home-v2-section-heading {
+  justify-content: flex-start;
+  gap: 12px;
+}
+
+.home-v2-node-core > .home-v2-section-heading > h2 {
   margin-inline-end: auto;
+}
+
+/* The toggle's own auto margin would split the free space with the title's
+   and leave the Settings link floating in the middle. */
+.home-v2-node-core > .home-v2-section-heading > .home-v2-section-toggle {
+  margin-inline-start: 0;
+}
+
+.home-v2-core-line > .home-v2-core-runtime {
+  display: inline-flex;
+  align-items: center;
+}
+
+.home-v2-core-line__version {
+  color: var(--v2-muted);
+  font-size: var(--v2-type-small);
+}
+
+.home-v2-core-line__actions {
+  display: flex;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.home-v2-core-line > .home-v2-core-notice,
+.home-v2-core-line__actions > .home-v2-core-progress,
+.home-v2-core-line__actions > .home-v2-core-lifecycle-loading {
+  flex-basis: 100%;
 }
 
 .home-v2-node-core-row {
@@ -1867,6 +1953,16 @@ body,
   flex-wrap: wrap;
   align-items: center;
   gap: 16px;
+}
+
+/* Inside a Settings block these two sit at the block's own inset, like the
+   Core grid below them, rather than flush with the panel edge. */
+.home-v2-core-settings > .home-v2-settings-node-actions {
+  padding: 16px 22px 0;
+}
+
+.home-v2-core-settings > .home-v2-i2p-health {
+  padding: 10px 22px 0;
 }
 
 .home-v2-dialog-backdrop {

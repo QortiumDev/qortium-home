@@ -30,13 +30,13 @@ import {
   type HomeV2OnboardingState,
 } from './onboarding-state'
 
-export type HomeV2DashboardSection = 'account' | 'pinnedApps'
+export type HomeV2DashboardSection = 'account' | 'pinnedApps' | 'nodeCore'
 export type HomeV2DashboardCollapsed = Readonly<Record<HomeV2DashboardSection, boolean>>
 
-export const HOME_V2_DASHBOARD_SECTIONS: readonly HomeV2DashboardSection[] = ['account', 'pinnedApps']
+export const HOME_V2_DASHBOARD_SECTIONS: readonly HomeV2DashboardSection[] = ['account', 'pinnedApps', 'nodeCore']
 
 export function createHomeV2DashboardCollapsed(): HomeV2DashboardCollapsed {
-  return Object.freeze({ account: false, pinnedApps: false })
+  return Object.freeze({ account: false, nodeCore: false, pinnedApps: false })
 }
 
 // Absent before the setting existed, and unknown sections are ignored:
@@ -45,6 +45,7 @@ export function parseHomeV2DashboardCollapsed(value: unknown): HomeV2DashboardCo
   const record = isRecord(value) ? value : {}
   return Object.freeze({
     account: record.account === true,
+    nodeCore: record.nodeCore === true,
     pinnedApps: record.pinnedApps === true,
   })
 }
