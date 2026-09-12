@@ -32,7 +32,7 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
-## fix: open the Home window finished, and settle the dashboard layout
+## feat: finished-frame startup and a condensed dashboard
 
 2026-09-11
 
@@ -86,6 +86,16 @@ its title inside, and it now carries the release-channel switch
 Settings-only, beside Check for updates. In Settings, the runtime page now
 leads with the Qortium Home block, before the Qortium and Qortal Core
 sections.
+
+Node & Core is condensed to the same kind of tile, foldable like the others,
+with one small card per enabled network: a connection line (network chip,
+status, the connection-mode select, height and peer counts) and a Core line
+(running / stopped, installed version, the install-or-update action when
+there is one, Start or Stop Core). The node URL, the Core API documentation
+and Configure links, Refresh, the build commit, the I2P transport controls
+and the I2P chain/data health lines are no longer on the dashboard; Settings
+→ Runtime, which already had most of them, gains the connection-mode select
+for each network and the Qortium I2P health lines beside its transport panel.
 
 For measuring rather than guessing, the startup log now also records when the
 renderer mounted, when the shell state landed, when the first complete frame
