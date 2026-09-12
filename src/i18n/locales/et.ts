@@ -783,6 +783,7 @@ export const et: Record<TranslationKey, string> = {
   "welcome.subtitle": "Mõni valik aitab Qortium Home’il toimida just nii, nagu soovid.",
   "welcome.title": "Tere tulemast Qortium Home’i",
   "home2.apps": "Rakendused",
+  "home2.explore": "Avasta",
   "home2.account.labelNotRegisteredName": "{label} (ei ole registreeritud nimi)",
   "home2.account.actions": "Konto toimingud",
   "home2.account.addAddress": "Lisa aadress",

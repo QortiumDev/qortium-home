@@ -783,6 +783,7 @@ export const ja: Record<TranslationKey, string> = {
   "welcome.subtitle": "いくつか選択するだけで、Qortium Homeを希望どおりに使えるようになります。",
   "welcome.title": "Qortium Homeへようこそ",
   "home2.apps": "アプリ",
+  "home2.explore": "探索",
   "home2.account.labelNotRegisteredName": "{label}（登録名ではありません）",
   "home2.account.actions": "アカウント操作",
   "home2.account.addAddress": "アドレスを追加",

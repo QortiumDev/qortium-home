@@ -783,6 +783,7 @@ export const sv: Record<TranslationKey, string> = {
   "welcome.subtitle": "Några val nu hjälper Qortium Home att fungera på det sätt du vill.",
   "welcome.title": "Välkommen till Qortium Home",
   "home2.apps": "Appar",
+  "home2.explore": "Utforska",
   "home2.account.labelNotRegisteredName": "{label} (inget registrerat namn)",
   "home2.account.actions": "Kontoåtgärder",
   "home2.account.addAddress": "Lägg till adress",

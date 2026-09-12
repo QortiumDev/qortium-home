@@ -210,6 +210,38 @@ export function mergeHomeV2ShellGlobalState(stored: unknown, next: unknown): unk
   return merged;
 }
 
+/**
+ * Whether a stored shell state carries a publish-preview tab -- the one kind
+ * of entry whose restore needs the node admin-trust envelope (see
+ * parseAppTabPreviewUrl). Answered from the RAW value so the caller can decide
+ * whether to wait for the admin resolver at all: that resolver reads the node
+ * snapshot, which probes every configured node and is the slowest thing on
+ * the startup path by a wide margin. A strip without a preview, which is
+ * nearly every strip, must not pay for it.
+ */
+export function homeV2ShellStateHasPublishPreview(stored: unknown): boolean {
+  const product =
+    stored && typeof stored === 'object' && !Array.isArray(stored)
+      ? (stored as Record<string, unknown>).product
+      : undefined;
+  const entries =
+    product && typeof product === 'object' && !Array.isArray(product)
+      ? (product as Record<string, unknown>).entries
+      : undefined;
+  if (!Array.isArray(entries)) return false;
+  return entries.some((entry) => {
+    const context =
+      entry && typeof entry === 'object' && !Array.isArray(entry)
+        ? (entry as Record<string, unknown>).context
+        : undefined;
+    const previewUrl =
+      context && typeof context === 'object' && !Array.isArray(context)
+        ? (context as Record<string, unknown>).previewUrl
+        : undefined;
+    return typeof previewUrl === 'string' && previewUrl.trim() !== '';
+  });
+}
+
 // --- placing a window where a dragged tab was released -----------------------
 // A tab dragged clear of the strip and released on the desktop opens its own
 // window. That window used to be placed by getSecondaryWindowState, which

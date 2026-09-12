@@ -782,6 +782,7 @@ export const en = {
   "welcome.subtitle": "A few choices now will help Qortium Home work the way you want.",
   "welcome.title": "Welcome to Qortium Home",
   "home2.apps": "Apps",
+  "home2.explore": "Explore",
   "home2.account.labelNotRegisteredName": "{label} (not a registered name)",
   "home2.account.actions": "Account actions",
   "home2.account.addAddress": "Add address",

@@ -1682,7 +1682,10 @@ function testStartupStatesAndAppearance(): void {
   assert.match(noAccount, /aria-label="Selected account"/)
   assert.match(noAccount, />Create account…</)
   assert.match(noAccount, />Import account…</)
-  assert.match(noAccount, />New Account</)
+  // No standing button: create and import live in the dropdown's action
+  // group, and with no account the state chip is text, not a lock control.
+  assert.doesNotMatch(noAccount, />New Account</)
+  assert.doesNotMatch(noAccount, /data-home-v2-account-lock-toggle/)
   assert.doesNotMatch(noAccount, />Switch account</)
   assert.doesNotMatch(noAccount, /Browse first|Your start page/)
 
@@ -1701,13 +1704,54 @@ function testStartupStatesAndAppearance(): void {
   assert.match(locked, /data-theme="dark"/)
   assert.match(locked, /data-account-state="locked"/)
   assert.match(locked, /home-v2-account-panel/)
-  assert.match(locked, />Unlock account</)
+  // The state chip IS the lock control: it reads "Locked" and acts as Unlock.
+  assert.match(locked, /<button[^>]*home-v2-lock-state[^>]*aria-label="Unlock account"[^>]*>Locked</)
   assert.doesNotMatch(locked, />Lock on exit</)
   assert.doesNotMatch(locked, />Remember unlock</)
 
   const unlocked = render(homeV2Fixture.account)
   assert.match(unlocked, /data-account-state="unlocked"/)
-  assert.match(unlocked, />Lock account</)
+  assert.match(unlocked, /<button[^>]*home-v2-lock-state[^>]*aria-label="Lock account"[^>]*>Unlocked</)
+  // No toggle handler, no toggle -- and the body is shown.
+  assert.doesNotMatch(unlocked, /data-home-v2-account-toggle/)
+  assert.match(unlocked, /home-v2-account-body/)
+
+  // The section folds to its header line, and the fold is a stored setting
+  // that survives a restart (round-tripped through the shell state).
+  {
+    const folded = renderToStaticMarkup(
+      <HomeV2Prototype
+        snapshot={homeV2Fixture}
+        productState={homeV2ProductFixture}
+        permissionState={createPermissionState()}
+        layout="desktop"
+        dashboardCollapsed={{ account: true, nodeCore: false, pinnedApps: false }}
+        onToggleDashboardSection={() => undefined}
+      />,
+    )
+    assert.match(folded, /data-home-v2-account-collapsed="true"/)
+    assert.match(folded, /<button[^>]*data-home-v2-account-toggle[^>]*aria-expanded="false"/)
+    assert.doesNotMatch(folded, /home-v2-account-body/)
+    assert.match(folded, /<button[^>]*home-v2-lock-state/, 'the lock control stays on the header line')
+    const stored = JSON.parse(JSON.stringify(serializeHomeV2ShellState({
+      ...createHomeV2ShellState('dark', 'en'),
+      dashboardCollapsed: { account: true, nodeCore: false, pinnedApps: false },
+    })))
+    assert.deepEqual(
+      parseHomeV2ShellState(stored, 'dark', 'en').dashboardCollapsed,
+      { account: true, nodeCore: false, pinnedApps: false },
+    )
+    assert.deepEqual(
+      parseHomeV2ShellState({ ...stored, dashboardCollapsed: undefined }, 'dark', 'en').dashboardCollapsed,
+      { account: false, nodeCore: false, pinnedApps: false },
+      'a record from before the setting existed stays expanded',
+    )
+    assert.deepEqual(
+      parseHomeV2ShellState({ ...stored, dashboardCollapsed: { account: 'yes', bogus: true } }, 'dark', 'en').dashboardCollapsed,
+      { account: false, nodeCore: false, pinnedApps: false },
+      'only a literal true folds a section, and unknown sections are ignored',
+    )
+  }
   assert.doesNotMatch(unlocked, /Good to see you|Welcome back|Your browser/)
 
   const catalogue = renderToStaticMarkup(
@@ -1756,7 +1800,9 @@ function testStartupStatesAndAppearance(): void {
     />,
   )
   assert.match(catalogue, /value="account:wallet:main" selected=""/)
-  assert.match(catalogue, /Main account · QH143K2q…/)
+  // The whole address, not a prefix: the closed control clips on its own
+  // when it is narrow, and the open list has room for it.
+  assert.match(catalogue, /Main account · QH143K2qjVdn864NSY7aNESo88ao1ZnALH</)
   assert.match(catalogue, /value="create" disabled=""/)
   assert.match(catalogue, /value="import" disabled=""/)
 
@@ -1973,6 +2019,9 @@ function testCoreManagementRenderingAndAndroidDegrade(): void {
     openDownloaded: async () => undefined,
     preferencesLoaded: true,
     result: null,
+    canRevealInstallFolder: true,
+    revealInstallFolder: async () => undefined,
+    setChannel: () => undefined,
   } as unknown as HomeV2AppUpdates
   const dashboard = renderToStaticMarkup(
     <HomeV2Prototype
@@ -1997,7 +2046,7 @@ function testCoreManagementRenderingAndAndroidDegrade(): void {
   assert.doesNotMatch(dashboard, /data-home-v2-node-core-action="home-release-notes"/)
   // Connections and Core management are one "Node & Core" section: exactly one
   // of them, one combined card per enabled network, in shell network order.
-  assert.equal([...dashboard.matchAll(/class="home-v2-node-core"/g)].length, 1)
+  assert.equal([...dashboard.matchAll(/class="home-v2-panel home-v2-node-core"/g)].length, 1)
   assert.doesNotMatch(dashboard, /home-v2-connections|home-v2-core-management/)
   const sectionStart = dashboard.indexOf('class="home-v2-node-core-grid"')
   const qortium = dashboard.indexOf(
@@ -2009,68 +2058,173 @@ function testCoreManagementRenderingAndAndroidDegrade(): void {
     sectionStart,
   )
   assert.ok(sectionStart >= 0 && qortium > sectionStart && qortal > qortium)
-  // Each card still carries the connection controls and the Core controls.
+  // Each card still carries the connection mode and the Core controls -- and
+  // only those. The status sentence, the URL, the API docs and Configure
+  // links, Refresh, the I2P transport row and the plane health are Settings'.
   assert.match(dashboard, /aria-label="Qortium connection mode"/)
   assert.match(dashboard, /aria-label="Qortal connection mode"/)
-  assert.match(dashboard, /Qortium Core running · managed by Home/)
+  assert.match(dashboard, /Qortium Core · Running/)
   assert.match(dashboard, />Stop Core</)
-  assert.match(dashboard, /Adopted Qortal Core · stopped/)
+  assert.match(dashboard, /Qortal Core · Stopped/)
   assert.match(dashboard, />Start Core</)
   assert.match(dashboard, /aria-label="Settings: Node &amp; Core"/)
+  assert.doesNotMatch(dashboard, /managed by Home/)
+  assert.doesNotMatch(dashboard, /data-home-v2-node-core-transport=/)
+  assert.doesNotMatch(dashboard, /data-home-v2-i2p-health=/)
+  assert.doesNotMatch(dashboard, /Core API documentation|>Configure<|>Refresh</)
   // Java gates the release install, so only the Java control is offered and the
   // running Core never gets an install button behind its back.
   assert.match(dashboard, /data-home-v2-node-core-action="java"[^>]*>Install Java</)
   assert.doesNotMatch(dashboard, /data-home-v2-node-core-action="core-release"/)
-  // The i2p transport row belongs to Qortium only.
-  const transportMatches = [
-    ...dashboard.matchAll(/data-home-v2-node-core-transport="dashboard" data-network="(\w+)"/g),
-  ].map((match) => match[1])
-  assert.deepEqual(transportMatches, ['qortium'])
-  assert.match(dashboard, /data-home-v2-i2p-health="true"/)
-  assert.match(dashboard, /data-home-v2-i2p-health-plane="chain"/)
-  assert.match(dashboard, /chain: session Ready · LeaseSet Ready/)
-  assert.match(dashboard, /data-home-v2-i2p-health-plane="data"/)
-  assert.doesNotMatch(dashboard, /chain: session Ready[^<]*0 peers/,
-    'missing peer counts must remain unknown rather than becoming zero')
+  // The I2P plane health and the transport controls belong to Qortium only,
+  // and to Settings > Runtime now: the Qortium block shows the plane health
+  // beside the transport panel; the Qortal block shows neither.
   {
-    // While the first status poll is in flight the row must still BE there. It
-    // used to render nothing, and on a slow poll that is indistinguishable from
-    // Home not having I2P controls at all -- which a tester reported.
-    const loadingTransport = renderToStaticMarkup(
+    const runtime = renderToStaticMarkup(
+      <SettingsPage
+        account={homeV2Fixture.account}
+        appearance={homeV2Fixture.appearance}
+        nodes={homeV2Fixture.nodes}
+        nodeSummaries={homeV2Fixture.nodes}
+        newTabPreference={DEFAULT_NEW_TAB_PREFERENCE}
+        requestedSection="core"
+        coreManagement={coreManagement}
+        onSetNodeMode={() => undefined}
+      />,
+    )
+    const qortiumBlock = runtime.slice(
+      runtime.indexOf('id="core-settings-title'),
+      runtime.indexOf('id="qortal-core-settings-title'),
+    )
+    const qortalBlock = runtime.slice(runtime.indexOf('id="qortal-core-settings-title'))
+    assert.match(qortiumBlock, /data-home-v2-i2p-health="true"/)
+    assert.match(qortiumBlock, /data-home-v2-i2p-health-plane="chain"/)
+    assert.match(qortiumBlock, /chain: session Ready · LeaseSet Ready/)
+    assert.match(qortiumBlock, /data-home-v2-i2p-health-plane="data"/)
+    assert.doesNotMatch(qortiumBlock, /chain: session Ready[^<]*0 peers/,
+      'missing peer counts must remain unknown rather than becoming zero')
+    assert.doesNotMatch(qortalBlock, /data-home-v2-i2p-health=/)
+    // The connection-mode select is configured here too, per network.
+    assert.match(qortiumBlock, /data-home-v2-settings-node-mode="qortium"[^>]*>[\s\S]*?aria-label="Qortium connection mode"/)
+    assert.match(qortalBlock, /aria-label="Qortal connection mode"/)
+  }
+  // The I2P transport controls are no longer on the dashboard at all (the
+  // Settings transport panel owns them), so a status still in flight has
+  // nothing to hold a place for here.
+  assert.doesNotMatch(dashboard, /data-home-v2-node-core-transport=/)
+  // One Home-update row for the whole dashboard, not one per network -- and
+  // in its own "Home" section, outside Node & Core, since it depends on no
+  // network.
+  assert.equal(
+    [...dashboard.matchAll(/data-home-v2-node-core-home-update="dashboard"/g)].length,
+    1,
+  )
+  assert.equal([...dashboard.matchAll(/home-v2-home-section"/g)].length, 1)
+  // The tile is the same enclosed panel as Account and Pinned apps, and it
+  // carries the release-channel switch and the install-folder button that
+  // used to be Settings-only.
+  assert.match(dashboard, /class="home-v2-panel home-v2-home-section"/)
+  assert.match(dashboard, /<select[^>]*data-home-v2-node-core-action="home-channel"/)
+  assert.match(dashboard, /data-home-v2-node-core-action="home-install-folder"/)
+  {
+    // Settings' runtime page leads with Home, before either network's block.
+    const runtime = renderToStaticMarkup(
+      <SettingsPage
+        account={homeV2Fixture.account}
+        appearance={homeV2Fixture.appearance}
+        nodes={homeV2Fixture.nodes}
+        newTabPreference={DEFAULT_NEW_TAB_PREFERENCE}
+        requestedSection="core"
+        appUpdates={appUpdates}
+        coreManagement={coreManagement}
+      />,
+    )
+    const home = runtime.indexOf('home-update-settings-title')
+    const core = runtime.indexOf('id="core-settings-title')
+    assert.ok(home !== -1 && core !== -1 && home < core, `Home settings (${home}) precede Qortium Core settings (${core})`)
+  }
+  assert.ok(
+    dashboard.indexOf('data-home-v2-node-core-home-update="dashboard"')
+      < dashboard.indexOf('home-v2-node-core"'),
+    'the Home section comes before Node & Core',
+  )
+  assert.ok(
+    !dashboard.slice(dashboard.indexOf('home-v2-node-core"')).includes('node-core-home-update'),
+    'Node & Core no longer carries the Home row',
+  )
+  // Section order is fixed: the account strip first, then the pinned apps
+  // slot, then Home, then Node & Core. The old title and standing tagline are
+  // gone; the dashboard has no h1 and shows a notice only when there is one.
+  {
+    const account = dashboard.indexOf('home-v2-account-panel')
+    const pins = dashboard.indexOf('data-home-v2-dashboard-slot="pinned-apps"')
+    const home = dashboard.indexOf('home-v2-home-section"')
+    const nodeCore = dashboard.indexOf('data-home-v2-dashboard-slot="node-core"')
+    assert.ok(account !== -1 && account < pins && pins < home && home < nodeCore,
+      `dashboard order account(${account}) < pins(${pins}) < home(${home}) < node-core(${nodeCore})`)
+    assert.doesNotMatch(dashboard, /<h1/)
+    assert.doesNotMatch(dashboard, /home-v2-surface-notice/)
+    const noticed = renderToStaticMarkup(
       <HomeV2Prototype
         snapshot={homeV2Fixture}
         productState={createProductState()}
         permissionState={createPermissionState()}
         layout="desktop"
-        appUpdates={appUpdates}
-        coreManagement={{
-          ...coreManagement,
-          transport: {
-            busy: null,
-            mode: null,
-            selectedMode: null,
-            restartRequired: false,
-            progress: null,
-            notice: null,
-            stale: false,
-            status: null,
-          },
-        }}
-        onOpenReleaseNotes={() => undefined}
+        surfaceNotice="Updating Qortium…"
       />,
     )
-    assert.match(loadingTransport, /data-home-v2-node-core-transport="loading"/)
-    assert.doesNotMatch(
-      loadingTransport,
-      /data-home-v2-node-core-transport="dashboard"/,
-      'the live row must not render before its status arrives',
+    assert.match(noticed, /home-v2-surface-notice[^>]*>Updating Qortium…</)
+    assert.ok(
+      noticed.indexOf('home-v2-surface-notice') < noticed.indexOf('home-v2-account-panel'),
+      'a real notice sits above the account strip',
     )
   }
-  // One Home-update row for the whole section, not one per network.
-  assert.equal(
-    [...dashboard.matchAll(/data-home-v2-node-core-home-update="dashboard"/g)].length,
-    1,
-  )
+  // Pinned apps: the title, then Apps, Explore and Create beside it in that
+  // order, then the fold chevron; folded, only the header line remains.
+  {
+    const pinnedApps = {
+      pins: [],
+      status: 'ready' as const,
+      onAdd: () => undefined,
+      onExplore: () => undefined,
+      onFindMoreApps: () => undefined,
+      onMove: () => undefined,
+      onReorder: () => undefined,
+      onOpen: () => undefined,
+      onRemove: () => undefined,
+      onRename: () => undefined,
+    }
+    const render = (pinnedAppsCollapsed: boolean) => renderToStaticMarkup(
+      <HomeV2Prototype
+        snapshot={homeV2Fixture}
+        productState={homeV2ProductFixture}
+        permissionState={createPermissionState()}
+        layout="desktop"
+        pinnedApps={pinnedApps}
+        dashboardCollapsed={{ account: false, nodeCore: false, pinnedApps: pinnedAppsCollapsed }}
+        onToggleDashboardSection={() => undefined}
+      />,
+    )
+    const open = render(false)
+    const header = open.slice(open.indexOf('home-v2-pinned-apps__header'))
+    const at = (marker: string) => {
+      const index = header.indexOf(marker)
+      assert.notEqual(index, -1, `${marker} must be in the pinned apps header`)
+      return index
+    }
+    assert.ok(
+      at('id="pinned-apps-title') < at('data-home-v2-pinned-apps-action="apps"')
+        && at('data-home-v2-pinned-apps-action="apps"') < at('data-home-v2-pinned-apps-action="explore"')
+        && at('data-home-v2-pinned-apps-action="explore"') < at('data-home-v2-pinned-apps-action="create"')
+        && at('data-home-v2-pinned-apps-action="create"') < at('data-home-v2-pinned-apps-toggle'),
+      'pinned apps header order is title, Apps, Explore, Create, toggle',
+    )
+    assert.match(open, /home-v2-pinned-apps__body/)
+    const folded = render(true)
+    assert.match(folded, /<button[^>]*data-home-v2-pinned-apps-toggle[^>]*aria-expanded="false"/)
+    assert.doesNotMatch(folded, /home-v2-pinned-apps__body/)
+    assert.match(folded, /data-home-v2-pinned-apps-action="apps"/, 'the actions stay on the header line')
+  }
   assert.equal(
     [...dashboard.matchAll(/data-home-v2-node-core-action="home-check"/g)].length,
     1,
@@ -2162,11 +2316,10 @@ function testCoreManagementRenderingAndAndroidDegrade(): void {
     assert.match(detailed, /Version 2\.1\.0/)
     assert.match(detailed, /data-home-v2-core-progress="downloading"/)
     assert.match(detailed, /data-home-v2-core-progress-kind="home"/)
-    // Channel and a SHORT commit beside the version: two builds of one version
-    // are otherwise indistinguishable on the tile.
+    // The channel rides along as data; the build commit is Settings-only now
+    // (the Settings Core card still shows it shortened beside the version).
     assert.match(detailed, /data-home-v2-core-channel="stable"/)
-    assert.match(detailed, /abcdef123456/)
-    assert.doesNotMatch(detailed, /abcdef1234567890/, 'the commit is shortened on the tile')
+    assert.doesNotMatch(detailed, /abcdef123456/, 'the build commit is not on the dashboard row')
     // Settings-only detail stays in Settings.
     assert.doesNotMatch(detailed, /data-home-v2-core-update-sources/)
     assert.doesNotMatch(detailed, /data-home-v2-core-local-api-url/)
@@ -3895,6 +4048,7 @@ function testShellStateMigratesAddressSelection(): void {
     // reproduces the old behaviour exactly.
     startupPreference: DEFAULT_STARTUP_PREFERENCE,
     settingsSection: 'general',
+    dashboardCollapsed: { account: false, nodeCore: false, pinnedApps: false },
     onboarding: legacy.onboarding,
     selectedAccountId: 'wallet:Qprimary',
     selectedAddressId: 'wallet:Qprimary:2',
@@ -4311,11 +4465,20 @@ testIdentityAndImageCachingKeepsChromeStable()
   // (Security review, 2026-09-02.)
   {
     const appBridge = readFileSync('electron/home-v2-app-bridge.ts', 'utf8')
-    const start = appBridge.indexOf("ipcMain.handle('home-v2-nodes:adminTrust'")
-    assert.notEqual(start, -1, 'the adminTrust channel must exist')
-    const handler = appBridge.slice(start, appBridge.indexOf('\n  ipcMain.handle(', start + 1))
-    assert.match(handler, /revision: resolved\.trust\.bindingId/)
-    assert.doesNotMatch(handler, /resolved\.trust\.revision/)
+    const channel = appBridge.indexOf("ipcMain.handle('home-v2-nodes:adminTrust'")
+    assert.notEqual(channel, -1, 'the adminTrust channel must exist')
+    // The envelope is built once, in getHomeV2ShellAdminTrust, and handed out
+    // by both the adminTrust channel and the startup bootstrap reply; the rule
+    // is pinned on the builder so neither route can drift from it.
+    const start = appBridge.indexOf('export async function getHomeV2ShellAdminTrust()')
+    assert.notEqual(start, -1, 'the shared admin-trust envelope builder must exist')
+    const builder = appBridge.slice(start, appBridge.indexOf('\nexport function ', start + 1))
+    assert.match(builder, /revision: resolved\.trust\.bindingId/)
+    assert.doesNotMatch(builder, /resolved\.trust\.revision/)
+    assert.match(
+      appBridge.slice(channel, appBridge.indexOf('\n  ipcMain.handle(', channel + 1)),
+      /return getHomeV2ShellAdminTrust\(\)/,
+    )
     // Same rule for the value written into the profile on a preview tab.
     assert.match(appBridge, /previewTrustRevision: admin\.trust\.bindingId/)
   }
@@ -4359,8 +4522,15 @@ testIdentityAndImageCachingKeepsChromeStable()
     !/Status(?:ForHomeV2)?\(/.test(modeReader),
     'the mode read must not probe node status; that is what makes it instant',
   )
-  assert.match(modeReader, /getQortalNodeSettingsForHomeV2\(\)/)
-  assert.match(modeReader, /getNodeSettingsForHomeV2\(\)/)
+  // Nor the settings SNAPSHOTS: for a local node those resolve the managed
+  // Core's API key and bootstrap TLS trust before returning (measured 2-3 s
+  // on the startup path). Only the raw mode readers are instant.
+  assert.ok(
+    !/get(?:Qortal)?NodeSettingsForHomeV2\(/.test(modeReader),
+    'the mode read must not resolve the settings snapshot',
+  )
+  assert.match(modeReader, /readQortalNodeModeForHomeV2/)
+  assert.match(modeReader, /readNodeModeForHomeV2/)
 }
 
 // --- What Home opens with ------------------------------------------------

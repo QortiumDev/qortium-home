@@ -12,8 +12,6 @@ import {
   parseHomeV2TransportMaintenanceStatus,
 } from '../../home-v2-live/core-manager-client'
 import { toHomeV2TransportManagement, useHomeV2TransportMaintenance } from '../../home-v2-live/transport-maintenance-controller'
-import { homeV2Fixture } from '../test-kit/fixtures'
-import { HomeV2NodeCoreSection } from './HomeV2NodeCoreSection'
 import type { HomeV2CoreManagement } from './CoreManagerCards'
 import { TransportMaintenancePanel } from './TransportMaintenancePanel'
 
@@ -136,17 +134,10 @@ const management: HomeV2CoreManagement = {
 // staleness and busy behaviour below is still exercised end to end.
 function TransportMaintenanceHarness({ dashboard = false }: { dashboard?: boolean }) {
   const maintenance = useHomeV2TransportMaintenance(management.onRefresh)
-  if (dashboard) return <HomeV2NodeCoreSection networks={['qortium']} snapshot={homeV2Fixture}
-    coreManagement={{ ...management, statuses: {
-      qortium: {
-        capabilities: { canStart: false, canStop: true }, control: 'full', install: 'home-managed',
-        issue: null, network: 'qortium', revision: 1, runtime: 'running', schema: 'home-v2-core-manager',
-      },
-      qortal: {
-        capabilities: { canStart: true, canStop: false }, control: 'full', install: 'home-managed',
-        issue: null, network: 'qortal', revision: 1, runtime: 'stopped', schema: 'home-v2-core-manager',
-      },
-    }, transport: toHomeV2TransportManagement(maintenance) }} />
+  // The dashboard no longer carries transport controls (Settings > Runtime is
+  // their only home), so both harness modes render the panel; `dashboard`
+  // is kept so the flows below still read as the end-to-end path they are.
+  void dashboard
   return <TransportMaintenancePanel maintenance={maintenance} />
 }
 
@@ -448,11 +439,11 @@ try {
   })
   assert.deepEqual([...stopActions], [{ action: 'stop-router', mode: null }])
 
-  // Exercise the real dashboard row through the same controller/bridge as
-  // Settings. A live mode write saves only; the separate button opts into a
-  // stop/start. Merely selecting a mode must do neither.
+  // Exercise the panel end to end through the real controller/bridge. A live
+  // mode write saves only; the separate button opts into a stop/start.
+  // Merely selecting a mode must do neither.
   const dashboardSelect = () => container.querySelector(
-    '[data-home-v2-node-core-transport="dashboard"] select',
+    '[data-home-v2-transport-maintenance="desktop"] select',
   ) as HTMLSelectElement
   const dashboardCalls: string[] = []
   let dashboardStatus = transportStatus({

@@ -783,6 +783,7 @@ export const zhTW: Record<TranslationKey, string> = {
   "welcome.subtitle": "現在做幾個選擇，將協助 Qortium Home 依您期望的方式運作。",
   "welcome.title": "歡迎使用 Qortium Home",
   "home2.apps": "應用程式",
+  "home2.explore": "探索",
   "home2.account.labelNotRegisteredName": "{label}（不是已註冊名稱）",
   "home2.account.actions": "帳戶操作",
   "home2.account.addAddress": "新增地址",

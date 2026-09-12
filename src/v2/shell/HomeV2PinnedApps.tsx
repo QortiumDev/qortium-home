@@ -8,7 +8,7 @@ import {
   type FormEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import { ArrowDown, ArrowUp, Compass, Copy, ExternalLink, Pencil, Plus, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, Compass, Copy, ExternalLink, LayoutGrid, Pencil, Plus, Trash2 } from "lucide-react";
 import {
   reorderDashboardPins,
   type DashboardPin,
@@ -19,6 +19,7 @@ import { t } from "../../i18n";
 import { useMenuKeyboard } from "../../useMenuKeyboard";
 import type { HomeV2ContextMenuPresentationItem } from "./HomeV2ContextMenu";
 import { HomeV2AppIcon, getHomeV2AppIconTarget } from "./HomeV2AppIcon";
+import { HomeV2SectionToggle } from "./HomeV2Prototype";
 import type { HomeV2AccountCatalogue, VisibleAppIconLoader } from "../contracts";
 import { getSavedAccountContext, shouldSaveAccountContext } from "../../accountContext";
 import { SAVED_GUEST_ACCOUNT_ID } from "../../bookmarkManagerContract";
@@ -48,8 +49,13 @@ export interface HomeV2PinnedAppsProps {
     action: string,
   ) => void | Promise<void>;
   readonly onAdd: (draft: HomeV2PinnedAppsDraft) => void | Promise<void>;
-  /** Opens the assigned Explore app so people can find apps to pin. */
+  /** Opens the assigned Apps app (the app directory). */
   readonly onFindMoreApps?: () => void | Promise<void>;
+  /** Opens the assigned Explore app (QDN browsing). */
+  readonly onExplore?: () => void | Promise<void>;
+  /** Folded to the header line. Absent = never foldable. */
+  readonly collapsed?: boolean;
+  readonly onToggleCollapsed?: () => void;
   readonly onRename: (pin: DashboardPin, title: string) => void | Promise<void>;
   readonly onRemove: (pin: DashboardPin) => void | Promise<void>;
   readonly onMove: (
@@ -125,6 +131,9 @@ export function HomeV2PinnedApps({
   onContextMenuAction,
   onAdd,
   onFindMoreApps,
+  onExplore,
+  collapsed = false,
+  onToggleCollapsed,
   onRename,
   onRemove,
   onMove,
@@ -135,6 +144,7 @@ export function HomeV2PinnedApps({
   const accountDescriptionId = useId();
   // One dashboard is mounted per tab, so this heading id would otherwise repeat.
   const pinnedAppsTitleId = `pinned-apps-title${useId()}`;
+  const pinnedAppsBodyId = `pinned-apps-body${useId()}`;
   const [showAddForm, setShowAddForm] = useState(false);
   const [addAddress, setAddAddress] = useState("");
   const [addTitle, setAddTitle] = useState("");
@@ -525,44 +535,73 @@ export function HomeV2PinnedApps({
   return (
     <section
       ref={sectionRef}
-      className="home-v2-pinned-apps"
+      className="home-v2-panel home-v2-pinned-apps"
       aria-labelledby={pinnedAppsTitleId}
       aria-busy={status === "loading" || controlsDisabled}
     >
-      <div className="home-v2-section-heading">
-        <div>
-          <h2 id={pinnedAppsTitleId}>{t("home2.dashboard.pinnedApps")}</h2>
+      {/* Title, then the section's actions right beside it -- Apps (the
+          directory), Explore (QDN browsing) and Create -- and the fold
+          chevron at the far edge. The actions wrap under the title when the
+          section is narrow rather than each taking a line. */}
+      <div className="home-v2-pinned-apps__header">
+        <h2 id={pinnedAppsTitleId}>{t("home2.dashboard.pinnedApps")}</h2>
+        <div className="home-v2-pinned-apps__header-actions">
+          {onFindMoreApps ? (
+            <button
+              type="button"
+              className="home-v2-link-button home-v2-pinned-apps__find-button"
+              data-home-v2-pinned-apps-action="apps"
+              disabled={controlsDisabled}
+              onClick={() => void onFindMoreApps()}
+            >
+              <LayoutGrid aria-hidden="true" size={17} />
+              {t("home2.apps")}
+            </button>
+          ) : null}
+          {onExplore ? (
+            <button
+              type="button"
+              className="home-v2-link-button home-v2-pinned-apps__explore-button"
+              data-home-v2-pinned-apps-action="explore"
+              disabled={controlsDisabled}
+              onClick={() => void onExplore()}
+            >
+              <Compass aria-hidden="true" size={17} />
+              {t("home2.explore")}
+            </button>
+          ) : null}
+          {allowAdd ? (
+            <button
+              ref={addButtonRef}
+              type="button"
+              className="home-v2-link-button home-v2-pinned-apps__add-button"
+              data-home-v2-pinned-apps-action="create"
+              aria-expanded={showAddForm && status === "ready"}
+              aria-label={`${t("common.create")} ${t("home2.dashboard.pinnedApps")}`}
+              disabled={status !== "ready" || controlsDisabled || collapsed}
+              onClick={() => {
+                setActionError(null);
+                setShowAddForm((shown) => !shown);
+              }}
+            >
+              <Plus aria-hidden="true" size={17} />
+              {t("common.create")}
+            </button>
+          ) : null}
         </div>
-        {onFindMoreApps ? (
-          <button
-            type="button"
-            className="home-v2-link-button home-v2-pinned-apps__find-button"
-            disabled={controlsDisabled}
-            onClick={() => void onFindMoreApps()}
-          >
-            <Compass aria-hidden="true" size={17} />
-            {t("home2.apps")}
-          </button>
-        ) : null}
-        {allowAdd ? (
-          <button
-            ref={addButtonRef}
-            type="button"
-            className="home-v2-link-button home-v2-pinned-apps__add-button"
-            aria-expanded={showAddForm && status === "ready"}
-            aria-label={`${t("common.create")} ${t("home2.dashboard.pinnedApps")}`}
-            disabled={status !== "ready" || controlsDisabled}
-            onClick={() => {
-              setActionError(null);
-              setShowAddForm((shown) => !shown);
-            }}
-          >
-            <Plus aria-hidden="true" size={17} />
-            {t("common.create")}
-          </button>
+        {onToggleCollapsed ? (
+          <HomeV2SectionToggle
+            collapsed={collapsed}
+            controls={pinnedAppsBodyId}
+            label={t("home2.dashboard.pinnedApps")}
+            testId="data-home-v2-pinned-apps-toggle"
+            onToggle={onToggleCollapsed}
+          />
         ) : null}
       </div>
 
+      {collapsed ? null : (
+      <div className="home-v2-pinned-apps__body" id={pinnedAppsBodyId}>
       {allowAdd && showAddForm && status === "ready" ? (
         <form className="home-v2-pinned-apps__form" onSubmit={submitAdd}>
           <label>
@@ -743,6 +782,8 @@ export function HomeV2PinnedApps({
             );
           })}
         </ul>
+      )}
+      </div>
       )}
 
       {menu && menuPin ? (

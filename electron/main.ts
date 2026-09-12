@@ -5,6 +5,7 @@ import {
   dialog,
   ipcMain,
   Menu,
+  nativeTheme,
   protocol,
   session,
   screen,
@@ -37,11 +38,12 @@ import { registerHomeV2NodeAdminIpcHandlers } from './home-v2-node-admin-bridge.
 import { assertAuthorizedHomeV2Sender, authorizeHomeV2Sender } from './home-v2-authorized-senders.js';
 import { assertHomeV2ShellClipboardText } from './home-v2-shell-clipboard.js';
 import {
+  homeV2ShellStateHasPublishPreview,
+  type HomeV2TabTransfer,
+  type HomeV2WindowPoint,
   placeHomeV2WindowAtPoint,
   sanitizeHomeV2TabTransfer,
   sanitizeHomeV2WindowPoint,
-  type HomeV2TabTransfer,
-  type HomeV2WindowPoint,
 } from './home-v2-window-startup.js';
 import { readHomeV2ShellState } from './home-v2-shell-store.js';
 import { homeWindowFocus } from './home-window-focus.js';
@@ -67,6 +69,7 @@ import {
 } from './home-window-state.js';
 import {
   forgetHomeV2WindowPendingPrompts,
+  getHomeV2ShellAdminTrust,
   registerHomeV2AppBridgeIpcHandlers,
 } from './home-v2-app-bridge.js';
 import { registerHomeV2CoreManagerBridgeIpcHandlers } from './home-v2-core-manager-bridge.js';
@@ -733,6 +736,83 @@ ipcMain.handle('system:reportStartupPaint', (_event, navToPaintMs: unknown) => {
   logStartupMilestone('renderer first paint', ` (renderer nav→paint ${paint}ms)`);
 });
 
+// Home 2 windows stay hidden until the renderer says its shell is restored --
+// appearance applied, tabs back, dashboard sections in their final slots -- so
+// the first frame the user sees is the finished one rather than the unstyled
+// placeholder, a black frame, and a dashboard that rearranges itself as each
+// read lands. Every window keeps three fallbacks so a renderer that never
+// signals (an exception before the restore, a failed load) still gets a window:
+// a grace period after ready-to-show, did-fail-load, and a hard cap from
+// creation.
+const SHELL_READY_GRACE_AFTER_READY_TO_SHOW_MS = 2500;
+const SHELL_READY_HARD_CAP_MS = 10000;
+const pendingWindowReveals = new Map<number, () => void>();
+let startupShellReadyReported = false;
+
+function revealWindow(window: BrowserWindow, maximize: boolean, reason: string) {
+  if (window.isDestroyed()) return;
+  pendingWindowReveals.delete(window.webContents.id);
+  if (window.isVisible()) return;
+  if (!startupShellReadyReported) {
+    startupShellReadyReported = true;
+    logStartupMilestone('window revealed', ` (${reason})`);
+  }
+  // maximize() shows an unshown window on its own (without focus), so it is
+  // deferred to the reveal rather than applied at creation.
+  if (maximize) window.maximize();
+  window.show();
+}
+
+function armWindowReveal(window: BrowserWindow, maximize: boolean) {
+  const webContentsId = window.webContents.id;
+  const timers: NodeJS.Timeout[] = [];
+  const reveal = (reason: string) => {
+    for (const timer of timers) clearTimeout(timer);
+    revealWindow(window, maximize, reason);
+  };
+  pendingWindowReveals.set(webContentsId, () => reveal('shell ready'));
+  window.once('ready-to-show', () => {
+    timers.push(setTimeout(() => reveal('ready-to-show grace elapsed'), SHELL_READY_GRACE_AFTER_READY_TO_SHOW_MS));
+  });
+  window.webContents.once('did-fail-load', () => reveal('did-fail-load'));
+  timers.push(setTimeout(() => reveal('hard cap elapsed'), SHELL_READY_HARD_CAP_MS));
+  window.once('closed', () => {
+    for (const timer of timers) clearTimeout(timer);
+    pendingWindowReveals.delete(webContentsId);
+  });
+}
+
+ipcMain.handle('home-v2-shell:ready', (event, timing: unknown) => {
+  assertAuthorizedHomeV2Sender(event);
+  if (!startupShellReadyReported) {
+    const stage = timing && typeof timing === 'object' ? timing as Record<string, unknown> : {};
+    const fmt = (value: unknown) => (typeof value === 'number' ? `${Math.round(value)}ms` : '?');
+    logStartupMilestone(
+      'renderer shell restored',
+      ` (renderer nav→mount ${fmt(stage.mountMs)}, nav→shell-state ${fmt(stage.shellStateMs)}, nav→ready ${fmt(stage.readyMs)})`,
+    );
+  }
+  pendingWindowReveals.get(event.sender.id)?.();
+});
+
+// The window's own colour while nothing is painted yet (and behind any resize
+// gap). Read from the saved appearance so a light-theme profile never flashes
+// a dark frame; the values mirror --v2-bg in home-v2-prototype.css.
+function initialWindowBackgroundColor(): string {
+  if (!IS_HOME_V2) return '#121515';
+  const state = readHomeV2ShellState();
+  const appearance = state && typeof state === 'object'
+    ? (state as { appearance?: { theme?: unknown } }).appearance
+    : undefined;
+  const theme = appearance?.theme;
+  const dark = theme === 'light'
+    ? false
+    : theme === 'system'
+      ? nativeTheme.shouldUseDarkColors
+      : true;
+  return dark ? '#242423' : '#edece8';
+}
+
 function createWindow(options: CreateWindowOptions = {}) {
   const loadRendererFromDist = shouldLoadRendererFromDist();
   const developmentUrl = (
@@ -755,7 +835,8 @@ function createWindow(options: CreateWindowOptions = {}) {
     autoHideMenuBar: IS_HOME_V2,
     title: 'Qortium Home',
     icon: getWindowIconPath(),
-    backgroundColor: '#121515',
+    backgroundColor: initialWindowBackgroundColor(),
+    show: false,
     webPreferences: {
       preload: path.join(
         __dirname,
@@ -897,8 +978,12 @@ function createWindow(options: CreateWindowOptions = {}) {
     }
   });
 
-  if (windowState?.isMaximized) {
-    window.maximize();
+  // Legacy shell: shown as soon as it can paint. Home 2: hidden until the
+  // renderer reports the shell restored (see armWindowReveal).
+  if (IS_HOME_V2) {
+    armWindowReveal(window, !!windowState?.isMaximized);
+  } else {
+    window.once('ready-to-show', () => revealWindow(window, !!windowState?.isMaximized, 'ready-to-show'));
   }
 
   if (loadRendererFromDist) {
@@ -1174,15 +1259,35 @@ function registerZoomIpcHandlers() {
  * renderer. Kept separate so neither shell can be handed the other's shape.
  */
 function registerHomeV2WindowIpcHandlers() {
-  ipcMain.handle('home-v2-windows:getStartup', (event) => {
-    assertAuthorizedHomeV2Sender(event);
-
-    const payload = homeV2WindowStartups.get(event.sender.id) ?? null;
+  const takeWindowStartup = (webContentsId: number) => {
+    const payload = homeV2WindowStartups.get(webContentsId) ?? null;
 
     // One-shot: a reload must not reopen the detached tab a second time.
-    homeV2WindowStartups.delete(event.sender.id);
+    homeV2WindowStartups.delete(webContentsId);
 
     return payload;
+  };
+
+  ipcMain.handle('home-v2-windows:getStartup', (event) => {
+    assertAuthorizedHomeV2Sender(event);
+    return takeWindowStartup(event.sender.id);
+  });
+
+  // The three reads the shell used to issue one after another before it could
+  // apply the saved appearance and restore tabs, answered together. The admin
+  // resolver is consulted only when the stored strip has a publish-preview
+  // tab to bind: it reads the node snapshot, which probes every configured
+  // node, and waiting on it for every launch was what held the appearance
+  // and the tabs back by seconds. It fails independently to null so a refusal
+  // (no node to administer, say) never withholds the shell state.
+  ipcMain.handle('home-v2-shell:getBootstrap', async (event) => {
+    assertAuthorizedHomeV2Sender(event);
+    const startup = takeWindowStartup(event.sender.id);
+    const shellState = readHomeV2ShellState();
+    const adminTrust = homeV2ShellStateHasPublishPreview(shellState)
+      ? await getHomeV2ShellAdminTrust().catch(() => null)
+      : null;
+    return { adminTrust, shellState, startup };
   });
 
   ipcMain.handle('home-v2-windows:openTab', (event, value: unknown, point: unknown) => {

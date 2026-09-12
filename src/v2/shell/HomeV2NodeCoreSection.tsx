@@ -3,11 +3,6 @@ import type { HomeV2AppUpdates } from '../../home-v2-live/app-update-controller'
 import type { HomeV2CoreMaintenanceManagement } from '../../home-v2-live/core-maintenance-controller'
 import type { HomeV2OnChainCoreUpdates } from '../../home-v2-live/on-chain-core-update-controller'
 import type { HomeV2QortalMaintenanceManagement } from '../../home-v2-live/qortal-maintenance-controller'
-import {
-  transportModeActionFor,
-  type HomeV2SettableTransportMode,
-  type HomeV2TransportManagement,
-} from '../../home-v2-live/transport-maintenance-controller'
 import { t, type TranslationKey } from '../../i18n'
 import type {
   HomeV2Snapshot,
@@ -16,11 +11,11 @@ import type {
 } from '../contracts'
 import { deriveI2pCoreHealth, type I2pCorePlaneHealth } from '../i2p-health'
 import { coreReleaseGate } from '../../home-v2-live/core-release-offer'
-import { CoreManagerCard, type HomeV2CoreManagement } from './CoreManagerCards'
+import { useCoreLifecycleControl, type HomeV2CoreManagement } from './CoreManagerCards'
+import { HomeV2SectionToggle } from './HomeV2Prototype'
 import { useScopedIds } from './dom-ids'
 import { homeUpdateStatusText } from './HomeUpdateSettings'
 import { NetworkBadge, networkLabels } from './NetworkBadge'
-import { ensureLabel, routerStatusMessage, samStatusMessage } from './TransportMaintenancePanel'
 
 const nodeModeLabelKeys: Readonly<Record<NodeConnectionMode, TranslationKey>> = {
   disabled: 'home2.node.mode.disabled',
@@ -70,7 +65,11 @@ function i2pPlaneText(
   })
 }
 
-function I2pCoreHealthDetails({ node }: { readonly node: HomeV2Snapshot['nodes']['qortium'] }) {
+/**
+ * The Qortium node's I2P chain/data plane health. Settings' Qortium block
+ * shows it beside the transport panel; the dashboard row no longer does.
+ */
+export function I2pCoreHealthDetails({ node }: { readonly node: HomeV2Snapshot['nodes']['qortium'] }) {
   if (node.mode === 'disabled' || (node.state !== 'online' && node.state !== 'syncing') || node.error) {
     return null
   }
@@ -91,7 +90,6 @@ function I2pCoreHealthDetails({ node }: { readonly node: HomeV2Snapshot['nodes']
 export interface HomeV2NodeCoreSectionProps {
   /** Opens the release-notes page for a product. Absent = no links shown. */
   readonly onOpenReleaseNotes?: (target: { product: 'core' | 'home'; tagName: string }) => void
-  readonly appUpdates?: HomeV2AppUpdates
   readonly coreManagement?: HomeV2CoreManagement
   /** The networks the user has enabled, in shell order. */
   readonly networks: readonly NetworkId[]
@@ -105,139 +103,216 @@ export interface HomeV2NodeCoreSectionProps {
     network: NetworkId,
     mode: NodeConnectionMode,
   ) => void | Promise<void>
+  /** Folded to the header line. Absent = never foldable. */
+  readonly collapsed?: boolean
+  readonly onToggleCollapsed?: () => void
 }
 
-function NodeConnection({
+/**
+ * The connection-mode select, shared by the dashboard row and Settings'
+ * per-network block so the two can never offer different modes.
+ */
+export function NodeModeSelect({
+  node,
+  network,
+  onSetNodeMode,
+}: {
+  readonly node: Pick<HomeV2Snapshot['nodes'][NetworkId], 'mode'> & {
+    readonly customConfigured?: boolean
+  }
+  readonly network: NetworkId
+  readonly onSetNodeMode?: HomeV2NodeCoreSectionProps['onSetNodeMode']
+}) {
+  return (
+    <select
+      aria-label={t('home2.node.connectionModeFor', {
+        network: networkLabels[network],
+      })}
+      value={node.mode}
+      disabled={!onSetNodeMode}
+      onChange={(event) =>
+        onSetNodeMode?.(network, event.target.value as NodeConnectionMode)
+      }
+    >
+      {(Object.keys(nodeModeLabelKeys) as NodeConnectionMode[]).map((mode) => (
+        <option
+          key={mode}
+          value={mode}
+          disabled={mode === 'custom' && !node.customConfigured}
+        >
+          {t(nodeModeLabelKeys[mode])}
+          {mode === 'custom' && !node.customConfigured
+            ? ` (${t('home2.node.notConfigured')})`
+            : ''}
+        </option>
+      ))}
+    </select>
+  )
+}
+
+/** Height and peer counts, or the node's error, on one line. */
+function nodeDetailText(node: HomeV2Snapshot['nodes'][NetworkId]) {
+  if (node.mode === 'disabled') return t('home2.node.noConnection')
+  if (node.error) return node.error
+  return [
+    node.height === null
+      ? null
+      : t('home2.node.height', { height: node.height.toLocaleString() }),
+    // The transport split only appears when the node reports it. A Core older
+    // than #282 omits the field, and showing "(0 via I2P)" there would assert
+    // every peer is direct IP when we simply do not know.
+    node.peerCount === null
+      ? null
+      : node.i2pPeerCount === null
+        ? t('home2.node.peers', { count: node.peerCount })
+        : t('home2.node.peersWithI2p', { count: node.peerCount, i2p: node.i2pPeerCount }),
+    node.dataPeerCount === null
+      ? null
+      : node.i2pDataPeerCount === null
+        ? t('home2.node.dataPeers', { count: node.dataPeerCount })
+        : t('home2.node.dataPeersWithI2p', {
+            count: node.dataPeerCount,
+            i2p: node.i2pDataPeerCount,
+          }),
+  ]
+    .filter(Boolean)
+    .join(' · ') || t('home2.node.waitingForStatus')
+}
+
+/**
+ * One network, one line: chip, status, the connection mode, height and peers.
+ * Everything else the old card carried -- the URL, the API docs link,
+ * Configure, Refresh, the I2P plane health -- is configuration, and lives in
+ * Settings > Runtime. The `home-v2-node-card` class stays on the line so the
+ * network-order and enabled-network checks keep reading it.
+ */
+function NodeConnectionLine({
   snapshot,
   network,
   onSetNodeMode,
-  onRefreshNode,
-  onConfigureCustomNode,
-  onOpenCoreDocs,
 }: {
   readonly snapshot: HomeV2Snapshot
   readonly network: NetworkId
   readonly onSetNodeMode?: HomeV2NodeCoreSectionProps['onSetNodeMode']
-  readonly onRefreshNode?: HomeV2NodeCoreSectionProps['onRefreshNode']
-  readonly onConfigureCustomNode?: HomeV2NodeCoreSectionProps['onConfigureCustomNode']
-  readonly onOpenCoreDocs?: HomeV2NodeCoreSectionProps['onOpenCoreDocs']
 }) {
   const node = snapshot.nodes[network]
   return (
-    <article className="home-v2-node-card" data-network={network}>
-      <header>
-        <div>
-          <NetworkBadge network={network} />
-          <h3>
-            {t('home2.node.connectionTitle', {
-              network: networkLabels[network],
-            })}
-          </h3>
-        </div>
-        <span className="home-v2-node-state" data-node-state={node.state}>
-          <span className="home-v2-status-dot" aria-hidden="true" />
-          {node.statusText}
-        </span>
-      </header>
+    <div className="home-v2-node-card" data-network={network}>
+      <span className="home-v2-node-card__network">
+        <NetworkBadge network={network} />
+      </span>
+      <span className="home-v2-node-state" data-node-state={node.state}>
+        <span className="home-v2-status-dot" aria-hidden="true" />
+        {node.statusText}
+      </span>
       <label className="home-v2-node-mode-control">
         <span>{t('home2.node.connectionMode')}</span>
-        <select
-          aria-label={t('home2.node.connectionModeFor', {
-            network: networkLabels[network],
-          })}
-          value={node.mode}
-          onChange={(event) =>
-            onSetNodeMode?.(network, event.target.value as NodeConnectionMode)
-          }
-        >
-          {(Object.keys(nodeModeLabelKeys) as NodeConnectionMode[]).map((mode) => (
-            <option
-              key={mode}
-              value={mode}
-              disabled={mode === 'custom' && !node.customConfigured}
-            >
-              {t(nodeModeLabelKeys[mode])}
-              {mode === 'custom' && !node.customConfigured
-                ? ` (${t('home2.node.notConfigured')})`
-                : ''}
-            </option>
-          ))}
-        </select>
+        <NodeModeSelect node={node} network={network} onSetNodeMode={onSetNodeMode} />
       </label>
-      <div className="home-v2-node-detail">
-        <span>
-          {node.mode === 'disabled'
-            ? t('home2.node.noConnection')
-            : `${t(nodeModeLabelKeys[node.mode])} · ${node.label}`}
-        </span>
-        <small>
-          {node.error ??
-            ([
-              node.height === null
-                ? null
-                : t('home2.node.height', {
-                    height: node.height.toLocaleString(),
-                  }),
-              // The transport split only appears when the node reports it. A Core
-              // older than #282 omits the field, and showing "(0 via I2P)" there
-              // would assert every peer is direct IP when we simply do not know.
-              node.peerCount === null
-                ? null
-                : node.i2pPeerCount === null
-                  ? t('home2.node.peers', { count: node.peerCount })
-                  : t('home2.node.peersWithI2p', {
-                      count: node.peerCount,
-                      i2p: node.i2pPeerCount,
-                    }),
-              node.dataPeerCount === null
-                ? null
-                : node.i2pDataPeerCount === null
-                  ? t('home2.node.dataPeers', { count: node.dataPeerCount })
-                  : t('home2.node.dataPeersWithI2p', {
-                      count: node.dataPeerCount,
-                      i2p: node.i2pDataPeerCount,
-                    }),
-            ]
-              .filter(Boolean)
-              .join(' · ') || t('home2.node.waitingForStatus'))}
+      <small className="home-v2-node-card__detail">{nodeDetailText(node)}</small>
+    </div>
+  )
+}
+
+/**
+ * The Core half of a network's row: runtime state and installed version on
+ * the left, the lifecycle plan's action and Start/Stop on the right. Built on
+ * the same control hook as the Settings card, so the api-only stop
+ * confirmation and the busy gating are identical.
+ */
+function CoreLine({
+  channel,
+  installedVersion,
+  lifecycle,
+  management,
+  maintenanceNotice,
+  network,
+}: {
+  readonly channel: string | null
+  readonly installedVersion: string | null
+  readonly lifecycle: ReactNode
+  readonly management: HomeV2CoreManagement
+  readonly maintenanceNotice: string | null
+  readonly network: NetworkId
+}) {
+  const {
+    busy,
+    busyAction,
+    cancelStop,
+    confirmApiStop,
+    invokeAction,
+    requestStop,
+    startBusy,
+    status,
+  } = useCoreLifecycleControl(management, network)
+  return (
+    <div
+      className="home-v2-core-card home-v2-core-line"
+      data-network={network}
+      data-runtime={status.runtime}
+      data-control={status.control}
+    >
+      <span className="home-v2-core-runtime" data-runtime={status.runtime}>
+        <span className="home-v2-status-dot" aria-hidden="true" />
+        {networkLabels[network]} Core
+        {' · '}
+        {status.runtime === 'running'
+          ? t('core.runtimeRunning')
+          : status.runtime === 'stopped'
+            ? t('common.stopped')
+            : t('common.unavailable')}
+      </span>
+      {installedVersion ? (
+        <small
+          className="home-v2-core-line__version"
+          data-home-v2-core-version={installedVersion}
+          data-home-v2-core-channel={channel ?? undefined}
+        >
+          {t('home2.core.installedVersion', { version: installedVersion })}
         </small>
-        <small>{node.localCoreStatusText}</small>
-        {network === 'qortium' ? <I2pCoreHealthDetails node={node} /> : null}
-      </div>
-      <div className="home-v2-node-actions">
-        {onOpenCoreDocs && node.capabilities.read ? (
+      ) : null}
+      <span className="home-v2-core-line__actions">
+        {lifecycle}
+        {status.capabilities.canStart ? (
           <button
             type="button"
-            className="home-v2-link-button"
-            onClick={() => onOpenCoreDocs(network)}
+            className="home-v2-primary-button"
+            disabled={busy || startBusy}
+            onClick={() => invokeAction('start')}
           >
-            {t('coreApi.title')}
+            {busyAction === 'start' ? t('common.starting') : t('core.startCore')}
+          </button>
+        ) : status.capabilities.canStop ? (
+          <button
+            type="button"
+            className="home-v2-secondary-button"
+            disabled={busy}
+            onClick={requestStop}
+          >
+            {busyAction === 'stop' ? t('common.stopping') : t('core.stopCore')}
           </button>
         ) : null}
-        {onConfigureCustomNode ? (
-          <button
-            type="button"
-            className="home-v2-link-button"
-            onClick={() => onConfigureCustomNode(network)}
-          >
-            {t('home2.node.configure')}
-          </button>
-        ) : (
-          <span aria-hidden="true" />
-        )}
-        {onRefreshNode ? (
-          <button
-            type="button"
-            className="home-v2-link-button"
-            onClick={() => onRefreshNode(network)}
-          >
-            {t('common.refresh')}
-          </button>
-        ) : (
-          <span aria-hidden="true" />
-        )}
-      </div>
-    </article>
+      </span>
+      {maintenanceNotice ? (
+        <span className="home-v2-core-notice" role="status">{maintenanceNotice}</span>
+      ) : null}
+      {confirmApiStop ? (
+        <div className="home-v2-core-confirm" role="alertdialog">
+          <strong>
+            {t('home2.core.confirmExternalTitle', { network: networkLabels[network] })}
+          </strong>
+          <p>{t('home2.core.confirmExternalBody')}</p>
+          <div>
+            <button autoFocus type="button" onClick={cancelStop}>
+              {t('common.cancel')}
+            </button>
+            <button type="button" onClick={() => invokeAction('stop')}>
+              {t('core.stopCore')}
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </div>
   )
 }
 
@@ -415,7 +490,7 @@ function CoreLifecycleActions({
       {!showRelease && coreMaintenance.onCheckRelease ? (
         <button
           type="button"
-          className="home-v2-secondary-button"
+          className="home-v2-link-button"
           data-home-v2-node-core-action="core-check"
           disabled={busy !== null}
           onClick={coreMaintenance.onCheckRelease}
@@ -512,176 +587,10 @@ function coreLifecycleNotice({
   return coreMaintenance?.notice ?? null
 }
 
-function TransportRow({
-  transport,
-}: {
-  readonly transport: HomeV2TransportManagement
-}) {
-  const id = useScopedIds()
-  const status = transport.status
-  if (!status) {
-    // A placeholder rather than nothing. Returning null here meant that while
-    // the first status poll was in flight the I2P controls did not exist on the
-    // page at all -- and on a slow poll that is indistinguishable from Home not
-    // having them, which is what a tester reported. Say the row is loading
-    // instead of implying it is absent.
-    return (
-      <div
-        className="home-v2-node-core-row"
-        data-home-v2-node-core-transport="loading"
-        data-network="qortium"
-      >
-        <div className="home-v2-node-core-row__copy">
-          <strong>{t('home2.transportMaintenance.title')}</strong>
-          <small>{t('home2.common.loading')}</small>
-        </div>
-      </div>
-    )
-  }
-  const blocked = transport.busy !== null || transport.stale
-  const selectedMode = transport.selectedMode ?? transport.mode
-  const modeAllowed = selectedMode !== null && transportModeActionFor(status, selectedMode) !== null
-  return (
-    <div
-      className="home-v2-node-core-row"
-      data-home-v2-node-core-transport="dashboard"
-      data-network="qortium"
-    >
-      <div className="home-v2-node-core-row__copy">
-        <strong>{t('home2.transportMaintenance.title')}</strong>
-        <small id={id('node-core-transport-state')}>{routerStatusMessage(status)}</small>
-        <small data-home-v2-node-core-sam-state>{samStatusMessage(status)}</small>
-        <small id={id('node-core-transport-mode-note')}>
-          {status.core.runtime === 'stopped'
-            ? t('home2.transportMaintenance.mode.stoppedNote')
-            : status.core.runtime === 'running'
-              ? t(status.capabilities.canSetModeWhileRunning
-                  ? 'home2.transportMaintenance.mode.runningNote'
-                  : 'home2.transportMaintenance.mode.stopCoreNote')
-              : t('home2.transportMaintenance.mode.verifyStoppedNote')}
-        </small>
-      </div>
-      <div className="home-v2-node-core-row__controls">
-        {transport.mode && transport.onSetTransportMode ? (
-          <select
-            aria-label={t('home2.transportMaintenance.mode.label')}
-            aria-describedby={id('node-core-transport-mode-note')}
-            disabled={blocked ||
-              (status.core.runtime !== 'stopped' && !status.capabilities.canSetModeWhileRunning)}
-            value={selectedMode ?? transport.mode}
-            onChange={(event) =>
-              transport.onSelectTransportMode?.(
-                event.target.value as HomeV2SettableTransportMode,
-              )
-            }
-          >
-            <option
-              value="direct-and-i2p"
-              disabled={!transportModeActionFor(status, 'direct-and-i2p')}
-            >
-              {t('home2.transportMaintenance.mode.directAndI2p')}
-            </option>
-            <option
-              value="direct-only"
-              disabled={!transportModeActionFor(status, 'direct-only')}
-            >
-              {t('home2.transportMaintenance.mode.directOnly')}
-            </option>
-            <option
-              value="i2p-only"
-              disabled={!transportModeActionFor(status, 'i2p-only')}
-            >
-              {t('home2.transportMaintenance.mode.i2pOnly')}
-            </option>
-          </select>
-        ) : null}
-        {transport.mode && transport.onSetTransportMode ? (
-          <button type="button" className="home-v2-primary-button"
-            aria-describedby={id('node-core-transport-mode-note')}
-            data-home-v2-node-core-action="set-transport-mode"
-            disabled={blocked || selectedMode === transport.mode || !modeAllowed}
-            onClick={() => {
-              if (selectedMode && modeAllowed) transport.onSetTransportMode?.(selectedMode)
-            }}>
-            {transport.busy === 'set-mode' || transport.busy === 'set-mode-live'
-              ? t('home2.common.working')
-              : t('home2.transportMaintenance.mode.apply')}
-          </button>
-        ) : null}
-        {transport.restartRequired && transport.onConfirmRestart ? (
-          <button type="button" className="home-v2-primary-button"
-            data-home-v2-transport-restart
-            disabled={blocked}
-            onClick={transport.onConfirmRestart}>
-            {t('home2.transportMaintenance.action.restartNow')}
-          </button>
-        ) : null}
-        {status.capabilities.canEnsureRouter && transport.onEnsureRouter ? (
-          <button
-            type="button"
-            className="home-v2-secondary-button"
-            aria-describedby={id('node-core-transport-state')}
-            data-home-v2-node-core-action="ensure-router"
-            disabled={blocked}
-            onClick={transport.onEnsureRouter}
-          >
-            {transport.busy === 'ensure-router'
-              ? t('home2.common.working')
-              : ensureLabel(status)}
-          </button>
-        ) : null}
-        {status.capabilities.canStopRouter && transport.onStopRouter ? (
-          <button
-            type="button"
-            className="home-v2-secondary-button"
-            aria-describedby={id('node-core-transport-state')}
-            data-home-v2-node-core-action="stop-router"
-            disabled={blocked}
-            onClick={transport.onStopRouter}
-          >
-            {transport.busy === 'stop-router'
-              ? t('home2.common.working')
-              : t('home2.transportMaintenance.router.stop')}
-          </button>
-        ) : null}
-        {status.capabilities.canRevealRouterFolder && transport.onRevealRouterFolder ? (
-          // Opens the managed router's folder. Not disabled by `blocked`: that
-          // guards operations that change the router, and opening a folder
-          // changes nothing -- refusing it while the Core is busy would be
-          // withholding something harmless.
-          <button
-            type="button"
-            className="home-v2-secondary-button"
-            data-home-v2-node-core-action="reveal-router"
-            onClick={transport.onRevealRouterFolder}
-          >
-            {transport.busy === 'reveal-router'
-              ? t('home2.common.working')
-              : t('home2.transportMaintenance.router.reveal')}
-          </button>
-        ) : null}
-      </div>
-      <CoreProgressBar progress={transport.progress} />
-      {transport.stale ? (
-        <p className="home-v2-core-notice" role="alert">
-          {t('home2.transportMaintenance.refreshStale')}
-        </p>
-      ) : null}
-      {transport.notice ? (
-        <p
-          className="home-v2-core-notice"
-          role={transport.notice.error ? 'alert' : 'status'}
-        >
-          {transport.notice.message}
-        </p>
-      ) : null}
-    </div>
-  )
-}
-
 /**
- * One compact Home-update row for the whole section. The policy and channel
- * controls stay in Settings; this is only check / download / open.
+ * The Home tile's body: version and update state on the left, the release
+ * channel, check, install folder, release notes and download / open on the
+ * right. The update policy and the byte-level details stay in Settings.
  */
 function HomeUpdateRow({
   onOpenReleaseNotes,
@@ -700,18 +609,34 @@ function HomeUpdateRow({
       data-home-v2-node-core-home-update="dashboard"
     >
       <div className="home-v2-node-core-row__copy">
-        <strong>{t('common.appName')}</strong>
         {result?.currentVersion ? (
           // WHICH Home is installed. 1.x put its own version on the dashboard;
           // Home 2 showed only an update state, so "up to date" never said up
-          // to date at WHAT.
-          <small data-home-v2-home-version={result.currentVersion}>
+          // to date at WHAT. The section heading names Home, so the row leads
+          // with the version.
+          <strong data-home-v2-home-version={result.currentVersion}>
             {t('home2.core.installedVersion', { version: result.currentVersion })}
-          </small>
-        ) : null}
+          </strong>
+        ) : (
+          <strong>{t('common.appName')}</strong>
+        )}
         <small aria-live="polite" role="status">{homeUpdateStatusText(updates)}</small>
       </div>
       <div className="home-v2-node-core-row__controls">
+        {/* The release channel and the install folder used to be Settings-
+            only; the tile now carries the same controls as its Settings
+            block, minus the policy and the byte-level details. */}
+        <select
+          aria-label={t('updates.releaseChannelLabel')}
+          data-home-v2-node-core-action="home-channel"
+          disabled={busy || !updates.preferencesLoaded}
+          value={updates.channel}
+          onChange={(event) =>
+            updates.setChannel(event.target.value as 'prerelease' | 'stable')}
+        >
+          <option value="stable">{t('updates.channelStable')}</option>
+          <option value="prerelease">{t('updates.channelPrerelease')}</option>
+        </select>
         <button
           type="button"
           className="home-v2-secondary-button"
@@ -721,6 +646,17 @@ function HomeUpdateRow({
         >
           {updates.busy === 'check' ? t('common.checking') : t('updates.checkForUpdates')}
         </button>
+        {!updates.isAndroid && updates.canRevealInstallFolder ? (
+          <button
+            type="button"
+            className="home-v2-secondary-button"
+            data-home-v2-node-core-action="home-install-folder"
+            disabled={busy}
+            onClick={() => void updates.revealInstallFolder()}
+          >
+            {t('updates.showInstallFolder')}
+          </button>
+        ) : null}
         {onOpenReleaseNotes && result?.release?.tagName ? (
           <button
             type="button"
@@ -779,35 +715,35 @@ function HomeUpdateRow({
 /**
  * The dashboard's single "Node & Core" section: one card per enabled network
  * carrying that network's connection, its Core lifecycle and — for Qortium —
- * its i2p transport, plus one Home-update row for the section.
+ * its i2p transport. Home's own update row is HomeV2HomeSection below.
  *
  * Every live value arrives through props. The maintenance controllers are
  * instantiated once in HomeV2LiveApp and reach this component as the optional
  * slices on `coreManagement`, which keeps this file renderable from a fixture.
  */
 export function HomeV2NodeCoreSection({
-  appUpdates,
   coreManagement,
   networks,
   onChainCoreUpdates,
-  onConfigureCustomNode,
-  onOpenCoreDocs,
   onOpenReleaseNotes,
   onOpenSettings,
-  onRefreshNode,
   onSetNodeMode,
   snapshot,
+  collapsed = false,
+  onToggleCollapsed,
 }: HomeV2NodeCoreSectionProps) {
   const id = useScopedIds()
   if (networks.length === 0) return null
   const coreAvailable = !!coreManagement?.available
+  const bodyId = id('node-core-body')
   return (
-    <section className="home-v2-node-core" aria-labelledby={id('node-core-title')}>
+    <section
+      className="home-v2-panel home-v2-node-core"
+      aria-labelledby={id('node-core-title')}
+      data-home-v2-node-core-collapsed={collapsed ? 'true' : 'false'}
+    >
       <div className="home-v2-section-heading">
-        <div>
-          <h2 id={id('node-core-title')}>{t('home2.nodeCore.title')}</h2>
-          <p>{t('home2.nodeCore.description')}</p>
-        </div>
+        <h2 id={id('node-core-title')}>{t('home2.nodeCore.title')}</h2>
         {onOpenSettings ? (
           <button
             type="button"
@@ -818,8 +754,18 @@ export function HomeV2NodeCoreSection({
             {t('common.settings')}
           </button>
         ) : null}
+        {onToggleCollapsed ? (
+          <HomeV2SectionToggle
+            collapsed={collapsed}
+            controls={bodyId}
+            label={t('home2.nodeCore.title')}
+            testId="data-home-v2-node-core-toggle"
+            onToggle={onToggleCollapsed}
+          />
+        ) : null}
       </div>
-      <div className="home-v2-node-core-grid">
+      {collapsed ? null : (
+      <div className="home-v2-node-core-grid" id={bodyId}>
         {networks.map((network) => {
           const lifecycle: ReactNode = coreAvailable ? (
             <CoreLifecycleActions
@@ -836,49 +782,73 @@ export function HomeV2NodeCoreSection({
               className="home-v2-node-core-card"
               data-network={network}
             >
-              <NodeConnection
+              <NodeConnectionLine
                 snapshot={snapshot}
                 network={network}
                 onSetNodeMode={onSetNodeMode}
-                onRefreshNode={onRefreshNode}
-                onConfigureCustomNode={onConfigureCustomNode}
-                onOpenCoreDocs={onOpenCoreDocs}
               />
               {coreAvailable && coreManagement ? (
-                <CoreManagerCard
+                <CoreLine
                   // Which BUILD, not just which version: two builds of one
-                  // version are otherwise indistinguishable on the tile. Only
-                  // Qortium reports a channel and a commit.
+                  // version are otherwise indistinguishable. Only Qortium
+                  // reports a channel; the commit stays in Settings.
                   channel={network === 'qortium'
                     ? coreManagement.coreMaintenance?.status?.core.channel ?? null
-                    : null}
-                  installedCommit={network === 'qortium'
-                    ? coreManagement.coreMaintenance?.status?.core.installedCommit ?? null
                     : null}
                   installedVersion={network === 'qortium'
                     ? coreManagement.coreMaintenance?.status?.core.installedVersion ?? null
                     : coreManagement.qortalMaintenance?.status?.installedVersion ?? null}
+                  lifecycle={lifecycle}
                   management={coreManagement}
-                  network={network}
-                  maintenanceActions={lifecycle}
                   maintenanceNotice={coreLifecycleNotice({
                     coreMaintenance: coreManagement.coreMaintenance,
                     network,
                     onChainCoreUpdates,
                     qortalMaintenance: coreManagement.qortalMaintenance,
                   })}
+                  network={network}
                 />
-              ) : null}
-              {coreAvailable && network === 'qortium' && coreManagement?.transport ? (
-                <TransportRow transport={coreManagement.transport} />
               ) : null}
             </article>
           )
         })}
       </div>
-      {appUpdates?.available
-        ? <HomeUpdateRow onOpenReleaseNotes={onOpenReleaseNotes} updates={appUpdates} />
-        : null}
+      )}
+    </section>
+  )
+}
+
+/**
+ * The dashboard's "Home" section: the installed Home version and its update
+ * state. It depends on no network, so it lives outside Node & Core and is
+ * drawn before the enabled networks are known.
+ */
+export function HomeV2HomeSection({
+  appUpdates,
+  onOpenReleaseNotes,
+  onOpenSettings,
+}: {
+  readonly appUpdates: HomeV2AppUpdates
+  readonly onOpenReleaseNotes?: (target: { product: 'core' | 'home'; tagName: string }) => void
+  readonly onOpenSettings?: () => void
+}) {
+  const id = useScopedIds()
+  return (
+    <section className="home-v2-panel home-v2-home-section" aria-labelledby={id('home-title')}>
+      <div className="home-v2-section-heading">
+        <h2 id={id('home-title')}>{t('common.appName')}</h2>
+        {onOpenSettings ? (
+          <button
+            type="button"
+            className="home-v2-link-button"
+            aria-label={`${t('common.settings')}: ${t('common.appName')}`}
+            onClick={onOpenSettings}
+          >
+            {t('common.settings')}
+          </button>
+        ) : null}
+      </div>
+      <HomeUpdateRow onOpenReleaseNotes={onOpenReleaseNotes} updates={appUpdates} />
     </section>
   )
 }

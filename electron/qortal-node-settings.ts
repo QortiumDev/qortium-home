@@ -262,6 +262,12 @@ export async function getQortalNodeSettingsForHomeV2() {
   return getSettingsSnapshot()
 }
 
+/** The connection mode alone, with no node resolution. See readNodeModeForHomeV2. */
+export function readQortalNodeModeForHomeV2() {
+  const settings = readSettings()
+  return { lastEnabledMode: settings.lastEnabledMode, mode: settings.mode }
+}
+
 export async function getQortalNodeStatusForHomeV2() {
   return testSettings(readSettings())
 }

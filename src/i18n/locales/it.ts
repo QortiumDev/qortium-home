@@ -783,6 +783,7 @@ export const it: Record<TranslationKey, string> = {
   "welcome.subtitle": "Alcune scelte ora aiuteranno Qortium Home a funzionare come desideri.",
   "welcome.title": "Benvenuto in Qortium Home",
   "home2.apps": "App",
+  "home2.explore": "Esplora",
   "home2.account.labelNotRegisteredName": "{label} (non è un nome registrato)",
   "home2.account.actions": "Azioni dell'account",
   "home2.account.addAddress": "Aggiungi indirizzo",

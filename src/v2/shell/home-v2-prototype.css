@@ -862,6 +862,25 @@ body,
   margin: 0;
 }
 
+/* Each dashboard section owns a slot from the first render. A slot that is
+   still waiting on its read keeps a minimum height, so the section below it
+   sits where it will end up rather than sliding down when the read lands. */
+.home-v2-dashboard-slot {
+  display: grid;
+}
+
+.home-v2-dashboard-slot:empty {
+  display: none;
+}
+
+.home-v2-dashboard-slot[data-home-v2-dashboard-slot='pinned-apps']:has(.home-v2-dashboard-loading) {
+  min-block-size: 132px;
+}
+
+.home-v2-dashboard-slot[data-home-v2-dashboard-slot='node-core']:has(.home-v2-dashboard-loading) {
+  min-block-size: 220px;
+}
+
 .home-v2-bookmarks-menu {
   position: relative;
   display: flex;
@@ -1357,10 +1376,15 @@ body,
 
 .home-v2-dashboard {
   display: grid;
-  gap: 24px;
+  gap: 20px;
 }
 
-.home-v2-dashboard-intro,
+/* Only present while there is something to say (an update in progress, a
+   refused transfer); the dashboard has no standing title or tagline. */
+.home-v2-dashboard-status {
+  margin: 0;
+}
+
 .home-v2-section-heading,
 .home-v2-node-card > header {
   display: flex;
@@ -1369,11 +1393,6 @@ body,
   gap: 18px;
 }
 
-.home-v2-dashboard-intro {
-  padding: 2px 2px 6px;
-}
-
-.home-v2-dashboard h1,
 .home-v2-dashboard h2,
 .home-v2-dashboard h3,
 .home-v2-new-tab-page h1,
@@ -1382,11 +1401,6 @@ body,
 .home-v2-app-stage h2 {
   margin: 0;
   letter-spacing: -0.025em;
-}
-
-.home-v2-dashboard h1 {
-  font-size: calc(34px * var(--v2-type-scale));
-  font-weight: 650;
 }
 
 .home-v2-dashboard h2 {
@@ -1463,6 +1477,18 @@ body,
   gap: 12px;
 }
 
+/* The same enclosed tile as Account and Pinned apps: the heading sits inside
+   it, and the body row is bare (the tile is the card). */
+.home-v2-panel.home-v2-home-section {
+  display: grid;
+  gap: 8px;
+  padding: 12px 18px 14px;
+}
+
+.home-v2-home-section > .home-v2-node-core-row {
+  padding: 4px 0 0;
+}
+
 .home-v2-section-heading small {
   color: var(--v2-muted);
 }
@@ -1470,21 +1496,33 @@ body,
 .home-v2-node-core-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr));
-  gap: 14px;
+  gap: 10px;
 }
 
-/* One card per enabled network: connection, Core lifecycle and — for Qortium —
-   the i2p transport row. The blocks inside are the same components Settings
-   renders, so their own card chrome is flattened here and the card frame is
-   drawn once, by the wrapper. */
+/* The Node & Core tile is the same enclosed panel as the sections above it;
+   inside, one soft card per enabled network holding two lines: the
+   connection (chip, status, mode, height and peers) and the Core (state,
+   version, actions). The configuration -- URL, docs, Configure, I2P
+   transport and plane health -- lives in Settings > Runtime. */
+.home-v2-panel.home-v2-node-core {
+  display: grid;
+  gap: 10px;
+  padding: 12px 18px 16px;
+}
+
+.home-v2-panel.home-v2-node-core:has(> .home-v2-section-heading:last-child) {
+  padding-block-end: 12px;
+}
+
 .home-v2-node-core-card {
   position: relative;
   display: grid;
   align-content: start;
+  gap: 8px;
+  padding: 10px 12px;
   border: 1px solid var(--v2-line);
-  border-radius: 15px;
-  background: var(--v2-surface);
-  box-shadow: var(--v2-shadow);
+  border-radius: 12px;
+  background: var(--v2-surface-soft);
 }
 
 .home-v2-node-core-card > .home-v2-node-card,
@@ -1492,32 +1530,106 @@ body,
   min-block-size: 0;
   border: 0;
   border-radius: 0;
+  padding: 0;
   background: none;
   box-shadow: none;
 }
 
-/* The Core block is no longer tall enough to hold the external-stop
-   confirmation, so the combined card becomes its containing block and the
-   confirmation covers the whole card instead of overflowing one row of it. */
+/* The Core line is not tall enough to hold the external-stop confirmation,
+   so the network card becomes its containing block and the confirmation
+   covers the whole card. */
 .home-v2-node-core-card > .home-v2-core-card {
   position: static;
 }
 
-.home-v2-node-core-card > .home-v2-core-card,
-.home-v2-node-core-card > .home-v2-node-core-row {
+.home-v2-node-core-card > .home-v2-core-card {
   border-top: 1px solid var(--v2-line);
+  padding-block-start: 8px;
 }
 
-/* Refresh stays on the left; install, update and start/stop pack to the right
-   and wrap instead of squeezing when several are offered at once. */
-.home-v2-node-core-card .home-v2-core-card__actions {
+/* Connection line: chip, status, mode select and the height/peer summary,
+   wrapping when the card is narrow. */
+.home-v2-node-core-card > .home-v2-node-card {
+  display: flex;
   flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 10px;
+  align-items: center;
+  gap: 6px 12px;
 }
 
-.home-v2-node-core-card .home-v2-core-card__actions > :first-child {
+.home-v2-node-card__network {
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+
+.home-v2-node-core-card .home-v2-node-mode-control {
+  grid-template-columns: auto minmax(110px, auto);
+  gap: 8px;
+}
+
+.home-v2-node-core-card .home-v2-node-mode-control select {
+  padding-block: 5px;
+}
+
+.home-v2-node-card__detail {
+  flex: 1 1 220px;
+  min-width: 0;
+  color: var(--v2-muted);
+  font-size: var(--v2-type-small);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Core line: state and version on the left, actions packed to the right.
+   Scoped under the network card so it outranks the Settings card's own grid
+   layout, which .home-v2-core-card still carries for Settings. */
+.home-v2-node-core-card > .home-v2-core-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+}
+
+/* Title, Settings link and the fold chevron: the chevron keeps the far edge
+   and the link sits just inside it, like the Home tile. */
+.home-v2-node-core > .home-v2-section-heading {
+  justify-content: flex-start;
+  gap: 12px;
+}
+
+.home-v2-node-core > .home-v2-section-heading > h2 {
   margin-inline-end: auto;
+}
+
+/* The toggle's own auto margin would split the free space with the title's
+   and leave the Settings link floating in the middle. */
+.home-v2-node-core > .home-v2-section-heading > .home-v2-section-toggle {
+  margin-inline-start: 0;
+}
+
+.home-v2-core-line > .home-v2-core-runtime {
+  display: inline-flex;
+  align-items: center;
+}
+
+.home-v2-core-line__version {
+  color: var(--v2-muted);
+  font-size: var(--v2-type-small);
+}
+
+.home-v2-core-line__actions {
+  display: flex;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.home-v2-core-line > .home-v2-core-notice,
+.home-v2-core-line__actions > .home-v2-core-progress,
+.home-v2-core-line__actions > .home-v2-core-lifecycle-loading {
+  flex-basis: 100%;
 }
 
 .home-v2-node-core-row {
@@ -1843,6 +1955,16 @@ body,
   gap: 16px;
 }
 
+/* Inside a Settings block these two sit at the block's own inset, like the
+   Core grid below them, rather than flush with the panel edge. */
+.home-v2-core-settings > .home-v2-settings-node-actions {
+  padding: 16px 22px 0;
+}
+
+.home-v2-core-settings > .home-v2-i2p-health {
+  padding: 10px 22px 0;
+}
+
 .home-v2-dialog-backdrop {
   position: fixed;
   z-index: 1000;
@@ -1959,8 +2081,7 @@ body,
 }
 
 .home-v2-dialog > header,
-.home-v2-dialog footer,
-.home-v2-account-secondary-row {
+.home-v2-dialog footer {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -2043,30 +2164,6 @@ body,
 
 .home-v2-checkbox-row input {
   width: auto;
-}
-
-.home-v2-account-secondary-row {
-  min-block-size: 58px;
-  align-items: end;
-  margin-block-start: 10px;
-}
-
-.home-v2-account-secondary-row > * {
-  min-width: 0;
-  flex: 1;
-}
-
-.home-v2-account-secondary-row--single {
-  align-items: center;
-}
-
-.home-v2-account-address {
-  overflow: hidden;
-  color: var(--v2-muted);
-  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: var(--v2-type-small);
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .home-v2-node-detail span,
@@ -2185,12 +2282,92 @@ body,
   margin-top: 0;
 }
 
+/* A status strip, not a card: on a returning user's dashboard the account is
+   context for everything below it, so it takes the least room it can, and
+   folds to its header line. It is a size container so its rows and the
+   presence cards reflow by the PANEL's width -- a narrow split or a small
+   window, not just a phone. */
 .home-v2-account-panel {
+  container: account / inline-size;
   display: grid;
-  min-block-size: 232px;
-  grid-template-rows: auto auto minmax(78px, 1fr);
   align-items: start;
-  gap: 14px;
+  gap: 10px;
+  padding: 12px 18px;
+}
+
+.home-v2-account-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-block-size: 30px;
+}
+
+.home-v2-account-header h2 {
+  margin: 0;
+}
+
+button.home-v2-lock-state {
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--v2-type-small);
+  font-weight: 800;
+  background: var(--v2-surface-soft);
+}
+
+button.home-v2-lock-state:hover:not(:disabled) {
+  border-color: currentColor;
+}
+
+button.home-v2-lock-state:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
+.home-v2-section-toggle {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  margin-inline-start: auto;
+  padding: 0;
+  border: 1px solid var(--v2-line);
+  border-radius: 8px;
+  color: var(--v2-muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.home-v2-section-toggle:hover {
+  color: var(--v2-ink);
+  border-color: var(--v2-line-strong);
+}
+
+.home-v2-section-toggle svg {
+  transition: transform 150ms ease;
+}
+
+.home-v2-section-toggle[data-collapsed='true'] svg {
+  transform: rotate(-90deg);
+}
+
+.home-v2-account-body {
+  display: grid;
+  gap: 10px;
+}
+
+/* Selected account, then (for a multi-address account) the selected address,
+   then Manage: one per line when narrow, two per line when the panel has
+   room, so Selected account and Manage share a line in the common case. */
+.home-v2-account-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+}
+
+@container account (min-width: 640px) {
+  .home-v2-account-controls {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 .home-v2-identity-lookup {
@@ -2318,13 +2495,6 @@ body,
   color: var(--v2-status-online);
 }
 
-.home-v2-account-control-row {
-  display: grid;
-  grid-template-columns: minmax(220px, 1fr) auto;
-  align-items: end;
-  gap: 12px;
-}
-
 .home-v2-account-select {
   display: grid;
   gap: 5px;
@@ -2336,23 +2506,21 @@ body,
   width: 100%;
 }
 
-.home-v2-account-content {
-  min-block-size: 78px;
-}
-
 .home-v2-presence-list {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr));
-  gap: 10px;
-  min-block-size: 78px;
+  gap: 8px;
 }
 
+/* One line per network -- avatar, chip, name, address -- with the address
+   dropping to its own row only when the card has no room for it. */
 .home-v2-presence {
   display: flex;
+  flex-wrap: wrap;
   min-width: 0;
   align-items: center;
-  gap: 12px;
-  padding: 13px;
+  gap: 6px 10px;
+  padding: 7px 10px;
   border: 1px solid var(--v2-line);
   border-radius: 12px;
   background: var(--v2-surface-soft);
@@ -2370,9 +2538,10 @@ body,
 }
 
 .home-v2-presence__avatar {
-  width: 42px;
-  height: 42px;
-  flex: 0 0 42px;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  border-radius: 9px;
   object-fit: cover;
 }
 
@@ -2396,13 +2565,28 @@ body,
   }
 }
 
-.home-v2-presence__details {
-  display: grid;
-  min-width: 0;
-  gap: 4px;
+.home-v2-presence__network {
+  display: inline-flex;
+  flex: 0 0 auto;
 }
 
-.home-v2-presence__details code {
+/* The chip is the network NAME; the mark alone stands in when the panel is
+   narrow. Both are rendered and the container query shows one. */
+.home-v2-presence__network--mark {
+  display: none;
+}
+
+.home-v2-presence__name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.home-v2-presence__address {
+  flex: 1 1 250px;
+  min-width: 0;
   overflow: hidden;
   color: var(--v2-muted);
   font-size: var(--v2-type-small);
@@ -2410,10 +2594,14 @@ body,
   white-space: nowrap;
 }
 
-.home-v2-presence__details strong {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+@container account (max-width: 560px) {
+  .home-v2-presence__network--text {
+    display: none;
+  }
+
+  .home-v2-presence__network--mark {
+    display: inline-flex;
+  }
 }
 
 .home-v2-account-placeholder {
@@ -3328,10 +3516,6 @@ body,
   justify-content: flex-start;
 }
 
-.home-v2-shell[data-layout='phone'] .home-v2-account-control-row {
-  grid-template-columns: 1fr;
-}
-
 .home-v2-shell[data-layout='phone'] .home-v2-identity-search,
 .home-v2-shell[data-layout='phone'] .home-v2-identity-network-grid {
   grid-template-columns: 1fr;
@@ -3351,12 +3535,6 @@ body,
   min-block-size: 430px;
 }
 
-.home-v2-shell[data-layout='phone'] .home-v2-account-control-row .home-v2-primary-button {
-  width: 100%;
-}
-
-.home-v2-shell[data-layout='phone'] .home-v2-account-content,
-.home-v2-shell[data-layout='phone'] .home-v2-presence-list,
 .home-v2-shell[data-layout='phone'] .home-v2-account-placeholder {
   min-block-size: 148px;
 }
@@ -3472,10 +3650,6 @@ body,
     justify-content: flex-start;
   }
 
-  .home-v2-account-control-row {
-    grid-template-columns: 1fr;
-  }
-
   .home-v2-identity-search,
   .home-v2-identity-network-grid {
     grid-template-columns: 1fr;
@@ -3495,12 +3669,6 @@ body,
     min-block-size: 430px;
   }
 
-  .home-v2-account-control-row .home-v2-primary-button {
-    width: 100%;
-  }
-
-  .home-v2-account-content,
-  .home-v2-presence-list,
   .home-v2-account-placeholder {
     min-block-size: 148px;
   }

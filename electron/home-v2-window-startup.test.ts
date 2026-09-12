@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {
   HOME_V2_WINDOW_ADDRESS_MAX_LENGTH,
   HOME_V2_WINDOW_RELEASE_GRAB_OFFSET,
+  homeV2ShellStateHasPublishPreview,
   mergeHomeV2ShellGlobalState,
   placeHomeV2WindowAtPoint,
   sanitizeHomeV2TabTransfer,
@@ -381,3 +382,33 @@ assert.deepEqual(
 );
 
 console.log('Home v2 window startup tests passed.');
+
+// --- does the stored strip need the admin-trust envelope? --------------------
+// The startup bootstrap asks the admin resolver (a node probe, seconds long)
+// only when a stored entry is a publish preview. Everything else -- no state,
+// junk, an ordinary app strip, a preview field that is empty -- must say no.
+{
+  const app = (context: Record<string, unknown>) => ({
+    kind: 'app', id: 't1', appId: 'qdn://APP/Chat', title: 'Chat',
+    context: { appId: 'qdn://APP/Chat', tabId: 't1', sourceNetwork: 'qortium', ...context },
+  });
+  assert.equal(homeV2ShellStateHasPublishPreview(null), false);
+  assert.equal(homeV2ShellStateHasPublishPreview('state'), false);
+  assert.equal(homeV2ShellStateHasPublishPreview({ product: 'junk' }), false);
+  assert.equal(homeV2ShellStateHasPublishPreview({ product: { entries: 'junk' } }), false);
+  assert.equal(homeV2ShellStateHasPublishPreview({ product: { entries: [] } }), false);
+  assert.equal(
+    homeV2ShellStateHasPublishPreview({ product: { entries: [app({}), { kind: 'internal' }, 7] } }),
+    false,
+  );
+  assert.equal(
+    homeV2ShellStateHasPublishPreview({ product: { entries: [app({ previewUrl: '  ' })] } }),
+    false,
+  );
+  assert.equal(
+    homeV2ShellStateHasPublishPreview({
+      product: { entries: [app({}), app({ previewUrl: 'http://127.0.0.1:24891/render/x', previewTrustRevision: 'b1' })] },
+    }),
+    true,
+  );
+}

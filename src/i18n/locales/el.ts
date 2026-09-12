@@ -784,6 +784,7 @@ export const el: Record<TranslationKey, string> = {
   "welcome.subtitle": "Λίγες επιλογές τώρα θα βοηθήσουν το Qortium Home να λειτουργεί όπως θέλετε.",
   "welcome.title": "Καλώς ήρθατε στο Qortium Home",
   "home2.apps": "Εφαρμογές",
+  "home2.explore": "Εξερεύνηση",
   "home2.account.labelNotRegisteredName": "{label} (δεν είναι καταχωρημένο όνομα)",
   "home2.account.actions": "Ενέργειες λογαριασμού",
   "home2.account.addAddress": "Προσθήκη διεύθυνσης",

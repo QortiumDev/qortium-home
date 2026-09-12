@@ -40,6 +40,7 @@ import type {
 } from '../../home-v2-live/window-behavior-client'
 import type { HomeV2OnChainCoreUpdates } from '../../home-v2-live/on-chain-core-update-controller'
 import { OnChainCoreUpdateSettings } from './OnChainCoreUpdateSettings'
+import { I2pCoreHealthDetails, NodeModeSelect } from './HomeV2NodeCoreSection'
 import { useScopedIds } from './dom-ids'
 
 export type HomeV2SettingsSectionId =
@@ -83,7 +84,7 @@ export function resolveHomeV2SettingsSectionTarget(
 }
 
 type SettingsNetworkNodes = Readonly<
-  Record<NetworkId, Pick<NodeSummary, 'lastEnabledMode' | 'mode'>>
+  Record<NetworkId, Pick<NodeSummary, 'lastEnabledMode' | 'mode'> & Partial<Pick<NodeSummary, 'customConfigured'>>>
 >
 
 const DEFAULT_SETTINGS_NODES: SettingsNetworkNodes = {
@@ -92,6 +93,12 @@ const DEFAULT_SETTINGS_NODES: SettingsNetworkNodes = {
 }
 
 export interface SettingsPageProps extends AppearanceSettingsPageProps {
+  /**
+   * The full node summaries, for the per-network detail the runtime page
+   * shows (the Qortium I2P plane health). Optional: fixtures render Settings
+   * with only the modes.
+   */
+  readonly nodeSummaries?: Readonly<Record<NetworkId, NodeSummary>>
   readonly appearance: HomeV2AppearanceSettings
   readonly account: AccountSessionSummary
   readonly nodes?: SettingsNetworkNodes
@@ -556,16 +563,28 @@ function GeneralSettings({
  */
 function NodeConnectionActions({
   network,
+  node,
   onConfigureCustomNode,
   onOpenCoreDocs,
+  onSetNodeMode,
 }: {
   readonly network: NetworkId
+  readonly node: SettingsNetworkNodes[NetworkId]
   readonly onConfigureCustomNode?: (network: NetworkId) => void
   readonly onOpenCoreDocs?: (network: NetworkId) => void
+  readonly onSetNodeMode?: SettingsPageProps['onSetNodeMode']
 }) {
-  if (!onConfigureCustomNode && !onOpenCoreDocs) return null
+  if (!onConfigureCustomNode && !onOpenCoreDocs && !onSetNodeMode) return null
   return (
     <div className="home-v2-settings-node-actions" data-home-v2-settings-node-actions={network}>
+      {/* The same select as the dashboard row; this is where it is
+          configured, the dashboard is where it is switched in passing. */}
+      {onSetNodeMode ? (
+        <label className="home-v2-node-mode-control" data-home-v2-settings-node-mode={network}>
+          <span>{t('home2.node.connectionMode')}</span>
+          <NodeModeSelect node={node} network={network} onSetNodeMode={onSetNodeMode} />
+        </label>
+      ) : null}
       {onConfigureCustomNode ? (
         <button
           type="button"
@@ -692,6 +711,15 @@ export function SettingsPage(props: SettingsPageProps) {
               props.appUpdates?.available ||
               props.onChainCoreUpdates?.available) ? (
             <div className="home-v2-runtime-settings">
+              {/* Home itself first: its version, channel and update state
+                * are what a reader arriving from the dashboard's Home tile
+                * came for, and they are not part of either network. */}
+              {props.appUpdates?.available ? (
+                <HomeUpdateSettings
+                  updates={props.appUpdates}
+                  onOpenReleaseNotes={props.onOpenReleaseNotes}
+                />
+              ) : null}
               {/* One section PER NETWORK, each complete.
                 *
                 * These used to share a single "Core management" section: both
@@ -715,9 +743,14 @@ export function SettingsPage(props: SettingsPageProps) {
                   </div>
                   <NodeConnectionActions
                     network="qortium"
+                    node={nodes.qortium}
                     onConfigureCustomNode={props.onConfigureCustomNode}
                     onOpenCoreDocs={props.onOpenCoreDocs}
+                    onSetNodeMode={props.onSetNodeMode}
                   />
+                  {props.nodeSummaries ? (
+                    <I2pCoreHealthDetails node={props.nodeSummaries.qortium} />
+                  ) : null}
                   <CoreManagerCards
                     management={props.coreManagement}
                     networks={['qortium']}
@@ -742,8 +775,10 @@ export function SettingsPage(props: SettingsPageProps) {
                   </div>
                   <NodeConnectionActions
                     network="qortal"
+                    node={nodes.qortal}
                     onConfigureCustomNode={props.onConfigureCustomNode}
                     onOpenCoreDocs={props.onOpenCoreDocs}
+                    onSetNodeMode={props.onSetNodeMode}
                   />
                   <CoreManagerCards
                     management={props.coreManagement}
@@ -760,12 +795,6 @@ export function SettingsPage(props: SettingsPageProps) {
               ) : null}
               {qortiumEnabled && props.onChainCoreUpdates?.available ? (
                 <OnChainCoreUpdateSettings updates={props.onChainCoreUpdates} />
-              ) : null}
-              {props.appUpdates?.available ? (
-                <HomeUpdateSettings
-                  updates={props.appUpdates}
-                  onOpenReleaseNotes={props.onOpenReleaseNotes}
-                />
               ) : null}
             </div>
           ) : activeSection === 'qdn-apps' &&

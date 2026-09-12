@@ -32,6 +32,75 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## feat: finished-frame startup and a condensed dashboard
+
+2026-09-11
+
+Starting Home on the desktop used to show its work: the window appeared with
+an unstyled "could not start" placeholder, went black, drew a dashboard with
+only the account card, then added the pinned apps and the Node & Core section
+above it (pushing it down), then switched to the user's accent colour, and
+finally reopened the previous tabs. Every one of those was a real intermediate
+state being painted. The window is now created hidden and shown once the
+shell reports itself restored: appearance applied, tabs back, the enabled
+networks known, the account catalogue and pinned apps loaded. The three reads
+that gate that moment (the window's startup payload, the saved shell state
+and the node admin-trust check) are answered in one round trip instead of
+one after another. Three fallbacks (a grace period after the renderer can
+paint, a failed load, and a hard cap) still show the window if the renderer
+never gets that far, and the window's own background now matches the saved
+theme so a light-theme profile never flashes dark.
+
+The dashboard itself lost its "Dashboard" title and the standing "Accounts,
+connections, and QDN apps" tagline; the same slot now shows only real
+notices, such as "Updating Qortium…". Sections have a fixed order — a compact
+account strip first, then Pinned apps, then Home (its installed version and
+update state, now its own section rather than a row inside Node & Core), then
+Node & Core — and each section owns its place from the first render, so a
+read that arrives late fills a reserved space instead of moving what is
+already on screen.
+
+The Account section is now a strip that folds to one line: the title, the
+Locked/Unlocked chip — which is itself the lock/unlock control — and a
+chevron at the right that collapses or expands the rest (remembered across
+restarts). Expanded, it shows the Selected account dropdown with whole
+addresses, the Manage dropdown beside it when the panel is wide enough (and
+the Selected address dropdown for multi-address accounts), and one line per
+network — avatar, network chip, name, address — that wraps only when the
+panel is too narrow, where the chip also shrinks to the network mark. The
+standing New Account / Lock / Unlock button is gone; creating and importing
+stay in the account dropdown's action group.
+
+Pinned apps gets the same fold, remembered separately, and its actions now sit
+beside the title in one row — Apps (the app directory), a new Explore button
+(the assigned Explore app), then Create — wrapping under the title on a
+narrow dashboard instead of breaking onto separate lines. Pinned app tiles
+also fall back to the publisher's avatar whenever the app's favicon is not
+usable right now — still downloading from QDN, or unreadable — not only when
+the node says it is missing; a pin whose app was still arriving used to show
+a monogram for minutes.
+
+The Qortium Home tile is the same enclosed panel as the two above it, with
+its title inside, and it now carries the release-channel switch
+(stable / prerelease) and the "Show install folder" button that used to be
+Settings-only, beside Check for updates. In Settings, the runtime page now
+leads with the Qortium Home block, before the Qortium and Qortal Core
+sections.
+
+Node & Core is condensed to the same kind of tile, foldable like the others,
+with one small card per enabled network: a connection line (network chip,
+status, the connection-mode select, height and peer counts) and a Core line
+(running / stopped, installed version, the install-or-update action when
+there is one, Start or Stop Core). The node URL, the Core API documentation
+and Configure links, Refresh, the build commit, the I2P transport controls
+and the I2P chain/data health lines are no longer on the dashboard; Settings
+→ Runtime, which already had most of them, gains the connection-mode select
+for each network and the Qortium I2P health lines beside its transport panel.
+
+For measuring rather than guessing, the startup log now also records when the
+renderer mounted, when the shell state landed, when the first complete frame
+was reported and when the window was revealed.
+
 ## release: prepare home 2.1.0-beta.2
 
 2026-09-11

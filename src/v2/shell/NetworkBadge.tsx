@@ -9,10 +9,13 @@ export const networkLabels: Readonly<Record<NetworkId, string>> = {
 export function NetworkBadge({
   compact = false,
   network,
+  textOnly = false,
 }: {
   /** Icon only, no frame or text — for dense places like the tab strip. */
   readonly compact?: boolean
   readonly network: NetworkId
+  /** The framed chip with the name alone, no mark — for inline rows. */
+  readonly textOnly?: boolean
 }) {
   if (compact) {
     return (
@@ -29,8 +32,10 @@ export function NetworkBadge({
     )
   }
   return (
-    <span className={`home-v2-network home-v2-network--${network}`}>
-      <NetworkMark network={network} />
+    <span
+      className={`home-v2-network home-v2-network--${network}${textOnly ? ' home-v2-network--text' : ''}`}
+    >
+      {textOnly ? null : <NetworkMark network={network} />}
       <span>{networkLabels[network]}</span>
     </span>
   )
