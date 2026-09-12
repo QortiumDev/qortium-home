@@ -32,6 +32,27 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## feat: the Dashboard navigates in place, and the group badge is an account menu
+
+2026-09-12
+
+Opening something from the Dashboard used to add a tab every time — a pinned
+app, Apps, Explore, Names, a Settings link — so the strip filled with tabs
+while the Dashboard sat behind them. Now the Dashboard's own links go where
+you already are: the Dashboard tab becomes the app (or Settings) in place,
+keeping its spot and its account group, and Back returns to the Dashboard.
+Forward goes to the app again. A pinned app saved for a different account
+still opens its own tab, because it belongs in that account's group. The
+address bar, the "+" button, apps opening tabs, and the toolbar menus are
+unchanged.
+
+The account badge at the head of each tab group is now a menu for that
+account, not only a way to switch groups: it shows the label, address and
+lock state, unlocks the account inline when it is locked (or locks it when
+it is not), and offers "Select this account" for a group that is not the
+selected one. The list of the other groups follows, when there are any. The
+Home badge (tabs with no account) keeps just the group list.
+
 ## fix: install a downloaded Home update from inside Home
 
 2026-09-12

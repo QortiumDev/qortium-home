@@ -64,10 +64,12 @@ export interface TabStripProps {
   readonly accountIdentityLookups?: ReadonlyMap<string, DualIdentityLookupResult>
   readonly loadVisibleAvatar?: VisibleAvatarLoader
   /**
-   * Opens the group picker (the chrome owns it, as an overlay). The badge
-   * that asked reports where it is so the picker can sit under it.
+   * Opens the group menu (the chrome owns it, as an overlay): the account's
+   * own actions -- unlock or lock, make it the selected account -- and the
+   * list of the other groups. The badge that asked reports where it is so
+   * the menu can sit under it, and which group it heads.
    */
-  readonly onOpenGroupPicker?: (position: { x: number; y: number }) => void
+  readonly onOpenGroupPicker?: (position: { x: number; y: number }, groupKey: string) => void
   /**
    * One group at a time -- the active tab's -- with the badge as the way to
    * the others. Decided by the strip's own width when absent.
@@ -263,7 +265,10 @@ function TabGroupBadge({
     account ? account.address : null,
     locked ? t('account.statusLocked') : null,
   ].filter(Boolean).join(' · ')
-  const openable = !!onOpen && (condensed || groupCount > 1)
+  // An account badge always opens its menu (lock, unlock, select); the Home
+  // badge has no account actions, so it opens only when there are other
+  // groups to switch to.
+  const openable = !!onOpen && (!!accountId || condensed || groupCount > 1)
   return (
     <button
       type="button"
@@ -710,7 +715,7 @@ export function TabStrip({
                 loadVisibleAvatar={loadVisibleAvatar}
                 onOpen={(position) => {
                   if (consumeSuppressedClick(`group:${group.key}`)) return
-                  onOpenGroupPicker?.(position)
+                  onOpenGroupPicker?.(position, group.key)
                 }}
                 preferredNetwork={preferredAvatarNetwork}
                 draggable={group.accountId !== null && !!(onReorderGroup || onDetachGroup)}

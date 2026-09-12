@@ -1024,6 +1024,14 @@ type HomeV2ReplaceTabTarget = ReplaceTabTarget
  */
 interface HomeV2OpenAddressOptions {
   readonly forceNewTab?: boolean
+  /**
+   * Navigate THIS internal tab in place instead of opening another: the
+   * Dashboard's own links (pinned apps, Apps, Explore, Names, Settings) go
+   * where the user already is, and Back returns to the Dashboard. Trusted
+   * chrome only; ignored for viewers and transient pages, which keep their
+   * own tabs, and alongside `replaceTarget`.
+   */
+  readonly inTab?: TabId
 }
 
 /**
@@ -2689,6 +2697,91 @@ export function HomeV2LiveApp() {
     [snapshot.identity.id, snapshot.identity.selectedWallet],
   )
 
+  /**
+   * The context an ordinary open binds an app to: a concrete account, an
+   * explicit no-account binding, or (null/undefined) the current account.
+   * Shared by openApp, the in-place Dashboard route and Forward into an app
+   * a tab showed before.
+   */
+  const appTabContext = useCallback(
+    (
+      app: AppDescriptor,
+      tabId: TabId,
+      requestedLocation?: AppTabContext['resourceLocation'],
+      requestedAccountId?: HomeV2AccountBinding,
+    ): AppTabContext => {
+      const bindNoAccount =
+        typeof requestedAccountId === 'object' &&
+        requestedAccountId !== null &&
+        requestedAccountId.bind === 'none'
+      const requestedAccountId_ =
+        typeof requestedAccountId === 'string' ? requestedAccountId : undefined
+      const requestedAccount = requestedAccountId_
+        ? accountCatalogueRef.current.accounts.find(
+            (account) => account.id === requestedAccountId_,
+          )
+        : null
+      if (requestedAccountId_ && !requestedAccount) {
+        throw new Error('The saved Home account is no longer available.')
+      }
+      return {
+        appId: app.id,
+        identityId: requestedAccount
+          ? brand<IdentityId>(`home-v2:identity:${requestedAccount.id}`)
+          : bindNoAccount
+            ? brand<IdentityId>('home-v2:identity:none')
+            : snapshot.identity.id,
+        previewUrl: null,
+        resourceLocation:
+          requestedLocation ??
+          buildAppResourceLocation(app.sourceNetwork, app.resourceIdentity),
+        sourceNetwork: app.sourceNetwork,
+        tabId,
+        walletRef: requestedAccount
+          ? brand<WalletRef>(`home-v2:wallet:${requestedAccount.walletId}`)
+          : bindNoAccount
+            ? null
+            : snapshot.identity.selectedWallet,
+      }
+    },
+    [snapshot.identity.id, snapshot.identity.selectedWallet],
+  )
+
+  // The Dashboard route: the internal tab the user is on becomes the app,
+  // keeping its id, position and group. Its previous page stays in the tab's
+  // history, so Back returns to it.
+  const openAppHere = useCallback(
+    (
+      app: AppDescriptor,
+      tabId: TabId,
+      requestedLocation?: AppTabContext['resourceLocation'],
+      requestedAccountId?: HomeV2AccountBinding,
+    ) => {
+      setShellNotice(null)
+      dispatchProduct({
+        type: 'open-app-here',
+        app,
+        tabId,
+        context: appTabContext(app, tabId, requestedLocation, requestedAccountId),
+      })
+    },
+    [appTabContext],
+  )
+
+  /**
+   * The Dashboard tab the user is looking at, when the active tab IS the
+   * Dashboard page. The Dashboard's own links pass it as `inTab`; anything
+   * else (a Dashboard in another tab, a pin opened from a context menu on a
+   * different page) opens a tab as before.
+   */
+  const activeDashboardTabId = useCallback((): TabId | undefined => {
+    const current = productStateRef.current
+    const entry = current.entries.find((candidate) => candidate.id === current.activeTabId)
+    return entry?.kind === 'internal' && entry.page === 'dashboard' && current.transient === null
+      ? entry.id
+      : undefined
+  }, [])
+
   // A trusted chrome action, never an app-supplied account switch. Resolve the
   // live source and destination synchronously, then create a fresh native tab.
   // Null here is explicit No account, unlike openApp's legacy Current/null.
@@ -2907,6 +3000,13 @@ export function HomeV2LiveApp() {
       // the original as soon as main accepts the hand-over. So a transfer
       // always makes its own tab, and reports which one it made.
       const forceNewTab = options?.forceNewTab === true && !replaceTarget
+      // Only while that tab is still the internal page it was when the link
+      // was clicked; discovery below can take a while, and a tab that has
+      // meanwhile become something else keeps it.
+      const inTab = !replaceTarget && !forceNewTab && options?.inTab &&
+        productStateRef.current.entries.some((entry) => entry.id === options.inTab && entry.kind === 'internal')
+        ? options.inTab
+        : undefined
       try {
         if (replaceTarget) {
           // The tab can close, or be replaced by someone else, between the
@@ -2974,6 +3074,10 @@ export function HomeV2LiveApp() {
             )
             dispatchProduct({ type: 'open-internal', page: internal, tabId })
             return { status: 'opened', tabId }
+          }
+          if (inTab && !isTransientPage(internal)) {
+            dispatchProduct({ type: 'show-internal-here', page: internal, tabId: inTab })
+            return { status: 'opened', tabId: inTab }
           }
           dispatchProduct({
             type: 'navigate',
@@ -3067,6 +3171,10 @@ export function HomeV2LiveApp() {
           replaceTabWithApp(replaceTarget, app, resourceLocation)
           return { status: 'opened' }
         }
+        if (inTab && productStateRef.current.entries.some((entry) => entry.id === inTab && entry.kind === 'internal')) {
+          openAppHere(app, inTab, resourceLocation, requestedAccountId)
+          return { status: 'opened', tabId: inTab }
+        }
         const tabId = openApp(app, resourceLocation, requestedAccountId, forceNewTab)
         // Reported only when a new tab was forced. Otherwise the reducer may
         // have activated an identical existing tab and this id names nothing.
@@ -3077,7 +3185,7 @@ export function HomeV2LiveApp() {
         return { message, status: 'error' }
       }
     },
-    [nodeClient, openApp, openViewer, replaceTabWithApp],
+    [nodeClient, openApp, openAppHere, openViewer, replaceTabWithApp],
   )
 
   // The single entry point behind OPEN_CURRENT_TAB on every host. `tabId` is
@@ -3511,7 +3619,11 @@ export function HomeV2LiveApp() {
 
   const openDashboardPin = useCallback(
     async (pin: BookmarkManagerDashboardPin) => {
-      const result = await openAddress(pin.displayUrl, savedAccountBinding(pin.accountId ?? selectedAccountId))
+      // In place only when the pin binds to the account the Dashboard is
+      // filed under; a pin saved for another account would drag the tab into
+      // that account's group, so it opens its own tab as before.
+      const inTab = !pin.accountId || pin.accountId === selectedAccountId ? activeDashboardTabId() : undefined
+      const result = await openAddress(pin.displayUrl, savedAccountBinding(pin.accountId ?? selectedAccountId), null, { inTab })
       if (result.status !== 'opened') {
         // Reject so the pinned-apps inline alert (role=alert) renders the
         // failure next to the pin the user clicked (toolbar review FIX #1).
@@ -3520,7 +3632,7 @@ export function HomeV2LiveApp() {
         )
       }
     },
-    [openAddress, selectedAccountId],
+    [activeDashboardTabId, openAddress, selectedAccountId],
   )
 
   const getDashboardPinContextMenuItems = useCallback(
@@ -10693,13 +10805,22 @@ export function HomeV2LiveApp() {
           else setShellNotice(t('home2.app.unableToLoad'))
         }).catch(() => setShellNotice(t('home2.app.unableToLoad')))
       } else {
-        if (destination.kind === 'app') {
+        const entry = productState.entries.find(candidate => candidate.id === tabId)
+        // Leaving an app for another app, or for the page the tab showed
+        // before it (Back to the Dashboard): the native view goes with it.
+        if (destination.kind === 'app' || entry?.kind === 'app') {
           invalidateAndroidRuntime('app-replaced', tabId)
           window.homeV2Apps?.invalidateRuntime({ kind: 'app-replaced', tabId })
           void window.homeV2Apps?.destroy({ tabId })
+          androidNavigationControllers.current.delete(tabId)
           setAppReloadVersion(current => current + 1)
         }
-        dispatchProduct({ type: 'traverse-history', tabId, index })
+        // Forward from a page into an app: the page has no app context, so
+        // the shell supplies the one it would open the app with now.
+        const context = destination.kind === 'app' && entry?.kind === 'internal'
+          ? appTabContext(destination.app, tabId, destination.location)
+          : undefined
+        dispatchProduct({ type: 'traverse-history', tabId, index, ...(context ? { context } : {}) })
       }
       return
     }
@@ -10921,14 +11042,16 @@ export function HomeV2LiveApp() {
           // Resolved at click time from the live assignment, so a user who
           // points Apps at their own app is honoured; falls back to the
           // shipped default when settings are unavailable.
+          const inTab = activeDashboardTabId()
           const settings = await qdnAppsManagement.client?.get().catch(() => null)
-          await openAddress(resolveHomeV2AppsAppUrl(settings ?? null))
+          await openAddress(resolveHomeV2AppsAppUrl(settings ?? null), undefined, null, { inTab })
         },
         // Same resolution for Explore: the user's assigned Explore app, else
         // the shipped default.
         onExplore: async () => {
+          const inTab = activeDashboardTabId()
           const settings = await qdnAppsManagement.client?.get().catch(() => null)
-          await openAddress(resolveHomeV2ExploreAppUrl(settings ?? null))
+          await openAddress(resolveHomeV2ExploreAppUrl(settings ?? null), undefined, null, { inTab })
         },
         pins: collectionsSnapshot?.dashboardPins ?? [],
         status: dashboardPinsPhase,
@@ -10969,9 +11092,16 @@ export function HomeV2LiveApp() {
       onAppNavigationChanged={handleAppNavigationChanged}
       onAppNavigationControllerChange={handleAppNavigationControllerChange}
       onAppTitleChanged={handleAppTitleChanged}
-      onNavigate={(destination) =>
+      onNavigate={(destination) => {
+        // From the Dashboard page, another Home page takes its tab over
+        // (Back returns); elsewhere `navigate` focuses or opens as before.
+        const inTab = activeDashboardTabId()
+        if (inTab && destination !== 'dashboard' && !isTransientPage(destination)) {
+          dispatchProduct({ type: 'show-internal-here', page: destination, tabId: inTab })
+          return
+        }
         dispatchProduct({ type: 'navigate', destination })
-      }
+      }}
       onOpenReleaseNotes={(target) => {
         setReleaseNotesTarget(target)
         dispatchProduct({ type: 'show-transient', destination: { kind: 'releases', target } })
@@ -11027,6 +11157,16 @@ export function HomeV2LiveApp() {
             accountId,
             addressId: accountId ? account?.addresses[0]?.id ?? accountId : null,
           }),
+        )
+      }}
+      onSelectTabGroupAccount={(accountId) => {
+        // The badge names an address (catalogue id); the vault selects by
+        // wallet id plus address id.
+        const account = accountCatalogueRef.current.accounts.find((candidate) => candidate.id === accountId)
+        if (!vaultClient || !account) return
+        setUseCatalogueActiveAccount(false)
+        void runVaultOperation(() =>
+          vaultClient.select({ accountId: account.walletId, addressId: account.id }),
         )
       }}
       onSelectAddress={(addressId) => {
@@ -11110,6 +11250,9 @@ export function HomeV2LiveApp() {
       }}
       onOpenApp={openApp}
       onOpenAddress={openAddress}
+      onOpenAddressFromDashboard={(address) =>
+        openAddress(address, undefined, null, { inTab: activeDashboardTabId() })
+      }
       onOpenAddressInTab={openAddressInTab}
       onOpenAsWidget={openTabAsWidget}
       onOpenTabWithAccount={shellStateReady && resourceViewer?.sourceTabId !== productState.activeTabId

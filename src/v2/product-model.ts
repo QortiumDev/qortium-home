@@ -110,6 +110,28 @@ export type ProductAction =
        */
       readonly fromResourceLocation: string
     }
+  /**
+   * Turns an INTERNAL tab into an app tab in place -- the Dashboard tile
+   * route: the page the user is on becomes the app, keeping its id, its
+   * position and therefore its group, and Back returns to the page. Trusted
+   * chrome only; the bridge cannot reach it. No dedup: the user asked to go
+   * somewhere in THIS tab, so an identical tab elsewhere is left alone.
+   */
+  | {
+      readonly type: 'open-app-here'
+      readonly app: AppDescriptor
+      readonly context: AppTabContext
+      readonly tabId: TabId
+    }
+  /**
+   * Turns any tab into an internal page in place (the inverse route, and how
+   * Back reaches a page a tab used to show). Trusted chrome only.
+   */
+  | {
+      readonly type: 'show-internal-here'
+      readonly page: TabPageId
+      readonly tabId: TabId
+    }
   | { readonly type: 'activate-tab'; readonly tabId: TabId }
   | { readonly type: 'close-tab'; readonly tabId: TabId }
   | {
@@ -747,6 +769,61 @@ function setTabTitle(
   })
 }
 
+function openAppHere(
+  state: ProductState,
+  action: Extract<ProductAction, { readonly type: 'open-app-here' }>,
+): ProductState {
+  const index = state.entries.findIndex((entry) => entry.id === action.tabId)
+  if (index < 0) {
+    throw new ProductModelError('TAB_NOT_FOUND', `Tab ${action.tabId} was not found.`)
+  }
+  if (state.entries[index].kind !== 'internal') {
+    // An app tab replaces itself through replace-tab-app, which carries the
+    // compare-and-swap an app-driven replacement needs; a viewer never turns
+    // into an app under the user.
+    throw new ProductModelError('TAB_NOT_FOUND', `Tab ${action.tabId} is not an internal page.`)
+  }
+  assertAppTabTarget(action.app, action.context, action.tabId)
+  const entries = [...state.entries]
+  entries[index] = {
+    kind: 'app',
+    id: action.tabId,
+    appId: action.app.id,
+    title: action.app.title,
+    context: { ...action.context, tabId: action.tabId },
+  }
+  return freezeProductState({
+    ...state,
+    entries,
+    transient: null,
+    activeTabId: action.tabId,
+    revision: state.revision + 1,
+  })
+}
+
+function showInternalHere(
+  state: ProductState,
+  action: Extract<ProductAction, { readonly type: 'show-internal-here' }>,
+): ProductState {
+  const index = state.entries.findIndex((entry) => entry.id === action.tabId)
+  if (index < 0) {
+    throw new ProductModelError('TAB_NOT_FOUND', `Tab ${action.tabId} was not found.`)
+  }
+  const current = state.entries[index]
+  if (current.kind === 'internal' && current.page === action.page) {
+    return activateTab(state, action.tabId)
+  }
+  const entries = [...state.entries]
+  entries[index] = { kind: 'internal', id: action.tabId, page: action.page }
+  return freezeProductState({
+    ...state,
+    entries,
+    transient: null,
+    activeTabId: action.tabId,
+    revision: state.revision + 1,
+  })
+}
+
 function openInternal(
   state: ProductState,
   page: TabPageId,
@@ -867,6 +944,10 @@ export function reduceProductState(
     }
     case 'open-app':
       return openApp(state, action)
+    case 'open-app-here':
+      return openAppHere(state, action)
+    case 'show-internal-here':
+      return showInternalHere(state, action)
     case 'replace-tab-app':
       return replaceTabApp(state, action)
     case 'activate-tab':

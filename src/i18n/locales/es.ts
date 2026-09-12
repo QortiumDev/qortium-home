@@ -1003,6 +1003,7 @@ export const es: Record<TranslationKey, string> = {
   "home2.tabs.closeFrom": "Cerrar {label} de {network}",
   "home2.tabs.newTab": "Pestaña nueva",
   "home2.tabs.groups": "Grupos de pestañas",
+  "home2.tabs.selectAccount": "Seleccionar esta cuenta",
   "home2.tabs.welcome": "Bienvenida",
   "qdnApps.accountDecryptControlsTitle": "Lectura de datos cifrados",
   "qdnApps.accountDirectChatControlsTitle": "Acceso a mensajes directos",

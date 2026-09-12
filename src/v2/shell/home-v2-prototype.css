@@ -678,6 +678,70 @@ body,
   font-weight: 700;
 }
 
+/* The badge's own account: identity, lock state and its actions, above the
+   list of the other groups. */
+.home-v2-tab-group-picker__account {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.35rem 0.5rem 0.25rem;
+  max-width: 18rem;
+}
+
+.home-v2-tab-group-picker__identity {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.home-v2-tab-group-picker__identity code {
+  font-size: var(--v2-type-small);
+  color: var(--v2-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.home-v2-tab-group-picker__state {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: var(--v2-type-small);
+  color: var(--v2-muted);
+}
+
+.home-v2-tab-group-picker__state[data-account-state='locked'] {
+  color: var(--v2-ink);
+}
+
+.home-v2-tab-group-picker__account > button {
+  appearance: none;
+  background: var(--v2-accent);
+  border: 0;
+  border-radius: 0.35rem;
+  color: var(--v2-accent-ink);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+  padding: 0.4rem 0.75rem;
+  text-align: start;
+}
+
+.home-v2-tab-group-picker__account > button[data-home-v2-tab-group-action='lock'] {
+  background: none;
+  color: inherit;
+  border: 1px solid var(--v2-line-strong);
+  font-weight: 500;
+}
+
+.home-v2-tab-group-picker__account > hr {
+  width: 100%;
+  margin: 0.25rem 0 0;
+  border: 0;
+  border-top: 1px solid var(--v2-line);
+}
+
 .home-v2-saved-tab-error {
   display: flex;
   justify-content: space-between;

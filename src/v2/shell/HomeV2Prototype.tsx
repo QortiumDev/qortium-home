@@ -193,6 +193,12 @@ export interface HomeV2PrototypeProps {
   readonly onOpenApp?: (app: AppDescriptor) => void
   readonly onOpenAddress?: (address: string) => Promise<AddressOpenResult>
   /**
+   * The Dashboard's own links: navigate the Dashboard tab in place (Back
+   * returns to it) rather than opening another tab. Falls back to
+   * `onOpenAddress` when absent.
+   */
+  readonly onOpenAddressFromDashboard?: (address: string) => Promise<AddressOpenResult>
+  /**
    * OPEN_CURRENT_TAB: replace one app tab's content in place. Reaches only the
    * app stage — the address bar always opens a tab of its own.
    */
@@ -248,6 +254,12 @@ export interface HomeV2PrototypeProps {
   readonly onOpenTabWithAccount?: (tabId: string, resourceLocation: string, accountId: string | null) => Promise<void>
   readonly onLockAccount?: (accountId?: string) => void
   readonly onSelectAccount?: (accountId: string | null) => void
+  /**
+   * From a tab group's badge menu: make that group's account (a catalogue
+   * account id -- an address -- not a wallet id like `onSelectAccount`'s)
+   * the selected account.
+   */
+  readonly onSelectTabGroupAccount?: (accountId: string) => void
   readonly onSelectAddress?: (addressId: string) => void
   readonly onAccountManage?: (action: HomeV2AccountManageAction) => void
   readonly onCreateAccount?: () => void
@@ -1266,6 +1278,7 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
         onDetachGroup={props.onDetachGroup}
         onLockAccount={props.onLockAccount}
         onUnlockAccount={props.onSubmitAccountUnlock}
+        onSelectAccount={props.onSelectTabGroupAccount}
         onOpenTabWithAccount={props.onOpenTabWithAccount}
         rememberedUnlockAccountIds={props.vaultState?.accounts.flatMap((account) =>
           account.security.rememberUnlock && !account.security.manuallyLocked
@@ -1413,7 +1426,11 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
               ) : entry.page === 'newtab' ? (
                 <NewTabPage {...props} />
               ) : entry.page === 'dashboard' ? (
-                <Dashboard {...props} onOpenSettingsSection={openSettingsSection} />
+                <Dashboard
+                  {...props}
+                  onOpenAddress={props.onOpenAddressFromDashboard ?? props.onOpenAddress}
+                  onOpenSettingsSection={openSettingsSection}
+                />
               ) : entry.page === 'welcome' ? (
                 props.onboarding ? (
               <HomeV2WelcomePage
