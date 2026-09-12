@@ -999,6 +999,7 @@ export const hu: Record<TranslationKey, string> = {
   "home2.settings.textSize.extraSmall": "Nagyon kicsi",
   "home2.tabs.closeFrom": "{label} bezárása innen: {network}",
   "home2.tabs.newTab": "Új lap",
+  "home2.tabs.groups": "Lapcsoportok",
   "home2.tabs.welcome": "Üdvözöljük",
   "qdnApps.accountDecryptControlsTitle": "Titkosított adatok olvasása",
   "qdnApps.accountDirectChatControlsTitle": "Közvetlen üzenetek hozzáférése",

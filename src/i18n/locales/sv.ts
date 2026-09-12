@@ -999,6 +999,7 @@ export const sv: Record<TranslationKey, string> = {
   "home2.settings.windowDescription": "Vad som händer när du stänger huvudfönstret.",
   "home2.tabs.closeFrom": "Stäng {label} från {network}",
   "home2.tabs.newTab": "Ny flik",
+  "home2.tabs.groups": "Flikgrupper",
   "home2.tabs.welcome": "Välkommen",
   "qdnApps.accountDecryptControlsTitle": "Läsa krypterade data",
   "qdnApps.accountDirectChatControlsTitle": "Åtkomst till direktmeddelanden",

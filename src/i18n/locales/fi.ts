@@ -999,6 +999,7 @@ export const fi: Record<TranslationKey, string> = {
   "home2.settings.textSize.extraSmall": "Erittäin pieni",
   "home2.tabs.closeFrom": "Sulje {label} verkosta {network}",
   "home2.tabs.newTab": "Uusi välilehti",
+  "home2.tabs.groups": "Välilehtiryhmät",
   "home2.tabs.welcome": "Tervetuloa",
   "qdnApps.accountDecryptControlsTitle": "Salattujen tietojen lukeminen",
   "qdnApps.accountDirectChatControlsTitle": "Yksityisviestien käyttöoikeus",

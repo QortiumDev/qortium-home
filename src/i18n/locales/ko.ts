@@ -999,6 +999,7 @@ export const ko: Record<TranslationKey, string> = {
   "home2.settings.windowDescription": "기본 창을 닫을 때의 동작입니다.",
   "home2.tabs.closeFrom": "{network}의 {label} 닫기",
   "home2.tabs.newTab": "새 탭",
+  "home2.tabs.groups": "탭 그룹",
   "home2.tabs.welcome": "환영합니다",
   "qdnApps.accountDecryptControlsTitle": "암호화된 데이터 읽기",
   "qdnApps.accountDirectChatControlsTitle": "다이렉트 메시지 접근",

@@ -999,6 +999,7 @@ export const fr: Record<TranslationKey, string> = {
   "home2.settings.textSize.extraSmall": "Très petite",
   "home2.tabs.closeFrom": "Fermer {label} depuis {network}",
   "home2.tabs.newTab": "Nouvel onglet",
+  "home2.tabs.groups": "Groupes d’onglets",
   "home2.tabs.welcome": "Bienvenue",
   "qdnApps.accountDecryptControlsTitle": "Lecture des données chiffrées",
   "qdnApps.accountDirectChatControlsTitle": "Accès aux messages directs",

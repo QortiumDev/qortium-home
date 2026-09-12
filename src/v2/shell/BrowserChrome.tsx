@@ -30,6 +30,7 @@ import {
 } from '../new-tab-preference'
 import { HomeMark } from './ProductMarks'
 import { internalTabLabelKeys, TabStrip } from './TabStrip'
+import { groupTabsByAccount } from './tab-groups'
 import {
   HomeV2BookmarkToolbar,
   type HomeV2BookmarkToolbarProps,
@@ -143,6 +144,8 @@ export interface BrowserChromeProps {
    * suspending the view (snapshot in its place) for as long as it is true.
    */
   readonly onOverlayOpenChange?: (open: boolean) => void
+  /** Forces the strip's one-group-at-a-time mode; the strip measures itself when absent. */
+  readonly tabStripCondensed?: boolean
 }
 
 export type AddressOpenResult =
@@ -263,6 +266,7 @@ export function BrowserChrome({
   onOpenCoreSettings,
   onSetNodeMode,
   onOverlayOpenChange,
+  tabStripCondensed,
 }: BrowserChromeProps) {
   // Retain only presentation labels after removal; authority always comes from
   // the current catalogue, so this cannot make a removed account unlockable.
@@ -335,6 +339,22 @@ export function BrowserChrome({
   useEffect(() => {
     setOverlayOpen('tab-context-menu', tabMenu !== null)
   }, [tabMenu, setOverlayOpen])
+  // The tab-group picker: the strip shows tabs grouped by account, and on a
+  // narrow strip only the active tab's group. This lists every group so the
+  // others stay reachable. An overlay for the same reason as the tab menu.
+  const [groupPicker, setGroupPicker] = useState<{ x: number; y: number } | null>(null)
+  useEffect(() => {
+    setOverlayOpen('tab-group-picker', groupPicker !== null)
+  }, [groupPicker, setOverlayOpen])
+  // Which tab each group was last on, so switching groups returns to it
+  // rather than to the group's first tab.
+  const lastActiveByGroup = useRef(new Map<string, TabId>())
+  useEffect(() => {
+    const activeId = productState.activeTabId
+    const group = groupTabsByAccount(productState.entries)
+      .find((candidate) => candidate.entries.some((entry) => entry.id === activeId))
+    if (group && activeId) lastActiveByGroup.current.set(group.key, activeId)
+  }, [productState.activeTabId, productState.entries])
   const overlayOpen = openOverlayIds.length > 0
   const onOverlayOpenChangeRef = useRef(onOverlayOpenChange)
   useEffect(() => {
@@ -527,6 +547,8 @@ export function BrowserChrome({
           loadVisibleAppIcon={loadVisibleAppIcon}
           accountIdentityLookups={accountIdentityLookups}
           loadVisibleAvatar={loadVisibleAvatar}
+          onOpenGroupPicker={(position) => setGroupPicker(position)}
+          condensed={tabStripCondensed}
         />
       </div>
       <div className="home-v2-browser-toolbar">
@@ -804,6 +826,58 @@ export function BrowserChrome({
                 {t('tabs.reopenClosedTab')}
               </button>
             ) : null}
+          </div>
+        </>
+      ) : null}
+      {groupPicker ? (
+        <>
+          <div
+            className="home-v2-tab-menu__backdrop"
+            onClick={() => setGroupPicker(null)}
+            onContextMenu={(event) => {
+              event.preventDefault()
+              setGroupPicker(null)
+            }}
+          />
+          <div
+            className="home-v2-tab-menu home-v2-tab-group-picker"
+            data-home-v2-tab-group-picker
+            role="menu"
+            aria-label={t('home2.tabs.groups')}
+            style={{ left: groupPicker.x, top: groupPicker.y }}
+          >
+            {groupTabsByAccount(productState.entries).map((group, index) => {
+              const account = group.accountId
+                ? accountCatalogue?.accounts.find((candidate) => candidate.id === group.accountId)
+                : undefined
+              const label = group.accountId
+                ? account?.label
+                  ?? rememberedAccountLabels.current.get(group.accountId)
+                  ?? t('home2.account.unavailableAccount')
+                : t('address.suggestionHome')
+              const isActive = group.entries.some((entry) => entry.id === productState.activeTabId)
+              const target = lastActiveByGroup.current.get(group.key) ?? group.entries[0].id
+              return (
+                <button
+                  key={group.key}
+                  autoFocus={index === 0}
+                  type="button"
+                  role="menuitemradio"
+                  aria-checked={isActive}
+                  data-home-v2-tab-group-pick={group.key}
+                  onClick={() => {
+                    setGroupPicker(null)
+                    if (!isActive) onActivateTab?.(target)
+                  }}
+                >
+                  <span className="home-v2-tab-group-picker__image">
+                    {group.accountId ? label.slice(0, 2).toUpperCase() : <HomeMark />}
+                  </span>
+                  <span className="home-v2-tab-group-picker__label">{label}</span>
+                  <span className="home-v2-tab-group-picker__count">{group.entries.length}</span>
+                </button>
+              )
+            })}
           </div>
         </>
       ) : null}

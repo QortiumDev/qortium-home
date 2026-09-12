@@ -1070,7 +1070,8 @@ try {
   act(() => renderAccountChrome(catalogue))
   assert.equal(accountButton().getAttribute('aria-label'), 'Tab account: Bob · Unlocked')
   assert.equal(container.querySelector('.home-v2-account-avatars'), null, 'Alice avatars cannot label Bob')
-  assert.equal(container.querySelector('.home-v2-tab__account')?.getAttribute('aria-label'), 'Tab account: Bob')
+  // The account is shown once, on the badge heading Bob's tab group.
+  assert.equal(container.querySelector('[data-tab-group-badge="account:wallet-b:1"]')?.getAttribute('aria-label'), 'Tab account: Bob')
   act(() => accountButton().click())
   const menuAction = (label: string) => [...container.querySelectorAll<HTMLButtonElement>('.home-v2-chrome-menu__panel > button')].find((button) => button.textContent === label)!
   assert.ok(menuAction('Lock account'))
@@ -1343,7 +1344,7 @@ try {
         return result
       }} />,
   )
-  const tabChip = () => container.querySelector<HTMLElement>('.home-v2-tab__account')!
+  const tabChip = () => container.querySelector<HTMLElement>('[data-tab-group-badge="account:wallet-b:1"]')!
   const flush = async (times = 6) => {
     for (let index = 0; index < times; index += 1) await Promise.resolve()
   }
@@ -1357,11 +1358,11 @@ try {
     await flush()
   })
   const chipImage = () => tabChip().querySelector('img')
-  assert.ok(chipImage(), 'a published avatar must render as an image in the tab chip')
+  assert.ok(chipImage(), 'a published avatar must render as an image on the group badge')
   assert.equal(
     chipImage()?.getAttribute('class'),
-    'home-v2-presence__avatar home-v2-tab__account-avatar',
-    'the chip class is what bounds the image to the tab strip',
+    'home-v2-presence__avatar home-v2-tab-group__avatar',
+    'the badge class is what bounds the image to the tab strip',
   )
   // The tab's OWN network decides which chain's avatar is asked for.
   assert.deepEqual(avatarRequests, ['qortium:bob-avatar-ready'])
@@ -1539,6 +1540,79 @@ try {
   } finally {
     window.setTimeout = originalSetTimeout
     window.clearTimeout = originalClearTimeout
+  }
+
+  // --- Tabs are grouped by account; the badge opens the group picker ----------
+  // Two accounts plus the Dashboard: three groups, Home first. The badge is
+  // the one place the account shows; the picker lists every group with its
+  // tab count, registers as an overlay like the tab menu, and switching to a
+  // group returns to the tab that group was last on.
+  {
+    const app = fixtureApp(fixtureIds.chatApp)
+    // A second app for Bob's second tab: opening the same app for the same
+    // account again focuses the existing tab rather than opening another.
+    const secondApp = fixtureApp(fixtureIds.walletsApp)
+    const alice = { id: 'wallet-a:1', walletId: 'wallet-a', address: 'QAliceAddress', addressIndex: 1, isUnlocked: true, label: 'Alice', supportsDerivedAddresses: true }
+    const bob = { id: 'wallet-b:1', walletId: 'wallet-b', address: 'QBobAddress', addressIndex: 1, isUnlocked: false, label: 'Bob', supportsDerivedAddresses: true }
+    const twoAccounts: HomeV2AccountCatalogue = { activeAccountId: 'wallet-a:1', accounts: [alice, bob] }
+    let grouped = reduceProductState(createProductState(), {
+      type: 'open-app', app, tabId: 'tab:bob-1' as TabId,
+      context: { ...fixtureTabContext(app, 'tab:bob-1' as TabId), identityId: 'home-v2:identity:wallet-b:1' as IdentityId, walletRef: 'wallet-b' as WalletRef },
+    })
+    grouped = reduceProductState(grouped, {
+      type: 'open-app', app, tabId: 'tab:alice-1' as TabId,
+      context: { ...fixtureTabContext(app, 'tab:alice-1' as TabId), identityId: 'home-v2:identity:wallet-a:1' as IdentityId, walletRef: 'wallet-a' as WalletRef },
+    })
+    grouped = reduceProductState(grouped, {
+      type: 'open-app', app: secondApp, tabId: 'tab:bob-2' as TabId,
+      context: { ...fixtureTabContext(secondApp, 'tab:bob-2' as TabId), identityId: 'home-v2:identity:wallet-b:1' as IdentityId, walletRef: 'wallet-b' as WalletRef },
+    })
+    // Bob's second tab was the last one active in Bob's group (the chrome
+    // sees that state before the switch to Alice's tab); now on Alice's.
+    const onBobsSecond = grouped
+    grouped = reduceProductState(grouped, { type: 'activate-tab', tabId: 'tab:alice-1' as TabId })
+    const activations: string[] = []
+    const groupOverlays: boolean[] = []
+    const renderGrouped = (productState = grouped, condensed?: boolean) => root.render(
+      <BrowserChrome key="tab-groups" snapshot={homeV2Fixture} productState={productState}
+        accountCatalogue={twoAccounts} onActivateTab={(id) => activations.push(String(id))}
+        onOverlayOpenChange={(open) => groupOverlays.push(open)}
+        tabStripCondensed={condensed} />,
+    )
+    act(() => renderGrouped(onBobsSecond))
+    act(() => renderGrouped())
+    const groupKeys = () => [...container.querySelectorAll<HTMLElement>('.home-v2-tab-group')].map((group) => group.dataset.tabGroup)
+    assert.deepEqual(groupKeys(), ['home', 'account:wallet-b:1', 'account:wallet-a:1'])
+    const tabsIn = (key: string) => [...container.querySelectorAll<HTMLElement>(`[data-tab-group="${key}"] .home-v2-tab`)].map((tab) => tab.dataset.tabId)
+    assert.deepEqual(tabsIn('account:wallet-b:1'), ['tab:bob-1', 'tab:bob-2'])
+    assert.deepEqual(tabsIn('account:wallet-a:1'), ['tab:alice-1'])
+    assert.equal(container.querySelectorAll('.home-v2-tab__account').length, 0, 'no per-tab chip any more')
+    const badge = (key: string) => container.querySelector<HTMLButtonElement>(`[data-tab-group-badge="${key}"]`)!
+    assert.equal(badge('account:wallet-b:1').getAttribute('aria-label'), 'Tab account: Bob')
+    assert.equal(badge('account:wallet-b:1').dataset.locked, 'true', "Bob's lock state rides on the badge")
+    assert.equal(badge('account:wallet-a:1').dataset.locked, 'false')
+    assert.equal(badge('home').getAttribute('aria-label'), 'Home')
+
+    // The picker.
+    act(() => badge('account:wallet-a:1').click())
+    // (The chrome reports its initial closed state on mount.)
+    assert.deepEqual(groupOverlays, [false, true], 'the picker registers as an overlay')
+    const picks = () => [...container.querySelectorAll<HTMLButtonElement>('[data-home-v2-tab-group-pick]')]
+    assert.deepEqual(picks().map((pick) => pick.dataset.homeV2TabGroupPick), ['home', 'account:wallet-b:1', 'account:wallet-a:1'])
+    assert.deepEqual(picks().map((pick) => pick.querySelector('.home-v2-tab-group-picker__count')?.textContent), ['1', '2', '1'])
+    assert.deepEqual(picks().map((pick) => pick.getAttribute('aria-checked')), ['false', 'false', 'true'])
+    const bobPick = picks()[1]
+    act(() => bobPick.click())
+    assert.deepEqual(activations, ['tab:bob-2'], "switching to Bob's group returns to the tab it was last on")
+    assert.deepEqual(groupOverlays, [false, true, false])
+    assert.equal(container.querySelector('[data-home-v2-tab-group-picker]'), null)
+
+    // Condensed: only the active tab's group is drawn; the badge still opens
+    // the picker, so the other groups remain one tap away.
+    act(() => renderGrouped(grouped, true))
+    assert.deepEqual(groupKeys(), ['account:wallet-a:1'])
+    assert.equal(badge('account:wallet-a:1').disabled, false)
+    act(() => renderGrouped(grouped, false))
   }
 } finally {
   act(() => root.unmount())

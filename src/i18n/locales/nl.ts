@@ -999,6 +999,7 @@ export const nl: Record<TranslationKey, string> = {
   "home2.settings.windowDescription": "Wat er gebeurt als je het hoofdvenster sluit.",
   "home2.tabs.closeFrom": "{label} van {network} sluiten",
   "home2.tabs.newTab": "Nieuw tabblad",
+  "home2.tabs.groups": "Tabbladgroepen",
   "home2.tabs.welcome": "Welkom",
   "qdnApps.accountDecryptControlsTitle": "Versleutelde gegevens lezen",
   "qdnApps.accountDirectChatControlsTitle": "Toegang tot directe berichten",

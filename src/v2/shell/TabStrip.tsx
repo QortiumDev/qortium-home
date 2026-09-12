@@ -1,11 +1,12 @@
 import {
   useEffect,
   useRef,
+  useState,
   type KeyboardEvent,
   type MouseEvent,
   type PointerEvent,
 } from 'react'
-import { Compass, File, LayoutDashboard, Lock, Settings } from 'lucide-react'
+import { ChevronDown, Compass, File, LayoutDashboard, Lock, Settings } from 'lucide-react'
 import type { TabId } from '../contracts'
 import type { ProductState, ShellEntry, TabPageId } from '../product-model'
 import { t, type TranslationKey } from '../../i18n'
@@ -22,6 +23,7 @@ import type {
 import { savedEntryAccountId } from './account-context'
 import { VisibleIdentityAvatar } from './VisibleIdentityAvatar'
 import { parseViewerLocation } from '../viewer-location'
+import { groupTabsByAccount, groupedTabOrder, type TabGroup } from './tab-groups'
 
 export interface TabStripProps {
   readonly productState: ProductState
@@ -61,7 +63,20 @@ export interface TabStripProps {
    */
   readonly accountIdentityLookups?: ReadonlyMap<string, DualIdentityLookupResult>
   readonly loadVisibleAvatar?: VisibleAvatarLoader
+  /**
+   * Opens the group picker (the chrome owns it, as an overlay). The badge
+   * that asked reports where it is so the picker can sit under it.
+   */
+  readonly onOpenGroupPicker?: (position: { x: number; y: number }) => void
+  /**
+   * One group at a time -- the active tab's -- with the badge as the way to
+   * the others. Decided by the strip's own width when absent.
+   */
+  readonly condensed?: boolean
 }
+
+/** Below this strip width only the active tab's group is shown. */
+const CONDENSED_STRIP_WIDTH_PX = 600
 
 export const internalTabLabelKeys: Readonly<Record<TabPageId, TranslationKey>> = {
   dashboard: 'common.dashboard',
@@ -177,6 +192,92 @@ function entryLabel(entry: ShellEntry): string {
     : entry.title
 }
 
+/**
+ * The badge that heads a group: the Home mark for account-less tabs, the
+ * account's avatar (or initials) plus its lock state otherwise. It is the one
+ * place the account is shown -- the per-tab chip used to repeat it on every
+ * tab -- and it opens the group picker.
+ */
+function TabGroupBadge({
+  group,
+  groupCount,
+  condensed,
+  accountCatalogue,
+  rememberedAccountLabels,
+  accountIdentityLookups,
+  loadVisibleAvatar,
+  onOpen,
+}: {
+  readonly group: TabGroup
+  readonly groupCount: number
+  readonly condensed: boolean
+  readonly accountCatalogue?: HomeV2AccountCatalogue
+  readonly rememberedAccountLabels?: ReadonlyMap<string, string>
+  readonly accountIdentityLookups?: ReadonlyMap<string, DualIdentityLookupResult>
+  readonly loadVisibleAvatar?: VisibleAvatarLoader
+  readonly onOpen?: (position: { x: number; y: number }) => void
+}) {
+  const accountId = group.accountId
+  const account = accountId
+    ? accountCatalogue?.accounts.find((candidate) => candidate.id === accountId)
+    : undefined
+  const label = accountId
+    ? account?.label ?? rememberedAccountLabels?.get(accountId) ?? t('home2.account.unavailableAccount')
+    : t('address.suggestionHome')
+  const locked = !!accountId && !account?.isUnlocked
+  // The avatar follows the group's first tab's network: one account can have
+  // published a different avatar on each chain.
+  const network = accountId ? tabNetwork(group.entries[0]) : null
+  const identity = accountId && network
+    ? accountIdentityLookups?.get(accountId)?.networks[network]
+    : undefined
+  const initials = accountId ? label.slice(0, 2).toUpperCase() : ''
+  // The accessible name is the account alone (the packaged detach smoke reads
+  // it); the address and lock state ride on the tooltip.
+  const name = accountId ? `${t('home2.account.tabAccount')}: ${label}` : label
+  const title = [
+    name,
+    account ? account.address : null,
+    locked ? t('account.statusLocked') : null,
+  ].filter(Boolean).join(' · ')
+  const openable = !!onOpen && (condensed || groupCount > 1)
+  return (
+    <button
+      type="button"
+      className="home-v2-tab-group__badge"
+      data-tab-group-badge={group.key}
+      data-locked={locked ? 'true' : 'false'}
+      title={openable ? `${title} · ${t('home2.tabs.groups')}` : title}
+      aria-label={name}
+      aria-haspopup={openable ? 'menu' : undefined}
+      disabled={!openable}
+      onClick={(event) => {
+        const bounds = event.currentTarget.getBoundingClientRect()
+        onOpen?.({ x: bounds.left, y: bounds.bottom })
+      }}
+    >
+      <span className="home-v2-tab-group__image">
+        {!accountId ? (
+          <HomeMark className="home-v2-tab-group__home" />
+        ) : identity?.avatar && network && loadVisibleAvatar ? (
+          <VisibleIdentityAvatar
+            className="home-v2-tab-group__avatar"
+            fallback={initials}
+            identity={identity}
+            loader={loadVisibleAvatar}
+            network={network}
+            query={identity.primaryName ?? label}
+          />
+        ) : (
+          initials
+        )}
+      </span>
+      {locked ? <Lock className="home-v2-tab-group__lock" size={10} aria-hidden="true" /> : null}
+      {openable ? <ChevronDown className="home-v2-tab-group__chevron" size={12} aria-hidden="true" /> : null}
+    </button>
+  )
+}
+
 export function TabStrip({
   productState,
   accountCatalogue,
@@ -192,6 +293,8 @@ export function TabStrip({
   loadVisibleAppIcon,
   accountIdentityLookups,
   loadVisibleAvatar,
+  onOpenGroupPicker,
+  condensed,
 }: TabStripProps) {
   const tabElements = useRef(new Map<string, HTMLDivElement>())
   const stripRef = useRef<HTMLDivElement | null>(null)
@@ -199,6 +302,22 @@ export function TabStrip({
   const detachDragListeners = useRef<(() => void) | null>(null)
   const suppressClickKey = useRef<string | null>(null)
   useEffect(() => () => detachDragListeners.current?.(), [])
+  // Width-driven: a phone, or a narrow desktop window, shows one group.
+  const [measuredCondensed, setMeasuredCondensed] = useState(false)
+  useEffect(() => {
+    const element = stripRef.current
+    if (!element || typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver((entries) => {
+      const width = entries[0]?.contentRect.width ?? element.clientWidth
+      setMeasuredCondensed(width < CONDENSED_STRIP_WIDTH_PX)
+    })
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [])
+  const isCondensed = condensed ?? measuredCondensed
+  const groups = groupTabsByAccount(productState.entries)
+  const activeGroupKey = groups.find((group) =>
+    group.entries.some((entry) => entry.id === productState.activeTabId))?.key ?? groups[0]?.key
 
   const orderedKeys = () => productState.entries.map((entry) => entry.id as string)
 
@@ -217,12 +336,27 @@ export function TabStrip({
     ) {
       return
     }
-    // Live reorder across the whole strip: internal pages and app tabs are one
-    // ordered list, so a tab can be dragged anywhere among its siblings.
-    const keys = orderedKeys()
-    const fromIndex = keys.indexOf(drag.key)
-    if (fromIndex < 0 || keys.length < 2) return
-    const siblings = keys.filter((key) => key !== drag.key)
+    // Live reorder WITHIN the tab's group. The strip is one flat, user-ordered
+    // list underneath, but a tab dragged over another account's group would
+    // read as moving it to that account -- a re-binding with permission
+    // consequences, never a side effect of a drag -- so the candidates are
+    // the group's own tabs and the drop lands at the nearest end of them.
+    const flatKeys = orderedKeys()
+    const fromIndex = flatKeys.indexOf(drag.key)
+    if (fromIndex < 0 || flatKeys.length < 2) return
+    const group = groupTabsByAccount(productState.entries)
+      .find((candidate) => candidate.entries.some((entry) => entry.id === drag.key))
+    const siblings = (group?.entries ?? [])
+      .map((entry) => entry.id as string)
+      .filter((key) => key !== drag.key)
+    if (onDropOnBookmarkToolbar) {
+      const overToolbar = isBookmarkToolbarRelease(event)
+      setBookmarkToolbarDropTarget(overToolbar)
+      // While the pointer is over the toolbar the gesture means "save this",
+      // so it must not keep shuffling the strip underneath.
+      if (overToolbar) return
+    }
+    if (siblings.length === 0) return
     let insertIndex = siblings.length
     for (const [index, key] of siblings.entries()) {
       const element = tabElements.current.get(key)
@@ -233,16 +367,15 @@ export function TabStrip({
         break
       }
     }
-    if (onDropOnBookmarkToolbar) {
-      const overToolbar = isBookmarkToolbarRelease(event)
-      setBookmarkToolbarDropTarget(overToolbar)
-      // While the pointer is over the toolbar the gesture means "save this",
-      // so it must not keep shuffling the strip underneath.
-      if (overToolbar) return
-    }
-    if (insertIndex === fromIndex) return
+    // The reducer's index is a position in the flat list WITHOUT the dragged
+    // tab: before the chosen sibling, or right after the group's last one.
+    const flatWithout = flatKeys.filter((key) => key !== drag.key)
+    const toIndex = insertIndex < siblings.length
+      ? flatWithout.indexOf(siblings[insertIndex])
+      : flatWithout.indexOf(siblings[siblings.length - 1]) + 1
+    if (toIndex === fromIndex) return
     drag.hasReordered = true
-    onReorderTab?.(drag.key as TabId, insertIndex)
+    onReorderTab?.(drag.key as TabId, toIndex)
   }
 
   const handleDragEnd = (event: globalThis.PointerEvent) => {
@@ -326,7 +459,7 @@ export function TabStrip({
     event: KeyboardEvent<HTMLButtonElement>,
     key: string,
   ) => {
-    const keys = orderedKeys()
+    const keys = groupedTabOrder(productState.entries)
     const currentIndex = keys.indexOf(key)
     if (currentIndex < 0) return
     let nextIndex: number | null = null
@@ -352,9 +485,80 @@ export function TabStrip({
     close()
   }
 
+  const renderTab = (entry: ShellEntry) => {
+    const key = entry.id as string
+    const isActive = productState.activeTabId === entry.id
+    const label = entryLabel(entry)
+    return (
+      <div
+        className={`home-v2-tab${
+          entry.kind === 'internal' ? ' home-v2-tab--dashboard' : ''
+        }${isActive ? ' is-active' : ''}`}
+        key={key}
+        data-tab-id={key}
+        data-internal-page={entry.kind === 'internal' ? entry.page : undefined}
+        ref={registerTab(key)}
+        onPointerDown={(event) => handlePointerDown(event, key)}
+        onAuxClick={(event) =>
+          handleAuxClick(event, () => onCloseTab?.(entry.id))
+        }
+        onContextMenu={(event) => {
+          if (!onTabContextMenu) return
+          event.preventDefault()
+          onTabContextMenu(entry.id, { x: event.clientX, y: event.clientY })
+        }}
+      >
+        <button
+          type="button"
+          role="tab"
+          aria-selected={isActive}
+          className={isActive ? 'is-active' : ''}
+          onClick={() => {
+            if (consumeSuppressedClick(key)) return
+            onActivateTab?.(entry.id)
+          }}
+          onKeyDown={(event) => handleTabKeyDown(event, key)}
+        >
+          {entry.kind === 'internal' ? (
+            <InternalTabIcon page={entry.page} />
+          ) : entry.kind === 'viewer' ? (
+            <File className="home-v2-tab__favicon" size={18} aria-hidden="true" />
+          ) : (
+            <HomeV2AppIcon
+              displayUrl={entry.context.resourceLocation}
+              loader={loadVisibleAppIcon}
+              size={18}
+              variant="tab"
+            />
+          )}
+          <span>{label}</span>
+          {entry.kind !== 'internal' ? (
+            <NetworkBadge compact network={entry.kind === 'app' ? entry.context.sourceNetwork : parseViewerLocation(entry.location).network} />
+          ) : null}
+        </button>
+        <button
+          type="button"
+          className="home-v2-tab__close"
+          aria-label={
+            entry.kind === 'app'
+              ? t('home2.tabs.closeFrom', {
+                  label,
+                  network: networkLabels[entry.context.sourceNetwork],
+                })
+              : t('tabs.closeNamed', { label })
+          }
+          onClick={() => onCloseTab?.(entry.id)}
+        >
+          ×
+        </button>
+      </div>
+    )
+  }
+
   return (
     <div
       className="home-v2-tabs"
+      data-condensed={isCondensed ? 'true' : 'false'}
       ref={stripRef}
       role="tablist"
       aria-label={t('tabs.listLabel')}
@@ -364,102 +568,26 @@ export function TabStrip({
         }
       }}
     >
-      {productState.entries.map((entry) => {
-        const key = entry.id as string
-        const isActive = productState.activeTabId === entry.id
-        const label = entryLabel(entry)
+      {groups.map((group) => {
+        if (isCondensed && group.key !== activeGroupKey) return null
         return (
           <div
-            className={`home-v2-tab${
-              entry.kind === 'internal' ? ' home-v2-tab--dashboard' : ''
-            }${isActive ? ' is-active' : ''}`}
-            key={key}
-            data-tab-id={key}
-            data-internal-page={entry.kind === 'internal' ? entry.page : undefined}
-            ref={registerTab(key)}
-            onPointerDown={(event) => handlePointerDown(event, key)}
-            onAuxClick={(event) =>
-              handleAuxClick(event, () => onCloseTab?.(entry.id))
-            }
-            onContextMenu={(event) => {
-              if (!onTabContextMenu) return
-              event.preventDefault()
-              onTabContextMenu(entry.id, { x: event.clientX, y: event.clientY })
-            }}
+            className="home-v2-tab-group"
+            key={group.key}
+            data-tab-group={group.key}
+            data-active-group={group.key === activeGroupKey ? 'true' : 'false'}
           >
-            <button
-              type="button"
-              role="tab"
-              aria-selected={isActive}
-              className={isActive ? 'is-active' : ''}
-              onClick={() => {
-                if (consumeSuppressedClick(key)) return
-                onActivateTab?.(entry.id)
-              }}
-              onKeyDown={(event) => handleTabKeyDown(event, key)}
-            >
-              {entry.kind === 'internal' ? (
-                <InternalTabIcon page={entry.page} />
-              ) : entry.kind === 'viewer' ? (
-                <File className="home-v2-tab__favicon" size={18} aria-hidden="true" />
-              ) : (
-                <HomeV2AppIcon
-                  displayUrl={entry.context.resourceLocation}
-                  loader={loadVisibleAppIcon}
-                  size={18}
-                  variant="tab"
-                />
-              )}
-              <span>{label}</span>
-              {entry.kind !== 'internal' && accountCatalogue ? (() => {
-                const accountId = savedEntryAccountId(entry)
-                const account = accountCatalogue.accounts.find((candidate) => candidate.id === accountId)
-                const accountLabel = account?.label ?? (accountId ? rememberedAccountLabels?.get(accountId) ?? t('home2.account.unavailableAccount') : t('account.noAccount'))
-                const initials = accountId ? accountLabel.slice(0, 2).toUpperCase() : '–'
-                // The tab's own network decides which chain's avatar to show,
-                // the same way its badge does — one account can have published
-                // a different avatar on each.
-                const network = tabNetwork(entry)
-                const identity = accountId && network
-                  ? accountIdentityLookups?.get(accountId)?.networks[network]
-                  : undefined
-                return <span className="home-v2-tab__account" title={`${t('home2.account.tabAccount')}: ${accountLabel}${account ? ` · ${account.address}` : ''}${accountId && !account?.isUnlocked ? ` · ${t('account.statusLocked')}` : ''}`} aria-label={`${t('home2.account.tabAccount')}: ${accountLabel}`}>
-                  <span className="home-v2-tab__account-image">
-                    {identity?.avatar && network && loadVisibleAvatar ? (
-                      <VisibleIdentityAvatar
-                        className="home-v2-tab__account-avatar"
-                        fallback={initials}
-                        identity={identity}
-                        loader={loadVisibleAvatar}
-                        network={network}
-                        query={identity.primaryName ?? accountLabel}
-                      />
-                    ) : (
-                      initials
-                    )}
-                  </span>
-                  {accountId && !account?.isUnlocked ? <Lock size={10} aria-hidden="true" /> : null}
-                </span>
-              })() : null}
-              {entry.kind !== 'internal' ? (
-                <NetworkBadge compact network={entry.kind === 'app' ? entry.context.sourceNetwork : parseViewerLocation(entry.location).network} />
-              ) : null}
-            </button>
-            <button
-              type="button"
-              className="home-v2-tab__close"
-              aria-label={
-                entry.kind === 'app'
-                  ? t('home2.tabs.closeFrom', {
-                      label,
-                      network: networkLabels[entry.context.sourceNetwork],
-                    })
-                  : t('tabs.closeNamed', { label })
-              }
-              onClick={() => onCloseTab?.(entry.id)}
-            >
-              ×
-            </button>
+            <TabGroupBadge
+              group={group}
+              groupCount={groups.length}
+              condensed={isCondensed}
+              accountCatalogue={accountCatalogue}
+              rememberedAccountLabels={rememberedAccountLabels}
+              accountIdentityLookups={accountIdentityLookups}
+              loadVisibleAvatar={loadVisibleAvatar}
+              onOpen={onOpenGroupPicker}
+            />
+            {group.entries.map((entry) => renderTab(entry))}
           </div>
         )
       })}

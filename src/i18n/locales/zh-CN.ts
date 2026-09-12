@@ -999,6 +999,7 @@ export const zhCN: Record<TranslationKey, string> = {
   "home2.settings.windowDescription": "关闭主窗口时的行为。",
   "home2.tabs.closeFrom": "关闭来自 {network} 的 {label}",
   "home2.tabs.newTab": "新标签页",
+  "home2.tabs.groups": "标签页分组",
   "home2.tabs.welcome": "欢迎",
   "qdnApps.accountDecryptControlsTitle": "读取加密数据",
   "qdnApps.accountDirectChatControlsTitle": "私信访问权限",

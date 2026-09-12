@@ -538,42 +538,133 @@ body,
   flex: 0 0 18px;
 }
 
-.home-v2-tab__account {
+/* Tabs sit in groups, one per account (plus Home for account-less tabs),
+   headed by a single badge: the account is shown once, at the left of its
+   tabs, instead of a chip repeated on every tab. */
+.home-v2-tab-group {
+  display: flex;
+  min-width: 0;
+  flex: 0 1 auto;
+  align-items: end;
+  gap: 4px;
+  padding-inline-start: 2px;
+}
+
+.home-v2-tab-group + .home-v2-tab-group {
+  margin-inline-start: 6px;
+  border-inline-start: 1px solid var(--v2-line-strong);
+  padding-inline-start: 8px;
+}
+
+.home-v2-tab-group__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 28px;
+  margin-block-end: 3px;
+  padding: 0 5px 0 3px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+}
+
+.home-v2-tab-group__badge:disabled {
+  cursor: default;
+}
+
+.home-v2-tab-group__badge:not(:disabled):hover {
+  border-color: var(--v2-line-strong);
+  background: rgb(255 255 255 / 8%);
+}
+
+.home-v2-tab-group__image {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 2px;
-  height: 20px;
-  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 22px;
   border: 1px solid currentColor;
   border-radius: 50%;
   font-size: 10px;
-  line-height: 18px;
-  min-width: 18px;
-  text-align: center;
+  font-weight: 800;
+  line-height: 1;
+  overflow: hidden;
 }
 
-.home-v2-tab__account-image {
+/* Two classes deep on purpose: it has to beat .home-v2-presence__avatar,
+   which the shared avatar component always carries. */
+.home-v2-tab-group__image .home-v2-tab-group__avatar {
+  display: block;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.home-v2-tab-group__home {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+}
+
+.home-v2-tab-group__lock,
+.home-v2-tab-group__chevron {
+  flex: 0 0 auto;
+  color: var(--v2-muted);
+}
+
+/* One group at a time: the badge is the way to the others, so it reads as a
+   control rather than a marker. */
+.home-v2-tabs[data-condensed='true'] .home-v2-tab-group__badge {
+  border-color: var(--v2-line-strong);
+}
+
+.home-v2-tab-group-picker > button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-align: start;
+}
+
+.home-v2-tab-group-picker__image {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 16px;
-  height: 16px;
-  flex: 0 0 16px;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 22px;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  font-size: 10px;
+  font-weight: 800;
 }
 
-/* The chip shows the account's published avatar when it has one, and the same
-   two initials when it does not. Bounded to the chip's own box so the strip
-   does not move when an image arrives or fails. Two classes deep on purpose:
-   it has to beat .home-v2-presence__avatar, which the shared avatar component
-   always carries and which is declared later in this file. */
-.home-v2-tab__account .home-v2-tab__account-avatar {
-  display: block;
-  width: 16px;
-  height: 16px;
-  flex: 0 0 16px;
-  border-radius: 50%;
-  object-fit: cover;
+.home-v2-tab-group-picker__image .home-v2-home-mark {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+}
+
+.home-v2-tab-group-picker__label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.home-v2-tab-group-picker__count {
+  color: var(--v2-muted);
+  font-size: var(--v2-type-small);
+}
+
+.home-v2-tab-group-picker > button[aria-checked='true'] .home-v2-tab-group-picker__label {
+  font-weight: 700;
 }
 
 .home-v2-saved-tab-error {

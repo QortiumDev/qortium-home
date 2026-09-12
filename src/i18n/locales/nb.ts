@@ -1000,6 +1000,7 @@ export const nb: Record<TranslationKey, string> = {
   "home2.settings.windowDescription": "Hva som skjer når du lukker hovedvinduet.",
   "home2.tabs.closeFrom": "Lukk {label} fra {network}",
   "home2.tabs.newTab": "Ny fane",
+  "home2.tabs.groups": "Fanegrupper",
   "home2.tabs.welcome": "Velkommen",
   "qdnApps.accountDecryptControlsTitle": "Lese krypterte data",
   "qdnApps.accountDirectChatControlsTitle": "Tilgang til direktemeldinger",
