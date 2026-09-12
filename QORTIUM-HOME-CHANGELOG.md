@@ -32,6 +32,24 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## feat: one Dashboard tab; release notes name their tab
+
+2026-09-12
+
+There is now at most one Dashboard tab. The "+" button (with New tab set to
+Dashboard), the Home button and a Dashboard start page bring the existing
+Dashboard tab forward instead of adding another; a saved strip with two
+comes back with one. When a Dashboard tab has become an app (opening from
+the Dashboard navigates it in place), "+" opens a fresh Dashboard — and
+Back on that app tab, which turns it into the Dashboard again, closes the
+extra one, since a Dashboard tab holds nothing worth keeping twice.
+
+While release notes cover a tab, that tab is named for them — "Home
+v2.1.0-beta.3" with the Home mark, or "Core v1.8.0" with the Qortium mark —
+instead of showing the name of whatever page sits underneath. The Core API
+documentation page does the same ("Core API · Qortium"). The covered tab
+gets its own name back when the page is closed.
+
 ## feat: Home releases from QDN
 
 2026-09-12

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { t } from '../../i18n'
 import { currentAppLocation } from '../current-app-location'
 import type {
@@ -129,6 +129,8 @@ export interface BrowserChromeProps {
   readonly rememberedUnlockAccountIds?: readonly string[]
   /** From a group badge's menu: make that group's account the selected one. */
   readonly onSelectAccount?: (accountId: string) => void
+  /** The covering page's name and mark for the active tab (see TabStrip). */
+  readonly activeTabOverlay?: { readonly label: string; readonly icon: ReactNode } | null
   /**
    * Everything the node-status menus need to act rather than only report:
    * the Core manager and maintenance slices behind start/stop and updates,
@@ -273,6 +275,7 @@ export function BrowserChrome({
   onOpenTabWithAccount,
   rememberedUnlockAccountIds,
   onSelectAccount,
+  activeTabOverlay,
   coreManagement,
   onConfigureCustomNode,
   onOpenCoreSettings,
@@ -564,6 +567,7 @@ export function BrowserChrome({
           accountIdentityLookups={accountIdentityLookups}
           loadVisibleAvatar={loadVisibleAvatar}
           onOpenGroupPicker={(position, groupKey) => setGroupPicker({ ...position, groupKey })}
+          activeTabOverlay={activeTabOverlay}
           condensed={tabStripCondensed}
           selectedAccountId={selectedAccountId}
           preferredAvatarNetwork={snapshot.nodes.qortium.mode !== 'disabled' ? 'qortium' : 'qortal'}

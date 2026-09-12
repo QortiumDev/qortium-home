@@ -1717,6 +1717,27 @@ try {
     assert.deepEqual(picks().map((pick) => pick.dataset.homeV2TabGroupPick), ['account:wallet-b:1', 'account:wallet-a:1'], 'the group list follows')
     act(() => renderGrouped(grouped, false))
   }
+  // A full-window page names the active tab while it covers it: release
+  // notes read "Home v2.1.0" with the Home mark (Core notes: the Qortium
+  // mark); the covered tab keeps its own label once the page is gone.
+  {
+    const covered = reduceProductState(createProductState(), { type: 'navigate', destination: 'releases' })
+    act(() => root.render(
+      <BrowserChrome key="overlay" snapshot={homeV2Fixture} productState={covered}
+        activeTabOverlay={{ label: 'Home v2.1.0', icon: <span className="home-v2-tab__favicon" data-test-mark="home" /> }} />,
+    ))
+    const activeTab = () => container.querySelector<HTMLElement>('.home-v2-tab.is-active')!
+    assert.equal(activeTab().dataset.tabOverlay, 'releases')
+    assert.equal(activeTab().querySelector('button[role=tab] > span:not(.home-v2-tab__favicon)')?.textContent, 'Home v2.1.0')
+    assert.ok(activeTab().querySelector('[data-test-mark="home"]'), 'the covering page supplies the mark')
+    // Without the transient page the overlay is ignored even if still passed.
+    act(() => root.render(
+      <BrowserChrome key="overlay" snapshot={homeV2Fixture} productState={createProductState()}
+        activeTabOverlay={{ label: 'Home v2.1.0', icon: <span data-test-mark="home" /> }} />,
+    ))
+    assert.equal(activeTab().dataset.tabOverlay, undefined)
+    assert.equal(activeTab().querySelector('button[role=tab] > span:not(.home-v2-tab__favicon)')?.textContent, 'Dashboard')
+  }
 } finally {
   act(() => root.unmount())
   container.remove()

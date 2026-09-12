@@ -222,11 +222,33 @@ function freezeEntry(entry: ShellEntry): ShellEntry {
     : Object.freeze({ ...entry })
 }
 
+/**
+ * At most one Dashboard tab. The Dashboard is the strip's home base, not a
+ * document: a second copy holds nothing the first does not, and it is what
+ * the "+" button (New tab: Dashboard) and Back on a tab that became an app
+ * used to leave behind. Every reducer funnels through here, so the rule
+ * holds for opens, restores and in-place page changes alike. The tab that
+ * is (or is about to be) ACTIVE wins; otherwise the first in the strip.
+ */
+function withOneDashboard(
+  entries: readonly ShellEntry[],
+  activeTabId: TabId,
+): readonly ShellEntry[] {
+  const dashboards = entries.filter(
+    (entry) => entry.kind === 'internal' && entry.page === 'dashboard',
+  )
+  if (dashboards.length <= 1) return entries
+  const keep = dashboards.find((entry) => entry.id === activeTabId) ?? dashboards[0]
+  return entries.filter(
+    (entry) => entry === keep || entry.kind !== 'internal' || entry.page !== 'dashboard',
+  )
+}
+
 function freezeProductState(
   state: Omit<ProductState, 'tabs' | 'destination'>,
 ): ProductState {
   const entries: readonly ShellEntry[] = state.entries.length
-    ? state.entries
+    ? withOneDashboard(state.entries, state.activeTabId)
     : [
         {
           kind: 'internal' as const,
@@ -834,6 +856,13 @@ function openInternal(
       'TAB_ALREADY_EXISTS',
       `Tab ${tabId} already exists.`,
     )
+  }
+  // One Dashboard: another instance is the existing one, brought forward.
+  if (page === 'dashboard') {
+    const existing = state.entries.find(
+      (entry) => entry.kind === 'internal' && entry.page === 'dashboard',
+    )
+    if (existing) return activateTab(state, existing.id)
   }
   return freezeProductState({
     ...state,

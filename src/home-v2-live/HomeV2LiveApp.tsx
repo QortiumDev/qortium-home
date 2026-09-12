@@ -3453,6 +3453,7 @@ export function HomeV2LiveApp() {
     if (entries.length === 0) return
     void (async () => {
       let opened = 0
+      let reusedInitialTab = false
       for (const entry of entries) {
         // Home's own pages get their own tab on the EXPLICIT path only.
         // openAddress navigates the current tab for a home:// address, so five
@@ -3463,6 +3464,14 @@ export function HomeV2LiveApp() {
             ? homeV2StartPageTabPage(entry.displayUrl)
             : null
         if (internal) {
+          // One Dashboard: a Dashboard start page brings the initial tab
+          // forward instead of adding a second, so that tab is then a start
+          // page in its own right and must not be closed below.
+          if (internal === 'dashboard' && pending?.initialTabId &&
+              productStateRef.current.entries.some((candidate) =>
+                candidate.id === pending.initialTabId && candidate.kind === 'internal' && candidate.page === 'dashboard')) {
+            reusedInitialTab = true
+          }
           tabSequence.current += 1
           dispatchProduct({
             type: 'open-internal',
@@ -3486,7 +3495,7 @@ export function HomeV2LiveApp() {
       }
       // Only once something has replaced it: closing first would leave a window
       // with no tabs at all if every page failed to open.
-      if (pending?.closeInitialTab && opened > 0 && pending.initialTabId) {
+      if (pending?.closeInitialTab && opened > 0 && pending.initialTabId && !reusedInitialTab) {
         dispatchProduct({
           type: 'close-tab',
           tabId: brand<TabId>(pending.initialTabId),
