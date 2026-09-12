@@ -2069,9 +2069,24 @@ function testCoreManagementRenderingAndAndroidDegrade(): void {
   assert.match(dashboard, />Start Core</)
   assert.match(dashboard, /aria-label="Settings: Node &amp; Core"/)
   assert.doesNotMatch(dashboard, /managed by Home/)
-  assert.doesNotMatch(dashboard, /data-home-v2-node-core-transport=/)
   assert.doesNotMatch(dashboard, /data-home-v2-i2p-health=/)
   assert.doesNotMatch(dashboard, /Core API documentation|>Configure<|>Refresh</)
+  // Height only on the connection line: the peer breakdown belongs to the
+  // Node app, the node status menu and Settings.
+  assert.match(dashboard, /Height 125,000</)
+  assert.doesNotMatch(dashboard, /12 peers|9 data peers/)
+  // Basic I2P router management stays on the dashboard (Qortium only): the
+  // router line with start / stop / update, no mode select or Apply.
+  const transportLines = [
+    ...dashboard.matchAll(/data-home-v2-node-core-transport="dashboard" data-network="(\w+)"/g),
+  ].map((match) => match[1])
+  assert.deepEqual(transportLines, ['qortium'])
+  // The fixture's router is not installed yet: the line says so and offers
+  // the install-and-start action, nothing else.
+  assert.match(dashboard, /I2P router · Not installed/)
+  assert.match(dashboard, /data-home-v2-node-core-action="ensure-router"[^>]*>Install and start I2P router</)
+  assert.doesNotMatch(dashboard, /data-home-v2-node-core-action="stop-router"/)
+  assert.doesNotMatch(dashboard, /aria-label="Transport mode"|>Apply transport mode</)
   // Java gates the release install, so only the Java control is offered and the
   // running Core never gets an install button behind its back.
   assert.match(dashboard, /data-home-v2-node-core-action="java"[^>]*>Install Java</)
@@ -2108,10 +2123,36 @@ function testCoreManagementRenderingAndAndroidDegrade(): void {
     assert.match(qortiumBlock, /data-home-v2-settings-node-mode="qortium"[^>]*>[\s\S]*?aria-label="Qortium connection mode"/)
     assert.match(qortalBlock, /aria-label="Qortal connection mode"/)
   }
-  // The I2P transport controls are no longer on the dashboard at all (the
-  // Settings transport panel owns them), so a status still in flight has
-  // nothing to hold a place for here.
-  assert.doesNotMatch(dashboard, /data-home-v2-node-core-transport=/)
+  {
+    // While the first transport poll is in flight the router line must still
+    // BE there: rendering nothing on a slow poll reads as Home not having
+    // I2P at all, which a tester reported once already.
+    const loadingTransport = renderToStaticMarkup(
+      <HomeV2Prototype
+        snapshot={homeV2Fixture}
+        productState={createProductState()}
+        permissionState={createPermissionState()}
+        layout="desktop"
+        appUpdates={appUpdates}
+        coreManagement={{
+          ...coreManagement,
+          transport: {
+            busy: null,
+            mode: null,
+            selectedMode: null,
+            restartRequired: false,
+            progress: null,
+            notice: null,
+            stale: false,
+            status: null,
+          },
+        }}
+        onOpenReleaseNotes={() => undefined}
+      />,
+    )
+    assert.match(loadingTransport, /data-home-v2-node-core-transport="loading"/)
+    assert.doesNotMatch(loadingTransport, /data-home-v2-node-core-transport="dashboard"/)
+  }
   // One Home-update row for the whole dashboard, not one per network -- and
   // in its own "Home" section, outside Node & Core, since it depends on no
   // network.
