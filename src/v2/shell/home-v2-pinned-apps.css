@@ -5,6 +5,7 @@
   min-width: 0;
   gap: 12px;
   padding: 12px 18px 16px;
+  container: pinned-apps / inline-size;
 }
 
 .home-v2-panel.home-v2-pinned-apps:has(> .home-v2-pinned-apps__header:last-child) {
@@ -34,6 +35,21 @@
 
 .home-v2-pinned-apps__header > .home-v2-section-toggle {
   margin-inline-start: auto;
+}
+
+/* Narrow (a phone, a narrow window): the chevron stays on the title line and
+   the actions drop under it as a row of their own. Left to wrap on its own,
+   the row broke after the actions instead, putting the chevron alone on a
+   line under them. */
+@container pinned-apps (max-width: 480px) {
+  .home-v2-pinned-apps__header > .home-v2-section-toggle {
+    order: 1;
+  }
+
+  .home-v2-pinned-apps__header-actions {
+    order: 2;
+    flex-basis: 100%;
+  }
 }
 
 .home-v2-pinned-apps__body {

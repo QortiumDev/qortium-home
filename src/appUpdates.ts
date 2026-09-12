@@ -50,6 +50,16 @@ function getBoolean(value: unknown) {
   return typeof value === 'boolean' ? value : false;
 }
 
+/**
+ * How release JSON is fetched. The default is the page's own `fetch`, which
+ * is right for a document that may reach GitHub directly; the Home 2 Android
+ * shell cannot (its CSP allows no https connect), so it supplies the native
+ * HTTP plugin instead. Resolves to the parsed body, or null for a 404.
+ */
+export type GithubJsonFetcher = (url: string) => Promise<unknown | null>;
+
+export const GITHUB_JSON_ACCEPT_HEADER = GITHUB_ACCEPT_HEADER;
+
 async function fetchGithubJson<T>(url: string) {
   const response = await fetch(url, {
     headers: {
@@ -211,12 +221,12 @@ export function compareAppVersions(firstValue: string, secondValue: string) {
   return 0;
 }
 
-async function getRelease(channel: QortiumAppUpdateChannel) {
+async function getRelease(channel: QortiumAppUpdateChannel, fetchJson: GithubJsonFetcher) {
   if (channel === 'stable') {
-    return normalizeGithubRelease(await fetchGithubJson<unknown>(`${GITHUB_API_BASE_URL}/releases/latest`));
+    return normalizeGithubRelease(await fetchJson(`${GITHUB_API_BASE_URL}/releases/latest`));
   }
 
-  const releases = await fetchGithubJson<unknown[]>(`${GITHUB_API_BASE_URL}/releases?per_page=30`);
+  const releases = await fetchJson(`${GITHUB_API_BASE_URL}/releases?per_page=30`);
 
   if (!Array.isArray(releases)) {
     return null;
@@ -245,8 +255,10 @@ function buildBaseResult(
 export async function checkAppUpdates(
   environment: QortiumAppUpdateEnvironment,
   channel: QortiumAppUpdateChannel,
+  options: { readonly fetchJson?: GithubJsonFetcher } = {},
 ): Promise<QortiumAppUpdateCheckResult> {
   const baseResult = buildBaseResult(environment, channel);
+  const fetchJson = options.fetchJson ?? fetchGithubJson;
 
   if (!environment.platform.supported) {
     return {
@@ -257,7 +269,7 @@ export async function checkAppUpdates(
   }
 
   try {
-    const release = await getRelease(channel);
+    const release = await getRelease(channel, fetchJson);
     const releaseSummary = release ? releaseToSummary(channel, release) : null;
 
     if (!release || !releaseSummary) {
