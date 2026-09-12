@@ -171,7 +171,11 @@ export function HomeUpdateSettings({
             {updates.busy === 'download' ? t('common.downloading') : t('updates.downloadUpdate')}
           </button>
         ) : null}
-        {updates.download?.canOpen ? (
+        {/* Android installs through the package installer; desktop restarts
+            into the package (Linux AppImage, Windows portable) or opens the
+            disk image (macOS). A bare "Open file" is gone: on Linux it opened
+            the AppImage in the archive manager. */}
+        {isAndroid && updates.download?.canOpen ? (
           <button
             className="home-v2-primary-button"
             data-home-v2-update-action="open"
@@ -179,7 +183,23 @@ export function HomeUpdateSettings({
             type="button"
             onClick={() => void updates.openDownloaded()}
           >
-            {isAndroid ? t('updates.installApk') : t('common.openFile')}
+            {t('updates.installApk')}
+          </button>
+        ) : null}
+        {!isAndroid && updates.canInstall ? (
+          <button
+            className="home-v2-primary-button"
+            data-home-v2-update-action="install"
+            data-home-v2-update-install-kind={updates.installKind ?? undefined}
+            disabled={busy}
+            type="button"
+            onClick={() => void updates.installDownloaded()}
+          >
+            {updates.busy === 'install'
+              ? t('common.installing')
+              : updates.installKind === 'disk-image'
+                ? t('updates.openDiskImage')
+                : t('updates.installAndRestart')}
           </button>
         ) : null}
         {!isAndroid && updates.download?.canReveal ? (

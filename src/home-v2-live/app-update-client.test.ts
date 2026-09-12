@@ -32,6 +32,7 @@ const action = {
     digestVerified: true,
     downloadId: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
     fileName: 'Home.AppImage',
+    installKind: 'relaunch',
     releaseTag: 'v2.1.0',
     size: 123,
   },
@@ -42,6 +43,10 @@ const action = {
 assert.equal(parseHomeV2AppUpdateAction(action).download?.fileName, 'Home.AppImage')
 assert.throws(() => parseHomeV2AppUpdateAction({ ...action, code: 'download-failed' }), /inconsistent/)
 assert.throws(() => parseHomeV2AppUpdateAction({ ...action, download: { ...action.download, filePath: '/tmp/x' } }), /malformed/)
+// installKind is one of the three known kinds; a digest must never ride along.
+assert.throws(() => parseHomeV2AppUpdateAction({ ...action, download: { ...action.download, installKind: 'exec' } }), /malformed/)
+assert.throws(() => parseHomeV2AppUpdateAction({ ...action, download: { ...action.download, digest: 'sha256:00' } }), /malformed/)
+assert.equal(parseHomeV2AppUpdateAction({ ...action, download: { ...action.download, installKind: null } }).download?.installKind, null)
 
 const settings = {
   generation: 2,

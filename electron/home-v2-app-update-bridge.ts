@@ -3,6 +3,7 @@ import {
   downloadVerifiedAppUpdate,
   setHomeV2AppDownloadProgressListener,
   getUpdateEnvironment,
+  installDownloadedUpdate,
   openDownloadedFile,
   openExternalUrl,
   revealHomeV2InstallFolder,
@@ -66,6 +67,7 @@ export function registerHomeV2AppUpdateBridgeIpcHandlers() {
     downloadAsset: downloadVerifiedAppUpdate,
     fetchRelease: fetchTrustedHomeRelease,
     getEnvironment: getUpdateEnvironment,
+    installDownloadedFile: installDownloadedUpdate,
     openDownloadedFile,
     readSettings: readHomeV2AppUpdateSettings,
     openReleasePage: openExternalUrl,
@@ -84,6 +86,7 @@ export function registerHomeV2AppUpdateBridgeIpcHandlers() {
   )
   ipcMain.handle('home-v2-app-update:check', handlers.check)
   ipcMain.handle('home-v2-app-update:download', handlers.download)
+  ipcMain.handle('home-v2-app-update:install', handlers.install)
   ipcMain.handle('home-v2-app-update:open', handlers.open)
   ipcMain.handle('home-v2-app-update:reveal', handlers.reveal)
   // Home's OWN install folder. The path is resolved and used in the main

@@ -127,7 +127,7 @@ export function useHomeV2AppUpdates(nativeHostOverride: AndroidHomeV2UpdateHost 
   const [channel, setChannel] = useState<HomeV2AppUpdateChannel>('stable')
   const [result, setResult] = useState<HomeV2AppUpdateCheck | null>(null)
   const [download, setDownload] = useState<HomeV2AppUpdateDownload | null>(null)
-  const [busy, setBusy] = useState<'check' | 'download' | 'open' | 'reveal' | null>(null)
+  const [busy, setBusy] = useState<'check' | 'download' | 'install' | 'open' | 'reveal' | null>(null)
   // Live download progress. Null when nothing is downloading.
   const [progress, setProgress] = useState<HomeV2AppUpdateProgress | null>(null)
   const [message, setMessage] = useState<{ tone: 'error' | 'success'; text: string } | null>(null)
@@ -359,6 +359,8 @@ export function useHomeV2AppUpdates(nativeHostOverride: AndroidHomeV2UpdateHost 
         digestVerified: true,
         downloadId: 'android-native-download',
         fileName: downloaded.fileName,
+        // Android installs through the package installer intent (openDownloaded).
+        installKind: null,
         releaseTag: downloaded.releaseTag,
         size: downloaded.size,
       }
@@ -518,6 +520,30 @@ export function useHomeV2AppUpdates(nativeHostOverride: AndroidHomeV2UpdateHost 
     }
   }, [desktopClient, download, nativeClient])
 
+  /**
+   * Install the verified package: Home restarts into it (Linux AppImage,
+   * Windows portable) or opens the disk image (macOS). Desktop only --
+   * Android installs through openDownloaded's package-installer intent. The
+   * main process re-hashes the file against the digest it recorded at
+   * download time before anything runs.
+   */
+  const installDownloaded = useCallback(async () => {
+    if (!desktopClient?.install || !download?.digestVerified || download.installKind === null) return
+    setBusy('install')
+    try {
+      const action = parseHomeV2AppUpdateAction(await desktopClient.install(download.downloadId))
+      if (action.outcome !== 'completed') throw new Error('install-failed')
+      // A relaunch quits this process; a disk image leaves it running.
+      if (download.installKind === 'disk-image') {
+        setMessage({ tone: 'success', text: t('updates.diskImageHint') })
+      }
+    } catch {
+      setMessage({ tone: 'error', text: t('updates.checkFailed') })
+    } finally {
+      setBusy(null)
+    }
+  }, [desktopClient, download])
+
   const revealDownloaded = useCallback(async () => {
     if (!desktopClient || !download?.digestVerified || !download.canReveal) return
     setBusy('reveal')
@@ -579,6 +605,9 @@ export function useHomeV2AppUpdates(nativeHostOverride: AndroidHomeV2UpdateHost 
     homeUpdatePolicy: preferences.homeUpdatePolicy,
     isAndroid,
     message,
+    installDownloaded,
+    canInstall: !!desktopClient?.install && download?.installKind != null,
+    installKind: download?.installKind ?? null,
     openDownloaded,
     openReleasePage,
     canRevealInstallFolder: typeof desktopClient?.revealInstallFolder === 'function',

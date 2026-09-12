@@ -34,18 +34,22 @@ const releaseRequest = {
 let fetchCount = 0
 let revealPath = ''
 let openPath = ''
+let installed: { filePath: string; digest: string } | null = null
 const service = createHomeV2AppUpdateService({
   downloadAsset: async ({ asset, releaseTag }) => {
     return {
       canOpen: true,
       canReveal: true,
+      digest: asset.digest,
       digestVerified: true,
       fileName: asset.name,
       filePath: '/private/update.AppImage',
+      installKind: 'relaunch',
       releaseTag,
       size: asset.size,
     }
   },
+  installDownloadedFile: async (filePath, digest) => { installed = { filePath, digest } },
   fetchRelease: async () => {
     fetchCount += 1
     return release
@@ -100,6 +104,7 @@ const revocationService = createHomeV2AppUpdateService({
     currentVersion: '2.0.0',
     platform: { arch: 'x64', label: 'Linux x64', os: 'linux', supported: true },
   }),
+  installDownloadedFile: async () => undefined,
   openDownloadedFile: async () => undefined,
   openReleasePage: async () => undefined,
   readSettings: async () => {
@@ -129,15 +134,30 @@ const opened = await service.open({
 })
 assert.equal(opened.outcome, 'completed')
 assert.equal(openPath, '/private/update.AppImage')
+// Install re-hands the path AND the digest verified at download time, so the
+// installer can re-check the file before it runs it; the digest never
+// reaches the renderer.
+assert.equal(downloaded.download!.installKind, 'relaunch')
+assert.equal(JSON.stringify(downloaded).includes(release.assets[0].digest), false)
+const installedResult = await service.install({
+  downloadId: downloaded.download!.downloadId,
+  revision: 1,
+  schema: 'home-v2-app-update-install-request',
+})
+assert.equal(installedResult.outcome, 'completed')
+assert.deepEqual(installed, { filePath: '/private/update.AppImage', digest: release.assets[0].digest })
+assert.equal(JSON.stringify(installedResult).includes('/private/'), false)
 
 let unsupportedHandoffCalls = 0
 const unsupportedHandoffService = createHomeV2AppUpdateService({
   downloadAsset: async ({ asset, releaseTag }) => ({
     canOpen: false,
     canReveal: false,
+    digest: asset.digest,
     digestVerified: true,
     fileName: asset.name,
     filePath: '/private/update.AppImage',
+    installKind: null,
     releaseTag,
     size: asset.size,
   }),
@@ -146,6 +166,7 @@ const unsupportedHandoffService = createHomeV2AppUpdateService({
     currentVersion: '2.0.0',
     platform: { arch: 'x64', label: 'Linux x64', os: 'linux', supported: true },
   }),
+  installDownloadedFile: async () => { unsupportedHandoffCalls += 1 },
   openDownloadedFile: async () => { unsupportedHandoffCalls += 1 },
   openReleasePage: async () => undefined,
   readSettings: async () => ({
@@ -157,7 +178,7 @@ const unsupportedHandoffService = createHomeV2AppUpdateService({
   uuid: () => 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
 })
 const unsupportedDownload = await unsupportedHandoffService.download(releaseRequest)
-for (const operation of ['open', 'reveal'] as const) {
+for (const operation of ['install', 'open', 'reveal'] as const) {
   const result = await unsupportedHandoffService[operation]({
     downloadId: unsupportedDownload.download!.downloadId,
     revision: 1,
@@ -172,7 +193,7 @@ const handlers = createAuthorizedHomeV2AppUpdateHandlers(
   () => { authorized = true; throw new Error('unauthorized') },
   service,
 )
-for (const handler of [handlers.check, handlers.download, handlers.open, handlers.reveal, handlers.openReleasePage]) {
+for (const handler of [handlers.check, handlers.download, handlers.install, handlers.open, handlers.reveal, handlers.openReleasePage]) {
   authorized = false
   assert.throws(() => handler({} as never, { bad: true }), /unauthorized/)
   assert.equal(authorized, true, 'authorization must happen before parsing')

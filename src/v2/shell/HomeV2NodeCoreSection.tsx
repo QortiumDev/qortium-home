@@ -669,7 +669,7 @@ function HomeUpdateRow({
               : t('updates.downloadUpdate')}
           </button>
         ) : null}
-        {updates.download?.canOpen ? (
+        {updates.isAndroid && updates.download?.canOpen ? (
           <button
             type="button"
             className="home-v2-primary-button"
@@ -677,7 +677,23 @@ function HomeUpdateRow({
             disabled={busy}
             onClick={() => void updates.openDownloaded()}
           >
-            {updates.isAndroid ? t('updates.installApk') : t('common.openFile')}
+            {t('updates.installApk')}
+          </button>
+        ) : null}
+        {!updates.isAndroid && updates.canInstall ? (
+          <button
+            type="button"
+            className="home-v2-primary-button"
+            data-home-v2-node-core-action="home-install"
+            data-home-v2-update-install-kind={updates.installKind ?? undefined}
+            disabled={busy}
+            onClick={() => void updates.installDownloaded()}
+          >
+            {updates.busy === 'install'
+              ? t('common.installing')
+              : updates.installKind === 'disk-image'
+                ? t('updates.openDiskImage')
+                : t('updates.installAndRestart')}
           </button>
         ) : null}
       </div>
