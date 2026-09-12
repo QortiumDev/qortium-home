@@ -6,6 +6,7 @@ import {
   type CSSProperties,
   type ReactNode,
 } from 'react'
+import { Lock, LockOpen } from 'lucide-react'
 import { t } from '../../i18n'
 import { createViewerPositionStore } from '../../viewer-position'
 import { translateMainProcessMessage } from '../../mainProcessMessage'
@@ -251,6 +252,13 @@ export interface HomeV2PrototypeProps {
   readonly onAccountManage?: (action: HomeV2AccountManageAction) => void
   readonly onCreateAccount?: () => void
   readonly onImportAccount?: () => void
+  /** Dragging a group's badge along the strip reorders the account groups. */
+  readonly onReorderGroup?: (groupKey: string, toIndex: number) => void
+  /** Dragging a group's badge clear of the strip moves the whole group out. */
+  readonly onDetachGroup?: (
+    groupKey: string,
+    position: { screenX: number; screenY: number },
+  ) => void | Promise<void>
   /** Which dashboard sections are folded to their header line. */
   readonly dashboardCollapsed?: HomeV2DashboardCollapsed
   readonly onToggleDashboardSection?: (section: HomeV2DashboardSection) => void
@@ -633,9 +641,13 @@ function AccountCard({
       <div className="home-v2-account-header">
         <h2>{t('account.menuLabel')}</h2>
         {lockToggle ? (
+          // Locked is the state that needs acting on, so it is drawn as the
+          // action: an accent button with the lock glyph and the verb. The
+          // glyph carries the state and the verb the action, so neither
+          // depends on colour. Unlocked is a quiet chip that still locks.
           <button
             type="button"
-            className="home-v2-lock-state"
+            className={`home-v2-lock-state${isLocked ? ' home-v2-lock-state--action' : ''}`}
             data-account-state={snapshot.account.state}
             data-home-v2-account-lock-toggle
             aria-label={lockToggle.label}
@@ -643,7 +655,10 @@ function AccountCard({
             disabled={!lockToggle.enabled}
             onClick={lockToggle.action}
           >
-            {isLocked ? t('account.statusLocked') : t('account.statusUnlocked')}
+            {isLocked
+              ? <Lock size={13} strokeWidth={2.25} aria-hidden="true" />
+              : <LockOpen size={13} strokeWidth={2.25} aria-hidden="true" />}
+            {isLocked ? t('common.unlock') : t('account.statusUnlocked')}
           </button>
         ) : (
           <span className="home-v2-lock-state" data-account-state={snapshot.account.state}>
@@ -1246,6 +1261,9 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
         onReopenClosedTab={props.onReopenClosedTab}
         canReopenClosedTab={props.canReopenClosedTab}
         onDetachTab={props.onDetachTab}
+        selectedAccountId={props.selectedAccountId}
+        onReorderGroup={props.onReorderGroup}
+        onDetachGroup={props.onDetachGroup}
         onLockAccount={props.onLockAccount}
         onUnlockAccount={props.onSubmitAccountUnlock}
         onOpenTabWithAccount={props.onOpenTabWithAccount}

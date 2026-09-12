@@ -73,6 +73,20 @@ export interface TabStripProps {
    * the others. Decided by the strip's own width when absent.
    */
   readonly condensed?: boolean
+  /** The selected account: the Dashboard tab sits in its group. */
+  readonly selectedAccountId?: string | null
+  /**
+   * The chain whose avatar a badge shows when none of the group's tabs names
+   * one (a Dashboard-only group): Qortium, or Qortal when Qortium is off.
+   */
+  readonly preferredAvatarNetwork?: NetworkId
+  /** Dragging a group's badge along the strip reorders the account groups. */
+  readonly onReorderGroup?: (groupKey: string, toIndex: number) => void
+  /** Dragging a group's badge clear of the strip moves the whole group out. */
+  readonly onDetachGroup?: (
+    groupKey: string,
+    position: { screenX: number; screenY: number },
+  ) => void | Promise<void>
 }
 
 /** Below this strip width only the active tab's group is shown. */
@@ -207,6 +221,9 @@ function TabGroupBadge({
   accountIdentityLookups,
   loadVisibleAvatar,
   onOpen,
+  draggable = false,
+  onPointerDown,
+  preferredNetwork = 'qortium',
 }: {
   readonly group: TabGroup
   readonly groupCount: number
@@ -216,6 +233,9 @@ function TabGroupBadge({
   readonly accountIdentityLookups?: ReadonlyMap<string, DualIdentityLookupResult>
   readonly loadVisibleAvatar?: VisibleAvatarLoader
   readonly onOpen?: (position: { x: number; y: number }) => void
+  readonly draggable?: boolean
+  readonly onPointerDown?: (event: PointerEvent<HTMLButtonElement>) => void
+  readonly preferredNetwork?: NetworkId
 }) {
   const accountId = group.accountId
   const account = accountId
@@ -225,9 +245,12 @@ function TabGroupBadge({
     ? account?.label ?? rememberedAccountLabels?.get(accountId) ?? t('home2.account.unavailableAccount')
     : t('address.suggestionHome')
   const locked = !!accountId && !account?.isUnlocked
-  // The avatar follows the group's first tab's network: one account can have
-  // published a different avatar on each chain.
-  const network = accountId ? tabNetwork(group.entries[0]) : null
+  // The avatar follows the first tab in the group that names a chain -- one
+  // account can have published a different avatar on each -- and the
+  // preferred chain when none does (a group holding only the Dashboard).
+  const network = accountId
+    ? group.entries.map(tabNetwork).find((candidate) => candidate !== null) ?? preferredNetwork
+    : null
   const identity = accountId && network
     ? accountIdentityLookups?.get(accountId)?.networks[network]
     : undefined
@@ -250,8 +273,11 @@ function TabGroupBadge({
       title={openable ? `${title} · ${t('home2.tabs.groups')}` : title}
       aria-label={name}
       aria-haspopup={openable ? 'menu' : undefined}
-      disabled={!openable}
+      data-draggable={draggable ? 'true' : 'false'}
+      disabled={!openable && !draggable}
+      onPointerDown={onPointerDown}
       onClick={(event) => {
+        if (!openable) return
         const bounds = event.currentTarget.getBoundingClientRect()
         onOpen?.({ x: bounds.left, y: bounds.bottom })
       }}
@@ -295,7 +321,12 @@ export function TabStrip({
   loadVisibleAvatar,
   onOpenGroupPicker,
   condensed,
+  selectedAccountId,
+  preferredAvatarNetwork = 'qortium',
+  onReorderGroup,
+  onDetachGroup,
 }: TabStripProps) {
+  const grouping = { dashboardAccountId: selectedAccountId ?? null }
   const tabElements = useRef(new Map<string, HTMLDivElement>())
   const stripRef = useRef<HTMLDivElement | null>(null)
   const dragState = useRef<TabDragState | null>(null)
@@ -315,7 +346,7 @@ export function TabStrip({
     return () => observer.disconnect()
   }, [])
   const isCondensed = condensed ?? measuredCondensed
-  const groups = groupTabsByAccount(productState.entries)
+  const groups = groupTabsByAccount(productState.entries, grouping)
   const activeGroupKey = groups.find((group) =>
     group.entries.some((entry) => entry.id === productState.activeTabId))?.key ?? groups[0]?.key
 
@@ -344,7 +375,7 @@ export function TabStrip({
     const flatKeys = orderedKeys()
     const fromIndex = flatKeys.indexOf(drag.key)
     if (fromIndex < 0 || flatKeys.length < 2) return
-    const group = groupTabsByAccount(productState.entries)
+    const group = groupTabsByAccount(productState.entries, grouping)
       .find((candidate) => candidate.entries.some((entry) => entry.id === drag.key))
     const siblings = (group?.entries ?? [])
       .map((entry) => entry.id as string)
@@ -447,6 +478,93 @@ export function TabStrip({
     }
   }
 
+  // Dragging a badge: along the strip it reorders the account groups (the
+  // Home group stays put); clear of the strip it moves the whole group out.
+  // Kept apart from the tab drag so the two gestures cannot mix.
+  const groupElements = useRef(new Map<string, HTMLDivElement>())
+  const groupDrag = useRef<{
+    key: string
+    pointerId: number
+    startX: number
+    startY: number
+    moved: boolean
+  } | null>(null)
+  const detachGroupDragListeners = useRef<(() => void) | null>(null)
+  useEffect(() => () => detachGroupDragListeners.current?.(), [])
+  const registerGroup = (key: string) => (element: HTMLDivElement | null) => {
+    if (element) groupElements.current.set(key, element)
+    else groupElements.current.delete(key)
+  }
+  const handleGroupDragMove = (event: globalThis.PointerEvent) => {
+    const drag = groupDrag.current
+    if (!drag || drag.pointerId !== event.pointerId) return
+    if (
+      !drag.moved &&
+      Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) <
+        TAB_DRAG_START_MIN_DISTANCE_PX
+    ) {
+      return
+    }
+    drag.moved = true
+    if (!onReorderGroup) return
+    const accountGroups = groups.filter((group) => group.accountId !== null)
+    const fromIndex = accountGroups.findIndex((group) => group.key === drag.key)
+    if (fromIndex < 0 || accountGroups.length < 2) return
+    const siblings = accountGroups.filter((group) => group.key !== drag.key)
+    let insertIndex = siblings.length
+    for (const [index, group] of siblings.entries()) {
+      const element = groupElements.current.get(group.key)
+      if (!element) continue
+      const bounds = element.getBoundingClientRect()
+      if (event.clientX < bounds.left + bounds.width / 2) {
+        insertIndex = index
+        break
+      }
+    }
+    if (insertIndex === fromIndex) return
+    onReorderGroup(drag.key, insertIndex)
+  }
+  const handleGroupDragEnd = (event: globalThis.PointerEvent) => {
+    const drag = groupDrag.current
+    if (!drag || drag.pointerId !== event.pointerId) return
+    groupDrag.current = null
+    detachGroupDragListeners.current?.()
+    if (onDetachGroup && drag.moved && isDetachRelease(event, {
+      key: drag.key, pointerId: drag.pointerId, startX: drag.startX, startY: drag.startY, hasReordered: false,
+    }, stripRef.current)) {
+      suppressClickKey.current = `group:${drag.key}`
+      void Promise.resolve(
+        onDetachGroup(drag.key, { screenX: event.screenX, screenY: event.screenY }),
+      ).catch(() => undefined)
+      return
+    }
+    // A drag, even one that changed nothing, is not a click on the picker.
+    if (drag.moved) suppressClickKey.current = `group:${drag.key}`
+  }
+  const handleGroupPointerDown = (event: PointerEvent<HTMLButtonElement>, key: string) => {
+    if (event.pointerType === 'mouse' && event.button !== 0) return
+    if (!onReorderGroup && !onDetachGroup) return
+    groupDrag.current = {
+      key,
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      moved: false,
+    }
+    detachGroupDragListeners.current?.()
+    const onMove = (moveEvent: globalThis.PointerEvent) => handleGroupDragMove(moveEvent)
+    const onEnd = (endEvent: globalThis.PointerEvent) => handleGroupDragEnd(endEvent)
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onEnd)
+    window.addEventListener('pointercancel', onEnd)
+    detachGroupDragListeners.current = () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onEnd)
+      window.removeEventListener('pointercancel', onEnd)
+      detachGroupDragListeners.current = null
+    }
+  }
+
   const consumeSuppressedClick = (key: string) => {
     if (suppressClickKey.current !== key) return false
     suppressClickKey.current = null
@@ -459,7 +577,7 @@ export function TabStrip({
     event: KeyboardEvent<HTMLButtonElement>,
     key: string,
   ) => {
-    const keys = groupedTabOrder(productState.entries)
+    const keys = groupedTabOrder(productState.entries, grouping)
     const currentIndex = keys.indexOf(key)
     if (currentIndex < 0) return
     let nextIndex: number | null = null
@@ -574,19 +692,31 @@ export function TabStrip({
           <div
             className="home-v2-tab-group"
             key={group.key}
+            ref={registerGroup(group.key)}
             data-tab-group={group.key}
             data-active-group={group.key === activeGroupKey ? 'true' : 'false'}
           >
-            <TabGroupBadge
-              group={group}
-              groupCount={groups.length}
-              condensed={isCondensed}
-              accountCatalogue={accountCatalogue}
-              rememberedAccountLabels={rememberedAccountLabels}
-              accountIdentityLookups={accountIdentityLookups}
-              loadVisibleAvatar={loadVisibleAvatar}
-              onOpen={onOpenGroupPicker}
-            />
+            {/* The Home group needs no marker beside its tabs: the divider
+                separates it, and the Dashboard tab carries the Home mark.
+                Condensed, its badge is the way to the other groups. */}
+            {group.accountId !== null || isCondensed ? (
+              <TabGroupBadge
+                group={group}
+                groupCount={groups.length}
+                condensed={isCondensed}
+                accountCatalogue={accountCatalogue}
+                rememberedAccountLabels={rememberedAccountLabels}
+                accountIdentityLookups={accountIdentityLookups}
+                loadVisibleAvatar={loadVisibleAvatar}
+                onOpen={(position) => {
+                  if (consumeSuppressedClick(`group:${group.key}`)) return
+                  onOpenGroupPicker?.(position)
+                }}
+                preferredNetwork={preferredAvatarNetwork}
+                draggable={group.accountId !== null && !!(onReorderGroup || onDetachGroup)}
+                onPointerDown={(event) => handleGroupPointerDown(event, group.key)}
+              />
+            ) : null}
             {group.entries.map((entry) => renderTab(entry))}
           </div>
         )

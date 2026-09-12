@@ -68,7 +68,8 @@ import {
   parseHomeV2ShellState,
   serializeHomeV2ShellState,
 } from '../home-v2-live/shell-state'
-import type { DualIdentityLookupResult, TabId } from './contracts'
+import type { AppDescriptor, DualIdentityLookupResult, IdentityId, TabId, WalletRef } from './contracts'
+import { groupTabsByAccount, tabGroupKey } from './shell/tab-groups'
 import {
   parseHomeV2MenuCommand,
   parseHomeV2TextSizeCommand,
@@ -678,6 +679,119 @@ function testProductModelKeepsSourceQualifiedTabs(): void {
       return true
     },
   )
+
+  // Reordering a GROUP moves every tab bound to that account as a block.
+  // The strip groups by account as a view over the flat list, so the flat
+  // order is rebuilt group by group: Home first, then the accounts.
+  const boundContext = (app: AppDescriptor, tabId: TabId, account: string) => ({
+    ...fixtureTabContext(app, tabId),
+    identityId: `home-v2:identity:${account}` as IdentityId,
+    walletRef: `wallet-${account}` as WalletRef,
+  })
+  const openBound = (state: ProductState, appId: typeof fixtureIds.chatApp, tabId: string, account: string) => {
+    const app = fixtureApp(appId)
+    return reduceProductState(state, {
+      type: 'open-app', app, context: boundContext(app, tabId as TabId, account), tabId: tabId as TabId,
+    })
+  }
+  let interleaved = openBound(createProductState(), fixtureIds.chatApp, 'home-v2:tab:alice-chat', 'alice')
+  interleaved = openBound(interleaved, fixtureIds.walletsApp, 'home-v2:tab:bob-wallets', 'bob')
+  interleaved = openBound(interleaved, fixtureIds.trustApp, 'home-v2:tab:alice-trust', 'alice')
+  interleaved = openBound(interleaved, fixtureIds.qortalCompatApp, 'home-v2:tab:bob-compat', 'bob')
+  interleaved = reduceProductState(interleaved, { type: 'navigate', destination: 'settings' })
+  const ids = (state: ProductState) => state.entries.map((entry) => entry.id as string)
+  const groupKeys = (state: ProductState) => groupTabsByAccount(state.entries).map((group) => group.key)
+  const dashboardId = pageId(interleaved, 'dashboard')
+  const settingsId = pageId(interleaved, 'settings')
+  assert.deepEqual(ids(interleaved), [
+    dashboardId, 'home-v2:tab:alice-chat', 'home-v2:tab:bob-wallets',
+    'home-v2:tab:alice-trust', 'home-v2:tab:bob-compat', settingsId,
+  ])
+  assert.deepEqual(groupKeys(interleaved), ['home', tabGroupKey('alice'), tabGroupKey('bob')])
+
+  const bobFirst = reduceProductState(interleaved, {
+    type: 'reorder-group',
+    groupKey: tabGroupKey('bob'),
+    toIndex: 0,
+  })
+  assert.deepEqual(groupKeys(bobFirst), ['home', tabGroupKey('bob'), tabGroupKey('alice')])
+  assert.deepEqual(ids(bobFirst), [
+    dashboardId, settingsId,
+    'home-v2:tab:bob-wallets', 'home-v2:tab:bob-compat',
+    'home-v2:tab:alice-chat', 'home-v2:tab:alice-trust',
+  ], 'Home tabs lead, then each group is contiguous with its tabs in their old relative order')
+  assert.equal(bobFirst.activeTabId, interleaved.activeTabId)
+  assert.equal(bobFirst.revision, interleaved.revision + 1)
+  assert.equal(
+    reduceProductState(bobFirst, { type: 'reorder-group', groupKey: tabGroupKey('bob'), toIndex: 0 }),
+    bobFirst,
+    'reordering a group to where it already is must not churn state',
+  )
+  assert.equal(
+    reduceProductState(bobFirst, { type: 'reorder-group', groupKey: tabGroupKey('alice'), toIndex: 1 }),
+    bobFirst,
+  )
+  assert.equal(
+    reduceProductState(interleaved, { type: 'reorder-group', groupKey: 'home', toIndex: 1 }),
+    interleaved,
+    'the Home group is not reorderable',
+  )
+  assert.throws(
+    () =>
+      reduceProductState(interleaved, {
+        type: 'reorder-group',
+        groupKey: tabGroupKey('carol'),
+        toIndex: 0,
+      }),
+    (error) => {
+      assert.ok(error instanceof ProductModelError)
+      assert.equal(error.code, 'GROUP_NOT_FOUND')
+      return true
+    },
+  )
+  const clampedGroupHigh = reduceProductState(bobFirst, {
+    type: 'reorder-group',
+    groupKey: tabGroupKey('bob'),
+    toIndex: 99,
+  })
+  assert.deepEqual(groupKeys(clampedGroupHigh), ['home', tabGroupKey('alice'), tabGroupKey('bob')])
+  const clampedGroupLow = reduceProductState(clampedGroupHigh, {
+    type: 'reorder-group',
+    groupKey: tabGroupKey('bob'),
+    toIndex: -5.7,
+  })
+  assert.deepEqual(ids(clampedGroupLow), ids(bobFirst))
+  assert.equal(
+    reduceProductState(bobFirst, { type: 'reorder-group', groupKey: tabGroupKey('alice'), toIndex: 1.9 }),
+    bobFirst,
+    'fractional indexes truncate like reorder-tab',
+  )
+
+  // With the Dashboard filed under the selected account (the strip's view),
+  // the model must group the same way, or the Dashboard's early position keeps
+  // that account "first seen" and the strip undoes the move. Alice selected:
+  // the Dashboard is Alice's, so moving Bob first must land Bob's tabs ahead
+  // of the Dashboard too.
+  {
+    const grouping = { dashboardAccountId: 'alice' }
+    const viewKeys = (state: ProductState) =>
+      groupTabsByAccount(state.entries, grouping).map((group) => group.key)
+    assert.deepEqual(viewKeys(interleaved), ['home', tabGroupKey('alice'), tabGroupKey('bob')])
+    const bobFirstWithDashboard = reduceProductState(interleaved, {
+      type: 'reorder-group',
+      groupKey: tabGroupKey('bob'),
+      toIndex: 0,
+      grouping,
+    })
+    assert.deepEqual(viewKeys(bobFirstWithDashboard), ['home', tabGroupKey('bob'), tabGroupKey('alice')])
+    assert.deepEqual(ids(bobFirstWithDashboard), [
+      settingsId,
+      'home-v2:tab:bob-wallets', 'home-v2:tab:bob-compat',
+      dashboardId, 'home-v2:tab:alice-chat', 'home-v2:tab:alice-trust',
+    ])
+    // Without the grouping the same move is a no-op in the strip's view.
+    assert.deepEqual(viewKeys(bobFirst), ['home', tabGroupKey('alice'), tabGroupKey('bob')])
+  }
 
   // Restore round-trips the mixed order and drops nothing valid.
   const restoredEntries = restoreProductState(
@@ -1472,11 +1586,11 @@ function testDesktopAndPhoneContracts(): void {
     assert.doesNotMatch(html, /aria-label="Account address or name"/)
     assert.match(
       html,
-      /data-network="qortium"[\s\S]*?home-v2-presence__avatar" data-loading="false" aria-hidden="true">Z<\/div>/,
+      /data-network="qortium"[\s\S]*?home-v2-presence__avatar" data-network="qortium" data-loading="false" aria-hidden="true">Z<\/div>/,
     )
     assert.match(
       html,
-      /data-network="qortal"[\s\S]*?home-v2-presence__avatar" data-loading="false" aria-hidden="true">Y<\/div>/,
+      /data-network="qortal"[\s\S]*?home-v2-presence__avatar" data-network="qortal" data-loading="false" aria-hidden="true">Y<\/div>/,
     )
     assert.match(html, />Chat</)
     assert.match(html, />Wallets</)
@@ -1704,14 +1818,18 @@ function testStartupStatesAndAppearance(): void {
   assert.match(locked, /data-theme="dark"/)
   assert.match(locked, /data-account-state="locked"/)
   assert.match(locked, /home-v2-account-panel/)
-  // The state chip IS the lock control: it reads "Locked" and acts as Unlock.
-  assert.match(locked, /<button[^>]*home-v2-lock-state[^>]*aria-label="Unlock account"[^>]*>Locked</)
+  // The state chip IS the lock control. Locked is drawn as the ACTION -- the
+  // accent class, the lock glyph and the verb "Unlock" -- so it reads as the
+  // thing to press without relying on colour; unlocked is a quiet chip with
+  // the open-lock glyph that still locks.
+  assert.match(locked, /<button[^>]*home-v2-lock-state home-v2-lock-state--action[^>]*aria-label="Unlock account"[^>]*><svg[^>]*lucide-lock[" ][\s\S]*?<\/svg>Unlock</)
   assert.doesNotMatch(locked, />Lock on exit</)
   assert.doesNotMatch(locked, />Remember unlock</)
 
   const unlocked = render(homeV2Fixture.account)
   assert.match(unlocked, /data-account-state="unlocked"/)
-  assert.match(unlocked, /<button[^>]*home-v2-lock-state[^>]*aria-label="Lock account"[^>]*>Unlocked</)
+  assert.match(unlocked, /<button[^>]*home-v2-lock-state"[^>]*aria-label="Lock account"[^>]*><svg[^>]*lucide-lock-open[\s\S]*?<\/svg>Unlocked</)
+  assert.doesNotMatch(unlocked, /home-v2-lock-state--action/)
   // No toggle handler, no toggle -- and the body is shown.
   assert.doesNotMatch(unlocked, /data-home-v2-account-toggle/)
   assert.match(unlocked, /home-v2-account-body/)

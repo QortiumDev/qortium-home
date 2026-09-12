@@ -24,11 +24,20 @@ import { parseAppResourceLocation } from '../v2/resource-location'
 import { isViewerAddress, parseViewerAddress } from '../v2/viewer-location'
 import type { TabDestination, TabHistory } from './tab-navigation'
 
-/** The envelope revision this build sends. Revision 1 was a bare address. */
+/** The single-tab envelope revision this build sends. Revision 1 was a bare address. */
 export const HOME_V2_TAB_TRANSFER_REVISION = 2
+
+/**
+ * The tab-GROUP envelope revision: a whole account group dragged out at once,
+ * carried as a list of revision-2 single-tab envelopes and nothing else.
+ */
+export const HOME_V2_TAB_TRANSFER_GROUP_REVISION = 3
 
 /** Mirrors the main-process bound in electron/home-v2-window-startup.ts. */
 export const HOME_V2_TAB_TRANSFER_MAX_HISTORY = 50
+
+/** Mirrors the main-process bound in electron/home-v2-window-startup.ts. */
+export const HOME_V2_TAB_TRANSFER_MAX_TABS = 32
 
 const HOME_V2_TAB_TRANSFER_ACCOUNT_ID_MAX_LENGTH = 400
 
@@ -42,7 +51,7 @@ export interface HomeV2TabTransferHistory {
   readonly index: number
 }
 
-export interface HomeV2TabTransfer {
+export interface HomeV2SingleTabTransfer {
   readonly revision: typeof HOME_V2_TAB_TRANSFER_REVISION
   readonly address: string
   /** Always explicit: a Home account id, or the guest sentinel. Never absent. */
@@ -50,6 +59,18 @@ export interface HomeV2TabTransfer {
   readonly title?: string
   readonly history?: HomeV2TabTransferHistory
 }
+
+/**
+ * A whole tab group on the wire: one single-tab envelope per tab, in strip
+ * order. Nothing group-level travels; the receiver regroups by account id.
+ */
+export interface HomeV2TabGroupTransfer {
+  readonly revision: typeof HOME_V2_TAB_TRANSFER_GROUP_REVISION
+  readonly tabs: readonly HomeV2SingleTabTransfer[]
+}
+
+/** Every envelope this build sends over the windows bridge. */
+export type HomeV2TabTransfer = HomeV2SingleTabTransfer | HomeV2TabGroupTransfer
 
 /** What the receiving window should do, once the payload has been believed. */
 export interface HomeV2TabTransferPlan {
@@ -201,6 +222,14 @@ function buildTransferHistory(
   return { entries: windowed, index: windowedIndex }
 }
 
+/** What the sending window knows about a tab: the input to both builders. */
+export interface HomeV2TabTransferInput {
+  readonly address: string
+  readonly title?: string
+  readonly accountId: string | null
+  readonly history?: TabHistory
+}
+
 /**
  * The envelope for a tab that is moving to another window.
  *
@@ -209,12 +238,7 @@ function buildTransferHistory(
  * explicit guest sentinel so the receiving window cannot widen it to whatever
  * account happens to be selected there.
  */
-export function buildHomeV2TabTransfer(input: {
-  readonly address: string
-  readonly title?: string
-  readonly accountId: string | null
-  readonly history?: TabHistory
-}): HomeV2TabTransfer {
+export function buildHomeV2TabTransfer(input: HomeV2TabTransferInput): HomeV2SingleTabTransfer {
   const title = sanitizeHomeV2AppTitle(input.title)
   const history = buildTransferHistory(input.address, input.history)
   return {
@@ -223,6 +247,27 @@ export function buildHomeV2TabTransfer(input: {
     accountId: input.accountId ?? SAVED_GUEST_ACCOUNT_ID,
     ...(title ? { title } : {}),
     ...(history ? { history } : {}),
+  }
+}
+
+/**
+ * The envelope for a whole tab group moving to another window: one single-tab
+ * envelope per tab, built exactly as `buildHomeV2TabTransfer` builds it, in
+ * the order given. Throws rather than truncating outside 1..MAX_TABS — a
+ * group that cannot travel whole must not travel at all, because the sender
+ * closes every tab it hands over and a silently dropped tail would be lost.
+ */
+export function buildHomeV2TabGroupTransfer(
+  tabs: readonly HomeV2TabTransferInput[],
+): HomeV2TabGroupTransfer {
+  if (tabs.length === 0 || tabs.length > HOME_V2_TAB_TRANSFER_MAX_TABS) {
+    throw new Error(
+      `A tab transfer group must hold 1 to ${HOME_V2_TAB_TRANSFER_MAX_TABS} tabs, not ${tabs.length}.`,
+    )
+  }
+  return {
+    revision: HOME_V2_TAB_TRANSFER_GROUP_REVISION,
+    tabs: tabs.map((tab) => buildHomeV2TabTransfer(tab)),
   }
 }
 
@@ -257,12 +302,13 @@ function planTransferHistory(
 }
 
 /**
- * Decides what to do with a transfer payload that arrived over IPC.
+ * Decides what to do with a SINGLE-TAB transfer payload that arrived over IPC.
  *
  * The main process has already sanitised it, and this validates it AGAIN
  * because it reaches the renderer as ordinary untrusted input. Returns null
  * when nothing usable can be made of it; a malformed history never fails the
- * open, it is simply not seeded.
+ * open, it is simply not seeded. A group envelope (revision 3) is not a tab
+ * and yields null here; see `planHomeV2TabTransfersOpen`.
  */
 export function planHomeV2TabTransferOpen(value: unknown): HomeV2TabTransferPlan | null {
   const legacy = (address: string): HomeV2TabTransferPlan | null => {
@@ -287,4 +333,31 @@ export function planHomeV2TabTransferOpen(value: unknown): HomeV2TabTransferPlan
     title: sanitizeHomeV2AppTitle(value.title),
     history: planTransferHistory(value.history),
   }
+}
+
+/**
+ * Decides what to do with ANY transfer payload: one plan for a single-tab
+ * envelope (revision 1 or 2), one plan per tab for a group (revision 3), in
+ * the order sent. Each group entry is judged on its own by
+ * `planHomeV2TabTransferOpen`, so an entry that would not open alone is
+ * dropped without taking the rest of the group with it — the sender has
+ * already closed every tab of the group, and opening the survivors loses less
+ * than opening none. Empty when nothing usable can be made of the payload.
+ */
+export function planHomeV2TabTransfersOpen(value: unknown): readonly HomeV2TabTransferPlan[] {
+  if (isRecord(value) && value.revision === HOME_V2_TAB_TRANSFER_GROUP_REVISION) {
+    if (!Array.isArray(value.tabs) || value.tabs.length > HOME_V2_TAB_TRANSFER_MAX_TABS) return []
+    const plans: HomeV2TabTransferPlan[] = []
+    for (const entry of value.tabs) {
+      // Only a single-tab envelope of the current revision may sit inside a
+      // group: a nested bare address would carry no account, and a nested
+      // group would nest the bound.
+      if (!isRecord(entry) || entry.revision !== HOME_V2_TAB_TRANSFER_REVISION) continue
+      const plan = planHomeV2TabTransferOpen(entry)
+      if (plan) plans.push(plan)
+    }
+    return plans
+  }
+  const plan = planHomeV2TabTransferOpen(value)
+  return plan ? [plan] : []
 }

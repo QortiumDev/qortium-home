@@ -318,9 +318,14 @@ async function main() {
     // then because new tabs now open on the dashboard (#468 made the shell
     // dashboard-first), so there is no page a detached window cannot also have.
     // Comparing the two strips needs no sentinel and says what it means.
+    //
+    // Compared as sorted lists: the strip DRAWS tabs grouped by account (the
+    // Dashboard sits with the selected account, Welcome in the Home group),
+    // so the DOM order is not the stored order any more, but the set of tabs
+    // is the invariant either way -- the detached window's set differs.
     assert.deepEqual(
-      stored,
-      after,
+      [...stored].sort(),
+      [...after].sort(),
       'the saved strip must be the primary window\'s, not the detached one\'s',
     )
     if (JSON.parse(await cdp.evaluate(TAB_KEYS)).includes('settings')) {
@@ -350,8 +355,8 @@ async function main() {
     // stored strip must still be the primary's, and must not contain the
     // deliberately distinctive entry the detached window tried to write.
     assert.deepEqual(
-      afterWrite,
-      after,
+      [...afterWrite].sort(),
+      [...after].sort(),
       `a detached window's save replaced the stored tab strip (${afterWrite.join(' ')})`,
     )
     // --- what the tab brought with it ---------------------------------------
@@ -475,9 +480,16 @@ async function main() {
     // freshly opened window holds -- the direct DOM read the reviewer asked
     // for, not window.homeV2Nodes.getShellState() (a detached/opened window's
     // strip is session-only, so the stored product entries do not show it).
+    // Read from the GROUP that holds the transferred (viewer) tab: the new
+    // window also has its own Dashboard, filed under whatever account it
+    // has selected, and that group's badge may come first.
+    const VIEWER_GROUP_BADGE = `(() => {
+      const tab = [...document.querySelectorAll('.home-v2-tab')].find((candidate) => String(candidate.dataset.tabId).includes('viewer'))
+      return tab ? tab.closest('.home-v2-tab-group')?.querySelector('[data-tab-group-badge]') ?? null : null
+    })()`
     const attribution = async (probe) => {
-      await until('account badge rendered', () => probe.evaluate(`!!document.querySelector('[data-tab-group-badge^="account:"]')`))
-      return probe.evaluate(`document.querySelector('[data-tab-group-badge^="account:"]').getAttribute('aria-label')`)
+      await until('account badge rendered', () => probe.evaluate(`!!${VIEWER_GROUP_BADGE}`))
+      return probe.evaluate(`${VIEWER_GROUP_BADGE}.getAttribute('aria-label')`)
     }
 
     // The positive case: a tab bound to A must stay bound to A even though
@@ -503,12 +515,13 @@ async function main() {
         `current account (${accountB.label}) or guest -- saw ${aChip}`,
     )
     await until('published account avatar decodes', () => aProbe.evaluate(`(() => {
-      const image = document.querySelector('[data-tab-group-badge^="account:"] img')
+      const image = ${VIEWER_GROUP_BADGE}?.querySelector('img')
       return !!image && image.complete && image.naturalWidth > 0
     })()`))
     const avatarSize = await aProbe.evaluate(`(() => {
-      const chip = document.querySelector('[data-tab-group-badge^="account:"]').getBoundingClientRect()
-      const image = document.querySelector('[data-tab-group-badge^="account:"] img').getBoundingClientRect()
+      const badge = ${VIEWER_GROUP_BADGE}
+      const chip = badge.getBoundingClientRect()
+      const image = badge.querySelector('img').getBoundingClientRect()
       return {width:image.width, height:image.height, chipHeight:chip.height}
     })()`)
     assert.deepEqual(avatarSize, {width:20, height:20, chipHeight:28})
@@ -568,8 +581,8 @@ async function main() {
       `a tab transferred with account B must show B -- the control that shows ` +
         `the check above discriminates by account, not just by chance`,
     )
-    assert.equal(await bProbe.evaluate(`document.querySelector('[data-tab-group-badge^="account:"] img') !== null`), false)
-    assert.equal(await bProbe.evaluate(`document.querySelector('[data-tab-group-badge^="account:"] .home-v2-tab-group__image').textContent`), 'TA')
+    assert.equal(await bProbe.evaluate(`${VIEWER_GROUP_BADGE}.querySelector('img') !== null`), false)
+    assert.equal(await bProbe.evaluate(`${VIEWER_GROUP_BADGE}.querySelector('.home-v2-tab-group__image').textContent`), 'TA')
     log('unpublished avatar keeps account initials')
     bProbe.socket.close()
 

@@ -575,6 +575,17 @@ body,
   cursor: default;
 }
 
+/* A draggable badge (an account group): along the strip it reorders the
+   groups, clear of the strip it takes the whole group to a new window. */
+.home-v2-tab-group__badge[data-draggable='true'] {
+  cursor: grab;
+  touch-action: none;
+}
+
+.home-v2-tab-group__badge[data-draggable='true']:active {
+  cursor: grabbing;
+}
+
 .home-v2-tab-group__badge:not(:disabled):hover {
   border-color: var(--v2-line-strong);
   background: rgb(255 255 255 / 8%);
@@ -815,6 +826,21 @@ body,
   flex-direction: column;
   gap: 1px;
   padding: 4px 0;
+}
+
+.home-v2-account-detail__identity {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.home-v2-account-detail__identity .home-v2-account-detail__avatar {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 22px;
+  border-radius: 50%;
+  object-fit: cover;
+  font-size: 10px;
 }
 
 .home-v2-chrome-menu__panel
@@ -2408,11 +2434,25 @@ body,
 }
 
 button.home-v2-lock-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   cursor: pointer;
   font: inherit;
   font-size: var(--v2-type-small);
   font-weight: 800;
   background: var(--v2-surface-soft);
+}
+
+/* Locked: the chip becomes the Unlock action in the accent, glyph + verb. */
+button.home-v2-lock-state--action {
+  border-color: var(--v2-accent);
+  color: var(--v2-accent-ink);
+  background: var(--v2-accent);
+}
+
+button.home-v2-lock-state--action:hover:not(:disabled) {
+  filter: brightness(1.08);
 }
 
 button.home-v2-lock-state:hover:not(:disabled) {

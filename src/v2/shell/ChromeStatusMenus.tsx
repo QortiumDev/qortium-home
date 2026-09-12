@@ -529,18 +529,17 @@ export function AccountStatusMenu({
         >
           {!hasAccount ? (
             <span aria-hidden="true">+</span>
-          ) : selectedAccountLookup ? (
+          ) : selectedAccountLookup && networks.length > 0 ? (
+            // ONE avatar: Qortium's, or Qortal's when Qortium is off. Both
+            // chains' avatars sit in the panel when both are enabled.
             <span className="home-v2-account-avatars" aria-hidden="true">
-              {networks.map((network) => (
-                <VisibleIdentityAvatar
-                  className="home-v2-account-avatar"
-                  identity={selectedAccountLookup.networks[network]}
-                  key={network}
-                  loader={loadVisibleAvatar}
-                  network={network}
-                  query={selectedAccountLookup.query}
-                />
-              ))}
+              <VisibleIdentityAvatar
+                className="home-v2-account-avatar"
+                identity={selectedAccountLookup.networks[networks[0]]}
+                loader={loadVisibleAvatar}
+                network={networks[0]}
+                query={selectedAccountLookup.query}
+              />
             </span>
           ) : (
             <span aria-hidden="true">
@@ -578,7 +577,18 @@ export function AccountStatusMenu({
                 <small className="home-v2-account-detail__label">
                   {networkLabels[network]}
                 </small>
-                <span className="home-v2-account-detail__value">
+                <span className="home-v2-account-detail__value home-v2-account-detail__identity">
+                  {/* Each chain's avatar, but only when there are two to tell
+                      apart: with one network the trigger already shows it. */}
+                  {networks.length > 1 && selectedAccountLookup ? (
+                    <VisibleIdentityAvatar
+                      className="home-v2-account-detail__avatar"
+                      identity={selectedAccountLookup.networks[network]}
+                      loader={loadVisibleAvatar}
+                      network={network}
+                      query={selectedAccountLookup.query}
+                    />
+                  ) : null}
                   {presence.primaryName ?? t('home2.identity.noRegisteredName')}
                 </span>
                 {/* Only when the chains disagree; the shared case prints once
