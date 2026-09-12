@@ -8,7 +8,7 @@ import {
 } from './app-update-client'
 
 const check = {
-  asset: { digestAvailable: true, name: 'Home.AppImage', size: 123 },
+  asset: { digestAvailable: true, name: 'Home.AppImage', size: 123, source: 'github' },
   channel: 'stable',
   checkedAt: '2026-08-22T12:00:00.000Z',
   currentVersion: '2.0.0',
