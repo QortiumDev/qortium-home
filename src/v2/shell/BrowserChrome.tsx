@@ -561,6 +561,7 @@ export function BrowserChrome({
           onOpenGroupPicker={(position) => setGroupPicker(position)}
           condensed={tabStripCondensed}
           selectedAccountId={selectedAccountId}
+          preferredAvatarNetwork={snapshot.nodes.qortium.mode !== 'disabled' ? 'qortium' : 'qortal'}
           onReorderGroup={onReorderGroup}
           onDetachGroup={onDetachGroup}
         />

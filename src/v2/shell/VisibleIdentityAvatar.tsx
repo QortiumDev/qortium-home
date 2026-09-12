@@ -88,6 +88,7 @@ export function VisibleIdentityAvatar({
     return (
       <img
         className={avatarClassName}
+        data-network={network}
         src={image.url}
         alt=""
         aria-hidden="true"
@@ -104,6 +105,7 @@ export function VisibleIdentityAvatar({
   return (
     <div
       className={avatarClassName}
+      data-network={network}
       data-loading={image.loading ? 'true' : 'false'}
       aria-hidden="true"
     >

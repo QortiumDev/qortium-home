@@ -1586,11 +1586,11 @@ function testDesktopAndPhoneContracts(): void {
     assert.doesNotMatch(html, /aria-label="Account address or name"/)
     assert.match(
       html,
-      /data-network="qortium"[\s\S]*?home-v2-presence__avatar" data-loading="false" aria-hidden="true">Z<\/div>/,
+      /data-network="qortium"[\s\S]*?home-v2-presence__avatar" data-network="qortium" data-loading="false" aria-hidden="true">Z<\/div>/,
     )
     assert.match(
       html,
-      /data-network="qortal"[\s\S]*?home-v2-presence__avatar" data-loading="false" aria-hidden="true">Y<\/div>/,
+      /data-network="qortal"[\s\S]*?home-v2-presence__avatar" data-network="qortal" data-loading="false" aria-hidden="true">Y<\/div>/,
     )
     assert.match(html, />Chat</)
     assert.match(html, />Wallets</)

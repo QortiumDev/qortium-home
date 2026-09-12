@@ -2141,7 +2141,9 @@ export function HomeV2LiveApp() {
       : undefined,
     [nodeClient],
   )
-  const tabAccountIds = new Set(productState.entries.map(savedEntryAccountId))
+  // The selected account as well: its group can hold only the Dashboard,
+  // which names no account, and its badge still needs the avatar.
+  const tabAccountIds = new Set([...productState.entries.map(savedEntryAccountId), selectedAccountId])
   const accountIdentityLookups = useTabAccountIdentities(
     accountCatalogue.accounts.filter((account) => tabAccountIds.has(account.id)),
     lookupTabIdentity,

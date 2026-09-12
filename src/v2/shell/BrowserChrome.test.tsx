@@ -292,11 +292,24 @@ try {
     renderChrome({ kind: 'search' }, { selectedAccountLookup: accountLookup })
     await Promise.resolve()
   })
-  assert.equal(
-    container.querySelectorAll('.home-v2-account-avatars .home-v2-account-avatar').length,
-    2,
-    'the toolbar account control should show both enabled-network avatars',
-  )
+  // ONE avatar on the toolbar control -- Qortium's while Qortium is enabled
+  // -- so the button reads as one identity; both chains' avatars sit in the
+  // panel's per-network rows when both are enabled, and only then.
+  const toolbarAvatars = () => [...container.querySelectorAll<HTMLElement>('.home-v2-account-avatars .home-v2-account-avatar')]
+  assert.equal(toolbarAvatars().length, 1, 'the toolbar account control shows one avatar')
+  assert.equal(toolbarAvatars()[0].dataset.network, 'qortium')
+  await act(async () => {
+    renderChrome({ kind: 'search' }, {
+      selectedAccountLookup: accountLookup,
+      snapshot: { ...homeV2Fixture, nodes: { ...homeV2Fixture.nodes, qortium: { ...homeV2Fixture.nodes.qortium, mode: 'disabled' } } },
+    })
+    await Promise.resolve()
+  })
+  assert.equal(toolbarAvatars()[0].dataset.network, 'qortal', 'Qortium off: the Qortal avatar stands in')
+  await act(async () => {
+    renderChrome({ kind: 'search' }, { selectedAccountLookup: accountLookup })
+    await Promise.resolve()
+  })
 
   // The trigger is decoration only now: avatars plus a padlock, with the label
   // carried by the accessible name (owner request).
@@ -365,6 +378,12 @@ try {
     '.home-v2-account-detail__address',
   )
   assert.equal(addressRows.length, 1, 'a shared address should be printed once')
+  // Both chains enabled: each network row carries its own avatar, so the
+  // one avatar the toolbar shows is not the only one the user can see.
+  assert.deepEqual(
+    [...accountPanel.querySelectorAll<HTMLElement>('.home-v2-account-detail[data-network] .home-v2-account-detail__avatar')].map((avatar) => avatar.dataset.network),
+    ['qortium', 'qortal'],
+  )
   assert.equal(
     addressRows[0]?.textContent,
     'QH143K2qjVdn864NSY7aNESo88ao1ZnALH',

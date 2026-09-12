@@ -46,6 +46,13 @@ strip when the Home group is the one on screen. The Dashboard tab now sits in
 the selected account's group — the dashboard shows that account — and moves
 with the selection, so apps opened from it land beside it.
 
+Group badges show the account's published avatar like the toolbar does —
+including a group that holds only the Dashboard, which used to fall back to
+initials. The toolbar account button shows one avatar (Qortium's, or
+Qortal's when Qortium is disabled) instead of both chains' side by side; when
+both chains are enabled, each chain's avatar appears on its own row inside
+the account menu.
+
 On the dashboard, the Account strip's "Locked" chip is now an Unlock button
 in the accent colour with a lock glyph, so it reads as the thing to press
 without relying on colour; when unlocked it is a quiet chip with an open-lock

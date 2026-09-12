@@ -828,6 +828,21 @@ body,
   padding: 4px 0;
 }
 
+.home-v2-account-detail__identity {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.home-v2-account-detail__identity .home-v2-account-detail__avatar {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 22px;
+  border-radius: 50%;
+  object-fit: cover;
+  font-size: 10px;
+}
+
 .home-v2-chrome-menu__panel
   .home-v2-account-detail
   + .home-v2-account-detail {

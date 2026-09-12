@@ -75,6 +75,11 @@ export interface TabStripProps {
   readonly condensed?: boolean
   /** The selected account: the Dashboard tab sits in its group. */
   readonly selectedAccountId?: string | null
+  /**
+   * The chain whose avatar a badge shows when none of the group's tabs names
+   * one (a Dashboard-only group): Qortium, or Qortal when Qortium is off.
+   */
+  readonly preferredAvatarNetwork?: NetworkId
   /** Dragging a group's badge along the strip reorders the account groups. */
   readonly onReorderGroup?: (groupKey: string, toIndex: number) => void
   /** Dragging a group's badge clear of the strip moves the whole group out. */
@@ -218,6 +223,7 @@ function TabGroupBadge({
   onOpen,
   draggable = false,
   onPointerDown,
+  preferredNetwork = 'qortium',
 }: {
   readonly group: TabGroup
   readonly groupCount: number
@@ -229,6 +235,7 @@ function TabGroupBadge({
   readonly onOpen?: (position: { x: number; y: number }) => void
   readonly draggable?: boolean
   readonly onPointerDown?: (event: PointerEvent<HTMLButtonElement>) => void
+  readonly preferredNetwork?: NetworkId
 }) {
   const accountId = group.accountId
   const account = accountId
@@ -238,9 +245,12 @@ function TabGroupBadge({
     ? account?.label ?? rememberedAccountLabels?.get(accountId) ?? t('home2.account.unavailableAccount')
     : t('address.suggestionHome')
   const locked = !!accountId && !account?.isUnlocked
-  // The avatar follows the group's first tab's network: one account can have
-  // published a different avatar on each chain.
-  const network = accountId ? tabNetwork(group.entries[0]) : null
+  // The avatar follows the first tab in the group that names a chain -- one
+  // account can have published a different avatar on each -- and the
+  // preferred chain when none does (a group holding only the Dashboard).
+  const network = accountId
+    ? group.entries.map(tabNetwork).find((candidate) => candidate !== null) ?? preferredNetwork
+    : null
   const identity = accountId && network
     ? accountIdentityLookups?.get(accountId)?.networks[network]
     : undefined
@@ -312,6 +322,7 @@ export function TabStrip({
   onOpenGroupPicker,
   condensed,
   selectedAccountId,
+  preferredAvatarNetwork = 'qortium',
   onReorderGroup,
   onDetachGroup,
 }: TabStripProps) {
@@ -701,6 +712,7 @@ export function TabStrip({
                   if (consumeSuppressedClick(`group:${group.key}`)) return
                   onOpenGroupPicker?.(position)
                 }}
+                preferredNetwork={preferredAvatarNetwork}
                 draggable={group.accountId !== null && !!(onReorderGroup || onDetachGroup)}
                 onPointerDown={(event) => handleGroupPointerDown(event, group.key)}
               />
