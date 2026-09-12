@@ -42,9 +42,11 @@ const RECORDER = `(() => {
     state.frames += 1
     const dashboard = document.querySelector('.home-v2-dashboard')
     if (dashboard) {
-      const text = dashboard.innerText || ''
-      const qortium = text.includes('Qortium connection')
-      const qortal = text.includes('Qortal connection')
+      // One network card per enabled network. (The cards used to carry a
+      // "<Network> connection" heading; the condensed rows since #553 do not,
+      // so the card itself is what is looked for.)
+      const qortium = !!dashboard.querySelector('.home-v2-node-core-card[data-network="qortium"]')
+      const qortal = !!dashboard.querySelector('.home-v2-node-core-card[data-network="qortal"]')
       if (qortium && qortal) state.sawBoth = true
       // One without the other is the defect, whichever way round.
       if (qortium !== qortal) {

@@ -973,9 +973,11 @@ try {
           const qortium = document.querySelector('.home-v2-core-maintenance:not(.home-v2-qortal-maintenance)');
           const qortal = document.querySelector('.home-v2-qortal-maintenance[data-network="qortal"]');
           const update = document.querySelector('[data-home-v2-app-updates="desktop"]');
+          // Since #553 the Runtime page LEADS with the Home updates block,
+          // before either network's Core section.
           return qortium && qortal && update &&
+              update.compareDocumentPosition(qortium) & Node.DOCUMENT_POSITION_FOLLOWING &&
               qortium.compareDocumentPosition(qortal) & Node.DOCUMENT_POSITION_FOLLOWING &&
-              qortal.compareDocumentPosition(update) & Node.DOCUMENT_POSITION_FOLLOWING &&
               typeof window.homeV2CoreManagers?.getQortalMaintenanceStatus === 'function' &&
               typeof window.homeV2CoreManagers?.checkQortalMaintenanceRelease === 'function' &&
               typeof window.homeV2CoreManagers?.runQortalMaintenanceAction === 'function'

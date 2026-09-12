@@ -32,6 +32,23 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## release: prepare home 2.1.0-beta.3
+
+2026-09-12
+
+Prepare the third Home 2.1 public testing prerelease. It carries the four
+changes merged since beta.2: the desktop window now opens finished instead of
+painting its startup one piece at a time, and two hidden multi-second reads
+on the startup path are gone; the dashboard is condensed to four foldable
+tiles (Account, Pinned apps, Qortium Home, Node & Core) with basic Home, Core,
+Java and I2P management on the dashboard and the detail in Settings → Runtime;
+and the tab bar groups tabs by account, with one avatar badge per group, a
+group picker, sortable and movable groups, the Dashboard tab filed with the
+selected account, and an Unlock button on the Account strip. Android advances
+to code 45 so it can update beta.2, beta.1, public Home 1.8.0 and development
+Home 2.1 builds. Stable users remain on Home 1.8.0. The beta testing guide
+gains startup, dashboard and tab-bar checks.
+
 ## feat: tab groups you can sort and move; a Dashboard that belongs to the selected account; an Unlock button
 
 2026-09-12
