@@ -32,6 +32,23 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## fix: phone dashboard tile headers on one line; Android can check for Home updates again
+
+2026-09-12
+
+On a phone the Qortium Home and Node & Core tiles stacked their Settings
+link and fold chevron under the title, each on a line of its own, and the
+Pinned apps chevron dropped alone under the Apps / Explore / Create row. The
+tile headings are now one line on a phone too — title, then Settings and the
+chevron at the far edge — and when the Pinned apps section is narrow its
+actions move under the title as a row while the chevron keeps the title line.
+
+Android's "Check for updates" answered "Unable to check Qortium Home
+releases" on every press since Home 2: the page's own fetch never reaches
+GitHub under the shell's content-security policy. The check now goes through
+the native HTTP plugin, the same way the release-notes page already reads
+GitHub, with the same size bound.
+
 ## feat: the Dashboard navigates in place, and the group badge is an account menu
 
 2026-09-12
