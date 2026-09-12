@@ -767,6 +767,32 @@ function testProductModelKeepsSourceQualifiedTabs(): void {
     'fractional indexes truncate like reorder-tab',
   )
 
+  // With the Dashboard filed under the selected account (the strip's view),
+  // the model must group the same way, or the Dashboard's early position keeps
+  // that account "first seen" and the strip undoes the move. Alice selected:
+  // the Dashboard is Alice's, so moving Bob first must land Bob's tabs ahead
+  // of the Dashboard too.
+  {
+    const grouping = { dashboardAccountId: 'alice' }
+    const viewKeys = (state: ProductState) =>
+      groupTabsByAccount(state.entries, grouping).map((group) => group.key)
+    assert.deepEqual(viewKeys(interleaved), ['home', tabGroupKey('alice'), tabGroupKey('bob')])
+    const bobFirstWithDashboard = reduceProductState(interleaved, {
+      type: 'reorder-group',
+      groupKey: tabGroupKey('bob'),
+      toIndex: 0,
+      grouping,
+    })
+    assert.deepEqual(viewKeys(bobFirstWithDashboard), ['home', tabGroupKey('bob'), tabGroupKey('alice')])
+    assert.deepEqual(ids(bobFirstWithDashboard), [
+      settingsId,
+      'home-v2:tab:bob-wallets', 'home-v2:tab:bob-compat',
+      dashboardId, 'home-v2:tab:alice-chat', 'home-v2:tab:alice-trust',
+    ])
+    // Without the grouping the same move is a no-op in the strip's view.
+    assert.deepEqual(viewKeys(bobFirst), ['home', tabGroupKey('alice'), tabGroupKey('bob')])
+  }
+
   // Restore round-trips the mixed order and drops nothing valid.
   const restoredEntries = restoreProductState(
     JSON.parse(JSON.stringify(settingsOpen)),
@@ -1792,14 +1818,18 @@ function testStartupStatesAndAppearance(): void {
   assert.match(locked, /data-theme="dark"/)
   assert.match(locked, /data-account-state="locked"/)
   assert.match(locked, /home-v2-account-panel/)
-  // The state chip IS the lock control: it reads "Locked" and acts as Unlock.
-  assert.match(locked, /<button[^>]*home-v2-lock-state[^>]*aria-label="Unlock account"[^>]*>Locked</)
+  // The state chip IS the lock control. Locked is drawn as the ACTION -- the
+  // accent class, the lock glyph and the verb "Unlock" -- so it reads as the
+  // thing to press without relying on colour; unlocked is a quiet chip with
+  // the open-lock glyph that still locks.
+  assert.match(locked, /<button[^>]*home-v2-lock-state home-v2-lock-state--action[^>]*aria-label="Unlock account"[^>]*><svg[^>]*lucide-lock[" ][\s\S]*?<\/svg>Unlock</)
   assert.doesNotMatch(locked, />Lock on exit</)
   assert.doesNotMatch(locked, />Remember unlock</)
 
   const unlocked = render(homeV2Fixture.account)
   assert.match(unlocked, /data-account-state="unlocked"/)
-  assert.match(unlocked, /<button[^>]*home-v2-lock-state[^>]*aria-label="Lock account"[^>]*>Unlocked</)
+  assert.match(unlocked, /<button[^>]*home-v2-lock-state"[^>]*aria-label="Lock account"[^>]*><svg[^>]*lucide-lock-open[\s\S]*?<\/svg>Unlocked</)
+  assert.doesNotMatch(unlocked, /home-v2-lock-state--action/)
   // No toggle handler, no toggle -- and the body is shown.
   assert.doesNotMatch(unlocked, /data-home-v2-account-toggle/)
   assert.match(unlocked, /home-v2-account-body/)

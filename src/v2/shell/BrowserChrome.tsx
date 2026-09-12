@@ -146,6 +146,13 @@ export interface BrowserChromeProps {
   readonly onOverlayOpenChange?: (open: boolean) => void
   /** Forces the strip's one-group-at-a-time mode; the strip measures itself when absent. */
   readonly tabStripCondensed?: boolean
+  /** The selected account; the Dashboard tab sits in its group. */
+  readonly selectedAccountId?: string | null
+  readonly onReorderGroup?: (groupKey: string, toIndex: number) => void
+  readonly onDetachGroup?: (
+    groupKey: string,
+    position: { screenX: number; screenY: number },
+  ) => void | Promise<void>
 }
 
 export type AddressOpenResult =
@@ -267,6 +274,9 @@ export function BrowserChrome({
   onSetNodeMode,
   onOverlayOpenChange,
   tabStripCondensed,
+  selectedAccountId,
+  onReorderGroup,
+  onDetachGroup,
 }: BrowserChromeProps) {
   // Retain only presentation labels after removal; authority always comes from
   // the current catalogue, so this cannot make a removed account unlockable.
@@ -349,12 +359,13 @@ export function BrowserChrome({
   // Which tab each group was last on, so switching groups returns to it
   // rather than to the group's first tab.
   const lastActiveByGroup = useRef(new Map<string, TabId>())
+  const grouping = { dashboardAccountId: selectedAccountId ?? null }
   useEffect(() => {
     const activeId = productState.activeTabId
-    const group = groupTabsByAccount(productState.entries)
+    const group = groupTabsByAccount(productState.entries, grouping)
       .find((candidate) => candidate.entries.some((entry) => entry.id === activeId))
     if (group && activeId) lastActiveByGroup.current.set(group.key, activeId)
-  }, [productState.activeTabId, productState.entries])
+  }, [productState.activeTabId, productState.entries, selectedAccountId])
   const overlayOpen = openOverlayIds.length > 0
   const onOverlayOpenChangeRef = useRef(onOverlayOpenChange)
   useEffect(() => {
@@ -549,6 +560,9 @@ export function BrowserChrome({
           loadVisibleAvatar={loadVisibleAvatar}
           onOpenGroupPicker={(position) => setGroupPicker(position)}
           condensed={tabStripCondensed}
+          selectedAccountId={selectedAccountId}
+          onReorderGroup={onReorderGroup}
+          onDetachGroup={onDetachGroup}
         />
       </div>
       <div className="home-v2-browser-toolbar">
@@ -846,7 +860,7 @@ export function BrowserChrome({
             aria-label={t('home2.tabs.groups')}
             style={{ left: groupPicker.x, top: groupPicker.y }}
           >
-            {groupTabsByAccount(productState.entries).map((group, index) => {
+            {groupTabsByAccount(productState.entries, grouping).map((group, index) => {
               const account = group.accountId
                 ? accountCatalogue?.accounts.find((candidate) => candidate.id === group.accountId)
                 : undefined

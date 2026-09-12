@@ -19,11 +19,23 @@ export interface TabGroup {
  * shell state changes, so a session saved before grouping existed renders
  * the same tabs in the same groups.
  */
-export function groupTabsByAccount(entries: readonly ShellEntry[]): readonly TabGroup[] {
+export interface TabGroupingOptions {
+  /**
+   * The account the Dashboard tab belongs with: the dashboard shows the
+   * selected account, so its tab sits in that account's group and moves with
+   * the selection. Null or absent leaves the Dashboard in the Home group.
+   */
+  readonly dashboardAccountId?: string | null
+}
+
+export function groupTabsByAccount(
+  entries: readonly ShellEntry[],
+  options: TabGroupingOptions = {},
+): readonly TabGroup[] {
   const groups = new Map<string, { accountId: string | null; entries: ShellEntry[] }>()
   groups.set(HOME_TAB_GROUP_KEY, { accountId: null, entries: [] })
   for (const entry of entries) {
-    const accountId = savedEntryAccountId(entry)
+    const accountId = tabGroupAccountId(entry, options)
     const key = tabGroupKey(accountId)
     let group = groups.get(key)
     if (!group) {
@@ -37,11 +49,23 @@ export function groupTabsByAccount(entries: readonly ShellEntry[]): readonly Tab
     .map(([key, group]) => ({ key, accountId: group.accountId, entries: group.entries }))
 }
 
+/** Which account's group a tab sits in, or null for the Home group. */
+export function tabGroupAccountId(entry: ShellEntry, options: TabGroupingOptions = {}): string | null {
+  if (entry.kind === 'internal' && entry.page === 'dashboard') {
+    return options.dashboardAccountId ?? null
+  }
+  return savedEntryAccountId(entry)
+}
+
 export function tabGroupKey(accountId: string | null): string {
   return accountId ? `account:${accountId}` : HOME_TAB_GROUP_KEY
 }
 
 /** The grouped, visual order of tab ids -- what Left/Right arrows walk. */
-export function groupedTabOrder(entries: readonly ShellEntry[]): readonly string[] {
-  return groupTabsByAccount(entries).flatMap((group) => group.entries.map((entry) => entry.id as string))
+export function groupedTabOrder(
+  entries: readonly ShellEntry[],
+  options: TabGroupingOptions = {},
+): readonly string[] {
+  return groupTabsByAccount(entries, options)
+    .flatMap((group) => group.entries.map((entry) => entry.id as string))
 }

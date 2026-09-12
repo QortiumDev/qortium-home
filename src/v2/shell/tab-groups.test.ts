@@ -59,4 +59,28 @@ const viewer = (id: string, accountId: string | null): ShellEntry =>
 // Empty strip: no groups at all.
 assert.deepEqual(groupTabsByAccount([]), [])
 
+// The Dashboard belongs with the selected account: with one selected it sits
+// in that account's group (first, if that account has no earlier tab), and
+// the Home group is dropped when nothing else is account-less. Settings and
+// Welcome stay in the Home group regardless.
+{
+  const settings = { kind: 'internal', id: 'settings', page: 'settings' } as unknown as ShellEntry
+  const entries = [internal('dash'), app('b1', 'wallet:B'), settings, app('a1', 'wallet:A')]
+  const groups = groupTabsByAccount(entries, { dashboardAccountId: 'wallet:A' })
+  assert.deepEqual(groups.map((group) => [group.key, group.entries.map((entry) => entry.id)]), [
+    [HOME_TAB_GROUP_KEY, ['settings']],
+    ['account:wallet:A', ['dash', 'a1']],
+    ['account:wallet:B', ['b1']],
+  ])
+  assert.deepEqual(
+    groupTabsByAccount([internal('dash'), app('a1', 'wallet:A')], { dashboardAccountId: 'wallet:A' })
+      .map((group) => group.key),
+    ['account:wallet:A'],
+  )
+  assert.deepEqual(
+    groupTabsByAccount(entries, { dashboardAccountId: null }).map((group) => group.key),
+    [HOME_TAB_GROUP_KEY, 'account:wallet:B', 'account:wallet:A'],
+  )
+}
+
 console.log('Home v2 tab group tests passed.')

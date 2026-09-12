@@ -1591,7 +1591,6 @@ try {
     assert.equal(badge('account:wallet-b:1').getAttribute('aria-label'), 'Tab account: Bob')
     assert.equal(badge('account:wallet-b:1').dataset.locked, 'true', "Bob's lock state rides on the badge")
     assert.equal(badge('account:wallet-a:1').dataset.locked, 'false')
-    assert.equal(badge('home').getAttribute('aria-label'), 'Home')
 
     // The picker.
     act(() => badge('account:wallet-a:1').click())
@@ -1612,6 +1611,53 @@ try {
     act(() => renderGrouped(grouped, true))
     assert.deepEqual(groupKeys(), ['account:wallet-a:1'])
     assert.equal(badge('account:wallet-a:1').disabled, false)
+    act(() => renderGrouped(grouped, false))
+
+    // The Home group has no badge beside its tabs when the strip is expanded
+    // (the divider and the Dashboard's own mark are enough); condensed, with
+    // the Home group active, its badge IS the way to the other groups.
+    assert.equal(container.querySelector('[data-tab-group-badge="home"]'), null)
+    const onDashboard = reduceProductState(grouped, { type: 'navigate', destination: 'dashboard' })
+    act(() => renderGrouped(onDashboard, true))
+    assert.deepEqual(groupKeys(), ['home'])
+    assert.ok(container.querySelector('[data-tab-group-badge="home"]'), 'condensed Home group keeps its badge')
+    act(() => renderGrouped(grouped, false))
+
+    // The Dashboard sits in the SELECTED account's group, so pins opened from
+    // it land beside it, and it moves when the selection changes.
+    const renderSelected = (selectedAccountId: string | null, calls: { reorders: [string, number][]; detaches: string[] }) => root.render(
+      <BrowserChrome key="tab-groups" snapshot={homeV2Fixture} productState={grouped}
+        accountCatalogue={twoAccounts} selectedAccountId={selectedAccountId}
+        onActivateTab={(id) => activations.push(String(id))}
+        onReorderGroup={(key, index) => calls.reorders.push([key, index])}
+        onDetachGroup={(key) => { calls.detaches.push(key) }} />,
+    )
+    const calls = { reorders: [] as [string, number][], detaches: [] as string[] }
+    act(() => renderSelected('wallet-b:1', calls))
+    assert.deepEqual(groupKeys(), ['account:wallet-b:1', 'account:wallet-a:1'], 'no Home group: the Dashboard moved to Bob')
+    assert.deepEqual(tabsIn('account:wallet-b:1'), [String(grouped.entries[0].id), 'tab:bob-1', 'tab:bob-2'])
+    act(() => renderSelected('wallet-a:1', calls))
+    assert.deepEqual(tabsIn('account:wallet-a:1'), [String(grouped.entries[0].id), 'tab:alice-1'])
+    act(() => renderSelected(null, calls))
+    assert.deepEqual(groupKeys(), ['home', 'account:wallet-b:1', 'account:wallet-a:1'])
+
+    // Dragging a badge along the strip reorders the account groups; dragging
+    // it clear of the strip moves the group out. (Every rect is 0x0 in this
+    // DOM, so "right of every sibling" is any positive x.)
+    const bobBadge = badge('account:wallet-b:1')
+    assert.equal(bobBadge.dataset.draggable, 'true')
+    const pointer = (type: string, target: EventTarget, init: Record<string, number>) =>
+      target.dispatchEvent(Object.assign(new window.Event(type, { bubbles: true }), { pointerId: 7, pointerType: 'mouse', button: 0, ...init }))
+    act(() => { pointer('pointerdown', bobBadge, { clientX: 10, clientY: 10 }) })
+    act(() => { pointer('pointermove', window, { clientX: 400, clientY: 10 }) })
+    assert.deepEqual(calls.reorders, [['account:wallet-b:1', 1]], 'moved past Alice: Bob goes to index 1')
+    act(() => { pointer('pointerup', window, { clientX: 400, clientY: 10, screenX: 400, screenY: 10 }) })
+    assert.deepEqual(calls.detaches, [], 'a release on the strip is a reorder, not a detach')
+    act(() => { pointer('pointerdown', bobBadge, { clientX: 10, clientY: 10 }) })
+    act(() => { pointer('pointermove', window, { clientX: 10, clientY: 300 }) })
+    act(() => { pointer('pointerup', window, { clientX: 10, clientY: 300, screenX: 10, screenY: 300 }) })
+    assert.deepEqual(calls.detaches, ['account:wallet-b:1'], 'released far below the strip: the group detaches')
+    assert.equal(container.querySelector('[data-home-v2-tab-group-picker]'), null, 'a drag never opens the picker')
     act(() => renderGrouped(grouped, false))
   }
 } finally {

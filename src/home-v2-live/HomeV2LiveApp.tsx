@@ -2,7 +2,11 @@ import { homeV2RatingPermissionScopes, homeV2RatingPermissionSummary, homeV2Rati
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import { Capacitor } from '@capacitor/core'
 import { reduceTabNavigation, tabDestination, tabHistory, nativeHistoryIndex } from './tab-navigation'
-import { buildHomeV2TabTransfer, planHomeV2TabTransferOpen } from './tab-transfer'
+import {
+  buildHomeV2TabGroupTransfer,
+  buildHomeV2TabTransfer,
+  planHomeV2TabTransfersOpen,
+} from './tab-transfer'
 import {
   clampHomeV2AppZoom,
   defaultHomeV2Appearance,
@@ -398,6 +402,7 @@ import {
   type HomeV2DashboardCollapsed,
 } from './shell-state'
 import { homeV2ShellStateHasPublishPreview } from '../../electron/home-v2-window-startup'
+import { groupTabsByAccount } from '../v2/shell/tab-groups'
 import {
   buildAppResourceLocation,
   parseAppResourceLocation,
@@ -3603,40 +3608,43 @@ export function HomeV2LiveApp() {
    */
   const adoptTabTransfer = useCallback(
     async (payload: unknown) => {
-      const plan = planHomeV2TabTransferOpen(payload)
-      if (!plan) return
-      // Revision 1 named no account, so it keeps the historical behaviour of
-      // opening under whatever account this window has selected.
-      const binding =
-        plan.accountId === undefined ? undefined : savedAccountBinding(plan.accountId)
-      // No replaceTarget: an adopted tab is a NEW tab in this window, never a
-      // replacement for whatever the user was already looking at. forceNewTab
-      // for the same reason it is never optional here — the sending window has
-      // already closed the original, so an open that merely activated an
-      // identical tab this window happened to have would lose it.
-      const result = await openAddress(plan.address, binding, null, { forceNewTab: true })
-      if (result.status !== 'opened') {
-        setShellNotice(
-          result.message ??
-            (plan.title
-              ? `${plan.title} could not be reopened here.`
-              : 'That tab could not be reopened here.'),
-        )
-        return
-      }
-      // Seeded onto the tab this open actually made, named by its own id
-      // rather than inferred from how the strip changed: two adoptions racing
-      // each other therefore each seed their own tab, and a destination this
-      // window already had still gets its history. `tabId` is absent only for
-      // an address that becomes no tab at all (Core docs, release notes),
-      // which carries nothing worth seeding.
-      if (plan.history && result.tabId) {
-        dispatchProduct({
-          type: 'seed-history',
-          tabId: result.tabId,
-          entries: plan.history.entries,
-          index: plan.history.index,
-        })
+      // One plan for a single-tab envelope, one per tab for a group envelope
+      // (a whole group dragged out, or dropped onto this window). Opened in
+      // order so the group keeps its order here.
+      for (const plan of planHomeV2TabTransfersOpen(payload)) {
+        // Revision 1 named no account, so it keeps the historical behaviour of
+        // opening under whatever account this window has selected.
+        const binding =
+          plan.accountId === undefined ? undefined : savedAccountBinding(plan.accountId)
+        // No replaceTarget: an adopted tab is a NEW tab in this window, never a
+        // replacement for whatever the user was already looking at. forceNewTab
+        // for the same reason it is never optional here — the sending window has
+        // already closed the original, so an open that merely activated an
+        // identical tab this window happened to have would lose it.
+        const result = await openAddress(plan.address, binding, null, { forceNewTab: true })
+        if (result.status !== 'opened') {
+          setShellNotice(
+            result.message ??
+              (plan.title
+                ? `${plan.title} could not be reopened here.`
+                : 'That tab could not be reopened here.'),
+          )
+          continue
+        }
+        // Seeded onto the tab this open actually made, named by its own id
+        // rather than inferred from how the strip changed: two adoptions racing
+        // each other therefore each seed their own tab, and a destination this
+        // window already had still gets its history. `tabId` is absent only for
+        // an address that becomes no tab at all (Core docs, release notes),
+        // which carries nothing worth seeding.
+        if (plan.history && result.tabId) {
+          dispatchProduct({
+            type: 'seed-history',
+            tabId: result.tabId,
+            entries: plan.history.entries,
+            index: plan.history.index,
+          })
+        }
       }
     },
     [openAddress],
@@ -3738,6 +3746,61 @@ export function HomeV2LiveApp() {
       }
     },
     [tabAddress],
+  )
+
+  // The whole group, dragged out by its badge. Same envelope discipline as a
+  // single tab, one entry per tab; the receiving window opens them in order.
+  // A publish-preview tab stays behind (its capability is window-scoped) and
+  // is the one tab the group leaves in this window.
+  const detachGroup = useCallback(
+    async (groupKey: string, position?: { screenX: number; screenY: number }) => {
+      const windows = window.homeV2Windows
+      if (!windows) return
+      const group = groupTabsByAccount(productStateRef.current.entries, {
+        dashboardAccountId: selectedAccountId,
+      }).find((candidate) => candidate.key === groupKey)
+      if (!group) return
+      const movable = group.entries.filter((entry) =>
+        !(entry.kind === 'app' && entry.context.previewUrl != null))
+      const tabs = movable.flatMap((entry) => {
+        const target = tabAddress(entry.id)
+        return target
+          ? [{
+              address: target.address,
+              title: target.title,
+              accountId: savedEntryAccountId(entry),
+              history: tabHistory(productStateRef.current, entry.id),
+            }]
+          : []
+      })
+      if (tabs.length === 0) return
+      if (movable.length < group.entries.length) {
+        setShellNotice('A publish preview cannot be moved to another window; it stays here.')
+      }
+      const transfer = buildHomeV2TabGroupTransfer(tabs)
+      try {
+        const adopted = position && windows.adoptTabAt
+          ? await windows.adoptTabAt(transfer, position.screenX, position.screenY)
+              .catch(() => false)
+          : false
+        if (!adopted) {
+          await windows.openTab(
+            transfer,
+            position ? { x: position.screenX, y: position.screenY } : undefined,
+          )
+        }
+        // Closed only after the new window is asked for, so a rejected
+        // request leaves every tab where it was.
+        for (const entry of movable) dispatchProduct({ type: 'close-tab', tabId: entry.id })
+      } catch (error) {
+        setShellNotice(
+          error instanceof Error && error.message
+            ? error.message
+            : 'That group could not be moved to another window.',
+        )
+      }
+    },
+    [selectedAccountId, tabAddress],
   )
 
   /** Dropping a tab on the bookmarks toolbar saves it there, as in Home 1.x. */
@@ -10825,6 +10888,14 @@ export function HomeV2LiveApp() {
         closedAppTabsAvailable && shellStateReady && accountCatalogueReady
       }
       onDetachTab={window.homeV2Windows ? detachTab : undefined}
+      onReorderGroup={(groupKey, toIndex) =>
+        dispatchProduct({
+          type: 'reorder-group',
+          groupKey,
+          toIndex,
+          grouping: { dashboardAccountId: selectedAccountId },
+        })}
+      onDetachGroup={window.homeV2Windows ? detachGroup : undefined}
       releaseNotesTarget={activeDestination?.kind === 'releases' ? activeDestination.target : releaseNotesTarget}
       coreDocsNetwork={activeDestination?.kind === 'core-docs' ? activeDestination.network : coreDocsNetwork}
       coreDocsTransport={homeV2CoreDocsTransport()}

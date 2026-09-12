@@ -8,7 +8,7 @@ import { parseAppResourceLocation } from './resource-location'
 import { sanitizeHomeV2AppTitle } from './app-frame-messages'
 import { validateCurrentAppLocation } from './current-app-location'
 import { parseViewerLocation } from './viewer-location'
-import { groupTabsByAccount, HOME_TAB_GROUP_KEY } from './shell/tab-groups'
+import { groupTabsByAccount, HOME_TAB_GROUP_KEY, type TabGroupingOptions } from './shell/tab-groups'
 
 export type ShellDestination =
   | 'core-docs'
@@ -149,6 +149,13 @@ export type ProductAction =
       readonly type: 'reorder-group'
       readonly groupKey: string
       readonly toIndex: number
+      /**
+       * The strip's grouping options -- which account the Dashboard tab is
+       * shown under. The model must group the same way the strip does, or a
+       * Dashboard filed under the selected account keeps that account's
+       * group "first seen" and the move is undone by the view.
+       */
+      readonly grouping?: TabGroupingOptions
     }
   | {
       readonly type: 'restore'
@@ -818,9 +825,10 @@ function reorderGroup(
   state: ProductState,
   groupKey: string,
   toIndex: number,
+  grouping: TabGroupingOptions = {},
 ): ProductState {
   if (groupKey === HOME_TAB_GROUP_KEY) return state
-  const groups = groupTabsByAccount(state.entries)
+  const groups = groupTabsByAccount(state.entries, grouping)
   const homeGroups = groups.filter((group) => group.key === HOME_TAB_GROUP_KEY)
   const accountGroups = groups.filter((group) => group.key !== HOME_TAB_GROUP_KEY)
   const fromIndex = accountGroups.findIndex((group) => group.key === groupKey)
@@ -884,7 +892,7 @@ export function reduceProductState(
     case 'reorder-tab':
       return reorderTab(state, action.tabId, action.toIndex)
     case 'reorder-group':
-      return reorderGroup(state, action.groupKey, action.toIndex)
+      return reorderGroup(state, action.groupKey, action.toIndex, action.grouping)
     case 'restore': {
       if (!action.preserveLocal) return freezeProductState(action.state)
       // Everything the user opened that the saved profile does not already

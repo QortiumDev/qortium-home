@@ -32,6 +32,25 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## feat: tab groups you can sort and move; a Dashboard that belongs to the selected account; an Unlock button
+
+2026-09-12
+
+Three refinements to the grouped tab bar. Dragging a group's badge along the
+strip now reorders the account groups (tabs themselves still reorder only
+inside their own group); dragging a badge clear of the strip moves the whole
+group into a new window, or into another Home window it is dropped on — the
+same routes a single tab already had. The Home group no longer shows a badge
+beside its tabs; the Home mark appears in the group picker, and on a narrow
+strip when the Home group is the one on screen. The Dashboard tab now sits in
+the selected account's group — the dashboard shows that account — and moves
+with the selection, so apps opened from it land beside it.
+
+On the dashboard, the Account strip's "Locked" chip is now an Unlock button
+in the accent colour with a lock glyph, so it reads as the thing to press
+without relying on colour; when unlocked it is a quiet chip with an open-lock
+glyph that still locks.
+
 ## feat: group tabs by account in the tab bar
 
 2026-09-12
