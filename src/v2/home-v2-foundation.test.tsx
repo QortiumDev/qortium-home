@@ -68,7 +68,8 @@ import {
   parseHomeV2ShellState,
   serializeHomeV2ShellState,
 } from '../home-v2-live/shell-state'
-import type { DualIdentityLookupResult, TabId } from './contracts'
+import type { AppDescriptor, DualIdentityLookupResult, IdentityId, TabId, WalletRef } from './contracts'
+import { groupTabsByAccount, tabGroupKey } from './shell/tab-groups'
 import {
   parseHomeV2MenuCommand,
   parseHomeV2TextSizeCommand,
@@ -677,6 +678,93 @@ function testProductModelKeepsSourceQualifiedTabs(): void {
       assert.equal(error.code, 'TAB_NOT_FOUND')
       return true
     },
+  )
+
+  // Reordering a GROUP moves every tab bound to that account as a block.
+  // The strip groups by account as a view over the flat list, so the flat
+  // order is rebuilt group by group: Home first, then the accounts.
+  const boundContext = (app: AppDescriptor, tabId: TabId, account: string) => ({
+    ...fixtureTabContext(app, tabId),
+    identityId: `home-v2:identity:${account}` as IdentityId,
+    walletRef: `wallet-${account}` as WalletRef,
+  })
+  const openBound = (state: ProductState, appId: typeof fixtureIds.chatApp, tabId: string, account: string) => {
+    const app = fixtureApp(appId)
+    return reduceProductState(state, {
+      type: 'open-app', app, context: boundContext(app, tabId as TabId, account), tabId: tabId as TabId,
+    })
+  }
+  let interleaved = openBound(createProductState(), fixtureIds.chatApp, 'home-v2:tab:alice-chat', 'alice')
+  interleaved = openBound(interleaved, fixtureIds.walletsApp, 'home-v2:tab:bob-wallets', 'bob')
+  interleaved = openBound(interleaved, fixtureIds.trustApp, 'home-v2:tab:alice-trust', 'alice')
+  interleaved = openBound(interleaved, fixtureIds.qortalCompatApp, 'home-v2:tab:bob-compat', 'bob')
+  interleaved = reduceProductState(interleaved, { type: 'navigate', destination: 'settings' })
+  const ids = (state: ProductState) => state.entries.map((entry) => entry.id as string)
+  const groupKeys = (state: ProductState) => groupTabsByAccount(state.entries).map((group) => group.key)
+  const dashboardId = pageId(interleaved, 'dashboard')
+  const settingsId = pageId(interleaved, 'settings')
+  assert.deepEqual(ids(interleaved), [
+    dashboardId, 'home-v2:tab:alice-chat', 'home-v2:tab:bob-wallets',
+    'home-v2:tab:alice-trust', 'home-v2:tab:bob-compat', settingsId,
+  ])
+  assert.deepEqual(groupKeys(interleaved), ['home', tabGroupKey('alice'), tabGroupKey('bob')])
+
+  const bobFirst = reduceProductState(interleaved, {
+    type: 'reorder-group',
+    groupKey: tabGroupKey('bob'),
+    toIndex: 0,
+  })
+  assert.deepEqual(groupKeys(bobFirst), ['home', tabGroupKey('bob'), tabGroupKey('alice')])
+  assert.deepEqual(ids(bobFirst), [
+    dashboardId, settingsId,
+    'home-v2:tab:bob-wallets', 'home-v2:tab:bob-compat',
+    'home-v2:tab:alice-chat', 'home-v2:tab:alice-trust',
+  ], 'Home tabs lead, then each group is contiguous with its tabs in their old relative order')
+  assert.equal(bobFirst.activeTabId, interleaved.activeTabId)
+  assert.equal(bobFirst.revision, interleaved.revision + 1)
+  assert.equal(
+    reduceProductState(bobFirst, { type: 'reorder-group', groupKey: tabGroupKey('bob'), toIndex: 0 }),
+    bobFirst,
+    'reordering a group to where it already is must not churn state',
+  )
+  assert.equal(
+    reduceProductState(bobFirst, { type: 'reorder-group', groupKey: tabGroupKey('alice'), toIndex: 1 }),
+    bobFirst,
+  )
+  assert.equal(
+    reduceProductState(interleaved, { type: 'reorder-group', groupKey: 'home', toIndex: 1 }),
+    interleaved,
+    'the Home group is not reorderable',
+  )
+  assert.throws(
+    () =>
+      reduceProductState(interleaved, {
+        type: 'reorder-group',
+        groupKey: tabGroupKey('carol'),
+        toIndex: 0,
+      }),
+    (error) => {
+      assert.ok(error instanceof ProductModelError)
+      assert.equal(error.code, 'GROUP_NOT_FOUND')
+      return true
+    },
+  )
+  const clampedGroupHigh = reduceProductState(bobFirst, {
+    type: 'reorder-group',
+    groupKey: tabGroupKey('bob'),
+    toIndex: 99,
+  })
+  assert.deepEqual(groupKeys(clampedGroupHigh), ['home', tabGroupKey('alice'), tabGroupKey('bob')])
+  const clampedGroupLow = reduceProductState(clampedGroupHigh, {
+    type: 'reorder-group',
+    groupKey: tabGroupKey('bob'),
+    toIndex: -5.7,
+  })
+  assert.deepEqual(ids(clampedGroupLow), ids(bobFirst))
+  assert.equal(
+    reduceProductState(bobFirst, { type: 'reorder-group', groupKey: tabGroupKey('alice'), toIndex: 1.9 }),
+    bobFirst,
+    'fractional indexes truncate like reorder-tab',
   )
 
   // Restore round-trips the mixed order and drops nothing valid.

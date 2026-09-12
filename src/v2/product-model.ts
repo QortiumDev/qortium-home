@@ -8,6 +8,7 @@ import { parseAppResourceLocation } from './resource-location'
 import { sanitizeHomeV2AppTitle } from './app-frame-messages'
 import { validateCurrentAppLocation } from './current-app-location'
 import { parseViewerLocation } from './viewer-location'
+import { groupTabsByAccount, HOME_TAB_GROUP_KEY } from './shell/tab-groups'
 
 export type ShellDestination =
   | 'core-docs'
@@ -138,6 +139,17 @@ export type ProductAction =
       readonly tabId: TabId
       readonly toIndex: number
     }
+  /**
+   * Moves one account's whole tab group as a block. `groupKey` is a
+   * `tabGroupKey` value; `toIndex` counts among the ACCOUNT groups only, in
+   * the order the strip shows them. The Home group always leads and never
+   * moves, so its key is a no-op.
+   */
+  | {
+      readonly type: 'reorder-group'
+      readonly groupKey: string
+      readonly toIndex: number
+    }
   | {
       readonly type: 'restore'
       readonly state: ProductState
@@ -158,7 +170,8 @@ export class ProductModelError extends Error {
       | 'APP_CONTEXT_MISMATCH'
       | 'TAB_ALREADY_EXISTS'
       | 'TAB_CONTEXT_CHANGED'
-      | 'TAB_NOT_FOUND',
+      | 'TAB_NOT_FOUND'
+      | 'GROUP_NOT_FOUND',
     message: string,
   ) {
     super(message)
@@ -797,6 +810,39 @@ function reorderTab(
   })
 }
 
+// toIndex is the group's desired final index among the account groups, as
+// groupTabsByAccount orders them. The flat list is rebuilt group by group --
+// Home first, then the accounts in their new order -- so a move also makes
+// every group contiguous, which the grouped strip already showed anyway.
+function reorderGroup(
+  state: ProductState,
+  groupKey: string,
+  toIndex: number,
+): ProductState {
+  if (groupKey === HOME_TAB_GROUP_KEY) return state
+  const groups = groupTabsByAccount(state.entries)
+  const homeGroups = groups.filter((group) => group.key === HOME_TAB_GROUP_KEY)
+  const accountGroups = groups.filter((group) => group.key !== HOME_TAB_GROUP_KEY)
+  const fromIndex = accountGroups.findIndex((group) => group.key === groupKey)
+  if (fromIndex < 0) {
+    throw new ProductModelError('GROUP_NOT_FOUND', `Tab group ${groupKey} was not found.`)
+  }
+  const clamped = Math.max(
+    0,
+    Math.min(accountGroups.length - 1, Math.trunc(toIndex)),
+  )
+  const reordered = [...accountGroups]
+  const [moved] = reordered.splice(fromIndex, 1)
+  reordered.splice(clamped, 0, moved)
+  const entries = [...homeGroups, ...reordered].flatMap((group) => group.entries)
+  if (entries.every((entry, index) => entry === state.entries[index])) return state
+  return freezeProductState({
+    ...state,
+    entries,
+    revision: state.revision + 1,
+  })
+}
+
 export function reduceProductState(
   state: ProductState,
   action: ProductAction,
@@ -837,6 +883,8 @@ export function reduceProductState(
       return openInternal(state, action.page, action.tabId)
     case 'reorder-tab':
       return reorderTab(state, action.tabId, action.toIndex)
+    case 'reorder-group':
+      return reorderGroup(state, action.groupKey, action.toIndex)
     case 'restore': {
       if (!action.preserveLocal) return freezeProductState(action.state)
       // Everything the user opened that the saved profile does not already
