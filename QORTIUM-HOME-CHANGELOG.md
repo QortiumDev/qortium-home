@@ -32,6 +32,28 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## feat: Settings copy that says what each row does; a clear notice when GitHub rate-limits update checks
+
+2026-09-12
+
+A pass over the Settings page's wording. The General page's description
+used to describe only the New tab row; it now names what the page holds. The
+"Connections" group called its on/off switches "connection mode" — they are
+not (the mode is a Runtime setting), so the group is now "Networks", says the
+mode is set under Runtime, and each switch reads "Connect to Qortium /
+Qortal". The per-network Core block on Runtime, which now holds the
+connection mode select, no longer says "Connection mode stays unchanged".
+The Home update rows describe what the policy and channel mean instead of
+repeating the value shown beside them, and the Home block no longer prints
+the same status line twice. UI Style and Bookmark Toolbar gained
+descriptions.
+
+GitHub allows 60 unauthenticated release checks an hour per address. When
+that runs out — easy on a shared connection — Home said only "Unable to
+check Qortium Home releases". It now says GitHub is limiting checks from
+this connection for now and suggests trying later or downloading from the
+releases page, on desktop and Android alike.
+
 ## fix: phone dashboard tile headers on one line; Android can check for Home updates again
 
 2026-09-12

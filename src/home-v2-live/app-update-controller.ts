@@ -50,6 +50,7 @@ function issueMessage(issue: HomeV2AppUpdateIssue | null) {
     case 'unsupported-platform': return t('updates.unsupportedPlatform', { platform: '' })
     case 'operation-in-progress': return t('home2.core.action.inProgress')
     case 'download-not-found': return t('updates.checkFailed')
+    case 'rate-limited': return t('updates.rateLimited')
     default: return t('updates.checkReleasesFailed')
   }
 }
@@ -97,7 +98,7 @@ function nativeCheckResult(result: QortiumAppUpdateCheckResult): HomeV2AppUpdate
         : state === 'unsupported'
           ? 'unsupported-platform'
           : state === 'unavailable'
-            ? 'release-unavailable'
+            ? (/\bHTTP (403|429)\b/.test(result.message) ? 'rate-limited' : 'release-unavailable')
             : null,
     platform: result.platform,
     release: trustedRelease

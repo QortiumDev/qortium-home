@@ -16,6 +16,7 @@ export type HomeV2AppUpdateIssue =
   | 'invalid-version'
   | 'no-compatible-asset'
   | 'operation-in-progress'
+  | 'rate-limited'
   | 'release-changed'
   | 'release-not-found'
   | 'release-unavailable'
@@ -255,8 +256,12 @@ export function createHomeV2AppUpdateService(dependencies: Dependencies) {
     let release: TrustedHomeRelease | null
     try {
       release = await dependencies.fetchRelease(channel)
-    } catch {
-      return { ...base, issue: 'release-unavailable', state: 'unavailable' }
+    } catch (error) {
+      // GitHub answers an exhausted unauthenticated quota (60/hour per
+      // address) with 403, and 429 when it throttles outright. Testers on a
+      // shared address hit this and deserve better than "unable to check".
+      const status = /^release-http-(403|429)$/.exec(error instanceof Error ? error.message : '')
+      return { ...base, issue: status ? 'rate-limited' : 'release-unavailable', state: 'unavailable' }
     }
     if (!release) return { ...base, issue: 'release-not-found', state: 'not-found' }
     const releaseSummary = {

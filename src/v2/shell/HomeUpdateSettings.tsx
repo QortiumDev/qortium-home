@@ -53,11 +53,7 @@ export function HomeUpdateSettings({
       <div className="home-v2-setting-row">
         <div className="home-v2-setting-row__copy">
           <strong id={id('home-update-policy-label')}>{t('updates.homeUpdatePolicyLabel')}</strong>
-          <span id={id('home-update-policy-description')}>{updates.homeUpdatePolicy === 'auto-download'
-            ? t('updates.homeUpdatePolicy.autoDownload')
-            : updates.homeUpdatePolicy === 'notify'
-              ? t('updates.homeUpdatePolicy.notify')
-              : t('updates.homeUpdatePolicy.off')}</span>
+          <span id={id('home-update-policy-description')}>{t('updates.homeUpdatePolicyDescription')}</span>
         </div>
         <select
           aria-label={t('updates.homeUpdatePolicyLabel')}
@@ -81,7 +77,7 @@ export function HomeUpdateSettings({
       <div className="home-v2-setting-row">
         <div className="home-v2-setting-row__copy">
           <strong>{t('updates.releaseChannelLabel')}</strong>
-          <span>{t('updates.checkForUpdates')}</span>
+          <span>{t('updates.releaseChannelDescription')}</span>
         </div>
         <div className="home-v2-setting-row__control home-v2-update-controls">
           <select
@@ -242,7 +238,10 @@ export function HomeUpdateSettings({
         ) : null}
       </div>
 
-      {updates.message ? (
+      {/* The heading already carries the check's outcome; the footer is for
+          what the heading does not say (a download result, an install hint,
+          the reason a check failed). */}
+      {updates.message && updates.message.text !== homeUpdateStatusText(updates) ? (
         <p
           className="home-v2-update-message"
           data-tone={updates.message.tone}

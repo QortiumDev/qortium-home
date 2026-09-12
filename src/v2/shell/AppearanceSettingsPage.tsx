@@ -179,7 +179,7 @@ export function AppearanceSettingsPage({
             </select>
           </SettingRow>
 
-          <SettingRow label={t('display.uiLabel')}>
+          <SettingRow label={t('display.uiLabel')} description={t('display.uiDescription')}>
             <select
               aria-label={t('display.uiLabel')}
               value={appearance.ui}
@@ -268,7 +268,7 @@ export function AppearanceSettingsPage({
                     ? t('common.saving')
                     : toolbarError
                       ? t('common.error')
-                      : t(`bookmarks.toolbarVisibility.${bookmarkToolbarVisibility}`)
+                      : t('bookmarks.toolbarDescription')
               }
             >
               <select

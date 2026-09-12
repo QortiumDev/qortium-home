@@ -22,6 +22,10 @@ const check = {
 assert.equal(parseHomeV2AppUpdateCheck(check).state, 'available')
 assert.throws(() => parseHomeV2AppUpdateCheck({ ...check, extra: true }), /unexpected/)
 assert.throws(() => parseHomeV2AppUpdateCheck({ ...check, state: 'not-found' }), /inconsistent/)
+assert.equal(
+  parseHomeV2AppUpdateCheck({ ...check, asset: null, release: null, state: 'unavailable', issue: 'rate-limited' }).issue,
+  'rate-limited',
+)
 assert.throws(() => parseHomeV2AppUpdateCheck({ ...check, asset: { ...check.asset, path: '/tmp/x' } }), /malformed/)
 
 const action = {
