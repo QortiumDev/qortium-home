@@ -476,8 +476,8 @@ async function main() {
     // for, not window.homeV2Nodes.getShellState() (a detached/opened window's
     // strip is session-only, so the stored product entries do not show it).
     const attribution = async (probe) => {
-      await until('account chip rendered', () => probe.evaluate(`!!document.querySelector('.home-v2-tab__account')`))
-      return probe.evaluate(`document.querySelector('.home-v2-tab__account').getAttribute('aria-label')`)
+      await until('account badge rendered', () => probe.evaluate(`!!document.querySelector('[data-tab-group-badge^="account:"]')`))
+      return probe.evaluate(`document.querySelector('[data-tab-group-badge^="account:"]').getAttribute('aria-label')`)
     }
 
     // The positive case: a tab bound to A must stay bound to A even though
@@ -503,16 +503,16 @@ async function main() {
         `current account (${accountB.label}) or guest -- saw ${aChip}`,
     )
     await until('published account avatar decodes', () => aProbe.evaluate(`(() => {
-      const image = document.querySelector('.home-v2-tab__account img')
+      const image = document.querySelector('[data-tab-group-badge^="account:"] img')
       return !!image && image.complete && image.naturalWidth > 0
     })()`))
     const avatarSize = await aProbe.evaluate(`(() => {
-      const chip = document.querySelector('.home-v2-tab__account').getBoundingClientRect()
-      const image = document.querySelector('.home-v2-tab__account img').getBoundingClientRect()
+      const chip = document.querySelector('[data-tab-group-badge^="account:"]').getBoundingClientRect()
+      const image = document.querySelector('[data-tab-group-badge^="account:"] img').getBoundingClientRect()
       return {width:image.width, height:image.height, chipHeight:chip.height}
     })()`)
-    assert.deepEqual(avatarSize, {width:16, height:16, chipHeight:20})
-    log('published account avatar decoded through packaged bridge; locked chip stays on one line')
+    assert.deepEqual(avatarSize, {width:20, height:20, chipHeight:28})
+    log('published account avatar decoded through packaged bridge; group badge stays on one line')
     const originalLayout = await aProbe.evaluate(`document.querySelector('.home-v2-shell').dataset.layout`)
     let phone
     for (const layout of [originalLayout, 'phone']) {
@@ -568,8 +568,8 @@ async function main() {
       `a tab transferred with account B must show B -- the control that shows ` +
         `the check above discriminates by account, not just by chance`,
     )
-    assert.equal(await bProbe.evaluate(`document.querySelector('.home-v2-tab__account img') !== null`), false)
-    assert.equal(await bProbe.evaluate(`document.querySelector('.home-v2-tab__account-image').textContent`), 'TA')
+    assert.equal(await bProbe.evaluate(`document.querySelector('[data-tab-group-badge^="account:"] img') !== null`), false)
+    assert.equal(await bProbe.evaluate(`document.querySelector('[data-tab-group-badge^="account:"] .home-v2-tab-group__image').textContent`), 'TA')
     log('unpublished avatar keeps account initials')
     bProbe.socket.close()
 

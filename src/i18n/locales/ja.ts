@@ -999,6 +999,7 @@ export const ja: Record<TranslationKey, string> = {
   "home2.settings.windowDescription": "メインウィンドウを閉じたときの動作です。",
   "home2.tabs.closeFrom": "{network} の {label} を閉じる",
   "home2.tabs.newTab": "新しいタブ",
+  "home2.tabs.groups": "タブグループ",
   "home2.tabs.welcome": "ようこそ",
   "qdnApps.accountDecryptControlsTitle": "暗号化データの読み取り",
   "qdnApps.accountDirectChatControlsTitle": "ダイレクトメッセージへのアクセス",

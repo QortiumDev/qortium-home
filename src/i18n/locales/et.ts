@@ -999,6 +999,7 @@ export const et: Record<TranslationKey, string> = {
   "home2.settings.textSize.extraSmall": "Eriti väike",
   "home2.tabs.closeFrom": "Sulge {label} võrgust {network}",
   "home2.tabs.newTab": "Uus vahekaart",
+  "home2.tabs.groups": "Vahekaardirühmad",
   "home2.tabs.welcome": "Tere tulemast",
   "qdnApps.accountDecryptControlsTitle": "Krüptitud andmete lugemine",
   "qdnApps.accountDirectChatControlsTitle": "Otsesõnumite juurdepääs",

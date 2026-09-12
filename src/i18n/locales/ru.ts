@@ -999,6 +999,7 @@ export const ru: Record<TranslationKey, string> = {
   "home2.settings.windowDescription": "Что происходит при закрытии главного окна.",
   "home2.tabs.closeFrom": "Закрыть {label} из {network}",
   "home2.tabs.newTab": "Новая вкладка",
+  "home2.tabs.groups": "Группы вкладок",
   "home2.tabs.welcome": "Добро пожаловать",
   "qdnApps.accountDecryptControlsTitle": "Чтение зашифрованных данных",
   "qdnApps.accountDirectChatControlsTitle": "Доступ к личным сообщениям",

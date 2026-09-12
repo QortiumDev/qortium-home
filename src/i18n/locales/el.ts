@@ -1000,6 +1000,7 @@ export const el: Record<TranslationKey, string> = {
   "home2.settings.textSize.extraSmall": "Πολύ μικρό",
   "home2.tabs.closeFrom": "Κλείσιμο του {label} από το {network}",
   "home2.tabs.newTab": "Νέα καρτέλα",
+  "home2.tabs.groups": "Ομάδες καρτελών",
   "home2.tabs.welcome": "Καλώς ήρθατε",
   "qdnApps.accountDecryptControlsTitle": "Ανάγνωση κρυπτογραφημένων δεδομένων",
   "qdnApps.accountDirectChatControlsTitle": "Πρόσβαση σε άμεσα μηνύματα",

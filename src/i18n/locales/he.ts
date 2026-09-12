@@ -999,6 +999,7 @@ export const he: Record<TranslationKey, string> = {
   "home2.settings.textSize.extraSmall": "קטן במיוחד",
   "home2.tabs.closeFrom": "סגירת {label} מתוך {network}",
   "home2.tabs.newTab": "כרטיסייה חדשה",
+  "home2.tabs.groups": "קבוצות כרטיסיות",
   "home2.tabs.welcome": "ברוכים הבאים",
   "qdnApps.accountDecryptControlsTitle": "קריאת נתונים מוצפנים",
   "qdnApps.accountDirectChatControlsTitle": "גישה להודעות ישירות",

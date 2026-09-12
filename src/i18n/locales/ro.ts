@@ -999,6 +999,7 @@ export const ro: Record<TranslationKey, string> = {
   "home2.settings.windowDescription": "Ce se întâmplă la închiderea ferestrei principale.",
   "home2.tabs.closeFrom": "Închide {label} din {network}",
   "home2.tabs.newTab": "Filă nouă",
+  "home2.tabs.groups": "Grupuri de file",
   "home2.tabs.welcome": "Bun venit",
   "qdnApps.accountDecryptControlsTitle": "Citirea datelor criptate",
   "qdnApps.accountDirectChatControlsTitle": "Acces la mesajele directe",

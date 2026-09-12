@@ -1000,6 +1000,7 @@ export const hi: Record<TranslationKey, string> = {
   "home2.settings.textSize.extraSmall": "बहुत छोटा",
   "home2.tabs.closeFrom": "{network} से {label} बंद करें",
   "home2.tabs.newTab": "नया टैब",
+  "home2.tabs.groups": "टैब समूह",
   "home2.tabs.welcome": "स्वागत",
   "qdnApps.accountDecryptControlsTitle": "एन्क्रिप्टेड डेटा पढ़ना",
   "qdnApps.accountDirectChatControlsTitle": "डायरेक्ट मैसेज एक्सेस",

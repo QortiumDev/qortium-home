@@ -32,6 +32,22 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## feat: group tabs by account in the tab bar
+
+2026-09-12
+
+Tabs are now grouped by the account they are bound to. Each group is headed
+by one badge — the Home mark for the Dashboard, Settings and other
+account-less tabs, or the account's avatar (or initials) with its lock state —
+instead of the small account circle that used to repeat on every tab. Groups
+sit left to right in the order their account first appeared; the tab order
+inside a group is the order you set. Dragging a tab reorders it within its own
+group only, since moving a tab under another account would mean re-binding
+it to that account. Clicking a badge opens a picker listing every group with
+its tab count; choosing one returns to the tab that group was last on. When
+the strip is narrow — a phone, or a small window — only the active tab's
+group is shown, and the badge is how you switch between groups.
+
 ## feat: basic Java and I2P management on the Node & Core tile; height only
 
 2026-09-12

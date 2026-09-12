@@ -999,6 +999,7 @@ export const zhTW: Record<TranslationKey, string> = {
   "home2.settings.windowDescription": "關閉主視窗時的行為。",
   "home2.tabs.closeFrom": "關閉來自 {network} 的 {label}",
   "home2.tabs.newTab": "新分頁",
+  "home2.tabs.groups": "分頁群組",
   "home2.tabs.welcome": "歡迎",
   "qdnApps.accountDecryptControlsTitle": "讀取加密資料",
   "qdnApps.accountDirectChatControlsTitle": "私訊存取權限",
