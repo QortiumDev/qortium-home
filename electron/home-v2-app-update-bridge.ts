@@ -9,7 +9,8 @@ import {
   revealHomeV2InstallFolder,
   showDownloadedFile,
 } from './app-updates.js'
-import { fetchTrustedHomeRelease } from './app-update-discovery.js'
+import { fetchHomeReleaseFromSources } from './app-update-discovery.js'
+import { getNodeConnection, readNodeModeForHomeV2 } from './node-settings.js'
 import {
   assertAuthorizedHomeV2Sender,
   broadcastToHomeV2Windows,
@@ -65,7 +66,19 @@ export function registerHomeV2AppUpdateBridgeIpcHandlers() {
   setHomeV2AppDownloadProgressListener(broadcastHomeV2AppDownloadProgress)
   const service = createHomeV2AppUpdateService({
     downloadAsset: downloadVerifiedAppUpdate,
-    fetchRelease: fetchTrustedHomeRelease,
+    // The release source is a setting; the QDN half reads through the node
+    // Home is connected to, and is skipped while the Qortium network is off.
+    fetchRelease: async (channel) => fetchHomeReleaseFromSources(channel, {
+      order: (await readHomeV2AppUpdateSettings()).releaseSource,
+      nodeApiUrl: async () => {
+        if (readNodeModeForHomeV2().mode === 'disabled') return null
+        try {
+          return (await getNodeConnection()).nodeApiUrl
+        } catch {
+          return null
+        }
+      },
+    }),
     getEnvironment: getUpdateEnvironment,
     installDownloadedFile: installDownloadedUpdate,
     openDownloadedFile,

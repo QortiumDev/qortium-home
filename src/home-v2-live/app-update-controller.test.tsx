@@ -7,7 +7,7 @@ import { serializeHomeV2AppUpdatePreferences } from './app-update-preferences'
 import { useHomeV2AppUpdates, type HomeV2AppUpdates } from './app-update-controller'
 
 const available = {
-  asset: { digestAvailable: true, name: 'Qortium-Home-2.1.0-x86_64.AppImage', size: 123 },
+  asset: { digestAvailable: true, name: 'Qortium-Home-2.1.0-x86_64.AppImage', size: 123, source: 'github' },
   channel: 'prerelease',
   checkedAt: '2026-08-22T12:00:00.000Z',
   currentVersion: '2.0.0',
@@ -54,6 +54,7 @@ async function runScenario({
     generation: 7,
     homeUpdatePolicy: policy,
     releaseChannel: 'prerelease',
+    releaseSource: 'qdn-then-github',
     revision: 1 as const,
     schema: 'home-v2-app-update-settings' as const,
   }
@@ -146,6 +147,7 @@ let conflictSettings: HomeV2AppUpdateSettings = {
   generation: 5,
   homeUpdatePolicy: 'off',
   releaseChannel: 'stable',
+  releaseSource: 'qdn-then-github',
   revision: 1,
   schema: 'home-v2-app-update-settings',
 }
@@ -166,7 +168,7 @@ window.homeV2AppUpdates = {
     conflictWrites += 1
     if (conflictWrites === 1) {
       assert.equal(expectedGeneration, 5)
-      conflictSettings = { ...conflictSettings, generation: 6, releaseChannel: 'prerelease' }
+      conflictSettings = { ...conflictSettings, generation: 6, releaseChannel: 'prerelease', releaseSource: 'qdn-then-github' }
       throw new Error('App update settings changed in another Home window.')
     }
     assert.equal(expectedGeneration, 6)
@@ -246,6 +248,7 @@ const androidHost: AndroidHomeV2UpdateHost = {
   loadPreferences: async () => serializeHomeV2AppUpdatePreferences({
     homeUpdatePolicy: 'auto-download',
     releaseChannel: 'prerelease',
+    releaseSource: 'qdn-then-github',
   }),
   savePreferences: async (value) => { savedAndroidPreferences = value },
 }

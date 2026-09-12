@@ -14,11 +14,15 @@ export type HomeAppUpdatePlatform = {
   readonly supported: boolean
 }
 
+/** Where a release's bytes come from: GitHub's release assets, or a QDN FILE resource read through the node. */
+export type HomeReleaseSource = 'github' | 'qdn'
+
 export type TrustedHomeReleaseAsset = {
   readonly digest: `sha256:${string}`
   readonly downloadUrl: string
   readonly name: string
   readonly size: number
+  readonly source: HomeReleaseSource
 }
 
 export type TrustedHomeRelease = {

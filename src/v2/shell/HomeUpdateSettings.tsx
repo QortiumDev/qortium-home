@@ -1,5 +1,5 @@
 import type { HomeV2AppUpdates } from '../../home-v2-live/app-update-controller'
-import type { HomeV2AppUpdatePolicy } from '../../home-v2-live/app-update-preferences'
+import type { HomeV2AppUpdatePolicy, HomeV2AppUpdateReleaseSource } from '../../home-v2-live/app-update-preferences'
 import { formatUpdateBytes } from '../../home-v2-live/app-update-controller'
 import { t } from '../../i18n'
 import { useScopedIds } from './dom-ids'
@@ -103,6 +103,31 @@ export function HomeUpdateSettings({
         </div>
       </div>
 
+      {/* Where releases come from. Android's native downloader reads GitHub
+          only for now, so the row is desktop's. */}
+      {!isAndroid ? (
+        <div className="home-v2-setting-row">
+          <div className="home-v2-setting-row__copy">
+            <strong id={id('home-update-source-label')}>{t('updates.releaseSourceLabel')}</strong>
+            <span id={id('home-update-source-description')}>{t('updates.releaseSourceDescription')}</span>
+          </div>
+          <select
+            aria-labelledby={id('home-update-source-label')}
+            aria-describedby={id('home-update-source-description')}
+            data-home-v2-update-source
+            disabled={busy || !updates.preferencesLoaded}
+            value={updates.releaseSource}
+            onChange={(event) =>
+              updates.setReleaseSource(event.target.value as HomeV2AppUpdateReleaseSource)
+            }
+          >
+            <option value="qdn-then-github">{t('updates.releaseSource.qdnThenGithub')}</option>
+            <option value="qdn">{t('updates.releaseSource.qdn')}</option>
+            <option value="github">{t('updates.releaseSource.github')}</option>
+          </select>
+        </div>
+      ) : null}
+
       <dl className="home-v2-update-details">
         <div><dt>{t('common.current')}</dt><dd>{result?.currentVersion ?? '-'}</dd></div>
         <div><dt>{t('common.platform')}</dt><dd>{result?.platform.label ?? '-'}</dd></div>
@@ -111,7 +136,14 @@ export function HomeUpdateSettings({
         ) : null}
         {result?.asset ? (
           <>
-            <div><dt>{t('updates.assetLabel')}</dt><dd>{result.asset.name}</dd></div>
+            <div>
+              <dt>{t('updates.assetLabel')}</dt>
+              <dd data-home-v2-update-asset-source={result.asset.source}>
+                {result.asset.name}
+                {' · '}
+                {result.asset.source === 'qdn' ? t('updates.assetSourceQdn') : t('updates.assetSourceGithub')}
+              </dd>
+            </div>
             <div><dt>{t('common.size')}</dt><dd>{updates.formattedSize}</dd></div>
             <div><dt>{t('updates.verifiedLabel')}</dt><dd>{t('common.yes')}</dd></div>
           </>

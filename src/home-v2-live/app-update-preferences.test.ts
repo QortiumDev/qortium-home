@@ -17,8 +17,9 @@ assert.deepEqual(
     downloadedUpdate: { filePath: '/must/not/be/read' },
     homeUpdatePolicy: 'auto-download',
     releaseChannel: 'prerelease',
+    releaseSource: 'qdn-then-github',
   })),
-  { homeUpdatePolicy: 'auto-download', releaseChannel: 'prerelease' },
+  { homeUpdatePolicy: 'auto-download', releaseChannel: 'prerelease', releaseSource: 'qdn-then-github' },
 )
 assert.throws(
   () => parseHomeV2AppUpdatePreferences('{"homeUpdatePolicy":"invalid"}', '2.1.0'),
@@ -44,6 +45,7 @@ assert.deepEqual(parseHomeV2AppUpdatePreferences(JSON.stringify({
 const serialized = JSON.parse(serializeHomeV2AppUpdatePreferences({
   homeUpdatePolicy: 'off',
   releaseChannel: 'stable',
+  releaseSource: 'qdn-then-github',
 }))
 assert.deepEqual(serialized, {
   downloadedUpdate: null,

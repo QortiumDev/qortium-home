@@ -37,7 +37,7 @@ export function createHomeV2AppUpdateSettingsFile(resolvePath: () => string) {
       await writeFile(temporary, `${JSON.stringify({
         ...settings,
         schema: 'qortium-home-v2-app-update-settings',
-        version: 1,
+        version: 2,
       }, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 })
       await rename(temporary, destination)
       await chmod(destination, 0o600)

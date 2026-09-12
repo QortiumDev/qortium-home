@@ -3,6 +3,15 @@ import type {
   TrustedHomeRelease,
   TrustedHomeReleaseAsset,
 } from './app-update-policy.js'
+import {
+  HOME_RELEASE_MANIFEST_SERVICE,
+  HOME_RELEASE_PUBLISHER,
+  homeReleaseChannelIdentifier,
+  homeReleaseManifestIdentifier,
+  parseHomeReleaseChannelPointer,
+  parseHomeReleaseManifest,
+  qdnResourceUrl,
+} from './home-v2-release-manifest.js'
 
 const GITHUB_API_BASE_URL =
   'https://api.github.com/repos/QortiumDev/qortium-home'
@@ -95,7 +104,7 @@ function normalizeAsset(value: unknown, tagName: string): TrustedHomeReleaseAsse
   ) {
     return null
   }
-  return { digest, downloadUrl, name, size }
+  return { digest, downloadUrl, name, size, source: 'github' }
 }
 
 function normalizeRelease(
@@ -186,4 +195,82 @@ export async function fetchTrustedHomeRelease(
   } finally {
     clearTimeout(timeout)
   }
+}
+
+/**
+ * The QDN source: the channel pointer names the newest tag, the tag names
+ * the manifest, the manifest names the FILE assets on the node Home is
+ * connected to. Both reads are small JSON resources. A node that has not
+ * fetched the resource yet answers 404, which is "not on QDN (as far as this
+ * node knows)" -- the caller falls through to its next source, and the GET
+ * itself has asked the node to fetch it for next time.
+ */
+export async function fetchTrustedHomeReleaseFromQdn(
+  channel: HomeAppUpdateChannel,
+  options: { readonly nodeApiUrl: string; readonly fetchImpl?: FetchLike },
+): Promise<TrustedHomeRelease | null> {
+  const fetchImpl = options.fetchImpl ?? fetch
+  const readJson = async (identifier: string) => {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), RELEASE_TIMEOUT_MS)
+    try {
+      const response = await fetchImpl(
+        qdnResourceUrl(options.nodeApiUrl, HOME_RELEASE_MANIFEST_SERVICE, HOME_RELEASE_PUBLISHER, identifier),
+        { headers: { Accept: 'application/json, */*' }, redirect: 'error', signal: controller.signal },
+      )
+      if (response.status === 404) return null
+      if (!response.ok) throw new Error(`release-http-${response.status}`)
+      return readBoundedJson(response)
+    } finally {
+      clearTimeout(timeout)
+    }
+  }
+  const tagName = parseHomeReleaseChannelPointer(await readJson(homeReleaseChannelIdentifier(channel)))
+  if (!tagName) return null
+  const manifest = await readJson(homeReleaseManifestIdentifier(tagName))
+  if (manifest === null) return null
+  return parseHomeReleaseManifest(manifest, { channel, nodeApiUrl: options.nodeApiUrl, tagName })
+}
+
+export type HomeReleaseSourceOrder = 'github' | 'qdn' | 'qdn-then-github'
+
+/**
+ * Reads a release from the configured sources in order. `qdn` needs a
+ * Qortium node: `nodeApiUrl()` resolves null when the network is off, which
+ * skips the source (or, alone, reads as "not found"). A source that answers
+ * "no release" hands over to the next; a source that FAILS is remembered and
+ * reported only if no later source produced an answer, so a stale or absent
+ * QDN manifest never masks a working GitHub listing and vice versa.
+ */
+export async function fetchHomeReleaseFromSources(
+  channel: HomeAppUpdateChannel,
+  options: {
+    readonly order: HomeReleaseSourceOrder
+    readonly nodeApiUrl: () => Promise<string | null>
+    readonly fromGithub?: (channel: HomeAppUpdateChannel) => Promise<TrustedHomeRelease | null>
+    readonly fromQdn?: (channel: HomeAppUpdateChannel, nodeApiUrl: string) => Promise<TrustedHomeRelease | null>
+  },
+): Promise<TrustedHomeRelease | null> {
+  const sources: readonly ('github' | 'qdn')[] =
+    options.order === 'github' ? ['github'] : options.order === 'qdn' ? ['qdn'] : ['qdn', 'github']
+  const fromGithub = options.fromGithub ?? ((next) => fetchTrustedHomeRelease(next))
+  const fromQdn = options.fromQdn ?? ((next, nodeApiUrl) => fetchTrustedHomeReleaseFromQdn(next, { nodeApiUrl }))
+  let failure: unknown = null
+  for (const source of sources) {
+    try {
+      if (source === 'qdn') {
+        const nodeApiUrl = await options.nodeApiUrl()
+        if (!nodeApiUrl) continue
+        const release = await fromQdn(channel, nodeApiUrl)
+        if (release) return release
+        continue
+      }
+      const release = await fromGithub(channel)
+      if (release) return release
+    } catch (error) {
+      failure = error
+    }
+  }
+  if (failure) throw failure
+  return null
 }

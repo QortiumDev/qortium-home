@@ -39,7 +39,7 @@ function fixture(os: 'android' | 'linux' | 'darwin', withDownload = false): Home
     revealDownloaded: async () => undefined,
     preferencesLoaded: true,
     result: {
-      asset: { digestAvailable: true, name: os === 'android' ? 'Home.apk' : 'Home.AppImage', size: 123 },
+      asset: { digestAvailable: true, name: os === 'android' ? 'Home.apk' : 'Home.AppImage', size: 123, source: 'github' },
       channel: 'stable',
       checkedAt: '2026-08-22T12:00:00.000Z',
       currentVersion: '2.0.0',
@@ -54,6 +54,8 @@ function fixture(os: 'android' | 'linux' | 'darwin', withDownload = false): Home
     canRevealInstallFolder: false,
   revealInstallFolder: async () => undefined,
   setHomeUpdatePolicy: () => undefined,
+  releaseSource: 'qdn-then-github',
+  setReleaseSource: () => undefined,
   } as HomeV2AppUpdates
 }
 
@@ -132,6 +134,31 @@ assert.equal(rootElement.textContent?.includes('Start Core'), false)
     rootElement.querySelector('[data-home-v2-update-action="reveal-install-folder"]'),
     null,
   )
+}
+
+// Release source: a desktop row with the three orders, defaulting to QDN
+// then GitHub; the asset line says where the bytes come from. Android has no
+// row yet (its native downloader reads GitHub only).
+{
+  const sources: string[] = []
+  await act(async () => {
+    root.render(<HomeUpdateSettings updates={{
+      ...fixture('linux'),
+      setReleaseSource: (source) => { sources.push(source) },
+      result: { ...fixture('linux').result!, asset: { digestAvailable: true, name: 'Home.AppImage', size: 123, source: 'qdn' } },
+    }} />)
+  })
+  const select = rootElement.querySelector<HTMLSelectElement>('[data-home-v2-update-source]')!
+  assert.equal(select.value, 'qdn-then-github')
+  assert.deepEqual([...select.options].map((option) => option.value), ['qdn-then-github', 'qdn', 'github'])
+  assert.match(rootElement.querySelector('[data-home-v2-update-asset-source="qdn"]')?.textContent ?? '', /from QDN/)
+  await act(async () => {
+    select.value = 'github'
+    select.dispatchEvent(new window.Event('change', { bubbles: true }))
+  })
+  assert.deepEqual(sources, ['github'])
+  await act(async () => { root.render(<HomeUpdateSettings updates={fixture('android')} />) })
+  assert.equal(rootElement.querySelector('[data-home-v2-update-source]'), null, 'no source row on Android yet')
 }
 
 await act(async () => { root.unmount() })

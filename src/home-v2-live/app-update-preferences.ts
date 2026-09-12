@@ -2,9 +2,13 @@ import packageJson from '../../package.json'
 
 export type HomeV2AppUpdatePolicy = 'auto-download' | 'notify' | 'off'
 
+export type HomeV2AppUpdateReleaseSource = 'github' | 'qdn' | 'qdn-then-github'
+
 export type HomeV2AppUpdatePreferences = {
   readonly homeUpdatePolicy: HomeV2AppUpdatePolicy
   readonly releaseChannel: 'prerelease' | 'stable'
+  /** Desktop honours this; Android checks GitHub until its native downloader reads QDN. */
+  readonly releaseSource: HomeV2AppUpdateReleaseSource
 }
 
 export const HOME_V2_APP_UPDATE_PREFERENCES_KEY = 'qortium-home-app-update-preferences'
@@ -24,6 +28,7 @@ export function getDefaultHomeV2AppUpdatePreferences(
   return {
     homeUpdatePolicy: 'notify',
     releaseChannel: getDefaultHomeV2AppUpdateChannel(version),
+    releaseSource: 'qdn-then-github',
   }
 }
 
@@ -40,6 +45,7 @@ export function parseHomeV2AppUpdatePreferences(
   if (!isRecord(value)) throw new Error('Stored Android app update preferences are malformed.')
   const homeUpdatePolicy = value.homeUpdatePolicy
   const releaseChannel = value.releaseChannel
+  const releaseSource = value.releaseSource
   if (
     (homeUpdatePolicy !== 'off' &&
       homeUpdatePolicy !== 'notify' &&
@@ -47,13 +53,21 @@ export function parseHomeV2AppUpdatePreferences(
     (releaseChannel !== undefined &&
       releaseChannel !== null &&
       releaseChannel !== 'stable' &&
-      releaseChannel !== 'prerelease')
+      releaseChannel !== 'prerelease') ||
+    (releaseSource !== undefined &&
+      releaseSource !== null &&
+      releaseSource !== 'github' &&
+      releaseSource !== 'qdn' &&
+      releaseSource !== 'qdn-then-github')
   ) throw new Error('Stored Android app update preferences are malformed.')
   return {
     homeUpdatePolicy,
     releaseChannel: releaseChannel === 'stable' || releaseChannel === 'prerelease'
       ? releaseChannel
       : defaults.releaseChannel,
+    releaseSource: releaseSource === 'github' || releaseSource === 'qdn' || releaseSource === 'qdn-then-github'
+      ? releaseSource
+      : defaults.releaseSource,
   }
 }
 
@@ -66,6 +80,7 @@ export function serializeHomeV2AppUpdatePreferences(
     downloadedUpdate: null,
     homeUpdatePolicy: preferences.homeUpdatePolicy,
     releaseChannel: preferences.releaseChannel,
+    releaseSource: preferences.releaseSource,
     revision: 1,
     schema: 'home-v2-app-update-preferences',
   })
