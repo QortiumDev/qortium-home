@@ -49,6 +49,10 @@ data = { message: 'down' }
 result = await checkAppUpdates(environment, 'stable', { fetchJson })
 assert.equal(result.status, 'error')
 assert.match(result.message, /HTTP 503/)
+status = 403
+result = await checkAppUpdates(environment, 'stable', { fetchJson })
+assert.equal(result.status, 'error')
+assert.match(result.message, /HTTP 403/, 'the controller maps HTTP 403/429 to the rate-limited notice')
 
 // An absurdly large listing is refused rather than parsed.
 status = 200

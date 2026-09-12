@@ -836,10 +836,10 @@ assert.ok([...container.querySelectorAll('[role="alert"]')]
   .some((element) => element.textContent === 'Settings unavailable'))
 await act(async () => button('General').click())
 const qortiumSwitch = container.querySelector(
-  'input[aria-label="Qortium connection mode"]',
+  'input[aria-label="Connect to Qortium"]',
 ) as HTMLInputElement
 const qortalSwitch = container.querySelector(
-  'input[aria-label="Qortal connection mode"]',
+  'input[aria-label="Connect to Qortal"]',
 ) as HTMLInputElement
 assert.equal(qortiumSwitch.checked, false)
 assert.equal(qortalSwitch.checked, true)

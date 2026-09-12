@@ -181,9 +181,11 @@ function NetworkAvailabilitySettings({
 
   return (
     <div className="home-v2-network-availability">
+      {/* On/off per network. The MODE (public, local, custom) is a Runtime
+          setting; this row only says whether Home talks to the network. */}
       <div className="home-v2-setting-group-heading">
-        <strong>{t('connections.title')}</strong>
-        <span>{t('home2.node.connectionMode')}</span>
+        <strong>{t('home2.settings.networks')}</strong>
+        <span>{t('home2.settings.networksDescription')}</span>
       </div>
       {(['qortium', 'qortal'] as const).map((network) => {
         const enabled = resolvedNodes[network].mode !== 'disabled'
@@ -197,7 +199,7 @@ function NetworkAvailabilitySettings({
             <div className="home-v2-setting-row__copy">
               <strong>{networkLabel}</strong>
               <span>
-                {t('home2.node.connectionModeFor', { network: networkLabel })}
+                {t('home2.settings.networkEnableFor', { network: networkLabel })}
               </span>
               {busyNetwork === network ? (
                 <span role="status">{t('common.saving')}</span>
@@ -208,7 +210,7 @@ function NetworkAvailabilitySettings({
             <div className="home-v2-setting-row__control">
               <label>
                 <input
-                  aria-label={t('home2.node.connectionModeFor', {
+                  aria-label={t('home2.settings.networkSwitchFor', {
                     network: networkLabel,
                   })}
                   checked={enabled}
@@ -399,7 +401,7 @@ function GeneralSettings({
     >
       <div className="home-v2-settings-panel__heading">
         <h2 id={id('general-settings-title')}>{t('home2.settings.general')}</h2>
-        <p>{t('home2.settings.newTabDescription')}</p>
+        <p>{t('home2.settings.generalDescription')}</p>
       </div>
       <NetworkAvailabilitySettings
         nodes={nodes}

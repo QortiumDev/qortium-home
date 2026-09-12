@@ -16,6 +16,7 @@ export type HomeV2AppUpdateIssue =
   | 'invalid-version'
   | 'no-compatible-asset'
   | 'operation-in-progress'
+  | 'rate-limited'
   | 'release-changed'
   | 'release-not-found'
   | 'release-unavailable'
@@ -188,6 +189,7 @@ const issues = new Set<HomeV2AppUpdateIssue>([
   'invalid-version',
   'no-compatible-asset',
   'operation-in-progress',
+  'rate-limited',
   'release-changed',
   'release-not-found',
   'release-unavailable',
@@ -347,7 +349,7 @@ export function parseHomeV2AppUpdateCheck(value: unknown): HomeV2AppUpdateCheck 
     (state === 'not-found' && issue === 'release-not-found' && !release && !asset) ||
     (state === 'unsupported' && issue === 'unsupported-platform' && !release && !asset) ||
     (state === 'unavailable' &&
-      (issue === 'release-unavailable' || issue === 'invalid-version') &&
+      (issue === 'release-unavailable' || issue === 'rate-limited' || issue === 'invalid-version') &&
       !asset)
   if (!coherent) throw new Error('Home update status fields were inconsistent.')
   return {

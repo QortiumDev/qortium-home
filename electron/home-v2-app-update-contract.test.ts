@@ -200,4 +200,25 @@ for (const handler of [handlers.check, handlers.download, handlers.install, hand
 }
 assert.equal(authorized, true, 'authorization must happen before parsing')
 
+// An exhausted GitHub quota (403) or throttling (429) is reported as
+// rate-limited, distinct from any other fetch failure.
+for (const [status, issue] of [['403', 'rate-limited'], ['429', 'rate-limited'], ['500', 'release-unavailable']] as const) {
+  const limited = createHomeV2AppUpdateService({
+    downloadAsset: async () => { throw new Error('unreachable') },
+    fetchRelease: async () => { throw new Error(`release-http-${status}`) },
+    getEnvironment: () => ({
+      currentVersion: '2.0.0',
+      platform: { arch: 'x64', label: 'Linux x64', os: 'linux', supported: true },
+    }),
+    installDownloadedFile: async () => undefined,
+    openDownloadedFile: async () => undefined,
+    openReleasePage: async () => undefined,
+    readSettings: async () => ({ generation: 1, homeUpdatePolicy: 'notify', releaseChannel: 'stable' }),
+    revealDownloadedFile: async () => undefined,
+  })
+  const result = await limited.check(checkRequest)
+  assert.equal(result.state, 'unavailable')
+  assert.equal(result.issue, issue, `HTTP ${status}`)
+}
+
 console.log('Home 2 app update contract tests passed.')

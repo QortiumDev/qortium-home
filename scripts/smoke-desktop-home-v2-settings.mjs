@@ -472,19 +472,19 @@ try {
     const initialNetworkSettings = await evaluate(
       client,
       `(() => ({
-        qortal: document.querySelector('input[aria-label="Qortal connection mode"]')?.checked,
-        qortium: document.querySelector('input[aria-label="Qortium connection mode"]')?.checked,
+        qortal: document.querySelector('input[aria-label="Connect to Qortal"]')?.checked,
+        qortium: document.querySelector('input[aria-label="Connect to Qortium"]')?.checked,
       }))()`,
     )
     assert.deepEqual(initialNetworkSettings, { qortal: false, qortium: true })
     await evaluate(
       client,
-      `document.querySelector('input[aria-label="Qortal connection mode"]').click()`,
+      `document.querySelector('input[aria-label="Connect to Qortal"]').click()`,
     )
     await waitUntil('enabled Qortal network', () =>
       evaluate(
         client,
-        `document.querySelector('input[aria-label="Qortal connection mode"]')?.checked === true`,
+        `document.querySelector('input[aria-label="Connect to Qortal"]')?.checked === true`,
       ),
     )
     assert.deepEqual(
@@ -523,16 +523,16 @@ try {
     )
     await evaluate(client, `document.querySelector('button[aria-label="Settings"]').click()`)
     await waitUntil('General settings after dual-network layout check', () =>
-      evaluate(client, `Boolean(document.querySelector('input[aria-label="Qortium connection mode"]'))`),
+      evaluate(client, `Boolean(document.querySelector('input[aria-label="Connect to Qortium"]'))`),
     )
     await evaluate(
       client,
-      `document.querySelector('input[aria-label="Qortium connection mode"]').click()`,
+      `document.querySelector('input[aria-label="Connect to Qortium"]').click()`,
     )
     await waitUntil('disabled Qortium network', () =>
       evaluate(
         client,
-        `document.querySelector('input[aria-label="Qortium connection mode"]')?.checked === false`,
+        `document.querySelector('input[aria-label="Connect to Qortium"]')?.checked === false`,
       ),
     )
     await evaluate(client, `document.querySelector('button[aria-label="Dashboard"]').click()`)
@@ -557,16 +557,16 @@ try {
     )
     await evaluate(client, `document.querySelector('button[aria-label="Settings"]').click()`)
     await waitUntil('General settings after Qortal-only layout check', () =>
-      evaluate(client, `Boolean(document.querySelector('input[aria-label="Qortium connection mode"]'))`),
+      evaluate(client, `Boolean(document.querySelector('input[aria-label="Connect to Qortium"]'))`),
     )
     await evaluate(
       client,
-      `document.querySelector('input[aria-label="Qortium connection mode"]').click()`,
+      `document.querySelector('input[aria-label="Connect to Qortium"]').click()`,
     )
     await waitUntil('restored Qortium network', () =>
       evaluate(
         client,
-        `document.querySelector('input[aria-label="Qortium connection mode"]')?.checked === true`,
+        `document.querySelector('input[aria-label="Connect to Qortium"]')?.checked === true`,
       ),
     )
 
@@ -780,7 +780,7 @@ try {
     )
     await evaluate(
       client,
-      `document.querySelector('input[aria-label="Qortium connection mode"]').click()`,
+      `document.querySelector('input[aria-label="Connect to Qortium"]').click()`,
     )
     await waitUntil('disabled Qortium network settings', () =>
       evaluate(
@@ -788,7 +788,7 @@ try {
         `(() => {
           const qdnApps = [...document.querySelectorAll('.home-v2-settings-nav button')]
             .some((button) => button.textContent.trim() === 'QDN Apps');
-          return document.querySelector('input[aria-label="Qortium connection mode"]')?.checked === false &&
+          return document.querySelector('input[aria-label="Connect to Qortium"]')?.checked === false &&
             qdnApps;
         })()`,
       ),
@@ -846,12 +846,12 @@ try {
     )
     await evaluate(
       client,
-      `document.querySelector('input[aria-label="Qortium connection mode"]').click()`,
+      `document.querySelector('input[aria-label="Connect to Qortium"]').click()`,
     )
     await waitUntil('restored Qortium network mode', () =>
       evaluate(
         client,
-        `document.querySelector('input[aria-label="Qortium connection mode"]')?.checked === true`,
+        `document.querySelector('input[aria-label="Connect to Qortium"]')?.checked === true`,
       ),
     )
     // The key is re-issued ASYNCHRONOUSLY after the connection comes back, so
