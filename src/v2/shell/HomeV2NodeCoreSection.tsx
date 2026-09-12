@@ -3,6 +3,7 @@ import type { HomeV2AppUpdates } from '../../home-v2-live/app-update-controller'
 import type { HomeV2CoreMaintenanceManagement } from '../../home-v2-live/core-maintenance-controller'
 import type { HomeV2OnChainCoreUpdates } from '../../home-v2-live/on-chain-core-update-controller'
 import type { HomeV2QortalMaintenanceManagement } from '../../home-v2-live/qortal-maintenance-controller'
+import type { HomeV2TransportManagement } from '../../home-v2-live/transport-maintenance-controller'
 import { t, type TranslationKey } from '../../i18n'
 import type {
   HomeV2Snapshot,
@@ -16,6 +17,7 @@ import { HomeV2SectionToggle } from './HomeV2Prototype'
 import { useScopedIds } from './dom-ids'
 import { homeUpdateStatusText } from './HomeUpdateSettings'
 import { NetworkBadge, networkLabels } from './NetworkBadge'
+import { ensureLabel } from './TransportMaintenancePanel'
 
 const nodeModeLabelKeys: Readonly<Record<NodeConnectionMode, TranslationKey>> = {
   disabled: 'home2.node.mode.disabled',
@@ -150,33 +152,17 @@ export function NodeModeSelect({
   )
 }
 
-/** Height and peer counts, or the node's error, on one line. */
+/**
+ * The chain height, or the node's error. The peer breakdown (direct / I2P,
+ * chain / data) is deliberately not here: the Node app, the toolbar's node
+ * status menu and Settings all carry it, and on the dashboard it was noise.
+ */
 function nodeDetailText(node: HomeV2Snapshot['nodes'][NetworkId]) {
   if (node.mode === 'disabled') return t('home2.node.noConnection')
   if (node.error) return node.error
-  return [
-    node.height === null
-      ? null
-      : t('home2.node.height', { height: node.height.toLocaleString() }),
-    // The transport split only appears when the node reports it. A Core older
-    // than #282 omits the field, and showing "(0 via I2P)" there would assert
-    // every peer is direct IP when we simply do not know.
-    node.peerCount === null
-      ? null
-      : node.i2pPeerCount === null
-        ? t('home2.node.peers', { count: node.peerCount })
-        : t('home2.node.peersWithI2p', { count: node.peerCount, i2p: node.i2pPeerCount }),
-    node.dataPeerCount === null
-      ? null
-      : node.i2pDataPeerCount === null
-        ? t('home2.node.dataPeers', { count: node.dataPeerCount })
-        : t('home2.node.dataPeersWithI2p', {
-            count: node.dataPeerCount,
-            i2p: node.i2pDataPeerCount,
-          }),
-  ]
-    .filter(Boolean)
-    .join(' · ') || t('home2.node.waitingForStatus')
+  return node.height === null
+    ? t('home2.node.waitingForStatus')
+    : t('home2.node.height', { height: node.height.toLocaleString() })
 }
 
 /**
@@ -721,6 +707,104 @@ function HomeUpdateRow({
  * instantiated once in HomeV2LiveApp and reach this component as the optional
  * slices on `coreManagement`, which keeps this file renderable from a fixture.
  */
+/**
+ * The I2P router half of the Qortium row: state and installed version, with
+ * the basic management -- install-and-start / start, stop, update-and-restart
+ * -- so the router can be looked after from the dashboard. The transport
+ * mode, its Apply/restart flow and the router folder stay in Settings.
+ * Shares the transport controller with Settings, so busy and notice agree.
+ */
+function TransportLine({ transport }: { readonly transport: HomeV2TransportManagement }) {
+  const status = transport.status
+  if (!status) {
+    // The row exists while the first poll is in flight; returning nothing
+    // here read as Home not having I2P at all on a slow poll.
+    return (
+      <div className="home-v2-transport-line" data-home-v2-node-core-transport="loading">
+        <span className="home-v2-core-runtime" data-runtime="unknown">
+          <span className="home-v2-status-dot" aria-hidden="true" />
+          {t('connections.routerLabel')}
+        </span>
+        <small className="home-v2-core-line__version">{t('home2.common.loading')}</small>
+      </div>
+    )
+  }
+  const routerRunning = status.router.state === 'managed-running' || status.router.state === 'external-running'
+  const routerWord = routerRunning
+    ? t('core.runtimeRunning')
+    : status.router.state === 'managed-stopped'
+      ? t('common.stopped')
+      : status.router.state === 'missing'
+        ? t('common.notInstalled')
+        : t('common.unavailable')
+  const blocked = transport.busy !== null || transport.stale
+  return (
+    <div
+      className="home-v2-transport-line"
+      data-home-v2-node-core-transport="dashboard"
+      data-network="qortium"
+      data-router-state={status.router.state}
+    >
+      <span className="home-v2-core-runtime" data-runtime={routerRunning ? 'running' : 'stopped'}>
+        <span className="home-v2-status-dot" aria-hidden="true" />
+        {t('connections.routerLabel')}
+        {' · '}
+        {routerWord}
+      </span>
+      {status.router.version ? (
+        <small className="home-v2-core-line__version" data-home-v2-router-version={status.router.version}>
+          {status.router.version}
+        </small>
+      ) : null}
+      <span className="home-v2-core-line__actions">
+        {status.capabilities.canEnsureRouter && transport.onEnsureRouter ? (
+          <button
+            type="button"
+            className="home-v2-primary-button"
+            data-home-v2-node-core-action="ensure-router"
+            disabled={blocked}
+            onClick={transport.onEnsureRouter}
+          >
+            {transport.busy === 'ensure-router' ? t('home2.common.working') : ensureLabel(status)}
+          </button>
+        ) : null}
+        {status.capabilities.canStopRouter && transport.onStopRouter ? (
+          <button
+            type="button"
+            className="home-v2-secondary-button"
+            data-home-v2-node-core-action="stop-router"
+            disabled={blocked}
+            onClick={transport.onStopRouter}
+          >
+            {transport.busy === 'stop-router'
+              ? t('home2.common.working')
+              : t('home2.transportMaintenance.router.stop')}
+          </button>
+        ) : null}
+        {status.router.maintenance === 'update' && transport.onUpdateRouter ? (
+          <button
+            type="button"
+            className="home-v2-primary-button"
+            data-home-v2-node-core-action="update-router"
+            disabled={blocked || !status.capabilities.canUpdateRouter}
+            onClick={transport.onUpdateRouter}
+          >
+            {transport.busy === 'update-router'
+              ? t('home2.common.working')
+              : t('home2.transportMaintenance.router.updateAndRestart')}
+          </button>
+        ) : null}
+        <CoreProgressBar progress={transport.progress} />
+      </span>
+      {transport.notice ? (
+        <span className="home-v2-core-notice" role={transport.notice.error ? 'alert' : 'status'}>
+          {transport.notice.message}
+        </span>
+      ) : null}
+    </div>
+  )
+}
+
 export function HomeV2NodeCoreSection({
   coreManagement,
   networks,
@@ -808,6 +892,9 @@ export function HomeV2NodeCoreSection({
                   })}
                   network={network}
                 />
+              ) : null}
+              {coreAvailable && network === 'qortium' && coreManagement?.transport ? (
+                <TransportLine transport={coreManagement.transport} />
               ) : null}
             </article>
           )

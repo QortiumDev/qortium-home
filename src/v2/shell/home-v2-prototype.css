@@ -1580,14 +1580,24 @@ body,
   white-space: nowrap;
 }
 
-/* Core line: state and version on the left, actions packed to the right.
-   Scoped under the network card so it outranks the Settings card's own grid
-   layout, which .home-v2-core-card still carries for Settings. */
-.home-v2-node-core-card > .home-v2-core-line {
+/* Core and I2P lines: state and version on the left, actions packed to the
+   right. Scoped under the network card so it outranks the Settings card's
+   own grid layout, which .home-v2-core-card still carries for Settings. */
+.home-v2-node-core-card > .home-v2-core-line,
+.home-v2-node-core-card > .home-v2-transport-line {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 6px 12px;
+}
+
+.home-v2-node-core-card > .home-v2-transport-line {
+  border-top: 1px solid var(--v2-line);
+  padding-block-start: 8px;
+}
+
+.home-v2-transport-line > .home-v2-core-notice {
+  flex-basis: 100%;
 }
 
 /* Title, Settings link and the fold chevron: the chevron keeps the far edge

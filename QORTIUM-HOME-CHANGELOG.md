@@ -32,6 +32,20 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## feat: basic Java and I2P management on the Node & Core tile; height only
+
+2026-09-12
+
+The Node & Core tile keeps the basic management on the dashboard: the Core
+line already offered Install / Update Java and the Core install or update
+when one applies, and the Qortium card now has an I2P router line again —
+running / stopped / not installed, its version, and Install-and-start,
+Start, Stop and Update-and-restart. The transport mode, its Apply and
+restart flow and the router folder stay in Settings. The connection line now
+shows the chain height and the connection status only; the peer breakdown
+(direct / I2P, chain / data) is in the Node app, the toolbar's node status
+menu and Settings.
+
 ## feat: finished-frame startup and a condensed dashboard
 
 2026-09-11
