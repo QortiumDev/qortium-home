@@ -1,5 +1,5 @@
 import type { IpcMainInvokeEvent } from 'electron'
-import type { StoredHomeV2AppUpdateSettings } from './home-v2-app-update-settings-codec.js'
+import { isStoredHomeV2AppUpdateReleaseSource, type StoredHomeV2AppUpdateSettings } from './home-v2-app-update-settings-codec.js'
 
 export type HomeV2AppUpdateSettingsState = StoredHomeV2AppUpdateSettings & {
   readonly revision: 1
@@ -57,19 +57,22 @@ function parseSet(value: unknown) {
     value.revision !== 1 ||
     !Number.isSafeInteger(value.expectedGeneration) ||
     (value.expectedGeneration as number) < 0 ||
-    !exact(value.settings, ['homeUpdatePolicy', 'releaseChannel'])
+    !exact(value.settings, ['homeUpdatePolicy', 'releaseChannel', 'releaseSource'])
   ) throw new Error('An exact app update settings replacement is required.')
   const homeUpdatePolicy = value.settings.homeUpdatePolicy
   const releaseChannel = value.settings.releaseChannel
+  const releaseSource = value.settings.releaseSource
   if (
     (homeUpdatePolicy !== 'off' && homeUpdatePolicy !== 'notify' && homeUpdatePolicy !== 'auto-download') ||
-    (releaseChannel !== 'stable' && releaseChannel !== 'prerelease')
+    (releaseChannel !== 'stable' && releaseChannel !== 'prerelease') ||
+    !isStoredHomeV2AppUpdateReleaseSource(releaseSource)
   ) throw new Error('Choose valid app update settings.')
   return {
     expectedGeneration: value.expectedGeneration as number,
     settings: {
       homeUpdatePolicy: homeUpdatePolicy as StoredHomeV2AppUpdateSettings['homeUpdatePolicy'],
       releaseChannel: releaseChannel as StoredHomeV2AppUpdateSettings['releaseChannel'],
+      releaseSource,
     },
   }
 }

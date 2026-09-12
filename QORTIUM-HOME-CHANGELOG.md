@@ -32,6 +32,33 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## feat: Home releases from QDN
+
+2026-09-12
+
+Home can now find and download its own releases from QDN, through the
+Qortium node it is connected to, instead of only from GitHub. Each release
+is published under the QortiumHomeTest name as one FILE resource per package
+plus a small JSON manifest that names the packages with their sizes and
+SHA-256 digests; a pointer per channel (`home-latest-stable`,
+`home-latest-prerelease`) names the newest tag, so a check is two small
+reads. The download waits for the node to fetch the package (the progress
+bar shows the node's chunk progress), then reads the bytes from the node and
+verifies them against the manifest's digest — the same rule the GitHub
+source lives by, so a manifest can only ever point at bytes it vouched for.
+
+Settings > Runtime > Qortium Home gains a **Release source** row: QDN then
+GitHub (the default: QDN first, GitHub when the node has no manifest or the
+Qortium network is off), QDN only, or GitHub only. The asset line says where
+the bytes come from. Android keeps checking GitHub until its native
+downloader reads QDN; the setting is stored for it already.
+
+`scripts/publish-home-release-to-qdn.mjs` publishes a tagged release: it
+takes the packages from a folder or downloads them from the GitHub release
+(verifying GitHub's digests), publishes each as a FILE resource, then the
+manifest and the channel pointer, signing with the publisher account through
+the local node. Releases already on QDN are skipped unless forced.
+
 ## feat: Settings copy that says what each row does; a clear notice when GitHub rate-limits update checks
 
 2026-09-12

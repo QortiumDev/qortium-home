@@ -13,10 +13,12 @@ try {
     generation: 0,
     homeUpdatePolicy: 'notify',
     releaseChannel: 'stable',
+    releaseSource: 'qdn-then-github',
   })
   const first = await storage.write(0, {
     homeUpdatePolicy: 'off',
     releaseChannel: 'prerelease',
+    releaseSource: 'qdn-then-github',
   })
   assert.equal(first.generation, 1)
   assert.deepEqual(await storage.read(), first)
@@ -24,10 +26,11 @@ try {
   await assert.rejects(storage.write(0, {
     homeUpdatePolicy: 'notify',
     releaseChannel: 'stable',
+    releaseSource: 'qdn-then-github',
   }), /changed/)
   const competing = await Promise.allSettled([
-    storage.write(1, { homeUpdatePolicy: 'notify', releaseChannel: 'stable' }),
-    storage.write(1, { homeUpdatePolicy: 'off', releaseChannel: 'stable' }),
+    storage.write(1, { homeUpdatePolicy: 'notify', releaseChannel: 'stable', releaseSource: 'qdn-then-github' }),
+    storage.write(1, { homeUpdatePolicy: 'off', releaseChannel: 'stable', releaseSource: 'qdn-then-github' }),
   ])
   assert.equal(competing.filter((result) => result.status === 'fulfilled').length, 1)
   assert.equal(competing.filter((result) => result.status === 'rejected').length, 1)

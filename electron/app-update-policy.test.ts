@@ -9,10 +9,10 @@ import {
 const digest = `sha256:${'a'.repeat(64)}` as const
 const release: TrustedHomeRelease = {
   assets: [
-    { digest, downloadUrl: 'https://github.com/QortiumDev/qortium-home/releases/download/v2.1.0/Qortium-Home-2.1.0-x64.exe', name: 'Qortium-Home-2.1.0-x64.exe', size: 10 },
-    { digest, downloadUrl: 'https://github.com/QortiumDev/qortium-home/releases/download/v2.1.0/Qortium-Home-2.1.0-x86_64.AppImage', name: 'Qortium-Home-2.1.0-x86_64.AppImage', size: 10 },
-    { digest, downloadUrl: 'https://github.com/QortiumDev/qortium-home/releases/download/v2.1.0/Qortium-Home-2.1.0-universal.dmg', name: 'Qortium-Home-2.1.0-universal.dmg', size: 10 },
-    { digest, downloadUrl: 'https://github.com/QortiumDev/qortium-home/releases/download/v2.1.0/Qortium-Home-2.1.0-macos11-universal.dmg', name: 'Qortium-Home-2.1.0-macos11-universal.dmg', size: 10 },
+    { digest, downloadUrl: 'https://github.com/QortiumDev/qortium-home/releases/download/v2.1.0/Qortium-Home-2.1.0-x64.exe', name: 'Qortium-Home-2.1.0-x64.exe', size: 10, source: 'github' },
+    { digest, downloadUrl: 'https://github.com/QortiumDev/qortium-home/releases/download/v2.1.0/Qortium-Home-2.1.0-x86_64.AppImage', name: 'Qortium-Home-2.1.0-x86_64.AppImage', size: 10, source: 'github' },
+    { digest, downloadUrl: 'https://github.com/QortiumDev/qortium-home/releases/download/v2.1.0/Qortium-Home-2.1.0-universal.dmg', name: 'Qortium-Home-2.1.0-universal.dmg', size: 10, source: 'github' },
+    { digest, downloadUrl: 'https://github.com/QortiumDev/qortium-home/releases/download/v2.1.0/Qortium-Home-2.1.0-macos11-universal.dmg', name: 'Qortium-Home-2.1.0-macos11-universal.dmg', size: 10, source: 'github' },
   ],
   channel: 'stable',
   htmlUrl: 'https://github.com/QortiumDev/qortium-home/releases/tag/v2.1.0',

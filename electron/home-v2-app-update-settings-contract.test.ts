@@ -9,6 +9,7 @@ let settings: StoredHomeV2AppUpdateSettings = {
   generation: 0,
   homeUpdatePolicy: 'notify',
   releaseChannel: 'stable',
+  releaseSource: 'qdn-then-github',
 }
 const service = createHomeV2AppUpdateSettingsService({
   read: async () => settings,
@@ -31,7 +32,7 @@ const next = await service.set({
   expectedGeneration: 0,
   revision: 1,
   schema: 'home-v2-app-update-settings-set-request',
-  settings: { homeUpdatePolicy: 'auto-download', releaseChannel: 'prerelease' },
+  settings: { homeUpdatePolicy: 'auto-download', releaseChannel: 'prerelease', releaseSource: 'qdn-then-github' },
 })
 assert.equal(next.generation, 1)
 assert.equal(next.homeUpdatePolicy, 'auto-download')
@@ -49,7 +50,7 @@ await assert.rejects(
     expectedGeneration: 1,
     revision: 1,
     schema: 'home-v2-app-update-settings-set-request',
-    settings: { homeUpdatePolicy: 'install', releaseChannel: 'stable' },
+    settings: { homeUpdatePolicy: 'install', releaseChannel: 'stable', releaseSource: 'qdn-then-github' },
   }),
   /valid/,
 )

@@ -8,6 +8,7 @@ import {
   serializeHomeV2AppUpdatePreferences,
   type HomeV2AppUpdatePolicy,
   type HomeV2AppUpdatePreferences,
+  type HomeV2AppUpdateReleaseSource,
 } from './app-update-preferences'
 import {
   parseHomeV2AppUpdateAction,
@@ -79,7 +80,7 @@ function nativeCheckResult(result: QortiumAppUpdateCheckResult): HomeV2AppUpdate
     result.asset.size > 0 &&
     result.asset.size <= MAX_UPDATE_ASSET_BYTES &&
     isTrustedGithubReleaseUrl(result.asset.downloadUrl, trustedRelease.tagName, 'asset')
-    ? { digestAvailable: true as const, name: result.asset.name, size: result.asset.size }
+    ? { digestAvailable: true as const, name: result.asset.name, size: result.asset.size, source: 'github' as const }
     : null
   const state = result.status === 'error'
     ? 'unavailable'
@@ -184,6 +185,7 @@ export function useHomeV2AppUpdates(nativeHostOverride: AndroidHomeV2UpdateHost 
           next = {
             homeUpdatePolicy: host.homeUpdatePolicy,
             releaseChannel: host.releaseChannel,
+            releaseSource: host.releaseSource,
           }
         } else {
           const raw = await nativeHost!.loadPreferences()
@@ -211,6 +213,7 @@ export function useHomeV2AppUpdates(nativeHostOverride: AndroidHomeV2UpdateHost 
           const next: HomeV2AppUpdatePreferences = {
             homeUpdatePolicy: 'off',
             releaseChannel: 'stable',
+            releaseSource: 'qdn-then-github',
           }
           preferencesRef.current = next
           hostPreferencesRef.current = next
@@ -244,6 +247,7 @@ export function useHomeV2AppUpdates(nativeHostOverride: AndroidHomeV2UpdateHost 
           confirmed = {
             homeUpdatePolicy: state.homeUpdatePolicy,
             releaseChannel: state.releaseChannel,
+            releaseSource: state.releaseSource,
           }
           hostPreferencesRef.current = confirmed
         } else {
@@ -264,11 +268,13 @@ export function useHomeV2AppUpdates(nativeHostOverride: AndroidHomeV2UpdateHost 
           hostPreferencesRef.current = {
             homeUpdatePolicy: current.homeUpdatePolicy,
             releaseChannel: current.releaseChannel,
+            releaseSource: current.releaseSource,
           }
           if (revision === preferenceRevision.current) {
             const recovered = {
               homeUpdatePolicy: current.homeUpdatePolicy,
               releaseChannel: current.releaseChannel,
+              releaseSource: current.releaseSource,
             }
             preferencesRef.current = recovered
             setConfirmedGeneration(current.generation)
@@ -459,6 +465,7 @@ export function useHomeV2AppUpdates(nativeHostOverride: AndroidHomeV2UpdateHost 
           const claimedPreferences: HomeV2AppUpdatePreferences = {
             homeUpdatePolicy: claim.homeUpdatePolicy,
             releaseChannel: claim.releaseChannel,
+            releaseSource: claim.releaseSource,
           }
           settingsGeneration.current = claim.generation
           setConfirmedGeneration(claim.generation)
@@ -629,6 +636,19 @@ export function useHomeV2AppUpdates(nativeHostOverride: AndroidHomeV2UpdateHost 
       if (isAndroid && nextPolicy === 'auto-download') return
       if (nextPolicy !== preferencesRef.current.homeUpdatePolicy) automaticCheckKey.current = ''
       persistPreferences({ homeUpdatePolicy: nextPolicy })
+    },
+    releaseSource: preferences.releaseSource,
+    // The source can only change where the next check LOOKS; a result found
+    // through the previous source is dropped so nothing stale is offered.
+    setReleaseSource: (nextSource: HomeV2AppUpdateReleaseSource) => {
+      if (nextSource === preferencesRef.current.releaseSource) return
+      setResult(null)
+      setDownload(null)
+      nativeResult.current = null
+      nativeDownload.current = null
+      setMessage(null)
+      automaticCheckKey.current = ''
+      persistPreferences({ releaseSource: nextSource })
     },
   }
 }

@@ -9,6 +9,7 @@ import {
 assert.deepEqual(getDefaultHomeV2AppUpdatePreferences('2.1.0'), {
   homeUpdatePolicy: 'notify',
   releaseChannel: 'stable',
+  releaseSource: 'qdn-then-github',
 })
 assert.equal(getDefaultHomeV2AppUpdatePreferences('2.1.0-preview.1').releaseChannel, 'prerelease')
 
@@ -17,8 +18,9 @@ assert.deepEqual(
     downloadedUpdate: { filePath: '/must/not/be/read' },
     homeUpdatePolicy: 'auto-download',
     releaseChannel: 'prerelease',
+    releaseSource: 'qdn-then-github',
   })),
-  { homeUpdatePolicy: 'auto-download', releaseChannel: 'prerelease' },
+  { homeUpdatePolicy: 'auto-download', releaseChannel: 'prerelease', releaseSource: 'qdn-then-github' },
 )
 assert.throws(
   () => parseHomeV2AppUpdatePreferences('{"homeUpdatePolicy":"invalid"}', '2.1.0'),
@@ -31,6 +33,7 @@ assert.throws(
 assert.deepEqual(parseHomeV2AppUpdatePreferences(null, '2.1.0'), {
   homeUpdatePolicy: 'notify',
   releaseChannel: 'stable',
+  releaseSource: 'qdn-then-github',
 })
 assert.deepEqual(parseHomeV2AppUpdatePreferences(JSON.stringify({
   downloadedUpdate: null,
@@ -39,16 +42,21 @@ assert.deepEqual(parseHomeV2AppUpdatePreferences(JSON.stringify({
 }), '2.1.0-preview.2'), {
   homeUpdatePolicy: 'auto-download',
   releaseChannel: 'prerelease',
-})
+  releaseSource: 'qdn-then-github',
+}, 'a record from before the source existed reads as the default source')
+assert.equal(parseHomeV2AppUpdatePreferences(JSON.stringify({ homeUpdatePolicy: 'notify', releaseSource: 'github' })).releaseSource, 'github')
+assert.throws(() => parseHomeV2AppUpdatePreferences(JSON.stringify({ homeUpdatePolicy: 'notify', releaseSource: 'ftp' })), /malformed/)
 
 const serialized = JSON.parse(serializeHomeV2AppUpdatePreferences({
   homeUpdatePolicy: 'off',
   releaseChannel: 'stable',
+  releaseSource: 'qdn-then-github',
 }))
 assert.deepEqual(serialized, {
   downloadedUpdate: null,
   homeUpdatePolicy: 'off',
   releaseChannel: 'stable',
+  releaseSource: 'qdn-then-github',
   revision: 1,
   schema: 'home-v2-app-update-preferences',
 })

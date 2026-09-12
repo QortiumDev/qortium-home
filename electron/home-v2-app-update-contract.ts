@@ -6,6 +6,7 @@ import {
   selectTrustedHomeReleaseAsset,
   type HomeAppUpdateChannel,
   type HomeAppUpdatePlatform,
+  type HomeReleaseSource,
   type TrustedHomeRelease,
   type TrustedHomeReleaseAsset,
 } from './app-update-policy.js'
@@ -28,6 +29,8 @@ export type HomeV2AppUpdateCheck = {
     readonly digestAvailable: true
     readonly name: string
     readonly size: number
+    /** Where the bytes will come from, so the UI can say "from QDN". */
+    readonly source: HomeReleaseSource
   }
   readonly channel: HomeAppUpdateChannel
   readonly checkedAt: string
@@ -282,7 +285,7 @@ export function createHomeV2AppUpdateService(dependencies: Dependencies) {
     if (comparison <= 0) {
       return {
         ...base,
-        asset: asset ? { digestAvailable: true, name: asset.name, size: asset.size } : null,
+        asset: asset ? { digestAvailable: true, name: asset.name, size: asset.size, source: asset.source } : null,
         release: releaseSummary,
         state: 'up-to-date',
       }
@@ -297,7 +300,7 @@ export function createHomeV2AppUpdateService(dependencies: Dependencies) {
     }
     return {
       ...base,
-      asset: { digestAvailable: true, name: asset.name, size: asset.size },
+      asset: { digestAvailable: true, name: asset.name, size: asset.size, source: asset.source },
       release: releaseSummary,
       state: 'available',
     }

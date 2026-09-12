@@ -11,6 +11,7 @@ const release: TrustedHomeRelease = {
     digest,
     downloadUrl: 'https://github.com/QortiumDev/qortium-home/releases/download/v2.1.0/Qortium-Home-2.1.0-x86_64.AppImage',
     name: 'Qortium-Home-2.1.0-x86_64.AppImage',
+    source: 'github',
     size: 123,
   }],
   channel: 'stable',
@@ -65,6 +66,7 @@ const service = createHomeV2AppUpdateService({
     generation: 2,
     homeUpdatePolicy: 'auto-download',
     releaseChannel: 'stable',
+    releaseSource: 'qdn-then-github',
   }),
   revealDownloadedFile: async (filePath) => { revealPath = filePath },
   uuid: () => 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
@@ -110,8 +112,8 @@ const revocationService = createHomeV2AppUpdateService({
   readSettings: async () => {
     revocationReads += 1
     return revocationReads === 1
-      ? { generation: 2, homeUpdatePolicy: 'auto-download' as const, releaseChannel: 'stable' as const }
-      : { generation: 3, homeUpdatePolicy: 'off' as const, releaseChannel: 'stable' as const }
+      ? { generation: 2, homeUpdatePolicy: 'auto-download' as const, releaseChannel: 'stable' as const, releaseSource: 'qdn-then-github' as const }
+      : { generation: 3, homeUpdatePolicy: 'off' as const, releaseChannel: 'stable' as const, releaseSource: 'qdn-then-github' as const }
   },
   revealDownloadedFile: async () => undefined,
 })
@@ -173,6 +175,7 @@ const unsupportedHandoffService = createHomeV2AppUpdateService({
     generation: 2,
     homeUpdatePolicy: 'notify',
     releaseChannel: 'stable',
+    releaseSource: 'qdn-then-github',
   }),
   revealDownloadedFile: async () => { unsupportedHandoffCalls += 1 },
   uuid: () => 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
@@ -213,7 +216,7 @@ for (const [status, issue] of [['403', 'rate-limited'], ['429', 'rate-limited'],
     installDownloadedFile: async () => undefined,
     openDownloadedFile: async () => undefined,
     openReleasePage: async () => undefined,
-    readSettings: async () => ({ generation: 1, homeUpdatePolicy: 'notify', releaseChannel: 'stable' }),
+    readSettings: async () => ({ generation: 1, homeUpdatePolicy: 'notify', releaseChannel: 'stable', releaseSource: 'qdn-then-github' }),
     revealDownloadedFile: async () => undefined,
   })
   const result = await limited.check(checkRequest)

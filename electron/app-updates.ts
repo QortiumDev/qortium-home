@@ -8,6 +8,8 @@ import path from 'node:path';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { isTrustedHomeAssetResponseUrl } from './app-update-discovery.js';
+import type { HomeReleaseSource } from './app-update-policy.js';
+import { HOME_RELEASE_ASSET_SERVICE, HOME_RELEASE_PUBLISHER } from './home-v2-release-manifest.js';
 import {
   downloadedUpdateInstallKind,
   environmentWithoutAppImageMount,
@@ -25,6 +27,8 @@ type AppUpdateAsset = {
   downloadUrl: string;
   name: string;
   size: number;
+  /** GitHub release asset, or a QDN FILE resource read through the node. */
+  source: HomeReleaseSource;
 };
 
 type AppUpdateDownloadRequest = {
@@ -260,7 +264,72 @@ function normalizeDownloadAsset(value: unknown): AppUpdateAsset {
     downloadUrl,
     digest: normalizeDigest(value.digest),
     size: getNumber(value.size),
+    source: value.source === 'qdn' ? 'qdn' : 'github',
   };
+}
+
+/** How long Home waits for the node to fetch a release package from QDN before giving up. */
+const QDN_ASSET_FETCH_TIMEOUT_MS = 30 * 60 * 1000;
+const QDN_ASSET_POLL_INTERVAL_MS = 1500;
+
+/**
+ * A QDN asset is read from the node, and the node only serves a resource it
+ * holds completely. So before the download proper Home asks the node for the
+ * resource's status -- which also starts the fetch -- and waits for READY,
+ * reporting the node's chunk progress as the download bar meanwhile. The
+ * asset URL is the node's raw resource URL, so its status URL is derived from
+ * it rather than trusted from the request.
+ */
+async function waitForQdnAssetReady(
+  asset: AppUpdateAsset,
+  releaseTag: string,
+  fileName: string,
+  publishProgress: (progress: AppUpdateDownloadProgress) => void,
+) {
+  const url = new URL(asset.downloadUrl);
+  const prefix = `/arbitrary/${HOME_RELEASE_ASSET_SERVICE}/${encodeURIComponent(HOME_RELEASE_PUBLISHER)}/`;
+  if (!url.pathname.startsWith(prefix) || url.pathname.length <= prefix.length) {
+    throw new Error('The QDN update asset is not a Home release resource.');
+  }
+  const identifier = url.pathname.slice(prefix.length);
+  const statusUrl = `${url.origin}/arbitrary/resource/status/${HOME_RELEASE_ASSET_SERVICE}/${encodeURIComponent(HOME_RELEASE_PUBLISHER)}/${identifier}?build=false`;
+  // A status query only reports; the fetch itself is started by asking for
+  // the bytes with async=true, which returns at once ("File not found")
+  // while the node goes and gets them. Re-asked now and then in case the
+  // node dropped the request.
+  const armUrl = `${asset.downloadUrl}${asset.downloadUrl.includes('?') ? '&' : '?'}async=true`;
+  const arm = () => fetch(armUrl, { headers: { Accept: '*/*' } }).then((response) => response.body?.cancel()).catch(() => undefined);
+  await arm();
+  let lastArmedAt = Date.now();
+  const deadline = Date.now() + QDN_ASSET_FETCH_TIMEOUT_MS;
+  while (true) {
+    const response = await fetch(statusUrl, { headers: { Accept: 'application/json' } });
+    const status = response.ok ? await response.json().catch(() => null) : null;
+    const state = isObject(status) && typeof status.status === 'string' ? status.status : '';
+    // DOWNLOADED = every chunk is local (bytes are served); READY = built as well.
+    if (state === 'READY' || state === 'DOWNLOADED') return;
+    if (Date.now() - lastArmedAt > 60_000) {
+      await arm();
+      lastArmedAt = Date.now();
+    }
+    if (state === 'NOT_PUBLISHED' || state === 'UNSUPPORTED') {
+      throw new Error(`The node reports the QDN update asset as ${state.toLowerCase().replace('_', ' ')}.`);
+    }
+    const percent = isObject(status) && typeof status.percentLoaded === 'number' && Number.isFinite(status.percentLoaded)
+      ? Math.max(0, Math.min(99, Math.round(status.percentLoaded)))
+      : null;
+    publishProgress({
+      action: 'downloading',
+      fileName,
+      message: 'Fetching Qortium Home update from QDN',
+      percent,
+      receivedBytes: percent === null ? 0 : Math.round((asset.size * percent) / 100),
+      releaseTag,
+      totalBytes: asset.size || null,
+    });
+    if (Date.now() > deadline) throw new Error('The node did not finish fetching the update from QDN in time.');
+    await new Promise((resolve) => setTimeout(resolve, QDN_ASSET_POLL_INTERVAL_MS));
+  }
 }
 
 function normalizeDownloadRequest(value: AppUpdateDownloadRequest) {
@@ -573,6 +642,10 @@ async function downloadAssetInternal(
   await mkdir(releasePath, { recursive: true });
   await rm(partialPath, { force: true });
 
+  if (normalizedRequest.asset.source === 'qdn') {
+    await waitForQdnAssetReady(normalizedRequest.asset, normalizedRequest.releaseTag, fileName, publishProgress);
+  }
+
   const response = await fetch(normalizedRequest.asset.downloadUrl, {
     headers: {
       Accept: 'application/octet-stream,*/*',
@@ -587,8 +660,13 @@ async function downloadAssetInternal(
   }
 
   if (requireTrustedRedirect) {
-    if (!isTrustedHomeAssetResponseUrl(response.url)) {
-      throw new Error('Update download left the trusted GitHub asset hosts.')
+    // GitHub redirects to its asset CDN; the node answers in place. Either
+    // way the bytes must come from where the trusted listing said.
+    const trusted = normalizedRequest.asset.source === 'qdn'
+      ? response.url === normalizedRequest.asset.downloadUrl
+      : isTrustedHomeAssetResponseUrl(response.url)
+    if (!trusted) {
+      throw new Error('Update download left the trusted release source.')
     }
   }
 

@@ -3,6 +3,7 @@ export type HomeV2AppUpdateSettings = {
   readonly generation: number
   readonly homeUpdatePolicy: 'auto-download' | 'notify' | 'off'
   readonly releaseChannel: HomeV2AppUpdateChannel
+  readonly releaseSource: HomeV2AppUpdateReleaseSource
   readonly revision: 1
   readonly schema: 'home-v2-app-update-settings'
 }
@@ -23,11 +24,15 @@ export type HomeV2AppUpdateIssue =
   | 'settings-changed'
   | 'unsupported-platform'
 
+export type HomeV2AppUpdateReleaseSource = 'github' | 'qdn' | 'qdn-then-github'
+export type HomeV2AppUpdateAssetSource = 'github' | 'qdn'
+
 export type HomeV2AppUpdateCheck = {
   readonly asset: null | {
     readonly digestAvailable: true
     readonly name: string
     readonly size: number
+    readonly source: HomeV2AppUpdateAssetSource
   }
   readonly channel: HomeV2AppUpdateChannel
   readonly checkedAt: string
@@ -145,7 +150,7 @@ export interface HomeV2AppUpdateClient {
   revealInstallFolder?(): Promise<boolean>
   setSettings(
     expectedGeneration: number,
-    settings: Pick<HomeV2AppUpdateSettings, 'homeUpdatePolicy' | 'releaseChannel'>,
+    settings: Pick<HomeV2AppUpdateSettings, 'homeUpdatePolicy' | 'releaseChannel' | 'releaseSource'>,
   ): Promise<unknown>
 }
 
@@ -159,6 +164,7 @@ export function parseHomeV2AppUpdateAutomaticClaim(
       'generation',
       'homeUpdatePolicy',
       'releaseChannel',
+      'releaseSource',
       'revision',
       'schema',
     ]) ||
@@ -171,6 +177,7 @@ export function parseHomeV2AppUpdateAutomaticClaim(
       value.homeUpdatePolicy !== 'notify' &&
       value.homeUpdatePolicy !== 'auto-download') ||
     (value.releaseChannel !== 'stable' && value.releaseChannel !== 'prerelease') ||
+    !isReleaseSource(value.releaseSource) ||
     (value.claimed && value.homeUpdatePolicy === 'off')
   ) throw new Error('The automatic Home update claim was malformed.')
   return {
@@ -178,6 +185,7 @@ export function parseHomeV2AppUpdateAutomaticClaim(
     generation: value.generation as number,
     homeUpdatePolicy: value.homeUpdatePolicy,
     releaseChannel: value.releaseChannel,
+    releaseSource: value.releaseSource,
     revision: 1,
     schema: 'home-v2-app-update-automatic-claim',
   }
@@ -196,6 +204,10 @@ const issues = new Set<HomeV2AppUpdateIssue>([
   'settings-changed',
   'unsupported-platform',
 ])
+
+function isReleaseSource(value: unknown): value is HomeV2AppUpdateReleaseSource {
+  return value === 'github' || value === 'qdn' || value === 'qdn-then-github'
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
@@ -224,6 +236,7 @@ export function parseHomeV2AppUpdateSettings(value: unknown): HomeV2AppUpdateSet
       'generation',
       'homeUpdatePolicy',
       'releaseChannel',
+      'releaseSource',
       'revision',
       'schema',
     ]) ||
@@ -234,12 +247,14 @@ export function parseHomeV2AppUpdateSettings(value: unknown): HomeV2AppUpdateSet
     (value.homeUpdatePolicy !== 'off' &&
       value.homeUpdatePolicy !== 'notify' &&
       value.homeUpdatePolicy !== 'auto-download') ||
-    (value.releaseChannel !== 'stable' && value.releaseChannel !== 'prerelease')
+    (value.releaseChannel !== 'stable' && value.releaseChannel !== 'prerelease') ||
+    !isReleaseSource(value.releaseSource)
   ) throw new Error('Home update settings were malformed.')
   return {
     generation: value.generation as number,
     homeUpdatePolicy: value.homeUpdatePolicy,
     releaseChannel: value.releaseChannel,
+    releaseSource: value.releaseSource,
     revision: 1,
     schema: 'home-v2-app-update-settings',
   }
@@ -329,17 +344,19 @@ export function parseHomeV2AppUpdateCheck(value: unknown): HomeV2AppUpdateCheck 
   if (value.asset !== null) {
     if (
       !isRecord(value.asset) ||
-      !hasExactKeys(value.asset, ['digestAvailable', 'name', 'size']) ||
+      !hasExactKeys(value.asset, ['digestAvailable', 'name', 'size', 'source']) ||
       value.asset.digestAvailable !== true ||
       !string(value.asset.name) ||
       typeof value.asset.size !== 'number' ||
       !Number.isSafeInteger(value.asset.size) ||
-      value.asset.size <= 0
+      value.asset.size <= 0 ||
+      (value.asset.source !== 'github' && value.asset.source !== 'qdn')
     ) throw new Error('Home update asset was malformed.')
     asset = {
       digestAvailable: true,
       name: value.asset.name as string,
       size: value.asset.size,
+      source: value.asset.source,
     }
   }
   const coherent =
