@@ -32,6 +32,24 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## fix: install a downloaded Home update from inside Home
+
+2026-09-12
+
+After Home downloaded a new release, the desktop offered a generic "Open file"
+button that on Linux opened the AppImage in the archive manager (and on
+Windows would have started a second copy that the running one refused). It is
+replaced by an install action that fits each platform. On Linux, "Install and
+restart" re-verifies the download's checksum, puts the new AppImage where the
+running one is, and restarts Home into it — keeping the flags Home was
+launched with and leaving nothing of the old instance behind; when the folder
+is read-only, Home restarts from the downloaded copy instead. On Windows
+portable builds, a small helper waits for Home to exit, swaps the new
+executable into place and starts it. On macOS, "Open disk image" mounts the
+DMG and Home explains the drag-to-Applications step. Android keeps "Install
+APK". "Show file" remains everywhere on desktop. Only a download Home verified
+itself is ever installed, and it is checked again right before it runs.
+
 ## release: prepare home 2.1.0-beta.3
 
 2026-09-12

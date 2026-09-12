@@ -87,6 +87,7 @@ async function runScenario({
           digestVerified: true,
           downloadId: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
           fileName: available.asset.name,
+          installKind: 'relaunch',
           releaseTag,
           size: available.asset.size,
         },

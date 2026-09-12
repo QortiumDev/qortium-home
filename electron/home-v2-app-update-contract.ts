@@ -49,12 +49,20 @@ export type HomeV2AppUpdateCheck = {
     | 'up-to-date'
 }
 
+/**
+ * What Home can do with the package beyond showing it: restart into it
+ * (Linux AppImage, Windows portable exe), open it as a disk image (macOS
+ * DMG), or nothing.
+ */
+export type HomeV2AppUpdateInstallKind = 'relaunch' | 'disk-image' | null
+
 export type HomeV2AppUpdateDownload = {
   readonly canOpen: boolean
   readonly canReveal: boolean
   readonly digestVerified: true
   readonly downloadId: string
   readonly fileName: string
+  readonly installKind: HomeV2AppUpdateInstallKind
   readonly releaseTag: string
   readonly size: number
 }
@@ -73,6 +81,8 @@ type UpdateEnvironment = {
 }
 
 type InternalDownload = HomeV2AppUpdateDownload & {
+  /** The digest verified at download time; the install re-checks it. */
+  readonly digest: string
   readonly filePath: string
 }
 
@@ -83,9 +93,11 @@ type Dependencies = {
   }) => Promise<{
     canOpen: boolean
     canReveal: boolean
+    digest: string
     digestVerified: boolean
     fileName: string
     filePath: string
+    installKind: HomeV2AppUpdateInstallKind
     releaseTag: string
     size: number
   }>
@@ -93,6 +105,8 @@ type Dependencies = {
   readonly getEnvironment: () => UpdateEnvironment
   readonly now?: () => Date
   readonly openDownloadedFile: (filePath: string) => void | Promise<void>
+  /** Re-verifies the file against `digest`, then installs / restarts / opens it. */
+  readonly installDownloadedFile: (filePath: string, digest: string) => void | Promise<unknown>
   readonly openReleasePage: (url: string) => Promise<void>
   readonly readSettings: () => Promise<StoredHomeV2AppUpdateSettings>
   readonly revealDownloadedFile: (filePath: string) => void | Promise<void>
@@ -165,7 +179,10 @@ function normalizeReleaseRequest(
 
 function normalizeDownloadRequest(
   value: unknown,
-  schema: 'home-v2-app-update-open-request' | 'home-v2-app-update-reveal-request',
+  schema:
+    | 'home-v2-app-update-install-request'
+    | 'home-v2-app-update-open-request'
+    | 'home-v2-app-update-reveal-request',
 ) {
   if (!exactRecord(value, ['downloadId', 'revision', 'schema'])) {
     throw new Error('An exact downloaded update request is required.')
@@ -352,16 +369,18 @@ export function createHomeV2AppUpdateService(dependencies: Dependencies) {
           const internal: InternalDownload = {
             canOpen: result.canOpen,
             canReveal: result.canReveal,
+            digest: result.digest,
             digestVerified: true,
             downloadId,
             fileName: result.fileName,
             filePath: result.filePath,
+            installKind: result.installKind,
             releaseTag: result.releaseTag,
             size: result.size,
           }
           downloads.set(downloadId, internal)
           while (downloads.size > 4) downloads.delete(downloads.keys().next().value as string)
-          const { filePath: _filePath, ...redacted } = internal
+          const { digest: _digest, filePath: _filePath, ...redacted } = internal
           return actionResult('completed', null, redacted)
         } catch {
           return actionResult('failed', 'download-failed')
@@ -377,7 +396,7 @@ export function createHomeV2AppUpdateService(dependencies: Dependencies) {
       if (!download.canReveal) return actionResult('blocked', 'unsupported-platform')
       try {
         await dependencies.revealDownloadedFile(download.filePath)
-        const { filePath: _filePath, ...redacted } = download
+        const { digest: _digest, filePath: _filePath, ...redacted } = download
         return actionResult('completed', null, redacted)
       } catch {
         return actionResult('failed', 'download-failed')
@@ -390,7 +409,22 @@ export function createHomeV2AppUpdateService(dependencies: Dependencies) {
       if (!download.canOpen) return actionResult('blocked', 'unsupported-platform')
       try {
         await dependencies.openDownloadedFile(download.filePath)
-        const { filePath: _filePath, ...redacted } = download
+        const { digest: _digest, filePath: _filePath, ...redacted } = download
+        return actionResult('completed', null, redacted)
+      } catch {
+        return actionResult('failed', 'download-failed')
+      }
+    },
+    // Install the verified package: restart into it, or open the disk image.
+    // Refused outright when the platform offers neither.
+    async install(value: unknown): Promise<HomeV2AppUpdateActionResult> {
+      const downloadId = normalizeDownloadRequest(value, 'home-v2-app-update-install-request')
+      const download = downloads.get(downloadId)
+      if (!download) return actionResult('blocked', 'download-not-found')
+      if (download.installKind === null) return actionResult('blocked', 'unsupported-platform')
+      try {
+        await dependencies.installDownloadedFile(download.filePath, download.digest)
+        const { digest: _digest, filePath: _filePath, ...redacted } = download
         return actionResult('completed', null, redacted)
       } catch {
         return actionResult('failed', 'download-failed')
@@ -426,6 +460,10 @@ export function createAuthorizedHomeV2AppUpdateHandlers(
     download(event: IpcMainInvokeEvent, value: unknown) {
       assertAuthorized(event)
       return service.download(value)
+    },
+    install(event: IpcMainInvokeEvent, value: unknown) {
+      assertAuthorized(event)
+      return service.install(value)
     },
     open(event: IpcMainInvokeEvent, value: unknown) {
       assertAuthorized(event)
