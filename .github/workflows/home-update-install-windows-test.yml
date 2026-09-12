@@ -1,0 +1,46 @@
+name: Home update-install Windows test build
+# Test-only support branch: builds the Windows x64 portable package from PR #558
+# (in-app update install) with the version set to 2.1.0-beta.2 so that the
+# build sees the published v2.1.0-beta.3 as an update and can install it over
+# itself. Never merged to main.
+on:
+  push:
+    branches: [test/home-update-install-windows]
+permissions:
+  contents: read
+concurrency:
+  group: home-update-install-windows-test
+  cancel-in-progress: true
+env:
+  PR_SOURCE_COMMIT: 2d8de0f8
+jobs:
+  windows:
+    name: Windows x64 portable (version 2.1.0-beta.2)
+    runs-on: windows-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run dist:win:x64
+      - run: npm run test:windows-core-observation
+      - name: Launch packaged native shell
+        run: node .github/scripts/smoke-beta-native.mjs "dist-release/win-unpacked/Qortium Home.exe"
+      - name: Record artifact provenance
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force native-artifacts | Out-Null
+          Copy-Item dist-release/*.exe native-artifacts/
+          Get-ChildItem native-artifacts/*.exe | ForEach-Object {
+            $digest = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
+            "$digest  $($_.Name)" | Out-File -Append -Encoding ascii native-artifacts/SHA256SUMS
+          }
+          "branch commit $env:GITHUB_SHA (PR #558 head $env:PR_SOURCE_COMMIT + version 2.1.0-beta.2)" | Out-File -Encoding ascii native-artifacts/SOURCE_COMMIT
+      - uses: actions/upload-artifact@v7
+        with:
+          name: home-update-install-windows-test
+          path: native-artifacts/
+          if-no-files-found: error
