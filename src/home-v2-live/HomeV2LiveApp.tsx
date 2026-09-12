@@ -11092,12 +11092,13 @@ export function HomeV2LiveApp() {
       onAppNavigationChanged={handleAppNavigationChanged}
       onAppNavigationControllerChange={handleAppNavigationControllerChange}
       onAppTitleChanged={handleAppTitleChanged}
-      onNavigate={(destination) => {
+      onNavigate={(destination, section) => {
         // From the Dashboard page, another Home page takes its tab over
         // (Back returns); elsewhere `navigate` focuses or opens as before.
         const inTab = activeDashboardTabId()
         if (inTab && destination !== 'dashboard' && !isTransientPage(destination)) {
-          dispatchProduct({ type: 'show-internal-here', page: destination, tabId: inTab })
+          dispatchProduct({ type: 'show-internal-here', page: destination, tabId: inTab,
+            ...(destination === 'settings' && section ? { section } : {}) })
           return
         }
         dispatchProduct({ type: 'navigate', destination })

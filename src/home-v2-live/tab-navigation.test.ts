@@ -304,6 +304,13 @@ assert.deepEqual(toSettings.entries[0], { kind: 'internal', id: dash, page: 'set
 assert.deepEqual(locations(toSettings, dash), ['internal', 'internal'], 'Forward into Chat was dropped by the new branch')
 assert.equal(tabDestination(toSettings, dash)!.kind, 'internal')
 assert.equal(reduce(toSettings, { type: 'show-internal-here', tabId: dash, page: 'settings' }).navigation![dash].entries.length, 2)
+// A Settings link that names a section: the takeover lands on it and the
+// section change that follows is a repeat, so one Back returns to the Dashboard.
+let toCore = reduce(back, { type: 'show-internal-here', tabId: dash, page: 'settings', section: 'core' })
+toCore = reduce(toCore, { type: 'settings-section', tabId: dash, section: 'core' })
+assert.equal(tabHistory(toCore, dash)!.entries.length, 2, 'one click, one history entry')
+assert.deepEqual(tabHistory(toCore, dash)!.entries[1], { kind: 'internal', page: 'settings', section: 'core' })
+assert.equal(reduce(toCore, { type: 'traverse-history', tabId: dash, index: 0 }).destination, 'dashboard')
 // A viewer never turns into an app under the user.
 const viewerTab = 'tab-viewer' as TabId
 const withViewer = reduce(createProductState(), { type: 'open-viewer', tabId: viewerTab, location: 'qortal://IMAGE/Alice/pic', accountId: null })

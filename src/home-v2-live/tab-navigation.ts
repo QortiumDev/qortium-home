@@ -24,7 +24,13 @@ export interface TabHistory {
 export type NavigationState = ProductState & {
   readonly navigation?: Readonly<Record<string, TabHistory>>
 }
-export type NavigationAction = ProductAction
+export type NavigationAction = Exclude<ProductAction, { readonly type: 'show-internal-here' }>
+  /**
+   * `section`: the Settings section the takeover lands on, so that the
+   * section change that follows is a repeat rather than a second history
+   * entry (one click, one Back).
+   */
+  | { readonly type: 'show-internal-here'; readonly page: TabPageId; readonly tabId: TabId; readonly section?: HomeV2SettingsSectionId }
   | { readonly type: 'show-transient'; readonly destination: Extract<TabDestination, { kind: 'releases' | 'core-docs' }> }
   | { readonly type: 'settings-section'; readonly tabId?: TabId; readonly section: HomeV2SettingsSectionId }
   | { readonly type: 'forget-native-history'; readonly tabId: TabId }
@@ -251,7 +257,11 @@ export function reduceTabNavigation(state: NavigationState, action: NavigationAc
   // to what it showed. (A repeat of the same page is a no-op activate.)
   if (action.type === 'open-app-here' || action.type === 'show-internal-here') {
     const after = next.entries.find(entry => entry.id === action.tabId)
-    const destination = after && destinationForEntry(after)
+    const entryDestination = after && destinationForEntry(after)
+    const destination = entryDestination?.kind === 'internal' && entryDestination.page === 'settings' &&
+      action.type === 'show-internal-here' && action.section
+      ? { ...entryDestination, section: action.section }
+      : entryDestination
     if (destination) next = withHistory(next, action.tabId, push(tabHistory(state, action.tabId), destination))
   }
   // Explicitly opening an already-open page returns to its root, but selecting

@@ -236,6 +236,8 @@ export interface HomeV2PrototypeProps {
   ) => void
   readonly onNavigate?: (
     destination: Exclude<ShellDestination, 'tab' | 'viewer'>,
+    /** The Settings section a link named, so an in-place takeover lands on it directly. */
+    section?: HomeV2SettingsSectionId,
   ) => void
   readonly onResolvePermission?: (
     requestId: PermissionRequestId,
@@ -1092,7 +1094,7 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
   const openSettingsSection = (section: HomeV2SettingsSectionTarget) => {
     if (overlayOwnerTabId) return
     setRequestedSettingsSection(section)
-    onNavigate?.('settings')
+    onNavigate?.('settings', section === 'notifications' ? 'qdn-apps' : section)
     props.onSettingsSectionChange?.(section === 'notifications' ? 'qdn-apps' : section)
   }
   // Menu close-tab targets the active app tab. Refused while a trusted
