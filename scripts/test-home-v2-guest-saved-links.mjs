@@ -92,6 +92,11 @@ function createShell(defaultId = 'wallet:A') {
   })
   sandbox.savedAccountBinding = evaluate(savedBinding, liveSource, sandbox)
   sandbox.openApp = evaluate(callback('openApp'), liveSource, sandbox)
+  // The Dashboard's in-place route: the active tab here is the manager app,
+  // so every surface opens a tab of its own, as before.
+  sandbox.activeDashboardTabId = evaluate(callback('activeDashboardTabId'), liveSource, sandbox)
+  sandbox.appTabContext = evaluate(callback('appTabContext'), liveSource, sandbox)
+  sandbox.openAppHere = evaluate(callback('openAppHere'), liveSource, sandbox)
   sandbox.openAddress = evaluate(callback('openAddress'), liveSource, sandbox)
   const h = {
     sandbox, opened, notices,
@@ -213,6 +218,44 @@ for (const mode of ['deny', 'setStale']) {
   d[mode]()
   await assert.rejects(d.request(guestId), /denied|stale/i)
   assert.equal(d.h.opened.length, 0, 'Guest never bypasses manager permission or source-view checks')
+}
+
+// The Dashboard's own pins navigate the Dashboard tab in place -- but only a
+// pin bound to the account the Dashboard is filed under (or to the current
+// account); a pin saved for another account, or a guest pin, still opens its
+// own tab, because it belongs in a different group.
+{
+  const h = createShell()
+  const inPlace = []
+  h.sandbox.dispatchProduct = (action) => {
+    if (action.type === 'open-app') h.opened.push(action)
+    if (action.type === 'open-app-here') inPlace.push(action)
+  }
+  h.sandbox.productStateRef.current = {
+    tabs: [], activeTabId: 'dash', transient: null,
+    entries: [{ kind: 'internal', id: 'dash', page: 'dashboard' }],
+  }
+  await h.pin({ displayUrl: address, accountId: null })
+  assert.equal(inPlace.length, 1, 'a pin for the current account navigates the Dashboard tab')
+  assert.equal(inPlace[0].tabId, 'dash')
+  assert.equal(inPlace[0].context.identityId, 'home-v2:identity:wallet:A')
+  await h.pin({ displayUrl: address, accountId: 'wallet:A' })
+  assert.equal(inPlace.length, 2, 'a pin saved for the selected account too')
+  const tabsBefore = h.opened.length
+  await h.pin({ displayUrl: address, accountId: 'wallet:B' })
+  assert.equal(inPlace.length, 2)
+  assert.equal(h.opened.length, tabsBefore + 1, "another account's pin opens its own tab")
+  await h.pin({ displayUrl: address, accountId: guestId })
+  assert.equal(inPlace.length, 2)
+  assert.equal(h.opened.length, tabsBefore + 2, 'a guest pin opens its own tab')
+  // The tab moved on (became an app) before discovery finished: no takeover.
+  h.sandbox.productStateRef.current = {
+    tabs: [], activeTabId: 'dash', transient: null,
+    entries: [{ kind: 'app', id: 'dash', context: { resourceLocation: address } }],
+  }
+  await h.pin({ displayUrl: address, accountId: null })
+  assert.equal(inPlace.length, 2)
+  assert.equal(h.opened.length, tabsBefore + 3)
 }
 
 console.log('Home v2 production guest saved-link launch and desktop/Android bridge tests passed.')

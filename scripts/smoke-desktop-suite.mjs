@@ -51,7 +51,7 @@ const SMOKES = [
   { script: 'smoke:desktop:home-v2-viewer-tabs', needs: 'unknown',
     note: 'Public viewer ownership, metadata, saves/reopen and process restoration against disposable loopback resources; hosted CI not established.' },
   { script: 'smoke:desktop:home-v2-navigation', needs: 'unknown',
-    note: 'Per-tab native/cross-app/internal navigation against a disposable loopback fixture; hosted CI not yet established.' },
+    note: 'Per-tab native/cross-app/internal navigation against a disposable loopback fixture; hosted CI not yet established. 2026-09-12: times out at "NavigationAlpha native document" identically on the released beta.3 AppImage (pre-existing; the Settings Back/Forward half passes).' },
   // Verified node-free: passed with all networking removed.
   { script: 'smoke:desktop:home-v2-onboarding', needs: 'none', ci: true },
   { script: 'smoke:desktop:home-v2-tabs', needs: 'none', ci: true },
@@ -100,6 +100,8 @@ const SMOKES = [
     note: 'FAILING: bridge rejects its own window as unauthorized, unexplained' },
   { script: 'smoke:desktop:home-v2-tab-detach', needs: 'unknown',
     note: 'Re-verified 2026-09-06 against the T1 transfer build; drag-out passes headless' },
+  { script: 'smoke:desktop:home-v2-dashboard-inplace', needs: 'none',
+    note: 'Dashboard links navigate the Dashboard tab in place; Back/Forward; added 2026-09-12' },
   { script: 'smoke:desktop:home-v2-prompt', needs: 'core',
     note: 'also needs QDN fixtures READY, not merely DOWNLOADED' },
   { script: 'smoke:desktop:qdn-permissions', needs: 'core', note: 'needs QDN fixtures' },

@@ -14,6 +14,8 @@ import type {
 import {
   ArrowLeft,
   ArrowRight,
+  Lock,
+  LockOpen,
   PictureInPicture2,
   RotateCw,
   Settings,
@@ -37,7 +39,7 @@ import {
 } from './HomeV2BookmarkToolbar'
 import { BookmarksMenuButton } from './BookmarksMenuButton'
 import { AccountStatusMenu, NodeStatusMenu } from './ChromeStatusMenus'
-import type { InlineUnlockSubmission } from './InlineAccountUnlock'
+import { InlineAccountUnlock, type InlineUnlockSubmission } from './InlineAccountUnlock'
 import type { HomeV2CoreManagement } from './CoreManagerCards'
 import { locateBookmarkManagerLink } from '../../bookmarkManager'
 import type { BookmarkToolbarVisibility } from '../../bookmarkToolbar'
@@ -125,6 +127,8 @@ export interface BrowserChromeProps {
   readonly onUnlockAccount?: (accountId: string | undefined, value: InlineUnlockSubmission) => Promise<void>
   readonly onOpenTabWithAccount?: (tabId: string, resourceLocation: string, accountId: string | null) => Promise<void>
   readonly rememberedUnlockAccountIds?: readonly string[]
+  /** From a group badge's menu: make that group's account the selected one. */
+  readonly onSelectAccount?: (accountId: string) => void
   /**
    * Everything the node-status menus need to act rather than only report:
    * the Core manager and maintenance slices behind start/stop and updates,
@@ -268,6 +272,7 @@ export function BrowserChrome({
   onUnlockAccount,
   onOpenTabWithAccount,
   rememberedUnlockAccountIds,
+  onSelectAccount,
   coreManagement,
   onConfigureCustomNode,
   onOpenCoreSettings,
@@ -352,7 +357,7 @@ export function BrowserChrome({
   // The tab-group picker: the strip shows tabs grouped by account, and on a
   // narrow strip only the active tab's group. This lists every group so the
   // others stay reachable. An overlay for the same reason as the tab menu.
-  const [groupPicker, setGroupPicker] = useState<{ x: number; y: number } | null>(null)
+  const [groupPicker, setGroupPicker] = useState<{ x: number; y: number; groupKey: string } | null>(null)
   useEffect(() => {
     setOverlayOpen('tab-group-picker', groupPicker !== null)
   }, [groupPicker, setOverlayOpen])
@@ -558,7 +563,7 @@ export function BrowserChrome({
           loadVisibleAppIcon={loadVisibleAppIcon}
           accountIdentityLookups={accountIdentityLookups}
           loadVisibleAvatar={loadVisibleAvatar}
-          onOpenGroupPicker={(position) => setGroupPicker(position)}
+          onOpenGroupPicker={(position, groupKey) => setGroupPicker({ ...position, groupKey })}
           condensed={tabStripCondensed}
           selectedAccountId={selectedAccountId}
           preferredAvatarNetwork={snapshot.nodes.qortium.mode !== 'disabled' ? 'qortium' : 'qortal'}
@@ -861,7 +866,66 @@ export function BrowserChrome({
             aria-label={t('home2.tabs.groups')}
             style={{ left: groupPicker.x, top: groupPicker.y }}
           >
-            {groupTabsByAccount(productState.entries, grouping).map((group, index) => {
+            {(() => {
+              // The badge's own account first: its lock state and the actions
+              // the toolbar account menu offers for the SELECTED account,
+              // here for the account the group is bound to.
+              const groups = groupTabsByAccount(productState.entries, grouping)
+              const own = groups.find((group) => group.key === groupPicker.groupKey)
+              const accountId = own?.accountId ?? null
+              if (!accountId) return null
+              const account = accountCatalogue?.accounts.find((candidate) => candidate.id === accountId)
+              const label = account?.label
+                ?? rememberedAccountLabels.current.get(accountId)
+                ?? t('home2.account.unavailableAccount')
+              const locked = !account?.isUnlocked
+              const LockGlyph = locked ? Lock : LockOpen
+              return (
+                <div className="home-v2-tab-group-picker__account" data-home-v2-tab-group-account={accountId}>
+                  <div className="home-v2-tab-group-picker__identity">
+                    <strong>{label}</strong>
+                    {account ? <code>{account.address}</code> : null}
+                    <span className="home-v2-tab-group-picker__state" data-account-state={account ? (locked ? 'locked' : 'unlocked') : 'unavailable'}>
+                      <LockGlyph aria-hidden="true" size={12} strokeWidth={2.25} />
+                      {account ? (locked ? t('account.statusLocked') : t('account.statusUnlocked')) : t('home2.account.unavailableAccount')}
+                    </span>
+                  </div>
+                  {account && locked && onUnlockAccount ? (
+                    <InlineAccountUnlock
+                      rememberedUnlockAvailable={rememberedUnlockAccountIds?.includes(accountId)}
+                      onSubmit={(value) => onUnlockAccount(accountId, value)}
+                      onCancel={() => setGroupPicker(null)}
+                    />
+                  ) : null}
+                  {account && !locked && onLockAccount ? (
+                    <button
+                      type="button"
+                      data-home-v2-tab-group-action="lock"
+                      onClick={() => {
+                        setGroupPicker(null)
+                        onLockAccount(accountId)
+                      }}
+                    >
+                      {t('home2.account.lock')}
+                    </button>
+                  ) : null}
+                  {account && onSelectAccount && accountId !== selectedAccountId ? (
+                    <button
+                      type="button"
+                      data-home-v2-tab-group-action="select"
+                      onClick={() => {
+                        setGroupPicker(null)
+                        onSelectAccount(accountId)
+                      }}
+                    >
+                      {t('home2.tabs.selectAccount')}
+                    </button>
+                  ) : null}
+                  {groups.length > 1 ? <hr /> : null}
+                </div>
+              )
+            })()}
+            {groupTabsByAccount(productState.entries, grouping).filter((_, __, all) => all.length > 1).map((group, index) => {
               const account = group.accountId
                 ? accountCatalogue?.accounts.find((candidate) => candidate.id === group.accountId)
                 : undefined

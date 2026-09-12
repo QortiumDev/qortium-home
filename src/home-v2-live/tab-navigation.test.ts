@@ -268,4 +268,52 @@ pages = reduce(pages, {
 assert.deepEqual(locations(pages, settingsB), ['internal', 'internal'])
 assert.equal(tabHistory(pages, settingsA)!.entries.length, 1, 'The tab that was already here is untouched')
 
-console.log('Per-tab native/cross-app/internal history, account binding, mixed reopen and isolation passed')
+// The Dashboard route: its tab becomes the app IN PLACE (same id, same slot),
+// Back turns it back into the Dashboard, Forward (with the context the shell
+// would open the app with now) makes it the app again.
+const initial = createProductState()
+const dash = initial.entries[0].id
+let inPlace: NavigationState = reduce(initial, { type: 'open-internal', tabId: second, page: 'settings' })
+inPlace = reduce(inPlace, { type: 'activate-tab', tabId: dash })
+inPlace = reduce(inPlace, { type: 'open-app-here', app: app('Chat'), tabId: dash, context: context('Chat', dash) })
+assert.deepEqual(inPlace.entries.map(entry => entry.id), [dash, second], 'the tab kept its id and slot')
+assert.equal(inPlace.entries[0].kind, 'app')
+assert.equal(inPlace.activeTabId, dash)
+assert.deepEqual(locations(inPlace, dash), ['internal', 'qortal://APP/Chat/published/one'])
+assert.equal(tabHistory(inPlace, dash)!.index, 1)
+assert.equal(inPlace.destination, 'tab')
+assert.throws(() => reduce(inPlace, { type: 'open-app-here', app: app('Beta'), tabId: dash, context: context('Beta', dash) }),
+  /not an internal page/, 'an app tab replaces itself only through replace-tab-app')
+// Back: the entry changes kind, nothing else moves.
+let back = reduce(inPlace, { type: 'traverse-history', tabId: dash, index: 0 })
+assert.deepEqual(back.entries[0], { kind: 'internal', id: dash, page: 'dashboard' })
+assert.equal(back.destination, 'dashboard')
+assert.equal(tabHistory(back, dash)!.index, 0)
+assert.equal(tabHistory(back, dash)!.entries.length, 2, 'Forward is still available')
+// Forward without a context is refused (the page has none of its own).
+assert.equal(reduce(back, { type: 'traverse-history', tabId: dash, index: 1 }), back)
+let forward = reduce(back, { type: 'traverse-history', tabId: dash, index: 1,
+  context: { ...context('Chat', dash), identityId: 'home-v2:identity:wallet:C', walletRef: 'home-v2:wallet:C' } as AppTabContext })
+assert.equal(forward.entries[0].kind, 'app')
+assert.equal(forward.tabs[0].context.identityId, 'home-v2:identity:wallet:C', 'Forward binds to the account the shell passed, never the old one')
+assert.equal(forward.tabs[0].context.resourceLocation, 'qortal://APP/Chat/published/one')
+assert.equal(tabHistory(forward, dash)!.index, 1)
+// Dashboard -> Settings in place; a repeat of the same page is a no-op activate.
+let toSettings = reduce(back, { type: 'show-internal-here', tabId: dash, page: 'settings' })
+assert.deepEqual(toSettings.entries[0], { kind: 'internal', id: dash, page: 'settings' })
+assert.deepEqual(locations(toSettings, dash), ['internal', 'internal'], 'Forward into Chat was dropped by the new branch')
+assert.equal(tabDestination(toSettings, dash)!.kind, 'internal')
+assert.equal(reduce(toSettings, { type: 'show-internal-here', tabId: dash, page: 'settings' }).navigation![dash].entries.length, 2)
+// A Settings link that names a section: the takeover lands on it and the
+// section change that follows is a repeat, so one Back returns to the Dashboard.
+let toCore = reduce(back, { type: 'show-internal-here', tabId: dash, page: 'settings', section: 'core' })
+toCore = reduce(toCore, { type: 'settings-section', tabId: dash, section: 'core' })
+assert.equal(tabHistory(toCore, dash)!.entries.length, 2, 'one click, one history entry')
+assert.deepEqual(tabHistory(toCore, dash)!.entries[1], { kind: 'internal', page: 'settings', section: 'core' })
+assert.equal(reduce(toCore, { type: 'traverse-history', tabId: dash, index: 0 }).destination, 'dashboard')
+// A viewer never turns into an app under the user.
+const viewerTab = 'tab-viewer' as TabId
+const withViewer = reduce(createProductState(), { type: 'open-viewer', tabId: viewerTab, location: 'qortal://IMAGE/Alice/pic', accountId: null })
+assert.throws(() => reduce(withViewer, { type: 'open-app-here', app: app('Chat'), tabId: viewerTab, context: context('Chat', viewerTab) }), /not an internal page/)
+
+console.log('Per-tab native/cross-app/internal history, account binding, mixed reopen, in-place Dashboard and isolation passed')

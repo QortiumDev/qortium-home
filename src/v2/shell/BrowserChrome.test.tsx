@@ -1678,6 +1678,44 @@ try {
     assert.deepEqual(calls.detaches, ['account:wallet-b:1'], 'released far below the strip: the group detaches')
     assert.equal(container.querySelector('[data-home-v2-tab-group-picker]'), null, 'a drag never opens the picker')
     act(() => renderGrouped(grouped, false))
+
+    // The badge's menu carries the account's own actions above the group
+    // list: Bob is locked, so an inline unlock; Alice is unlocked and not
+    // the selected account, so Lock and Select.
+    const accountCalls = { locks: [] as string[], unlocks: [] as string[], selects: [] as string[] }
+    const renderWithActions = () => root.render(
+      <BrowserChrome key="tab-groups" snapshot={homeV2Fixture} productState={grouped}
+        accountCatalogue={twoAccounts} selectedAccountId="wallet-b:1"
+        onActivateTab={(id) => activations.push(String(id))}
+        onLockAccount={(id) => accountCalls.locks.push(String(id))}
+        onUnlockAccount={async (id) => { accountCalls.unlocks.push(String(id)) }}
+        onSelectAccount={(id) => accountCalls.selects.push(id)} />,
+    )
+    act(() => renderWithActions())
+    act(() => badge('account:wallet-a:1').click())
+    const menuAccount = () => container.querySelector<HTMLElement>('[data-home-v2-tab-group-account]')!
+    assert.equal(menuAccount().dataset.homeV2TabGroupAccount, 'wallet-a:1', "the menu is about the badge's account, not the selected one")
+    assert.ok(menuAccount().textContent?.includes(alice.address), 'address shown')
+    assert.equal(menuAccount().querySelector('form.home-v2-inline-unlock'), null, 'Alice is unlocked: no unlock form')
+    act(() => menuAccount().querySelector<HTMLButtonElement>('[data-home-v2-tab-group-action="select"]')!.click())
+    assert.deepEqual(accountCalls.selects, ['wallet-a:1'])
+    assert.equal(container.querySelector('[data-home-v2-tab-group-picker]'), null, 'the menu closes after an action')
+    act(() => renderWithActions())
+    act(() => badge('account:wallet-a:1').click())
+    act(() => menuAccount().querySelector<HTMLButtonElement>('[data-home-v2-tab-group-action="lock"]')!.click())
+    assert.deepEqual(accountCalls.locks, ['wallet-a:1'])
+    act(() => renderWithActions())
+    // (The drag above suppressed the click that followed it on Bob's badge,
+    // as a real drag's release does; that one click is consumed here.)
+    act(() => badge('account:wallet-b:1').click())
+    assert.equal(container.querySelector('[data-home-v2-tab-group-picker]'), null, 'the post-drag click is swallowed')
+    act(() => badge('account:wallet-b:1').click())
+    assert.equal(menuAccount().dataset.homeV2TabGroupAccount, 'wallet-b:1')
+    assert.ok(menuAccount().querySelector('form.home-v2-inline-unlock'), 'Bob is locked: the unlock form is inline')
+    assert.equal(menuAccount().querySelector('[data-home-v2-tab-group-action="select"]'), null, 'Bob is already the selected account')
+    assert.equal(menuAccount().querySelector('[data-home-v2-tab-group-action="lock"]'), null)
+    assert.deepEqual(picks().map((pick) => pick.dataset.homeV2TabGroupPick), ['account:wallet-b:1', 'account:wallet-a:1'], 'the group list follows')
+    act(() => renderGrouped(grouped, false))
   }
 } finally {
   act(() => root.unmount())

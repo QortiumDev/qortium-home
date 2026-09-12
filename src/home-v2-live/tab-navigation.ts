@@ -1,4 +1,4 @@
-import type { AppDescriptor, AppResourceLocation, NetworkId, TabId } from '../v2/contracts'
+import type { AppDescriptor, AppResourceLocation, AppTabContext, NetworkId, TabId } from '../v2/contracts'
 import { reduceProductState, type ProductAction, type ProductState, type ShellEntry, type TabPageId } from '../v2/product-model'
 import { currentAppLocation, currentAppLocationFromRender } from '../v2/current-app-location'
 import { appDescriptorForOpenTab } from './publish-preview-tab'
@@ -24,13 +24,23 @@ export interface TabHistory {
 export type NavigationState = ProductState & {
   readonly navigation?: Readonly<Record<string, TabHistory>>
 }
-export type NavigationAction = ProductAction
+export type NavigationAction = Exclude<ProductAction, { readonly type: 'show-internal-here' }>
+  /**
+   * `section`: the Settings section the takeover lands on, so that the
+   * section change that follows is a repeat rather than a second history
+   * entry (one click, one Back).
+   */
+  | { readonly type: 'show-internal-here'; readonly page: TabPageId; readonly tabId: TabId; readonly section?: HomeV2SettingsSectionId }
   | { readonly type: 'show-transient'; readonly destination: Extract<TabDestination, { kind: 'releases' | 'core-docs' }> }
   | { readonly type: 'settings-section'; readonly tabId?: TabId; readonly section: HomeV2SettingsSectionId }
   | { readonly type: 'forget-native-history'; readonly tabId: TabId }
   | { readonly type: 'initialize-settings-history'; readonly section: HomeV2SettingsSectionId; readonly tabId?: TabId }
   | { readonly type: 'sync-app-history'; readonly tabId: TabId; readonly snapshot: AppTabNavigationSnapshot }
-  | { readonly type: 'traverse-history'; readonly tabId: TabId; readonly index: number }
+  /**
+   * `context` is needed only to go FORWARD from an internal page into an app
+   * the tab showed before: the app context the shell would open it with now.
+   */
+  | { readonly type: 'traverse-history'; readonly tabId: TabId; readonly index: number; readonly context?: AppTabContext }
   | { readonly type: 'select-native-history'; readonly tabId: TabId; readonly index: number }
   /**
    * Installs the history a tab had in the window it was dragged out of, on
@@ -196,12 +206,28 @@ export function reduceTabNavigation(state: NavigationState, action: NavigationAc
     if (!history || !target || !entry || !Number.isInteger(action.index)) return state
     let next: NavigationState = state
     if (target.kind === 'app') {
-      if (entry.kind !== 'app') return state
-      // Bind to the tab's CURRENT account. History is navigation data, never authority.
-      next = reduceProductState(state, { type: 'replace-tab-app', app: target.app,
-        tabId: entry.id, fromResourceLocation: entry.context.resourceLocation,
-        context: { ...entry.context, appId: target.app.id, sourceNetwork: target.app.sourceNetwork,
-          resourceLocation: target.location, previewUrl: null } })
+      if (entry.kind === 'app') {
+        // Bind to the tab's CURRENT account. History is navigation data, never authority.
+        next = reduceProductState(state, { type: 'replace-tab-app', app: target.app,
+          tabId: entry.id, fromResourceLocation: entry.context.resourceLocation,
+          context: { ...entry.context, appId: target.app.id, sourceNetwork: target.app.sourceNetwork,
+            resourceLocation: target.location, previewUrl: null } })
+      } else if (entry.kind === 'internal') {
+        // Forward from a page a tab went back to. The page has no app context
+        // of its own, so the live shell passes the one it would open the app
+        // with now (the group's account) -- history is navigation data, never
+        // authority. Refused without it.
+        if (!action.context) return state
+        next = reduceProductState(state, { type: 'open-app-here', app: target.app, tabId: entry.id,
+          context: { ...action.context, appId: target.app.id, sourceNetwork: target.app.sourceNetwork,
+            resourceLocation: target.location, previewUrl: null } })
+      } else {
+        return state
+      }
+    } else if (target.kind === 'internal') {
+      // Back to the page this tab showed before it became an app (or a viewer
+      // overlay's underlying page): the entry changes kind in place.
+      next = reduceProductState(state, { type: 'show-internal-here', tabId: entry.id, page: target.page })
     } else {
       next = reduceProductState(state, { type: 'activate-tab', tabId: entry.id })
     }
@@ -226,6 +252,17 @@ export function reduceTabNavigation(state: NavigationState, action: NavigationAc
         before.context.resourceLocation !== after.context.resourceLocation) {
       next = withHistory(next, action.tabId, push(tabHistory(state, action.tabId), destination))
     }
+  }
+  // A tab that changed kind in place is one history further on; Back returns
+  // to what it showed. (A repeat of the same page is a no-op activate.)
+  if (action.type === 'open-app-here' || action.type === 'show-internal-here') {
+    const after = next.entries.find(entry => entry.id === action.tabId)
+    const entryDestination = after && destinationForEntry(after)
+    const destination = entryDestination?.kind === 'internal' && entryDestination.page === 'settings' &&
+      action.type === 'show-internal-here' && action.section
+      ? { ...entryDestination, section: action.section }
+      : entryDestination
+    if (destination) next = withHistory(next, action.tabId, push(tabHistory(state, action.tabId), destination))
   }
   // Explicitly opening an already-open page returns to its root, but selecting
   // its tab resumes its current destination. Neither records visits to other tabs.

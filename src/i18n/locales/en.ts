@@ -1002,6 +1002,7 @@ export const en = {
   "home2.tabs.closeFrom": "Close {label} from {network}",
   "home2.tabs.newTab": "New tab",
   "home2.tabs.groups": "Tab groups",
+  "home2.tabs.selectAccount": "Select this account",
   "home2.tabs.welcome": "Welcome",
   "qdnApps.accountDecryptControlsTitle": "Reading encrypted data",
   "qdnApps.accountDirectChatControlsTitle": "Direct message access",
