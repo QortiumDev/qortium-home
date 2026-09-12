@@ -392,6 +392,13 @@ contextBridge.exposeInMainWorld('homeV2AppUpdates', {
       schema: 'home-v2-app-update-download-request',
       settingsGeneration,
     }),
+  // Install the verified package and restart into it (or open a disk image).
+  install: (downloadId: string) =>
+    ipcRenderer.invoke('home-v2-app-update:install', {
+      downloadId,
+      revision: 1,
+      schema: 'home-v2-app-update-install-request',
+    }),
   open: (downloadId: string) =>
     ipcRenderer.invoke('home-v2-app-update:open', {
       downloadId,

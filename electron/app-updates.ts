@@ -1,11 +1,18 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import { createHash } from 'node:crypto';
 import { createReadStream, createWriteStream, existsSync } from 'node:fs';
-import { access, chmod, constants as fsConstants, mkdir, rename, rm, stat } from 'node:fs/promises';
+import { access, chmod, constants as fsConstants, copyFile, mkdir, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { spawn } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { isTrustedHomeAssetResponseUrl } from './app-update-discovery.js';
+import {
+  downloadedUpdateInstallKind,
+  environmentWithoutAppImageMount,
+  windowsPortableUpdateHelper,
+} from './app-update-install-kind.js';
 import {
   resolvePrivateHomeV2AppUpdateTarget,
   sanitizeAppUpdatePathSegment,
@@ -450,6 +457,7 @@ async function getVerifiedExistingDownload({
       downloadedAt: fileStatus.mtime.toISOString(),
       fileName,
       filePath: finalPath,
+      installKind: downloadedUpdateInstallKind(finalPath),
       releaseTag,
       size: fileStatus.size,
     };
@@ -667,6 +675,7 @@ async function downloadAssetInternal(
     canReveal: true,
     digest,
     digestVerified: normalizedRequest.asset.digest === digest,
+    installKind: downloadedUpdateInstallKind(finalPath),
     downloadedAt: new Date().toISOString(),
     fileName,
     filePath: finalPath,
@@ -725,6 +734,116 @@ function normalizeDownloadedFilePath(value: unknown) {
   }
 
   return filePath;
+}
+
+/**
+ * Installs a verified download and restarts Home into it (or, for a disk
+ * image, opens it). The file is re-hashed right here, against the digest
+ * recorded when it was downloaded, so what runs is exactly what was verified
+ * -- never whatever is at that path by the time the button is pressed.
+ */
+const RELAUNCH_TRAMPOLINE_SHELL = '/bin/bash';
+/** Closes every descriptor above stdio, then execs $0 with the remaining arguments. */
+const RELAUNCH_TRAMPOLINE =
+  'for f in /proc/self/fd/*; do f=${f##*/}; [ "$f" -gt 2 ] && eval "exec $f>&-"; done 2>/dev/null; exec "$0" "$@"';
+
+export async function installDownloadedUpdate(value: unknown, expectedDigest: string) {
+  const filePath = normalizeDownloadedFilePath(value);
+  if (!/^sha256:[0-9a-f]{64}$/.test(expectedDigest)) {
+    throw new Error('The downloaded update has no verified digest.');
+  }
+  const actualDigest = await getFileDigest(filePath);
+  if (actualDigest !== expectedDigest) {
+    throw new Error('The downloaded update no longer matches its verified digest.');
+  }
+  const kind = downloadedUpdateInstallKind(filePath);
+  if (kind === 'disk-image') {
+    const message = await shell.openPath(filePath);
+    if (message) throw new Error(message);
+    return { kind, relaunching: false as const };
+  }
+  if (kind !== 'relaunch') {
+    throw new Error('This package cannot be installed from inside Home on this platform.');
+  }
+
+  const runningFile = getInstallFile();
+  const installDir = path.dirname(runningFile);
+
+  if (process.platform === 'linux') {
+    await chmod(filePath, 0o755);
+    let execPath = filePath;
+    if (await isDirectoryWritable(installDir)) {
+      // Next to the running file, then renamed over it: the rename is atomic,
+      // and Linux keeps the old inode alive for the FUSE mount that is still
+      // running this process.
+      const staging = path.join(installDir, `.${path.basename(runningFile)}.update-${randomBytes(6).toString('hex')}`);
+      await copyFile(filePath, staging);
+      await chmod(staging, 0o755);
+      if (await getFileDigest(staging) !== expectedDigest) {
+        await rm(staging, { force: true });
+        throw new Error('The update copy did not match its verified digest.');
+      }
+      await rename(staging, runningFile);
+      execPath = runningFile;
+    }
+    // Otherwise the install folder is read-only: run the new package from
+    // where it was downloaded. The caller tells the user where that is.
+    //
+    // Spawned directly rather than app.relaunch(): Electron's relauncher
+    // execs from the FUSE mount that unmounts when this process exits, so an
+    // AppImage relaunched that way never comes back (the same reason
+    // electron-updater spawns). The single-instance lock is released first
+    // so the new instance can take it instead of yielding to this one; the
+    // user's own launch flags (--no-sandbox, a debugging port) are kept.
+    //
+    // Through a bash trampoline that closes every inherited descriptor above
+    // stdio before exec, when bash is present: Chromium holds icudtl.dat,
+    // the V8 snapshot and app.asar open without close-on-exec, and a child
+    // that inherits them pins the OLD AppImage's FUSE mount (and its runtime
+    // process) for as long as the new Home runs. bash specifically -- dash,
+    // the usual /bin/sh, cannot close a descriptor above 9 (`exec 37>&-` is
+    // parsed as a command named 37 and the shell dies). Without bash the
+    // package is spawned directly and the old runtime lingers until the new
+    // Home exits, which is harmless. The environment is scrubbed of the old
+    // mount either way: AppRun exports APPDIR, LD_LIBRARY_PATH and PATH into
+    // it, and the new runtime sets its own.
+    app.releaseSingleInstanceLock();
+    const env = { ...environmentWithoutAppImageMount(process.env), APPIMAGE: execPath };
+    const args = process.argv.slice(1);
+    const child = existsSync(RELAUNCH_TRAMPOLINE_SHELL)
+      ? spawn(RELAUNCH_TRAMPOLINE_SHELL, ['-c', RELAUNCH_TRAMPOLINE, execPath, ...args], {
+          detached: true,
+          stdio: 'ignore',
+          env,
+        })
+      : spawn(execPath, args, { detached: true, stdio: 'ignore', env });
+    child.unref();
+    app.quit();
+    return { kind, relaunching: true as const, replacedRunningFile: execPath === runningFile };
+  }
+
+  // Windows portable: a running exe cannot be overwritten, so a detached
+  // helper waits for this process to exit, moves the new exe over the
+  // running one and starts it. If the folder is read-only the helper just
+  // starts the new exe from the downloads folder.
+  const writable = await isDirectoryWritable(installDir);
+  const target = writable ? runningFile : filePath;
+  const helperDir = getAppUpdatesPath();
+  await mkdir(helperDir, { recursive: true });
+  const helperPath = path.join(helperDir, `install-${randomBytes(6).toString('hex')}.cmd`);
+  await writeFile(
+    helperPath,
+    windowsPortableUpdateHelper({ pid: process.pid, downloadedFile: filePath, runningFile, writable }),
+    'utf8',
+  );
+  const child = spawn('cmd.exe', ['/c', helperPath], {
+    detached: true,
+    stdio: 'ignore',
+    windowsHide: true,
+  });
+  child.unref();
+  app.quit();
+  return { kind, relaunching: true as const, replacedRunningFile: writable };
 }
 
 export async function openDownloadedFile(value: unknown) {

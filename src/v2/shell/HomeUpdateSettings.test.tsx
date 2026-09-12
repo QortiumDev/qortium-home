@@ -8,7 +8,8 @@ const rootElement = document.createElement('div')
 document.body.append(rootElement)
 const root = createRoot(rootElement)
 
-function fixture(os: 'android' | 'linux', withDownload = false): HomeV2AppUpdates {
+function fixture(os: 'android' | 'linux' | 'darwin', withDownload = false): HomeV2AppUpdates {
+  const installKind = os === 'android' ? null : os === 'darwin' ? 'disk-image' : 'relaunch'
   return {
     available: true,
     busy: null,
@@ -21,6 +22,7 @@ function fixture(os: 'android' | 'linux', withDownload = false): HomeV2AppUpdate
       digestVerified: true,
       downloadId: os === 'android' ? 'android-native-download' : 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
       fileName: os === 'android' ? 'Qortium-Home-android-release.apk' : 'Qortium-Home-x86_64.AppImage',
+      installKind,
       releaseTag: 'v2.1.0',
       size: 123,
     } : null,
@@ -30,6 +32,9 @@ function fixture(os: 'android' | 'linux', withDownload = false): HomeV2AppUpdate
     isAndroid: os === 'android',
     message: null,
     openDownloaded: async () => undefined,
+    installDownloaded: async () => undefined,
+    canInstall: withDownload && installKind !== null,
+    installKind: withDownload ? installKind : null,
     openReleasePage: async () => undefined,
     revealDownloaded: async () => undefined,
     preferencesLoaded: true,
@@ -39,7 +44,7 @@ function fixture(os: 'android' | 'linux', withDownload = false): HomeV2AppUpdate
       checkedAt: '2026-08-22T12:00:00.000Z',
       currentVersion: '2.0.0',
       issue: null,
-      platform: { arch: 'x64', label: os === 'android' ? 'Android x64' : 'Linux x64', os, supported: true },
+      platform: { arch: 'x64', label: os === 'android' ? 'Android x64' : os === 'darwin' ? 'macOS' : 'Linux x64', os, supported: true },
       release: { name: 'Home 2.1', publishedAt: null, tagName: 'v2.1.0' },
       revision: 1,
       schema: 'home-v2-app-update-check',
@@ -73,8 +78,16 @@ assert.equal(rootElement.querySelector('[data-home-v2-update-action="download"]'
 assert.equal(rootElement.textContent?.includes('Show file'), false)
 
 await act(async () => { root.render(<HomeUpdateSettings updates={fixture('linux', true)} />) })
-assert.equal(rootElement.querySelector('[data-home-v2-update-action="open"]')?.textContent?.trim(), 'Open file')
+// No generic "Open file" on desktop (on Linux it opened the AppImage as an
+// archive). Linux and Windows portable get Install and restart; macOS gets
+// Open disk image; Show file stays everywhere on desktop.
+assert.equal(rootElement.querySelector('[data-home-v2-update-action="open"]'), null)
+assert.equal(rootElement.querySelector('[data-home-v2-update-action="install"]')?.textContent?.trim(), 'Install and restart')
+assert.equal(rootElement.querySelector('[data-home-v2-update-action="install"]')?.getAttribute('data-home-v2-update-install-kind'), 'relaunch')
 assert.equal(rootElement.querySelector('[data-home-v2-update-action="reveal"]')?.textContent?.trim(), 'Show file')
+await act(async () => { root.render(<HomeUpdateSettings updates={fixture('darwin', true)} />) })
+assert.equal(rootElement.querySelector('[data-home-v2-update-action="install"]')?.textContent?.trim(), 'Open disk image')
+assert.equal(rootElement.querySelector('[data-home-v2-update-action="open"]'), null)
 
 await act(async () => { root.render(<HomeUpdateSettings updates={fixture('android', true)} />) })
 assert.equal(rootElement.querySelector('[data-home-v2-app-updates="android"]') !== null, true)
@@ -83,6 +96,7 @@ assert.equal(
   true,
 )
 assert.equal(rootElement.querySelector('[data-home-v2-update-action="open"]')?.textContent?.trim(), 'Install APK')
+assert.equal(rootElement.querySelector('[data-home-v2-update-action="install"]'), null, 'Android has no desktop install action')
 assert.equal(rootElement.textContent?.includes('Start Core'), false)
 
 // Home's own install folder can be opened, and the path never reaches here.

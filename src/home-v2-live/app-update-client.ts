@@ -49,12 +49,16 @@ export type HomeV2AppUpdateCheck = {
     | 'up-to-date'
 }
 
+export type HomeV2AppUpdateInstallKind = 'relaunch' | 'disk-image' | null
+
 export type HomeV2AppUpdateDownload = {
   readonly canOpen: boolean
   readonly canReveal: boolean
   readonly digestVerified: true
   readonly downloadId: string
   readonly fileName: string
+  /** How Home can install it: restart into it, open the disk image, or not at all. */
+  readonly installKind: HomeV2AppUpdateInstallKind
   readonly releaseTag: string
   readonly size: number
 }
@@ -127,6 +131,8 @@ export interface HomeV2AppUpdateClient {
     settingsGeneration?: number | null,
   ): Promise<unknown>
   getSettings(): Promise<unknown>
+  /** Optional: an older preload has no install channel. */
+  install?(downloadId: string): Promise<unknown>
   open(downloadId: string): Promise<unknown>
   openReleasePage(channel: HomeV2AppUpdateChannel, releaseTag: string): Promise<unknown>
   reveal(downloadId: string): Promise<unknown>
@@ -381,11 +387,13 @@ export function parseHomeV2AppUpdateAction(value: unknown): HomeV2AppUpdateActio
         'digestVerified',
         'downloadId',
         'fileName',
+        'installKind',
         'releaseTag',
         'size',
       ]) ||
       typeof candidate.canOpen !== 'boolean' ||
       typeof candidate.canReveal !== 'boolean' ||
+      !['relaunch', 'disk-image', null].includes(candidate.installKind as string | null) ||
       candidate.digestVerified !== true ||
       !string(candidate.downloadId) ||
       !string(candidate.fileName) ||
