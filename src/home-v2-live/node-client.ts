@@ -2526,17 +2526,18 @@ export interface HomeV2WindowsBridge {
     readyMs: number
   }): Promise<void>
   /**
-   * Opens a new window holding the transferred tab. `point` is where the drag
-   * was released, in SCREEN coordinates: main places the new window's title
-   * bar under it, clamped to that display's work area. Optional because a
-   * window opened any other way has no release point, and an absent or
-   * invalid point falls back to the historical offset placement.
+   * Opens a new window holding the transferred tab — or every tab of a
+   * transferred group (a revision-3 envelope). `point` is where the drag was
+   * released, in SCREEN coordinates: main places the new window's title bar
+   * under it, clamped to that display's work area. Optional because a window
+   * opened any other way has no release point, and an absent or invalid point
+   * falls back to the historical offset placement.
    */
   openTab(transfer: HomeV2TabTransfer, point?: { x: number; y: number }): Promise<void>
   /**
-   * Offers a dragged tab to another Home window under the pointer. Resolves
-   * false when there is none, so the caller opens a new window instead.
-   * Optional: only the desktop shell has sibling windows.
+   * Offers a dragged tab, or a whole tab group, to another Home window under
+   * the pointer. Resolves false when there is none, so the caller opens a new
+   * window instead. Optional: only the desktop shell has sibling windows.
    */
   adoptTabAt?(transfer: HomeV2TabTransfer, x: number, y: number): Promise<boolean>
   /** Fires in the RECEIVING window when a tab is dropped onto it. */

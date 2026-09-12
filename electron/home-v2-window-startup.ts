@@ -49,13 +49,28 @@ export function sanitizeHomeV2WindowAddress(value: unknown): string {
 }
 
 /**
- * The revision of the tab-transfer envelope this build sends.
+ * The revision of the SINGLE-TAB transfer envelope this build sends.
  *
  * Revision 1 was a bare address string. It is still ACCEPTED, so a payload
  * from an older shape degrades to the historical "open it under whatever
  * account this window has selected" behaviour instead of failing.
  */
 export const HOME_V2_TAB_TRANSFER_REVISION = 2;
+
+/**
+ * The revision of the tab-GROUP envelope: a whole account group dragged out of
+ * the strip at once. It carries nothing of its own but a list of revision-2
+ * single-tab envelopes, so each tab is validated exactly as it would be alone.
+ */
+export const HOME_V2_TAB_TRANSFER_GROUP_REVISION = 3;
+
+/**
+ * How many tabs one group envelope may carry. Must equal the renderer's bound
+ * (HOME_V2_TAB_TRANSFER_MAX_TABS, src/home-v2-live/tab-transfer.ts): the
+ * sender throws above it, so a looser main bound would only ever be reached by
+ * a forged payload, and a tighter one would refuse a group the sender built.
+ */
+export const HOME_V2_TAB_TRANSFER_MAX_TABS = 32;
 
 // Matches the persisted account-id bound in the bookmark/product model, so a
 // transferable account id can never be larger than a storable one.
@@ -87,16 +102,29 @@ export interface HomeV2TabTransferHistory {
  * ordinary open path, so no vault, grant, unlock, preview capability, viewer
  * position, DOM or native-webview history state has to survive the trip.
  */
+export interface HomeV2SingleTabTransfer {
+  revision: 2;
+  address: string;
+  /** The persisted guest sentinel ('home-v2:guest') or a Home account id. */
+  accountId: string;
+  title?: string;
+  history?: HomeV2TabTransferHistory;
+}
+
+/**
+ * A whole tab group between two windows: one revision-2 envelope per tab, in
+ * strip order. Nothing group-level travels (no name, no colour, no active
+ * tab); the receiving window regroups the tabs by their own account ids.
+ */
+export interface HomeV2TabGroupTransfer {
+  revision: 3;
+  tabs: readonly HomeV2SingleTabTransfer[];
+}
+
 export type HomeV2TabTransfer =
   | { revision: 1; address: string }
-  | {
-      revision: 2;
-      address: string;
-      /** The persisted guest sentinel ('home-v2:guest') or a Home account id. */
-      accountId: string;
-      title?: string;
-      history?: HomeV2TabTransferHistory;
-    };
+  | HomeV2SingleTabTransfer
+  | HomeV2TabGroupTransfer;
 
 function isTransferRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
@@ -148,8 +176,9 @@ function sanitizeTabTransferHistory(value: unknown): HomeV2TabTransferHistory | 
 }
 
 /**
- * Validates the payload a renderer hands over when a tab moves to another
- * window, and returns a FRESH object holding only the fields Home names.
+ * Validates the payload a renderer hands over when a tab — or a whole tab
+ * group, revision 3 — moves to another window, and returns a FRESH object
+ * holding only the fields Home names.
  *
  * Everything here is untrusted: it comes from one renderer and is handed to a
  * different one, so the whole envelope is rebuilt rather than forwarded, every
@@ -166,13 +195,27 @@ export function sanitizeHomeV2TabTransfer(value: unknown): HomeV2TabTransfer {
   if (!isTransferRecord(value)) {
     throw new Error('A tab transfer must be an address or an envelope object.');
   }
+  // A group is checked before the address because it has none of its own:
+  // every address it carries lives inside one of its tabs.
+  if (value.revision === HOME_V2_TAB_TRANSFER_GROUP_REVISION) {
+    return sanitizeTabGroupTransfer(value);
+  }
   const address = sanitizeHomeV2WindowAddress(value.address);
   if (value.revision === 1) return { revision: 1, address };
   if (value.revision !== HOME_V2_TAB_TRANSFER_REVISION) {
     throw new Error('A tab transfer must use a supported revision.');
   }
+  return sanitizeSingleTabTransfer(value, address);
+}
 
-  const transfer: HomeV2TabTransfer = {
+// The revision-2 body, shared by a lone tab and by every tab of a group so the
+// two cannot drift: a title, account id or history that is refused for one is
+// refused for the other. `address` has already been validated by the caller.
+function sanitizeSingleTabTransfer(
+  value: Record<string, unknown>,
+  address: string,
+): HomeV2SingleTabTransfer {
+  const transfer: HomeV2SingleTabTransfer = {
     revision: 2,
     address,
     accountId: sanitizeTabTransferAccountId(value.accountId),
@@ -182,6 +225,36 @@ export function sanitizeHomeV2TabTransfer(value: unknown): HomeV2TabTransfer {
   const history = sanitizeTabTransferHistory(value.history);
   if (history !== undefined) transfer.history = history;
   return transfer;
+}
+
+// A group's entries MUST each be a revision-2 envelope, not merely something
+// sanitizeHomeV2TabTransfer would accept: a nested bare address (revision 1)
+// would smuggle in the "whatever account is selected there" behaviour for one
+// tab of an otherwise account-bound group, and a nested group is a recursion
+// the bounds do not account for. Any one bad entry refuses the whole group —
+// the sender built all of them, and no tab has been closed yet.
+function sanitizeTabGroupTransfer(value: Record<string, unknown>): HomeV2TabGroupTransfer {
+  const source = value.tabs;
+  if (!Array.isArray(source)) {
+    throw new Error('A tab transfer group must carry a tabs array.');
+  }
+  if (source.length === 0 || source.length > HOME_V2_TAB_TRANSFER_MAX_TABS) {
+    throw new Error(
+      `A tab transfer group must hold 1 to ${HOME_V2_TAB_TRANSFER_MAX_TABS} tabs.`,
+    );
+  }
+  const tabs = source.map((entry) => {
+    if (!isTransferRecord(entry)) {
+      throw new Error('A tab transfer group entry must be an envelope object.');
+    }
+    if (entry.revision !== HOME_V2_TAB_TRANSFER_REVISION) {
+      throw new Error(
+        `A tab transfer group entry must use revision ${HOME_V2_TAB_TRANSFER_REVISION}.`,
+      );
+    }
+    return sanitizeSingleTabTransfer(entry, sanitizeHomeV2WindowAddress(entry.address));
+  });
+  return { revision: 3, tabs };
 }
 
 /**

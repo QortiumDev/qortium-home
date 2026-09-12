@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
 import {
+  HOME_V2_TAB_TRANSFER_GROUP_REVISION,
+  HOME_V2_TAB_TRANSFER_MAX_TABS,
+  HOME_V2_TAB_TRANSFER_REVISION,
   HOME_V2_WINDOW_ADDRESS_MAX_LENGTH,
   HOME_V2_WINDOW_RELEASE_GRAB_OFFSET,
   homeV2ShellStateHasPublishPreview,
@@ -8,6 +11,7 @@ import {
   sanitizeHomeV2TabTransfer,
   sanitizeHomeV2WindowAddress,
   sanitizeHomeV2WindowPoint,
+  type HomeV2TabGroupTransfer,
 } from './home-v2-window-startup.js';
 
 // --- address validation -----------------------------------------------------
@@ -73,7 +77,9 @@ assert.throws(
 );
 // The same boundary inside an envelope, on both the address and a history entry.
 assert.equal(
-  sanitizeHomeV2TabTransfer({ revision: 2, address: atBound, accountId: 'home-v2:guest' }).address,
+  (sanitizeHomeV2TabTransfer({ revision: 2, address: atBound, accountId: 'home-v2:guest' }) as {
+    address: string;
+  }).address,
   atBound,
 );
 assert.throws(
@@ -255,6 +261,168 @@ const copied = sanitizeHomeV2TabTransfer(sent) as {
 assert.notEqual(copied.history, sent.history);
 assert.notEqual(copied.history.entries, sent.history.entries);
 assert.notEqual(copied.history.entries[0], sent.history.entries[0]);
+
+// --- tab group envelope -----------------------------------------------------
+
+// The constants are the contract: the single-tab revision is unchanged by the
+// group's arrival, and the group bound matches the renderer's.
+assert.equal(HOME_V2_TAB_TRANSFER_REVISION, 2);
+assert.equal(HOME_V2_TAB_TRANSFER_GROUP_REVISION, 3);
+assert.equal(HOME_V2_TAB_TRANSFER_MAX_TABS, 32);
+
+const groupTab = (address: string, extra: Record<string, unknown> = {}) => ({
+  revision: 2,
+  address,
+  accountId: 'wallet:A',
+  ...extra,
+});
+
+// A group is nothing but its tabs, each rebuilt exactly as a lone revision-2
+// envelope is: trimmed, bounded, unknown fields dropped, order preserved.
+const group = sanitizeHomeV2TabTransfer({
+  revision: 3,
+  tabs: [
+    groupTab('  qdn://APP/Chat/published/room  ', {
+      title: 'Chat',
+      history: {
+        entries: [
+          { address: '  qdn://APP/Chat/published  ', title: 'Chat' },
+          { address: 'qdn://APP/Chat/published/room' },
+        ],
+        index: 1,
+      },
+      previewUrl: 'http://127.0.0.1:1/render/hash/preview',
+    }),
+    groupTab('home://dashboard', { title: '   ' }),
+    { revision: 2, address: 'home://settings', accountId: 'home-v2:guest' },
+  ],
+  // Nothing group-level is named, so nothing group-level travels.
+  name: 'Work',
+  color: '#f00',
+  activeIndex: 1,
+});
+assert.deepEqual(group, {
+  revision: 3,
+  tabs: [
+    {
+      revision: 2,
+      address: 'qdn://APP/Chat/published/room',
+      accountId: 'wallet:A',
+      title: 'Chat',
+      history: {
+        entries: [
+          { address: 'qdn://APP/Chat/published', title: 'Chat' },
+          { address: 'qdn://APP/Chat/published/room' },
+        ],
+        index: 1,
+      },
+    },
+    { revision: 2, address: 'home://dashboard', accountId: 'wallet:A' },
+    { revision: 2, address: 'home://settings', accountId: 'home-v2:guest' },
+  ],
+});
+assert.equal('name' in group, false, 'a group name never travels');
+assert.equal('activeIndex' in group, false, 'a group active index never travels');
+assert.equal(Object.getPrototypeOf(group), Object.prototype);
+
+// Per-entry sanitisation is the revision-2 sanitisation: the same title trim...
+const longTitled = sanitizeHomeV2TabTransfer({
+  revision: 3,
+  tabs: [groupTab('home://dashboard', { title: 'x'.repeat(900) })],
+}) as HomeV2TabGroupTransfer;
+assert.equal(longTitled.tabs[0].title?.length, 512);
+// ...and the same refusals, any one of which refuses the WHOLE group: no tab
+// has been closed yet, so nothing is lost by saying no.
+for (const [label, badTab] of [
+  ['a missing account', { revision: 2, address: 'home://settings' }],
+  ['an empty account', groupTab('home://settings', { accountId: '   ' })],
+  ['an over-long account', groupTab('home://settings', { accountId: 'a'.repeat(401) })],
+  ['a foreign scheme', groupTab('https://example.com')],
+  ['a non-string address', groupTab(42 as unknown as string)],
+  ['an over-long address', groupTab(`${atBound}a`)],
+  ['a malformed history', groupTab('home://settings', { history: { entries: [], index: 0 } })],
+  ['a history entry with a foreign scheme', groupTab('home://settings', {
+    history: { entries: [{ address: 'https://example.com' }], index: 0 },
+  })],
+  ['a bare address', 'home://settings'],
+  ['a revision-1 envelope', { revision: 1, address: 'home://settings' }],
+  ['a nested group', { revision: 3, tabs: [groupTab('home://settings')] }],
+  ['a string revision', { revision: '2', address: 'home://settings', accountId: 'wallet:A' }],
+  ['a null entry', null],
+  ['an array entry', [groupTab('home://settings')]],
+] as const) {
+  assert.throws(
+    () =>
+      sanitizeHomeV2TabTransfer({
+        revision: 3,
+        tabs: [groupTab('home://dashboard'), badTab, groupTab('home://settings')],
+      }),
+    /tab transfer|window address|account|history|revision/,
+    `a group holding ${label} is refused`,
+  );
+}
+
+// The bound, exactly: 1 and 32 tabs are accepted, 0 and 33 are refused.
+const manyTabs = (count: number) =>
+  Array.from({ length: count }, (_, position) => groupTab(`home://dashboard?tab=${position}`));
+assert.equal(
+  (sanitizeHomeV2TabTransfer({ revision: 3, tabs: manyTabs(1) }) as HomeV2TabGroupTransfer).tabs.length,
+  1,
+);
+assert.equal(
+  (sanitizeHomeV2TabTransfer({
+    revision: 3, tabs: manyTabs(HOME_V2_TAB_TRANSFER_MAX_TABS),
+  }) as HomeV2TabGroupTransfer).tabs.length,
+  32,
+  'exactly 32 tabs is accepted',
+);
+assert.throws(
+  () => sanitizeHomeV2TabTransfer({ revision: 3, tabs: [] }),
+  /1 to 32 tabs/,
+  'an empty group is refused',
+);
+assert.throws(
+  () => sanitizeHomeV2TabTransfer({ revision: 3, tabs: manyTabs(HOME_V2_TAB_TRANSFER_MAX_TABS + 1) }),
+  /1 to 32 tabs/,
+  '33 tabs is refused',
+);
+
+// A group must carry a tabs ARRAY; a top-level address does not stand in for
+// one, and is not what a group is.
+for (const rejected of [
+  { revision: 3 },
+  { revision: 3, tabs: null },
+  { revision: 3, tabs: 'home://settings' },
+  { revision: 3, tabs: { 0: groupTab('home://settings') } },
+  { revision: 3, tabs: groupTab('home://settings') },
+  { revision: 3, address: 'home://settings', accountId: 'home-v2:guest' },
+  // A string revision is not the group revision, so this is judged as the
+  // single envelope it claims to be — and has no address.
+  { revision: '3', tabs: [groupTab('home://settings')] },
+]) {
+  assert.throws(
+    () => sanitizeHomeV2TabTransfer(rejected),
+    /tab transfer|window address|revision/,
+    `${JSON.stringify(rejected)} is refused`,
+  );
+}
+
+// A fresh object all the way down, as for a lone tab.
+const sentGroup = { revision: 3, tabs: [sent] };
+const copiedGroup = sanitizeHomeV2TabTransfer(sentGroup) as HomeV2TabGroupTransfer;
+assert.notEqual(copiedGroup.tabs, sentGroup.tabs);
+assert.notEqual(copiedGroup.tabs[0], sent);
+assert.notEqual(copiedGroup.tabs[0].history, sent.history);
+assert.notEqual(copiedGroup.tabs[0].history?.entries[0], sent.history.entries[0]);
+
+// The group's arrival changes nothing for a lone tab: the same payloads
+// produce the same envelopes they did above.
+assert.deepEqual(sanitizeHomeV2TabTransfer('home://settings'), { revision: 1, address: 'home://settings' });
+assert.deepEqual(sanitizeHomeV2TabTransfer({ ...guest, tabs: [groupTab('home://dashboard')] }), guest);
+assert.deepEqual(
+  sanitizeHomeV2TabTransfer({ revision: 1, address: 'home://settings', tabs: [groupTab('home://dashboard')] }),
+  { revision: 1, address: 'home://settings' },
+);
 
 // --- detached-window save merge --------------------------------------------
 
