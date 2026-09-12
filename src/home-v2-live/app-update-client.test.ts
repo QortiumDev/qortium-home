@@ -56,10 +56,13 @@ const settings = {
   generation: 2,
   homeUpdatePolicy: 'notify',
   releaseChannel: 'stable',
+  releaseSource: 'qdn-then-github',
   revision: 1,
   schema: 'home-v2-app-update-settings',
 }
 assert.equal(parseHomeV2AppUpdateSettings(settings).generation, 2)
+assert.equal(parseHomeV2AppUpdateSettings({ ...settings, releaseSource: 'qdn' }).releaseSource, 'qdn')
+assert.throws(() => parseHomeV2AppUpdateSettings({ ...settings, releaseSource: 'ftp' }), /malformed/)
 assert.throws(() => parseHomeV2AppUpdateSettings({ ...settings, filePath: '/tmp/x' }), /malformed/)
 assert.throws(() => parseHomeV2AppUpdateSettings({ ...settings, homeUpdatePolicy: 'install' }), /malformed/)
 
