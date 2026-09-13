@@ -21,6 +21,7 @@ import { getHomeV2NodeAdminKey, setHomeV2NodeAdminKey } from './home-v2-node-adm
 import { ensureNodeCa, nodeFetch, resolveNodeTlsTrust } from './node-tls.js';
 import {
   isFullySyncedQortiumStatus as isSyncedStatus,
+  canRetainQortiumPublicNode as canRetainDiscoveryCandidate,
   isUsableQortiumPublicNode as isUsableDiscoveryCandidate,
   QORTIUM_PUBLIC_NODE_API_URLS,
   rankQortiumPublicNodes as rankDiscoveryCandidates,
@@ -875,7 +876,10 @@ async function discoverQortiumPublicNode(forceRefresh = false): Promise<Discover
 
     writeDiscoveryCache([selectedProbeResult]);
 
-    if (selectedCandidate && isUsableDiscoveryCandidate(selectedCandidate)) {
+    // Hysteresis: keep the node users' app tabs are already served from unless
+    // it is genuinely unusable. A node that is one block behind right after a
+    // block is not a reason to move — moving reloads every app tab.
+    if (selectedCandidate && canRetainDiscoveryCandidate(selectedCandidate)) {
       return selectedCandidate;
     }
 

@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  canRetainQortiumPublicNode,
   isUsableQortiumPublicNode,
   isFullySyncedQortiumStatus,
   QORTIUM_PUBLIC_NODE_API_URLS,
@@ -70,6 +71,35 @@ assert.equal(
   }),
   false,
 );
+
+// Retention hysteresis (2026-09-13): the selected node stays selected while it
+// is readable and within a few blocks of the tip, even though it is not "fully
+// synced" at that instant; a node that lost public reads or fell far behind is
+// released.
+const retainBase = {
+  height: 85_000,
+  isSynced: false,
+  latencyMs: 20,
+  nodeApiUrl: 'https://node1.qortium.app',
+  peerCount: 10,
+  supportsPublicReads: true,
+};
+assert.equal(canRetainQortiumPublicNode({ ...retainBase, isSynced: true, syncBlocksRemaining: 0 }), true);
+// The between-blocks state Core reports for a few seconds: BEHIND / 1 block / 99%.
+assert.equal(canRetainQortiumPublicNode({ ...retainBase, syncBlocksRemaining: 1, syncPercent: 99 }), true);
+assert.equal(canRetainQortiumPublicNode({ ...retainBase, syncBlocksRemaining: 3, syncPercent: 99 }), true);
+assert.equal(canRetainQortiumPublicNode({ ...retainBase, syncBlocksRemaining: 4, syncPercent: 99 }), false);
+// Incoherent or clearly bad states are released (second-model review of #570).
+assert.equal(canRetainQortiumPublicNode({ ...retainBase, syncBlocksRemaining: 0, syncPercent: 99 }), false);
+assert.equal(canRetainQortiumPublicNode({ ...retainBase, syncBlocksRemaining: 1, syncPercent: 50 }), false);
+assert.equal(canRetainQortiumPublicNode({ ...retainBase, syncBlocksRemaining: 1 }), false);
+assert.equal(canRetainQortiumPublicNode({ ...retainBase, height: 0, syncBlocksRemaining: 1, syncPercent: 99 }), false);
+assert.equal(canRetainQortiumPublicNode({ ...retainBase, isSynced: true, height: 0 }), false);
+assert.equal(canRetainQortiumPublicNode({ ...retainBase, syncBlocksRemaining: null }), false);
+assert.equal(canRetainQortiumPublicNode({ ...retainBase }), false);
+assert.equal(canRetainQortiumPublicNode({ ...retainBase, isSynced: true, supportsPublicReads: false }), false);
+// Selection of a NEW node still demands a fully synced candidate.
+assert.equal(isUsableQortiumPublicNode({ ...retainBase, syncBlocksRemaining: 1 } as QortiumPublicNodeCandidate), false);
 
 assert.deepEqual(QORTIUM_PUBLIC_NODE_API_URLS, [
   'https://node1.qortium.app',

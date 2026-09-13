@@ -45,6 +45,49 @@ export function isUsableQortiumPublicNode(
   return candidate.supportsPublicReads && candidate.isSynced;
 }
 
+/**
+ * How far behind the tip an already-selected public node may be before Home
+ * abandons it for another candidate. Every node reports `BEHIND / 1 block /
+ * 99%` for a few seconds after each new block; treating that instant as
+ * "unusable" made the selection flip node1 <-> node2 on nearly every status
+ * check, and each flip reloads every open app tab (observed live 2026-09-13:
+ * a chat send never survived the public route). A retained node only has to
+ * be reachable, readable, and close to the tip.
+ */
+export const QORTIUM_PUBLIC_NODE_RETAIN_MAX_BLOCKS_BEHIND = 3;
+export const QORTIUM_PUBLIC_NODE_RETAIN_MIN_SYNC_PERCENT = 95;
+
+/**
+ * Whether Home may KEEP the currently selected public node (hysteresis).
+ * A retained node must be readable and either fully synced, or in the
+ * coherent "just behind the tip" state Core reports for a few seconds after
+ * each block: a positive height, 1..N blocks remaining, sync percent still in
+ * the high nineties. Anything incoherent — zero height, "0 remaining" while
+ * not synced, a low percent — is released so the ranked re-probe can compare
+ * it against the other seeds (review of PR #570, 2026-09-13).
+ */
+export function canRetainQortiumPublicNode(
+  candidate: QortiumPublicNodeCandidate & {
+    syncBlocksRemaining?: number | null;
+    syncPercent?: number | null;
+  },
+) {
+  if (!candidate.supportsPublicReads) return false;
+  if (!(Number.isFinite(candidate.height) && candidate.height > 0)) return false;
+  if (candidate.isSynced) return true;
+  const remaining = candidate.syncBlocksRemaining;
+  const percent = candidate.syncPercent;
+  return (
+    typeof remaining === 'number' &&
+    Number.isFinite(remaining) &&
+    remaining >= 1 &&
+    remaining <= QORTIUM_PUBLIC_NODE_RETAIN_MAX_BLOCKS_BEHIND &&
+    typeof percent === 'number' &&
+    Number.isFinite(percent) &&
+    percent >= QORTIUM_PUBLIC_NODE_RETAIN_MIN_SYNC_PERCENT
+  );
+}
+
 export function rankQortiumPublicNodes<
   Candidate extends QortiumPublicNodeCandidate,
 >(candidates: readonly Candidate[]) {
