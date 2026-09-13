@@ -158,7 +158,7 @@ assert.equal(rootElement.textContent?.includes('Start Core'), false)
   })
   assert.deepEqual(sources, ['github'])
   await act(async () => { root.render(<HomeUpdateSettings updates={fixture('android')} />) })
-  assert.equal(rootElement.querySelector('[data-home-v2-update-source]'), null, 'no source row on Android yet')
+  assert.ok(rootElement.querySelector('[data-home-v2-update-source]'), 'Android has the source row too')
 }
 
 await act(async () => { root.unmount() })

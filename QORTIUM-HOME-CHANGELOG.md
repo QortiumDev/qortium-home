@@ -32,6 +32,20 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## feat: Android checks and downloads Home updates from QDN
+
+2026-09-12
+
+Android now honours the Release source setting too. With QDN first (the
+default), Check for updates reads the release pointer and manifest through
+the Qortium node the phone is routed to, and the APK is fetched from that
+node: Home asks the node to get the package, waits until the node holds it
+(up to half an hour on a slow connection), then downloads it and verifies it
+against the manifest's SHA-256 before offering Install APK — the same rule
+as on desktop. When the node has no manifest, or the Qortium network is off,
+the check falls back to GitHub; QDN only and GitHub only behave as their
+names say. The Release source row appears on Android's Settings page and the
+asset line says where the package comes from.
 ## feat: one Dashboard tab; release notes name their tab
 
 2026-09-12

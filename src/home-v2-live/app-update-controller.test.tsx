@@ -222,9 +222,11 @@ const androidResult: QortiumAppUpdateCheckResult = {
   },
   status: 'available',
 }
+let androidCheckOptions: { order: string; readQdn: unknown } | null = null
 const androidHost: AndroidHomeV2UpdateHost = {
-  check: async () => {
+  check: async (_environment, _channel, options) => {
     androidChecks += 1
+    androidCheckOptions = { order: options.order, readQdn: options.readQdn }
     return androidResult
   },
   client: {
@@ -273,9 +275,42 @@ await act(async () => {
 })
 assert.equal(androidChecks, 2)
 assert.equal(androidDownloads, 0)
+// The host is told the stored source; without a node client there is no QDN reader.
+assert.deepEqual(androidCheckOptions, { order: 'qdn-then-github', readQdn: null })
 await act(async () => { androidRoot.unmount() })
 androidElement.remove()
 
+// With a node client that can read QDN, the reader goes to the Qortium
+// network for the pinned publisher's JSON resources.
+{
+  const reads: unknown[] = []
+  const qdnElement = document.createElement('div')
+  document.body.append(qdnElement)
+  const qdnRoot = createRoot(qdnElement)
+  let qdnState: HomeV2AppUpdates | null = null
+  function QdnHarness({ onState }: { readonly onState: (state: HomeV2AppUpdates) => void }) {
+    const state = useHomeV2AppUpdates(androidHost, {
+      nodeClient: {
+        readQdnJsonResource: async (
+          network: string,
+          resource: { readonly service: string; readonly name: string; readonly identifier: string },
+        ) => { reads.push([network, resource]); return { nodeApiUrl: 'https://node.example', data: null } },
+      } as unknown as import('./node-client').HomeV2NodeClient,
+    })
+    useEffect(() => onState(state), [onState, state])
+    return null
+  }
+  await act(async () => { qdnRoot.render(<QdnHarness onState={(state) => { qdnState = state }} />) })
+  await waitFor(() => !!(qdnState as HomeV2AppUpdates | null)?.preferencesLoaded && (qdnState as HomeV2AppUpdates).busy === null)
+  const options = androidCheckOptions as { order: string; readQdn: unknown } | null
+  assert.equal(typeof options?.readQdn, 'function')
+  await (options!.readQdn as (identifier: string) => Promise<unknown>)('home-latest-prerelease')
+  assert.deepEqual(reads, [['qortium', { service: 'JSON', name: 'QortiumHomeTest', identifier: 'home-latest-prerelease' }]])
+  await act(async () => { qdnRoot.unmount() })
+  qdnElement.remove()
+}
+
+const checksBeforeCorrupt = androidChecks
 const corruptElement = document.createElement('div')
 document.body.append(corruptElement)
 const corruptRoot = createRoot(corruptElement)
@@ -288,7 +323,7 @@ await act(async () => {
 })
 await waitFor(() => !!(corruptState as HomeV2AppUpdates | null)?.preferencesLoaded)
 assert.equal((corruptState as HomeV2AppUpdates | null)?.homeUpdatePolicy, 'off')
-assert.equal(androidChecks, 2)
+assert.equal(androidChecks, checksBeforeCorrupt, 'corrupt preferences never trigger a check')
 assert.equal(androidDownloads, 0)
 await act(async () => { corruptRoot.unmount() })
 corruptElement.remove()

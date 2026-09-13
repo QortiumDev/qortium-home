@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { t } from '../i18n'
 import type { AndroidHomeV2UpdateHost } from '../home-v2-android-app-updates'
+import type { HomeV2NodeClient } from './node-client'
+import {
+  HOME_RELEASE_ASSET_SERVICE,
+  HOME_RELEASE_MANIFEST_SERVICE,
+  HOME_RELEASE_PUBLISHER,
+} from '../../electron/home-v2-release-manifest'
 import {
   getDefaultHomeV2AppUpdatePreferences,
   getHomeV2AutomaticUpdateAction,
@@ -68,19 +74,46 @@ export function formatUpdateBytes(bytes: number) {
   return `${value.toLocaleString(undefined, { maximumFractionDigits: 1 })} ${units[unit]}`
 }
 
+/**
+ * A QDN asset is trusted by its shape alone: the node's raw FILE URL under
+ * the pinned publisher, with an identifier that names this very tag. The
+ * node is whichever one the check was routed through; the bytes are still
+ * verified against the manifest digest after download, so a wrong node can
+ * only fail the download, never pass off other bytes.
+ */
+function isTrustedQdnReleaseAssetUrl(value: string, tagName: string) {
+  try {
+    const url = new URL(value)
+    const prefix = `/arbitrary/${HOME_RELEASE_ASSET_SERVICE}/${encodeURIComponent(HOME_RELEASE_PUBLISHER)}/`
+    if ((url.protocol !== 'https:' && url.protocol !== 'http:') || !url.pathname.startsWith(prefix) || url.search || url.hash) {
+      return false
+    }
+    const identifier = decodeURIComponent(url.pathname.slice(prefix.length))
+    return identifier.startsWith(`home-${tagName}-`) && /^[A-Za-z0-9._-]{1,64}$/.test(identifier)
+  } catch {
+    return false
+  }
+}
+
+function trustedAssetSource(asset: QortiumAppUpdateAsset, tagName: string): 'github' | 'qdn' | null {
+  if (asset.source === 'qdn') return isTrustedQdnReleaseAssetUrl(asset.downloadUrl, tagName) ? 'qdn' : null
+  return isTrustedGithubReleaseUrl(asset.downloadUrl, tagName, 'asset') ? 'github' : null
+}
+
 function nativeCheckResult(result: QortiumAppUpdateCheckResult): HomeV2AppUpdateCheck {
   const trustedRelease = result.release &&
     isTrustedGithubReleaseUrl(result.release.htmlUrl, result.release.tagName, 'page')
     ? result.release
     : null
+  const assetSource = trustedRelease && result.asset ? trustedAssetSource(result.asset, trustedRelease.tagName) : null
   const trustedAsset = trustedRelease &&
     result.asset &&
+    assetSource &&
     SHA256_PATTERN.test(result.asset.digest ?? '') &&
     Number.isSafeInteger(result.asset.size) &&
     result.asset.size > 0 &&
-    result.asset.size <= MAX_UPDATE_ASSET_BYTES &&
-    isTrustedGithubReleaseUrl(result.asset.downloadUrl, trustedRelease.tagName, 'asset')
-    ? { digestAvailable: true as const, name: result.asset.name, size: result.asset.size, source: 'github' as const }
+    result.asset.size <= MAX_UPDATE_ASSET_BYTES
+    ? { digestAvailable: true as const, name: result.asset.name, size: result.asset.size, source: assetSource }
     : null
   const state = result.status === 'error'
     ? 'unavailable'
@@ -115,7 +148,14 @@ function nativeCheckResult(result: QortiumAppUpdateCheckResult): HomeV2AppUpdate
   }
 }
 
-export function useHomeV2AppUpdates(nativeHostOverride: AndroidHomeV2UpdateHost | null = null) {
+export function useHomeV2AppUpdates(
+  nativeHostOverride: AndroidHomeV2UpdateHost | null = null,
+  options: {
+    /** Android: the node client the QDN release source reads through. */
+    readonly nodeClient?: HomeV2NodeClient | null
+  } = {},
+) {
+  const nodeClient = options.nodeClient ?? null
   const desktopClient = window.homeV2AppUpdates ?? null
   const [nativeHost, setNativeHost] = useState<AndroidHomeV2UpdateHost | null>(nativeHostOverride)
   const nativeClient = nativeHost?.client ?? null
@@ -344,7 +384,7 @@ export function useHomeV2AppUpdates(nativeHostOverride: AndroidHomeV2UpdateHost 
         raw.release.tagName !== checkedResult.release.tagName ||
         !SHA256_PATTERN.test(raw.asset.digest ?? '') ||
         !isTrustedGithubReleaseUrl(raw.release.htmlUrl, raw.release.tagName, 'page') ||
-        !isTrustedGithubReleaseUrl(raw.asset.downloadUrl, raw.release.tagName, 'asset') ||
+        trustedAssetSource(raw.asset, raw.release.tagName) !== checkedResult.asset.source ||
         raw.asset.size !== checkedResult.asset.size
       ) throw new Error('unverified-update')
       const downloaded = await nativeClient!.downloadAsset({
@@ -411,7 +451,19 @@ export function useHomeV2AppUpdates(nativeHostOverride: AndroidHomeV2UpdateHost 
         )
       } else {
         const environment = await nativeClient!.getEnvironment()
-        const raw = await nativeHost!.check(environment, nextChannel)
+        // The QDN source reads through the node the Qortium network is
+        // routed to; without a client that can, only GitHub is consulted.
+        const readQdn = nodeClient?.readQdnJsonResource
+          ? (identifier: string) => nodeClient.readQdnJsonResource!('qortium', {
+              service: HOME_RELEASE_MANIFEST_SERVICE,
+              name: HOME_RELEASE_PUBLISHER,
+              identifier,
+            })
+          : null
+        const raw = await nativeHost!.check(environment, nextChannel, {
+          order: preferencesRef.current.releaseSource,
+          readQdn,
+        })
         nextNativeResult = raw
         next = nativeCheckResult(raw)
       }
