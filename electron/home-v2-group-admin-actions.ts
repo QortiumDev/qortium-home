@@ -300,11 +300,23 @@ export function homeV2GroupAdminRequiredRole(action: HomeV2GroupAdminAction) {
 }
 
 export function normalizeHomeV2GroupAdminAddresses(value: unknown) {
-  if (!isRecord(value) || !Array.isArray(value.groupMembers)) {
+  // Core serializes GET /groups/members/{id} as `{ memberCount, adminCount, members: [...] }`
+  // on both chains (`GroupMembers.java` names the Java field `groupMembers` but the JSON
+  // element `members`). Until 2026-09-13 this only accepted `groupMembers`, so every
+  // admin-verified group action failed live with "could not verify the selected group
+  // administrators" while its unit fixture (which used the Java field name) stayed green.
+  const members = isRecord(value)
+    ? Array.isArray(value.members)
+      ? value.members
+      : Array.isArray(value.groupMembers)
+        ? value.groupMembers
+        : null
+    : null
+  if (!members) {
     throw new Error('Home could not verify the selected group administrators.')
   }
   const addresses: string[] = []
-  for (const entry of value.groupMembers) {
+  for (const entry of members) {
     if (!isRecord(entry) || typeof entry.member !== 'string' || !entry.member.trim()) {
       throw new Error('Home received malformed group administrator data.')
     }

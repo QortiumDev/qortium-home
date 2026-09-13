@@ -32,6 +32,20 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## fix: group admin actions read the member list Core actually sends
+
+2026-09-13
+
+Approving a join request, inviting, kicking, banning, or changing admins from
+a Home 2 app (for example Chat's members drawer) failed on both networks with
+"Home could not verify the selected group administrators." Home checked the
+group's administrator list under the name the Java class uses internally,
+while every Core node sends it as `members`; the unit fixture copied the
+internal name, so the test never noticed. Home now reads the real field (and
+still accepts the old spelling), the fixture matches a live node reply, and a
+regression test pins the shape. Found by the 2026-09-13 live Chat
+verification pass.
+
 ## release: prepare home 2.1.0-beta.4
 
 2026-09-13
