@@ -110,6 +110,21 @@ assert.throws(() => assertHomeV2GroupAdminAuthority({
   adminAddresses: [address],
   target: { groupId: 12, groupName: 'Builders', ownerAddress: owner },
 }), /not the current group owner/)
+// An empty (but well-formed) admin list: the owner still passes an owner-role action
+// through the separately fetched owner address; a non-owner admin-role action is refused.
+assert.deepEqual(normalizeHomeV2GroupAdminAddresses({ memberCount: 0, adminCount: 0, members: [] }), [])
+assert.doesNotThrow(() => assertHomeV2GroupAdminAuthority({
+  accountAddress: owner,
+  action: 'GROUP_KICK',
+  adminAddresses: [],
+  target: { groupId: 12, groupName: 'Builders', ownerAddress: owner },
+}))
+assert.throws(() => assertHomeV2GroupAdminAuthority({
+  accountAddress: address,
+  action: 'INVITE_TO_GROUP',
+  adminAddresses: [],
+  target: { groupId: 12, groupName: 'Builders', ownerAddress: owner },
+}))
 assert.equal(groupAdminIdempotentResult('GROUP_BAN', new Error('Transaction invalid (BAN_EXISTS)')), true)
 assert.equal(groupAdminIdempotentResult('GROUP_BAN', new Error('NOT_GROUP_ADMIN')), false)
 assert.equal(hasHomeV2GroupJoinRequest([{ groupId: 12, joiner: address }], 12, address), true)
