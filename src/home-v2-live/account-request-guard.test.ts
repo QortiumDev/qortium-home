@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import type { HomeV2RuntimeInvalidationKind } from '../../electron/home-v2-runtime-invalidation'
 import type { AppTabContext, HomeV2AccountCatalogue } from '../v2/contracts'
 import type { AppTab } from '../v2/product-model'
-import { createAccountRequestEpochs, isBoundAccountRequestCurrent } from './account-request-guard'
+import { createAccountRequestEpochs, isBoundAccountRequestCurrent, walletRefForAccount } from './account-request-guard'
 
 const accounts: HomeV2AccountCatalogue['accounts'] = ['A', 'B'].map((id) => ({
   address: `address-${id}`,
@@ -126,5 +126,26 @@ for (const kind of ['navigation-changed', 'app-replaced', 'tab-closed', 'node-ch
   state.invalidate(kind, null, null)
   assert.equal(old(), false, `${kind} with missing scope must fail closed`)
 }
+
+// The default identity's selectedWallet (what an address-bar / link / "+" tab
+// stores as walletRef) must be the same shape the guard compares against; a
+// bare walletId there made every account-bound request from such tabs fail.
+assert.equal(walletRefForAccount('wallet-A'), 'home-v2:wallet:wallet-A')
+assert.equal(
+  isBoundAccountRequestCurrent(
+    { tabId: 'tab-chat', resourceLocation: 'qortal://APP/Chat/default', selectedAccountId: 'A' },
+    [tab('A', { walletRef: walletRefForAccount('wallet-A') as AppTabContext['walletRef'] })],
+    accounts,
+  ),
+  true,
+)
+assert.equal(
+  isBoundAccountRequestCurrent(
+    { tabId: 'tab-chat', resourceLocation: 'qortal://APP/Chat/default', selectedAccountId: 'A' },
+    [tab('A', { walletRef: 'wallet-A' as AppTabContext['walletRef'] })],
+    accounts,
+  ),
+  false,
+)
 
 console.log('Home v2 bound account request and lifecycle guard tests passed.')

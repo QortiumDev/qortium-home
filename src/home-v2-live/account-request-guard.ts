@@ -3,6 +3,18 @@ import type { HomeV2AccountCatalogue, NetworkId } from '../v2/contracts'
 import type { AppTab } from '../v2/product-model'
 import type { HomeV2AppRequestContext } from './node-client'
 
+/**
+ * The wallet reference an app tab stores for its bound account. Every producer
+ * of a tab context (explicit-account launches AND the default identity that
+ * address-bar / link / "+" tabs inherit) must use this same shape, because the
+ * guard below compares against it literally. The Android shell's default
+ * identity once carried the bare walletId here, so every account-bound request
+ * from a default-identity tab failed as STALE_CONTEXT (2026-09-13, H4/H5).
+ */
+export function walletRefForAccount(walletId: string) {
+  return `home-v2:wallet:${walletId}`
+}
+
 /** The default picker is intentionally not part of an existing tab's authority. */
 export function isBoundAccountRequestCurrent(
   context: Pick<HomeV2AppRequestContext, 'tabId' | 'resourceLocation' | 'selectedAccountId'>,
@@ -20,7 +32,7 @@ export function isBoundAccountRequestCurrent(
   const account = accounts.find((candidate) => candidate.id === accountId)
   // Unlock state is checked by each operation's own policy. Reads and unlock
   // requests themselves must still be able to target a locked bound account.
-  return !!account && tab.context.walletRef === `home-v2:wallet:${account.walletId}`
+  return !!account && tab.context.walletRef === walletRefForAccount(account.walletId)
 }
 
 /**
