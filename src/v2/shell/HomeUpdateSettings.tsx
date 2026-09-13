@@ -103,9 +103,9 @@ export function HomeUpdateSettings({
         </div>
       </div>
 
-      {/* Where releases come from. Android's native downloader reads GitHub
-          only for now, so the row is desktop's. */}
-      {!isAndroid ? (
+      {/* Where releases come from: QDN through the connected Qortium node,
+          GitHub, or QDN first. Both hosts honour it. */}
+      {(
         <div className="home-v2-setting-row">
           <div className="home-v2-setting-row__copy">
             <strong id={id('home-update-source-label')}>{t('updates.releaseSourceLabel')}</strong>
@@ -126,7 +126,7 @@ export function HomeUpdateSettings({
             <option value="github">{t('updates.releaseSource.github')}</option>
           </select>
         </div>
-      ) : null}
+      )}
 
       <dl className="home-v2-update-details">
         <div><dt>{t('common.current')}</dt><dd>{result?.currentVersion ?? '-'}</dd></div>

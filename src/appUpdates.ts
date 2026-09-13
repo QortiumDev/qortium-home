@@ -1,5 +1,11 @@
 import { t, type TranslationKey } from './i18n';
 import { selectCompatibleUpdateAsset } from './app-update-assets';
+import {
+  homeReleaseChannelIdentifier,
+  homeReleaseManifestIdentifier,
+  parseHomeReleaseChannelPointer,
+  parseHomeReleaseManifest,
+} from '../electron/home-v2-release-manifest';
 
 const HOME_REPOSITORY = 'QortiumDev/qortium-home';
 const GITHUB_API_BASE_URL = `https://api.github.com/repos/${HOME_REPOSITORY}`;
@@ -15,6 +21,8 @@ type GithubAsset = {
   digest?: unknown;
   name?: unknown;
   size?: unknown;
+  /** Set only on the synthetic release built from a QDN manifest. */
+  source?: unknown;
 };
 
 type GithubRelease = {
@@ -57,6 +65,18 @@ function getBoolean(value: unknown) {
  * HTTP plugin instead. Resolves to the parsed body, or null for a 404.
  */
 export type GithubJsonFetcher = (url: string) => Promise<unknown | null>;
+
+/**
+ * Reads one small JSON resource from the QDN name that publishes Home
+ * releases, through the node the caller is routed to. Null data = the node
+ * does not hold it (404); a rejection = no usable node (network off,
+ * unreachable) or an HTTP failure.
+ */
+export type QdnReleaseJsonReader = (
+  identifier: string,
+) => Promise<{ readonly nodeApiUrl: string; readonly data: unknown | null }>;
+
+export type AppUpdateReleaseSource = 'github' | 'qdn' | 'qdn-then-github';
 
 export const GITHUB_JSON_ACCEPT_HEADER = GITHUB_ACCEPT_HEADER;
 
@@ -118,6 +138,7 @@ function normalizeAsset(value: GithubAsset): QortiumAppUpdateAsset | null {
     downloadUrl,
     digest: getString(value.digest) || null,
     size: getNumber(value.size),
+    source: value.source === 'qdn' ? 'qdn' : 'github',
   };
 }
 
@@ -338,4 +359,91 @@ export async function checkAppUpdates(
       message: error instanceof Error ? error.message : t('updates.checkReleasesFailed'),
     };
   }
+}
+
+/**
+ * The QDN half: channel pointer -> tag -> manifest, parsed by the same module
+ * the desktop main process uses, then shaped like a GitHub release so the
+ * comparison and asset selection below run unchanged. Null when the node
+ * has no pointer or manifest (or the manifest is not for this channel).
+ */
+async function getQdnRelease(
+  channel: QortiumAppUpdateChannel,
+  readQdn: QdnReleaseJsonReader,
+): Promise<GithubRelease | null> {
+  const pointer = await readQdn(homeReleaseChannelIdentifier(channel));
+  const tagName = parseHomeReleaseChannelPointer(pointer.data);
+  if (!tagName) return null;
+  const manifest = await readQdn(homeReleaseManifestIdentifier(tagName));
+  if (manifest.data === null) return null;
+  const release = parseHomeReleaseManifest(manifest.data, { channel, nodeApiUrl: manifest.nodeApiUrl, tagName });
+  if (!release) return null;
+  return {
+    assets: release.assets.map((asset) => ({
+      browser_download_url: asset.downloadUrl,
+      digest: asset.digest,
+      name: asset.name,
+      size: asset.size,
+      source: 'qdn',
+    })),
+    draft: false,
+    html_url: release.htmlUrl,
+    name: release.name,
+    prerelease: channel === 'prerelease',
+    published_at: release.publishedAt ?? '',
+    tag_name: release.tagName,
+  };
+}
+
+/**
+ * The check with the release source honoured, the way the desktop main
+ * process does it: `qdn-then-github` asks the node first and falls back to
+ * GitHub when the node has no manifest; a source that answers "none" hands
+ * over, a source that fails is reported only when nothing else answered.
+ * `readQdn` is absent when the Qortium network is off, which skips QDN.
+ */
+export async function checkAppUpdatesFromSources(
+  environment: QortiumAppUpdateEnvironment,
+  channel: QortiumAppUpdateChannel,
+  options: {
+    readonly order: AppUpdateReleaseSource;
+    readonly fetchJson?: GithubJsonFetcher;
+    readonly readQdn?: QdnReleaseJsonReader | null;
+  },
+): Promise<QortiumAppUpdateCheckResult> {
+  const sources: readonly ('github' | 'qdn')[] =
+    options.order === 'github' ? ['github'] : options.order === 'qdn' ? ['qdn'] : ['qdn', 'github'];
+  let failure: unknown = null;
+  for (const source of sources) {
+    try {
+      if (source === 'qdn') {
+        if (!options.readQdn) continue;
+        const release = await getQdnRelease(channel, options.readQdn);
+        if (release) {
+          // The GitHub reader hands back one release for stable and a listing
+          // for prerelease; the synthetic release is served the same way.
+          return checkAppUpdates(environment, channel, {
+            fetchJson: async () => (channel === 'stable' ? release : [release]),
+          });
+        }
+        continue;
+      }
+      return await checkAppUpdates(environment, channel, { fetchJson: options.fetchJson });
+    } catch (error) {
+      failure = error;
+    }
+  }
+  const baseResult = buildBaseResult(environment, channel);
+  if (failure) {
+    return {
+      ...baseResult,
+      status: 'error',
+      message: failure instanceof Error ? failure.message : t('updates.checkReleasesFailed'),
+    };
+  }
+  return {
+    ...baseResult,
+    status: 'not-found',
+    message: t('updates.releaseNotFound', { channel: t(UPDATE_CHANNEL_LABEL_KEYS[channel]) }),
+  };
 }

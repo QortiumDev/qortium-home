@@ -353,6 +353,8 @@ type QortiumAppUpdateAsset = {
   downloadUrl: string;
   name: string;
   size: number;
+  /** GitHub release asset (absent = GitHub) or a QDN FILE resource read through the node. */
+  source?: 'github' | 'qdn';
 };
 
 type QortiumAppUpdateRelease = {

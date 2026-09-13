@@ -1,4 +1,5 @@
 import { Capacitor, CapacitorHttp, registerPlugin, type HttpResponse } from '@capacitor/core';
+import { HOME_RELEASE_ASSET_SERVICE, HOME_RELEASE_PUBLISHER } from '../electron/home-v2-release-manifest';
 import { Directory, Filesystem } from '@capacitor/filesystem';
 import { Preferences } from '@capacitor/preferences';
 import { AES_CBC, HmacSha512, Sha256, Sha512, bytes_to_base64 } from 'asmcrypto.js';
@@ -1253,6 +1254,7 @@ function normalizeUpdateDownloadRequest(value: QortiumAppUpdateDownloadRequest) 
       downloadUrl,
       digest: normalizeUpdateDigest(asset.digest),
       size: getNumber(asset.size) ?? 0,
+      source: asset.source === 'qdn' ? ('qdn' as const) : ('github' as const),
     },
     releaseTag,
   };
@@ -1346,8 +1348,64 @@ async function hashBase64(value: string) {
   return `sha256:${bytesToHex(await window.crypto.subtle.digest('SHA-256', base64ToBytes(value)))}`;
 }
 
+const QDN_ASSET_FETCH_TIMEOUT_MS = 30 * 60 * 1000;
+const QDN_ASSET_POLL_INTERVAL_MS = 1500;
+const QDN_ASSET_REARM_INTERVAL_MS = 60_000;
+
+/**
+ * A QDN asset is served by the node only once the node holds every chunk. A
+ * status query only reports -- it never starts a fetch -- so Home first asks
+ * for the bytes with async=true (the node answers "File not found" at once
+ * and goes to get them), then polls the status until the node reports the
+ * resource DOWNLOADED (all chunks local) or READY (built as well), re-arming
+ * now and then in case the node dropped the request. The status URL is
+ * derived from the asset URL, which the controller has already checked is
+ * the pinned publisher's FILE resource.
+ */
+async function waitForQdnAssetOnNode(asset: QortiumAppUpdateAsset) {
+  const url = new URL(asset.downloadUrl);
+  const prefix = `/arbitrary/${HOME_RELEASE_ASSET_SERVICE}/${encodeURIComponent(HOME_RELEASE_PUBLISHER)}/`;
+  if (!url.pathname.startsWith(prefix) || url.pathname.length <= prefix.length) {
+    throw new Error('The QDN update asset is not a Home release resource.');
+  }
+  const identifier = url.pathname.slice(prefix.length);
+  const statusUrl = `${url.origin}/arbitrary/resource/status/${HOME_RELEASE_ASSET_SERVICE}/${encodeURIComponent(HOME_RELEASE_PUBLISHER)}/${identifier}?build=false`;
+  const armUrl = `${asset.downloadUrl}${asset.downloadUrl.includes('?') ? '&' : '?'}async=true`;
+  const arm = async () => {
+    try {
+      await CapacitorHttp.get({ url: armUrl, connectTimeout: 10_000, readTimeout: 10_000 });
+    } catch {
+      // The arming answer is a 404 or nothing at all; the poll below decides.
+    }
+  };
+  await arm();
+  let lastArmedAt = Date.now();
+  const deadline = Date.now() + QDN_ASSET_FETCH_TIMEOUT_MS;
+  while (true) {
+    const response = await CapacitorHttp.get({ url: statusUrl, connectTimeout: 10_000, readTimeout: 10_000 }).catch(() => null);
+    const status = response && response.status >= 200 && response.status < 300 ? response.data : null;
+    const parsed = typeof status === 'string' ? (() => { try { return JSON.parse(status) as unknown; } catch { return null; } })() : status;
+    const state = parsed && typeof parsed === 'object' && typeof (parsed as { status?: unknown }).status === 'string'
+      ? (parsed as { status: string }).status
+      : '';
+    if (state === 'READY' || state === 'DOWNLOADED') return;
+    if (state === 'NOT_PUBLISHED' || state === 'UNSUPPORTED') {
+      throw new Error(`The node reports the QDN update as ${state.toLowerCase().replace('_', ' ')}.`);
+    }
+    if (Date.now() - lastArmedAt > QDN_ASSET_REARM_INTERVAL_MS) {
+      await arm();
+      lastArmedAt = Date.now();
+    }
+    if (Date.now() > deadline) throw new Error('The node did not finish fetching the update from QDN in time.');
+    await new Promise((resolve) => setTimeout(resolve, QDN_ASSET_POLL_INTERVAL_MS));
+  }
+}
+
 async function fetchAssetAsBase64(asset: QortiumAppUpdateAsset) {
   if (isNativePlatform()) {
+    if (asset.source === 'qdn') {
+      await waitForQdnAssetOnNode(asset);
+    }
     const response = await CapacitorHttp.get({
       url: asset.downloadUrl,
       responseType: 'arraybuffer',

@@ -185,6 +185,17 @@ export interface HomeV2NodeClient {
     customUrl: string,
     apiKey?: string,
   ): Promise<unknown>
+  /**
+   * Reads one small public JSON resource from the node the network is
+   * currently routed through (the Home release pointer and manifest live
+   * this way). Resolves null when the node answers 404 -- it does not hold
+   * the resource (yet) -- and rejects when the network is off or the node is
+   * unreachable. Optional: desktop reads releases in its main process.
+   */
+  readQdnJsonResource?(
+    network: NetworkId,
+    resource: { readonly service: string; readonly name: string; readonly identifier: string },
+  ): Promise<{ readonly nodeApiUrl: string; readonly data: unknown | null }>
   checkCoreUpdate?(): Promise<HomeV2CoreOnChainUpdateStatus>
   installCoreUpdate?(): Promise<HomeV2CoreOnChainUpdateStatus>
   /**
@@ -407,6 +418,8 @@ const WALLET_STORE_KEY = 'qortium-home-wallet-store'
 const SHELL_STATE_KEY = 'home-v2-live-shell-state'
 const APP_RESOURCE_LIMIT = 50
 const APP_READ_TIMEOUT_MS = 30_000
+// The release pointer and manifest are tiny; a node that cannot answer in this time is treated as not having them.
+const RELEASE_READ_TIMEOUT_MS = 8_000
 const CORE_UPDATE_TIMEOUT_MS = 30_000
 const CORE_UPDATE_STATUS_MAX_BYTES = 128 * 1024
 const API_KEY_MAX_LENGTH = 512
@@ -1526,6 +1539,17 @@ export function createPortableNodeClient(
   }
 
   return {
+    async readQdnJsonResource(network, resource) {
+      const { nodeApiUrl } = await getReadableNode(network)
+      const path = `/arbitrary/${encodeURIComponent(resource.service)}/${encodeURIComponent(resource.name)}/${encodeURIComponent(resource.identifier)}`
+      const response = await dependencies.requestJson(`${nodeApiUrl}${path}`, 'GET', RELEASE_READ_TIMEOUT_MS)
+      if (response.status === 404) return { nodeApiUrl, data: null }
+      if (!response.ok) throw new Error(`release-http-${response.status}`)
+      const data = typeof response.data === 'string'
+        ? (response.data ? (JSON.parse(response.data) as unknown) : null)
+        : response.data ?? null
+      return { nodeApiUrl, data }
+    },
     checkCoreUpdate: async () => {
       const context = await getCoreUpdateContext()
       return requestCoreUpdate(context, 'GET')

@@ -1552,7 +1552,7 @@ export function HomeV2LiveApp() {
     authorityRevision: coreUpdateAuthorityRevision,
     available: isAndroidHost,
   })
-  const appUpdates = useHomeV2AppUpdates()
+  const appUpdates = useHomeV2AppUpdates(null, { nodeClient })
   const snapshot = useMemo<HomeV2Snapshot>(
     () => ({ ...snapshotState, nodes: nodeCoreController.nodes }),
     [nodeCoreController.nodes, snapshotState],

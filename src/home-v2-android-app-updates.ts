@@ -1,6 +1,12 @@
 import { CapacitorHttp } from '@capacitor/core'
 import { Preferences } from '@capacitor/preferences'
-import { checkAppUpdates, GITHUB_JSON_ACCEPT_HEADER, type GithubJsonFetcher } from './appUpdates'
+import {
+  checkAppUpdatesFromSources,
+  GITHUB_JSON_ACCEPT_HEADER,
+  type AppUpdateReleaseSource,
+  type GithubJsonFetcher,
+  type QdnReleaseJsonReader,
+} from './appUpdates'
 import { HOME_V2_APP_UPDATE_PREFERENCES_KEY } from './home-v2-live/app-update-preferences'
 
 // A release listing is a few hundred KB at most; anything larger is not GitHub.
@@ -39,8 +45,19 @@ export function createAndroidGithubJsonFetcher(
   }
 }
 
+export type AndroidHomeV2UpdateCheckOptions = {
+  /** The stored release source preference. */
+  readonly order: AppUpdateReleaseSource
+  /** Reads the release pointer/manifest through the connected Qortium node; null while the network is off. */
+  readonly readQdn: QdnReleaseJsonReader | null
+}
+
 export type AndroidHomeV2UpdateHost = {
-  readonly check: typeof checkAppUpdates
+  readonly check: (
+    environment: QortiumAppUpdateEnvironment,
+    channel: QortiumAppUpdateChannel,
+    options: AndroidHomeV2UpdateCheckOptions,
+  ) => Promise<QortiumAppUpdateCheckResult>
   readonly client: Window['qortiumHome']['updates']
   readonly loadPreferences: () => Promise<string | null>
   readonly savePreferences: (value: string) => Promise<void>
@@ -50,7 +67,8 @@ export function createAndroidHomeV2UpdateHost(): AndroidHomeV2UpdateHost | null 
   const client = window.qortiumHome?.updates
   const fetchJson = createAndroidGithubJsonFetcher()
   return client ? {
-    check: (environment, channel) => checkAppUpdates(environment, channel, { fetchJson }),
+    check: (environment, channel, options) =>
+      checkAppUpdatesFromSources(environment, channel, { fetchJson, order: options.order, readQdn: options.readQdn }),
     client,
     loadPreferences: async () => (
       await Preferences.get({ key: HOME_V2_APP_UPDATE_PREFERENCES_KEY })
