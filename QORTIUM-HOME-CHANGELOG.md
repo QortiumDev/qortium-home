@@ -32,6 +32,25 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## release: prepare home 2.1.0-beta.4
+
+2026-09-13
+
+Prepare the fourth Home 2.1 public testing prerelease. It carries the eight
+changes merged since beta.3: a downloaded Home update can be installed from
+inside Home on every platform (Linux restarts into the new AppImage, Windows
+portable swaps the exe after Home exits, macOS opens the disk image, Android
+hands the verified APK to the installer); Home releases are published to QDN
+and Home reads them there first, with GitHub as the fallback, on desktop and
+Android; the Dashboard navigates in place and there is at most one Dashboard
+tab; the account badge on a tab group is an account menu; release notes and
+Core API docs name their tab; Settings wording says what each row does and
+a GitHub rate limit is reported as such; and on a phone the dashboard tile
+headers are one line and Check for updates works. Android advances to code
+46 so it can update beta.3 and every earlier package. Stable users remain on
+Home 1.8.0. The beta testing guide gains in-app update and dashboard
+navigation checks, and the release runbook gains the QDN publish step.
+
 ## feat: Android checks and downloads Home updates from QDN
 
 2026-09-12

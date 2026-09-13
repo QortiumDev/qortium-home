@@ -1047,7 +1047,9 @@ try {
     const updateSettingsPath = path.join(profileDirectory, 'home-v2-app-update-settings.json')
     const storedUpdateSettings = JSON.parse(readFileSync(updateSettingsPath, 'utf8'))
     assert.equal(storedUpdateSettings.schema, 'qortium-home-v2-app-update-settings')
-    assert.equal(storedUpdateSettings.version, 1)
+    // Version 2 since the release source (QDN then GitHub by default) exists.
+    assert.equal(storedUpdateSettings.version, 2)
+    assert.equal(storedUpdateSettings.releaseSource, 'qdn-then-github')
     assert.equal(storedUpdateSettings.homeUpdatePolicy, 'off')
     assert.equal(statSync(updateSettingsPath).mode & 0o777, 0o600)
     await client.send('Page.reload', { ignoreCache: true })

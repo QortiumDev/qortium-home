@@ -1,21 +1,21 @@
 # Home 2.1 beta testing and app development
 
-Home 2.1.0-beta.3 is a testing prerelease. Home 1.8.0 remains the latest stable
+Home 2.1.0-beta.4 is a testing prerelease. Home 1.8.0 remains the latest stable
 release. Choose Prerelease in Home's update settings to follow the Home 2 line,
 or install the matching platform asset manually. Report the Home version,
 platform, app version, selected network, node route and reproduction steps.
 Keep passwords, recovery material and private message contents out of reports.
 
-Android beta.3 uses versionCode 45. It can update release-signed beta.2 (code 44),
-beta.1 (code 43), Home 1.8.0 (code 41) and release-signed development Home 2.1.0
-(code 42). Development
+Android beta.4 uses versionCode 46. It can update release-signed beta.3 (code 45),
+beta.2 (code 44), beta.1 (code 43), Home 1.8.0 (code 41) and release-signed
+development Home 2.1.0 (code 42). Development
 builds named 2.1.0 sort above the beta in semantic-version comparisons, so
 install the beta APK manually in that case. Debug-signed APKs have a different
 signer and cannot be updated in place by the release APK.
 
 ## Start with the runtime contract
 
-Home's application version is 2.1.0-beta.3; its QAVS platform version is 2.1.
+Home's application version is 2.1.0-beta.4; its QAVS platform version is 2.1.
 Feature-detect actions instead of treating either version as a capability list.
 Use `qdnRequest` for Qortium and `qortalRequest` for Qortal. The invoked bridge
 determines the network; a network field in the payload does not switch it.
@@ -100,6 +100,24 @@ APP/WEBSITE navigation and a resource viewer are distinct operations.
    clear of the strip moves the whole group to a new window, and that on a
    narrow window only the active group is shown. The Dashboard tab sits with
    the selected account and moves when you switch accounts.
+7. New in beta.4 — updating Home from inside Home. Choose the Prerelease
+   channel, check, download, then use the platform's install action: on Linux
+   "Install and restart" replaces the running AppImage and restarts Home into
+   it; on Windows portable a helper swaps the exe after Home exits and starts
+   it; on macOS "Open disk image" mounts the DMG for the usual drag to
+   Applications; on Android "Install APK" hands the verified package to the
+   system installer (the first time, Android asks to allow installs from Home
+   and Play Protect may ask to scan). Settings → Runtime → Qortium Home has a
+   Release source row: QDN then GitHub (default), QDN, or GitHub — the asset
+   line says which one served the download. Report the platform, the source
+   shown, and whether the restarted or installed Home shows the new version.
+8. New in beta.4 — the Dashboard navigates in place: pinned apps, Apps,
+   Explore, Names and the Settings links turn the Dashboard tab into that
+   page and Back returns to the Dashboard; there is at most one Dashboard tab
+   ("+" brings it forward). The account badge on a tab group opens that
+   account's menu (unlock or lock, select). Release notes and Core API docs
+   name their tab. On a phone the dashboard tile headers are one line, and
+   Check for updates works.
 
 ## Reports still being investigated
 
