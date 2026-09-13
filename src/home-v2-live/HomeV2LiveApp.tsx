@@ -71,6 +71,7 @@ import { createAccountRequestEpochs, isBoundAccountRequestCurrent } from './acco
 import { buildTabBookmarkToggle, buildTabDashboardPin, buildTabToolbarSave } from '../v2/shell/saved-tab-bookmarks'
 import type { HomeV2SettingsSectionId } from '../v2/shell/SettingsPage'
 import { HomeV2ContextMenu } from '../v2/shell/HomeV2ContextMenu'
+import { NodeCertificatePanel, needsCertificateConfirmation } from '../v2/shell/NodeCertificatePanel'
 import {
   parseHomeV2TextSizeCommand,
   subscribeHomeV2MenuCommands,
@@ -10605,6 +10606,16 @@ export function HomeV2LiveApp() {
             }}
           />
         </label>
+        {nodeClient && needsCertificateConfirmation(customUrl) ? (
+          // A remote HTTPS node cannot come online until its certificate is
+          // pinned; do it here, where the address is entered, instead of
+          // leaving the route "Unavailable" with no way to act on it.
+          <NodeCertificatePanel
+            client={nodeClient}
+            nodeApiUrl={customUrl.trim()}
+            onChanged={() => void nodeCoreController.refreshNodes()}
+          />
+        ) : null}
         {customNetwork === 'qortium' ? (
           <>
             <label>

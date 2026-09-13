@@ -32,20 +32,22 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
-## fix: the Public node stays put between blocks instead of reloading your app tabs
+## feat: confirm a remote node's certificate from the Home 2 custom-node dialog
 
 2026-09-13
 
-On the Qortium Public route Home picked between node1 and node2 on every
-status check, and because a node reports itself one block behind for a few
-seconds after each new block, the "fully synced" test kept failing for
-whichever node was selected. Every switch changed the node address and
-reloaded every open app tab, so on the Public route a chat message could not
-even be sent before the tab reloaded. Home now keeps the node it already uses
-as long as it answers, serves public reads and is within a few blocks of the
-tip; it only moves to another node when the current one is really unusable.
-Choosing a new node still requires a fully synced candidate. Desktop and
-Android use the same rule. Found by the 2026-09-13 live Chat verification.
+Home only talks to a remote HTTPS node after you confirm the certificate
+fingerprint it presents, whoever issued it. The Home 2 shell could show that
+requirement ("Home has not been told which certificate belongs to…") but had
+no place to actually confirm one — the panel only existed in the old shell — so
+a custom HTTPS node could never come online in Home 2. The custom-node dialog
+(Settings > Runtime > Configure) now shows the certificate Home was offered,
+the command that prints the same fingerprint on the node, and a button to
+trust or forget it; the route re-checks itself right after. Home reads the
+certificate only when you ask (a half-typed address is never contacted) and
+says plainly that trust is saved the moment you confirm. The notice no longer
+calls every remote certificate "self-signed" and says where to go. Found by the
+2026-09-13 live Chat verification.
 
 ## fix: group admin actions read the member list Core actually sends
 

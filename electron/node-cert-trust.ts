@@ -159,10 +159,11 @@ export function resolveNodeCertificateTrust(
     host,
     kind: 'unconfirmed',
     reason:
-      `Home has not been told which certificate belongs to ${host}. Nothing vouches for a node's ` +
-      'self-signed certificate, so Home shows the fingerprint it was offered and waits for you to ' +
-      'confirm - on the machine running the node - that it is the same one. Until then Home will ' +
-      'not connect to this node or send its API key.',
+      `Home has not been told which certificate belongs to ${host}. Home pins the certificate of ` +
+      'a custom node whoever issued it - a public authority vouches for a name, not for the ' +
+      'machine being your node - so it shows the fingerprint it was offered and waits for you to ' +
+      'confirm, on the machine running the node, that it is the same one (Settings > Runtime > ' +
+      'Configure). Until then Home will not connect to this node or send its API key.',
   };
 }
 

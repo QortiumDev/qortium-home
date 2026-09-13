@@ -192,6 +192,15 @@ contextBridge.exposeInMainWorld('homeV2Nodes', {
   // Read-only: whether the selected Qortium node is one the user administers,
   // plus its origin and trust revision. Never the key.
   adminTrust: () => ipcRenderer.invoke('home-v2-nodes:adminTrust'),
+  // Remote-node certificate pinning (Home 2 handlers in home-v2-node-bridge;
+  // authorized Home 2 senders only). A custom HTTPS node cannot come online
+  // until its fingerprint is confirmed here.
+  getCertificateStatus: (nodeApiUrl: string) =>
+    ipcRenderer.invoke('home-v2-nodes:getCertificateStatus', nodeApiUrl),
+  confirmCertificate: (nodeApiUrl: string, fingerprint: string) =>
+    ipcRenderer.invoke('home-v2-nodes:confirmCertificate', nodeApiUrl, fingerprint),
+  forgetCertificate: (nodeApiUrl: string) =>
+    ipcRenderer.invoke('home-v2-nodes:forgetCertificate', nodeApiUrl),
 })
 
 // The node administration key travels on its own one-way channel, never

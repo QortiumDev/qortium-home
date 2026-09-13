@@ -28,6 +28,12 @@ import {
   type HomeV2LocalCoreInstallState,
 } from './home-v2-core-readiness.js'
 import { nodeFetch } from './node-tls.js'
+import { normalizeNodeApiUrl } from './node-api-url.js'
+import {
+  confirmNodeCertificate,
+  forgetNodeCertificate,
+  getNodeCertificateStatus,
+} from './node-cert-confirmation.js'
 import {
   buildAccountAvatarPath,
   buildAvatarResourcePath,
@@ -992,10 +998,36 @@ export async function readHomeV2AppIcon(network: NetworkId, requestValue: unknow
   return mapAppIconOutcome(outcome)
 }
 
+function requireNodeApiUrlString(value: unknown) {
+  if (typeof value !== 'string' || !value.trim()) throw new Error('Enter a node URL.')
+  return value.trim()
+}
+
 export function registerHomeV2NodeBridgeIpcHandlers() {
   ipcMain.handle('home-v2-nodes:getSnapshot', (event) => {
     assertAuthorizedHomeV2Sender(event)
     return getSnapshot()
+  })
+  // Remote-node certificate pinning for the Home 2 shell. The legacy shell's
+  // `node:*Certificate` handlers are registered only when Home runs the v1
+  // main path, so Home 2 had no way to confirm a fingerprint and a custom
+  // HTTPS node could never come online (found live 2026-09-13). Same
+  // sender check as every other Home 2 node call; the URL is normalized here
+  // exactly as the route resolver normalizes it, so the pin matches.
+  ipcMain.handle('home-v2-nodes:getCertificateStatus', (event, nodeApiUrl: unknown) => {
+    assertAuthorizedHomeV2Sender(event)
+    return getNodeCertificateStatus(normalizeNodeApiUrl(requireNodeApiUrlString(nodeApiUrl)))
+  })
+  ipcMain.handle(
+    'home-v2-nodes:confirmCertificate',
+    (event, nodeApiUrl: unknown, fingerprint: unknown) => {
+      assertAuthorizedHomeV2Sender(event)
+      return confirmNodeCertificate(normalizeNodeApiUrl(requireNodeApiUrlString(nodeApiUrl)), fingerprint)
+    },
+  )
+  ipcMain.handle('home-v2-nodes:forgetCertificate', (event, nodeApiUrl: unknown) => {
+    assertAuthorizedHomeV2Sender(event)
+    return forgetNodeCertificate(normalizeNodeApiUrl(requireNodeApiUrlString(nodeApiUrl)))
   })
   ipcMain.handle('home-v2-nodes:getModes', (event) => {
     assertAuthorizedHomeV2Sender(event)
