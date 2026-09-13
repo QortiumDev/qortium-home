@@ -32,6 +32,19 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## fix: Android app tabs opened from the address bar can use the selected account
+
+2026-09-13
+
+On Android, an app tab opened from the address bar, a link or the "+" button
+inherited the selected account with its wallet reference written in a
+different shape from tabs opened from a Dashboard tile. Home's request guard
+compares that reference literally, so every account-bound action from such a
+tab — sending a chat message, reading a private group — failed with "this
+action no longer matches the current chat or account" while the app still
+showed the account as selected. The default identity now records the wallet
+reference in the same shape as every other launch path; a unit test pins it.
+
 ## fix: Android keeps its Public node between blocks instead of reloading your app tabs
 
 2026-09-13

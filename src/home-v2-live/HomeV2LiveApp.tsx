@@ -67,7 +67,7 @@ import { HomeV2Prototype } from '../v2/shell/HomeV2Prototype'
 import { accountsLosingAccess, savedEntryAccountId } from '../v2/shell/account-context'
 import { isViewerAddress, parseViewerAddress, viewerLocationFromResource } from '../v2/viewer-location'
 import { recordViewerPositionSeed } from '../viewer-position'
-import { createAccountRequestEpochs, isBoundAccountRequestCurrent } from './account-request-guard'
+import { createAccountRequestEpochs, isBoundAccountRequestCurrent, walletRefForAccount } from './account-request-guard'
 import { buildTabBookmarkToggle, buildTabDashboardPin, buildTabToolbarSave } from '../v2/shell/saved-tab-bookmarks'
 import type { HomeV2SettingsSectionId } from '../v2/shell/SettingsPage'
 import { HomeV2ContextMenu } from '../v2/shell/HomeV2ContextMenu'
@@ -1277,7 +1277,10 @@ function accountIdentity(
     id: brand<IdentityId>(`home-v2:identity:${account.id}`),
     displayLabel,
     displayLabelIsRegisteredName: registeredName !== null,
-    selectedWallet: brand<WalletRef>(account.walletId),
+    // Same shape as the explicit-account tab launches below; app tabs that
+    // inherit the default identity (address bar, links, "+") store this as
+    // their walletRef and the Android request guard compares it literally.
+    selectedWallet: brand<WalletRef>(walletRefForAccount(account.walletId)),
     presences,
   }
 }
