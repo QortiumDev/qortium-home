@@ -47,6 +47,10 @@ import {
 import { isHomeV2GroupMutationAction } from '../../electron/home-v2-group-mutation-actions'
 import { isHomeV2RatingAction } from '../../electron/home-v2-rating-actions'
 import { isHomeV2PaymentAction } from '../../electron/home-v2-payment-actions'
+import {
+  QORTIUM_PUBLIC_NODE_RETAIN_MAX_BLOCKS_BEHIND,
+  QORTIUM_PUBLIC_NODE_RETAIN_MIN_SYNC_PERCENT,
+} from '../../electron/qortium-public-node-policy'
 import { isHomeV2PublishExtraAction } from '../../electron/home-v2-app-actions'
 import {
   isHomeV2CrosschainReadAction,
@@ -778,6 +782,25 @@ export function normalizePortableNodeUrl(value: string) {
   return url.origin
 }
 
+// Whether an already-selected public node may be kept: fully synced, or in the
+// coherent just-behind-the-tip state (positive height, 1..N blocks remaining,
+// sync percent still high). Anything incoherent is released so the ranked
+// re-probe can compare the seeds again. Mirrors canRetainQortiumPublicNode.
+function canRetainPublicNode(network: NetworkId, status: unknown) {
+  if (isSynced(network, status)) return true
+  const height = numberField(status, 'height') ?? 0
+  const remaining = numberField(status, 'syncBlocksRemaining')
+  const percent = numberField(status, 'syncPercent')
+  return (
+    height > 0 &&
+    remaining !== null &&
+    remaining >= 1 &&
+    remaining <= QORTIUM_PUBLIC_NODE_RETAIN_MAX_BLOCKS_BEHIND &&
+    percent !== null &&
+    percent >= QORTIUM_PUBLIC_NODE_RETAIN_MIN_SYNC_PERCENT
+  )
+}
+
 function isSynced(network: NetworkId, status: unknown) {
   const syncPhase = stringField(status, 'syncPhase')?.toUpperCase() ?? ''
   const remaining = numberField(status, 'syncBlocksRemaining')
@@ -1137,10 +1160,14 @@ export function createPortableNodeClient(
     }
   }
 
-  async function probe(network: NetworkId, nodeApiUrl: string): Promise<ProbeResult | null> {
+  async function probe(
+    network: NetworkId,
+    nodeApiUrl: string,
+    accept: (network: NetworkId, status: unknown) => boolean = isSynced,
+  ): Promise<ProbeResult | null> {
     try {
       const statusResponse = await dependencies.requestJson(`${nodeApiUrl}/admin/status`)
-      if (!statusResponse.ok || !isSynced(network, statusResponse.data)) return null
+      if (!statusResponse.ok || !accept(network, statusResponse.data)) return null
       const readResponse = await dependencies.requestJson(`${nodeApiUrl}${PUBLIC_READ_PATH}`)
       if (!readResponse.ok) return null
       return {
@@ -1156,7 +1183,16 @@ export function createPortableNodeClient(
   async function resolvePublic(network: NetworkId) {
     const stickyUrl = stickyPublicUrls[network]
     if (stickyUrl) {
-      const sticky = await probe(network, stickyUrl)
+      // Hysteresis (same rule as electron/node-settings.ts and
+      // src/platform.ts since #570): the selected node is KEPT while it is
+      // readable and within a few blocks of the tip. Every node reports
+      // BEHIND / 1 block for a few seconds after each block; probing the
+      // sticky node with the strict "fully synced" rule released it on nearly
+      // every block, the ranked re-probe then picked the other seed, and the
+      // changed nodeApiUrl invalidated the Android app runtime — every open
+      // app tab reloaded (~once per block) and in-flight app requests failed
+      // with STALE_CONTEXT (observed live on the phone, 2026-09-13).
+      const sticky = await probe(network, stickyUrl, canRetainPublicNode)
       if (sticky) return sticky
     }
     const candidates = (

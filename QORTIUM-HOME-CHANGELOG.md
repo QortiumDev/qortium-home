@@ -32,6 +32,21 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## fix: Android keeps its Public node between blocks instead of reloading your app tabs
+
+2026-09-13
+
+The Android shell chose its Public node with a rule that only accepted a
+node reporting itself fully synced. Every Qortium node reports "one block
+behind" for a few seconds after each new block, so on the Public route the
+phone switched between node1 and node2 on nearly every block, and each switch
+reloaded every open app tab and failed whatever an app was doing at that
+moment with "this action no longer matches the current chat or account". The
+same hysteresis the desktop got in beta.5 now applies on Android: a node that
+is readable and at most a few blocks behind is kept, and Home only moves when
+the node is really lagging or unreachable. Observed live on the test phone:
+an app tab that reloaded about once a minute stayed put for several blocks.
+
 ## release: prepare home 2.1.0-beta.5
 
 2026-09-13

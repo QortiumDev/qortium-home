@@ -112,6 +112,8 @@ const latency = new Map([
   ['https://api.qortal.org', 10],
 ])
 const unavailable = new Set<string>()
+// Per-origin /admin/status body (public-node retention scenarios).
+const statusOverrides = new Map<string, unknown>()
 const requestCount = new Map<string, number>()
 let currentNow = 1_700_000_000_000
 let lastRequestedUrl = ''
@@ -215,7 +217,7 @@ const dependencies: PortableNodeClientDependencies = {
         : url.includes('/arbitrary/resource/status/')
           ? { status: 'READY' }
         : url.includes('/admin/status')
-        ? syncedStatus
+        ? (statusOverrides.get(origin) ?? syncedStatus)
         : url.includes('/arbitrary/resources/search') && url.includes('name=Trust')
           ? [{ identifier: 'Trust', name: 'Trust', service: 'APP' }]
           : url.includes('/at/AbsntbeMZM7VQjaX5PSuTf2fQxUeMWLPbV')
@@ -695,6 +697,47 @@ requestCount.clear()
 const sticky = (await client.getSnapshot()) as Snapshot
 assert.equal(sticky.nodes.qortal.nodeApiUrl, 'https://api.qortal.org')
 assert.equal(requestCount.has('https://ext-node.qortal.link'), false)
+
+// Hysteresis: the sticky node reporting the coherent "just behind the tip"
+// state Core shows for a few seconds after each block (BEHIND / 1 block / 99%)
+// is KEPT, without probing the other seed — a strict "fully synced" rule here
+// flipped the public node on nearly every block, which reloaded every Android
+// app tab and failed in-flight app requests with STALE_CONTEXT.
+statusOverrides.set('https://api.qortal.org', {
+  ...syncedStatus,
+  syncBlocksRemaining: 1,
+  syncPercent: 99,
+  syncPhase: 'BEHIND',
+})
+requestCount.clear()
+const behindOneBlock = (await client.getSnapshot()) as Snapshot
+assert.equal(behindOneBlock.nodes.qortal.nodeApiUrl, 'https://api.qortal.org')
+assert.equal(requestCount.has('https://ext-node.qortal.link'), false)
+// Too far behind, or an incoherent status (zero height), releases the sticky
+// node so the ranked re-probe compares the seeds again.
+statusOverrides.set('https://api.qortal.org', {
+  ...syncedStatus,
+  syncBlocksRemaining: 4,
+  syncPercent: 99,
+  syncPhase: 'BEHIND',
+})
+requestCount.clear()
+const tooFarBehind = (await client.getSnapshot()) as Snapshot
+assert.equal(tooFarBehind.nodes.qortal.nodeApiUrl, 'https://ext-node.qortal.link')
+assert.equal(requestCount.has('https://ext-node.qortal.link'), true)
+statusOverrides.clear()
+// ext-node is sticky now. An incoherent status (zero height) releases it too,
+// and the re-probe lands back on api.qortal.org — which the failover scenario
+// below expects as the sticky node.
+latency.set('https://ext-node.qortal.link', 100)
+latency.set('https://api.qortal.org', 1)
+statusOverrides.set('https://ext-node.qortal.link', { ...syncedStatus, height: 0 })
+requestCount.clear()
+const incoherent = (await client.getSnapshot()) as Snapshot
+assert.equal(incoherent.nodes.qortal.nodeApiUrl, 'https://api.qortal.org')
+statusOverrides.clear()
+latency.set('https://ext-node.qortal.link', 1)
+latency.set('https://api.qortal.org', 100)
 
 unavailable.add('https://api.qortal.org')
 requestCount.clear()
