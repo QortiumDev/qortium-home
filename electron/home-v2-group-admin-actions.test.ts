@@ -86,9 +86,18 @@ assert.deepEqual(normalizeHomeV2GroupAdminTarget({ groupId: 12, groupName: 'Buil
 assert.equal(homeV2GroupAdminRequiredRole('ADD_GROUP_ADMIN'), 'owner')
 assert.equal(homeV2GroupAdminRequiredRole('INVITE_TO_GROUP'), 'admin')
 assert.equal(homeV2GroupAdminOperationLabel('CANCEL_GROUP_BAN'), 'Cancel group ban')
+// Live Core shape (`GroupMembers.java` @XmlElement(name = "members")) — the field a real
+// node returns for /groups/members/{id}?onlyAdmins=true.
+assert.deepEqual(normalizeHomeV2GroupAdminAddresses({
+  memberCount: 2,
+  adminCount: 2,
+  members: [{ member: owner, isAdmin: true, primaryName: 'Owner' }, { member: address, isAdmin: true }],
+}), [owner, address])
+// Java-field spelling stays accepted as a fallback.
 assert.deepEqual(normalizeHomeV2GroupAdminAddresses({
   groupMembers: [{ member: owner }, { member: address }],
 }), [owner, address])
+assert.throws(() => normalizeHomeV2GroupAdminAddresses({ memberCount: 0 }), /could not verify the selected group administrators/)
 assert.doesNotThrow(() => assertHomeV2GroupAdminAuthority({
   accountAddress: address,
   action: 'INVITE_TO_GROUP',
