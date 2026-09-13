@@ -7,6 +7,7 @@ import {
   type PointerEvent,
 } from 'react'
 import { ChevronDown, Compass, File, LayoutDashboard, Lock, Settings } from 'lucide-react'
+import type { ReactNode } from 'react'
 import type { TabId } from '../contracts'
 import type { ProductState, ShellEntry, TabPageId } from '../product-model'
 import { t, type TranslationKey } from '../../i18n'
@@ -89,6 +90,13 @@ export interface TabStripProps {
     groupKey: string,
     position: { screenX: number; screenY: number },
   ) => void | Promise<void>
+  /**
+   * What the ACTIVE tab shows while a full-window page (release notes, the
+   * Core API docs) covers it: that page's own name and mark, so the tab
+   * reads "Home v2.1.0" rather than the name of whatever sits underneath.
+   * Presentation only; the product model still holds the covered tab.
+   */
+  readonly activeTabOverlay?: { readonly label: string; readonly icon: ReactNode } | null
 }
 
 /** Below this strip width only the active tab's group is shown. */
@@ -330,6 +338,7 @@ export function TabStrip({
   preferredAvatarNetwork = 'qortium',
   onReorderGroup,
   onDetachGroup,
+  activeTabOverlay,
 }: TabStripProps) {
   const grouping = { dashboardAccountId: selectedAccountId ?? null }
   const tabElements = useRef(new Map<string, HTMLDivElement>())
@@ -611,7 +620,8 @@ export function TabStrip({
   const renderTab = (entry: ShellEntry) => {
     const key = entry.id as string
     const isActive = productState.activeTabId === entry.id
-    const label = entryLabel(entry)
+    const overlay = isActive && productState.transient ? activeTabOverlay ?? null : null
+    const label = overlay?.label ?? entryLabel(entry)
     return (
       <div
         className={`home-v2-tab${
@@ -620,6 +630,7 @@ export function TabStrip({
         key={key}
         data-tab-id={key}
         data-internal-page={entry.kind === 'internal' ? entry.page : undefined}
+        data-tab-overlay={overlay ? productState.transient ?? undefined : undefined}
         ref={registerTab(key)}
         onPointerDown={(event) => handlePointerDown(event, key)}
         onAuxClick={(event) =>
@@ -642,7 +653,9 @@ export function TabStrip({
           }}
           onKeyDown={(event) => handleTabKeyDown(event, key)}
         >
-          {entry.kind === 'internal' ? (
+          {overlay ? (
+            overlay.icon
+          ) : entry.kind === 'internal' ? (
             <InternalTabIcon page={entry.page} />
           ) : entry.kind === 'viewer' ? (
             <File className="home-v2-tab__favicon" size={18} aria-hidden="true" />
@@ -655,7 +668,7 @@ export function TabStrip({
             />
           )}
           <span>{label}</span>
-          {entry.kind !== 'internal' ? (
+          {entry.kind !== 'internal' && !overlay ? (
             <NetworkBadge compact network={entry.kind === 'app' ? entry.context.sourceNetwork : parseViewerLocation(entry.location).network} />
           ) : null}
         </button>

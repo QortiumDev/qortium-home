@@ -316,4 +316,41 @@ const viewerTab = 'tab-viewer' as TabId
 const withViewer = reduce(createProductState(), { type: 'open-viewer', tabId: viewerTab, location: 'qortal://IMAGE/Alice/pic', accountId: null })
 assert.throws(() => reduce(withViewer, { type: 'open-app-here', app: app('Chat'), tabId: viewerTab, context: context('Chat', viewerTab) }), /not an internal page/)
 
-console.log('Per-tab native/cross-app/internal history, account binding, mixed reopen, in-place Dashboard and isolation passed')
+// At most one Dashboard tab. "+" (open-internal dashboard) focuses the one
+// that exists; a tab that became an app is no longer a Dashboard, so "+"
+// then opens a new one; Back on the app tab turns it into the Dashboard
+// again and the extra one closes; a stored strip with two restores to one.
+{
+  const start = createProductState()
+  const dashId = start.entries[0].id
+  const plus = (state: NavigationState, id: string) => reduce(state, { type: 'open-internal', tabId: id as TabId, page: 'dashboard' })
+  let one = plus(plus(start, 'plus-1'), 'plus-2')
+  assert.deepEqual(one.entries.map(entry => entry.id), [dashId], '"+" twice: still one Dashboard, focused')
+  assert.equal(one.activeTabId, dashId)
+  one = reduce(one, { type: 'open-app-here', app: app('Chat'), tabId: dashId, context: context('Chat', dashId) })
+  one = plus(one, 'plus-3')
+  assert.deepEqual(one.entries.map(entry => [entry.id, entry.kind]), [[dashId, 'app'], ['plus-3', 'internal']], 'no Dashboard left: "+" opens one')
+  one = reduce(one, { type: 'activate-tab', tabId: dashId })
+  one = reduce(one, { type: 'traverse-history', tabId: dashId, index: 0 })
+  assert.deepEqual(one.entries.map(entry => [entry.id, entry.kind]), [[dashId, 'internal']], 'Back made the app tab the Dashboard; the "+" one closed')
+  assert.equal(one.activeTabId, dashId)
+  assert.equal(one.destination, 'dashboard')
+  // navigate keeps focusing the single Dashboard.
+  assert.equal(reduce(one, { type: 'navigate', destination: 'dashboard' }).entries.length, 1)
+  // Restore: two stored Dashboards collapse to the active one.
+  const restored = restoreProductState({
+    activeTabId: 'd-2',
+    entries: [
+      { kind: 'internal', id: 'd-1', page: 'dashboard' },
+      { kind: 'app', id: 'a-1', appId: 'Chat', title: 'Chat', context: context('Chat', 'a-1' as TabId) },
+      { kind: 'internal', id: 'd-2', page: 'dashboard' },
+    ],
+  })
+  assert.deepEqual(restored.entries.map(entry => entry.id), ['a-1', 'd-2'])
+  assert.equal(restored.activeTabId, 'd-2')
+  // Closing the last tab still reopens a Dashboard (never an empty strip).
+  const closed = reduce(reduce(one, { type: 'open-internal', tabId: 's-1' as TabId, page: 'settings' }), { type: 'close-tab', tabId: dashId })
+  assert.equal(closed.entries.length, 1)
+}
+
+console.log('Per-tab native/cross-app/internal history, account binding, mixed reopen, in-place Dashboard, one Dashboard and isolation passed')

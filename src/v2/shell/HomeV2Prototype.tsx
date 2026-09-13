@@ -8,6 +8,7 @@ import {
 } from 'react'
 import { Lock, LockOpen } from 'lucide-react'
 import { t } from '../../i18n'
+import { HomeMark, NetworkMark } from './ProductMarks'
 import { createViewerPositionStore } from '../../viewer-position'
 import { translateMainProcessMessage } from '../../mainProcessMessage'
 import {
@@ -1241,6 +1242,26 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
         onReload={props.onReload}
         navigationDisabled={!!overlayOwnerTabId}
         newTabPreference={props.newTabPreference}
+        activeTabOverlay={
+          productState.destination === 'releases' && props.releaseNotesTarget
+            ? {
+                label: t(
+                  props.releaseNotesTarget.product === 'home'
+                    ? 'home2.tabs.releaseNotesHome'
+                    : 'home2.tabs.releaseNotesCore',
+                  { tag: props.releaseNotesTarget.tagName },
+                ),
+                icon: props.releaseNotesTarget.product === 'home'
+                  ? <HomeMark className="home-v2-tab__favicon" />
+                  : <NetworkMark network="qortium" className="home-v2-tab__favicon" />,
+              }
+            : productState.destination === 'core-docs' && props.coreDocsNetwork
+              ? {
+                  label: t('home2.tabs.coreDocs', { network: props.coreDocsNetwork === 'qortal' ? 'Qortal' : 'Qortium' }),
+                  icon: <NetworkMark network={props.coreDocsNetwork} className="home-v2-tab__favicon" />,
+                }
+              : null
+        }
         releaseNotesAddress={
           productState.destination === 'releases' && props.releaseNotesTarget
             ? `home://releases/${props.releaseNotesTarget.product}/${encodeURIComponent(props.releaseNotesTarget.tagName)}`

@@ -87,7 +87,7 @@ const SMOKES = [
   { script: 'smoke:desktop:home-v2-bookmark-toolbar', needs: 'network', flaky: true,
     note: 'fails 3/3 with no network, surfacing as the 10s narrow-layout wait; also flaky with network' },
   { script: 'smoke:desktop:home-v2-release-notes', needs: 'internet', flaky: true,
-    note: 'fetches api.github.com' },
+    note: 'fetches api.github.com. 2026-09-12: times out at "main-owned release notes" identically on the released beta.3 AppImage with GitHub reachable (pre-existing); the tab-label overlay was verified by a CDP probe instead.' },
 
   // Need a local Core. settings and core-manager were the negative control:
   // both failed with networking removed, exactly as predicted.
