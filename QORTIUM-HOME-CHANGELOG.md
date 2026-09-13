@@ -32,6 +32,22 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## release: prepare home 2.1.0-beta.5
+
+2026-09-13
+
+Prepare the fifth Home 2.1 public testing prerelease. It carries the changes
+merged since beta.4: group admin actions (approve or reject a join request,
+invite, kick, ban) read the member list Core actually sends, so they work
+again from apps; on the Public route Home keeps the selected public node
+while it is at most a few blocks behind instead of switching nodes and
+reloading app tabs at every block; a custom HTTPS node's certificate
+fingerprint is shown and confirmed from the Home 2 custom-node dialog before
+Home talks to it; and two smoke scripts follow the current shell. Android
+advances to code 47 so it can update beta.4 and every earlier package.
+Stable users remain on Home 1.8.0. The beta testing guide gains the node
+and group checks. No runtime source changes in this entry.
+
 ## feat: confirm a remote node's certificate from the Home 2 custom-node dialog
 
 2026-09-13
