@@ -1,12 +1,12 @@
 # Home 2.1 beta testing and app development
 
-Home 2.1.0-beta.4 is a testing prerelease. Home 1.8.0 remains the latest stable
+Home 2.1.0-beta.5 is a testing prerelease. Home 1.8.0 remains the latest stable
 release. Choose Prerelease in Home's update settings to follow the Home 2 line,
 or install the matching platform asset manually. Report the Home version,
 platform, app version, selected network, node route and reproduction steps.
 Keep passwords, recovery material and private message contents out of reports.
 
-Android beta.4 uses versionCode 46. It can update release-signed beta.3 (code 45),
+Android beta.5 uses versionCode 47. It can update release-signed beta.4 (code 46), beta.3 (code 45),
 beta.2 (code 44), beta.1 (code 43), Home 1.8.0 (code 41) and release-signed
 development Home 2.1.0 (code 42). Development
 builds named 2.1.0 sort above the beta in semantic-version comparisons, so
@@ -15,7 +15,7 @@ signer and cannot be updated in place by the release APK.
 
 ## Start with the runtime contract
 
-Home's application version is 2.1.0-beta.4; its QAVS platform version is 2.1.
+Home's application version is 2.1.0-beta.5; its QAVS platform version is 2.1.
 Feature-detect actions instead of treating either version as a capability list.
 Use `qdnRequest` for Qortium and `qortalRequest` for Qortal. The invoked bridge
 determines the network; a network field in the payload does not switch it.
@@ -118,6 +118,17 @@ APP/WEBSITE navigation and a resource viewer are distinct operations.
    account's menu (unlock or lock, select). Release notes and Core API docs
    name their tab. On a phone the dashboard tile headers are one line, and
    Check for updates works.
+9. New in beta.5 — nodes and groups. On the Qortium Public route, Home now
+   keeps the selected public node while it is at most a few blocks behind
+   instead of switching (and reloading your app tabs) at every block; report
+   any tab reload you did not cause. Adding a custom HTTPS node shows the
+   node's certificate fingerprint and asks you to confirm it before Home
+   talks to that node (Check the certificate → Trust); a changed certificate
+   is reported and can be forgotten. Group admin actions (approve or reject a
+   join request, invite, kick, ban) work again from apps such as Chat's
+   members drawer. Chat 2.0.18 on QDN adds byte counters, per-conversation
+   mute, a Copy button and audio embeds for Hub readers — use it for the
+   group checks above.
 
 ## Reports still being investigated
 
