@@ -291,7 +291,10 @@ androidElement.remove()
   function QdnHarness({ onState }: { readonly onState: (state: HomeV2AppUpdates) => void }) {
     const state = useHomeV2AppUpdates(androidHost, {
       nodeClient: {
-        readQdnJsonResource: async (network, resource) => { reads.push([network, resource]); return { nodeApiUrl: 'https://node.example', data: null } },
+        readQdnJsonResource: async (
+          network: string,
+          resource: { readonly service: string; readonly name: string; readonly identifier: string },
+        ) => { reads.push([network, resource]); return { nodeApiUrl: 'https://node.example', data: null } },
       } as unknown as import('./node-client').HomeV2NodeClient,
     })
     useEffect(() => onState(state), [onState, state])
