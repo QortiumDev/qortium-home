@@ -81,15 +81,15 @@ substitute for an installed or packaged acceptance gate.
 
 Only after explicit maintainer approval, configure the existing Android release
 signing values described in `README.md`, build the signed APK, and install it
-over the previous prerelease package (2.1.0-beta.1, code 43) and, when a device is
+over the previous prerelease package (2.1.0-beta.3, code 45) and, when a device is
 available, over the public Home 1.8.0 package (code 41). Verify that application data and account
-state remain intact, the installed version is 2.1.0-beta.3 (code 45), the app starts,
+state remain intact, the installed version is 2.1.0-beta.4 (code 46), the app starts,
 and a rollback is not silently attempted. Keep signing values and keystore
 material outside the repository and out of logs.
 
 Development Home 2.1.0 APKs already used code 42. Test their in-place upgrade
 separately: Android orders installation by versionCode, while Home compares
-semantic versions. A developer build named 2.1.0 sorts after 2.1.0-beta.3, so
+semantic versions. A developer build named 2.1.0 sorts after 2.1.0-beta.4, so
 those testers must install the beta APK manually. Preserve a user's explicit
 Stable channel choice; GitHub must keep v1.8.0 as latest stable while this
 release is marked prerelease.
@@ -118,3 +118,23 @@ npm run release:check
 
 Do not reuse or replace an existing release, clobber assets, or publish a tag
 without naming that action in the approval checkpoint.
+
+## 6. Publish the release to QDN
+
+Home reads its own releases from QDN (the default release source is QDN, then
+GitHub). After the GitHub release is published and its assets verified, publish
+the same bytes to QDN under the `QortiumHomeTest` name from a machine with a
+synced local Core and the preview accounts file:
+
+```sh
+node scripts/publish-home-release-to-qdn.mjs --tag vX.Y.Z --dry-run
+node scripts/publish-home-release-to-qdn.mjs --tag vX.Y.Z
+```
+
+The script downloads the GitHub assets into `~/.cache/qortium-home-qdn-release/<tag>/`,
+verifies them against GitHub's recorded digests, publishes one `FILE` resource
+per package (`home-<tag>-<platform>`), the `JSON` manifest
+(`home-release-<tag>`) and the channel pointer (`home-latest-stable` or
+`home-latest-prerelease`), and skips resources that are already published.
+Record the manifest identifier in the release receipt. A release is not
+complete for QDN users until the pointer names it.
