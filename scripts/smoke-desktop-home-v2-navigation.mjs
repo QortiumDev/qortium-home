@@ -163,7 +163,9 @@ try {
     let target
     await until(`${name} native document`, async () => {
       const targets = await (await fetch(`http://127.0.0.1:${home.port}/json/list`)).json()
-      target = targets.find(entry => entry.url.includes(`/render/APP/${name}/published/${route}`))
+      // Qortal render URLs carry the identifier as `?identifier=` and the
+      // route straight after the name (Qortal Core's RenderResource, #550).
+      target = targets.find(entry => entry.url.includes(`/render/APP/${name}/${route}`) && entry.url.includes('identifier=published'))
       return !!target
     })
     const app = new Cdp(target.webSocketDebuggerUrl)
@@ -174,7 +176,8 @@ try {
     // document and bridge, otherwise pushState races the first navigation.
     await until('Native fixture document and bridge ready', () => app.evaluate(`
       document.readyState === 'complete' &&
-      location.pathname.startsWith(${JSON.stringify(`/render/APP/${name}/published/${route}`)}) &&
+      location.pathname.startsWith(${JSON.stringify(`/render/APP/${name}/${route}`)}) &&
+      new URLSearchParams(location.search).get('identifier') === 'published' &&
       document.body?.textContent.includes('Disposable navigation fixture') &&
       typeof window.qdnRequest === 'function'`))
     return app
@@ -212,25 +215,31 @@ try {
   await until('Outside pointer restores app', () => app.evaluate(`document.visibilityState === 'visible'`))
   assert.equal(await app.evaluate('window.__bookmarkOverlayMarker'), 'same-document')
   log('Native-pointer bookmark context/folder popup suspension and restoration passed')
-  await app.evaluate(`history.pushState({}, '', 'two?room=7#message')`)
-  await until('Alpha deep URL', async () => await address() === `${alpha}two?room=7#message`)
-  await app.evaluate(`window.__navigationMarker = 'kept'; history.pushState({}, '', 'three')`)
-  await until('Alpha third URL', async () => await address() === `${alpha}three`)
+  // Qortal Core names an identified resource by `?identifier=` on EVERY
+  // request, so a Qortal app keeps it when it navigates; Home shows the
+  // Qortal address with that query (#550) and refuses a render URL that
+  // drops it (it would name the default resource).
+  const alphaTwo = `${alpha}two?identifier=published&room=7#message`
+  const alphaThree = `${alpha}three?identifier=published`
+  await app.evaluate(`history.pushState({}, '', 'two?identifier=published&room=7#message')`)
+  await until('Alpha deep URL', async () => await address() === alphaTwo)
+  await app.evaluate(`window.__navigationMarker = 'kept'; history.pushState({}, '', 'three?identifier=published')`)
+  await until('Alpha third URL', async () => await address() === alphaThree)
   await click(back)
-  await until('Native Back', async () => await address() === `${alpha}two?room=7#message`)
+  await until('Native Back', async () => await address() === alphaTwo)
   assert.equal(await app.evaluate('window.__navigationMarker'), 'kept', 'Within-app traversal preserves the document')
   await click(forward)
-  await until('Native Forward', async () => await address() === `${alpha}three`)
+  await until('Native Forward', async () => await address() === alphaThree)
   await app.evaluate(`void window.qdnRequest({action:'OPEN_CURRENT_TAB', address:${JSON.stringify(`${beta}one`)}})`)
   app = await attach('NavigationBeta', 'one')
   assert.equal(await currentTab(), appTab)
   assert.equal(await countTabs(), tabs)
   await click(back)
   app = await attach('NavigationAlpha', 'three')
-  await until('Cross-app Back URL', async () => await address() === `${alpha}three`)
+  await until('Cross-app Back URL', async () => await address() === alphaThree)
   await click(back)
   app = await attach('NavigationAlpha', 'two')
-  await until('Earlier Alpha deep URL', async () => await address() === `${alpha}two?room=7#message`)
+  await until('Earlier Alpha deep URL', async () => await address() === alphaTwo)
   await click(forward)
   app = await attach('NavigationAlpha', 'three')
   await click(forward)
@@ -245,7 +254,7 @@ try {
   await sleep(500)
   assert.equal(await app.evaluate('window.__navigationMarker'), 'underlying', 'Docs reload must not reload the hidden app')
   await click(back)
-  await until('Docs Back to Beta', async () => await address() === `${beta}one`)
+  await until('Docs Back to Beta', async () => await address() === `${beta}one?identifier=published`)
   assert.equal(await app.evaluate('window.__navigationMarker'), 'underlying')
   await click('.home-v2-tab[data-tab-id="settings"] button[role="tab"]')
   const beforeReload = counts.get('/admin/status') ?? 0
@@ -268,7 +277,7 @@ try {
   shortcut('ctrl+shift+t')
   await until('Mixed stack reopens internal first', () => cdp.evaluate(`!!document.querySelector('.home-v2-page-slot[data-internal-page="settings"]:not([hidden])')`))
   shortcut('ctrl+shift+t')
-  await until('Mixed stack reopens app second', async () => await address() === `${beta}one`)
+  await until('Mixed stack reopens app second', async () => await address() === `${beta}one?identifier=published`)
   assert.equal(await countTabs(), tabs)
   assert.notEqual(await currentTab(), appTab)
   log('Genuine Ctrl+W/Ctrl+Shift+T internal and mixed close order passed')
