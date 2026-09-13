@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { HomeV2NodeCertificateStatus } from '../../home-v2-live/node-client'
 
 // Confirming a remote node's certificate by hand, in the Home 2 shell.
@@ -22,12 +22,18 @@ export interface NodeCertificatePanelProps {
   readonly onChanged?: () => void
 }
 
+// Same loopback set as the main process (electron/node-ca-bootstrap.ts): all
+// of 127/8, IPv6 ::1 and "localhost" never need a pin.
+function isLoopbackHostname(hostname: string) {
+  const host = hostname.toLowerCase().replace(/^\[|\]$/g, '')
+  return host === 'localhost' || host === '::1' || /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host)
+}
+
 export function needsCertificateConfirmation(nodeApiUrl: string) {
   try {
     const url = new URL(nodeApiUrl.trim())
     if (url.protocol !== 'https:') return false
-    const host = url.hostname.toLowerCase()
-    return !(host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]')
+    return !isLoopbackHostname(url.hostname)
   } catch {
     return false
   }
@@ -43,24 +49,37 @@ export function NodeCertificatePanel({ client, nodeApiUrl, onChanged }: NodeCert
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const supported = typeof client.getCertificateStatus === 'function'
+  // Nothing is contacted until the user asks: reading the certificate opens a
+  // TLS connection to whatever is typed, and a draft URL may be a typo or a
+  // host the user never meant to reach (second-model review of #571). A
+  // request counter drops answers that arrive for an earlier URL.
+  const requestSerial = useRef(0)
 
   const refresh = useCallback(async () => {
     if (!supported) return
+    const serial = ++requestSerial.current
     setBusy(true)
     setError(null)
     try {
-      setStatus((await client.getCertificateStatus?.(nodeApiUrl)) ?? null)
+      const next = (await client.getCertificateStatus?.(nodeApiUrl)) ?? null
+      if (serial !== requestSerial.current) return
+      setStatus(next)
     } catch (caught) {
+      if (serial !== requestSerial.current) return
       setStatus(null)
       setError(describeError(caught))
     } finally {
-      setBusy(false)
+      if (serial === requestSerial.current) setBusy(false)
     }
   }, [client, nodeApiUrl, supported])
 
+  // A URL edit invalidates whatever was shown for the previous one.
   useEffect(() => {
-    void refresh()
-  }, [refresh])
+    requestSerial.current += 1
+    setStatus(null)
+    setError(null)
+    setBusy(false)
+  }, [nodeApiUrl])
 
   if (!supported) return null
 
@@ -84,9 +103,9 @@ export function NodeCertificatePanel({ client, nodeApiUrl, onChanged }: NodeCert
     <section className="home-v2-node-certificate" data-home-v2-node-certificate={nodeApiUrl}>
       <h3>Certificate</h3>
       <p>
-        Home pins the certificate of every remote HTTPS node, whoever issued it, and only talks to
-        this node — or sends it an API key — once you confirm the fingerprint it presents is the one
-        the node itself shows.
+        Home pins the certificate of a custom HTTPS node, whoever issued it, and only talks to this
+        node — or sends it an API key — once you confirm the fingerprint it presents is the one the
+        node itself shows. Trust is saved the moment you confirm, whether or not you save the address.
       </p>
       {status?.confirmedFingerprint ? (
         <p className="home-v2-node-certificate__row">
@@ -115,7 +134,11 @@ export function NodeCertificatePanel({ client, nodeApiUrl, onChanged }: NodeCert
         <p className="home-v2-node-certificate__state" role="status">Not confirmed yet.</p>
       ) : busy ? (
         <p className="home-v2-node-certificate__state" role="status">Reading the certificate…</p>
-      ) : null}
+      ) : (
+        <p className="home-v2-node-certificate__state" role="status">
+          Home has not read this node's certificate yet. Checking connects to the address above.
+        </p>
+      )}
       {presented && !status?.matchesConfirmed ? (
         <>
           <p>On the machine running the node, print the fingerprint and compare it:</p>
@@ -153,7 +176,7 @@ export function NodeCertificatePanel({ client, nodeApiUrl, onChanged }: NodeCert
           disabled={busy}
           onClick={() => void refresh()}
         >
-          Check again
+          {status ? 'Check again' : 'Check the certificate'}
         </button>
       </div>
     </section>
