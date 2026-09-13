@@ -51,7 +51,7 @@ const SMOKES = [
   { script: 'smoke:desktop:home-v2-viewer-tabs', needs: 'unknown',
     note: 'Public viewer ownership, metadata, saves/reopen and process restoration against disposable loopback resources; hosted CI not established.' },
   { script: 'smoke:desktop:home-v2-navigation', needs: 'unknown',
-    note: 'Per-tab native/cross-app/internal navigation against a disposable loopback fixture; hosted CI not yet established. 2026-09-12: times out at "NavigationAlpha native document" identically on the released beta.3 AppImage (pre-existing; the Settings Back/Forward half passes).' },
+    note: 'Per-tab native/cross-app/internal navigation against a disposable loopback fixture; hosted CI not yet established. Was stale since #550 (Qortal render URLs carry the identifier as ?identifier= after the route); realigned 2026-09-13, passes against the released beta.4.' },
   // Verified node-free: passed with all networking removed.
   { script: 'smoke:desktop:home-v2-onboarding', needs: 'none', ci: true },
   { script: 'smoke:desktop:home-v2-tabs', needs: 'none', ci: true },
