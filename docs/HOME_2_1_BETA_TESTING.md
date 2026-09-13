@@ -1,12 +1,12 @@
 # Home 2.1 beta testing and app development
 
-Home 2.1.0-beta.5 is a testing prerelease. Home 1.8.0 remains the latest stable
+Home 2.1.0-beta.6 is a testing prerelease. Home 1.8.0 remains the latest stable
 release. Choose Prerelease in Home's update settings to follow the Home 2 line,
 or install the matching platform asset manually. Report the Home version,
 platform, app version, selected network, node route and reproduction steps.
 Keep passwords, recovery material and private message contents out of reports.
 
-Android beta.5 uses versionCode 47. It can update release-signed beta.4 (code 46), beta.3 (code 45),
+Android beta.6 uses versionCode 48. It can update release-signed beta.5 (code 47), beta.4 (code 46), beta.3 (code 45),
 beta.2 (code 44), beta.1 (code 43), Home 1.8.0 (code 41) and release-signed
 development Home 2.1.0 (code 42). Development
 builds named 2.1.0 sort above the beta in semantic-version comparisons, so
@@ -15,7 +15,7 @@ signer and cannot be updated in place by the release APK.
 
 ## Start with the runtime contract
 
-Home's application version is 2.1.0-beta.5; its QAVS platform version is 2.1.
+Home's application version is 2.1.0-beta.6; its QAVS platform version is 2.1.
 Feature-detect actions instead of treating either version as a capability list.
 Use `qdnRequest` for Qortium and `qortalRequest` for Qortal. The invoked bridge
 determines the network; a network field in the payload does not switch it.
@@ -129,6 +129,13 @@ APP/WEBSITE navigation and a resource viewer are distinct operations.
    members drawer. Chat 2.0.18 on QDN adds byte counters, per-conversation
    mute, a Copy button and audio embeds for Hub readers — use it for the
    group checks above.
+10. New in beta.6 — Android on the Public route. The phone no longer
+   switches public nodes at every block, so app tabs stop reloading about
+   once a minute; and an app opened from a link, the address bar or "+" can
+   now send messages and read private chats with the selected account
+   instead of failing with "this action no longer matches the current chat
+   or account". Please retry any Chat send that used to be discarded on the
+   phone, from a tab opened through a link as well as from the Chat tile.
 
 ## Reports still being investigated
 
