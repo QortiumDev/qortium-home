@@ -32,6 +32,20 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## feat: confirm a remote node's certificate from the Home 2 custom-node dialog
+
+2026-09-13
+
+Home only talks to a remote HTTPS node after you confirm the certificate
+fingerprint it presents, whoever issued it. The Home 2 shell could show that
+requirement ("Home has not been told which certificate belongs to…") but had
+no place to actually confirm one — the panel only existed in the old shell — so
+a custom HTTPS node could never come online in Home 2. The custom-node dialog
+(Settings > Runtime > Configure) now shows the certificate Home was offered,
+the command that prints the same fingerprint on the node, and a button to
+trust or forget it; the route re-checks itself right after. The notice no
+longer calls every remote certificate "self-signed" and says where to go.
+Found by the 2026-09-13 live Chat verification.
 ## fix: the Public node stays put between blocks instead of reloading your app tabs
 
 2026-09-13

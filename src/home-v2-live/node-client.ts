@@ -143,6 +143,23 @@ const LIST_REQUEST_TIMEOUT_MS = 15_000
 // own remote VPS, so it does not share the list timeout.
 const PREVIEW_UPLOAD_TIMEOUT_MS = 180_000
 
+export interface HomeV2NodeCertificateStatus {
+  readonly confirmationRequired: boolean
+  readonly confirmedFingerprint: string | null
+  readonly host: string
+  readonly matchesConfirmed: boolean
+  readonly nodeApiUrl: string
+  readonly observeError: string | null
+  readonly presented: {
+    readonly fingerprint: string
+    readonly issuer: string
+    readonly subject: string
+    readonly validFrom: string
+    readonly validTo: string
+  } | null
+  readonly verifyCommand: string
+}
+
 export interface HomeV2NodeClient {
   getSnapshot(): Promise<unknown>
   /**
@@ -213,6 +230,14 @@ export interface HomeV2NodeClient {
     readonly revision: string
     readonly trusted: boolean
   }>
+  /**
+   * Remote-node certificate pinning. Home trusts a non-loopback HTTPS node
+   * only after the user confirms the fingerprint it presents (whoever issued
+   * the certificate). Desktop only: Android trusts the platform store.
+   */
+  getCertificateStatus?(nodeApiUrl: string): Promise<HomeV2NodeCertificateStatus>
+  confirmCertificate?(nodeApiUrl: string, fingerprint: string): Promise<HomeV2NodeCertificateStatus>
+  forgetCertificate?(nodeApiUrl: string): Promise<HomeV2NodeCertificateStatus>
   listRead?(action: string, request: Record<string, unknown>): Promise<unknown>
   listWrite?(
     action: string,
