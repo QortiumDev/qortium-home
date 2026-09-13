@@ -45,6 +45,32 @@ export function isUsableQortiumPublicNode(
   return candidate.supportsPublicReads && candidate.isSynced;
 }
 
+/**
+ * How far behind the tip an already-selected public node may be before Home
+ * abandons it for another candidate. Every node reports `BEHIND / 1 block /
+ * 99%` for a few seconds after each new block; treating that instant as
+ * "unusable" made the selection flip node1 <-> node2 on nearly every status
+ * check, and each flip reloads every open app tab (observed live 2026-09-13:
+ * a chat send never survived the public route). A retained node only has to
+ * be reachable, readable, and close to the tip.
+ */
+export const QORTIUM_PUBLIC_NODE_RETAIN_MAX_BLOCKS_BEHIND = 3;
+
+/** Whether Home may KEEP the currently selected public node (hysteresis). */
+export function canRetainQortiumPublicNode(
+  candidate: QortiumPublicNodeCandidate & { syncBlocksRemaining?: number | null },
+) {
+  if (!candidate.supportsPublicReads) return false;
+  if (candidate.isSynced) return true;
+  const remaining = candidate.syncBlocksRemaining;
+  return (
+    typeof remaining === 'number' &&
+    Number.isFinite(remaining) &&
+    remaining >= 0 &&
+    remaining <= QORTIUM_PUBLIC_NODE_RETAIN_MAX_BLOCKS_BEHIND
+  );
+}
+
 export function rankQortiumPublicNodes<
   Candidate extends QortiumPublicNodeCandidate,
 >(candidates: readonly Candidate[]) {

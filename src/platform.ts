@@ -139,6 +139,7 @@ import {
 import { readableNodeErrorMessage } from '../electron/node-error-body';
 import { isNodeApiKeyTransportSafe, normalizeNodeApiUrl } from '../electron/node-api-url';
 import {
+  canRetainQortiumPublicNode as canRetainDiscoveryCandidate,
   isUsableQortiumPublicNode as isUsableDiscoveryCandidate,
   QORTIUM_PUBLIC_NODE_API_URLS,
   rankQortiumPublicNodes as rankDiscoveryCandidates,
@@ -8159,7 +8160,9 @@ async function discoverQortiumPublicNode(forceRefresh = false): Promise<Discover
 
     await writeDiscoveryCache([selectedProbeResult]);
 
-    if (selectedCandidate && isUsableDiscoveryCandidate(selectedCandidate)) {
+    // Hysteresis (same rule as electron/node-settings.ts): keep the selected
+    // node while it is readable and within a few blocks of the tip.
+    if (selectedCandidate && canRetainDiscoveryCandidate(selectedCandidate)) {
       return selectedCandidate;
     }
 
