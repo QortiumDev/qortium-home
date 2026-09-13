@@ -135,6 +135,31 @@ try {
       client,
       `Boolean(document.querySelector('.home-v2-address input'))`,
     ))
+    // A fresh profile finishes its shell restore a moment after the address
+    // bar renders, and first-run onboarding then opens a Welcome tab that
+    // takes the active tab. Release notes are an overlay ON the active tab,
+    // so an address submitted before that lands on a tab Welcome then covers.
+    // Wait for the restore, dismiss setup, and only then navigate.
+    await waitUntil('shell state persistence', async () =>
+      existsSync(path.join(profileDirectory, 'home-v2-shell-state.json')))
+    await waitUntil('Welcome or Dashboard', () => evaluate(
+      client,
+      `(() => {
+        const page = document.querySelector('.home-v2-page-slot:not([hidden])')?.getAttribute('data-internal-page');
+        return page === 'dashboard' || page === 'welcome';
+      })()`,
+    ))
+    await evaluate(client, `(() => {
+      const button = [...document.querySelectorAll('.home-v2-welcome button')]
+        .find((candidate) => candidate.textContent.trim() === 'Skip setup');
+      button?.click();
+      return true;
+    })()`)
+    await waitUntil('active Dashboard', () => evaluate(
+      client,
+      `document.querySelector('.home-v2-page-slot:not([hidden])')?.getAttribute('data-internal-page') === 'dashboard'`,
+    ))
+    await delay(2000)
     await evaluate(client, `(() => {
       const input = document.querySelector('.home-v2-address input');
       const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
