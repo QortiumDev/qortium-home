@@ -85,9 +85,16 @@ const retainBase = {
   supportsPublicReads: true,
 };
 assert.equal(canRetainQortiumPublicNode({ ...retainBase, isSynced: true, syncBlocksRemaining: 0 }), true);
-assert.equal(canRetainQortiumPublicNode({ ...retainBase, syncBlocksRemaining: 1 }), true);
-assert.equal(canRetainQortiumPublicNode({ ...retainBase, syncBlocksRemaining: 3 }), true);
-assert.equal(canRetainQortiumPublicNode({ ...retainBase, syncBlocksRemaining: 4 }), false);
+// The between-blocks state Core reports for a few seconds: BEHIND / 1 block / 99%.
+assert.equal(canRetainQortiumPublicNode({ ...retainBase, syncBlocksRemaining: 1, syncPercent: 99 }), true);
+assert.equal(canRetainQortiumPublicNode({ ...retainBase, syncBlocksRemaining: 3, syncPercent: 99 }), true);
+assert.equal(canRetainQortiumPublicNode({ ...retainBase, syncBlocksRemaining: 4, syncPercent: 99 }), false);
+// Incoherent or clearly bad states are released (second-model review of #570).
+assert.equal(canRetainQortiumPublicNode({ ...retainBase, syncBlocksRemaining: 0, syncPercent: 99 }), false);
+assert.equal(canRetainQortiumPublicNode({ ...retainBase, syncBlocksRemaining: 1, syncPercent: 50 }), false);
+assert.equal(canRetainQortiumPublicNode({ ...retainBase, syncBlocksRemaining: 1 }), false);
+assert.equal(canRetainQortiumPublicNode({ ...retainBase, height: 0, syncBlocksRemaining: 1, syncPercent: 99 }), false);
+assert.equal(canRetainQortiumPublicNode({ ...retainBase, isSynced: true, height: 0 }), false);
 assert.equal(canRetainQortiumPublicNode({ ...retainBase, syncBlocksRemaining: null }), false);
 assert.equal(canRetainQortiumPublicNode({ ...retainBase }), false);
 assert.equal(canRetainQortiumPublicNode({ ...retainBase, isSynced: true, supportsPublicReads: false }), false);
