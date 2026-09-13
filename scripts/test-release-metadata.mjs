@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { findForbiddenProductionEntry } from './packaged-entry-policy.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const expectedVersion = '2.1.0-beta.5';
+const expectedVersion = '2.1.0-beta.6';
 // versionCode is ONE monotonic space shared by both release lines, so 2.1 does
 // not get to pick freely:
 //   37  Home 1.7.0
@@ -21,8 +21,8 @@ const expectedVersion = '2.1.0-beta.5';
 // installer is what rejects it, so the failure surfaces late and reads like a
 // packaging bug.
 // 42 was used by Home 2.1 development APKs; beta.1 used 43, beta.2 used 44,
-// beta.3 used 45, beta.4 46, beta.5 advances to 47.
-const expectedAndroidVersionCode = 47;
+// beta.3 used 45, beta.4 46, beta.5 47, beta.6 advances to 48.
+const expectedAndroidVersionCode = 48;
 const expectedPlatformVersion = '2.1';
 
 function read(relativePath) {

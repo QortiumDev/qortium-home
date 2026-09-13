@@ -32,6 +32,20 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## release: prepare home 2.1.0-beta.6
+
+2026-09-13
+
+Prepare the sixth Home 2.1 public testing prerelease. It carries the two
+Android fixes merged since beta.5: the phone keeps its Public node between
+blocks instead of switching nodes and reloading every app tab about once a
+minute, and app tabs opened from a link, the address bar or "+" can use the
+selected account (chat sends and private reads from such tabs used to fail
+with "this action no longer matches the current chat or account"). Android
+advances to code 48 so it can update beta.5 and every earlier package. Stable
+users remain on Home 1.8.0. The beta testing guide gains the Android Public
+route checks. No runtime source changes in this entry.
+
 ## fix: Android app tabs opened from the address bar can use the selected account
 
 2026-09-13
