@@ -3664,9 +3664,12 @@ button.home-v2-lock-state:disabled {
    than the device has: an 820px floor on a ~747px usable viewport forced the
    whole shell to scroll and pushed content under the navigation bar. The fixed
    height belongs to the desktop preview frame, which sets it in
-   fixture-preview.css. */
+   fixture-preview.css — and so does the 430px phone-frame WIDTH: on a real
+   device the shell fills whatever the viewport is, so rotating to landscape
+   (or a tablet) gets the full width instead of a 430px column letterboxed in
+   the middle of the screen (tester report, 2026-09-14). */
 .home-v2-shell[data-layout='phone'] {
-  width: min(430px, 100%);
+  width: 100%;
   margin: 0 auto;
 }
 
