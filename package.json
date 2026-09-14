@@ -143,6 +143,8 @@
     "test:foreign-wallet-transaction-journal": "npm run build:electron && node dist-electron/durable-json-file.test.js && node dist-electron/foreign-wallet-transaction-journal.test.js && node dist-electron/foreign-wallet-transaction-journal-store.test.js && node dist-electron/foreign-wallet-operation-lock.test.js && esbuild src/home-v2-live/foreign-wallet-transaction-journal-store.test.ts --bundle --platform=node --format=esm --alias:@capacitor/core=./src/v2/test-kit/fake-capacitor-core.ts --outfile=dist-electron/android-foreign-wallet-transaction-journal-store.test.js && node dist-electron/android-foreign-wallet-transaction-journal-store.test.js",
     "test:home-v2-avatar-actions": "npm run build:electron && node dist-electron/home-v2-avatar-actions.test.js",
     "test:home-v2-chat-actions": "npm run build:electron && node dist-electron/home-v2-chat-actions.test.js",
+    "test:qortal-general-chat": "npm run build:electron && node dist-electron/qortal-general-chat.test.js",
+    "test:home-v2-external-link": "npm run build:electron && node dist-electron/home-v2-external-link-contract.test.js",
     "test:home-v2-direct-chat-actions": "npm run build:electron && node dist-electron/home-v2-direct-chat-actions.test.js",
     "test:home-v2-private-group-chat-actions": "npm run build:electron && node dist-electron/home-v2-private-group-chat-actions.test.js",
     "test:home-v2-private-attachment-actions": "npm run build:electron && node dist-electron/home-v2-private-attachment-actions.test.js",

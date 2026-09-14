@@ -85,6 +85,14 @@ import {
   type HomeV2HomeSettingsPatch,
 } from './home-v2-home-settings-contract.js'
 import {
+  assertHomeV2ExternalLinkPromptAdmissible,
+  buildHomeV2ExternalLinkGrantKey,
+  getHomeV2ExternalLinkApprovalDetails,
+  HOME_V2_EXTERNAL_LINK_ACTION,
+  normalizeHomeV2ExternalLinkRequest,
+} from './home-v2-external-link-contract.js'
+import { openExternalUrl } from './app-updates.js'
+import {
   areQdnAppNotificationsEnabled,
   consumeQdnAppNotificationRateLimit,
   stageQdnPreviewSource,
@@ -229,6 +237,7 @@ import {
   assertHomeV2OpenPublicGroup,
   buildHomeV2QortiumPublicChatBuildBody,
   createHomeV2UnknownChatBroadcastResult,
+  homeV2PublicChatRequiresSenderOwnership,
   isHomeV2PublicChatAction,
   normalizeHomeV2PublicChatReferenceTarget,
   normalizeHomeV2PublicChatRequest,
@@ -612,6 +621,17 @@ import {
   stampQortalGroupChatNonce,
 } from './qortal-chat.js'
 import {
+  buildUnsignedQortalGeneralChatBytes,
+  buildUnsignedQortalGeneralWrapperBytes,
+  createQortalGeneralChatFeedCache,
+  deriveQortalGeneralWrapperKeys,
+  parseSignedQortalGeneralChatBytes,
+  QORTAL_GENERAL_CHAT_FEED_MAX_BYTES,
+  QORTAL_GENERAL_CHAT_FEED_PATH,
+  QORTAL_GENERAL_MESSAGE_POW_DIFFICULTY,
+  stampQortalGeneralChatNonce,
+} from './qortal-general-chat.js'
+import {
   appendSignatureToTransactionBytes,
   buildUnsignedPaymentTransactionBytes,
   formatQortAtomic,
@@ -729,6 +749,7 @@ type AccountReadAction =
   | 'SEND_CHAT_EDIT'
   | 'SEND_CHAT_MESSAGE'
   | 'SEND_CHAT_REACTION'
+  | 'SEND_QORTAL_GENERAL_CHAT'
   | HomeV2DirectChatWriteAction
   | HomeV2PrivateGroupChatReadAction
   | HomeV2PrivateGroupChatWriteAction
@@ -1311,6 +1332,99 @@ async function requestHomeV2HomeSettingsUpdateApproval(
   if (!freshContext || !sameViewContext(context, freshContext) || !liveResourceMatchesGrant(freshContext)) {
     throw new Error('Home settings app context changed before approval completed.')
   }
+}
+
+/**
+ * The OPEN_EXTERNAL_LINK approval and open.
+ *
+ * SINGLE-REQUEST ONLY, like UPDATE_HOME_SETTINGS and for a stronger reason: a
+ * durable "always allow" would let an app open the user's browser at will —
+ * to nag, to track, to phish — with nothing in Home to attribute it to. One
+ * approval, one link. The prompt carries the site and the full link, so the
+ * user answers "open THIS page?", and the open itself goes through the same
+ * shell.openExternal path Home uses for its own release pages, after the
+ * contract's http(s)-only validation ran BEFORE the prompt.
+ */
+async function handleHomeV2ExternalLinkAction(
+  sender: WebContents,
+  context: QdnViewContext,
+  protocol: HomeV2AppBridgeProtocol,
+  requestValue: Record<string, unknown>,
+) {
+  const request = normalizeHomeV2ExternalLinkRequest(requestValue)
+  const details = getHomeV2ExternalLinkApprovalDetails(request)
+  if (!liveResourceMatchesGrant(context)) {
+    throw new Error('Link request context changed before approval completed.')
+  }
+  if (!isQdnViewVisible(context.windowId, context.tabId)) {
+    throw new Error('Open this app tab to review the link it wants to open.')
+  }
+  const hostWindow = getContextWindow(context)
+  if (!hostWindow || hostWindow.isDestroyed()) {
+    throw new Error('The link request does not belong to an active Home window.')
+  }
+  const appKey = homeV2AppIdentityKey(context)
+  const hostWebContentsId = hostWindow.webContents.id
+  // Dedup and cap across every window (see the Home-settings approval above):
+  // the same link twice does not stack, and an app holds one pending link at
+  // a time. Entries live in pendingAccountReads so they drain on resolve,
+  // timeout, runtime invalidation, window close and app-view navigation.
+  const grantKey = buildHomeV2ExternalLinkGrantKey({
+    appIdentityKey: appKey,
+    protocol,
+    tabId: context.tabId,
+    url: request.url,
+    windowId: context.windowId,
+  })
+  assertHomeV2ExternalLinkPromptAdmissible(
+    Array.from(pendingAccountReads.values()),
+    { appIdentityKey: appKey, grantKey },
+  )
+  const requestId = randomUUID()
+  const decision = await new Promise<PermissionDecision>((resolve) => {
+    const timeout = setTimeout(() => {
+      pendingAccountReads.delete(requestId)
+      resolve({ approved: false, scope: null })
+      if (!hostWindow.isDestroyed()) {
+        hostWindow.webContents.send('home-v2-app:permission-timeout', { requestId })
+      }
+    }, HOME_SETTINGS_REQUEST_TIMEOUT_MS)
+    pendingAccountReads.set(requestId, {
+      appIdentityKey: appKey,
+      grantKey,
+      hostWebContentsId,
+      tabId: context.tabId,
+      resolve,
+      timeout,
+    })
+    hostWindow.webContents.send('home-v2-app:permission-request', {
+      accountId: context.accountId,
+      action: HOME_V2_EXTERNAL_LINK_ACTION,
+      appIdentityKey: appKey,
+      appTitle: homeV2NotificationAppName(appKey),
+      // Site + Link rows. Plain label/value strings, re-validated in the
+      // shell before they are rendered.
+      externalLinkDetails: details.map((detail) => ({ ...detail })),
+      protocol,
+      requestId,
+      resourceUrl: context.resourceUrl,
+      tabId: context.tabId,
+      targetNetwork: getHomeV2AppNetwork(protocol, HOME_V2_EXTERNAL_LINK_ACTION),
+      writeKind: 'external-link',
+      writeOperationLabel: 'Open a link in your browser',
+      // Refused as anything but single-request at BOTH ends.
+      writeSingleRequestOnly: true,
+    })
+  })
+  if (!decision.approved || decision.scope !== 'single-request') {
+    throw new Error('Opening the link was denied.')
+  }
+  const freshContext = getQdnViewContextForWebContents(sender)
+  if (!freshContext || !sameViewContext(context, freshContext) || !liveResourceMatchesGrant(freshContext)) {
+    throw new Error('Link request context changed before approval completed.')
+  }
+  await openExternalUrl(request.url)
+  return { opened: true as const, url: request.url }
 }
 
 /**
@@ -5217,10 +5331,10 @@ async function getHomeV2SignedWriteApiKey(
   return connection.apiKey ?? ''
 }
 
-function chatOperationLabel(action: HomeV2PublicChatAction) {
-  if (action === 'SEND_CHAT_EDIT') return 'Edit message'
-  if (action === 'SEND_CHAT_DELETE') return 'Delete message'
-  if (action === 'SEND_CHAT_REACTION') return 'React to message'
+function chatOperationLabel(action: HomeV2PublicChatAction, revision?: HomeV2PublicChatRequest['revision']) {
+  if (action === 'SEND_CHAT_EDIT' || revision === 'edit') return 'Edit message'
+  if (action === 'SEND_CHAT_DELETE' || revision === 'delete') return 'Delete message'
+  if (action === 'SEND_CHAT_REACTION' || revision === 'reaction') return 'React to message'
   return 'Send message'
 }
 
@@ -5247,6 +5361,8 @@ async function readHomeV2ChatJson(
   return result.data
 }
 
+const qortalGeneralChatFeedCache = createQortalGeneralChatFeedCache()
+
 async function validateHomeV2PublicChatTarget(
   nodeApiUrl: string,
   network: HomeV2AppNetwork,
@@ -5264,6 +5380,29 @@ async function validateHomeV2PublicChatTarget(
     assertHomeV2OpenPublicGroup(group, request.txGroupId, network)
   }
   if (!request.chatReference) return
+  if (request.action === 'SEND_QORTAL_GENERAL_CHAT') {
+    // A General Chat original never confirms, so /chat/message cannot find
+    // it: look it up in the unconfirmed MESSAGE pool and verify the wrapper
+    // ourselves (electron/qortal-general-chat.ts). The same three rules as
+    // below apply — the reference must exist, must be an original (not itself
+    // a revision), and an edit/delete must belong to the caller.
+    // One pool read (and one round of per-row verification) per node per
+    // 15 s, however many references an app names before it ever reaches the
+    // prompt or the send limiter (Sol review of home#581, finding 2).
+    const target = await qortalGeneralChatFeedCache.lookup(nodeApiUrl, request.chatReference, () => readHomeV2ChatJson(
+      nodeApiUrl,
+      QORTAL_GENERAL_CHAT_FEED_PATH,
+      'General Chat lookup',
+      apiKey,
+      QORTAL_GENERAL_CHAT_FEED_MAX_BYTES,
+    ))
+    if (!target) throw new Error('Referenced General Chat message was not found.')
+    if (target.chatReference) throw new Error('Chat revisions and reactions must reference the original message.')
+    if (homeV2PublicChatRequiresSenderOwnership(request) && target.senderPublicKey !== senderPublicKey) {
+      throw new Error('Only the original sender can edit or delete this chat message.')
+    }
+    return
+  }
   normalizeHomeV2PublicChatReferenceTarget(
     await readHomeV2ChatJson(
       nodeApiUrl,
@@ -5274,8 +5413,7 @@ async function validateHomeV2PublicChatTarget(
     {
       chatReference: request.chatReference,
       requireOriginal: true,
-      requireSenderOwnership:
-        request.action === 'SEND_CHAT_EDIT' || request.action === 'SEND_CHAT_DELETE',
+      requireSenderOwnership: homeV2PublicChatRequiresSenderOwnership(request),
       senderPublicKey,
       txGroupId: request.txGroupId,
     },
@@ -5411,6 +5549,83 @@ async function sendHomeV2QortalChatMessage(
     return { signature, timestamp }
   } catch (error) {
     return createHomeV2UnknownChatBroadcastResult(error, signature, timestamp)
+  }
+}
+
+// Qortal General Chat (group 0) send over the MESSAGE-wrapper protocol
+// (electron/qortal-general-chat.ts). Two proofs of work and two signatures:
+// the account signs the inner group-0 CHAT (its balance-dependent CHAT
+// difficulty), then a keypair DERIVED from that signature signs the fee-less
+// MESSAGE that carries it (Core's fixed no-fee MESSAGE difficulty). Only the
+// wrapper is broadcast; the CHAT never reaches the chain on its own. The
+// result's signature is the INNER CHAT's — that is the id readers (Hub, Chat)
+// use for the message, replies, edits and reactions.
+async function sendHomeV2QortalGeneralChatMessage(
+  nodeApiUrl: string,
+  request: HomeV2PublicChatRequest,
+  signingKey: HomeV2ChatSigningKey,
+  isStillValid: () => boolean | Promise<boolean>,
+  validateTarget: () => Promise<void>,
+) {
+  const timestamp = Date.now()
+  const unsignedChat = buildUnsignedQortalGeneralChatBytes({
+    ...(request.chatReference ? { chatReference: request.chatReference } : {}),
+    lastReference: new Uint8Array(randomBytes(64)),
+    message: request.message,
+    senderPublicKey: signingKey.publicKey58,
+    timestamp,
+  })
+  const difficulty = await resolveHomeV2QortalChatPowDifficulty(nodeApiUrl, signingKey.address)
+  const chatNonce = await computeHomeV2ChatNonce(unsignedChat, difficulty, isStillValid)
+  if (!(await isStillValid())) {
+    throw new Error('The signing context changed before the chat message could be submitted.')
+  }
+  await validateTarget()
+  if (!(await isStillValid())) {
+    throw new Error('The signing context changed before the chat message could be submitted.')
+  }
+  const stampedChat = stampQortalGeneralChatNonce(unsignedChat, chatNonce)
+  const signedChat = appendSignatureToTransactionBytes(stampedChat, signDetached(stampedChat, signingKey.secretKey))
+  // Re-parse what was just signed: the wrapper keys derive from the signature
+  // and the parser is the same one readers use, so a CHAT this process would
+  // not accept back is never wrapped.
+  const parsedChat = parseSignedQortalGeneralChatBytes(signedChat)
+  if (base58Encode(parsedChat.publicKey) !== signingKey.publicKey58) {
+    throw new Error('General Chat was signed with an unexpected account.')
+  }
+  const signature = base58Encode(parsedChat.signature)
+  const { recipientAddress, senderKeyPair } = deriveQortalGeneralWrapperKeys(parsedChat.signature)
+  try {
+    const unsignedWrapper = buildUnsignedQortalGeneralWrapperBytes({
+      data: signedChat,
+      lastReference: new Uint8Array(randomBytes(64)),
+      recipient: recipientAddress,
+      senderPublicKey: senderKeyPair.publicKey,
+      timestamp: Date.now(),
+    })
+    const wrapperNonce = await computeHomeV2ChatNonce(unsignedWrapper, QORTAL_GENERAL_MESSAGE_POW_DIFFICULTY, isStillValid)
+    if (!(await isStillValid())) {
+      throw new Error('The signing context changed before the chat message could be submitted.')
+    }
+    const stampedWrapper = stampQortalGeneralChatNonce(unsignedWrapper, wrapperNonce)
+    const signedWrapper = appendSignatureToTransactionBytes(
+      stampedWrapper,
+      signDetached(stampedWrapper, senderKeyPair.secretKey),
+    )
+    try {
+      await postHomeV2ChatText(
+        nodeApiUrl,
+        '/transactions/process?apiVersion=2',
+        base58Encode(signedWrapper),
+        'text/plain',
+        'Qortal General Chat broadcast failed.',
+      )
+      return { signature, timestamp }
+    } catch (error) {
+      return createHomeV2UnknownChatBroadcastResult(error, signature, timestamp)
+    }
+  } finally {
+    senderKeyPair.secretKey.fill(0)
   }
 }
 
@@ -5633,7 +5848,7 @@ async function sendHomeV2PublicChatAction(
     chatReference: request.chatReference,
     groupId: request.txGroupId,
     messagePreview: request.message.slice(0, 180),
-    operationLabel: chatOperationLabel(effectiveAction),
+    operationLabel: chatOperationLabel(effectiveAction, request.revision),
     targetChainLabel: `${targetChainLabel} · ${groupLabel}`,
   })
   // Fix B: reject an excessive send BEFORE any node call or proof-of-work —
@@ -5665,7 +5880,9 @@ async function sendHomeV2PublicChatAction(
     }
     return await (network === 'qortium'
       ? sendHomeV2QortiumChatMessage(node.nodeApiUrl, request, signingKey, isStillValid, validateTarget, nodeApiKey)
-      : sendHomeV2QortalChatMessage(node.nodeApiUrl, request, signingKey, isStillValid, validateTarget))
+      : request.action === 'SEND_QORTAL_GENERAL_CHAT'
+        ? sendHomeV2QortalGeneralChatMessage(node.nodeApiUrl, request, signingKey, isStillValid, validateTarget)
+        : sendHomeV2QortalChatMessage(node.nodeApiUrl, request, signingKey, isStillValid, validateTarget))
   } finally {
     signingKey.secretKey.fill(0)
   }
@@ -11155,6 +11372,9 @@ async function handleRequestWithRuntime(
   }
   if (isHomeV2HomeSettingsAction(action)) {
     return handleHomeV2HomeSettingsAction(sender, context, protocol, action, requestValue)
+  }
+  if (action === HOME_V2_EXTERNAL_LINK_ACTION) {
+    return handleHomeV2ExternalLinkAction(sender, context, protocol, requestValue)
   }
   if (isHomeV2ListAction(action)) {
     return handleHomeV2ListAction(sender, context, protocol, action, requestValue)

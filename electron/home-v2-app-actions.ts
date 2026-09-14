@@ -82,6 +82,9 @@ const QDN_ACTIONS = [
   'GET_HOME_SETTINGS_METADATA',
   'GET_HOME_SETTINGS',
   'UPDATE_HOME_SETTINGS',
+  // Host-mediated http(s) open in the system browser, one confirmation per
+  // link (electron/home-v2-external-link-contract.ts).
+  'OPEN_EXTERNAL_LINK',
   'ADD_GROUP_ADMIN',
   'ADD_TO_LIST',
   'APPROVE_GROUP_JOIN_REQUEST',
@@ -300,6 +303,8 @@ const QORTAL_ACTIONS = [
   'SAVE_CHAT_ATTACHMENT',
   'SELECT_QDN_PUBLISH_SOURCE',
   'STAGE_QDN_PUBLISH_SOURCE',
+  // Same host-mediated browser open as on qdnRequest: no chain is involved.
+  'OPEN_EXTERNAL_LINK',
   // PREVIEW_QDN_PUBLISH_SOURCE is deliberately absent here while SELECT and
   // STAGE stay: those two feed PUBLISH_QDN_RESOURCE, which Qortal does have.
   // Previewing does not go to a chain at all -- it POSTs the source to a node
@@ -323,6 +328,7 @@ const QORTAL_ACTIONS = [
   'SEND_DIRECT_CHAT_EDIT',
   'SEND_DIRECT_CHAT_MESSAGE',
   'SEND_DIRECT_CHAT_REACTION',
+  'SEND_QORTAL_GENERAL_CHAT',
   'REQUEST_PRIVATE_GROUP_CHAT_KEY',
   'RESOLVE_PRIVATE_GROUP_CHAT_KEY_REQUESTS',
   'ROTATE_PRIVATE_GROUP_CHAT_KEY',

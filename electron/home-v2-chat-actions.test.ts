@@ -5,6 +5,7 @@ import {
   buildHomeV2QortiumPublicChatBuildBody,
   createHomeV2UnknownChatBroadcastResult,
   getHomeV2PublicChatActions,
+  homeV2PublicChatRequiresSenderOwnership,
   normalizeHomeV2ChatReference,
   normalizeHomeV2PublicChatReferenceTarget,
   normalizeHomeV2PublicChatRequest,
@@ -19,7 +20,7 @@ const fixture = JSON.parse(readFileSync(
     bob: { publicKeyBase58: string }
   }
   common: { chatReferenceBase58: string; groupId: number }
-  publicGroup: { payloads: { edit: string; reaction: string } }
+  publicGroup: { payloads: { edit: string; initial: string; reaction: string } }
 }
 
 const reference = fixture.common.chatReferenceBase58
@@ -37,6 +38,7 @@ assert.deepEqual(getHomeV2PublicChatActions('qortalRequest'), [
   'SEND_CHAT_EDIT',
   'SEND_CHAT_DELETE',
   'SEND_CHAT_REACTION',
+  'SEND_QORTAL_GENERAL_CHAT',
 ])
 
 assert.deepEqual(normalizeHomeV2PublicChatRequest('qdnRequest', 'SEND_CHAT_MESSAGE', {
@@ -281,5 +283,57 @@ assert.throws(
   () => assertHomeV2OpenPublicGroup({ groupId: 13, isOpen: true }, 12, 'qortal'),
   /verify the selected/,
 )
+
+// SEND_QORTAL_GENERAL_CHAT: qortalRequest only, always group 0, and the
+// revision kind is read from the Hub envelope when a chatReference is set.
+{
+  const deletePayload = JSON.stringify({ images: [], isEdited: true, messageText: '<p></p>', repliedTo: '', specialId: 'gc-del', type: 'edit', version: 3 })
+  assert.throws(
+    () => normalizeHomeV2PublicChatRequest('qdnRequest', 'SEND_QORTAL_GENERAL_CHAT', { message: fixture.publicGroup.payloads.initial }),
+    /not implemented for qdnRequest/,
+  )
+  assert.deepEqual(
+    normalizeHomeV2PublicChatRequest('qortalRequest', 'SEND_QORTAL_GENERAL_CHAT', { message: fixture.publicGroup.payloads.initial }),
+    { action: 'SEND_QORTAL_GENERAL_CHAT', chatReference: null, message: fixture.publicGroup.payloads.initial, revision: null, txGroupId: 0 },
+  )
+  assert.deepEqual(
+    normalizeHomeV2PublicChatRequest('qortalRequest', 'SEND_QORTAL_GENERAL_CHAT', { message: fixture.publicGroup.payloads.initial, txGroupId: 0 }).txGroupId,
+    0,
+  )
+  assert.throws(
+    () => normalizeHomeV2PublicChatRequest('qortalRequest', 'SEND_QORTAL_GENERAL_CHAT', { message: fixture.publicGroup.payloads.initial, txGroupId: 1091 }),
+    /always targets General Chat/,
+  )
+  assert.throws(
+    () => normalizeHomeV2PublicChatRequest('qortalRequest', 'SEND_QORTAL_GENERAL_CHAT', { message: fixture.publicGroup.payloads.initial, network: 'qortium' }),
+    /authoritative qortal bridge/,
+  )
+  const edit = normalizeHomeV2PublicChatRequest('qortalRequest', 'SEND_QORTAL_GENERAL_CHAT', { chatReference: reference, message: fixture.publicGroup.payloads.edit })
+  assert.equal(edit.revision, 'edit')
+  assert.equal(edit.chatReference, reference)
+  assert.equal(homeV2PublicChatRequiresSenderOwnership(edit), true)
+  const del = normalizeHomeV2PublicChatRequest('qortalRequest', 'SEND_QORTAL_GENERAL_CHAT', { chatReference: reference, message: deletePayload })
+  assert.equal(del.revision, 'delete')
+  assert.equal(homeV2PublicChatRequiresSenderOwnership(del), true)
+  const reaction = normalizeHomeV2PublicChatRequest('qortalRequest', 'SEND_QORTAL_GENERAL_CHAT', { chatReference: reference, message: fixture.publicGroup.payloads.reaction })
+  assert.equal(reaction.revision, 'reaction')
+  assert.equal(homeV2PublicChatRequiresSenderOwnership(reaction), false)
+  // A revision with an unrecognised envelope is refused (the edit shape is the last one tried).
+  assert.throws(
+    () => normalizeHomeV2PublicChatRequest('qortalRequest', 'SEND_QORTAL_GENERAL_CHAT', { chatReference: reference, message: fixture.publicGroup.payloads.initial }),
+    /Hub v3 edit envelope/,
+  )
+  // A reaction without a Hub specialId is refused, as on SEND_CHAT_REACTION.
+  assert.throws(
+    () => normalizeHomeV2PublicChatRequest('qortalRequest', 'SEND_QORTAL_GENERAL_CHAT', {
+      chatReference: reference,
+      message: JSON.stringify({ content: '👍', contentState: true, message: '', type: 'reaction' }),
+    }),
+    /valid Hub specialId/,
+  )
+  // The group actions keep their ownership rule through the same helper.
+  assert.equal(homeV2PublicChatRequiresSenderOwnership({ action: 'SEND_CHAT_EDIT', chatReference: reference, message: 'x', txGroupId: 1 }), true)
+  assert.equal(homeV2PublicChatRequiresSenderOwnership({ action: 'SEND_CHAT_REACTION', chatReference: reference, message: 'x', txGroupId: 1 }), false)
+}
 
 console.log('Home v2 public chat action contract tests passed.')

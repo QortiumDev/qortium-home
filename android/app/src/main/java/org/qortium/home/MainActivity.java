@@ -21,6 +21,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(QdnFileSaverPlugin.class);
         registerPlugin(QdnPublishSourcePlugin.class);
         registerPlugin(UpdateInstallerPlugin.class);
+        registerPlugin(ExternalLinkPlugin.class);
         registerPlugin(WalletBackupPlugin.class);
         super.onCreate(savedInstanceState);
         // Opt into edge-to-edge so the safe-area plugin reports real insets.
