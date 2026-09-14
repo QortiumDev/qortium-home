@@ -25,6 +25,23 @@ interface QdnRenderProxyPlugin {
 
 const QdnRenderProxy = registerPlugin<QdnRenderProxyPlugin>('QdnRenderProxy')
 
+// OPEN_EXTERNAL_LINK on Android: an explicit ACTION_VIEW intent
+// (android/.../ExternalLinkPlugin.java), never window.open — the Capacitor
+// WebView has no multi-window support, so a "_blank" open is a top-level
+// navigation and a link to Home's own origin would replace the shell (Sol
+// review of home#581). The plugin re-checks the scheme itself.
+interface ExternalLinkPlugin {
+  open(options: { url: string }): Promise<{ opened: boolean }>
+}
+
+const ExternalLink = registerPlugin<ExternalLinkPlugin>('ExternalLink')
+
+/** Hands one already-approved http(s) link to the system browser. */
+export async function openHomeV2AndroidExternalLink(url: string): Promise<void> {
+  const result = await ExternalLink.open({ url })
+  if (result?.opened !== true) throw new Error('The link was not opened.')
+}
+
 // Round 6 (owner-directed redesign, ending the round-2/4/5 identifier-
 // confusion class): `authorizedDocumentUrl` registers this app tab's EXACT
 // shell-computed render document URL (AppTabStage.tsx's `resolved.url`,

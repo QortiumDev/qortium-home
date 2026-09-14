@@ -174,6 +174,8 @@ assert.deepEqual(getHomeV2AvailableAppActions('qortalRequest', {
   'GET_MARKET_PRICES',
   // Native and supported foreign receive-wallet answers are Home-local too.
   'GET_USER_WALLET',
+  // Hands a link to the system browser after a confirmation; no node involved.
+  'OPEN_EXTERNAL_LINK',
 ])
 
 const authenticatedCustomInfo = getHomeV2AppHostInfo({

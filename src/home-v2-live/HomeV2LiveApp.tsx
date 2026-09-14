@@ -5962,10 +5962,9 @@ export function HomeV2LiveApp() {
         if (!approvedTab || approvedTab.context.resourceLocation !== context.resourceLocation) {
           throw new Error('Link request is stale because the app view changed before approval.')
         }
-        // Native intent, not window.open: see platform.ts openExternalLink.
-        const openExternalLink = window.qortiumHome?.system?.openExternalLink
-        if (!openExternalLink) throw new Error('Opening links is unavailable on this platform.')
-        await openExternalLink(linkRequest.url)
+        // Native intent, not window.open: see android-app-host.ts.
+        const { openHomeV2AndroidExternalLink } = await import('./android-app-host')
+        await openHomeV2AndroidExternalLink(linkRequest.url)
         return { opened: true as const, url: linkRequest.url }
       }
       if (isAndroidHost && (action === 'NOTIFICATION_HAS_PERMISSION' || action === 'SHOW_NOTIFICATION')) {

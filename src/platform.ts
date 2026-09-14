@@ -922,14 +922,6 @@ const QORTAL_PUBLIC_NODE_BLOCKCHAIN_INFO: SupportedBlockchainInfo = {
 };
 
 const UpdateInstaller = registerPlugin<UpdateInstallerPlugin>('UpdateInstaller');
-// OPEN_EXTERNAL_LINK on Android: an explicit ACTION_VIEW intent, never
-// window.open — the Capacitor WebView has no multi-window support, so a
-// "_blank" open is a top-level navigation and a link to Home's own origin
-// would replace the shell (Sol review of home#581).
-interface ExternalLinkPlugin {
-  open(options: { url: string }): Promise<{ opened: boolean }>;
-}
-const ExternalLink = registerPlugin<ExternalLinkPlugin>('ExternalLink');
 const QdnFileSaver = registerPlugin<QdnFileSaverPlugin>('QdnFileSaver');
 const WalletBackup = registerPlugin<WalletBackupPlugin>('WalletBackup');
 const HomeV2SecureStorage = registerPlugin<HomeV2SecureStoragePlugin>('HomeV2SecureStorage');
@@ -12201,13 +12193,6 @@ function createFallbackApi(): PlatformApi {
       },
     },
     system: {
-      async openExternalLink(url) {
-        if (!Capacitor.isNativePlatform()) {
-          throw new Error('Opening links is only available in the Home apps.');
-        }
-        const result = await ExternalLink.open({ url: normalizeExternalUrl(url) });
-        if (result?.opened !== true) throw new Error('The link was not opened.');
-      },
       async openPath() {
         throw new Error('Opening local paths is only available in the desktop app right now.');
       },
