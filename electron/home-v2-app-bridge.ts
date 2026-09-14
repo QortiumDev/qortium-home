@@ -85,6 +85,14 @@ import {
   type HomeV2HomeSettingsPatch,
 } from './home-v2-home-settings-contract.js'
 import {
+  assertHomeV2ExternalLinkPromptAdmissible,
+  buildHomeV2ExternalLinkGrantKey,
+  getHomeV2ExternalLinkApprovalDetails,
+  HOME_V2_EXTERNAL_LINK_ACTION,
+  normalizeHomeV2ExternalLinkRequest,
+} from './home-v2-external-link-contract.js'
+import { openExternalUrl } from './app-updates.js'
+import {
   areQdnAppNotificationsEnabled,
   consumeQdnAppNotificationRateLimit,
   stageQdnPreviewSource,
@@ -1324,6 +1332,99 @@ async function requestHomeV2HomeSettingsUpdateApproval(
   if (!freshContext || !sameViewContext(context, freshContext) || !liveResourceMatchesGrant(freshContext)) {
     throw new Error('Home settings app context changed before approval completed.')
   }
+}
+
+/**
+ * The OPEN_EXTERNAL_LINK approval and open.
+ *
+ * SINGLE-REQUEST ONLY, like UPDATE_HOME_SETTINGS and for a stronger reason: a
+ * durable "always allow" would let an app open the user's browser at will —
+ * to nag, to track, to phish — with nothing in Home to attribute it to. One
+ * approval, one link. The prompt carries the site and the full link, so the
+ * user answers "open THIS page?", and the open itself goes through the same
+ * shell.openExternal path Home uses for its own release pages, after the
+ * contract's http(s)-only validation ran BEFORE the prompt.
+ */
+async function handleHomeV2ExternalLinkAction(
+  sender: WebContents,
+  context: QdnViewContext,
+  protocol: HomeV2AppBridgeProtocol,
+  requestValue: Record<string, unknown>,
+) {
+  const request = normalizeHomeV2ExternalLinkRequest(requestValue)
+  const details = getHomeV2ExternalLinkApprovalDetails(request)
+  if (!liveResourceMatchesGrant(context)) {
+    throw new Error('Link request context changed before approval completed.')
+  }
+  if (!isQdnViewVisible(context.windowId, context.tabId)) {
+    throw new Error('Open this app tab to review the link it wants to open.')
+  }
+  const hostWindow = getContextWindow(context)
+  if (!hostWindow || hostWindow.isDestroyed()) {
+    throw new Error('The link request does not belong to an active Home window.')
+  }
+  const appKey = homeV2AppIdentityKey(context)
+  const hostWebContentsId = hostWindow.webContents.id
+  // Dedup and cap across every window (see the Home-settings approval above):
+  // the same link twice does not stack, and an app holds one pending link at
+  // a time. Entries live in pendingAccountReads so they drain on resolve,
+  // timeout, runtime invalidation, window close and app-view navigation.
+  const grantKey = buildHomeV2ExternalLinkGrantKey({
+    appIdentityKey: appKey,
+    protocol,
+    tabId: context.tabId,
+    url: request.url,
+    windowId: context.windowId,
+  })
+  assertHomeV2ExternalLinkPromptAdmissible(
+    Array.from(pendingAccountReads.values()),
+    { appIdentityKey: appKey, grantKey },
+  )
+  const requestId = randomUUID()
+  const decision = await new Promise<PermissionDecision>((resolve) => {
+    const timeout = setTimeout(() => {
+      pendingAccountReads.delete(requestId)
+      resolve({ approved: false, scope: null })
+      if (!hostWindow.isDestroyed()) {
+        hostWindow.webContents.send('home-v2-app:permission-timeout', { requestId })
+      }
+    }, HOME_SETTINGS_REQUEST_TIMEOUT_MS)
+    pendingAccountReads.set(requestId, {
+      appIdentityKey: appKey,
+      grantKey,
+      hostWebContentsId,
+      tabId: context.tabId,
+      resolve,
+      timeout,
+    })
+    hostWindow.webContents.send('home-v2-app:permission-request', {
+      accountId: context.accountId,
+      action: HOME_V2_EXTERNAL_LINK_ACTION,
+      appIdentityKey: appKey,
+      appTitle: homeV2NotificationAppName(appKey),
+      // Site + Link rows. Plain label/value strings, re-validated in the
+      // shell before they are rendered.
+      externalLinkDetails: details.map((detail) => ({ ...detail })),
+      protocol,
+      requestId,
+      resourceUrl: context.resourceUrl,
+      tabId: context.tabId,
+      targetNetwork: getHomeV2AppNetwork(protocol, HOME_V2_EXTERNAL_LINK_ACTION),
+      writeKind: 'external-link',
+      writeOperationLabel: 'Open a link in your browser',
+      // Refused as anything but single-request at BOTH ends.
+      writeSingleRequestOnly: true,
+    })
+  })
+  if (!decision.approved || decision.scope !== 'single-request') {
+    throw new Error('Opening the link was denied.')
+  }
+  const freshContext = getQdnViewContextForWebContents(sender)
+  if (!freshContext || !sameViewContext(context, freshContext) || !liveResourceMatchesGrant(freshContext)) {
+    throw new Error('Link request context changed before approval completed.')
+  }
+  await openExternalUrl(request.url)
+  return { opened: true as const, url: request.url }
 }
 
 /**
@@ -11267,6 +11368,9 @@ async function handleRequestWithRuntime(
   }
   if (isHomeV2HomeSettingsAction(action)) {
     return handleHomeV2HomeSettingsAction(sender, context, protocol, action, requestValue)
+  }
+  if (action === HOME_V2_EXTERNAL_LINK_ACTION) {
+    return handleHomeV2ExternalLinkAction(sender, context, protocol, requestValue)
   }
   if (isHomeV2ListAction(action)) {
     return handleHomeV2ListAction(sender, context, protocol, action, requestValue)

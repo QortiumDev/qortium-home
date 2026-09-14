@@ -371,6 +371,11 @@ import {
   parseHomeV2HomeSettingsRequest,
   parseHomeV2HomeSettingsRoundTripRequest,
 } from '../../electron/home-v2-home-settings-contract'
+import {
+  getHomeV2ExternalLinkApprovalDetails,
+  HOME_V2_EXTERNAL_LINK_ACTION,
+  normalizeHomeV2ExternalLinkRequest,
+} from '../../electron/home-v2-external-link-contract'
 import { createHomeV2HomeSettingsResponder } from './home-settings-client'
 import {
   grantQdnManagerPermission,
@@ -4200,6 +4205,7 @@ export function HomeV2LiveApp() {
             value.action !== 'NOTIFICATION_MANAGER_REMOVE_RULES' &&
             value.action !== 'NOTIFICATION_MANAGER_REVOKE' &&
             value.action !== 'UPDATE_HOME_SETTINGS' &&
+            value.action !== 'OPEN_EXTERNAL_LINK' &&
             value.action !== 'OPEN_AS_WIDGET' &&
             value.action !== 'SEND_MESSAGE' &&
             !isHomeV2PublicChatAction(value.action) &&
@@ -4231,6 +4237,7 @@ export function HomeV2LiveApp() {
           value.action !== 'NOTIFICATION_MANAGER_REMOVE_RULES' &&
           value.action !== 'NOTIFICATION_MANAGER_REVOKE' &&
           value.action !== 'UPDATE_HOME_SETTINGS' &&
+          value.action !== 'OPEN_EXTERNAL_LINK' &&
           value.action !== 'OPEN_AS_WIDGET' &&
           typeof value.accountId !== 'string') ||
         typeof value.tabId !== 'string' ||
@@ -4548,6 +4555,14 @@ export function HomeV2LiveApp() {
             typeof value.writeOperationLabel !== 'string' ||
             value.writeSingleRequestOnly !== true ||
             !isHomeSettingsDetailRows(value.homeSettingsDetails)))
+        // A link open must always arrive as a single-request prompt carrying
+        // the Site + Link rows: a prompt with no link is not a question the
+        // user can answer.
+        || (value.action === 'OPEN_EXTERNAL_LINK' &&
+          (value.writeKind !== 'external-link' ||
+            typeof value.writeOperationLabel !== 'string' ||
+            value.writeSingleRequestOnly !== true ||
+            !isHomeSettingsDetailRows(value.externalLinkDetails)))
       ) {
         return
       }
@@ -4620,6 +4635,9 @@ export function HomeV2LiveApp() {
       // GET_HOME_SETTINGS_METADATA are absent by construction: both are
       // unprompted, so neither can ever reach here.
       const isHomeSettingsUpdate = value.action === 'UPDATE_HOME_SETTINGS'
+      // Host-mediated http(s) open: single-request only, never an account
+      // operation (electron/home-v2-external-link-contract.ts).
+      const isExternalLink = value.action === 'OPEN_EXTERNAL_LINK'
       const isJournalRead = value.action === 'GET_PENDING_TRANSACTIONS'
       const isJournalForget = value.action === 'FORGET_PENDING_TRANSACTION'
       const isMintingWrite = isHomeV2MintingWriteAction(value.action)
@@ -4655,7 +4673,7 @@ export function HomeV2LiveApp() {
       const isDecrypt = value.action === 'DECRYPT_DATA'
       const accountReadPromptKind = homeV2AccountReadPromptKind(value.action)
       const isGenericAccountRead = accountReadPromptKind === 'account'
-      const operationLabel = isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment || isNotification || isBookmarkManager || isNotificationManager || isHomeSettingsUpdate || isJournalForget || isMintingWrite || isListWrite || isPollWrite || isNameWrite || isGroupMutation || isPublishMultiple || isQdnDelete || isRatingWrite || isAccountAvatar || isPaymentSend || isForeignSend || isForeignWalletRead || isForeignServerWrite || isAtMessage || isEncrypt || isDecrypt || isNodeSettingsWrite
+      const operationLabel = isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment || isNotification || isBookmarkManager || isNotificationManager || isHomeSettingsUpdate || isExternalLink || isJournalForget || isMintingWrite || isListWrite || isPollWrite || isNameWrite || isGroupMutation || isPublishMultiple || isQdnDelete || isRatingWrite || isAccountAvatar || isPaymentSend || isForeignSend || isForeignWalletRead || isForeignServerWrite || isAtMessage || isEncrypt || isDecrypt || isNodeSettingsWrite
         ? String(value.writeOperationLabel)
         : ''
       const prompt = createPermissionPrompt({
@@ -4704,6 +4722,8 @@ export function HomeV2LiveApp() {
                 ? 'notifications.manage'
               : isHomeSettingsUpdate
                 ? 'home.settings.write'
+              : isExternalLink
+                ? 'link.external.open'
               : isJournalForget
                 ? 'transactions.pending.forget'
               : isJournalRead
@@ -4768,7 +4788,7 @@ export function HomeV2LiveApp() {
             ? `home-v2:identity:none`
             : isNotification
             ? `home-v2:identity:app:${appIdentityKey}`
-            : isBookmarkManager || isNotificationManager || isHomeSettingsUpdate
+            : isBookmarkManager || isNotificationManager || isHomeSettingsUpdate || isExternalLink
             ? `home-v2:identity:app:${appIdentityKey}`
             : `home-v2:identity:${accountId}`),
           nodeProfileRef: snapshot.nodes[value.targetNetwork].ref,
@@ -4788,6 +4808,8 @@ export function HomeV2LiveApp() {
           ? 'Allow notification permission management?'
           : isHomeSettingsUpdate
           ? 'Allow this change to Home settings?'
+          : isExternalLink
+          ? 'Open this link in your browser?'
           : accountReadPromptKind
           ? homeV2AccountReadPromptTitle(accountReadPromptKind)
           : isForeignWalletRead
@@ -4817,6 +4839,8 @@ export function HomeV2LiveApp() {
           ? `${appTitle} wants to review and change which OTHER apps may notify you on this device — muting them, deleting their notification rules, and revoking their notification permission. It cannot create a rule for any app, and it cannot notify you itself without asking separately.`
           : isHomeSettingsUpdate
           ? `${appTitle} wants to change the Home settings listed below. This approval covers this one change only — the app must ask again for the next one. It cannot read or change your accounts, node connections, or saved data.`
+          : isExternalLink
+          ? `${appTitle} wants to open the web page below in your device's browser, outside Home. Home fetches nothing and shares nothing with the site; the page opens like any link you type into your browser yourself. This approval covers this one link only.`
           : isListWrite
           ? `${appTitle} wants to change a named list stored on your own node. Apps on this node share these lists — they commonly drive blocking and following — so this change affects what other apps show you. This approval covers this one change only; nothing is signed and nothing on chain changes.`
           : isNodeSettingsWrite
@@ -4891,6 +4915,18 @@ export function HomeV2LiveApp() {
               { label: 'Can do', value: 'Mute an app, delete its notification rules, revoke its notification permission' },
               { label: 'Cannot do', value: 'Create a rule, notify you, or read any masked address, key or signature in a rule' },
               { label: 'Scope', value: 'Until revoked in Settings' },
+            ]
+          : isExternalLink
+          ? [
+              { label: 'App', value: appTitle },
+              // The Site + Link rows, re-checked by isHomeSettingsDetailRows
+              // above. The link can run to 2,048 characters, so it scrolls;
+              // the site row stays plain so it is always in view.
+              ...(value.externalLinkDetails as readonly { label: string; value: string }[])
+                .map((detail) => detail.label === 'Link'
+                  ? { label: detail.label, value: detail.value, variant: 'scroll' as const }
+                  : { label: detail.label, value: detail.value }),
+              { label: 'Scope', value: 'This one link only' },
             ]
           : isHomeSettingsUpdate
           ? [
@@ -5315,7 +5351,7 @@ export function HomeV2LiveApp() {
           // notifications.manage there is no card in QDN Apps settings listing
           // apps that hold it, because no grant is ever stored. One approval,
           // one patch.
-          : isHomeSettingsUpdate
+          : isHomeSettingsUpdate || isExternalLink
           ? ['single-request']
           // The read-only account family may be granted persistently so a
           // trusted app stops asking every session (owner decision, R3-10);
@@ -5831,6 +5867,57 @@ export function HomeV2LiveApp() {
           throw new Error('Home settings request is stale because the app view changed while it was running.')
         }
         return applied
+      }
+      // OPEN_EXTERNAL_LINK on Android: the same contract validation and the
+      // same single-request prompt as the desktop bridge's
+      // handleHomeV2ExternalLinkAction; the open itself goes through
+      // window.open with an external target, which Capacitor routes to the
+      // system browser (the same path Home's own release-page link uses).
+      if (isAndroidHost && action === HOME_V2_EXTERNAL_LINK_ACTION) {
+        // Validated BEFORE the prompt so a malformed link cannot raise a
+        // question the user cannot answer correctly.
+        const linkRequest = normalizeHomeV2ExternalLinkRequest(isRecord(requestValue) ? requestValue : {})
+        const parsedApp = resolveAppIdentity()
+        const targetNetwork: NetworkId = protocol === 'qortalRequest' ? 'qortal' : 'qortium'
+        const appId = brand<AppId>(`home-v2:permission-app:${parsedApp.identityKey}`)
+        const prompt = createPermissionPrompt({
+          id: brand<PermissionRequestId>(globalThis.crypto.randomUUID()),
+          protocol,
+          action: HOME_V2_EXTERNAL_LINK_ACTION,
+          capability: 'link.external.open',
+          appId,
+          appIdentityKey: parsedApp.identityKey,
+          appTitle: parsedApp.title,
+          context: {
+            appId,
+            identityId: brand<IdentityId>(`home-v2:identity:app:${parsedApp.identityKey}`),
+            nodeProfileRef: snapshot.nodes[targetNetwork].ref,
+            tabId: brand<TabId>(context.tabId),
+            targetNetwork,
+            walletRef: null,
+          },
+          title: 'Open this link in your browser?',
+          summary: `${parsedApp.title} wants to open the web page below in your device's browser, outside Home. Home fetches nothing and shares nothing with the site; the page opens like any link you type into your browser yourself. This approval covers this one link only.`,
+          details: [
+            { label: 'App', value: parsedApp.title },
+            ...getHomeV2ExternalLinkApprovalDetails(linkRequest).map((detail) => detail.label === 'Link'
+              ? { label: detail.label, value: detail.value, variant: 'scroll' as const }
+              : { label: detail.label, value: detail.value }),
+            { label: 'Scope', value: 'This one link only' },
+          ],
+          // Never durable. See src/v2/bridge-permissions.ts.
+          allowedScopes: ['single-request'],
+        })
+        const decision = await queueAndroidPermissionPrompt(prompt, context.tabId)
+        if (!decision.approved || decision.scope !== 'single-request') {
+          throw new Error('Opening the link was denied.')
+        }
+        const approvedTab = productStateRef.current.tabs.find((tab) => tab.id === context.tabId)
+        if (!approvedTab || approvedTab.context.resourceLocation !== context.resourceLocation) {
+          throw new Error('Link request is stale because the app view changed before approval.')
+        }
+        window.open(linkRequest.url, '_blank', 'noopener,noreferrer')
+        return { opened: true as const, url: linkRequest.url }
       }
       if (isAndroidHost && (action === 'NOTIFICATION_HAS_PERMISSION' || action === 'SHOW_NOTIFICATION')) {
         const targetNetwork: NetworkId = protocol === 'qortalRequest' ? 'qortal' : 'qortium'

@@ -32,6 +32,22 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## feat(home-v2): apps can open a web link in your browser, with your say-so (OPEN_EXTERNAL_LINK)
+
+2026-09-14
+
+Apps in Home cannot show web pages — an app tab only ever shows QDN content,
+which is what keeps a published app from turning into a phishing or tracking
+page. The cost was that every ordinary web link in a chat message was
+copy-only: you had to copy it and paste it into a browser yourself. Home now
+offers apps one narrow door: `OPEN_EXTERNAL_LINK` asks Home to open a single
+http(s) link in your device's normal browser. Home checks the link first
+(only plain web addresses, no hidden logins or odd characters), then shows
+you the site and the full link and asks. There is no "always allow" — every
+link is its own question, so an app can never open your browser without you
+seeing exactly what it is opening — and Home itself never loads the page.
+Works the same on desktop and Android.
+
 ## feat(home-v2): Qortal General Chat from apps (SEND_QORTAL_GENERAL_CHAT)
 
 2026-09-14

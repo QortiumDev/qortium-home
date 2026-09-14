@@ -82,6 +82,9 @@ const QDN_ACTIONS = [
   'GET_HOME_SETTINGS_METADATA',
   'GET_HOME_SETTINGS',
   'UPDATE_HOME_SETTINGS',
+  // Host-mediated http(s) open in the system browser, one confirmation per
+  // link (electron/home-v2-external-link-contract.ts).
+  'OPEN_EXTERNAL_LINK',
   'ADD_GROUP_ADMIN',
   'ADD_TO_LIST',
   'APPROVE_GROUP_JOIN_REQUEST',

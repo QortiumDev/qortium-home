@@ -98,6 +98,10 @@ export const HOME_V2_ROUTE_INDEPENDENT_ACTIONS = Object.freeze([
   'GET_HOME_SETTINGS',
   'GET_HOME_SETTINGS_METADATA',
   'UPDATE_HOME_SETTINGS',
+  // Hands a link to the system browser after a confirmation; no node is
+  // involved, so an app can still point the user somewhere while every route
+  // is disabled or unreachable.
+  'OPEN_EXTERNAL_LINK',
   'OPEN_NEW_TAB',
   'SHOW_CONTEXT_MENU',
   'SHOW_NOTIFICATION',

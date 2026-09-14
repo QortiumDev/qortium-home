@@ -44,6 +44,11 @@ export type PermissionCapability =
   // (GET_HOME_SETTINGS, GET_HOME_SETTINGS_METADATA) carry no capability at all —
   // they never prompt, exactly as in Home 1.x.
   | 'home.settings.write'
+  // Opening one http(s) link in the system browser (OPEN_EXTERNAL_LINK).
+  // NEVER durable: single-request prompt only, never written to the grant
+  // store, no card in QDN Apps settings — an app that could open the browser
+  // at will could nag, track, and phish with nothing to attribute it to.
+  | 'link.external.open'
   | 'transactions.pending.read'
   | 'transactions.pending.forget'
   // Loading or removing a minting key on the local Core. Always a
@@ -202,6 +207,7 @@ export interface PermissionPrompt {
     | 'SEND_CHAT_EDIT'
     | 'SEND_CHAT_MESSAGE'
     | 'OPEN_AS_WIDGET'
+    | 'OPEN_EXTERNAL_LINK'
     | 'SEND_CHAT_REACTION'
     | 'SEND_QORTAL_GENERAL_CHAT'
     | 'GET_PRIVATE_DIRECT_ACTIVE_CHATS'
