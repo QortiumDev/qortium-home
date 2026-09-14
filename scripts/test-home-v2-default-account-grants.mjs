@@ -120,6 +120,7 @@ function createHarness() {
     sanitizeQdnManagerAppKey: (value) => value,
     isHomeV2NotificationManagerAction: () => false,
     isHomeV2HomeSettingsAction: () => false,
+    HOME_V2_EXTERNAL_LINK_ACTION: 'OPEN_EXTERNAL_LINK',
     isHomeV2JournaledMutation: () => false,
     isHomeV2PollWriteAction: () => false,
     isHomeV2RatingAction: () => false,

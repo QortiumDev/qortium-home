@@ -5351,7 +5351,11 @@ export function HomeV2LiveApp() {
           // notifications.manage there is no card in QDN Apps settings listing
           // apps that hold it, because no grant is ever stored. One approval,
           // one patch.
-          : isHomeSettingsUpdate || isExternalLink
+          : isHomeSettingsUpdate
+          ? ['single-request']
+          // Same posture for a link open, for the stronger reason: an app
+          // that may open the browser at will can nag, track and phish.
+          : isExternalLink
           ? ['single-request']
           // The read-only account family may be granted persistently so a
           // trusted app stops asking every session (owner decision, R3-10);
