@@ -1,12 +1,12 @@
 # Home 2.1 beta testing and app development
 
-Home 2.1.0-beta.6 is a testing prerelease. Home 1.8.0 remains the latest stable
+Home 2.1.0-beta.7 is a testing prerelease. Home 1.8.0 remains the latest stable
 release. Choose Prerelease in Home's update settings to follow the Home 2 line,
 or install the matching platform asset manually. Report the Home version,
 platform, app version, selected network, node route and reproduction steps.
 Keep passwords, recovery material and private message contents out of reports.
 
-Android beta.6 uses versionCode 48. It can update release-signed beta.5 (code 47), beta.4 (code 46), beta.3 (code 45),
+Android beta.7 uses versionCode 49. It can update release-signed beta.6 (code 48), beta.5 (code 47), beta.4 (code 46), beta.3 (code 45),
 beta.2 (code 44), beta.1 (code 43), Home 1.8.0 (code 41) and release-signed
 development Home 2.1.0 (code 42). Development
 builds named 2.1.0 sort above the beta in semantic-version comparisons, so
@@ -15,7 +15,7 @@ signer and cannot be updated in place by the release APK.
 
 ## Start with the runtime contract
 
-Home's application version is 2.1.0-beta.6; its QAVS platform version is 2.1.
+Home's application version is 2.1.0-beta.7; its QAVS platform version is 2.1.
 Feature-detect actions instead of treating either version as a capability list.
 Use `qdnRequest` for Qortium and `qortalRequest` for Qortal. The invoked bridge
 determines the network; a network field in the payload does not switch it.
@@ -136,6 +136,17 @@ APP/WEBSITE navigation and a resource viewer are distinct operations.
    instead of failing with "this action no longer matches the current chat
    or account". Please retry any Chat send that used to be discarded on the
    phone, from a tab opened through a link as well as from the Chat tile.
+11. New in beta.7. (a) Android attachments: publishing a picture or a chat
+   attachment to QDN from the phone works again (it used to fail right after
+   approval with "an unexpected error"). (b) Local Core API key: if Home
+   shows "API error 4" for your own Core, it now asks the Core which key it
+   accepts and adopts it — no more copying the apikey file by hand; please
+   report if you still see error 4. (c) Qortal General Chat: with Chat
+   2.0.22, the QORTAL section lists General Chat and you can post to it from
+   Home (Home builds the message the way Qortal Hub does). (d) Web links in
+   chat messages now show "Open" next to "Copy"; Home asks you first, showing
+   the site and the full link, and opens it in your device's browser. Try a
+   link on desktop and on the phone.
 
 ## Reports still being investigated
 
