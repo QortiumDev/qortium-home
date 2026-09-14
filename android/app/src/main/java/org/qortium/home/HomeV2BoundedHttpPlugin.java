@@ -113,7 +113,7 @@ public class HomeV2BoundedHttpPlugin extends Plugin {
                     throw new Exception("Public QDN content attestation refused an encoded response.");
                 }
                 if (status < 200 || status >= 300) {
-                    byte[] errorBytes = readBounded(connection.getErrorStream(), MAX_PUBLIC_ARTIFACT_ERROR_BYTES);
+                    byte[] errorBytes = readAtMost(connection.getErrorStream(), MAX_PUBLIC_ARTIFACT_ERROR_BYTES);
                     JSObject failure = new JSObject();
                     failure.put("status", status);
                     failure.put("errorBody", new String(errorBytes, StandardCharsets.UTF_8));
@@ -372,6 +372,23 @@ public class HomeV2BoundedHttpPlugin extends Plugin {
             throw new Exception("Invalid bounded response limit.");
         }
         return maxBytes;
+    }
+
+    /** Reads up to maxBytes and stops — for error bodies, where truncation is fine and rejection is not. */
+    static byte[] readAtMost(InputStream stream, int maxBytes) throws Exception {
+        if (stream == null) return new byte[0];
+        try (InputStream input = stream;
+             ByteArrayOutputStream output = new ByteArrayOutputStream(Math.min(maxBytes, 8192))) {
+            byte[] buffer = new byte[8192];
+            int remaining = maxBytes;
+            while (remaining > 0) {
+                int count = input.read(buffer, 0, Math.min(buffer.length, remaining));
+                if (count == -1) break;
+                output.write(buffer, 0, count);
+                remaining -= count;
+            }
+            return output.toByteArray();
+        }
     }
 
     static byte[] readBounded(InputStream stream, int maxBytes) throws Exception {

@@ -4545,7 +4545,7 @@ async function signAndProcessKeylessQdnTransaction(
 async function fetchPublicQdnAttestationArtifact(nodeApiUrl: string, hash: Uint8Array, maxBytes: number) {
   if (hash.length !== 32) throw new Error('Public QDN builder returned an invalid attestation hash.');
   const requestUrl = `${getNodeApiUrlBase(nodeApiUrl)}/arbitrary/public/data/${encodeURIComponent(base58Encode(hash))}`;
-  if (Capacitor.isNativePlatform()) {
+  if (Capacitor.getPlatform() === 'android') {
     // The Android shell ships `connect-src 'none'`: every node request goes
     // through native transports, and window.fetch is refused by CSP — which
     // failed EVERY public publish whose payload the node stores as a chunked

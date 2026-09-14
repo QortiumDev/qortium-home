@@ -300,4 +300,14 @@ public class HomeV2BoundedHttpPluginTest {
             }
         }
     }
+
+    @Test
+    public void readAtMostTruncatesInsteadOfRejecting() throws Exception {
+        byte[] body = new byte[100_000];
+        for (int i = 0; i < body.length; i += 1) body[i] = (byte) (i % 251);
+        byte[] truncated = HomeV2BoundedHttpPlugin.readAtMost(new ByteArrayInputStream(body), 65_536);
+        assertEquals(65_536, truncated.length);
+        assertEquals(body[65_535], truncated[65_535]);
+        assertEquals(0, HomeV2BoundedHttpPlugin.readAtMost(null, 10).length);
+    }
 }
