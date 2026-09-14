@@ -229,6 +229,7 @@ import {
   assertHomeV2OpenPublicGroup,
   buildHomeV2QortiumPublicChatBuildBody,
   createHomeV2UnknownChatBroadcastResult,
+  homeV2PublicChatRequiresSenderOwnership,
   isHomeV2PublicChatAction,
   normalizeHomeV2PublicChatReferenceTarget,
   normalizeHomeV2PublicChatRequest,
@@ -612,6 +613,17 @@ import {
   stampQortalGroupChatNonce,
 } from './qortal-chat.js'
 import {
+  buildUnsignedQortalGeneralChatBytes,
+  buildUnsignedQortalGeneralWrapperBytes,
+  deriveQortalGeneralWrapperKeys,
+  findQortalGeneralChatMessage,
+  parseSignedQortalGeneralChatBytes,
+  QORTAL_GENERAL_CHAT_FEED_MAX_BYTES,
+  QORTAL_GENERAL_CHAT_FEED_PATH,
+  QORTAL_GENERAL_MESSAGE_POW_DIFFICULTY,
+  stampQortalGeneralChatNonce,
+} from './qortal-general-chat.js'
+import {
   appendSignatureToTransactionBytes,
   buildUnsignedPaymentTransactionBytes,
   formatQortAtomic,
@@ -729,6 +741,7 @@ type AccountReadAction =
   | 'SEND_CHAT_EDIT'
   | 'SEND_CHAT_MESSAGE'
   | 'SEND_CHAT_REACTION'
+  | 'SEND_QORTAL_GENERAL_CHAT'
   | HomeV2DirectChatWriteAction
   | HomeV2PrivateGroupChatReadAction
   | HomeV2PrivateGroupChatWriteAction
@@ -5217,10 +5230,10 @@ async function getHomeV2SignedWriteApiKey(
   return connection.apiKey ?? ''
 }
 
-function chatOperationLabel(action: HomeV2PublicChatAction) {
-  if (action === 'SEND_CHAT_EDIT') return 'Edit message'
-  if (action === 'SEND_CHAT_DELETE') return 'Delete message'
-  if (action === 'SEND_CHAT_REACTION') return 'React to message'
+function chatOperationLabel(action: HomeV2PublicChatAction, revision?: HomeV2PublicChatRequest['revision']) {
+  if (action === 'SEND_CHAT_EDIT' || revision === 'edit') return 'Edit message'
+  if (action === 'SEND_CHAT_DELETE' || revision === 'delete') return 'Delete message'
+  if (action === 'SEND_CHAT_REACTION' || revision === 'reaction') return 'React to message'
   return 'Send message'
 }
 
@@ -5264,6 +5277,27 @@ async function validateHomeV2PublicChatTarget(
     assertHomeV2OpenPublicGroup(group, request.txGroupId, network)
   }
   if (!request.chatReference) return
+  if (request.action === 'SEND_QORTAL_GENERAL_CHAT') {
+    // A General Chat original never confirms, so /chat/message cannot find
+    // it: look it up in the unconfirmed MESSAGE pool and verify the wrapper
+    // ourselves (electron/qortal-general-chat.ts). The same three rules as
+    // below apply — the reference must exist, must be an original (not itself
+    // a revision), and an edit/delete must belong to the caller.
+    const feed = await readHomeV2ChatJson(
+      nodeApiUrl,
+      QORTAL_GENERAL_CHAT_FEED_PATH,
+      'General Chat lookup',
+      apiKey,
+      QORTAL_GENERAL_CHAT_FEED_MAX_BYTES,
+    )
+    const target = findQortalGeneralChatMessage(feed, request.chatReference)
+    if (!target) throw new Error('Referenced General Chat message was not found.')
+    if (target.chatReference) throw new Error('Chat revisions and reactions must reference the original message.')
+    if (homeV2PublicChatRequiresSenderOwnership(request) && target.senderPublicKey !== senderPublicKey) {
+      throw new Error('Only the original sender can edit or delete this chat message.')
+    }
+    return
+  }
   normalizeHomeV2PublicChatReferenceTarget(
     await readHomeV2ChatJson(
       nodeApiUrl,
@@ -5274,8 +5308,7 @@ async function validateHomeV2PublicChatTarget(
     {
       chatReference: request.chatReference,
       requireOriginal: true,
-      requireSenderOwnership:
-        request.action === 'SEND_CHAT_EDIT' || request.action === 'SEND_CHAT_DELETE',
+      requireSenderOwnership: homeV2PublicChatRequiresSenderOwnership(request),
       senderPublicKey,
       txGroupId: request.txGroupId,
     },
@@ -5411,6 +5444,83 @@ async function sendHomeV2QortalChatMessage(
     return { signature, timestamp }
   } catch (error) {
     return createHomeV2UnknownChatBroadcastResult(error, signature, timestamp)
+  }
+}
+
+// Qortal General Chat (group 0) send over the MESSAGE-wrapper protocol
+// (electron/qortal-general-chat.ts). Two proofs of work and two signatures:
+// the account signs the inner group-0 CHAT (its balance-dependent CHAT
+// difficulty), then a keypair DERIVED from that signature signs the fee-less
+// MESSAGE that carries it (Core's fixed no-fee MESSAGE difficulty). Only the
+// wrapper is broadcast; the CHAT never reaches the chain on its own. The
+// result's signature is the INNER CHAT's — that is the id readers (Hub, Chat)
+// use for the message, replies, edits and reactions.
+async function sendHomeV2QortalGeneralChatMessage(
+  nodeApiUrl: string,
+  request: HomeV2PublicChatRequest,
+  signingKey: HomeV2ChatSigningKey,
+  isStillValid: () => boolean | Promise<boolean>,
+  validateTarget: () => Promise<void>,
+) {
+  const timestamp = Date.now()
+  const unsignedChat = buildUnsignedQortalGeneralChatBytes({
+    ...(request.chatReference ? { chatReference: request.chatReference } : {}),
+    lastReference: new Uint8Array(randomBytes(64)),
+    message: request.message,
+    senderPublicKey: signingKey.publicKey58,
+    timestamp,
+  })
+  const difficulty = await resolveHomeV2QortalChatPowDifficulty(nodeApiUrl, signingKey.address)
+  const chatNonce = await computeHomeV2ChatNonce(unsignedChat, difficulty, isStillValid)
+  if (!(await isStillValid())) {
+    throw new Error('The signing context changed before the chat message could be submitted.')
+  }
+  await validateTarget()
+  if (!(await isStillValid())) {
+    throw new Error('The signing context changed before the chat message could be submitted.')
+  }
+  const stampedChat = stampQortalGeneralChatNonce(unsignedChat, chatNonce)
+  const signedChat = appendSignatureToTransactionBytes(stampedChat, signDetached(stampedChat, signingKey.secretKey))
+  // Re-parse what was just signed: the wrapper keys derive from the signature
+  // and the parser is the same one readers use, so a CHAT this process would
+  // not accept back is never wrapped.
+  const parsedChat = parseSignedQortalGeneralChatBytes(signedChat)
+  if (base58Encode(parsedChat.publicKey) !== signingKey.publicKey58) {
+    throw new Error('General Chat was signed with an unexpected account.')
+  }
+  const signature = base58Encode(parsedChat.signature)
+  const { recipientAddress, senderKeyPair } = deriveQortalGeneralWrapperKeys(parsedChat.signature)
+  try {
+    const unsignedWrapper = buildUnsignedQortalGeneralWrapperBytes({
+      data: signedChat,
+      lastReference: new Uint8Array(randomBytes(64)),
+      recipient: recipientAddress,
+      senderPublicKey: senderKeyPair.publicKey,
+      timestamp: Date.now(),
+    })
+    const wrapperNonce = await computeHomeV2ChatNonce(unsignedWrapper, QORTAL_GENERAL_MESSAGE_POW_DIFFICULTY, isStillValid)
+    if (!(await isStillValid())) {
+      throw new Error('The signing context changed before the chat message could be submitted.')
+    }
+    const stampedWrapper = stampQortalGeneralChatNonce(unsignedWrapper, wrapperNonce)
+    const signedWrapper = appendSignatureToTransactionBytes(
+      stampedWrapper,
+      signDetached(stampedWrapper, senderKeyPair.secretKey),
+    )
+    try {
+      await postHomeV2ChatText(
+        nodeApiUrl,
+        '/transactions/process?apiVersion=2',
+        base58Encode(signedWrapper),
+        'text/plain',
+        'Qortal General Chat broadcast failed.',
+      )
+      return { signature, timestamp }
+    } catch (error) {
+      return createHomeV2UnknownChatBroadcastResult(error, signature, timestamp)
+    }
+  } finally {
+    senderKeyPair.secretKey.fill(0)
   }
 }
 
@@ -5633,7 +5743,7 @@ async function sendHomeV2PublicChatAction(
     chatReference: request.chatReference,
     groupId: request.txGroupId,
     messagePreview: request.message.slice(0, 180),
-    operationLabel: chatOperationLabel(effectiveAction),
+    operationLabel: chatOperationLabel(effectiveAction, request.revision),
     targetChainLabel: `${targetChainLabel} · ${groupLabel}`,
   })
   // Fix B: reject an excessive send BEFORE any node call or proof-of-work —
@@ -5665,7 +5775,9 @@ async function sendHomeV2PublicChatAction(
     }
     return await (network === 'qortium'
       ? sendHomeV2QortiumChatMessage(node.nodeApiUrl, request, signingKey, isStillValid, validateTarget, nodeApiKey)
-      : sendHomeV2QortalChatMessage(node.nodeApiUrl, request, signingKey, isStillValid, validateTarget))
+      : request.action === 'SEND_QORTAL_GENERAL_CHAT'
+        ? sendHomeV2QortalGeneralChatMessage(node.nodeApiUrl, request, signingKey, isStillValid, validateTarget)
+        : sendHomeV2QortalChatMessage(node.nodeApiUrl, request, signingKey, isStillValid, validateTarget))
   } finally {
     signingKey.secretKey.fill(0)
   }

@@ -11,15 +11,32 @@ export const HOME_V2_PUBLIC_CHAT_ACTIONS = Object.freeze([
   'SEND_CHAT_EDIT',
   'SEND_CHAT_DELETE',
   'SEND_CHAT_REACTION',
+  // Qortal General Chat (group 0) over the MESSAGE-wrapper protocol Hub and
+  // the Classic UI read (electron/qortal-general-chat.ts). qortalRequest only:
+  // Qortium's General Chat is an ordinary group-0 CHAT through
+  // SEND_CHAT_MESSAGE, and Qortal Core refuses those outright
+  // (normalizeHomeV2SendTxGroupId). One action carries a message, an edit, a
+  // delete or a reaction — the Hub envelope in `message` says which, and a
+  // revision names the original through `chatReference` exactly like the
+  // group actions above.
+  'SEND_QORTAL_GENERAL_CHAT',
 ] as const)
 
 export type HomeV2PublicChatAction = typeof HOME_V2_PUBLIC_CHAT_ACTIONS[number]
+
+export type HomeV2PublicChatRevision = 'edit' | 'delete' | 'reaction'
 
 export type HomeV2PublicChatRequest = {
   readonly action: HomeV2PublicChatAction
   readonly chatReference: string | null
   readonly message: string
   readonly txGroupId: number
+  /**
+   * SEND_QORTAL_GENERAL_CHAT only: which revision the envelope in `message`
+   * is, when `chatReference` is set (null for a plain message). The group
+   * actions carry this in the action name instead.
+   */
+  readonly revision?: HomeV2PublicChatRevision | null
 }
 
 export function createHomeV2UnknownChatBroadcastResult(
@@ -124,8 +141,45 @@ export function isHomeV2PublicChatAction(value: string): value is HomeV2PublicCh
   return (HOME_V2_PUBLIC_CHAT_ACTIONS as readonly string[]).includes(value)
 }
 
-export function getHomeV2PublicChatActions(_protocol: HomeV2AppBridgeProtocol) {
-  return HOME_V2_PUBLIC_CHAT_ACTIONS
+const HOME_V2_QDN_PUBLIC_CHAT_ACTIONS = Object.freeze(
+  HOME_V2_PUBLIC_CHAT_ACTIONS.filter((action) => action !== 'SEND_QORTAL_GENERAL_CHAT'),
+)
+
+export function getHomeV2PublicChatActions(protocol: HomeV2AppBridgeProtocol) {
+  return protocol === 'qortalRequest' ? HOME_V2_PUBLIC_CHAT_ACTIONS : HOME_V2_QDN_PUBLIC_CHAT_ACTIONS
+}
+
+/**
+ * Whether a General Chat request needs the referenced message to belong to
+ * the caller — edits and deletes do, reactions do not — mirroring
+ * requireSenderOwnership for SEND_CHAT_EDIT / SEND_CHAT_DELETE.
+ */
+export function homeV2PublicChatRequiresSenderOwnership(request: HomeV2PublicChatRequest) {
+  if (request.action === 'SEND_QORTAL_GENERAL_CHAT') {
+    return request.revision === 'edit' || request.revision === 'delete'
+  }
+  return request.action === 'SEND_CHAT_EDIT' || request.action === 'SEND_CHAT_DELETE'
+}
+
+// Classifies the Hub envelope a General Chat revision carries. The three
+// shapes are mutually exclusive (a reaction has type 'reaction', a delete is
+// the canonical empty edit, anything else must be a real edit), so the first
+// matching assertion wins and the last one's error is the one reported.
+function classifyQortalGeneralChatRevision(message: string): HomeV2PublicChatRevision {
+  try {
+    assertReactionEnvelope(message, 'Qortal reaction payload')
+    return 'reaction'
+  } catch {
+    // Not a reaction; fall through.
+  }
+  try {
+    assertQortalDeletePayload(message)
+    return 'delete'
+  } catch {
+    // Not a delete; fall through.
+  }
+  assertQortalEditPayload(message)
+  return 'edit'
 }
 
 function parseJsonRecord(message: string, label: string) {
@@ -262,8 +316,30 @@ export function normalizeHomeV2PublicChatRequest(
     throw new Error(`${action} is not implemented for ${protocol}.`)
   }
   assertNetworkHint(protocol, request.network)
-  const txGroupId = normalizeHomeV2SendTxGroupId(protocol, request.txGroupId)
   const message = normalizeHomeV2ChatMessageText(request.message)
+
+  if (action === 'SEND_QORTAL_GENERAL_CHAT') {
+    // General Chat is group 0 by definition; a txGroupId in the request is
+    // accepted only when it says so, so an app cannot smuggle a group send
+    // through the wrapper action.
+    if (request.txGroupId !== undefined && request.txGroupId !== null && Number(request.txGroupId) !== 0) {
+      throw new Error('SEND_QORTAL_GENERAL_CHAT always targets General Chat (txGroupId 0).')
+    }
+    if (request.chatReference === undefined || request.chatReference === null || request.chatReference === '') {
+      return { action, chatReference: null, message, revision: null, txGroupId: 0 }
+    }
+    const chatReference = normalizeHomeV2ChatReference(request.chatReference)
+    const revision = classifyQortalGeneralChatRevision(message)
+    if (revision === 'reaction') {
+      const payload = assertReactionEnvelope(message, 'Qortal reaction payload')
+      if (typeof payload.specialId !== 'string' || !payload.specialId || payload.specialId.length > 128) {
+        throw new Error('Qortal reaction payload must include a valid Hub specialId.')
+      }
+    }
+    return { action, chatReference, message, revision, txGroupId: 0 }
+  }
+
+  const txGroupId = normalizeHomeV2SendTxGroupId(protocol, request.txGroupId)
 
   if (action === 'SEND_CHAT_MESSAGE') {
     if (request.chatReference !== undefined && request.chatReference !== null && request.chatReference !== '') {

@@ -351,6 +351,14 @@ import {
   stampQortalGroupChatNonce,
 } from '../electron/qortal-chat';
 import {
+  buildUnsignedQortalGeneralChatBytes,
+  buildUnsignedQortalGeneralWrapperBytes,
+  deriveQortalGeneralWrapperKeys,
+  parseSignedQortalGeneralChatBytes,
+  QORTAL_GENERAL_MESSAGE_POW_DIFFICULTY,
+  stampQortalGeneralChatNonce,
+} from '../electron/qortal-general-chat';
+import {
   buildHomeV2QortiumPublicChatBuildBody,
   createHomeV2UnknownChatBroadcastResult,
   type HomeV2PublicChatRequest,
@@ -12842,6 +12850,79 @@ async function sendHomeV2QortalChatMessage(
   }
 }
 
+// Qortal General Chat (group 0) over the MESSAGE-wrapper protocol. Same
+// two-proof, two-signature flow as the desktop bridge's
+// sendHomeV2QortalGeneralChatMessage (electron/home-v2-app-bridge.ts); the
+// byte builders and derivation are shared (electron/qortal-general-chat.ts).
+// The returned signature is the INNER CHAT's — the id readers use.
+async function sendHomeV2QortalGeneralChatMessage(
+  nodeApiUrl: string,
+  request: HomeV2PublicChatRequest,
+  signingKey: { address: string; publicKey58: string; secretKey: Uint8Array },
+  isStillValid: () => boolean | Promise<boolean>,
+  validateTarget: () => Promise<void>,
+) {
+  const timestamp = Date.now();
+  const unsignedChat = buildUnsignedQortalGeneralChatBytes({
+    ...(request.chatReference ? { chatReference: request.chatReference } : {}),
+    lastReference: getRandomQortalReference(),
+    message: request.message,
+    senderPublicKey: signingKey.publicKey58,
+    timestamp,
+  });
+  const difficulty = await resolveQortalChatPowDifficulty(signingKey.address);
+  const chatNonce = await computeChatNonce(unsignedChat, difficulty, isStillValid);
+  if (!(await isStillValid())) {
+    throw new Error('The signing context changed before the chat message could be submitted.');
+  }
+  await validateTarget();
+  if (!(await isStillValid())) {
+    throw new Error('The signing context changed before the chat message could be submitted.');
+  }
+  const stampedChat = stampQortalGeneralChatNonce(unsignedChat, chatNonce);
+  const signedChat = appendSignatureToTransactionBytes(stampedChat, nacl.sign.detached(stampedChat, signingKey.secretKey));
+  const parsedChat = parseSignedQortalGeneralChatBytes(signedChat);
+  if (base58Encode(parsedChat.publicKey) !== signingKey.publicKey58) {
+    throw new Error('General Chat was signed with an unexpected account.');
+  }
+  const signature = base58Encode(parsedChat.signature);
+  const { recipientAddress, senderKeyPair } = deriveQortalGeneralWrapperKeys(parsedChat.signature);
+  try {
+    const unsignedWrapper = buildUnsignedQortalGeneralWrapperBytes({
+      data: signedChat,
+      lastReference: getRandomQortalReference(),
+      recipient: recipientAddress,
+      senderPublicKey: senderKeyPair.publicKey,
+      timestamp: Date.now(),
+    });
+    const wrapperNonce = await computeChatNonce(unsignedWrapper, QORTAL_GENERAL_MESSAGE_POW_DIFFICULTY, isStillValid);
+    if (!(await isStillValid())) {
+      throw new Error('The signing context changed before the chat message could be submitted.');
+    }
+    const stampedWrapper = stampQortalGeneralChatNonce(unsignedWrapper, wrapperNonce);
+    const signedWrapper = appendSignatureToTransactionBytes(
+      stampedWrapper,
+      nacl.sign.detached(stampedWrapper, senderKeyPair.secretKey),
+    );
+    try {
+      await postLocalNodeText(
+        nodeApiUrl,
+        '/transactions/process?apiVersion=2',
+        base58Encode(signedWrapper),
+        '',
+        'Qortal General Chat broadcast failed.',
+        'text/plain',
+        CHAT_SIGNING_RESPONSE_MAX_BYTES,
+      );
+      return { signature, timestamp };
+    } catch (error) {
+      return createHomeV2UnknownChatBroadcastResult(error, signature, timestamp);
+    }
+  } finally {
+    senderKeyPair.secretKey.fill(0);
+  }
+}
+
 async function requestAndroidHomeV2ChatJson(
   nodeApiUrl: string,
   pathname: string,
@@ -16892,12 +16973,15 @@ export function createAndroidHomeV2VaultClient(): HomeV2VaultClient {
         action: request.action,
         chatReference: request.chatReference ?? null,
         message: request.message,
+        revision: request.revision ?? null,
         txGroupId: request.txGroupId,
       };
       try {
         return await (request.network === 'qortium'
           ? sendHomeV2QortiumChatMessage(request.nodeApiUrl, chatRequest, signingKey, isStillValid, validateTarget)
-          : sendHomeV2QortalChatMessage(request.nodeApiUrl, chatRequest, signingKey, isStillValid, validateTarget));
+          : request.action === 'SEND_QORTAL_GENERAL_CHAT'
+            ? sendHomeV2QortalGeneralChatMessage(request.nodeApiUrl, chatRequest, signingKey, isStillValid, validateTarget)
+            : sendHomeV2QortalChatMessage(request.nodeApiUrl, chatRequest, signingKey, isStillValid, validateTarget));
       } finally {
         signingKey.secretKey.fill(0);
       }

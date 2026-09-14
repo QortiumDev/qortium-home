@@ -182,11 +182,18 @@ import {
 import type { BookmarkToolbarVisibility } from '../bookmarkToolbar'
 import {
   assertHomeV2OpenPublicGroup,
+  homeV2PublicChatRequiresSenderOwnership,
   isHomeV2PublicChatAction,
   normalizeHomeV2PublicChatReferenceTarget,
   normalizeHomeV2PublicChatRequest,
   type HomeV2PublicChatAction,
+  type HomeV2PublicChatRequest,
 } from '../../electron/home-v2-chat-actions'
+import {
+  findQortalGeneralChatMessage,
+  QORTAL_GENERAL_CHAT_FEED_MAX_BYTES,
+  QORTAL_GENERAL_CHAT_FEED_PATH,
+} from '../../electron/qortal-general-chat'
 import {
   assertHomeV2DirectReferenceTarget,
   isHomeV2DirectChatReadAction,
@@ -1086,10 +1093,10 @@ function getDashboardPinContextMenuTarget(
   return getSavedResourceContextMenuTarget(pin.displayUrl)
 }
 
-function publicChatOperationLabel(action: HomeV2PublicChatAction) {
-  if (action === 'SEND_CHAT_EDIT') return 'Edit message'
-  if (action === 'SEND_CHAT_DELETE') return 'Delete message'
-  if (action === 'SEND_CHAT_REACTION') return 'React to message'
+function publicChatOperationLabel(action: HomeV2PublicChatAction, revision?: HomeV2PublicChatRequest['revision']) {
+  if (action === 'SEND_CHAT_EDIT' || revision === 'edit') return 'Edit message'
+  if (action === 'SEND_CHAT_DELETE' || revision === 'delete') return 'Delete message'
+  if (action === 'SEND_CHAT_REACTION' || revision === 'reaction') return 'React to message'
   return 'Send message'
 }
 
@@ -9827,6 +9834,27 @@ export function HomeV2LiveApp() {
             assertHomeV2OpenPublicGroup(group, chatRequest.txGroupId, targetNetwork)
           }
           if (!chatRequest.chatReference) return
+          if (effectiveAction === 'SEND_QORTAL_GENERAL_CHAT') {
+            // A General Chat original never confirms, so GET_CHAT_MESSAGE
+            // cannot find it: read the unconfirmed MESSAGE pool and verify
+            // the wrapper here (electron/qortal-general-chat.ts). Mirrors the
+            // desktop bridge's validateHomeV2PublicChatTarget branch.
+            const feed = unwrapAndroidNodeRecord(
+              await nodeClient.requestApp(
+                protocol,
+                { action: 'FETCH_NODE_API', maxBytes: QORTAL_GENERAL_CHAT_FEED_MAX_BYTES, path: QORTAL_GENERAL_CHAT_FEED_PATH },
+                context,
+              ),
+              'Referenced General Chat message was not found.',
+            )
+            const target = findQortalGeneralChatMessage(feed, chatRequest.chatReference)
+            if (!target) throw new Error('Referenced General Chat message was not found.')
+            if (target.chatReference) throw new Error('Chat revisions and reactions must reference the original message.')
+            if (homeV2PublicChatRequiresSenderOwnership(chatRequest) && target.senderPublicKey !== expectedSenderPublicKey) {
+              throw new Error('Only the original sender can edit or delete this chat message.')
+            }
+            return
+          }
           normalizeHomeV2PublicChatReferenceTarget(
             await nodeClient.requestApp(
               protocol,
@@ -9840,8 +9868,7 @@ export function HomeV2LiveApp() {
             {
               chatReference: chatRequest.chatReference,
               requireOriginal: true,
-              requireSenderOwnership:
-                effectiveAction === 'SEND_CHAT_EDIT' || effectiveAction === 'SEND_CHAT_DELETE',
+              requireSenderOwnership: homeV2PublicChatRequiresSenderOwnership(chatRequest),
               senderPublicKey: expectedSenderPublicKey,
               txGroupId: chatRequest.txGroupId,
             },
@@ -9850,7 +9877,7 @@ export function HomeV2LiveApp() {
         await validateTarget()
         const targetChainLabel = targetNetwork === 'qortal' ? 'Qortal' : 'Qortium'
         const groupLabel = chatRequest.txGroupId === 0 ? 'General chat' : `Group ${chatRequest.txGroupId}`
-        const operationLabel = publicChatOperationLabel(effectiveAction)
+        const operationLabel = publicChatOperationLabel(effectiveAction, chatRequest.revision)
         const grantKey = homeV2PermissionGrantKey({
           accountId,
           accountUnlocked: account.isUnlocked,
@@ -10037,6 +10064,7 @@ export function HomeV2LiveApp() {
           message: chatRequest.message,
           network: targetNetwork,
           nodeApiUrl: nodeBeforeSend.nodeApiUrl,
+          revision: chatRequest.revision ?? null,
           txGroupId: chatRequest.txGroupId,
           validateTarget,
         }))

@@ -49,7 +49,9 @@ export interface HomeV2ForeignSendRequest {
 
 export interface HomeV2SendChatMessageRequest {
   readonly accountId: string
-  readonly action: 'SEND_CHAT_MESSAGE' | 'SEND_CHAT_EDIT' | 'SEND_CHAT_DELETE' | 'SEND_CHAT_REACTION'
+  readonly action: 'SEND_CHAT_MESSAGE' | 'SEND_CHAT_EDIT' | 'SEND_CHAT_DELETE' | 'SEND_CHAT_REACTION' | 'SEND_QORTAL_GENERAL_CHAT'
+  /** SEND_QORTAL_GENERAL_CHAT only: the revision kind the envelope carries (see HomeV2PublicChatRequest). */
+  readonly revision?: 'edit' | 'delete' | 'reaction' | null
   // Rechecked immediately before signing and polled during the (potentially
   // tens-of-seconds) memory-pow computation, mirroring the desktop bridge's
   // isStillValid recheck (electron/home-v2-app-bridge.ts sendHomeV2ChatMessage):

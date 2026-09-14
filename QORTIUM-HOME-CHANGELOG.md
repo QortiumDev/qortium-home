@@ -32,6 +32,25 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## feat(home-v2): Qortal General Chat from apps (SEND_QORTAL_GENERAL_CHAT)
+
+2026-09-14
+
+Qortal's General Chat is not an ordinary group message anymore: the Qortal
+network stopped accepting those, so Qortal Hub and the Classic UI carry each
+General Chat message inside a fee-less "wrapper" transaction that never
+confirms. Apps hosted by Home could not take part — the Chat app had to say
+"General Chat is only available through Qortal Hub" on the Qortal side — and
+the only way to let them would have been to hand apps a raw "sign anything"
+action, which Home does not offer. Home now does the wrapping itself: a new
+`SEND_QORTAL_GENERAL_CHAT` action takes the app's message (or edit, delete or
+reaction), builds and proves the General Chat message, signs it with the
+selected account, seals it in the wrapper Hub expects and broadcasts it. The
+same prompt, "always allow" grant, send limits and pending-transaction record
+as every other chat send apply, on desktop and Android alike. Editing or
+deleting checks that the original message is really yours, the way group
+messages already do.
+
 ## fix: Home adopts the API key the local Core actually uses
 
 2026-09-13

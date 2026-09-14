@@ -38,6 +38,7 @@ export const HOME_V2_JOURNALED_MUTATIONS = Object.freeze([
   'SEND_DIRECT_CHAT_EDIT',
   'SEND_DIRECT_CHAT_MESSAGE',
   'SEND_DIRECT_CHAT_REACTION',
+  'SEND_QORTAL_GENERAL_CHAT',
   // A zero-fee MESSAGE to an AT is signed locally and broadcast to a node that
   // may or may not have accepted it, so it has the same ambiguous-outcome
   // problem as a chat send and gets the same treatment. Its journal target is
@@ -386,6 +387,8 @@ const PUBLIC_CHAT_JOURNAL_ACTIONS = new Set<string>([
   'SEND_CHAT_MESSAGE',
   'SEND_CHAT_REACTION',
 ])
+// General Chat is always group 0 (the request carries no txGroupId).
+const GENERAL_CHAT_JOURNAL_ACTIONS = new Set<string>(['SEND_QORTAL_GENERAL_CHAT'])
 const PRIVATE_GROUP_JOURNAL_ACTIONS = new Set<string>([
   'REQUEST_PRIVATE_GROUP_CHAT_KEY',
   'RESOLVE_PRIVATE_GROUP_CHAT_KEY_REQUESTS',
@@ -497,6 +500,9 @@ export function homeV2TransactionTargetFromRequest(action: string, value: unknow
     // normalizeHomeV2DirectChatWriteRequest: otherAddress ?? recipientAddress.
     const address = value.otherAddress ?? value.recipientAddress
     return address !== undefined ? derivedTarget({ kind: 'direct', otherAddress: address }) : OPERATION_TARGET
+  }
+  if (GENERAL_CHAT_JOURNAL_ACTIONS.has(action)) {
+    return derivedTarget({ kind: 'group', groupId: 0 })
   }
   if (PUBLIC_CHAT_JOURNAL_ACTIONS.has(action)) {
     // normalizeHomeV2PublicChatRequest: txGroupId (top-level only).
