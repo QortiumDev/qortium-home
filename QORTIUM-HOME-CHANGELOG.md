@@ -32,6 +32,16 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## fix: Android Home uses the full screen width in landscape
+
+2026-09-14
+
+A tester noticed that rotating the phone to landscape left Home as a narrow
+column in the middle of the screen. The shell's phone layout carried the
+430-pixel width of the desktop preview's phone frame, so on a real device it
+never grew past that. The width now belongs to the preview frame only; on
+the device the shell fills the screen in either orientation (and on tablets).
+
 ## release: prepare home 2.1.0-beta.7
 
 2026-09-14
