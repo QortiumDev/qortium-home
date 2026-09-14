@@ -68,6 +68,16 @@ old `install/preview/lists/` entries into `runtime/lists/` without overwriting
 runtime files, so testers upgrading from older launcher builds keep block and
 follow lists that were written into the replaceable install tree.
 
+`runtime/apikey.txt` is the API key Home uses for the local Core, and the
+managed settings pin Core's `apiKeyPath` there, so a Core Home starts reads
+the same file. Core itself defaults `apiKeyPath` to its working directory: a
+Core started from the install tree (the preview folder's own scripts, or an
+older launcher build) creates and reads `install/preview/apikey.txt` instead.
+When Home finds itself without an accepted key — no key resolved, or the Core
+answers API error 4 — it asks the local Core which of the known key files it
+accepts (`GET /admin/apikey/test`, loopback only), adopts that key, and copies
+it into `runtime/apikey.txt` so both locations agree from then on.
+
 `runtime/runtime-chain.json` records the installed release's Previewnet
 `networkId` and a Core-compatible `previewchain.json` SHA-256 identity. The
 hashes are diagnostic metadata, not an additional consensus gate: Core owns

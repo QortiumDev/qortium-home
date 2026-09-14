@@ -2,6 +2,7 @@ import { app, ipcMain } from 'electron';
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import {
+  getManagedCorePreviewPath,
   getManagedCoreRuntimePath,
   isManagedCoreRuntimeRunning,
   scheduleManagedCoreUpdateCheck,
@@ -9,11 +10,13 @@ import {
 import { withCoreInstallLockForNetwork } from './core-install-lock.js';
 import { QORTIUM_CORE_DESCRIPTOR } from './core-network-descriptor.js';
 import { userMessage } from './user-message.js';
+import { selectAcceptedLocalApiKey } from './local-api-key-adoption.js';
 import {
   ensurePreviewApiKey,
   readPreviewApiKey,
   invalidateRunningCoreApiKeyCache,
   readRunningLocalCoreApiKey,
+  writePreviewApiKey,
 } from './local-api-key.js';
 import { isNodeApiKeyTransportSafe, normalizeNodeApiUrl } from './node-api-url.js';
 import { homeV2NodeOrigin } from './home-v2-admin-trust.js';
@@ -459,6 +462,20 @@ function assertNodeCertificateConfirmed(nodeApiUrl: string) {
 }
 
 async function resolveLocalApiKey(
+  settings: NodeSettings,
+  expected: NodeSettings = settings,
+): Promise<NodeSettings> {
+  const resolved = await resolveLocalApiKeyFromFiles(settings, expected);
+
+  // No key at all after the file-based resolution (the running Core was not
+  // observable, or Home did not start it): ask the local Core which known key
+  // file it accepts before settling for a read-only route. Rate-limited.
+  return resolved.mode === 'local' && !resolved.apiKey
+    ? adoptAcceptedLocalApiKey(resolved, expected)
+    : resolved;
+}
+
+async function resolveLocalApiKeyFromFiles(
   settings: NodeSettings,
   expected: NodeSettings = settings,
 ): Promise<NodeSettings> {
@@ -1004,17 +1021,113 @@ export function isInvalidApiKeyResponse(response: Response, text: string) {
   }
 }
 
+const LOCAL_API_KEY_TEST_TIMEOUT_MS = 3_000;
+// One probe per window: the snapshot poll calls resolveLocalApiKey every few
+// seconds, and a Core that is not running must not turn each into a request.
+const LOCAL_API_KEY_PROBE_INTERVAL_MS = 30_000;
+let lastLocalApiKeyProbeAt = 0;
+
+// Asks the LOCAL Core whether it accepts a key. null = the node did not
+// answer (not running, or not reachable), which is not evidence either way.
+async function testLocalApiKey(apiKey: string): Promise<boolean | null> {
+  const localUrl = getLocalNodeApiUrl();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), LOCAL_API_KEY_TEST_TIMEOUT_MS);
+
+  try {
+    const response = await nodeFetch(`${localUrl}/admin/apikey/test`, {
+      headers: { Accept: 'text/plain', 'X-API-KEY': apiKey },
+      signal: controller.signal,
+    });
+    const text = (await response.text()).trim();
+
+    if (response.ok && text === 'true') {
+      return true;
+    }
+
+    return isInvalidApiKeyResponse(response, text) ? false : null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// Self-heal for the "wrong key file" case (tester report, 2026-09-13). Core
+// keeps apikey.txt in its apiKeyPath, which defaults to the process working
+// directory: a Core Home starts uses runtime/apikey.txt (the managed settings
+// pin apiKeyPath there), but a Core started from the install tree — the
+// preview folder's own scripts, or an older launcher build — created its key
+// THERE, and Home's admin calls answered API error 4 (UNAUTHORIZED) until the
+// user copied the key by hand. On Linux the running-process introspection
+// usually finds the right file; on macOS it needs lsof; on Windows nothing
+// does. So: when the resolved key is missing or the local Core rejects it, ask
+// the Core which of the known files it accepts, adopt that key, and migrate it
+// into the runtime file so Home and every Core Home starts agree from then on.
+// Loopback only — the key is never sent anywhere but the local Core.
+async function adoptAcceptedLocalApiKey(
+  resolved: NodeSettings,
+  expected: NodeSettings,
+  options: { force?: boolean } = {},
+): Promise<NodeSettings> {
+  if (resolved.mode !== 'local' || hasExplicitLocalNodeApiUrl()) {
+    return resolved;
+  }
+
+  const now = Date.now();
+
+  if (!options.force && now - lastLocalApiKeyProbeAt < LOCAL_API_KEY_PROBE_INTERVAL_MS) {
+    return resolved;
+  }
+
+  lastLocalApiKeyProbeAt = now;
+
+  const runtimePath = await getManagedCoreRuntimePath();
+  const previewPath = await getManagedCorePreviewPath();
+  const selection = await selectAcceptedLocalApiKey({
+    current: resolved.apiKey,
+    candidates: [
+      runtimePath ? readPreviewApiKey(runtimePath)?.apiKey : null,
+      // The legacy location: the install tree's preview folder, which is the
+      // working directory of a Core started from its own scripts.
+      previewPath ? readPreviewApiKey(previewPath)?.apiKey : null,
+    ],
+    probe: testLocalApiKey,
+  });
+
+  if (!selection.adopted) {
+    return resolved;
+  }
+
+  if (runtimePath && readPreviewApiKey(runtimePath)?.apiKey !== selection.apiKey) {
+    try {
+      writePreviewApiKey(runtimePath, selection.apiKey);
+    } catch (error) {
+      console.warn('[node-settings] Unable to migrate the accepted Core API key into the runtime folder.', error);
+    }
+  }
+
+  invalidateRunningCoreApiKeyCache();
+
+  return writeResolvedLocalApiKey(expected, { ...resolved, apiKey: selection.apiKey });
+}
+
 async function refreshLocalApiKey(settings: NodeSettings) {
   if (settings.mode !== 'local' || hasExplicitLocalNodeApiUrl()) {
     return settings;
   }
 
-  const refreshedSettings = await resolveLocalApiKey(
-    {
-      ...settings,
-      apiKey: '',
-    },
+  const refreshedSettings = await adoptAcceptedLocalApiKey(
+    await resolveLocalApiKeyFromFiles(
+      {
+        ...settings,
+        apiKey: '',
+      },
+      settings,
+    ),
     settings,
+    // The caller just saw the Core reject a key: probe now, not next window.
+    { force: true },
   );
 
   if (!refreshedSettings.apiKey && settings.apiKey) {

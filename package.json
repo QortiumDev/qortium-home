@@ -187,6 +187,7 @@
     "test:notification-target": "node scripts/ensure-electron-build.mjs && node dist-electron/notification-target.test.js",
     "test:qdn-bridge-error": "node scripts/ensure-electron-build.mjs && node dist-electron/qdn-bridge-error.test.js",
     "test:qdn-file-not-found": "node scripts/ensure-electron-build.mjs && node dist-electron/qdn-file-not-found.test.js",
+    "test:local-api-key-adoption": "node scripts/ensure-electron-build.mjs && node dist-electron/local-api-key-adoption.test.js",
     "test:node-error-body": "node scripts/ensure-electron-build.mjs && node dist-electron/node-error-body.test.js",
     "test:node-api-url": "node scripts/ensure-electron-build.mjs && node dist-electron/node-api-url.test.js",
     "test:qortium-public-node-settings": "node scripts/ensure-electron-build.mjs && node dist-electron/qortium-public-node-policy.test.js",
