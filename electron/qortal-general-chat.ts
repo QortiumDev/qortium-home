@@ -48,12 +48,16 @@ export type QortalGeneralWrappedTransaction = {
   fee?: number | string;
   isEncrypted?: boolean;
   isText?: boolean;
+  nonce?: number | string;
   recipient?: string | null;
   recipientAddress?: string | null;
+  reference?: string;
   senderPublicKey?: string;
+  signature?: string;
   timestamp?: number;
   txGroupId?: number;
   txGroupID?: number;
+  type?: string;
 };
 
 export type ParsedQortalGeneralChat = {
@@ -300,13 +304,21 @@ export function deriveQortalGeneralWrapperKeys(chatSignature: Uint8Array) {
   if (chatSignature.length !== 64) throw new Error('CHAT signature must be 64 bytes.');
   const senderSeed = sha256(concatBytes(WRAPPER_SENDER_TAG, chatSignature));
   const recipientSeed = sha256(concatBytes(WRAPPER_RECIPIENT_TAG, chatSignature));
-  const senderKeyPair = nacl.sign.keyPair.fromSeed(senderSeed);
-  const recipientKeyPair = nacl.sign.keyPair.fromSeed(recipientSeed);
+  try {
+    const senderKeyPair = nacl.sign.keyPair.fromSeed(senderSeed);
+    const recipientKeyPair = nacl.sign.keyPair.fromSeed(recipientSeed);
+    // Only the recipient ADDRESS is ever needed; its secret never signs.
+    recipientKeyPair.secretKey.fill(0);
 
-  return {
-    recipientAddress: qortalPublicKeyToAddress(recipientKeyPair.publicKey),
-    senderKeyPair,
-  };
+    return {
+      recipientAddress: qortalPublicKeyToAddress(recipientKeyPair.publicKey),
+      // The caller signs the wrapper with this and must zero it afterwards.
+      senderKeyPair,
+    };
+  } finally {
+    senderSeed.fill(0);
+    recipientSeed.fill(0);
+  }
 }
 
 export function stampQortalGeneralChatNonce(unsignedBytes: Uint8Array, nonce: number) {
@@ -469,37 +481,79 @@ export function parseSignedQortalGeneralChatBytes(bytes: Uint8Array): ParsedQort
   return { chatReference, data, publicKey, signature, signingBytes, timestamp };
 }
 
+function numberField(value: unknown) {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && /^-?\d+$/.test(value)) return Number(value);
+  return null;
+}
+
 /**
- * One unconfirmed MESSAGE row → a verified General Chat message, or null when
- * the row is not a well-formed wrapper (wrong shape, wrapper sender/recipient
- * not derived from the inner signature, inner signature invalid). Never
- * throws: the feed is untrusted node output.
+ * One unconfirmed MESSAGE row → a verified General Chat message, or null.
+ *
+ * Verified end to end, because the feed is untrusted node output: the row
+ * must be a fee-less, amount-zero, group-0, non-text, non-encrypted MESSAGE;
+ * the inner CHAT must parse and verify; the wrapper sender and recipient
+ * must be the ones derived from the inner signature; and the OUTER
+ * transaction bytes are rebuilt from the row (reference, nonce, timestamp,
+ * data) and the row's signature must verify under the derived wrapper key.
+ * A row missing any of those fields is not a wrapper. Never throws.
+ *
+ * What this proves is structure — that the bytes are a wrapper made for
+ * exactly this CHAT — not that a particular node was honest about having it
+ * in its pool: the wrapper key is derivable by anyone from the inner
+ * signature, so authorship rests on the inner CHAT's signature alone (which
+ * is what the sender-ownership rule for edits and deletes checks).
  */
 export function decodeQortalGeneralWrappedMessage(
   transaction: QortalGeneralWrappedTransaction,
 ): QortalGeneralChatMessage | null {
+  let senderKeyPair: nacl.SignKeyPair | null = null;
   try {
     const txGroupId = transaction.txGroupId ?? transaction.txGroupID;
     const wrapperPublicKey58 = transaction.senderPublicKey ?? transaction.creatorPublicKey;
     const recipient = transaction.recipient ?? transaction.recipientAddress;
+    const nonce = numberField(transaction.nonce);
+    const timestamp = numberField(transaction.timestamp);
 
     if (
+      (transaction.type !== undefined && transaction.type !== 'MESSAGE') ||
       Number(txGroupId) !== QORTAL_GENERAL_CHAT_GROUP_ID ||
       typeof transaction.data !== 'string' ||
+      typeof transaction.reference !== 'string' ||
+      typeof transaction.signature !== 'string' ||
+      nonce === null || nonce < 0 || nonce > 0xffffffff ||
+      timestamp === null || timestamp <= 0 ||
       !wrapperPublicKey58 ||
       !recipient ||
       Number(transaction.amount) !== 0 ||
-      (transaction.fee !== undefined && Number(transaction.fee) !== 0) ||
-      (transaction.isText !== undefined && transaction.isText !== false) ||
-      (transaction.isEncrypted !== undefined && transaction.isEncrypted !== false)
+      Number(transaction.fee ?? 0) !== 0 ||
+      transaction.isText !== false ||
+      transaction.isEncrypted !== false
     ) {
       return null;
     }
 
-    const parsed = parseSignedQortalGeneralChatBytes(base58Decode(transaction.data));
-    const { recipientAddress, senderKeyPair } = deriveQortalGeneralWrapperKeys(parsed.signature);
+    const data = base58Decode(transaction.data);
+    const parsed = parseSignedQortalGeneralChatBytes(data);
+    const derived = deriveQortalGeneralWrapperKeys(parsed.signature);
+    senderKeyPair = derived.senderKeyPair;
 
-    if (base58Encode(senderKeyPair.publicKey) !== wrapperPublicKey58 || recipientAddress !== recipient) {
+    if (base58Encode(senderKeyPair.publicKey) !== wrapperPublicKey58 || derived.recipientAddress !== recipient) {
+      return null;
+    }
+
+    const outerBytes = stampQortalGeneralChatNonce(
+      buildUnsignedQortalGeneralWrapperBytes({
+        data,
+        lastReference: getFixedBase58Bytes(transaction.reference, 'Wrapper reference', 64),
+        recipient,
+        senderPublicKey: senderKeyPair.publicKey,
+        timestamp,
+      }),
+      nonce,
+    );
+    const outerSignature = getFixedBase58Bytes(transaction.signature, 'Wrapper signature', 64);
+    if (!nacl.sign.detached.verify(outerBytes, outerSignature, senderKeyPair.publicKey)) {
       return null;
     }
 
@@ -513,7 +567,65 @@ export function decodeQortalGeneralWrappedMessage(
     };
   } catch {
     return null;
+  } finally {
+    senderKeyPair?.secretKey.fill(0);
   }
+}
+
+/**
+ * A short-lived cache of DECODED wrappers per node, so a burst of revision
+ * lookups (each one a full unconfirmed-pool read plus ed25519 work per row)
+ * costs one read per node per window. Lookups happen before the user is
+ * prompted, so an app that keeps naming references that do not exist must
+ * not be able to make Home re-verify the whole pool on every call.
+ */
+export type QortalGeneralChatFeedCache = {
+  lookup(
+    nodeKey: string,
+    signature: string,
+    fetchFeed: () => Promise<unknown>,
+    now?: number,
+  ): Promise<QortalGeneralChatMessage | null>;
+};
+
+export const QORTAL_GENERAL_CHAT_FEED_CACHE_TTL_MS = 15_000;
+
+export function createQortalGeneralChatFeedCache(ttlMs = QORTAL_GENERAL_CHAT_FEED_CACHE_TTL_MS): QortalGeneralChatFeedCache {
+  const entries = new Map<string, { fetchedAt: number; messages: Map<string, QortalGeneralChatMessage> }>();
+  const inflight = new Map<string, Promise<Map<string, QortalGeneralChatMessage>>>();
+
+  const decodeAll = (feed: unknown) => {
+    const messages = new Map<string, QortalGeneralChatMessage>();
+    if (!Array.isArray(feed)) return messages;
+    for (const row of feed) {
+      if (!row || typeof row !== 'object') continue;
+      const decoded = decodeQortalGeneralWrappedMessage(row as QortalGeneralWrappedTransaction);
+      if (decoded && !messages.has(decoded.signature)) messages.set(decoded.signature, decoded);
+    }
+    return messages;
+  };
+
+  return {
+    async lookup(nodeKey, signature, fetchFeed, now = Date.now()) {
+      const cached = entries.get(nodeKey);
+      if (cached && now - cached.fetchedAt < ttlMs) {
+        return cached.messages.get(signature) ?? null;
+      }
+      let pending = inflight.get(nodeKey);
+      if (!pending) {
+        pending = fetchFeed().then((feed) => {
+          const messages = decodeAll(feed);
+          entries.set(nodeKey, { fetchedAt: Date.now(), messages });
+          return messages;
+        }).finally(() => {
+          inflight.delete(nodeKey);
+        });
+        inflight.set(nodeKey, pending);
+      }
+      const messages = await pending;
+      return messages.get(signature) ?? null;
+    },
+  };
 }
 
 /**

@@ -303,6 +303,8 @@ const QORTAL_ACTIONS = [
   'SAVE_CHAT_ATTACHMENT',
   'SELECT_QDN_PUBLISH_SOURCE',
   'STAGE_QDN_PUBLISH_SOURCE',
+  // Same host-mediated browser open as on qdnRequest: no chain is involved.
+  'OPEN_EXTERNAL_LINK',
   // PREVIEW_QDN_PUBLISH_SOURCE is deliberately absent here while SELECT and
   // STAGE stay: those two feed PUBLISH_QDN_RESOURCE, which Qortal does have.
   // Previewing does not go to a chain at all -- it POSTs the source to a node

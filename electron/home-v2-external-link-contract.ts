@@ -68,7 +68,29 @@ export function normalizeHomeV2ExternalLinkRequest(request: unknown): HomeV2Exte
   if (url.username || url.password) {
     throw new Error('OPEN_EXTERNAL_LINK url must not carry credentials.')
   }
+  // Home's own surfaces live on loopback (the Core's /render on 127.0.0.1,
+  // the Android render proxy on localhost). A link there is not "the open
+  // web" the prompt promises, and on Android a same-origin open could land
+  // in the shell WebView rather than a browser — refuse it outright.
+  if (isLoopbackHostname(url.hostname)) {
+    throw new Error('OPEN_EXTERNAL_LINK cannot open links to this device.')
+  }
   return Object.freeze({ host: url.host.toLowerCase(), url: url.toString() })
+}
+
+export function isLoopbackHostname(hostname: string) {
+  const host = hostname.toLowerCase().replace(/^\[|\]$/g, '')
+  return (
+    host === 'localhost' ||
+    host.endsWith('.localhost') ||
+    host === '0.0.0.0' ||
+    host === '::1' ||
+    host === '::' ||
+    host === '10.0.2.2' ||
+    /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host) ||
+    /^0(\.0){0,3}$/.test(host) ||
+    /^::ffff:127\./.test(host)
+  )
 }
 
 /**

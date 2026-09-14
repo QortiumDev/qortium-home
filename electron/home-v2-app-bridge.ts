@@ -623,8 +623,8 @@ import {
 import {
   buildUnsignedQortalGeneralChatBytes,
   buildUnsignedQortalGeneralWrapperBytes,
+  createQortalGeneralChatFeedCache,
   deriveQortalGeneralWrapperKeys,
-  findQortalGeneralChatMessage,
   parseSignedQortalGeneralChatBytes,
   QORTAL_GENERAL_CHAT_FEED_MAX_BYTES,
   QORTAL_GENERAL_CHAT_FEED_PATH,
@@ -5361,6 +5361,8 @@ async function readHomeV2ChatJson(
   return result.data
 }
 
+const qortalGeneralChatFeedCache = createQortalGeneralChatFeedCache()
+
 async function validateHomeV2PublicChatTarget(
   nodeApiUrl: string,
   network: HomeV2AppNetwork,
@@ -5384,14 +5386,16 @@ async function validateHomeV2PublicChatTarget(
     // ourselves (electron/qortal-general-chat.ts). The same three rules as
     // below apply — the reference must exist, must be an original (not itself
     // a revision), and an edit/delete must belong to the caller.
-    const feed = await readHomeV2ChatJson(
+    // One pool read (and one round of per-row verification) per node per
+    // 15 s, however many references an app names before it ever reaches the
+    // prompt or the send limiter (Sol review of home#581, finding 2).
+    const target = await qortalGeneralChatFeedCache.lookup(nodeApiUrl, request.chatReference, () => readHomeV2ChatJson(
       nodeApiUrl,
       QORTAL_GENERAL_CHAT_FEED_PATH,
       'General Chat lookup',
       apiKey,
       QORTAL_GENERAL_CHAT_FEED_MAX_BYTES,
-    )
-    const target = findQortalGeneralChatMessage(feed, request.chatReference)
+    ))
     if (!target) throw new Error('Referenced General Chat message was not found.')
     if (target.chatReference) throw new Error('Chat revisions and reactions must reference the original message.')
     if (homeV2PublicChatRequiresSenderOwnership(request) && target.senderPublicKey !== senderPublicKey) {

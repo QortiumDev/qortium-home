@@ -888,6 +888,12 @@ interface Window {
     system?: {
       openPath: (filePath: string) => Promise<void>;
       revealPath: (filePath: string) => Promise<void>;
+      /**
+       * Hands one already-approved http(s) link to the system browser
+       * (OPEN_EXTERNAL_LINK). Android only today: desktop opens from the main
+       * process. Absent means the platform cannot open links at all.
+       */
+      openExternalLink?: (url: string) => Promise<void>;
       reportStartupPaint?: (navToPaintMs: number) => Promise<void>;
     };
     windows?: {

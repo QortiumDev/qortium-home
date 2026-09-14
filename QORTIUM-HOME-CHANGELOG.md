@@ -46,7 +46,9 @@ http(s) link in your device's normal browser. Home checks the link first
 you the site and the full link and asks. There is no "always allow" — every
 link is its own question, so an app can never open your browser without you
 seeing exactly what it is opening — and Home itself never loads the page.
-Works the same on desktop and Android.
+Works the same on desktop and Android; on Android the link is handed to the
+system browser by an explicit intent, so it can only ever leave Home, and
+links pointing back at the device itself are refused outright.
 
 ## feat(home-v2): Qortal General Chat from apps (SEND_QORTAL_GENERAL_CHAT)
 

@@ -190,10 +190,14 @@ import {
   type HomeV2PublicChatRequest,
 } from '../../electron/home-v2-chat-actions'
 import {
-  findQortalGeneralChatMessage,
+  createQortalGeneralChatFeedCache,
   QORTAL_GENERAL_CHAT_FEED_MAX_BYTES,
   QORTAL_GENERAL_CHAT_FEED_PATH,
 } from '../../electron/qortal-general-chat'
+
+// One decoded-pool read per node per window for General Chat revision
+// lookups, mirroring the desktop bridge (Sol review of home#581, finding 2).
+const qortalGeneralChatFeedCache = createQortalGeneralChatFeedCache()
 import {
   assertHomeV2DirectReferenceTarget,
   isHomeV2DirectChatReadAction,
@@ -372,10 +376,18 @@ import {
   parseHomeV2HomeSettingsRoundTripRequest,
 } from '../../electron/home-v2-home-settings-contract'
 import {
+  assertHomeV2ExternalLinkPromptAdmissible,
+  buildHomeV2ExternalLinkGrantKey,
   getHomeV2ExternalLinkApprovalDetails,
   HOME_V2_EXTERNAL_LINK_ACTION,
   normalizeHomeV2ExternalLinkRequest,
 } from '../../electron/home-v2-external-link-contract'
+
+// Pending OPEN_EXTERNAL_LINK prompts on Android, keyed by request id, so the
+// contract's link-specific limits (one per app, ten overall, never the same
+// link twice) apply here exactly as in the desktop bridge — the generic
+// Android prompt queue's caps are looser.
+const pendingAndroidExternalLinkPrompts = new Map<string, { appIdentityKey: string; grantKey: string }>()
 import { createHomeV2HomeSettingsResponder } from './home-settings-client'
 import {
   grantQdnManagerPermission,
@@ -5874,9 +5886,9 @@ export function HomeV2LiveApp() {
       }
       // OPEN_EXTERNAL_LINK on Android: the same contract validation and the
       // same single-request prompt as the desktop bridge's
-      // handleHomeV2ExternalLinkAction; the open itself goes through
-      // window.open with an external target, which Capacitor routes to the
-      // system browser (the same path Home's own release-page link uses).
+      // handleHomeV2ExternalLinkAction; the open itself is an explicit native
+      // ACTION_VIEW intent (ExternalLinkPlugin), which can only hand the URL to
+      // another app — never navigate the shell WebView.
       if (isAndroidHost && action === HOME_V2_EXTERNAL_LINK_ACTION) {
         // Validated BEFORE the prompt so a malformed link cannot raise a
         // question the user cannot answer correctly.
@@ -5884,8 +5896,32 @@ export function HomeV2LiveApp() {
         const parsedApp = resolveAppIdentity()
         const targetNetwork: NetworkId = protocol === 'qortalRequest' ? 'qortal' : 'qortium'
         const appId = brand<AppId>(`home-v2:permission-app:${parsedApp.identityKey}`)
+        // Same visible-tab rule as the desktop bridge: a background tab cannot
+        // put a link prompt in front of the user.
+        const activeLinkTab = productStateRef.current.tabs.find(
+          (tab) => tab.id === productStateRef.current.activeTabId,
+        )
+        if (
+          !activeLinkTab ||
+          activeLinkTab.id !== context.tabId ||
+          activeLinkTab.context.resourceLocation !== context.resourceLocation
+        ) {
+          throw new Error('Open this app tab to review the link it wants to open.')
+        }
+        const linkRequestId = globalThis.crypto.randomUUID()
+        const linkGrantKey = buildHomeV2ExternalLinkGrantKey({
+          appIdentityKey: parsedApp.identityKey,
+          protocol,
+          tabId: context.tabId,
+          url: linkRequest.url,
+          windowId: 'android',
+        })
+        assertHomeV2ExternalLinkPromptAdmissible(
+          Array.from(pendingAndroidExternalLinkPrompts.values()),
+          { appIdentityKey: parsedApp.identityKey, grantKey: linkGrantKey },
+        )
         const prompt = createPermissionPrompt({
-          id: brand<PermissionRequestId>(globalThis.crypto.randomUUID()),
+          id: brand<PermissionRequestId>(linkRequestId),
           protocol,
           action: HOME_V2_EXTERNAL_LINK_ACTION,
           capability: 'link.external.open',
@@ -5912,7 +5948,13 @@ export function HomeV2LiveApp() {
           // Never durable. See src/v2/bridge-permissions.ts.
           allowedScopes: ['single-request'],
         })
-        const decision = await queueAndroidPermissionPrompt(prompt, context.tabId)
+        pendingAndroidExternalLinkPrompts.set(linkRequestId, { appIdentityKey: parsedApp.identityKey, grantKey: linkGrantKey })
+        let decision: Awaited<ReturnType<typeof queueAndroidPermissionPrompt>>
+        try {
+          decision = await queueAndroidPermissionPrompt(prompt, context.tabId)
+        } finally {
+          pendingAndroidExternalLinkPrompts.delete(linkRequestId)
+        }
         if (!decision.approved || decision.scope !== 'single-request') {
           throw new Error('Opening the link was denied.')
         }
@@ -5920,7 +5962,10 @@ export function HomeV2LiveApp() {
         if (!approvedTab || approvedTab.context.resourceLocation !== context.resourceLocation) {
           throw new Error('Link request is stale because the app view changed before approval.')
         }
-        window.open(linkRequest.url, '_blank', 'noopener,noreferrer')
+        // Native intent, not window.open: see platform.ts openExternalLink.
+        const openExternalLink = window.qortiumHome?.system?.openExternalLink
+        if (!openExternalLink) throw new Error('Opening links is unavailable on this platform.')
+        await openExternalLink(linkRequest.url)
         return { opened: true as const, url: linkRequest.url }
       }
       if (isAndroidHost && (action === 'NOTIFICATION_HAS_PERMISSION' || action === 'SHOW_NOTIFICATION')) {
@@ -9930,15 +9975,19 @@ export function HomeV2LiveApp() {
             // cannot find it: read the unconfirmed MESSAGE pool and verify
             // the wrapper here (electron/qortal-general-chat.ts). Mirrors the
             // desktop bridge's validateHomeV2PublicChatTarget branch.
-            const feed = unwrapAndroidNodeRecord(
-              await nodeClient.requestApp(
-                protocol,
-                { action: 'FETCH_NODE_API', maxBytes: QORTAL_GENERAL_CHAT_FEED_MAX_BYTES, path: QORTAL_GENERAL_CHAT_FEED_PATH },
-                context,
+            const generalChatNodeKey = nodeBefore.nodeApiUrl ?? ''
+            const target = await qortalGeneralChatFeedCache.lookup(
+              generalChatNodeKey,
+              chatRequest.chatReference,
+              async () => unwrapAndroidNodeRecord(
+                await nodeClient.requestApp(
+                  protocol,
+                  { action: 'FETCH_NODE_API', maxBytes: QORTAL_GENERAL_CHAT_FEED_MAX_BYTES, path: QORTAL_GENERAL_CHAT_FEED_PATH },
+                  context,
+                ),
+                'Referenced General Chat message was not found.',
               ),
-              'Referenced General Chat message was not found.',
             )
-            const target = findQortalGeneralChatMessage(feed, chatRequest.chatReference)
             if (!target) throw new Error('Referenced General Chat message was not found.')
             if (target.chatReference) throw new Error('Chat revisions and reactions must reference the original message.')
             if (homeV2PublicChatRequiresSenderOwnership(chatRequest) && target.senderPublicKey !== expectedSenderPublicKey) {
