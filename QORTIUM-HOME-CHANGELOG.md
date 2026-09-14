@@ -32,6 +32,21 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## fix: Android can publish attachments and images to QDN again
+
+2026-09-13
+
+On Android, publishing anything larger than a few hundred bytes to QDN — a
+chat attachment, a picture — failed right after you approved it with "Qortium
+Home reported an unexpected error". Home checks what the node stored against
+what you approved before it signs, and on Android that check tried to read
+the node with the browser's own network path, which the shell deliberately
+blocks. The check now goes through the same native connection every other
+node request uses, with the same limits: no redirects, and the response may
+not be larger than the approved content. Verified on the test phone: a pasted
+image and a file chosen from the system picker both publish and appear in
+the chat.
+
 ## release: prepare home 2.1.0-beta.6
 
 2026-09-13

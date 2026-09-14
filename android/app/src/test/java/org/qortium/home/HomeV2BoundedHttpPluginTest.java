@@ -257,4 +257,57 @@ public class HomeV2BoundedHttpPluginTest {
 
         assertEquals("Node API response exceeded the requested size limit.", error.getMessage());
     }
+
+    @Test
+    public void publicArtifactRequestAllowsOnlyTheArtifactEndpoint() throws Exception {
+        HomeV2BoundedHttpPlugin.assertAllowedPublicArtifactRequest(
+                new URL("https://node1.qortium.app/arbitrary/public/data/3yZe7dABCDEFGHJKLMNPQRSTUVWXYZabcdefghijk"));
+        HomeV2BoundedHttpPlugin.assertAllowedPublicArtifactRequest(
+                new URL("http://127.0.0.1:24891/arbitrary/public/data/3yZe7dABCDEFGHJKLMNPQRSTUVWXYZabcdefghijk"));
+        String[] refused = {
+                "http://node1.qortium.app/arbitrary/public/data/3yZe7dABCDEFGHJKLMNPQRSTUVWXYZabcdefghijk",
+                "https://node1.qortium.app/arbitrary/public/data/3yZe7dABCDEFGHJKLMNPQRSTUVWXYZabcdefghijk?x=1",
+                "https://node1.qortium.app/arbitrary/public/data/../admin/status",
+                "https://node1.qortium.app/admin/status",
+                "https://user:pw@node1.qortium.app/arbitrary/public/data/3yZe7dABCDEFGHJKLMNPQRSTUVWXYZabcdefghijk",
+                "https://node1.qortium.app/arbitrary/public/data/0OIl",
+        };
+        for (String url : refused) {
+            try {
+                HomeV2BoundedHttpPlugin.assertAllowedPublicArtifactRequest(new URL(url));
+                throw new AssertionError("accepted " + url);
+            } catch (AssertionError error) {
+                throw error;
+            } catch (Exception expected) {
+                // refused
+            }
+        }
+    }
+
+    @Test
+    public void publicArtifactLimitIsBounded() throws Exception {
+        assertEquals(1, HomeV2BoundedHttpPlugin.requireValidPublicArtifactMaxBytes(1));
+        assertEquals(HomeV2BoundedHttpPlugin.MAX_PUBLIC_ARTIFACT_BYTES,
+                HomeV2BoundedHttpPlugin.requireValidPublicArtifactMaxBytes(HomeV2BoundedHttpPlugin.MAX_PUBLIC_ARTIFACT_BYTES));
+        for (int value : new int[] {0, -1, HomeV2BoundedHttpPlugin.MAX_PUBLIC_ARTIFACT_BYTES + 1}) {
+            try {
+                HomeV2BoundedHttpPlugin.requireValidPublicArtifactMaxBytes(value);
+                throw new AssertionError("accepted " + value);
+            } catch (AssertionError error) {
+                throw error;
+            } catch (Exception expected) {
+                // refused
+            }
+        }
+    }
+
+    @Test
+    public void readAtMostTruncatesInsteadOfRejecting() throws Exception {
+        byte[] body = new byte[100_000];
+        for (int i = 0; i < body.length; i += 1) body[i] = (byte) (i % 251);
+        byte[] truncated = HomeV2BoundedHttpPlugin.readAtMost(new ByteArrayInputStream(body), 65_536);
+        assertEquals(65_536, truncated.length);
+        assertEquals(body[65_535], truncated[65_535]);
+        assertEquals(0, HomeV2BoundedHttpPlugin.readAtMost(null, 10).length);
+    }
 }

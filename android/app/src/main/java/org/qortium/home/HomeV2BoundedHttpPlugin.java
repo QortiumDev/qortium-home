@@ -12,6 +12,7 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.Locale;
+import android.util.Base64;
 import org.json.JSONObject;
 
 /**
@@ -49,6 +50,118 @@ public class HomeV2BoundedHttpPlugin extends Plugin {
     @PluginMethod
     public void request(PluginCall call) {
         new Thread(() -> executeRequest(call), "home-v2-bounded-http").start();
+    }
+
+    /**
+     * Ceiling for a public QDN attestation artifact read. The WebView's CSP
+     * (connect-src 'none') keeps window.fetch away from nodes, so the
+     * post-publish content attestation reads the stored artifact here — with
+     * the same guarantees the desktop streaming reader gives: no redirects,
+     * no transparent decompression, declared length checked before the body,
+     * the stream cut at the limit, and a wall-clock deadline. Bigger publishes
+     * fail closed rather than buffering unbounded data on a phone.
+     */
+    static final int MAX_PUBLIC_ARTIFACT_BYTES = 64 * 1024 * 1024;
+    static final int MAX_PUBLIC_ARTIFACT_ERROR_BYTES = 64 * 1024;
+
+    @PluginMethod
+    public void readPublicArtifact(PluginCall call) {
+        new Thread(() -> executeReadPublicArtifact(call), "home-v2-bounded-artifact").start();
+    }
+
+    private void executeReadPublicArtifact(PluginCall call) {
+        HttpURLConnection connection = null;
+        try {
+            String urlText = call.getString("url", "");
+            int maxBytes = requireValidPublicArtifactMaxBytes(call.getInt("maxBytes", 0));
+            int overallTimeoutMs = clampTimeout(
+                    call.getInt("overallTimeoutMs", DEFAULT_OVERALL_TIMEOUT_MS), MAX_OVERALL_TIMEOUT_MS);
+            long deadline = System.currentTimeMillis() + overallTimeoutMs;
+            URL target = new URL(urlText);
+            assertAllowedPublicArtifactRequest(target);
+            connection = (HttpURLConnection) target.openConnection();
+            connection.setInstanceFollowRedirects(false);
+            connection.setConnectTimeout(MAX_CONNECT_TIMEOUT_MS);
+            connection.setReadTimeout(Math.min(overallTimeoutMs, MAX_READ_TIMEOUT_MS));
+            connection.setRequestMethod("GET");
+            // Identity only: a transparently inflated gzip body would defeat
+            // the declared-length check and the byte counter below.
+            connection.setRequestProperty("Accept-Encoding", "identity");
+            connection.setUseCaches(false);
+            HttpURLConnection watched = connection;
+            Thread watchdog = new Thread(() -> {
+                try {
+                    long remaining = deadline - System.currentTimeMillis();
+                    if (remaining > 0) Thread.sleep(remaining);
+                    watched.disconnect();
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                }
+            }, "home-v2-bounded-artifact-deadline");
+            watchdog.setDaemon(true);
+            watchdog.start();
+            try {
+                int status = connection.getResponseCode();
+                if (status >= 300 && status < 400) {
+                    throw new Exception("Public QDN content attestation changed the approved node URL.");
+                }
+                if (!connection.getURL().toString().equals(target.toString())) {
+                    throw new Exception("Public QDN content attestation changed the approved node URL.");
+                }
+                String encoding = connection.getContentEncoding();
+                if (encoding != null && !"identity".equalsIgnoreCase(encoding.trim())) {
+                    throw new Exception("Public QDN content attestation refused an encoded response.");
+                }
+                if (status < 200 || status >= 300) {
+                    byte[] errorBytes = readAtMost(connection.getErrorStream(), MAX_PUBLIC_ARTIFACT_ERROR_BYTES);
+                    JSObject failure = new JSObject();
+                    failure.put("status", status);
+                    failure.put("errorBody", new String(errorBytes, StandardCharsets.UTF_8));
+                    call.resolve(failure);
+                    return;
+                }
+                long declaredLength = connection.getContentLengthLong();
+                if (declaredLength > maxBytes) {
+                    throw new Exception("QDN content attestation response exceeded its byte limit.");
+                }
+                byte[] artifact = readBounded(connection.getInputStream(), maxBytes);
+                JSObject response = new JSObject();
+                response.put("status", status);
+                response.put("bytesBase64", Base64.encodeToString(artifact, Base64.NO_WRAP));
+                call.resolve(response);
+            } finally {
+                watchdog.interrupt();
+            }
+        } catch (Exception exception) {
+            String message = exception.getMessage();
+            call.reject(message == null ? "Public QDN content attestation request failed." : message, exception);
+        } finally {
+            if (connection != null) connection.disconnect();
+        }
+    }
+
+    static int requireValidPublicArtifactMaxBytes(int maxBytes) throws Exception {
+        if (maxBytes < 1 || maxBytes > MAX_PUBLIC_ARTIFACT_BYTES) {
+            throw new Exception("Public QDN content attestation artifact exceeds what this device can verify.");
+        }
+        return maxBytes;
+    }
+
+    /** Only the node's public artifact endpoint, over HTTPS or loopback HTTP, no credentials. */
+    static void assertAllowedPublicArtifactRequest(URL target) throws Exception {
+        String protocol = target.getProtocol().toLowerCase(Locale.ROOT);
+        if (!"http".equals(protocol) && !"https".equals(protocol)) {
+            throw new Exception("Public QDN content attestation requires an HTTP(S) URL.");
+        }
+        if (target.getUserInfo() != null || target.getRef() != null || target.getQuery() != null) {
+            throw new Exception("Public QDN content attestation URL is invalid.");
+        }
+        if ("http".equals(protocol) && !isLoopbackHost(target.getHost())) {
+            throw new Exception("Remote public QDN content attestation requires HTTPS.");
+        }
+        if (!target.getPath().matches("^/arbitrary/public/data/[1-9A-HJ-NP-Za-km-z]{32,64}$")) {
+            throw new Exception("Public QDN content attestation path is not allowed.");
+        }
     }
 
     private void executeRequest(PluginCall call) {
@@ -259,6 +372,23 @@ public class HomeV2BoundedHttpPlugin extends Plugin {
             throw new Exception("Invalid bounded response limit.");
         }
         return maxBytes;
+    }
+
+    /** Reads up to maxBytes and stops — for error bodies, where truncation is fine and rejection is not. */
+    static byte[] readAtMost(InputStream stream, int maxBytes) throws Exception {
+        if (stream == null) return new byte[0];
+        try (InputStream input = stream;
+             ByteArrayOutputStream output = new ByteArrayOutputStream(Math.min(maxBytes, 8192))) {
+            byte[] buffer = new byte[8192];
+            int remaining = maxBytes;
+            while (remaining > 0) {
+                int count = input.read(buffer, 0, Math.min(buffer.length, remaining));
+                if (count == -1) break;
+                output.write(buffer, 0, count);
+                remaining -= count;
+            }
+            return output.toByteArray();
+        }
     }
 
     static byte[] readBounded(InputStream stream, int maxBytes) throws Exception {
