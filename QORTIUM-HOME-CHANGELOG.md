@@ -32,6 +32,20 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## release: prepare home 2.1.0-beta.7
+
+2026-09-14
+
+Prepare the seventh Home 2.1 public testing prerelease. It carries the three
+changes merged since beta.6: Android can publish attachments and images to
+QDN again, Home adopts whichever API key the local Core actually uses instead
+of failing with "API error 4", and apps gain two new abilities — posting to
+Qortal's General Chat (Home builds the message the way Qortal Hub does) and
+opening a web link in your browser after you approve it, with the site and
+the full link shown. Android advances to code 49 so it can update beta.6 and
+every earlier package. Stable users remain on Home 1.8.0. The beta testing
+guide gains the four new checks. No runtime source changes in this entry.
+
 ## feat(home-v2): apps can open a web link in your browser, with your say-so (OPEN_EXTERNAL_LINK)
 
 2026-09-14

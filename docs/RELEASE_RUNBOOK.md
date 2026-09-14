@@ -81,15 +81,15 @@ substitute for an installed or packaged acceptance gate.
 
 Only after explicit maintainer approval, configure the existing Android release
 signing values described in `README.md`, build the signed APK, and install it
-over the previous prerelease package (2.1.0-beta.5, code 47) and, when a device is
+over the previous prerelease package (2.1.0-beta.6, code 48) and, when a device is
 available, over the public Home 1.8.0 package (code 41). Verify that application data and account
-state remain intact, the installed version is 2.1.0-beta.6 (code 48), the app starts,
+state remain intact, the installed version is 2.1.0-beta.7 (code 49), the app starts,
 and a rollback is not silently attempted. Keep signing values and keystore
 material outside the repository and out of logs.
 
 Development Home 2.1.0 APKs already used code 42. Test their in-place upgrade
 separately: Android orders installation by versionCode, while Home compares
-semantic versions. A developer build named 2.1.0 sorts after 2.1.0-beta.6, so
+semantic versions. A developer build named 2.1.0 sorts after 2.1.0-beta.7, so
 those testers must install the beta APK manually. Preserve a user's explicit
 Stable channel choice; GitHub must keep v1.8.0 as latest stable while this
 release is marked prerelease.
