@@ -32,6 +32,20 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## fix: Home adopts the API key the local Core actually uses
+
+2026-09-13
+
+A tester hit "API error 4" on the local Core and fixed it by copying the API
+key file from Home's runtime folder into the install folder. Core keeps its key
+in its working directory unless told otherwise, so a Core started from the
+install tree — its own scripts, or an older launcher build — used a different
+key file from the one Home reads, and Home could not administer it. Home now
+notices when it has no accepted key, or when the Core rejects the one it has,
+asks the local Core which of the known key files it accepts, uses that key,
+and copies it into the runtime folder so every Core Home starts from then on
+agrees with it. Nothing to copy by hand anymore.
+
 ## fix: Android can publish attachments and images to QDN again
 
 2026-09-13

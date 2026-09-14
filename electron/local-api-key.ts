@@ -719,3 +719,20 @@ export function ensureLocalApiKey(
 export function ensurePreviewApiKey(previewPath: string): PreviewApiKeyResult {
   return ensureLocalApiKey(QORTIUM_CORE_DESCRIPTOR, previewPath);
 }
+
+/**
+ * Replaces the managed runtime's apikey.txt with a key the running Core has
+ * ACCEPTED (see node-settings.ts adoptAcceptedLocalApiKey). Used to migrate a
+ * key a Core created elsewhere — the install tree, when it was started from
+ * there — into Home's canonical location so Home and every Core Home starts
+ * from now on agree.
+ */
+export function writePreviewApiKey(previewPath: string, apiKey: string): PreviewApiKeyResult {
+  const apiKeyPath = getLocalApiKeyPath(QORTIUM_CORE_DESCRIPTOR, previewPath);
+
+  mkdirSync(path.dirname(apiKeyPath), { recursive: true });
+  writeFileSync(apiKeyPath, apiKey, { encoding: 'utf8', mode: 0o600 });
+  restrictApiKeyFile(apiKeyPath);
+
+  return { apiKey, created: true, path: apiKeyPath };
+}
