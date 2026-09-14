@@ -493,6 +493,16 @@ const QORTAL_REMOTE_NODE_API_URLS = [
 const QORTAL_NODE_CACHE_TTL_MS = 5 * 60_000;
 const PUBLIC_READ_PROBE_PATH =
   '/arbitrary/resources/search?mode=ALL&limit=1&includestatus=false&includemetadata=false';
+interface HomeV2BoundedHttpArtifactPlugin {
+  readPublicArtifact(request: { maxBytes: number; overallTimeoutMs: number; url: string }): Promise<{
+    bytesBase64?: string;
+    errorBody?: string;
+    status: number;
+  }>;
+}
+
+const HomeV2BoundedHttp = registerPlugin<HomeV2BoundedHttpArtifactPlugin>('HomeV2BoundedHttp');
+
 const REQUEST_TIMEOUT_MS = 30_000;
 const MEMORY_POW_TIMEOUT_MS = 180_000;
 const PUBLIC_POLL_CAPABILITIES_TTL_MS = 5 * 60_000;
@@ -4537,12 +4547,12 @@ async function fetchPublicQdnAttestationArtifact(nodeApiUrl: string, hash: Uint8
   const requestUrl = `${getNodeApiUrlBase(nodeApiUrl)}/arbitrary/public/data/${encodeURIComponent(base58Encode(hash))}`;
   if (Capacitor.isNativePlatform()) {
     // The Android shell ships `connect-src 'none'`: every node request goes
-    // through the native HTTP plugin, and window.fetch is refused by CSP —
-    // which failed EVERY public publish whose payload the node stores as a
-    // chunked artifact (anything past the inline-data size: images, files)
-    // after the user had approved it (2026-09-13, Android chat cell). The
-    // native plugin cannot stream, so the byte limit is enforced on the
-    // declared length before decoding and on the decoded artifact after.
+    // through native transports, and window.fetch is refused by CSP — which
+    // failed EVERY public publish whose payload the node stores as a chunked
+    // artifact (anything past the inline-data size: images, files) after the
+    // user had approved it (2026-09-13, Android chat cell). The general
+    // CapacitorHttp plugin buffers a whole response before JavaScript sees
+    // it, so the bounded read lives in Home's own plugin instead.
     return fetchPublicQdnAttestationArtifactNative(requestUrl, maxBytes);
   }
   let result: Awaited<ReturnType<typeof fetchBoundedBytes>>;
@@ -4577,47 +4587,30 @@ async function fetchPublicQdnAttestationArtifactNative(requestUrl: string, maxBy
   if (!Number.isSafeInteger(maxBytes) || maxBytes < 1) {
     throw new Error('Attestation response limit must be a positive integer.');
   }
-  let response: HttpResponse;
+  // HomeV2BoundedHttp.readPublicArtifact is the native twin of
+  // electron/bounded-response.ts: no redirects (a 3xx or a changed final URL
+  // is refused before any body is read), Accept-Encoding: identity, the
+  // declared length checked against the cap, the stream cut at the cap, a
+  // wall-clock watchdog, and its own ceiling for what a phone may buffer.
+  let result: { status: number; bytesBase64?: string; errorBody?: string };
   try {
-    response = await CapacitorHttp.get({
+    result = await HomeV2BoundedHttp.readPublicArtifact({
       url: requestUrl,
-      responseType: 'arraybuffer',
-      connectTimeout: QDN_ATTESTATION_FETCH_TIMEOUT_MS,
-      readTimeout: QDN_ATTESTATION_FETCH_TIMEOUT_MS,
-      disableRedirects: true,
+      maxBytes,
+      overallTimeoutMs: QDN_ATTESTATION_FETCH_TIMEOUT_MS,
     });
   } catch (error) {
     throw new Error(
-      `Public QDN content attestation could not reach the selected node: ${error instanceof Error ? error.message : 'request failed'}`,
+      `Public QDN content attestation could not read the stored artifact: ${error instanceof Error ? error.message : 'request failed'}`,
     );
   }
-  if (response.url && new URL(response.url).toString() !== new URL(requestUrl).toString()) {
-    throw new Error('Public QDN content attestation changed the approved node URL.');
-  }
-  if (response.status >= 300 && response.status < 400) {
-    throw new Error('Public QDN content attestation changed the approved node URL.');
-  }
-  const declaredLength = getContentLength(response);
-  if (declaredLength !== undefined && declaredLength > maxBytes) {
-    throw new Error('QDN content attestation response exceeded its byte limit.');
-  }
-  if (response.status < 200 || response.status >= 300) {
+  if (result.status < 200 || result.status >= 300 || typeof result.bytesBase64 !== 'string') {
     throw new Error(readableNodeErrorMessage(
-      stringifyResponseData(response.data),
-      `Public QDN content attestation failed with HTTP ${response.status}.`,
+      result.errorBody ?? '',
+      `Public QDN content attestation failed with HTTP ${result.status}.`,
     ));
   }
-  if (typeof response.data !== 'string') {
-    throw new Error('Public QDN content attestation returned an unreadable artifact.');
-  }
-  // The plugin base64-encodes the body with Android's line-wrapping encoder
-  // (a newline every 76 chars); base64 is 4/3 of the payload, so refuse
-  // before decoding what the cap forbids.
-  const body = response.data.replace(/\s+/g, '');
-  if (body.length > Math.ceil(maxBytes / 3) * 4) {
-    throw new Error('QDN content attestation response exceeded its byte limit.');
-  }
-  const bytes = base64ToBytes(body);
+  const bytes = base64ToBytes(result.bytesBase64);
   if (bytes.byteLength > maxBytes) throw new Error('QDN content attestation response exceeded its byte limit.');
   if (bytes.byteLength === 0) throw new Error('Public QDN content attestation returned an empty artifact.');
   return bytes;
