@@ -4610,11 +4610,14 @@ async function fetchPublicQdnAttestationArtifactNative(requestUrl: string, maxBy
   if (typeof response.data !== 'string') {
     throw new Error('Public QDN content attestation returned an unreadable artifact.');
   }
-  // Base64 is 4/3 of the payload: refuse before decoding what the cap forbids.
-  if (response.data.length > Math.ceil(maxBytes / 3) * 4) {
+  // The plugin base64-encodes the body with Android's line-wrapping encoder
+  // (a newline every 76 chars); base64 is 4/3 of the payload, so refuse
+  // before decoding what the cap forbids.
+  const body = response.data.replace(/\s+/g, '');
+  if (body.length > Math.ceil(maxBytes / 3) * 4) {
     throw new Error('QDN content attestation response exceeded its byte limit.');
   }
-  const bytes = base64ToBytes(response.data);
+  const bytes = base64ToBytes(body);
   if (bytes.byteLength > maxBytes) throw new Error('QDN content attestation response exceeded its byte limit.');
   if (bytes.byteLength === 0) throw new Error('Public QDN content attestation returned an empty artifact.');
   return bytes;
