@@ -1,12 +1,12 @@
 # Home 2.1 beta testing and app development
 
-Home 2.1.0-beta.8 is a testing prerelease. Home 1.8.0 remains the latest stable
+Home 2.1.0-beta.9 is a testing prerelease. Home 1.8.0 remains the latest stable
 release. Choose Prerelease in Home's update settings to follow the Home 2 line,
 or install the matching platform asset manually. Report the Home version,
 platform, app version, selected network, node route and reproduction steps.
 Keep passwords, recovery material and private message contents out of reports.
 
-Android beta.8 uses versionCode 50. It can update release-signed beta.7 (code 49), beta.6 (code 48), beta.5 (code 47), beta.4 (code 46), beta.3 (code 45),
+Android beta.9 uses versionCode 51. It can update release-signed beta.8 (code 50), beta.7 (code 49), beta.6 (code 48), beta.5 (code 47), beta.4 (code 46), beta.3 (code 45),
 beta.2 (code 44), beta.1 (code 43), Home 1.8.0 (code 41) and release-signed
 development Home 2.1.0 (code 42). Development
 builds named 2.1.0 sort above the beta in semantic-version comparisons, so
@@ -15,7 +15,7 @@ signer and cannot be updated in place by the release APK.
 
 ## Start with the runtime contract
 
-Home's application version is 2.1.0-beta.8; its QAVS platform version is 2.1.
+Home's application version is 2.1.0-beta.9; its QAVS platform version is 2.1.
 Feature-detect actions instead of treating either version as a capability list.
 Use `qdnRequest` for Qortium and `qortalRequest` for Qortal. The invoked bridge
 determines the network; a network field in the payload does not switch it.
@@ -157,6 +157,14 @@ APP/WEBSITE navigation and a resource viewer are distinct operations.
    and refuses to trust it if the bytes differ — please report any "not
    trusted" message you see. (c) Dependency refresh (React 19.3, Capacitor
    8.5.2, icons); tell us about anything that looks or behaves differently.
+13. New in beta.9. (a) Closed Qortal groups on desktop actually work now:
+   beta.8 signed the key bundle (and closed-group messages) with a key that
+   had already been cleared, so the node refused them. Owner: press "Publish
+   group key"; member: open the group and post. (b) Two messages sent back
+   to back: the second now waits its turn instead of being refused — with
+   Chat 2.0.27 it simply shows "Sending…" a few seconds longer, and any
+   refusal that still happens keeps a Retry button instead of "outcome
+   unknown". Try a burst of three quick messages in a public group.
 
 ## Reports still being investigated
 

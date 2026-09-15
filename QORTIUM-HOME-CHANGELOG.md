@@ -32,6 +32,18 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## release: prepare home 2.1.0-beta.9
+
+2026-09-15
+
+Prepare the ninth Home 2.1 public testing prerelease. It carries the two fixes
+merged since beta.8: closed Qortal groups on desktop no longer sign their key
+bundle and messages with an already-cleared key, and back-to-back chat
+messages wait their turn for the proof-of-work instead of losing the second
+one. Android advances to code 51 so it can update beta.8 and every earlier
+package. Stable users remain on Home 1.8.0. The beta testing guide gains the
+two checks. No runtime source changes in this entry.
+
 ## fix: two chat messages sent back to back no longer lose the second one
 
 2026-09-15
