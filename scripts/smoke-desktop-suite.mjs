@@ -52,6 +52,8 @@ const SMOKES = [
     note: 'Public viewer ownership, metadata, saves/reopen and process restoration against disposable loopback resources; hosted CI not established.' },
   { script: 'smoke:desktop:home-v2-navigation', needs: 'unknown',
     note: 'Per-tab native/cross-app/internal navigation against a disposable loopback fixture; hosted CI not yet established. Was stale since #550 (Qortal render URLs carry the identifier as ?identifier= after the route); realigned 2026-09-13, passes against the released beta.4.' },
+  { script: 'smoke:desktop:home-v2-link-clicks', needs: 'unknown',
+    note: 'Genuine xdotool pointer input on Home chrome links (#600): pin plain click in place + Back, pin middle click, toolbar Ctrl+click, pin context "Open in new tab", and a middle click on a qortal:// link inside a native app view, each opening a new tab; disposable loopback fixture. Passes against the released beta.10 and fails on beta.9 at the middle click, as intended; hosted CI not established.' },
   // Verified node-free: passed with all networking removed.
   { script: 'smoke:desktop:home-v2-onboarding', needs: 'none', ci: true },
   { script: 'smoke:desktop:home-v2-tabs', needs: 'none', ci: true },

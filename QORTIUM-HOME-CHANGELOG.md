@@ -32,6 +32,20 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## test: packaged smoke for the link click conventions
+
+2026-09-15
+
+Adds a packaged desktop smoke that drives the real Home window with genuine
+pointer input to prove the click conventions shipped in beta.10: a plain
+click on a pinned app navigates the Dashboard in place and Back restores it,
+a middle click on a pin and a Ctrl+click on a bookmark-toolbar entry each
+open a new tab, the pin's context-menu "Open in new tab" opens one, and a
+middle click on a qortal:// link inside an app view opens the resource in a
+new tab. It passes on the released beta.10 and fails on beta.9 at the first
+middle click, so it guards the behaviour rather than merely running. Test-only;
+no runtime change.
+
 ## release: prepare home 2.1.0-beta.10
 
 2026-09-15

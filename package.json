@@ -60,6 +60,7 @@
     "smoke:desktop:home-v2-onboarding": "node scripts/smoke-desktop-home-v2-onboarding.mjs",
     "smoke:desktop:home-v2-settings": "node scripts/smoke-desktop-home-v2-settings.mjs",
     "smoke:desktop:home-v2-navigation": "node scripts/smoke-desktop-home-v2-navigation.mjs",
+    "smoke:desktop:home-v2-link-clicks": "node scripts/smoke-desktop-home-v2-link-clicks.mjs",
     "smoke:desktop:home-v2-viewer-tabs": "node scripts/smoke-desktop-home-v2-viewer-tabs.mjs",
     "smoke:desktop:home-v2-release-notes": "node scripts/smoke-desktop-home-v2-release-notes.mjs",
     "smoke:desktop:core-runtime": "node scripts/smoke-desktop-core-runtime.mjs",
