@@ -270,6 +270,13 @@ assert.match(androidVaultSource, /home-v2-qpgc-key-store-v1/)
 assert.match(androidVaultSource, /home-v2-qortal-private-group-key-store-v1/)
 assert.match(desktopBridgeSource, /home-v2-private-group-key-store/)
 assert.match(desktopBridgeSource, /home-v2-qortal-private-group-key-store/)
+// The desktop Qortal write path zeroes the signing key in a finally: every
+// async call that signs after an await must be `return await`ed, or the key
+// is wiped before the signature is made (beta.8 regression: "invalid
+// signature" on every key-bundle publish and private-group send).
+assert.match(desktopBridgeSource, /return await publishHomeV2QortalPrivateGroupBundle\(/)
+assert.match(desktopBridgeSource, /return await sendHomeV2QortalChatMessage\(\n\s+node\.nodeApiUrl,\n\s+\{\n\s+action: publicAction,/)
+assert.doesNotMatch(desktopBridgeSource, /return publishHomeV2QortalPrivateGroupBundle\(/)
 for (const source of [desktopBridgeSource, androidVaultSource]) {
   assert.match(source, /symmetric-qchat-group-/)
   assert.match(source, /DOCUMENT_PRIVATE/)

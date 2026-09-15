@@ -32,6 +32,22 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## fix: Qortal private-group key bundles and messages signed with a wiped key
+
+2026-09-15
+
+Publishing a closed Qortal group's key bundle from Home 2 desktop — and
+sending a message in such a group — failed with "invalid signature" from the
+node, and Home recorded the attempt as an outcome it could not determine. The
+signing key is deliberately zeroed the moment the request finishes, but the
+request handed its work back as a promise without waiting for it, so the key
+was wiped while the publish was still fetching the fee and staging the bundle;
+the signature was then made with an all-zero key. The two calls now wait for
+their work to finish before the key is cleared, a source guard keeps it that
+way, and the whole closed-group flow (owner publishes the key, member recovers
+it, both read and post) was verified live between two test accounts. Android
+already waited correctly.
+
 ## release: prepare home 2.1.0-beta.8
 
 2026-09-14
