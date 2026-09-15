@@ -424,9 +424,12 @@ import {
   createHomeV2PrivateAttachmentDescriptor,
 } from '../electron/home-v2-private-attachment-contract';
 import {
+  assertQortalUndisclosedFeeWithinCeiling,
   attestUnsignedQortalArbitraryPublish,
   attestUnsignedQortalPrivateGroupPublish,
+  describeQortalReadbackFailure,
   signAttestedQortalPrivateGroupPublish,
+  verifyQortalPublishedBytes,
 } from '../electron/home-v2-qortal-private-group-publish';
 import {
   createHomeV2PublicPublishDescriptor,
@@ -1351,6 +1354,14 @@ async function sha256(data: Uint8Array) {
   const digestData = new Uint8Array(data);
 
   return new Uint8Array(await window.crypto.subtle.digest('SHA-256', digestData.buffer));
+}
+
+/** Largest Qortal source this host reads back after broadcast (Capacitor holds whole responses in memory). */
+const ANDROID_QORTAL_READBACK_MAX_SOURCE_BYTES = 16 * 1024 * 1024;
+
+/** Qortal on-chain payloads: 16-byte IV + AES-256-CBC/PKCS7 ciphertext (host-injected into the shared attestation). */
+function qortalAesCbcDecryptSync(key: Uint8Array, iv: Uint8Array, ciphertext: Uint8Array) {
+  return new Uint8Array(AES_CBC.decrypt(ciphertext, key, true, iv));
 }
 
 function sha256Sync(data: Uint8Array) {
@@ -13596,6 +13607,8 @@ async function publishAndroidQortalPrivateGroupBundle(input: {
     requestAndroidHomeV2ChatJson(input.nodeApiUrl, `/addresses/lastreference/${encodeURIComponent(input.signingKey.address)}`),
   ]);
   const fee = normalizeAndroidQortalFee(feeValue);
+  // The key operation was approved before the chain fee was known: bound it.
+  assertQortalUndisclosedFeeWithinCeiling(fee);
   if (typeof referenceValue !== 'string') throw new Error('Qortal last-reference response is invalid.');
   const lastReference = base58Decode(referenceValue.trim());
   if (lastReference.length !== 64 || base58Encode(lastReference) !== referenceValue.trim()) throw new Error('Qortal last-reference response is invalid.');
@@ -13616,7 +13629,8 @@ async function publishAndroidQortalPrivateGroupBundle(input: {
     if (!isAndroidQortalPrivateGroupStagingUnavailable(error)) throw error;
     throw Object.assign(new Error('The selected Qortal node does not permit private-group QDN bundle staging.'), { action: 'ROTATE_PRIVATE_GROUP_CHAT_KEY', code: 'NODE_CAPABILITY_MISSING', network: 'qortal', retryable: false, target: { groupId: input.state.groupId, kind: 'group' }, cause: error });
   }
-  const attested = attestUnsignedQortalPrivateGroupPublish(unsigned.body.trim(), { bundleSize: base64ToBytes(input.encryptedBundle).length, feeAtomic: fee, identifier, lastReference, name: input.name, senderPublicKey: base58Decode(input.signingKey.publicKey58), timestampMaximum: Date.now() + 5_000, timestampMinimum: started - 5_000 });
+  const bundleBytes = base64ToBytes(input.encryptedBundle);
+  const attested = attestUnsignedQortalPrivateGroupPublish(unsigned.body.trim(), { aesCbcDecrypt: qortalAesCbcDecryptSync, bundleBytes, bundleSize: bundleBytes.length, feeAtomic: fee, sha256: sha256Sync, identifier, lastReference, name: input.name, senderPublicKey: base58Decode(input.signingKey.publicKey58), timestampMaximum: Date.now() + 5_000, timestampMinimum: started - 5_000 });
   if (!(await input.isStillValid())) throw new Error('The signing context changed before Qortal key-bundle signing.');
   await input.validateTarget();
   if (!(await input.isStillValid())) throw new Error('The signing context changed before Qortal key-bundle submission.');
@@ -13627,6 +13641,31 @@ async function publishAndroidQortalPrivateGroupBundle(input: {
     // Do not cache an unconfirmed bundle coordinate. If the broadcast did
     // reach the chain, normal resource discovery will recover it later.
     return createHomeV2UnknownChatBroadcastResult(error, signed.signature, attested.timestamp);
+  }
+  // Off chain, Qortal offers no pre-signature artifact: read the bundle back
+  // from the staging node and compare it with what was approved (same rule
+  // as the desktop bridge). A mismatch is reported as an unknown outcome and
+  // no ring is cached for it.
+  if (attested.dataType === 'DATA_HASH') {
+    const readback = await verifyQortalPublishedBytes({
+      approved: bundleBytes,
+      fetchBytes: async () => {
+        const value = await requestAndroidHomeV2ChatJson(
+          input.nodeApiUrl,
+          `/arbitrary/DOCUMENT_PRIVATE/${encodeURIComponent(input.name)}/${encodeURIComponent(identifier)}?encoding=base64&rebuild=true`,
+          '',
+          3 * 1024 * 1024,
+        );
+        return typeof value === 'string' && value.trim() ? base64ToBytes(value.trim()) : null;
+      },
+    });
+    if (readback !== 'verified') {
+      return createHomeV2UnknownChatBroadcastResult(
+        new Error(describeQortalReadbackFailure(readback, 'key bundle')),
+        signed.signature,
+        attested.timestamp,
+      );
+    }
   }
   try {
     await persistAndroidQortalPrivateGroupRing({ accountId: input.accountId, groupId: input.state.groupId, keyRing: input.keyRing, publisherName: input.name, recipientCount: input.state.memberAddresses.length, resourceSignature: signed.signature, secretKey: input.signingKey.secretKey });
@@ -16227,6 +16266,7 @@ async function publishAndroidHomeV2PublicResource(
   let signedBytes: Uint8Array;
   let signature: string;
   let timestamp = Date.now();
+  let qortalReadbackRequired = false;
 
   if (request.network === 'qortium') {
     const upload = getQdnPublishUploadSource(resource, source);
@@ -16287,6 +16327,9 @@ async function publishAndroidHomeV2PublicResource(
     if (request.expectedFeeAtomic !== undefined && String(fee) !== request.expectedFeeAtomic) {
       throw new Error('The Qortal ARBITRARY fee changed after it was approved.');
     }
+    // Private attachments approve the key operation before the chain fee is
+    // known; a fee that was never shown is bounded instead of pinned.
+    if (request.expectedFeeAtomic === undefined) assertQortalUndisclosedFeeWithinCeiling(fee);
     if (typeof referenceValue !== 'string') throw new Error('Qortal last-reference response is invalid.');
     const lastReference = base58Decode(referenceValue.trim());
     if (lastReference.length !== 64 || base58Encode(lastReference) !== referenceValue.trim()) {
@@ -16307,8 +16350,11 @@ async function publishAndroidHomeV2PublicResource(
     );
     await request.validateTarget?.();
     const attested = attestUnsignedQortalArbitraryPublish(unsigned.body.trim(), {
+      aesCbcDecrypt: qortalAesCbcDecryptSync,
       dataSize: sourceBytes.byteLength,
       feeAtomic: fee,
+      sha256: sha256Sync,
+      sourceBytes: new Uint8Array(sourceBytes),
       identifier: resource.identifier ?? 'default',
       lastReference,
       name: resource.name,
@@ -16317,10 +16363,12 @@ async function publishAndroidHomeV2PublicResource(
       timestampMaximum: Date.now() + 5_000,
       timestampMinimum: started - 5_000,
     });
-    const digest = await globalThis.crypto.subtle.digest('SHA-256', Uint8Array.from(sourceBytes).buffer);
-    if (base58Encode(new Uint8Array(digest)) !== base58Encode(attested.dataHash)) {
-      throw new Error('Qortal publish builder changed the approved resource content.');
-    }
+    // A Qortal node offers no pre-signature artifact: the transaction's hash
+    // covers the node's own encrypted artifact, never the approved source.
+    // On-chain payloads are decrypted and compared inside the attestation;
+    // off-chain artifacts are read back after broadcast (below), the same
+    // rule as electron/home-v2-public-publish.ts.
+    qortalReadbackRequired = attested.dataType === 'DATA_HASH';
     if (!(await isStillValid())) throw new Error('The app, account, or node route changed before Qortal signing.');
     await request.validateTarget?.();
     const signed = signAttestedQortalPrivateGroupPublish({
@@ -16354,7 +16402,6 @@ async function publishAndroidHomeV2PublicResource(
       CHAT_SIGNING_RESPONSE_MAX_BYTES,
       true,
     );
-    return descriptor;
   } catch (error) {
     return {
       ...descriptor,
@@ -16366,6 +16413,49 @@ async function publishAndroidHomeV2PublicResource(
       timestamp,
     };
   }
+  // A Qortal off-chain publish could not be content-attested before signing:
+  // read it back from the staging node and compare with the approved bytes.
+  // Capacitor buffers a whole response before Home can bound it, so on this
+  // host the readback is limited to sources the device can hold twice;
+  // larger publishes are reported unverified rather than fetched blindly.
+  if (qortalReadbackRequired && sourceBytes.byteLength > ANDROID_QORTAL_READBACK_MAX_SOURCE_BYTES) {
+    return {
+      ...descriptor,
+      accepted: false,
+      error: 'This Qortal publication is too large for this device to read back and verify after broadcast; it is not trusted until it can be read.',
+      errorType: 'BROADCAST_UNKNOWN',
+      outcome: 'unknown' as const,
+      retryable: false as const,
+      timestamp,
+    };
+  }
+  if (qortalReadbackRequired) {
+    const identifierPath = resource.identifier ? `/${encodeURIComponent(resource.identifier)}` : '';
+    const readback = await verifyQortalPublishedBytes({
+      approved: new Uint8Array(sourceBytes),
+      fetchBytes: async () => {
+        const value = await requestAndroidHomeV2ChatJson(
+          request.nodeApiUrl,
+          `/arbitrary/${encodeURIComponent(resource.service)}/${encodeURIComponent(resource.name)}${identifierPath}?encoding=base64&rebuild=true`,
+          '',
+          Math.ceil((sourceBytes.byteLength * 4) / 3) + 1024,
+        );
+        return typeof value === 'string' && value.trim() ? base64ToBytes(value.trim()) : null;
+      },
+    });
+    if (readback !== 'verified') {
+      return {
+        ...descriptor,
+        accepted: false,
+        error: describeQortalReadbackFailure(readback, 'resource'),
+        errorType: 'BROADCAST_UNKNOWN',
+        outcome: 'unknown' as const,
+        retryable: false as const,
+        timestamp,
+      };
+    }
+  }
+  return descriptor;
 }
 
 function wipeAndroidQortalPrivateGroupKeyRing(keyRing: QortalPrivateGroupKeyRing) {

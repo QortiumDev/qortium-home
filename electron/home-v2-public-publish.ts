@@ -1,3 +1,4 @@
+import { createDecipheriv, createHash } from 'node:crypto'
 import { Worker } from 'node:worker_threads'
 import { createReadStream } from 'node:fs'
 import { readFile } from 'node:fs/promises'
@@ -11,8 +12,11 @@ import { base58Decode, base58Encode } from './base58.js'
 import { fetchBoundedBytes } from './bounded-response.js'
 import { computeHomeV2ChatNonce } from './home-v2-chat-pow.js'
 import {
+  assertQortalUndisclosedFeeWithinCeiling,
   attestUnsignedQortalArbitraryPublish,
+  describeQortalReadbackFailure,
   signAttestedQortalPrivateGroupPublish,
+  verifyQortalPublishedBytes,
 } from './home-v2-qortal-private-group-publish.js'
 import {
   createHomeV2PublicPublishDescriptor,
@@ -419,6 +423,9 @@ async function publishQortal(input: PublishInput, signingKey: ReturnType<typeof 
   if (input.expectedFeeAtomic !== undefined && fee !== input.expectedFeeAtomic) {
     throw new Error('The Qortal ARBITRARY fee changed after it was approved.')
   }
+  // Private attachments approve the key operation before the chain fee is
+  // known; a fee that was never shown is bounded instead of pinned.
+  if (input.expectedFeeAtomic === undefined) assertQortalUndisclosedFeeWithinCeiling(fee)
   const reference = base58Decode(referenceText)
   if (reference.byteLength !== 64 || base58Encode(reference) !== referenceText) {
     throw new Error('Qortal publish reference is invalid.')
@@ -432,8 +439,14 @@ async function publishQortal(input: PublishInput, signingKey: ReturnType<typeof 
     'Qortal public publish staging',
   )
   const attested = attestUnsignedQortalArbitraryPublish(unsignedBase58, {
+    aesCbcDecrypt: (key, iv, ciphertext) => {
+      const decipher = createDecipheriv('aes-256-cbc', key, iv)
+      return new Uint8Array(Buffer.concat([decipher.update(ciphertext), decipher.final()]))
+    },
     dataSize: input.sourceBytes.byteLength,
     feeAtomic: fee,
+    sha256: (data) => new Uint8Array(createHash('sha256').update(data).digest()),
+    sourceBytes: new Uint8Array(input.sourceBytes),
     identifier: input.resource.identifier ?? 'default',
     lastReference: reference,
     name: input.resource.name,
@@ -442,10 +455,11 @@ async function publishQortal(input: PublishInput, signingKey: ReturnType<typeof 
     timestampMaximum: Date.now() + 5_000,
     timestampMinimum: started - 5_000,
   })
-  const expectedHash = await globalThis.crypto.subtle.digest('SHA-256', Uint8Array.from(input.sourceBytes).buffer)
-  if (base58Encode(new Uint8Array(expectedHash)) !== base58Encode(attested.dataHash)) {
-    throw new Error('Qortal publish builder changed the approved resource content.')
-  }
+  // Unlike Qortium, a Qortal node offers no pre-signature artifact: the
+  // transaction's hash covers the node's own AES-encrypted (and, off chain,
+  // zipped) artifact, never the approved source bytes. On-chain payloads are
+  // decrypted and compared inside the attestation; off-chain artifacts are
+  // read back after broadcast (below) and compared with the approved source.
   if (!(await input.isStillValid())) throw new Error('The app, account, or node route changed before Qortal signing.')
   await input.validateTarget?.()
   if (!(await input.isStillValid())) throw new Error('The app, account, or node route changed before Qortal signing.')
@@ -454,7 +468,24 @@ async function publishQortal(input: PublishInput, signingKey: ReturnType<typeof 
     signingBytes: attested.signingBytes,
     unsignedBytes: attested.unsignedBytes,
   })
-  return { signedBytes: signed.signedBytes, signature: signed.signature, timestamp: attested.timestamp }
+  return {
+    readbackRequired: attested.dataType === 'DATA_HASH',
+    signedBytes: signed.signedBytes,
+    signature: signed.signature,
+    timestamp: attested.timestamp,
+  }
+}
+
+async function readBackQortalResource(input: PublishInput) {
+  const url = `${input.nodeApiUrl}/arbitrary${resourcePath(input.resource)}?rebuild=true`
+  const { bytes, response } = await fetchBoundedBytes(
+    (signal) => nodeFetch(url, { method: 'GET', redirect: 'error', signal }),
+    input.sourceBytes.byteLength + 1,
+    60_000,
+  )
+  if (response.url && new URL(response.url).toString() !== new URL(url).toString()) return null
+  if (!response.ok) return null
+  return new Uint8Array(bytes)
 }
 
 async function publishHomeV2ResourceBytes(input: PublishInput): Promise<HomeV2PublishedResourceBytes> {
@@ -487,13 +518,6 @@ async function publishHomeV2ResourceBytes(input: PublishInput): Promise<HomeV2Pu
         base58Encode(transaction.signedBytes),
         `${input.network === 'qortal' ? 'Qortal' : 'Qortium'} public publish broadcast`,
       )
-      return Object.freeze({
-        accepted: true,
-        contentHash,
-        size: input.sourceBytes.byteLength,
-        timestamp: transaction.timestamp,
-        transactionSignature: transaction.signature,
-      })
     } catch (error) {
       return Object.freeze({
         accepted: false,
@@ -507,6 +531,36 @@ async function publishHomeV2ResourceBytes(input: PublishInput): Promise<HomeV2Pu
         transactionSignature: transaction.signature,
       })
     }
+    // A Qortal off-chain publish could not be content-attested before
+    // signing; read it back from the staging node and compare. A mismatch is
+    // reported as an unknown outcome so the app never treats the coordinate
+    // as carrying the approved bytes.
+    if (input.network === 'qortal' && 'readbackRequired' in transaction && transaction.readbackRequired) {
+      const readback = await verifyQortalPublishedBytes({
+        approved: new Uint8Array(input.sourceBytes),
+        fetchBytes: () => readBackQortalResource(input),
+      })
+      if (readback !== 'verified') {
+        return Object.freeze({
+          accepted: false,
+          contentHash,
+          error: describeQortalReadbackFailure(readback, 'resource'),
+          errorType: 'BROADCAST_UNKNOWN' as const,
+          outcome: 'unknown' as const,
+          retryable: false as const,
+          size: input.sourceBytes.byteLength,
+          timestamp: transaction.timestamp,
+          transactionSignature: transaction.signature,
+        })
+      }
+    }
+    return Object.freeze({
+      accepted: true,
+      contentHash,
+      size: input.sourceBytes.byteLength,
+      timestamp: transaction.timestamp,
+      transactionSignature: transaction.signature,
+    })
   } finally {
     signingKey.secretKey.fill(0)
   }

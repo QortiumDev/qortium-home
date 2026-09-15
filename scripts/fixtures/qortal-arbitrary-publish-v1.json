@@ -1,0 +1,52 @@
+{
+  "version": 1,
+  "capturedAt": "2026-09-14",
+  "cases": [
+    {
+      "label": "offChainDataHash",
+      "note": "Built by a Qortal 6.1.x node (appnode.qortal.org) via POST /arbitrary/DOCUMENT_PRIVATE/xchat2/h7-fixture-a/base64?fee=1000000 with the deterministic sourceBase64 below; never broadcast.",
+      "unsignedBase58": "1116YqxwEyC6p9QPSKHGeQ6azLFgyXUCPryziRY5KDTrLAwzfpRKUA7HXw7jhdFTT3rqZ9fT8sfbst8c8thYczJke3a4CtD6zVs4Gup7wEXAawJJJkKVjv1EYm6EYWndKDT9yQwdgAi77tTjegwAMi3EusNeEnmGBiLgYtKf84hrVfJQKLLXKA8WsfaARZRyAKB8i9pXpW2p68kVeZ455DbrR5kJnonmHV6XpBLDE12qZAhgSVdvyhqfNB3m1pZRgHSjQshYbin12WqUeWiLGX2e7w1XB1eMrEmiNWaueoe2QMJkFjjzDRY5UZpxhAjZTPheurAwdLh9skEs",
+      "sourceBase64": "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",
+      "intent": {
+        "dataSize": 3000,
+        "feeAtomic": "1000000",
+        "identifier": "h7-fixture-a",
+        "lastReference": "2hPEMM8ULjJiRiofp6czMXTU1QnwNh49ZFcU2sJXTa7ZnvnfZxv4Vx71458rNt4CmxqWTB5ad5v6KKRLgGXVyibH",
+        "name": "xchat2",
+        "senderPublicKey": "7zFUqCvv4U7D8zDdYNGfKDhneZxg3rmBjTpi6ejaWsX1",
+        "service": 801,
+        "timestamp": 1789436463096
+      },
+      "expect": {
+        "secretBytes": 32,
+        "compression": 1,
+        "dataType": "DATA_HASH",
+        "dataLength": 32,
+        "size": 3296
+      }
+    },
+    {
+      "label": "onChainRawData",
+      "note": "Built by a Qortal 6.1.x node (appnode.qortal.org) via POST /arbitrary/DOCUMENT_PRIVATE/xchat2/h7-fixture-b/base64?fee=1000000 with the deterministic sourceBase64 below; never broadcast.",
+      "unsignedBase58": "1119SM1pe9Qsq65Mdy7kNUChAt8igyKYkPuGHBaNw4uGpAk6nF726Udkhw5uSbh8HpDKGhVXLMqWzz9crcroPBN8p18qTp7kzvfB9zoa4L6cS2ieeKyrL8cjnHY35MkQmD2M5mMBpgJQXKg3it2UGb9r8Br275Z4jute3ZYNa87oMqPDCdYJG2fjziJYgRCzuU1Cy3oQV6Pu8ZZEa7zU4P1nJC3LMg5FvqHC9S8qufq5y2tts7H4bxjxw9wTpjMHfT1JXWaH5NqRHLFsnmdh3rLH18H2cBYvmoxjJ6rdTU9fmWtbMZbh3egnDD3Tn94ZCXkrmzEEGWzWxLaTXxRKkwMZf611A6Jv5g1bXSRsjYA2rVd2P9Xg7cYRvUfAutmEdktJW2CcgaKBtniSjXEWatwpXhQ4dRSouM5J6HzLVdJyqMAafK5UQQ3hbxrCjxiZX5vux6CGEfhjdRcBKTM",
+      "sourceBase64": "uJtLjZDNfcrsxSSPyLKRf4Wd82pkF9l6l1HCHDJ8UefDGFBJTkGND63/pB+ETIpVjYqrML6BVWtPi4qUJsVtkh7c3CxjXEwE5vGMKijgYeq68Em2rCM271LdMm36LOnOemXrfQ==",
+      "intent": {
+        "dataSize": 100,
+        "feeAtomic": "1000000",
+        "identifier": "h7-fixture-b",
+        "lastReference": "2hPEMM8ULjJiRiofp6czMXTU1QnwNh49ZFcU2sJXTa7ZnvnfZxv4Vx71458rNt4CmxqWTB5ad5v6KKRLgGXVyibH",
+        "name": "xchat2",
+        "senderPublicKey": "7zFUqCvv4U7D8zDdYNGfKDhneZxg3rmBjTpi6ejaWsX1",
+        "service": 801,
+        "timestamp": 1789436463335
+      },
+      "expect": {
+        "secretBytes": 32,
+        "compression": 0,
+        "dataType": "RAW_DATA",
+        "dataLength": 128,
+        "size": 128
+      }
+    }
+  ]
+}
