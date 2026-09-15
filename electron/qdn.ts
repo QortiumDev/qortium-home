@@ -1,5 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, Notification, type WebContents } from 'electron';
 import { extractZipSafely } from './safe-zip-extraction.js';
+import { createMemoryPowQueue, memoryPowError } from './memory-pow-queue.js';
 import {
   QDN_PREVIEW_STAGING_PREFIX,
   cleanupQdnPreviewStagingDirs,
@@ -8174,7 +8175,8 @@ type MemoryPowWorkerResponse =
   | { id: string; error: string };
 
 let memoryPowWorker: Worker | null = null;
-let memoryPowActive = false;
+// Requests wait their turn on the single worker (memory-pow-queue.ts).
+const memoryPowQueue = createMemoryPowQueue();
 
 function getMemoryPowWorker(): Worker {
   if (!memoryPowWorker) {
@@ -8208,13 +8210,23 @@ function computeChatNonce(
   difficulty: number,
   isStillValid?: () => boolean | Promise<boolean>,
 ): Promise<number> {
-  if (memoryPowActive) {
-    return Promise.reject(qdnCodedError('QDN_POW_BUSY', 'Another proof-of-work computation is already running. Please retry.'));
+  return memoryPowQueue.run(
+    () => computeChatNonceNow(data, difficulty, isStillValid),
+    () => memoryPowError('QDN_POW_BUSY', 'Too many proof-of-work computations are waiting. Please retry in a moment.'),
+  );
+}
+
+async function computeChatNonceNow(
+  data: Uint8Array,
+  difficulty: number,
+  isStillValid?: () => boolean | Promise<boolean>,
+): Promise<number> {
+  if (isStillValid && !(await isStillValid())) {
+    throw memoryPowError('QDN_POW_CANCELLED', 'Proof-of-work was canceled because the account, node, or app context changed.');
   }
 
   const worker = getMemoryPowWorker();
   const id = randomUUID();
-  memoryPowActive = true;
 
   return new Promise<number>((resolve, reject) => {
     let settled = false;
@@ -8225,7 +8237,6 @@ function computeChatNonce(
       clearInterval(validityTimer);
       worker.off('message', onMessage);
       worker.off('error', onError);
-      memoryPowActive = false;
       if (terminate) {
         if (memoryPowWorker === worker) memoryPowWorker = null;
         void worker.terminate();
@@ -8251,14 +8262,14 @@ function computeChatNonce(
     };
 
     const timeout = setTimeout(() => {
-      finish(qdnCodedError('QDN_POW_TIMEOUT', 'Proof-of-work did not finish within three minutes.'), undefined, true);
+      finish(memoryPowError('QDN_POW_TIMEOUT', 'Proof-of-work did not finish within three minutes.'), undefined, true);
     }, MEMORY_POW_TIMEOUT_MS);
     const validityTimer = setInterval(() => {
       if (!isStillValid) return;
       void Promise.resolve(isStillValid()).then((valid) => {
-        if (!valid) finish(qdnCodedError('QDN_POW_CANCELLED', 'Proof-of-work was canceled because the account, node, or app context changed.'), undefined, true);
+        if (!valid) finish(memoryPowError('QDN_POW_CANCELLED', 'Proof-of-work was canceled because the account, node, or app context changed.'), undefined, true);
       }).catch(() => {
-        finish(qdnCodedError('QDN_POW_CANCELLED', 'Proof-of-work was canceled because its signing context could not be revalidated.'), undefined, true);
+        finish(memoryPowError('QDN_POW_CANCELLED', 'Proof-of-work was canceled because its signing context could not be revalidated.'), undefined, true);
       });
     }, 500);
 
