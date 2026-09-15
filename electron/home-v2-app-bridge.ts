@@ -7581,7 +7581,12 @@ async function sendHomeV2QortalPrivateGroupChatAction(
         selectedAccountSecretKey: signingKey.secretKey,
         senderPublicKey: base58Decode(signingKey.publicKey58),
       })
-      return publishHomeV2QortalPrivateGroupBundle({
+      // `return await`: the finally below zeroes the signing key as soon as
+      // this try block completes, and a bare `return promise` completes it
+      // before the publish has fetched the fee, staged the bundle and signed
+      // — so the signature was made with an all-zero key ("invalid
+      // signature" from the node, journaled as an unknown outcome).
+      return await publishHomeV2QortalPrivateGroupBundle({
         accountId,
         encryptedBundle,
         isStillValid,
@@ -7615,7 +7620,8 @@ async function sendHomeV2QortalPrivateGroupChatAction(
         : action === 'SEND_PRIVATE_GROUP_CHAT_DELETE'
           ? 'SEND_CHAT_DELETE'
           : 'SEND_CHAT_REACTION'
-    return sendHomeV2QortalChatMessage(
+    // Same rule: the send signs only after its proof-of-work and checks.
+    return await sendHomeV2QortalChatMessage(
       node.nodeApiUrl,
       {
         action: publicAction,
