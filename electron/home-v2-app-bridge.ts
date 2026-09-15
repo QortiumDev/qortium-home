@@ -306,6 +306,7 @@ import {
 import {
   assertQortalUndisclosedFeeWithinCeiling,
   attestUnsignedQortalPrivateGroupPublish,
+  describeQortalReadbackFailure,
   signAttestedQortalPrivateGroupPublish,
   verifyQortalPublishedBytes,
 } from './home-v2-qortal-private-group-publish.js'
@@ -6930,9 +6931,9 @@ async function publishHomeV2QortalPrivateGroupBundle(input: {
         return typeof value === 'string' && value.trim() ? new Uint8Array(Buffer.from(value.trim(), 'base64')) : null
       },
     })
-    if (readback === 'mismatch') {
+    if (readback !== 'verified') {
       return createHomeV2UnknownChatBroadcastResult(
-        new Error('The Qortal node served a different key bundle than the one Home signed; the publication is not trusted.'),
+        new Error(describeQortalReadbackFailure(readback, 'key bundle')),
         signed.signature,
         attested.timestamp,
       )

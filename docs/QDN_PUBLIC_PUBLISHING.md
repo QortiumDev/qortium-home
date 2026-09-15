@@ -266,10 +266,14 @@ ways Qortal allows: an on-chain payload is decrypted locally with the
 transaction's secret and byte-compared with the approved source before
 signing; an off-chain artifact's recorded size is bounded against the source
 before signing and the resource is read back from the staging node after
-broadcast and compared — a mismatch is reported as an unknown outcome and the
-app never treats the coordinate as carrying the approved bytes (a same-node
-readback catches substitution and corruption, not a node that serves one thing
-and stores another). Fees that were shown in the prompt are pinned; the
+broadcast and compared — anything but a byte-exact readback (a different
+resource, or a node that cannot serve it back) is reported as an unknown
+outcome and the app never treats the coordinate as carrying the approved
+bytes. A same-node readback catches substitution, corruption and
+stage-then-drop on the node the user talks to, not a node that serves one
+thing and stores another; an independent-node readback is a follow-up. On
+Android, where a response is held whole in memory, sources over 16 MiB are
+not read back and are likewise reported unverified. Fees that were shown in the prompt are pinned; the
 private-group key bundle and private attachment paths approve the key
 operation before the fee is known, so those fees are bounded to 0.1 QORT
 instead. The same rules cover `DOCUMENT_PRIVATE` key bundles on desktop and

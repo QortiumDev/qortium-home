@@ -49,8 +49,9 @@ no way to inspect the artifact before signing, Home proves the content the ways
 Qortal does allow: an on-chain payload is decrypted with the transaction's own
 key and compared with the approved bytes before signing, and an off-chain
 resource is read back from the node right after broadcast and compared — if
-the node serves something else, the app is told the publication is not
-trusted. Fees that were never shown in a prompt (private-group key bundles,
+the node serves something else, or cannot serve it back at all, the app is
+told the publication is not trusted (on Android, publications over 16 MiB are
+reported unverified instead of being read back into memory). Fees that were never shown in a prompt (private-group key bundles,
 private attachments) are now capped at 0.1 QORT, so a misbehaving node cannot
 name its own price. Verified against transactions built by a real Qortal
 node, now kept as a test fixture. Desktop and Android share the fix.

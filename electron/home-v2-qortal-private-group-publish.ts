@@ -211,6 +211,11 @@ function attestUnsignedQortalPublish(
   const dataType: QortalArbitraryDataType = dataTypeByte === QORTAL_DATA_TYPE_DATA_HASH
     ? 'DATA_HASH'
     : dataTypeByte === QORTAL_DATA_TYPE_RAW_DATA ? 'RAW_DATA' : (() => { throw new Error('Qortal publish builder returned an unknown data type.') })()
+  // The builder's own rule: a source whose ciphertext fits on chain is
+  // always RAW_DATA; a node claiming an off-chain artifact for it is lying.
+  if (dataType === 'DATA_HASH' && qortalEncryptedPayloadBytes(expected.dataSize) <= QORTAL_MAX_ON_CHAIN_DATA_BYTES) {
+    throw new Error('Qortal publish builder moved an on-chain sized payload off chain.')
+  }
   const dataLengthOffset = reader.offset
   const dataLength = reader.int32('data length')
   if (dataType === 'DATA_HASH' && dataLength !== HASH_BYTES) throw new Error('Qortal public publish has an invalid data hash length.')
@@ -303,9 +308,16 @@ export function signAttestedQortalPrivateGroupPublish(input: {
 /**
  * Post-broadcast content check for off-chain (DATA_HASH) Qortal publishes:
  * the node that staged the artifact serves it back and Home compares the
- * bytes with what it approved. A same-node readback is diagnostic (a hostile
- * node can serve one thing and store another), but it catches the ordinary
- * substitution and corruption cases and costs nothing on an honest node.
+ * bytes with what it approved. Callers treat anything but 'verified' as an
+ * unknown outcome (fail closed): a node that cannot show the approved bytes
+ * back is not trusted with the coordinate. The check is still same-node —
+ * a node that serves one thing and stores another is only caught by an
+ * independent reader — but it closes substitution, corruption and
+ * "stage-then-drop" on the node the user is talking to.
+ *
+ * Reads go by mutable coordinate, so an older version may be served until
+ * the node indexes the new transaction: a mismatch is only final once every
+ * attempt has disagreed.
  */
 export type QortalReadbackOutcome = 'verified' | 'mismatch' | 'unavailable'
 
@@ -315,7 +327,8 @@ export async function verifyQortalPublishedBytes(input: {
   readonly delayMs?: number
   readonly fetchBytes: () => Promise<Uint8Array | null>
 }): Promise<QortalReadbackOutcome> {
-  const attempts = input.attempts ?? 4
+  const attempts = input.attempts ?? 6
+  let sawDifferent = false
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     let served: Uint8Array | null = null
     try {
@@ -323,8 +336,16 @@ export async function verifyQortalPublishedBytes(input: {
     } catch {
       served = null
     }
-    if (served) return equalBytes(served, input.approved) ? 'verified' : 'mismatch'
-    if (attempt + 1 < attempts) await new Promise((resolve) => setTimeout(resolve, input.delayMs ?? 1500))
+    if (served && equalBytes(served, input.approved)) return 'verified'
+    if (served) sawDifferent = true
+    if (attempt + 1 < attempts) await new Promise((resolve) => setTimeout(resolve, input.delayMs ?? 2000))
   }
-  return 'unavailable'
+  return sawDifferent ? 'mismatch' : 'unavailable'
+}
+
+/** Message for a readback that did not prove the approved bytes. */
+export function describeQortalReadbackFailure(outcome: Exclude<QortalReadbackOutcome, 'verified'>, what: string) {
+  return outcome === 'mismatch'
+    ? `The Qortal node served a different ${what} than the one Home signed; the publication is not trusted.`
+    : `The Qortal node could not serve the ${what} back after broadcast; the publication is not trusted until it can be read.`
 }

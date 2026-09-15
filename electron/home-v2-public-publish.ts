@@ -14,6 +14,7 @@ import { computeHomeV2ChatNonce } from './home-v2-chat-pow.js'
 import {
   assertQortalUndisclosedFeeWithinCeiling,
   attestUnsignedQortalArbitraryPublish,
+  describeQortalReadbackFailure,
   signAttestedQortalPrivateGroupPublish,
   verifyQortalPublishedBytes,
 } from './home-v2-qortal-private-group-publish.js'
@@ -539,11 +540,11 @@ async function publishHomeV2ResourceBytes(input: PublishInput): Promise<HomeV2Pu
         approved: new Uint8Array(input.sourceBytes),
         fetchBytes: () => readBackQortalResource(input),
       })
-      if (readback === 'mismatch') {
+      if (readback !== 'verified') {
         return Object.freeze({
           accepted: false,
           contentHash,
-          error: 'The Qortal node served different content than the bytes Home signed; the publication is not trusted.',
+          error: describeQortalReadbackFailure(readback, 'resource'),
           errorType: 'BROADCAST_UNKNOWN' as const,
           outcome: 'unknown' as const,
           retryable: false as const,

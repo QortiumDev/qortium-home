@@ -10,6 +10,7 @@ import {
   assertQortalUndisclosedFeeWithinCeiling,
   attestUnsignedQortalArbitraryPublish,
   attestUnsignedQortalPrivateGroupPublish,
+  describeQortalReadbackFailure,
   maximumQortalArtifactBytes,
   signAttestedQortalPrivateGroupPublish,
   verifyQortalPublishedBytes,
@@ -245,15 +246,40 @@ for (const testCase of fixture.cases) {
   }), /changed the approved resource content/)
 }
 
-// Post-broadcast readback: verified / mismatch / unavailable.
+// Post-broadcast readback: verified / mismatch / unavailable. An older
+// version served first is not a mismatch until every attempt disagreed.
 {
   const approved = new Uint8Array([1, 2, 3])
   assert.equal(await verifyQortalPublishedBytes({ approved, fetchBytes: async () => new Uint8Array([1, 2, 3]) }), 'verified')
-  assert.equal(await verifyQortalPublishedBytes({ approved, fetchBytes: async () => new Uint8Array([1, 2, 4]) }), 'mismatch')
+  let differing = 0
+  assert.equal(await verifyQortalPublishedBytes({ approved, attempts: 3, delayMs: 1, fetchBytes: async () => { differing += 1; return new Uint8Array([1, 2, 4]) } }), 'mismatch')
+  assert.equal(differing, 3)
   let calls = 0
   assert.equal(await verifyQortalPublishedBytes({ approved, attempts: 3, delayMs: 1, fetchBytes: async () => { calls += 1; throw new Error('not yet') } }), 'unavailable')
   assert.equal(calls, 3)
-  assert.equal(await verifyQortalPublishedBytes({ approved, attempts: 2, delayMs: 1, fetchBytes: async () => (calls += 1) < 5 ? null : approved }), 'verified')
+  let served = 0
+  assert.equal(await verifyQortalPublishedBytes({ approved, attempts: 3, delayMs: 1, fetchBytes: async () => (served += 1) < 3 ? new Uint8Array([9]) : approved }), 'verified')
+  assert.match(describeQortalReadbackFailure('mismatch', 'key bundle'), /different key bundle/)
+  assert.match(describeQortalReadbackFailure('unavailable', 'resource'), /could not serve the resource back/)
+}
+
+// A source whose ciphertext fits on chain must come back as RAW_DATA.
+{
+  const hashCase = fixture.cases.find((entry) => entry.expect.dataType === 'DATA_HASH')!
+  assert.throws(() => attestUnsignedQortalArbitraryPublish(hashCase.unsignedBase58, {
+    aesCbcDecrypt,
+    dataSize: 100,
+    feeAtomic: BigInt(hashCase.intent.feeAtomic),
+    sha256,
+    sourceBytes: new Uint8Array(100),
+    identifier: hashCase.intent.identifier,
+    lastReference: base58Decode(hashCase.intent.lastReference),
+    name: hashCase.intent.name,
+    senderPublicKey: base58Decode(hashCase.intent.senderPublicKey),
+    service: hashCase.intent.service,
+    timestampMaximum: hashCase.intent.timestamp,
+    timestampMinimum: hashCase.intent.timestamp,
+  }), /moved an on-chain sized payload off chain/)
 }
 
 // Undisclosed fees are bounded.

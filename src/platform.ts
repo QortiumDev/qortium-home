@@ -427,6 +427,7 @@ import {
   assertQortalUndisclosedFeeWithinCeiling,
   attestUnsignedQortalArbitraryPublish,
   attestUnsignedQortalPrivateGroupPublish,
+  describeQortalReadbackFailure,
   signAttestedQortalPrivateGroupPublish,
   verifyQortalPublishedBytes,
 } from '../electron/home-v2-qortal-private-group-publish';
@@ -1354,6 +1355,9 @@ async function sha256(data: Uint8Array) {
 
   return new Uint8Array(await window.crypto.subtle.digest('SHA-256', digestData.buffer));
 }
+
+/** Largest Qortal source this host reads back after broadcast (Capacitor holds whole responses in memory). */
+const ANDROID_QORTAL_READBACK_MAX_SOURCE_BYTES = 16 * 1024 * 1024;
 
 /** Qortal on-chain payloads: 16-byte IV + AES-256-CBC/PKCS7 ciphertext (host-injected into the shared attestation). */
 function qortalAesCbcDecryptSync(key: Uint8Array, iv: Uint8Array, ciphertext: Uint8Array) {
@@ -13655,9 +13659,9 @@ async function publishAndroidQortalPrivateGroupBundle(input: {
         return typeof value === 'string' && value.trim() ? base64ToBytes(value.trim()) : null;
       },
     });
-    if (readback === 'mismatch') {
+    if (readback !== 'verified') {
       return createHomeV2UnknownChatBroadcastResult(
-        new Error('The Qortal node served a different key bundle than the one Home signed; the publication is not trusted.'),
+        new Error(describeQortalReadbackFailure(readback, 'key bundle')),
         signed.signature,
         attested.timestamp,
       );
@@ -16411,6 +16415,20 @@ async function publishAndroidHomeV2PublicResource(
   }
   // A Qortal off-chain publish could not be content-attested before signing:
   // read it back from the staging node and compare with the approved bytes.
+  // Capacitor buffers a whole response before Home can bound it, so on this
+  // host the readback is limited to sources the device can hold twice;
+  // larger publishes are reported unverified rather than fetched blindly.
+  if (qortalReadbackRequired && sourceBytes.byteLength > ANDROID_QORTAL_READBACK_MAX_SOURCE_BYTES) {
+    return {
+      ...descriptor,
+      accepted: false,
+      error: 'This Qortal publication is too large for this device to read back and verify after broadcast; it is not trusted until it can be read.',
+      errorType: 'BROADCAST_UNKNOWN',
+      outcome: 'unknown' as const,
+      retryable: false as const,
+      timestamp,
+    };
+  }
   if (qortalReadbackRequired) {
     const identifierPath = resource.identifier ? `/${encodeURIComponent(resource.identifier)}` : '';
     const readback = await verifyQortalPublishedBytes({
@@ -16425,11 +16443,11 @@ async function publishAndroidHomeV2PublicResource(
         return typeof value === 'string' && value.trim() ? base64ToBytes(value.trim()) : null;
       },
     });
-    if (readback === 'mismatch') {
+    if (readback !== 'verified') {
       return {
         ...descriptor,
         accepted: false,
-        error: 'The Qortal node served different content than the bytes Home signed; the publication is not trusted.',
+        error: describeQortalReadbackFailure(readback, 'resource'),
         errorType: 'BROADCAST_UNKNOWN',
         outcome: 'unknown' as const,
         retryable: false as const,
