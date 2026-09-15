@@ -32,6 +32,20 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## release: prepare home 2.1.0-beta.10
+
+2026-09-15
+
+Prepare the tenth Home 2.1 public testing prerelease. It carries the two
+changes merged since beta.9: publishing through a trusted node works again
+(every such publish since beta.1 had been refused with
+"net::ERR_INVALID_ARGUMENT"), and Home's own links follow browser convention
+— plain click in place, middle or Ctrl/Cmd-click in a new tab, and the
+context menu's "Open in new tab" really opens one. Android advances to code
+52 so it can update beta.9 and every earlier package. Stable users remain on
+Home 1.8.0. The beta testing guide gains the two checks. No runtime source
+changes in this entry.
+
 ## feat: middle-click and Ctrl-click open Home links in a new tab, and "Open in new tab" does
 
 2026-09-15
