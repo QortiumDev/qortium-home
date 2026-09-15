@@ -68,6 +68,32 @@ existing custom roles. Its private, sender-gated host bridge is not an app API.
 A future third-party assignment manager must use the public actions above only
 after Home 2 advertises them.
 
+## Roles used by context menus
+
+Home 2 [context menus](HOME_V2_CONTEXT_MENUS.md#version-2) route their cross-app
+items through these roles. Home ships each with a default and users change them
+in Settings › QDN Apps like any other assignment. Because Home composes the link
+from a validated subject, every app assigned to a role must accept the query
+parameters listed for it; anything else in the URL is the assignment owner's
+business (a route fragment is fine). Parameters are top-level query parameters
+on the app's canonical address, so a hash-router app must read
+`window.location.search`, not only its `_route`.
+
+| Role | Default | Must accept | Used by |
+| --- | --- | --- | --- |
+| `chat` | `qdn://APP/Chat/Chat` | `?address=<address>` opens or creates the direct chat; `?group=<id>` opens the group; `?network=qortal` or `qortium` selects the chain | Send message, Open group chat |
+| `profile` | `qdn://APP/Trust/Trust` | `?account=<address or name>` shows that account | Account info |
+| `wallet` | `qdn://APP/Wallet/Wallet` | `?to=<address>` opens the native-coin send form with the recipient filled in | Send coins |
+| `groups` | `qdn://APP/Groups/Groups` | `?group=<id>` shows that group | Group info |
+| `explorer` | `qdn://APP/Chain/Chain` | `?account=<address or name>` shows that account; `?group=<id>` shows that group | View on explorer |
+
+Compliance at the time of writing: Chat already accepts `address`, `group` and
+`network`; Trust accepts `account`. Wallet, Groups and Chain read only
+`?_route=` today and need the app half first (Wallet: `?to=`; Groups and Chain:
+`?group=` / `?account=`). Home ships the host half only after each role's app
+half is published, so a fresh install never shows an item that opens an app
+which ignores the query.
+
 ## Assignments are not permissions
 
 Changing an assignment never grants access to Home data. Apps separately request
