@@ -32,6 +32,22 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## docs: context menu version 2 contract (accounts and groups first)
+
+2026-09-15
+
+Writes down, before any code, how Home's app-invocable context menu grows
+into the standard item menu apps can rely on: right-click or long-press on an
+account gets Copy address, Copy name, Account info, Send message, Send coins
+and View on explorer; a group gets Copy ID, Copy name, Group info, Open group
+chat and View on explorer. Every host item only copies or opens another app —
+never signs anything — so it can never bypass a permission. Apps may leave
+host items out and add their own, which Home shows in a separate group under
+the app's name and never lets look like a Home item. The other apps are
+reached through new user-changeable assignments (chat, profile → Trust,
+wallet, groups, explorer), each with the small query contract the assigned
+app must accept. Documentation only; nothing changes in this entry.
+
 ## test: packaged smoke for the link click conventions
 
 2026-09-15
