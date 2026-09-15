@@ -32,6 +32,22 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## fix: publishing through a trusted node failed with "net::ERR_INVALID_ARGUMENT"
+
+2026-09-15
+
+Since the beta.1 change that streams QDN publishes through a trusted node
+(#515), any app publish sent that way — a Help idea, a Chat attachment, a
+folder publish — was refused before it ever reached the node, and the app
+could only show the bare "net::ERR_INVALID_ARGUMENT" code a tester reported
+from Help 1.4.10. Home was adding a Content-Length header to the streamed
+upload by hand; Electron measures the body and sets that header itself, and
+rejects the whole request when a caller supplies one. The header is gone, a
+source guard keeps it out, and every publish transport failure now names the
+operation and the node route it was calling (without the query string that
+carries the resource description), so the next such report can be diagnosed
+from the message alone.
+
 ## release: prepare home 2.1.0-beta.9
 
 2026-09-15
