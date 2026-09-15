@@ -12,7 +12,7 @@ import {
   type Session,
   type WebContents,
 } from 'electron'
-import { createHash, randomBytes, randomUUID } from 'node:crypto'
+import { createDecipheriv, createHash, randomBytes, randomUUID } from 'node:crypto'
 import { createReadStream } from 'node:fs'
 import { stat, writeFile } from 'node:fs/promises'
 import nodePath from 'node:path'
@@ -304,8 +304,10 @@ import {
   upsertEncryptedQortalPrivateGroupRecord,
 } from './home-v2-qortal-private-group-key-store.js'
 import {
+  assertQortalUndisclosedFeeWithinCeiling,
   attestUnsignedQortalPrivateGroupPublish,
   signAttestedQortalPrivateGroupPublish,
+  verifyQortalPublishedBytes,
 } from './home-v2-qortal-private-group-publish.js'
 import { selectHomeV2DesktopPublishSource } from './home-v2-desktop-publish-source.js'
 import {
@@ -6808,6 +6810,11 @@ async function resolveHomeV2QortalPrivateGroupRing(input: {
   return null
 }
 
+function qortalAesCbcDecrypt(key: Uint8Array, iv: Uint8Array, ciphertext: Uint8Array) {
+  const decipher = createDecipheriv('aes-256-cbc', key, iv)
+  return new Uint8Array(Buffer.concat([decipher.update(ciphertext), decipher.final()]))
+}
+
 function normalizeQortalAtomicFee(value: unknown) {
   const raw = typeof value === 'number' || typeof value === 'bigint' || typeof value === 'string'
     ? String(value).trim()
@@ -6838,6 +6845,8 @@ async function publishHomeV2QortalPrivateGroupBundle(input: {
     readHomeV2ChatJson(input.nodeApiUrl, `/addresses/lastreference/${encodeURIComponent(input.senderAddress)}`, 'Qortal private-group publication reference lookup'),
   ])
   const fee = normalizeQortalAtomicFee(feeValue)
+  // The key operation was approved before the chain fee was known: bound it.
+  assertQortalUndisclosedFeeWithinCeiling(fee)
   if (typeof referenceValue !== 'string') throw new Error('Qortal last-reference response is invalid.')
   const lastReference = base58Decode(referenceValue.trim())
   if (lastReference.length !== 64 || base58Encode(lastReference) !== referenceValue.trim()) throw new Error('Qortal last-reference response is invalid.')
@@ -6868,8 +6877,11 @@ async function publishHomeV2QortalPrivateGroupBundle(input: {
     }
     throw error
   }
+  const bundleBytes = new Uint8Array(Buffer.from(input.encryptedBundle, 'base64'))
   const attested = attestUnsignedQortalPrivateGroupPublish(unsignedBase58.trim(), {
-    bundleSize: Buffer.from(input.encryptedBundle, 'base64').length,
+    aesCbcDecrypt: qortalAesCbcDecrypt,
+    bundleBytes,
+    bundleSize: bundleBytes.length,
     feeAtomic: fee,
     sha256: (data) => new Uint8Array(createHash('sha256').update(data).digest()),
     identifier,
@@ -6899,6 +6911,32 @@ async function publishHomeV2QortalPrivateGroupBundle(input: {
     // Do not cache an unconfirmed bundle coordinate. If the broadcast did
     // reach the chain, normal resource discovery will recover it later.
     return createHomeV2UnknownChatBroadcastResult(error, signed.signature, attested.timestamp)
+  }
+  // Off chain, Qortal offers no pre-signature artifact, so read the bundle
+  // back from the staging node and compare it with what was approved. A
+  // mismatch means the node stored something else under this account's
+  // coordinate: do not cache a ring for it and report the outcome as unknown.
+  if (attested.dataType === 'DATA_HASH') {
+    const readback = await verifyQortalPublishedBytes({
+      approved: bundleBytes,
+      fetchBytes: async () => {
+        const value = await readHomeV2ChatJson(
+          input.nodeApiUrl,
+          `/arbitrary/DOCUMENT_PRIVATE/${encodeURIComponent(input.name)}/${encodeURIComponent(identifier)}?encoding=base64&rebuild=true`,
+          'Qortal private-group key-bundle readback',
+          '',
+          3 * 1024 * 1024,
+        )
+        return typeof value === 'string' && value.trim() ? new Uint8Array(Buffer.from(value.trim(), 'base64')) : null
+      },
+    })
+    if (readback === 'mismatch') {
+      return createHomeV2UnknownChatBroadcastResult(
+        new Error('The Qortal node served a different key bundle than the one Home signed; the publication is not trusted.'),
+        signed.signature,
+        attested.timestamp,
+      )
+    }
   }
   try {
     await persistHomeV2QortalPrivateGroupRing({

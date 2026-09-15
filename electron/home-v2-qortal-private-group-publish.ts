@@ -24,12 +24,33 @@ const QORTAL_DATA_TYPE_DATA_HASH = 0
 const QORTAL_DATA_TYPE_RAW_DATA = 1
 const ARTIFACT_MARGIN_RATIO = 1.1
 const ARTIFACT_MARGIN_FLAT_BYTES = 4096
+const AES_BLOCK_BYTES = 16
+/**
+ * Ceiling for a Qortal ARBITRARY fee that was NOT shown to the user before
+ * approval (private-group key bundles and private attachments fetch the
+ * chain's unit fee after the key operation was approved). The chain's unit
+ * fee is 0.01 QORT; a node answering more than 0.1 QORT is not trusted with
+ * an undisclosed amount. Disclosed fees are pinned to the approved value
+ * instead (home-v2-public-publish.ts).
+ */
+export const QORTAL_UNDISCLOSED_ARBITRARY_FEE_CEILING_ATOMIC = 10_000_000n
 
 export type QortalArbitraryDataType = 'DATA_HASH' | 'RAW_DATA'
 
 /** The largest encrypted artifact Qortal may legitimately record for `sourceBytes` of approved data. */
 export function maximumQortalArtifactBytes(sourceBytes: number) {
   return Math.ceil(sourceBytes * ARTIFACT_MARGIN_RATIO) + ARTIFACT_MARGIN_FLAT_BYTES
+}
+
+/** Exact size of Qortal's on-chain payload for `sourceBytes`: 16-byte IV + AES-256-CBC/PKCS5 ciphertext. */
+export function qortalEncryptedPayloadBytes(sourceBytes: number) {
+  return AES_BLOCK_BYTES + (Math.floor(sourceBytes / AES_BLOCK_BYTES) + 1) * AES_BLOCK_BYTES
+}
+
+export function assertQortalUndisclosedFeeWithinCeiling(feeAtomic: bigint) {
+  if (feeAtomic > QORTAL_UNDISCLOSED_ARBITRARY_FEE_CEILING_ATOMIC) {
+    throw new Error('The Qortal node quoted an ARBITRARY fee above the ceiling Home accepts without showing it to you.')
+  }
 }
 
 function concatBytes(...chunks: readonly Uint8Array[]) {
@@ -82,8 +103,13 @@ class Reader {
 
 /** Synchronous SHA-256 supplied by the host (node:crypto on desktop, asmcrypto in the Android bundle). */
 export type QortalSha256 = (data: Uint8Array) => Uint8Array
+/** AES-256-CBC/PKCS7 decrypt supplied by the host; returns the plaintext or throws. */
+export type QortalAesCbcDecrypt = (key: Uint8Array, iv: Uint8Array, ciphertext: Uint8Array) => Uint8Array
 
 export type QortalPrivateGroupPublishIntent = {
+  readonly aesCbcDecrypt: QortalAesCbcDecrypt
+  /** The exact bytes staged with the node (the member-encrypted bundle). */
+  readonly bundleBytes: Uint8Array
   readonly bundleSize: number
   readonly feeAtomic: bigint
   readonly sha256: QortalSha256
@@ -96,9 +122,12 @@ export type QortalPrivateGroupPublishIntent = {
 }
 
 export type QortalArbitraryPublishIntent = {
+  readonly aesCbcDecrypt: QortalAesCbcDecrypt
   readonly dataSize: number
   readonly feeAtomic: bigint
   readonly sha256: QortalSha256
+  /** The exact approved bytes staged with the node; must equal `dataSize` in length. */
+  readonly sourceBytes: Uint8Array
   readonly identifier: string
   readonly lastReference: Uint8Array
   readonly name: string
@@ -120,7 +149,9 @@ export function attestUnsignedQortalPrivateGroupPublish(
   expected: QortalPrivateGroupPublishIntent,
 ) {
   return attestUnsignedQortalPublish(unsignedBase58, {
+    aesCbcDecrypt: expected.aesCbcDecrypt,
     dataSize: expected.bundleSize,
+    sourceBytes: expected.bundleBytes,
     feeAtomic: expected.feeAtomic,
     identifier: expected.identifier,
     lastReference: expected.lastReference,
@@ -163,8 +194,9 @@ function attestUnsignedQortalPublish(
   const identifier = reader.sizedUtf8(MAX_IDENTIFIER_BYTES, 'identifier')
   if (name !== expected.name || identifier !== expected.identifier) throw new Error('Qortal publish builder changed the resource coordinate.')
   if (reader.int32('method') !== 0) throw new Error('Qortal public publishing requires a PUT transaction.')
+  if (expected.sourceBytes.length !== expected.dataSize) throw new Error('The approved source bytes do not match the approved size.')
   const secretLength = reader.int32('secret length')
-  if (secretLength !== 0 && secretLength !== QORTAL_SECRET_BYTES) {
+  if (secretLength !== QORTAL_SECRET_BYTES) {
     throw new Error('Qortal publish builder returned a secret of unexpected length.')
   }
   const secret = reader.read(secretLength, 'secret')
@@ -188,12 +220,32 @@ function attestUnsignedQortalPublish(
   const data = reader.read(dataLength, 'data')
   const artifactSize = reader.int32('artifact size')
   if (dataType === 'RAW_DATA') {
-    // On-chain data IS the artifact (IV + AES-CBC ciphertext of the source).
-    if (artifactSize !== dataLength || compression !== QORTAL_COMPRESSION_NONE || artifactSize < expected.dataSize) {
+    // On-chain data IS the artifact: a 16-byte IV followed by the AES-256-CBC
+    // ciphertext of the approved source, so its length is fully determined
+    // and the content can be checked locally with the transaction's secret.
+    if (
+      artifactSize !== dataLength
+      || compression !== QORTAL_COMPRESSION_NONE
+      || dataLength !== qortalEncryptedPayloadBytes(expected.dataSize)
+    ) {
       throw new Error('Qortal publish builder returned an inconsistent on-chain payload.')
     }
-  } else if (artifactSize < 1 || artifactSize > maximumQortalArtifactBytes(expected.dataSize)) {
-    throw new Error('Qortal publish builder returned an artifact that does not match the approved data size.')
+    let plaintext: Uint8Array
+    try {
+      plaintext = expected.aesCbcDecrypt(new Uint8Array(secret), new Uint8Array(data.subarray(0, AES_BLOCK_BYTES)), new Uint8Array(data.subarray(AES_BLOCK_BYTES)))
+    } catch {
+      throw new Error('Qortal publish builder returned an on-chain payload that does not decrypt with its secret.')
+    }
+    if (!equalBytes(plaintext, expected.sourceBytes)) throw new Error('Qortal publish builder changed the approved resource content.')
+  } else {
+    // Off chain the node zipped and encrypted the source; only the recorded
+    // artifact size can be bounded here. Qortal exposes no pre-signature
+    // artifact, so callers verify the content by reading the resource back
+    // after broadcast (verifyQortalPublishedBytes).
+    if (compression !== QORTAL_COMPRESSION_ZIP) throw new Error('Qortal publish builder returned an inconsistent off-chain artifact.')
+    if (artifactSize < 1 || artifactSize > maximumQortalArtifactBytes(expected.dataSize)) {
+      throw new Error('Qortal publish builder returned an artifact that does not match the approved data size.')
+    }
   }
   const metadataHashLength = reader.int32('metadata hash length')
   if (metadataHashLength !== 0) throw new Error('Qortal public publish must not contain metadata.')
@@ -246,4 +298,33 @@ export function signAttestedQortalPrivateGroupPublish(input: {
     signature: base58Encode(signature),
     signedBytes: concatBytes(input.unsignedBytes, signature),
   })
+}
+
+/**
+ * Post-broadcast content check for off-chain (DATA_HASH) Qortal publishes:
+ * the node that staged the artifact serves it back and Home compares the
+ * bytes with what it approved. A same-node readback is diagnostic (a hostile
+ * node can serve one thing and store another), but it catches the ordinary
+ * substitution and corruption cases and costs nothing on an honest node.
+ */
+export type QortalReadbackOutcome = 'verified' | 'mismatch' | 'unavailable'
+
+export async function verifyQortalPublishedBytes(input: {
+  readonly approved: Uint8Array
+  readonly attempts?: number
+  readonly delayMs?: number
+  readonly fetchBytes: () => Promise<Uint8Array | null>
+}): Promise<QortalReadbackOutcome> {
+  const attempts = input.attempts ?? 4
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    let served: Uint8Array | null = null
+    try {
+      served = await input.fetchBytes()
+    } catch {
+      served = null
+    }
+    if (served) return equalBytes(served, input.approved) ? 'verified' : 'mismatch'
+    if (attempt + 1 < attempts) await new Promise((resolve) => setTimeout(resolve, input.delayMs ?? 1500))
+  }
+  return 'unavailable'
 }

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { createHash } from 'node:crypto'
+import { createDecipheriv, createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -7,10 +7,12 @@ import nacl from 'tweetnacl'
 
 import { base58Decode, base58Encode } from './base58.js'
 import {
+  assertQortalUndisclosedFeeWithinCeiling,
   attestUnsignedQortalArbitraryPublish,
   attestUnsignedQortalPrivateGroupPublish,
   maximumQortalArtifactBytes,
   signAttestedQortalPrivateGroupPublish,
+  verifyQortalPublishedBytes,
 } from './home-v2-qortal-private-group-publish.js'
 
 const concat = (...chunks: Uint8Array[]) => Uint8Array.from(chunks.flatMap((chunk) => [...chunk]))
@@ -35,7 +37,7 @@ const timestamp = 1_786_000_000_000
 const name = 'Alice'
 const identifier = 'symmetric-qchat-group-12'
 const secretLengthOffset = 4 + 8 + 4 + 64 + 32 + 4 + 4 + name.length + 4 + identifier.length + 4
-const dataTypeOffset = 4 + 8 + 4 + 64 + 32 + 4 + 4 + name.length + 4 + identifier.length + 4 + 4 + 4 + 4 + 4
+const dataTypeOffset = 4 + 8 + 4 + 64 + 32 + 4 + 4 + name.length + 4 + identifier.length + 4 + 4 + 32 + 4 + 4 + 4
 const unsigned = concat(
   int32(10),
   int64(BigInt(timestamp)),
@@ -46,8 +48,9 @@ const unsigned = concat(
   sized(name),
   sized(identifier),
   int32(0),
-  int32(0),
-  int32(0),
+  int32(32),
+  new Uint8Array(32).fill(5),
+  int32(1),
   int32(0),
   int32(801),
   new Uint8Array([0]),
@@ -58,7 +61,14 @@ const unsigned = concat(
   int64(100_000n),
 )
 const sha256 = (data: Uint8Array) => new Uint8Array(createHash('sha256').update(data).digest())
+const aesCbcDecrypt = (key: Uint8Array, iv: Uint8Array, ciphertext: Uint8Array) => {
+  const decipher = createDecipheriv('aes-256-cbc', key, iv)
+  return new Uint8Array(Buffer.concat([decipher.update(ciphertext), decipher.final()]))
+}
+const bundleBytes = new Uint8Array(512).fill(9)
 const expected = {
+  aesCbcDecrypt,
+  bundleBytes,
   bundleSize: 512,
   feeAtomic: 100_000n,
   sha256,
@@ -79,9 +89,11 @@ const signed = signAttestedQortalPrivateGroupPublish({
 assert.equal(nacl.sign.detached.verify(attested.signingBytes, signed.signedBytes.subarray(unsigned.length), keyPair.publicKey), true)
 assert.equal(signed.signature.length > 64, true)
 assert.equal(attestUnsignedQortalArbitraryPublish(base58Encode(unsigned), {
+  aesCbcDecrypt,
   dataSize: 512,
   feeAtomic: 100_000n,
   sha256,
+  sourceBytes: bundleBytes,
   identifier,
   lastReference: new Uint8Array(64).fill(1),
   name,
@@ -98,13 +110,24 @@ assert.throws(
   /service/,
 )
 
-// A secret is Qortal's transport key and is 32 bytes when present; any other
-// length is not a Qortal builder.
-const unexpectedSecret = Uint8Array.from(unsigned)
-new DataView(unexpectedSecret.buffer).setInt32(secretLengthOffset, 1, false)
+// A secret is Qortal's 32-byte transport key; any other length is not a
+// Qortal builder (a zero-length secret included).
+const unexpectedSecret = concat(
+  unsigned.subarray(0, secretLengthOffset),
+  int32(0),
+  unsigned.subarray(secretLengthOffset + 4 + 32),
+)
 assert.throws(
   () => attestUnsignedQortalPrivateGroupPublish(base58Encode(unexpectedSecret), expected),
   /secret of unexpected length/,
+)
+
+// Off chain the builder always zips; DATA_HASH without ZIP is not a Qortal build.
+const hashWithoutZip = Uint8Array.from(unsigned)
+new DataView(hashWithoutZip.buffer).setInt32(secretLengthOffset + 4 + 32, 0, false)
+assert.throws(
+  () => attestUnsignedQortalPrivateGroupPublish(base58Encode(hashWithoutZip), expected),
+  /inconsistent off-chain artifact/,
 )
 
 // The artifact size is bounded against the approved source, not matched.
@@ -133,16 +156,21 @@ const fixture = JSON.parse(readFileSync(
   cases: Array<{
     label: string
     unsignedBase58: string
+    sourceBase64: string
     intent: { dataSize: number; feeAtomic: string; identifier: string; lastReference: string; name: string; senderPublicKey: string; service: number; timestamp: number }
     expect: { secretBytes: number; compression: number; dataType: 'DATA_HASH' | 'RAW_DATA'; dataLength: number; size: number }
   }>
 }
 assert.equal(fixture.cases.length, 2)
 for (const testCase of fixture.cases) {
+  const sourceBytes = new Uint8Array(Buffer.from(testCase.sourceBase64, 'base64'))
+  assert.equal(sourceBytes.length, testCase.intent.dataSize, testCase.label)
   const attestedCase = attestUnsignedQortalArbitraryPublish(testCase.unsignedBase58, {
+    aesCbcDecrypt,
     dataSize: testCase.intent.dataSize,
     feeAtomic: BigInt(testCase.intent.feeAtomic),
     sha256,
+    sourceBytes,
     identifier: testCase.intent.identifier,
     lastReference: base58Decode(testCase.intent.lastReference),
     name: testCase.intent.name,
@@ -179,9 +207,11 @@ for (const testCase of fixture.cases) {
   assert.throws(() => attestUnsignedQortalArbitraryPublish(
     testCase.expect.dataType === 'DATA_HASH' ? base58Encode(inflated) : testCase.unsignedBase58,
     {
-    dataSize: testCase.expect.dataType === 'DATA_HASH' ? testCase.intent.dataSize : testCase.expect.size + 1,
+    aesCbcDecrypt,
+    dataSize: testCase.expect.dataType === 'DATA_HASH' ? testCase.intent.dataSize : testCase.intent.dataSize + 16,
     feeAtomic: BigInt(testCase.intent.feeAtomic),
     sha256,
+    sourceBytes: testCase.expect.dataType === 'DATA_HASH' ? sourceBytes : new Uint8Array(testCase.intent.dataSize + 16),
     identifier: testCase.intent.identifier,
     lastReference: base58Decode(testCase.intent.lastReference),
     name: testCase.intent.name,
@@ -192,5 +222,42 @@ for (const testCase of fixture.cases) {
     },
   ), testCase.expect.dataType === 'DATA_HASH' ? /does not match the approved data size/ : /inconsistent on-chain payload/, testCase.label)
 }
+
+// On-chain payloads are decrypted with the transaction's secret and compared
+// with the approved source: a different source is refused before signing.
+{
+  const rawCase = fixture.cases.find((entry) => entry.expect.dataType === 'RAW_DATA')!
+  const tampered = new Uint8Array(Buffer.from(rawCase.sourceBase64, 'base64'))
+  tampered[0] ^= 0xff
+  assert.throws(() => attestUnsignedQortalArbitraryPublish(rawCase.unsignedBase58, {
+    aesCbcDecrypt,
+    dataSize: rawCase.intent.dataSize,
+    feeAtomic: BigInt(rawCase.intent.feeAtomic),
+    sha256,
+    sourceBytes: tampered,
+    identifier: rawCase.intent.identifier,
+    lastReference: base58Decode(rawCase.intent.lastReference),
+    name: rawCase.intent.name,
+    senderPublicKey: base58Decode(rawCase.intent.senderPublicKey),
+    service: rawCase.intent.service,
+    timestampMaximum: rawCase.intent.timestamp,
+    timestampMinimum: rawCase.intent.timestamp,
+  }), /changed the approved resource content/)
+}
+
+// Post-broadcast readback: verified / mismatch / unavailable.
+{
+  const approved = new Uint8Array([1, 2, 3])
+  assert.equal(await verifyQortalPublishedBytes({ approved, fetchBytes: async () => new Uint8Array([1, 2, 3]) }), 'verified')
+  assert.equal(await verifyQortalPublishedBytes({ approved, fetchBytes: async () => new Uint8Array([1, 2, 4]) }), 'mismatch')
+  let calls = 0
+  assert.equal(await verifyQortalPublishedBytes({ approved, attempts: 3, delayMs: 1, fetchBytes: async () => { calls += 1; throw new Error('not yet') } }), 'unavailable')
+  assert.equal(calls, 3)
+  assert.equal(await verifyQortalPublishedBytes({ approved, attempts: 2, delayMs: 1, fetchBytes: async () => (calls += 1) < 5 ? null : approved }), 'verified')
+}
+
+// Undisclosed fees are bounded.
+assert.doesNotThrow(() => assertQortalUndisclosedFeeWithinCeiling(1_000_000n))
+assert.throws(() => assertQortalUndisclosedFeeWithinCeiling(10_000_001n), /above the ceiling/)
 
 console.log('Home v2 Qortal private-group publish tests passed.')

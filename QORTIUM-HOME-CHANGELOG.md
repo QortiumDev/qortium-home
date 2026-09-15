@@ -43,14 +43,17 @@ built and checks it field by field, but that check expected a Qortium-shaped
 transaction. A Qortal node always encrypts the payload with a random key it
 records in the transaction (the "secret"), zips anything that lives off chain,
 and records the size of that encrypted artifact rather than of the original
-file. Home now accepts exactly that shape (a 32-byte or absent secret, plain or
-zip, on-chain raw data or an off-chain hash), still pins every other field and
-the fee, bounds the artifact size against what was approved, and signs the way
-Qortal expects for both layouts. Because Qortal offers no way to inspect the
-artifact before signing, the content-hash comparison that only Qortium can
-provide is documented as Qortium-only instead of failing every Qortal publish.
-Verified against transactions built by a real Qortal node, now kept as a test
-fixture. Desktop and Android share the fix.
+file. Home now accepts exactly that shape and no other, still pins every other
+field, and signs the way Qortal expects for both layouts. Because Qortal offers
+no way to inspect the artifact before signing, Home proves the content the ways
+Qortal does allow: an on-chain payload is decrypted with the transaction's own
+key and compared with the approved bytes before signing, and an off-chain
+resource is read back from the node right after broadcast and compared — if
+the node serves something else, the app is told the publication is not
+trusted. Fees that were never shown in a prompt (private-group key bundles,
+private attachments) are now capped at 0.1 QORT, so a misbehaving node cannot
+name its own price. Verified against transactions built by a real Qortal
+node, now kept as a test fixture. Desktop and Android share the fix.
 
 ## fix: Android Home uses the full screen width in landscape
 
