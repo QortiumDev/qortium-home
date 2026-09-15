@@ -9,6 +9,28 @@ const REFERENCE_BYTES = 64
 const HASH_BYTES = 32
 const MAX_NAME_BYTES = 400
 const MAX_IDENTIFIER_BYTES = 64
+// Qortal's builder (ArbitraryDataTransactionBuilder / ArbitraryDataWriter)
+// AES-256-encrypts every payload with a random key that travels in the
+// transaction as the 32-byte "secret"; nodes use it when they serve the
+// resource. Payloads whose ciphertext fits in 256 bytes go on chain as
+// RAW_DATA with no zip; everything else is zipped, encrypted and referenced
+// by DATA_HASH. The transaction's "size" is the ENCRYPTED artifact's size,
+// so it is bounded against the approved source rather than matched exactly.
+const QORTAL_SECRET_BYTES = 32
+const QORTAL_MAX_ON_CHAIN_DATA_BYTES = 256
+const QORTAL_COMPRESSION_NONE = 0
+const QORTAL_COMPRESSION_ZIP = 1
+const QORTAL_DATA_TYPE_DATA_HASH = 0
+const QORTAL_DATA_TYPE_RAW_DATA = 1
+const ARTIFACT_MARGIN_RATIO = 1.1
+const ARTIFACT_MARGIN_FLAT_BYTES = 4096
+
+export type QortalArbitraryDataType = 'DATA_HASH' | 'RAW_DATA'
+
+/** The largest encrypted artifact Qortal may legitimately record for `sourceBytes` of approved data. */
+export function maximumQortalArtifactBytes(sourceBytes: number) {
+  return Math.ceil(sourceBytes * ARTIFACT_MARGIN_RATIO) + ARTIFACT_MARGIN_FLAT_BYTES
+}
 
 function concatBytes(...chunks: readonly Uint8Array[]) {
   const output = new Uint8Array(chunks.reduce((total, chunk) => total + chunk.length, 0))
@@ -58,9 +80,13 @@ class Reader {
   }
 }
 
+/** Synchronous SHA-256 supplied by the host (node:crypto on desktop, asmcrypto in the Android bundle). */
+export type QortalSha256 = (data: Uint8Array) => Uint8Array
+
 export type QortalPrivateGroupPublishIntent = {
   readonly bundleSize: number
   readonly feeAtomic: bigint
+  readonly sha256: QortalSha256
   readonly identifier: string
   readonly lastReference: Uint8Array
   readonly name: string
@@ -72,6 +98,7 @@ export type QortalPrivateGroupPublishIntent = {
 export type QortalArbitraryPublishIntent = {
   readonly dataSize: number
   readonly feeAtomic: bigint
+  readonly sha256: QortalSha256
   readonly identifier: string
   readonly lastReference: Uint8Array
   readonly name: string
@@ -100,6 +127,7 @@ export function attestUnsignedQortalPrivateGroupPublish(
     name: expected.name,
     senderPublicKey: expected.senderPublicKey,
     service: DOCUMENT_PRIVATE_SERVICE,
+    sha256: expected.sha256,
     timestampMaximum: expected.timestampMaximum,
     timestampMinimum: expected.timestampMinimum,
   })
@@ -136,30 +164,62 @@ function attestUnsignedQortalPublish(
   if (name !== expected.name || identifier !== expected.identifier) throw new Error('Qortal publish builder changed the resource coordinate.')
   if (reader.int32('method') !== 0) throw new Error('Qortal public publishing requires a PUT transaction.')
   const secretLength = reader.int32('secret length')
-  if (secretLength !== 0) throw new Error('Qortal public publish must not contain a secret.')
+  if (secretLength !== 0 && secretLength !== QORTAL_SECRET_BYTES) {
+    throw new Error('Qortal publish builder returned a secret of unexpected length.')
+  }
   const secret = reader.read(secretLength, 'secret')
-  if (reader.int32('compression') !== 0) throw new Error('Qortal public publish must not be compressed by the node.')
+  const compression = reader.int32('compression')
+  if (compression !== QORTAL_COMPRESSION_NONE && compression !== QORTAL_COMPRESSION_ZIP) {
+    throw new Error('Qortal publish builder returned an unknown compression.')
+  }
   if (reader.int32('payment count') !== 0) throw new Error('Qortal public publish must not contain payments.')
   if (reader.int32('service') !== expected.service) throw new Error('Qortal publish builder changed the resource service.')
   const dataTypeOffset = reader.offset
-  if (reader.byte('data type') !== 0) throw new Error('Qortal public publish must use a staged DATA_HASH.')
-  if (reader.int32('data length') !== HASH_BYTES) throw new Error('Qortal public publish has an invalid data hash length.')
-  const dataHash = reader.read(HASH_BYTES, 'data hash')
-  if (reader.int32('raw data size') !== expected.dataSize) throw new Error('Qortal publish builder changed the approved data size.')
+  const dataTypeByte = reader.byte('data type')
+  const dataType: QortalArbitraryDataType = dataTypeByte === QORTAL_DATA_TYPE_DATA_HASH
+    ? 'DATA_HASH'
+    : dataTypeByte === QORTAL_DATA_TYPE_RAW_DATA ? 'RAW_DATA' : (() => { throw new Error('Qortal publish builder returned an unknown data type.') })()
+  const dataLengthOffset = reader.offset
+  const dataLength = reader.int32('data length')
+  if (dataType === 'DATA_HASH' && dataLength !== HASH_BYTES) throw new Error('Qortal public publish has an invalid data hash length.')
+  if (dataType === 'RAW_DATA' && (dataLength < 1 || dataLength > QORTAL_MAX_ON_CHAIN_DATA_BYTES)) {
+    throw new Error('Qortal public publish has an invalid on-chain data length.')
+  }
+  const data = reader.read(dataLength, 'data')
+  const artifactSize = reader.int32('artifact size')
+  if (dataType === 'RAW_DATA') {
+    // On-chain data IS the artifact (IV + AES-CBC ciphertext of the source).
+    if (artifactSize !== dataLength || compression !== QORTAL_COMPRESSION_NONE || artifactSize < expected.dataSize) {
+      throw new Error('Qortal publish builder returned an inconsistent on-chain payload.')
+    }
+  } else if (artifactSize < 1 || artifactSize > maximumQortalArtifactBytes(expected.dataSize)) {
+    throw new Error('Qortal publish builder returned an artifact that does not match the approved data size.')
+  }
   const metadataHashLength = reader.int32('metadata hash length')
   if (metadataHashLength !== 0) throw new Error('Qortal public publish must not contain metadata.')
   const metadataHash = reader.read(metadataHashLength, 'metadata hash')
   const feeAtomic = reader.int64('fee')
   if (feeAtomic !== expected.feeAtomic) throw new Error('Qortal publish builder changed the approved fee.')
   reader.finish()
-  // Qortal's DATA_HASH signing transform is byte-identical to the unsigned
-  // transaction except that the one-byte raw/hash discriminator is omitted.
-  const signingBytes = concatBytes(
-    unsignedBytes.subarray(0, dataTypeOffset),
-    unsignedBytes.subarray(dataTypeOffset + 1),
-  )
+  // Qortal's signing transform (ArbitraryTransactionTransformer
+  // .toBytesForSigningImpl) omits the one-byte raw/hash discriminator and,
+  // for RAW_DATA, writes the SHA-256 digest of the on-chain bytes after the
+  // untouched raw length field; DATA_HASH bytes are otherwise identical.
+  const dataHash = dataType === 'DATA_HASH' ? new Uint8Array(data) : new Uint8Array(expected.sha256(new Uint8Array(data)))
+  if (dataHash.length !== HASH_BYTES) throw new Error('The host SHA-256 provider returned an invalid digest.')
+  const signingBytes = dataType === 'DATA_HASH'
+    ? concatBytes(unsignedBytes.subarray(0, dataTypeOffset), unsignedBytes.subarray(dataTypeOffset + 1))
+    : concatBytes(
+        unsignedBytes.subarray(0, dataTypeOffset),
+        unsignedBytes.subarray(dataLengthOffset, dataLengthOffset + 4),
+        dataHash,
+        unsignedBytes.subarray(dataLengthOffset + 4 + dataLength),
+      )
   return Object.freeze({
-    dataHash: new Uint8Array(dataHash),
+    artifactSize,
+    compression,
+    dataHash,
+    dataType,
     feeAtomic,
     identifier,
     metadataHash: new Uint8Array(metadataHash),

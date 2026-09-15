@@ -6871,6 +6871,7 @@ async function publishHomeV2QortalPrivateGroupBundle(input: {
   const attested = attestUnsignedQortalPrivateGroupPublish(unsignedBase58.trim(), {
     bundleSize: Buffer.from(input.encryptedBundle, 'base64').length,
     feeAtomic: fee,
+    sha256: (data) => new Uint8Array(createHash('sha256').update(data).digest()),
     identifier,
     lastReference,
     name: input.name,

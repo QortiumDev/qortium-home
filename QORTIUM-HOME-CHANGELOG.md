@@ -32,6 +32,26 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## fix: Qortal publishes from Home 2 were refused by Home's own safety check
+
+2026-09-14
+
+Publishing to Qortal QDN from a Home 2 app — a closed group's key bundle in
+Chat, or an attachment — always failed with "Qortal public publish must not
+contain a secret". Before signing, Home decodes the transaction the node
+built and checks it field by field, but that check expected a Qortium-shaped
+transaction. A Qortal node always encrypts the payload with a random key it
+records in the transaction (the "secret"), zips anything that lives off chain,
+and records the size of that encrypted artifact rather than of the original
+file. Home now accepts exactly that shape (a 32-byte or absent secret, plain or
+zip, on-chain raw data or an off-chain hash), still pins every other field and
+the fee, bounds the artifact size against what was approved, and signs the way
+Qortal expects for both layouts. Because Qortal offers no way to inspect the
+artifact before signing, the content-hash comparison that only Qortium can
+provide is documented as Qortium-only instead of failing every Qortal publish.
+Verified against transactions built by a real Qortal node, now kept as a test
+fixture. Desktop and Android share the fix.
+
 ## fix: Android Home uses the full screen width in landscape
 
 2026-09-14

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { Worker } from 'node:worker_threads'
 import { createReadStream } from 'node:fs'
 import { readFile } from 'node:fs/promises'
@@ -434,6 +435,7 @@ async function publishQortal(input: PublishInput, signingKey: ReturnType<typeof 
   const attested = attestUnsignedQortalArbitraryPublish(unsignedBase58, {
     dataSize: input.sourceBytes.byteLength,
     feeAtomic: fee,
+    sha256: (data) => new Uint8Array(createHash('sha256').update(data).digest()),
     identifier: input.resource.identifier ?? 'default',
     lastReference: reference,
     name: input.resource.name,
@@ -442,10 +444,11 @@ async function publishQortal(input: PublishInput, signingKey: ReturnType<typeof 
     timestampMaximum: Date.now() + 5_000,
     timestampMinimum: started - 5_000,
   })
-  const expectedHash = await globalThis.crypto.subtle.digest('SHA-256', Uint8Array.from(input.sourceBytes).buffer)
-  if (base58Encode(new Uint8Array(expectedHash)) !== base58Encode(attested.dataHash)) {
-    throw new Error('Qortal publish builder changed the approved resource content.')
-  }
+  // Unlike Qortium, a Qortal node offers no pre-signature artifact: the
+  // transaction's hash covers the node's own AES-encrypted (and, off chain,
+  // zipped) artifact, never the approved source bytes, so the content itself
+  // cannot be compared here. The attestation above pins every structural
+  // field and bounds the artifact size against the approved source instead.
   if (!(await input.isStillValid())) throw new Error('The app, account, or node route changed before Qortal signing.')
   await input.validateTarget?.()
   if (!(await input.isStillValid())) throw new Error('The app, account, or node route changed before Qortal signing.')

@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "capturedAt": "2026-09-14",
+  "cases": [
+    {
+      "label": "offChainDataHash",
+      "note": "Built by a Qortal 6.1.x node (appnode.qortal.org) via POST /arbitrary/DOCUMENT_PRIVATE/xchat2/h7-fixture-a/base64?fee=1000000 with 3000 random bytes; never broadcast.",
+      "unsignedBase58": "1116YqxwEyBxTsMTFgA38cM9wXaf6LRXLm7ymEktBn49vxTKWXuxWPkEpBKL3NW1myMZW6yj5sxqSMKe8VZfKxbPEWSU8hz8Uw8tfTSgKrxG7ndyQJBFuw6uaZrzMmD94kpr9CMmBTsAZkpzco6keMNjRk6tDGQNErPrdEzRK3GF9k9hndibnsKqTg6kCGK18RZna7z957DoK3Y4kwBFz18dLReuBMohKfPp7dYAxkJ38tekZWyErBtWqyY2PzV72hfbGMHTnKrQMaCsZsu9BesqLQa1FuZuQrPoAKT2xX83UMSR89FJaLE4piVzEoMxPCxCdrG2SjHmPiZD",
+      "intent": {
+        "dataSize": 3000,
+        "feeAtomic": "1000000",
+        "identifier": "h7-fixture-a",
+        "lastReference": "2hPEMM8ULjJiRiofp6czMXTU1QnwNh49ZFcU2sJXTa7ZnvnfZxv4Vx71458rNt4CmxqWTB5ad5v6KKRLgGXVyibH",
+        "name": "xchat2",
+        "senderPublicKey": "7zFUqCvv4U7D8zDdYNGfKDhneZxg3rmBjTpi6ejaWsX1",
+        "service": 801,
+        "timestamp": 1789434295673
+      },
+      "expect": {
+        "secretBytes": 32,
+        "compression": 1,
+        "dataType": "DATA_HASH",
+        "dataLength": 32,
+        "size": 3296
+      }
+    },
+    {
+      "label": "onChainRawData",
+      "note": "Built by a Qortal 6.1.x node (appnode.qortal.org) via POST /arbitrary/DOCUMENT_PRIVATE/xchat2/h7-fixture-b/base64?fee=1000000 with 100 random bytes; never broadcast.",
+      "unsignedBase58": "1119SM1pe9Qf8oz98YifzJSJ7zbDKg8HJrhxc8ixrLRQdjw4Qg5ii3pefBpdmnyv7HK9yvJirJTWFbfqSj28wd94CJJHtboWGBj1g2UvTQJ4Y5gxbStQb3bMpuMCJymDLqosL6cXy6uV9eC6UBzgUefXWFCFCaJRpmjL6Q1V59rbrjJQ74K4HyQis5QCpvqMoMBc6Ber8xuwKe8oCqDzyWq8wZ18o7g3btDhmyev8WmpF3Wd39XWpySWJQsHVyyj5heaG8WhsaxJZizK4kd8z6RRpuvSCov3rWaP79BBaGieBPx7JBwqyns9Cs6XLaBbRWSpaUYTRPwrh8hohMqvK9svW8ESjg9vgXMob8mTNcVtJtXNc7XeRxzjuJkXngjyX3dTEKc1xAYyo4Q5eg6g5gLnsPriYV11FrRQkEM4Mk3FpoKh4WJHWK8HPKie5wEdJCZKboJdixCN4QUFFSX",
+      "intent": {
+        "dataSize": 100,
+        "feeAtomic": "1000000",
+        "identifier": "h7-fixture-b",
+        "lastReference": "2hPEMM8ULjJiRiofp6czMXTU1QnwNh49ZFcU2sJXTa7ZnvnfZxv4Vx71458rNt4CmxqWTB5ad5v6KKRLgGXVyibH",
+        "name": "xchat2",
+        "senderPublicKey": "7zFUqCvv4U7D8zDdYNGfKDhneZxg3rmBjTpi6ejaWsX1",
+        "service": 801,
+        "timestamp": 1789434296020
+      },
+      "expect": {
+        "secretBytes": 32,
+        "compression": 0,
+        "dataType": "RAW_DATA",
+        "dataLength": 128,
+        "size": 128
+      }
+    }
+  ]
+}

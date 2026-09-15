@@ -13616,7 +13616,7 @@ async function publishAndroidQortalPrivateGroupBundle(input: {
     if (!isAndroidQortalPrivateGroupStagingUnavailable(error)) throw error;
     throw Object.assign(new Error('The selected Qortal node does not permit private-group QDN bundle staging.'), { action: 'ROTATE_PRIVATE_GROUP_CHAT_KEY', code: 'NODE_CAPABILITY_MISSING', network: 'qortal', retryable: false, target: { groupId: input.state.groupId, kind: 'group' }, cause: error });
   }
-  const attested = attestUnsignedQortalPrivateGroupPublish(unsigned.body.trim(), { bundleSize: base64ToBytes(input.encryptedBundle).length, feeAtomic: fee, identifier, lastReference, name: input.name, senderPublicKey: base58Decode(input.signingKey.publicKey58), timestampMaximum: Date.now() + 5_000, timestampMinimum: started - 5_000 });
+  const attested = attestUnsignedQortalPrivateGroupPublish(unsigned.body.trim(), { bundleSize: base64ToBytes(input.encryptedBundle).length, feeAtomic: fee, sha256: sha256Sync, identifier, lastReference, name: input.name, senderPublicKey: base58Decode(input.signingKey.publicKey58), timestampMaximum: Date.now() + 5_000, timestampMinimum: started - 5_000 });
   if (!(await input.isStillValid())) throw new Error('The signing context changed before Qortal key-bundle signing.');
   await input.validateTarget();
   if (!(await input.isStillValid())) throw new Error('The signing context changed before Qortal key-bundle submission.');
@@ -16309,6 +16309,7 @@ async function publishAndroidHomeV2PublicResource(
     const attested = attestUnsignedQortalArbitraryPublish(unsigned.body.trim(), {
       dataSize: sourceBytes.byteLength,
       feeAtomic: fee,
+      sha256: sha256Sync,
       identifier: resource.identifier ?? 'default',
       lastReference,
       name: resource.name,
@@ -16317,10 +16318,10 @@ async function publishAndroidHomeV2PublicResource(
       timestampMaximum: Date.now() + 5_000,
       timestampMinimum: started - 5_000,
     });
-    const digest = await globalThis.crypto.subtle.digest('SHA-256', Uint8Array.from(sourceBytes).buffer);
-    if (base58Encode(new Uint8Array(digest)) !== base58Encode(attested.dataHash)) {
-      throw new Error('Qortal publish builder changed the approved resource content.');
-    }
+    // A Qortal node offers no pre-signature artifact: the transaction's hash
+    // covers the node's own encrypted artifact, never the approved source, so
+    // the attestation pins the structural fields and bounds the artifact size
+    // instead (see electron/home-v2-public-publish.ts, same rule).
     if (!(await isStillValid())) throw new Error('The app, account, or node route changed before Qortal signing.');
     await request.validateTarget?.();
     const signed = signAttestedQortalPrivateGroupPublish({

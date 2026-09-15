@@ -254,6 +254,19 @@ contract, applies proof of work where required, signs locally, and broadcasts
 the signed transaction. Neither a private key nor the node API key is exposed
 to the app.
 
+On Qortal the same structural attestation applies, but the transaction a
+Qortal node builds carries the SHA-256 of the node's OWN artifact — the
+payload AES-256-encrypted with a random 32-byte "secret" that travels in the
+transaction (and zipped when it lives off chain; payloads whose ciphertext fits
+in 256 bytes go on chain as raw data). Qortal has no pre-signature artifact
+route, so Home cannot compare the approved content hash there; it pins every
+other field (type, group, reference, sender key, PUT, no payments, service,
+fee, no metadata), accepts exactly a 32-byte or absent secret, and bounds the
+recorded artifact size against the approved source size. The same rule covers
+private-group key bundles (`DOCUMENT_PRIVATE`), which use this path on both
+desktop and Android. Until 2026-09-14 the attestation demanded a Qortium-shaped
+transaction (no secret, no compression) and refused every Qortal publish.
+
 For a large trusted-node file, desktop Home first streams the selection into a
 private, Home-owned snapshot while computing the SHA-256 shown in the prompt.
 It uploads that immutable snapshot as a stream, downloads Core's encrypted
