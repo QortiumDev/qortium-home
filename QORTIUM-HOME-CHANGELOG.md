@@ -32,6 +32,19 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## release: prepare home 2.1.0-beta.8
+
+2026-09-14
+
+Prepare the eighth Home 2.1 public testing prerelease. It carries the changes
+merged since beta.7: Android uses the full screen width in landscape, Qortal
+publishes from apps (closed-group keys, attachments) work again and are read
+back and checked after broadcast, and the dependency refresh (React 19.3,
+Capacitor 8.5.2, icon set, zip library). Android advances to code 50 so it can
+update beta.7 and every earlier package. Stable users remain on Home 1.8.0.
+The beta testing guide gains the new checks. No runtime source changes in this
+entry.
+
 ## fix: Qortal publishes from Home 2 were refused by Home's own safety check
 
 2026-09-14
