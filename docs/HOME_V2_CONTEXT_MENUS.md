@@ -225,7 +225,6 @@ performs its own operation through its own bridge actions and grants.
 | Group | Copy group name (when supplied) | copy |
 | Group | Group info | open `groups` role app `?group=<id>` |
 | Group | Open group chat | open `chat` role app `?group=<id>&network=<network>` |
-| Group | View on explorer | open `explorer` role app `?group=<id>` |
 
 "View ratings" is folded into Account info because the profile role defaults to
 the Trust app. Labels and their translations are Home's. The roles and the
