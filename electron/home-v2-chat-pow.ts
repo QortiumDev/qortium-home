@@ -3,6 +3,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Worker } from 'node:worker_threads';
 
+import { createMemoryPowQueue, memoryPowError } from './memory-pow-queue.js';
+
 // Independent MemoryPoW worker pool for Home v2 public CHAT write paths.
 // Mirrors the pool wrapper electron/qdn.ts and src/platform.ts each already
 // use for v1 CHAT sends (getMemoryPowWorker/computeChatNonce), but runs as
@@ -20,11 +22,10 @@ type MemoryPowWorkerResponse =
   | { id: string; error: string };
 
 let memoryPowWorker: Worker | null = null;
-let memoryPowActive = false;
-
-function codedError(code: string, message: string) {
-  return Object.assign(new Error(message), { code });
-}
+// Requests wait their turn on the single worker instead of being refused
+// (memory-pow-queue.ts); PoW refusals are definitive pre-signing rejections.
+const memoryPowQueue = createMemoryPowQueue();
+const codedError = memoryPowError;
 
 function getMemoryPowWorker(): Worker {
   if (!memoryPowWorker) {
@@ -55,13 +56,25 @@ export function computeHomeV2ChatNonce(
   difficulty: number,
   isStillValid?: () => boolean | Promise<boolean>,
 ): Promise<number> {
-  if (memoryPowActive) {
-    return Promise.reject(codedError('QDN_POW_BUSY', 'Another proof-of-work computation is already running. Please retry.'));
+  return memoryPowQueue.run(
+    () => computeHomeV2ChatNonceNow(data, difficulty, isStillValid),
+    () => codedError('QDN_POW_BUSY', 'Too many proof-of-work computations are waiting. Please retry in a moment.'),
+  );
+}
+
+async function computeHomeV2ChatNonceNow(
+  data: Uint8Array,
+  difficulty: number,
+  isStillValid?: () => boolean | Promise<boolean>,
+): Promise<number> {
+  // The request may have waited behind earlier sends: re-check its context
+  // before spending three minutes of CPU on it.
+  if (isStillValid && !(await isStillValid())) {
+    throw codedError('QDN_POW_CANCELLED', 'Proof-of-work was canceled because the account, node, or app context changed.');
   }
 
   const worker = getMemoryPowWorker();
   const id = randomUUID();
-  memoryPowActive = true;
 
   return new Promise<number>((resolve, reject) => {
     let settled = false;
@@ -72,7 +85,6 @@ export function computeHomeV2ChatNonce(
       clearInterval(validityTimer);
       worker.off('message', onMessage);
       worker.off('error', onError);
-      memoryPowActive = false;
       if (terminate) {
         if (memoryPowWorker === worker) memoryPowWorker = null;
         void worker.terminate();

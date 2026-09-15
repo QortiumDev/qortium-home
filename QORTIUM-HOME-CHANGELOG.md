@@ -32,6 +32,20 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## fix: two chat messages sent back to back no longer lose the second one
+
+2026-09-15
+
+Each chat message needs a short proof-of-work, and Home runs those on one
+worker. Sending a second message while the first was still computing was
+refused outright ("Another proof-of-work computation is already running"),
+and because that refusal did not say whether anything had been sent, Chat
+showed it as an outcome it could not determine — with no way to retry. Proof
+-of-work requests now wait their turn (up to eight in line), so back-to-back
+messages simply go out in order; and any proof-of-work refusal, timeout or
+cancellation now says plainly that nothing was signed or sent, so an app can
+offer a retry. Desktop and Android share the change.
+
 ## fix: Qortal private-group key bundles and messages signed with a wiped key
 
 2026-09-15
