@@ -1250,20 +1250,7 @@ function showQdnViewLinkContextMenu(entry: QdnViewEntry, params: Electron.Contex
       if (operation.kind === 'copy') {
         clipboard.writeText(operation.value);
       } else {
-        // Reuse the exact app-invoked open path: the host window's openAddress
-        // binds the new tab to the originating tab's account and the resolved
-        // resource's own identity, and applies WEBSITE/GAME + viewer-alias
-        // routing. The address is the validated one, never the raw linkURL.
-        entry.window.webContents.send('home-v2-app:open-address', {
-          address: operation.address,
-          // Both come from this trusted view context, never the link/page.
-          // The renderer binds the new tab to the ORIGINATING tab's account
-          // (looked up by these two), not whatever account is globally
-          // selected now; `capturedResourceUrl` is the tab's own
-          // resourceLocation, so it is the compare half of that lookup.
-          sourceTabId: entry.tabId,
-          sourceResourceLocation: capturedResourceUrl,
-        });
+        sendQdnViewLinkOpen(entry, operation.address, capturedResourceUrl);
       }
     },
     window: popupHost.window,
@@ -1276,6 +1263,51 @@ function showQdnViewLinkContextMenu(entry: QdnViewEntry, params: Electron.Contex
     releaseQdnViewContextMenu(viewWebContentsId, menu);
     throw error;
   }
+}
+
+// Reuse the exact app-invoked open path: the host window's openAddress binds
+// the new tab to the originating tab's account and the resolved resource's
+// own identity, and applies WEBSITE/GAME + viewer-alias routing. The address
+// is the validated one, never the raw linkURL.
+function sendQdnViewLinkOpen(entry: QdnViewEntry, address: string, capturedResourceUrl: string | null) {
+  entry.window.webContents.send('home-v2-app:open-address', {
+    address,
+    // Both come from this trusted view context, never the link/page. The
+    // renderer binds the new tab to the ORIGINATING tab's account (looked up
+    // by these two), not whatever account is globally selected now;
+    // `capturedResourceUrl` is the tab's own resourceLocation, so it is the
+    // compare half of that lookup.
+    sourceTabId: entry.tabId,
+    sourceResourceLocation: capturedResourceUrl,
+  });
+}
+
+// A middle click (or Ctrl/Cmd-click) on a link inside an app view reaches
+// Electron as a window-open request with the `background-tab` disposition.
+// Home has no popup windows, so that request used to be denied outright and
+// the click silently did nothing. Route it to the same validated "Open in new
+// tab" the native right-click menu offers — only for links that resolve to a
+// resource the menu would offer an open item for (qdn:// and qortal://
+// browser-archive services), only on app tabs, and only for this one
+// disposition: `foreground-tab` and `new-window` are what a page's own
+// window.open() produces, and those stay denied so an app cannot open tabs
+// by script.
+function handleQdnViewWindowOpen(
+  entry: QdnViewEntry,
+  details: Electron.HandlerDetails,
+): { action: 'deny' } {
+  if (details.disposition !== 'background-tab' || isWidgetTabId(entry.tabId)) return { action: 'deny' };
+  if (entry.window.isDestroyed() || entry.view.webContents.isDestroyed()) return { action: 'deny' };
+  const target = resolveQdnLinkResourceTarget(details.url);
+  if (!target) return { action: 'deny' };
+  if (!getHomeV2ContextMenuItems(target).some((candidate) => candidate.action === 'resource.open-new-tab')) {
+    return { action: 'deny' };
+  }
+  const operation = getHomeV2ContextMenuOperation(target, 'resource.open-new-tab');
+  if (operation.kind === 'open-new-tab') {
+    sendQdnViewLinkOpen(entry, operation.address, entry.resourceUrl);
+  }
+  return { action: 'deny' };
 }
 
 function applyViewGuards(entry: QdnViewEntry) {
@@ -1334,7 +1366,7 @@ function applyViewGuards(entry: QdnViewEntry) {
     }
   };
 
-  entry.view.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  entry.view.webContents.setWindowOpenHandler((details) => handleQdnViewWindowOpen(entry, details));
   // Native right-click "Open in new tab"/"Copy" for links inside the app view.
   // Only bound on app tabs (widgets and the shell renderer are excluded), and
   // acts solely on the trusted main-process event params. See

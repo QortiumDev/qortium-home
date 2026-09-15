@@ -16,6 +16,12 @@ import { getDashboardPinDisplay } from '../../dashboardPinDisplay'
 import { t } from '../../i18n'
 import type { VisibleAppIconLoader } from '../contracts'
 import type { HomeV2ContextMenuPresentationItem } from './HomeV2ContextMenu'
+import {
+  CHROME_OPEN_NEW_TAB,
+  chromeOpenOptions,
+  isMiddleButton,
+  type HomeV2ChromeOpenOptions,
+} from './chrome-open-options'
 import { HomeV2AppIcon, getHomeV2AppIconTarget } from './HomeV2AppIcon'
 
 const LONG_PRESS_MS = 500
@@ -54,7 +60,7 @@ export interface HomeV2BookmarkToolbarProps {
   readonly getContextMenuItems?: (
     link: BookmarkManagerLink,
   ) => readonly HomeV2ContextMenuPresentationItem[]
-  readonly onOpen: (link: BookmarkManagerLink) => void | Promise<void>
+  readonly onOpen: (link: BookmarkManagerLink, options?: HomeV2ChromeOpenOptions) => void | Promise<void>
   readonly onRemove?: (link: BookmarkManagerLink) => void | Promise<void>
   /** Surfaces toolbar open/context-action failures (they have no inline alert). */
   readonly onActionError?: (message: string) => void
@@ -136,7 +142,7 @@ function ToolbarLink({
   readonly item: BookmarkManagerLink
   readonly loadVisibleAppIcon?: VisibleAppIconLoader
   readonly menuItem?: boolean
-  readonly onOpen: (link: BookmarkManagerLink) => void | Promise<void>
+  readonly onOpen: (link: BookmarkManagerLink, options?: HomeV2ChromeOpenOptions) => void | Promise<void>
   readonly onActionError?: (message: string) => void
   readonly onOpenMenu: (
     link: BookmarkManagerLink,
@@ -172,12 +178,21 @@ function ToolbarLink({
       role={menuItem ? 'menuitem' : undefined}
       title={item.displayUrl}
       type="button"
-      onClick={() => {
+      onClick={(event) => {
         if (longPressed.current) {
           longPressed.current = false
           return
         }
-        void Promise.resolve(onOpen(item)).catch((error) =>
+        void Promise.resolve(onOpen(item, chromeOpenOptions(event))).catch((error) =>
+          onActionError?.(toolbarErrorMessage(error)),
+        )
+      }}
+      onAuxClick={(event) => {
+        // Middle click: a new tab. Browsers fire auxclick for it instead of
+        // click, so the plain-click handler above never sees it.
+        if (!isMiddleButton(event)) return
+        event.preventDefault()
+        void Promise.resolve(onOpen(item, CHROME_OPEN_NEW_TAB)).catch((error) =>
           onActionError?.(toolbarErrorMessage(error)),
         )
       }}
@@ -236,7 +251,7 @@ function ToolbarItems({
     x: number,
     y: number,
   ) => void
-  readonly onOpen: (link: BookmarkManagerLink) => void | Promise<void>
+  readonly onOpen: (link: BookmarkManagerLink, options?: HomeV2ChromeOpenOptions) => void | Promise<void>
   readonly onOpenMenu: (
     link: BookmarkManagerLink,
     x: number,
@@ -294,7 +309,7 @@ function FolderMenuItems({
   readonly items: readonly BookmarkManagerTreeItem[]
   readonly loadVisibleAppIcon?: VisibleAppIconLoader
   readonly onActionError?: (message: string) => void
-  readonly onOpen: (link: BookmarkManagerLink) => void | Promise<void>
+  readonly onOpen: (link: BookmarkManagerLink, options?: HomeV2ChromeOpenOptions) => void | Promise<void>
   readonly onOpenMenu: (
     link: BookmarkManagerLink,
     x: number,

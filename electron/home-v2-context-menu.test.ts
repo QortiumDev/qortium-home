@@ -208,7 +208,20 @@ assert.match(viewHostSource, /getHomeV2ContextMenuOperation\(resourceTarget, act
 assert.match(viewHostSource, /Menu\.buildFromTemplate\(template\)/)
 assert.match(viewHostSource, /menu\.popup\(\{/)
 // The open action reuses the app-invoked open path, not a new ad-hoc opener.
-assert.match(viewHostSource, /send\('home-v2-app:open-address', \{\s*address: operation\.address/)
+assert.match(viewHostSource, /sendQdnViewLinkOpen\(entry, operation\.address, capturedResourceUrl\)/)
+assert.match(viewHostSource, /send\('home-v2-app:open-address', \{\s*address,/)
+// A middle click (or Ctrl/Cmd-click) on an in-app link arrives as a
+// `background-tab` window-open request and takes the SAME validated route as
+// the menu's "Open in new tab": the link must resolve to a resource the menu
+// would offer that item for. Every other disposition — including the
+// `foreground-tab` / `new-window` a page's own window.open() produces — is
+// still denied, so an app cannot open tabs by script.
+assert.match(viewHostSource, /setWindowOpenHandler\(\(details\) => handleQdnViewWindowOpen\(entry, details\)\)/)
+assert.match(viewHostSource, /details\.disposition !== 'background-tab'/)
+assert.match(viewHostSource, /resolveQdnLinkResourceTarget\(details\.url\)/)
+assert.match(viewHostSource, /candidate\.action === 'resource\.open-new-tab'/)
+assert.match(viewHostSource, /getHomeV2ContextMenuOperation\(target, 'resource\.open-new-tab'\)/)
+assert.doesNotMatch(viewHostSource, /setWindowOpenHandler\(\(\) => \(\{ action: 'deny' \}\)\)/)
 // The menu is never bound to widget views or the shell renderer.
 assert.match(viewHostSource, /if \(!isWidgetTabId\(entry\.tabId\)\) \{/)
 // The native link menu shares the per-view slot too (declines to stack).

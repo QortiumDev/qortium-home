@@ -18,6 +18,12 @@ import { getDashboardPinDisplay } from "../../dashboardPinDisplay";
 import { t } from "../../i18n";
 import { useMenuKeyboard } from "../../useMenuKeyboard";
 import type { HomeV2ContextMenuPresentationItem } from "./HomeV2ContextMenu";
+import {
+  CHROME_OPEN_NEW_TAB,
+  chromeOpenOptions,
+  isMiddleButton,
+  type HomeV2ChromeOpenOptions,
+} from "./chrome-open-options";
 import { HomeV2AppIcon, getHomeV2AppIconTarget } from "./HomeV2AppIcon";
 import { HomeV2SectionToggle } from "./HomeV2Prototype";
 import type { HomeV2AccountCatalogue, VisibleAppIconLoader } from "../contracts";
@@ -43,16 +49,20 @@ export interface HomeV2PinnedAppsProps {
   readonly getContextMenuItems?: (
     pin: DashboardPin,
   ) => readonly HomeV2ContextMenuPresentationItem[];
-  readonly onOpen: (pin: DashboardPin) => void | Promise<void>;
+  /**
+   * `options` says how the click asked to open (see chromeOpenOptions); absent
+   * means a plain open, which the Dashboard performs in place.
+   */
+  readonly onOpen: (pin: DashboardPin, options?: HomeV2ChromeOpenOptions) => void | Promise<void>;
   readonly onContextMenuAction?: (
     pin: DashboardPin,
     action: string,
   ) => void | Promise<void>;
   readonly onAdd: (draft: HomeV2PinnedAppsDraft) => void | Promise<void>;
   /** Opens the assigned Apps app (the app directory). */
-  readonly onFindMoreApps?: () => void | Promise<void>;
+  readonly onFindMoreApps?: (options?: HomeV2ChromeOpenOptions) => void | Promise<void>;
   /** Opens the assigned Explore app (QDN browsing). */
-  readonly onExplore?: () => void | Promise<void>;
+  readonly onExplore?: (options?: HomeV2ChromeOpenOptions) => void | Promise<void>;
   /** Folded to the header line. Absent = never foldable. */
   readonly collapsed?: boolean;
   readonly onToggleCollapsed?: () => void;
@@ -443,7 +453,10 @@ export function HomeV2PinnedApps({
     releasePointer(event.pointerId);
     scheduleSuppressionClear();
     if (isTap && pin) {
-      void runAction(`open:${pin.id}`, () => onOpen(pin));
+      // A Ctrl/Cmd-modified tap asks for a new tab; the pointer-up event
+      // carries the modifiers that were held when the button was released.
+      const options = chromeOpenOptions(event);
+      void runAction(`open:${pin.id}`, () => onOpen(pin, options));
     }
   }
 
@@ -552,7 +565,12 @@ export function HomeV2PinnedApps({
               className="home-v2-link-button home-v2-pinned-apps__find-button"
               data-home-v2-pinned-apps-action="apps"
               disabled={controlsDisabled}
-              onClick={() => void onFindMoreApps()}
+              onClick={(event) => void onFindMoreApps(chromeOpenOptions(event))}
+              onAuxClick={(event) => {
+                if (!isMiddleButton(event)) return;
+                event.preventDefault();
+                void onFindMoreApps(CHROME_OPEN_NEW_TAB);
+              }}
             >
               <LayoutGrid aria-hidden="true" size={17} />
               {t("home2.apps")}
@@ -564,7 +582,12 @@ export function HomeV2PinnedApps({
               className="home-v2-link-button home-v2-pinned-apps__explore-button"
               data-home-v2-pinned-apps-action="explore"
               disabled={controlsDisabled}
-              onClick={() => void onExplore()}
+              onClick={(event) => void onExplore(chromeOpenOptions(event))}
+              onAuxClick={(event) => {
+                if (!isMiddleButton(event)) return;
+                event.preventDefault();
+                void onExplore(CHROME_OPEN_NEW_TAB);
+              }}
             >
               <Compass aria-hidden="true" size={17} />
               {t("home2.explore")}
@@ -730,12 +753,21 @@ export function HomeV2PinnedApps({
                     target: display.shortLabel,
                   })}
                   title={[t("common.openItem", { target: display.shortLabel }), accountLabel].filter(Boolean).join(" — ")}
-                  onClick={() => {
+                  onClick={(event) => {
                     if (suppressedClickPinIdRef.current === pin.id) {
                       suppressedClickPinIdRef.current = null;
                       return;
                     }
-                    void runAction(`open:${pin.id}`, () => onOpen(pin));
+                    const options = chromeOpenOptions(event);
+                    void runAction(`open:${pin.id}`, () => onOpen(pin, options));
+                  }}
+                  onAuxClick={(event) => {
+                    // Middle click: a new tab. The middle button never enters
+                    // the pointer-down tap/drag path above, so nothing here
+                    // needs the click suppression.
+                    if (!isMiddleButton(event)) return;
+                    event.preventDefault();
+                    void runAction(`open:${pin.id}`, () => onOpen(pin, CHROME_OPEN_NEW_TAB));
                   }}
                   onKeyDown={(event) => {
                     if (
