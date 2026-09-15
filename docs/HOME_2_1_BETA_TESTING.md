@@ -1,12 +1,12 @@
 # Home 2.1 beta testing and app development
 
-Home 2.1.0-beta.9 is a testing prerelease. Home 1.8.0 remains the latest stable
+Home 2.1.0-beta.10 is a testing prerelease. Home 1.8.0 remains the latest stable
 release. Choose Prerelease in Home's update settings to follow the Home 2 line,
 or install the matching platform asset manually. Report the Home version,
 platform, app version, selected network, node route and reproduction steps.
 Keep passwords, recovery material and private message contents out of reports.
 
-Android beta.9 uses versionCode 51. It can update release-signed beta.8 (code 50), beta.7 (code 49), beta.6 (code 48), beta.5 (code 47), beta.4 (code 46), beta.3 (code 45),
+Android beta.10 uses versionCode 52. It can update release-signed beta.9 (code 51), beta.8 (code 50), beta.7 (code 49), beta.6 (code 48), beta.5 (code 47), beta.4 (code 46), beta.3 (code 45),
 beta.2 (code 44), beta.1 (code 43), Home 1.8.0 (code 41) and release-signed
 development Home 2.1.0 (code 42). Development
 builds named 2.1.0 sort above the beta in semantic-version comparisons, so
@@ -15,7 +15,7 @@ signer and cannot be updated in place by the release APK.
 
 ## Start with the runtime contract
 
-Home's application version is 2.1.0-beta.9; its QAVS platform version is 2.1.
+Home's application version is 2.1.0-beta.10; its QAVS platform version is 2.1.
 Feature-detect actions instead of treating either version as a capability list.
 Use `qdnRequest` for Qortium and `qortalRequest` for Qortal. The invoked bridge
 determines the network; a network field in the payload does not switch it.
@@ -165,6 +165,18 @@ APP/WEBSITE navigation and a resource viewer are distinct operations.
    Chat 2.0.27 it simply shows "Sending…" a few seconds longer, and any
    refusal that still happens keeps a Retry button instead of "outcome
    unknown". Try a burst of three quick messages in a public group.
+14. New in beta.10. (a) Publishing through your own (trusted) node works
+   again: since beta.1, any app publish sent that way — a Help idea, a Chat
+   attachment, a folder — was refused before it reached the node with the
+   bare code "net::ERR_INVALID_ARGUMENT". Post an idea in Help 1.4.10 with
+   Home connected to the local Core; it should land. If a publish still
+   fails, the message now names the operation and node route — include it
+   in the report. (b) Home's own links follow browser convention: on the
+   Dashboard, a plain click on a pinned app, Apps, Explore or a bookmark
+   toolbar entry navigates in place; a middle click or Ctrl/Cmd-click opens
+   a new tab; right-click → "Open in new tab" now really does (it had been
+   navigating in place). Inside an app, middle-click a qdn:// link — it
+   should open in a new tab instead of doing nothing.
 
 ## Reports still being investigated
 
