@@ -108,9 +108,28 @@ async function responseText(response: Response, label: string) {
   return body
 }
 
+// A transport failure — a Chromium `net::ERR_*` code, a timeout, a TLS
+// refusal — carries no hint of which request it was, and that bare code is
+// what an app ends up showing the user. Name the label and the route so the
+// message can be diagnosed from a report. The query string is left out: it
+// carries the resource title and description.
+async function fetchNodeRoute(
+  url: string,
+  path: string,
+  init: Parameters<typeof nodeFetch>[1],
+  label: string,
+) {
+  try {
+    return await nodeFetch(url, init)
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error)
+    throw new Error(`${label} request to ${path.split('?')[0]} failed: ${reason}`)
+  }
+}
+
 async function postBytes(nodeApiUrl: string, path: string, bytes: Uint8Array, label: string) {
   const url = `${nodeApiUrl}${path}`
-  const response = await nodeFetch(url, {
+  const response = await fetchNodeRoute(url, path, {
     // The caller already owns an exclusive, freshly-read/copied buffer
     // (see readHomeV2DesktopPublishSource's "copy on read"); copying it
     // again here served no purpose. (Cast matches the existing BodyInit
@@ -122,7 +141,7 @@ async function postBytes(nodeApiUrl: string, path: string, bytes: Uint8Array, la
     method: 'POST',
     redirect: 'error',
     signal: AbortSignal.timeout(120_000),
-  })
+  }, label)
   if (response.url && new URL(response.url).toString() !== new URL(url).toString()) {
     throw new Error(`${label} changed the approved node URL.`)
   }
@@ -131,7 +150,7 @@ async function postBytes(nodeApiUrl: string, path: string, bytes: Uint8Array, la
 
 async function postText(nodeApiUrl: string, path: string, body: string, label: string, apiKey?: string) {
   const url = `${nodeApiUrl}${path}`
-  const response = await nodeFetch(url, {
+  const response = await fetchNodeRoute(url, path, {
     body,
     headers: {
       'Content-Type': 'text/plain',
@@ -140,7 +159,7 @@ async function postText(nodeApiUrl: string, path: string, body: string, label: s
     method: 'POST',
     redirect: 'error',
     signal: AbortSignal.timeout(60_000),
-  })
+  }, label)
   if (response.url && new URL(response.url).toString() !== new URL(url).toString()) {
     throw new Error(`${label} changed the approved node URL.`)
   }
@@ -151,25 +170,27 @@ async function postFile(
   nodeApiUrl: string,
   path: string,
   sourcePath: string,
-  sourceSize: number,
   apiKey: string,
   label: string,
 ) {
   const url = `${nodeApiUrl}${path}`
   const body = createReadStream(sourcePath)
   try {
-    const response = await nodeFetch(url, {
+    // No Content-Length here: Electron's net.fetch measures the stream and
+    // sets the header itself, and refuses the request outright
+    // (net::ERR_INVALID_ARGUMENT) when the caller supplies one. Every
+    // trusted-node publish failed that way from #515 until this was removed.
+    const response = await fetchNodeRoute(url, path, {
       body: body as unknown as BodyInit,
       duplex: 'half',
       headers: {
-        'Content-Length': String(sourceSize),
         'Content-Type': 'application/octet-stream',
         'X-API-KEY': apiKey,
       },
       method: 'POST',
       redirect: 'error',
       signal: AbortSignal.timeout(30 * 60_000),
-    })
+    }, label)
     if (response.url && new URL(response.url).toString() !== new URL(url).toString()) {
       throw new Error(`${label} changed the approved node URL.`)
     }
@@ -181,10 +202,10 @@ async function postFile(
 
 async function getText(nodeApiUrl: string, path: string, label: string) {
   const url = `${nodeApiUrl}${path}`
-  const response = await nodeFetch(url, {
+  const response = await fetchNodeRoute(url, path, {
     method: 'GET', redirect: 'error',
     signal: AbortSignal.timeout(15_000),
-  })
+  }, label)
   if (response.url && new URL(response.url).toString() !== new URL(url).toString()) {
     throw new Error(`${label} changed the approved node URL.`)
   }
@@ -319,7 +340,6 @@ async function publishQortiumAuthenticated(
     input.nodeApiUrl,
     `/arbitrary${resourcePath(input.resource)}/upload?${query}`,
     input.sourcePath,
-    input.sourceSize,
     input.apiKey,
     'Qortium authenticated publish staging',
   )

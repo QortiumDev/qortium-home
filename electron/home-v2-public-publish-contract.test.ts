@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import {
   createHomeV2PublicPublishDescriptor,
@@ -45,5 +48,21 @@ assert.equal(createHomeV2PublicPublishDescriptor({
   size: 5,
   transactionSignature: 'signature',
 }).immutable.contentHash, '00'.repeat(32))
+
+// Source guard: no publish request may set Content-Length by hand. Electron's
+// net.fetch computes it from the body and rejects the whole request with
+// net::ERR_INVALID_ARGUMENT when a caller supplies one, which is how every
+// trusted-node publish failed between #515 and the fix. The response-side
+// `headers.get('content-length')` reads are fine and are not matched here.
+{
+  const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+  for (const relativePath of ['electron/home-v2-public-publish.ts', 'electron/qdn.ts']) {
+    const source = readFileSync(path.join(repoRoot, relativePath), 'utf8')
+    assert(
+      !/['"]Content-Length['"]\s*:/.test(source),
+      `${relativePath} must not set a Content-Length request header; net.fetch supplies it.`,
+    )
+  }
+}
 
 console.log('Home v2 public publish contract tests passed.')
