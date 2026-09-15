@@ -40,6 +40,26 @@ const prerelease = await fetchTrustedHomeRelease('prerelease', async () =>
 )
 assert.equal(prerelease?.tagName, 'v2.2.0-beta.1')
 
+// GitHub lists same-day releases by tag string, descending — the real order
+// returned on 2026-09-15 was beta.9, beta.8, beta.10, beta.7. The highest
+// version must win, not the first row.
+const githubOrder = ['v2.1.0-beta.9', 'v2.1.0-beta.8', 'v2.1.0-beta.10', 'v2.1.0-beta.7'].map((tag_name) =>
+  release({ prerelease: true, tag_name, html_url: `https://github.com/QortiumDev/qortium-home/releases/tag/${tag_name}`, assets: [] }),
+)
+const highest = await fetchTrustedHomeRelease('prerelease', async () =>
+  new Response(JSON.stringify([release(), ...githubOrder]), { status: 200 }),
+)
+assert.equal(highest?.tagName, 'v2.1.0-beta.10', 'the highest prerelease wins over GitHub list order')
+// A stable row in the list is never a prerelease candidate; an unparsable tag
+// only fills in when nothing parses.
+const unparsable = await fetchTrustedHomeRelease('prerelease', async () =>
+  new Response(JSON.stringify([
+    release({ prerelease: true, tag_name: 'nightly', html_url: 'https://github.com/QortiumDev/qortium-home/releases/tag/nightly', assets: [] }),
+    release({ prerelease: true, tag_name: 'v2.1.0-beta.2', html_url: 'https://github.com/QortiumDev/qortium-home/releases/tag/v2.1.0-beta.2', assets: [] }),
+  ]), { status: 200 }),
+)
+assert.equal(unparsable?.tagName, 'v2.1.0-beta.2')
+
 const untrusted = await fetchTrustedHomeRelease('stable', async () =>
   new Response(JSON.stringify(release({
     assets: [{

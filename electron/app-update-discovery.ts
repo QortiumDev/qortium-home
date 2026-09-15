@@ -1,7 +1,8 @@
-import type {
-  HomeAppUpdateChannel,
-  TrustedHomeRelease,
-  TrustedHomeReleaseAsset,
+import {
+  compareHomeAppVersions,
+  type HomeAppUpdateChannel,
+  type TrustedHomeRelease,
+  type TrustedHomeReleaseAsset,
 } from './app-update-policy.js'
 import {
   HOME_RELEASE_MANIFEST_SERVICE,
@@ -187,14 +188,39 @@ export async function fetchTrustedHomeRelease(
     const body = await readBoundedJson(response)
     if (channel === 'stable') return normalizeRelease(body, channel)
     if (!Array.isArray(body)) return null
-    for (const value of body.slice(0, 30)) {
-      const release = normalizeRelease(value, channel)
-      if (release) return release
-    }
-    return null
+    return selectHighestPrerelease(
+      body.slice(0, 30).map((value) => normalizeRelease(value, channel)),
+    )
   } finally {
     clearTimeout(timeout)
   }
+}
+
+/**
+ * GitHub's release listing is not ordered by version or by date: releases
+ * cut on the same UTC day come back ordered by tag STRING, descending, so
+ * `v2.1.0-beta.9` precedes `v2.1.0-beta.8` precedes `v2.1.0-beta.10`
+ * (observed 2026-09-15; the same rule shows in vitejs/vite's listing).
+ * Taking the first prerelease therefore reported beta.9 the day beta.10
+ * shipped. Pick the highest version instead; a tag that does not parse as a
+ * version can never be "highest" and is only used when nothing parses.
+ */
+export function selectHighestPrerelease(
+  candidates: readonly (TrustedHomeRelease | null)[],
+): TrustedHomeRelease | null {
+  let best: TrustedHomeRelease | null = null
+  let fallback: TrustedHomeRelease | null = null
+  for (const release of candidates) {
+    if (!release) continue
+    if (compareHomeAppVersions(release.tagName, release.tagName) === null) {
+      fallback ??= release
+      continue
+    }
+    if (!best || (compareHomeAppVersions(release.tagName, best.tagName) ?? 0) > 0) {
+      best = release
+    }
+  }
+  return best ?? fallback
 }
 
 /**
