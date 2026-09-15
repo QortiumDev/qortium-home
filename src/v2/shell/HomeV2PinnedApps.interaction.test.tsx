@@ -82,7 +82,10 @@ try {
         onReorder={(pinId, targetPinId, position) => {
           actions.push(['reorder', pinId, targetPinId, position])
         }}
-        onOpen={(pin) => { actions.push(['open', pin.id]) }}
+        onOpen={(pin, options) => {
+          actions.push(['open', pin.id])
+          if (options?.newTab) actions.push(['open-new-tab', pin.id])
+        }}
         onRemove={(pin) => { actions.push(['remove', pin.id]) }}
         onRename={(pin, title) => { actions.push(['rename', pin.id, title]) }}
       />,
@@ -91,6 +94,26 @@ try {
 
   await act(async () => button('Open Chat').click())
   assert.deepEqual(actions.at(-1), ['open', 'chat'])
+
+  // Browser convention on the tile: Ctrl/Cmd+click and a middle click ask for
+  // a new tab; a plain click (above) does not.
+  await act(async () => {
+    button('Open Chat').dispatchEvent(new MouseEvent('click', { bubbles: true, button: 0, ctrlKey: true }))
+  })
+  assert.deepEqual(actions.at(-1), ['open-new-tab', 'chat'], 'Ctrl+click opens in a new tab')
+  await act(async () => {
+    button('Open Chat').dispatchEvent(new MouseEvent('click', { bubbles: true, button: 0, metaKey: true }))
+  })
+  assert.deepEqual(actions.at(-1), ['open-new-tab', 'chat'], 'Cmd+click opens in a new tab')
+  await act(async () => {
+    button('Open Chat').dispatchEvent(new MouseEvent('auxclick', { bubbles: true, button: 1 }))
+  })
+  assert.deepEqual(actions.at(-1), ['open-new-tab', 'chat'], 'middle click opens in a new tab')
+  const actionCountBeforeRightAux = actions.length
+  await act(async () => {
+    button('Open Chat').dispatchEvent(new MouseEvent('auxclick', { bubbles: true, button: 2 }))
+  })
+  assert.equal(actions.length, actionCountBeforeRightAux, 'a right-button auxclick is not an open')
 
   await openMenu('Open Chat')
   await act(async () => buttonText('Open in new tab').click())

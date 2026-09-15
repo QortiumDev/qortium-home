@@ -71,6 +71,7 @@ import { createAccountRequestEpochs, isBoundAccountRequestCurrent, walletRefForA
 import { buildTabBookmarkToggle, buildTabDashboardPin, buildTabToolbarSave } from '../v2/shell/saved-tab-bookmarks'
 import type { HomeV2SettingsSectionId } from '../v2/shell/SettingsPage'
 import { HomeV2ContextMenu } from '../v2/shell/HomeV2ContextMenu'
+import { CHROME_OPEN_NEW_TAB, type HomeV2ChromeOpenOptions } from '../v2/shell/chrome-open-options'
 import { NodeCertificatePanel, needsCertificateConfirmation } from '../v2/shell/NodeCertificatePanel'
 import {
   parseHomeV2TextSizeCommand,
@@ -3655,11 +3656,15 @@ export function HomeV2LiveApp() {
   )
 
   const openDashboardPin = useCallback(
-    async (pin: BookmarkManagerDashboardPin) => {
+    async (pin: BookmarkManagerDashboardPin, options?: HomeV2ChromeOpenOptions) => {
       // In place only when the pin binds to the account the Dashboard is
       // filed under; a pin saved for another account would drag the tab into
-      // that account's group, so it opens its own tab as before.
-      const inTab = !pin.accountId || pin.accountId === selectedAccountId ? activeDashboardTabId() : undefined
+      // that account's group, so it opens its own tab as before. A new-tab
+      // request (middle/Ctrl-click, the context menu's "Open in new tab")
+      // never navigates in place — the Dashboard stays where it is.
+      const inTab = options?.newTab || (pin.accountId && pin.accountId !== selectedAccountId)
+        ? undefined
+        : activeDashboardTabId()
       const result = await openAddress(pin.displayUrl, savedAccountBinding(pin.accountId ?? selectedAccountId), null, { inTab })
       if (result.status !== 'opened') {
         // Reject so the pinned-apps inline alert (role=alert) renders the
@@ -3691,7 +3696,10 @@ export function HomeV2LiveApp() {
       if (operation.kind === 'copy') {
         await writeContextMenuClipboard(operation.value)
       } else {
-        await openDashboardPin(pin)
+        // The only open item is "Open in new tab". Until this passed the
+        // request through, it navigated the Dashboard in place like a plain
+        // click (#560 made plain clicks in-place and this path followed).
+        await openDashboardPin(pin, CHROME_OPEN_NEW_TAB)
       }
     },
     [openDashboardPin],
@@ -3709,10 +3717,20 @@ export function HomeV2LiveApp() {
   )
 
   const openBookmarkToolbarLink = useCallback(
-    async (link: BookmarkManagerLink) => {
+    async (link: BookmarkManagerLink, options?: HomeV2ChromeOpenOptions) => {
+      // Same rule as a pinned app: a plain click from the Dashboard navigates
+      // that tab in place (when the link binds to the Dashboard's account),
+      // while a new-tab request, or a click from anywhere else, opens its own
+      // tab. Home chrome cannot replace an app tab's content, so from an app
+      // tab a plain click still opens (or activates) a separate tab.
+      const inTab = options?.newTab || (link.accountId && link.accountId !== selectedAccountId)
+        ? undefined
+        : activeDashboardTabId()
       const result = await openAddress(
         link.displayUrl,
         savedAccountBinding(link.accountId ?? selectedAccountId),
+        null,
+        { inTab },
       )
       if (result.status !== 'opened') {
         setShellNotice(
@@ -3720,7 +3738,7 @@ export function HomeV2LiveApp() {
         )
       }
     },
-    [openAddress, selectedAccountId],
+    [activeDashboardTabId, openAddress, selectedAccountId],
   )
 
   /**
@@ -4048,7 +4066,7 @@ export function HomeV2LiveApp() {
       if (operation.kind === 'copy') {
         await writeContextMenuClipboard(operation.value)
       } else {
-        await openBookmarkToolbarLink(link)
+        await openBookmarkToolbarLink(link, CHROME_OPEN_NEW_TAB)
       }
     },
     [openBookmarkToolbarLink],
@@ -11228,18 +11246,18 @@ export function HomeV2LiveApp() {
       pinnedApps={{
         // Sends people to the app they assigned as Apps, falling back to the
         // shipped default rather than hard-coding a URL here.
-        onFindMoreApps: async () => {
+        onFindMoreApps: async (options) => {
           // Resolved at click time from the live assignment, so a user who
           // points Apps at their own app is honoured; falls back to the
           // shipped default when settings are unavailable.
-          const inTab = activeDashboardTabId()
+          const inTab = options?.newTab ? undefined : activeDashboardTabId()
           const settings = await qdnAppsManagement.client?.get().catch(() => null)
           await openAddress(resolveHomeV2AppsAppUrl(settings ?? null), undefined, null, { inTab })
         },
         // Same resolution for Explore: the user's assigned Explore app, else
         // the shipped default.
-        onExplore: async () => {
-          const inTab = activeDashboardTabId()
+        onExplore: async (options) => {
+          const inTab = options?.newTab ? undefined : activeDashboardTabId()
           const settings = await qdnAppsManagement.client?.get().catch(() => null)
           await openAddress(resolveHomeV2ExploreAppUrl(settings ?? null), undefined, null, { inTab })
         },

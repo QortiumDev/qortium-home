@@ -32,6 +32,23 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## feat: middle-click and Ctrl-click open Home links in a new tab, and "Open in new tab" does
+
+2026-09-15
+
+A tester asked for pinned apps to open in a new tab so the Dashboard stays
+where it is. Home now follows the browser convention on its own links — the
+Dashboard's pinned apps, its Apps and Explore buttons, and the bookmark
+toolbar: a plain left click goes where you already are (the Dashboard
+navigates in place, as before), while a middle click or a Ctrl/Cmd-click opens
+a new tab. Right-click already offered "Open in new tab" on pins and toolbar
+links, but since the Dashboard began navigating in place it had quietly been
+doing the same as a plain click; it now really opens a new tab. Bookmark
+toolbar clicks from the Dashboard navigate in place like pins do (from an app
+tab they open their own tab, as before). Inside an app, a middle click on a
+qdn:// or qortal:// link used to do nothing; it now opens that resource in a
+new tab through the same checks as the right-click menu, and only for that
+gesture — a page's own window.open() is still refused.
 ## fix: publishing through a trusted node failed with "net::ERR_INVALID_ARGUMENT"
 
 2026-09-15

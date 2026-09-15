@@ -12,7 +12,7 @@ import { HomeV2BookmarkToolbar } from './HomeV2BookmarkToolbar'
 const container = document.createElement('div')
 document.body.appendChild(container)
 const root = createRoot(container)
-const opened: Array<{ accountId?: string | null; id: string }> = []
+const opened: Array<{ accountId?: string | null; id: string; newTab?: boolean }> = []
 const contextActions: string[] = []
 const removed: string[] = []
 const popupReports: boolean[] = []
@@ -97,8 +97,8 @@ function renderToolbar(
       onContextMenuAction={(_item, action) => {
         contextActions.push(action)
       }}
-      onOpen={(item) => {
-        opened.push({ accountId: item.accountId, id: item.id })
+      onOpen={(item, options) => {
+        opened.push({ accountId: item.accountId, id: item.id, ...(options?.newTab ? { newTab: true } : {}) })
       }}
       onRemove={(item) => { removed.push(item.id) }}
       snapshot={current}
@@ -132,6 +132,22 @@ try {
   assert.match(linkButton.textContent ?? '', /Chat/)
   act(() => linkButton.click())
   assert.deepEqual(opened, [{ accountId: 'account-1', id: 'chat' }])
+
+  // Browser convention on a toolbar link: Ctrl/Cmd+click and a middle click
+  // ask for a new tab; the plain click above did not.
+  act(() => {
+    linkButton.dispatchEvent(new MouseEvent('click', { bubbles: true, button: 0, ctrlKey: true }))
+  })
+  assert.deepEqual(opened.at(-1), { accountId: 'account-1', id: 'chat', newTab: true }, 'Ctrl+click')
+  act(() => {
+    linkButton.dispatchEvent(new MouseEvent('auxclick', { bubbles: true, button: 1 }))
+  })
+  assert.deepEqual(opened.at(-1), { accountId: 'account-1', id: 'chat', newTab: true }, 'middle click')
+  opened.length = 0
+  act(() => {
+    linkButton.dispatchEvent(new MouseEvent('auxclick', { bubbles: true, button: 2 }))
+  })
+  assert.deepEqual(opened, [], 'a right-button auxclick is not an open')
 
   // The label is the only unclassed span; the account chip and the app-icon
   // monogram are classed and would otherwise pollute textContent.
