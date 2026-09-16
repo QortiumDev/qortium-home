@@ -284,6 +284,17 @@ or the reverse. See
 shapes, supported services, Android proxy behavior, compatibility actions, and
 lazy-loading guidance.
 
+`SAVE_FILE_BYTES` writes bytes the app already holds — a file it generated, an
+inline image carried in a message — through the same platform save picker:
+`{ action: 'SAVE_FILE_BYTES', bytesBase64, fileName, mimeType? }`, validated
+exactly like `STAGE_QDN_PUBLISH_SOURCE` (at most 25 MiB of canonical base64,
+a leaf file name, a well-formed media type) and answered `{ canceled }`. It is
+route-independent (no node is involved), withheld from widgets (no window to
+own a dialog), and the save picker is the consent, as for `SAVE_QDN_RESOURCE`;
+the bytes go nowhere but the chosen path. Qortal's `SAVE_FILE` reaches it too
+when called with `bytesBase64` instead of a `location`; a structured `blob`
+cannot cross the bridge and is refused by name. Since Home 2.1.0-beta.12.
+
 `SELECT_QDN_PUBLISH_SOURCE` and `PUBLISH_QDN_RESOURCE` are the Home 2 QDN
 publication pair on both globals. They are advertised only while the invoked
 network has a reachable selected route. Selection returns a 30-minute token

@@ -7557,6 +7557,7 @@ export function HomeV2LiveApp() {
         action === 'GET_QDN_RESOURCE_STREAM_URL' ||
         action === 'OPEN_QDN_RESOURCE_VIEWER' ||
         action === 'SAVE_QDN_RESOURCE' ||
+        action === 'SAVE_FILE_BYTES' ||
         action === 'SELECT_QDN_PUBLISH_SOURCE' ||
         action === 'PUBLISH_QDN_RESOURCE' ||
         action === 'PUBLISH_CHAT_ATTACHMENT' ||

@@ -32,6 +32,20 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## feat: apps can save bytes they hold through Home's save dialog (SAVE_FILE_BYTES)
+
+2026-09-16
+
+Chat 2.0.28 made every message image clickable with Open and Save, except
+the tiny inline images that travel inside a message: those are not QDN
+resources, and Home only ever saved QDN resources. Home now offers
+`SAVE_FILE_BYTES` (and Qortal's `SAVE_FILE` called with `bytesBase64`): an app
+hands Home bytes it already holds and a file name, Home shows the ordinary
+save dialog, and writes the bytes where the user chooses. The bytes are
+bounded and checked exactly like a staged publish (at most 25 MiB, a plain
+file name, no paths), the dialog is the consent, and nothing is sent
+anywhere. Desktop and Android share the change; widgets do not get it.
+
 ## release: prepare home 2.1.0-beta.11
 
 2026-09-15

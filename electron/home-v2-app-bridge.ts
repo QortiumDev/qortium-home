@@ -11991,6 +11991,29 @@ async function handleRequestWithRuntime(
     })
     return true
   }
+  if (action === 'SAVE_FILE_BYTES') {
+    // Bytes the app already holds, written where the user chooses. Validated
+    // exactly like a staged publish blob (≤25 MiB canonical base64, a leaf
+    // file name); the native save dialog is the consent, as for
+    // SAVE_QDN_RESOURCE, and the bytes never leave this process otherwise.
+    const file = normalizeHomeV2PublishBlobRequest(requestValue, 'SAVE_FILE_BYTES')
+    const candidateWindow = getContextWindow(context)
+    const hostWindow = candidateWindow && !candidateWindow.isDestroyed() ? candidateWindow : null
+    if (!hostWindow) {
+      throw new Error('The file save request does not belong to an active Home window.')
+    }
+    const selection = await dialog.showSaveDialog(hostWindow, {
+      title: 'Save file',
+      defaultPath: nodePath.join(app.getPath('downloads'), file.fileName),
+    })
+    if (selection.canceled || !selection.filePath) return { canceled: true }
+    const fresh = getQdnViewContextForWebContents(sender)
+    if (!fresh || !sameViewContext(context, fresh) || !liveResourceMatchesGrant(fresh)) {
+      throw new Error('The app or tab changed before the file save began.')
+    }
+    await writeFile(selection.filePath, file.bytes)
+    return { canceled: false }
+  }
   if (action === 'SAVE_QDN_RESOURCE') {
     const resource = getQdnResourceViewerRequest(requestValue as QdnAppRequest)
     const candidateWindow = getContextWindow(context)

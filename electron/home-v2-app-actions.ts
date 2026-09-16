@@ -176,6 +176,10 @@ const QDN_ACTIONS = [
   'OPEN_QDN_MEDIA_PLAYER',
   'OPEN_CHAT_ATTACHMENT_VIEWER',
   'SAVE_QDN_RESOURCE',
+  // Bytes the app already holds (a generated file, an inline image) written
+  // through Home's native save dialog. Bounded like STAGE_QDN_PUBLISH_SOURCE;
+  // the dialog is the consent, exactly as for SAVE_QDN_RESOURCE.
+  'SAVE_FILE_BYTES',
   // Qortal compatibility aliases. Each resolves to the action above it and
   // adds no capability of its own; they are advertised so a Qortal app can
   // discover them in SHOW_ACTIONS and call the name it already knows.
@@ -295,6 +299,10 @@ const QORTAL_ACTIONS = [
   'OPEN_QDN_MEDIA_PLAYER',
   'OPEN_CHAT_ATTACHMENT_VIEWER',
   'SAVE_QDN_RESOURCE',
+  // Bytes the app already holds (a generated file, an inline image) written
+  // through Home's native save dialog. Bounded like STAGE_QDN_PUBLISH_SOURCE;
+  // the dialog is the consent, exactly as for SAVE_QDN_RESOURCE.
+  'SAVE_FILE_BYTES',
   // Qortal compatibility aliases. Each resolves to the action above it and
   // adds no capability of its own; they are advertised so a Qortal app can
   // discover them in SHOW_ACTIONS and call the name it already knows.
@@ -573,20 +581,34 @@ export function resolveHomeV2AppAlias(
     return { action: 'OPEN_QDN_RESOURCE_VIEWER', request }
   }
   // Qortal's SAVE_FILE has TWO documented forms: a QDN `location` coordinate,
-  // and a `blob` the app already holds. Only the location form is an alias —
-  // it maps onto SAVE_QDN_RESOURCE and adds no capability. Writing an
-  // app-supplied blob to disk is a NEW capability with its own trust
-  // question, so it is refused HERE and by name, rather than being silently
-  // mishandled or quietly reported as unsupported after the fact.
+  // and a `blob` the app already holds. The location form maps onto
+  // SAVE_QDN_RESOURCE. The bytes form maps onto SAVE_FILE_BYTES, Home's own
+  // bounded capability for app-held bytes — but only as `bytesBase64`, the
+  // encoding every other Home byte hand-off uses; a structured `blob` cannot
+  // cross the bridge and is refused by name so the app learns which field to
+  // send instead.
   if (action === 'SAVE_FILE') {
     const location = homeV2RequestField(request, 'location')
     if (!isHomeV2AppRecord(location)) {
+      const bytesBase64 = homeV2RequestField(request, 'bytesBase64')
+      if (typeof bytesBase64 === 'string') {
+        const fileName = homeV2RequestField(request, 'fileName') ?? homeV2RequestField(request, 'filename')
+        const mimeType = homeV2RequestField(request, 'mimeType')
+        return {
+          action: 'SAVE_FILE_BYTES',
+          request: {
+            bytesBase64,
+            ...(typeof fileName === 'string' ? { fileName } : {}),
+            ...(typeof mimeType === 'string' ? { mimeType } : {}),
+          },
+        }
+      }
       if (homeV2RequestField(request, 'blob') !== undefined) {
         throw new Error(
-          'SAVE_FILE with a blob is not supported; pass a QDN location, or publish the data and save that.',
+          'SAVE_FILE with a blob is not supported; pass the bytes as bytesBase64 (with fileName), or a QDN location.',
         )
       }
-      throw new Error('SAVE_FILE requires a location with the QDN service, name, and identifier.')
+      throw new Error('SAVE_FILE requires a location with the QDN service, name, and identifier, or bytesBase64.')
     }
     const filename = homeV2RequestField(request, 'filename')
     return {
