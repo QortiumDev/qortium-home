@@ -35,6 +35,8 @@ function host(scope = 'session') {
     isAccountUnlocked: () => true,
     hasQdnAccountCapability: () => false,
     getContextWindow: () => window,
+    // Window raising/flashing before a prompt is WM behaviour, not this test's subject.
+    bringPromptToAttention: () => undefined,
     isQdnViewVisible: () => true,
     randomUUID: () => `request-${prompts.length}`,
     setTimeout: () => 0,
