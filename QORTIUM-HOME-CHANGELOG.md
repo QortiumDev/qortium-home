@@ -44,6 +44,14 @@ sat above beta.8 above beta.10 — and Home took the first row. Home now
 compares the versions and offers the highest prerelease in the listing. The
 release page order on GitHub itself cannot be changed (it follows the tag
 name), so this is where the fix belongs.
+## docs: the group context menu has no explorer item
+
+2026-09-15
+
+The Chain explorer app has no group pages, so the planned "View on explorer"
+item is an account item only; "Group info" (the Groups app) already covers a
+group. The assignments doc now points at the three app-side pull requests
+that accept the role links. Documentation only.
 
 ## docs: context menu version 2 contract (accounts and groups first)
 
@@ -52,8 +60,8 @@ name), so this is where the fix belongs.
 Writes down, before any code, how Home's app-invocable context menu grows
 into the standard item menu apps can rely on: right-click or long-press on an
 account gets Copy address, Copy name, Account info, Send message, Send coins
-and View on explorer; a group gets Copy ID, Copy name, Group info, Open group
-chat and View on explorer. Every host item only copies or opens another app —
+and View on explorer; a group gets Copy ID, Copy name, Group info and Open group
+chat. Every host item only copies or opens another app —
 never signs anything — so it can never bypass a permission. Apps may leave
 host items out and add their own, which Home shows in a separate group under
 the app's name and never lets look like a Home item. The other apps are

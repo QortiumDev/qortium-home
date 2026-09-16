@@ -85,12 +85,13 @@ on the app's canonical address, so a hash-router app must read
 | `profile` | `qdn://APP/Trust/Trust` | `?account=<address or name>` shows that account | Account info |
 | `wallet` | `qdn://APP/Wallet/Wallet` | `?to=<address>` opens the native-coin send form with the recipient filled in | Send coins |
 | `groups` | `qdn://APP/Groups/Groups` | `?group=<id>` shows that group | Group info |
-| `explorer` | `qdn://APP/Chain/Chain` | `?account=<address or name>` shows that account; `?group=<id>` shows that group | View on explorer |
+| `explorer` | `qdn://APP/Chain/Chain` | `?account=<address or name>` shows that account (the explorer has no group pages, so the group menu has no explorer item) | View on explorer |
 
 Compliance at the time of writing: Chat already accepts `address`, `group` and
 `network`; Trust accepts `account`. Wallet, Groups and Chain read only
-`?_route=` today and need the app half first (Wallet: `?to=`; Groups and Chain:
-`?group=` / `?account=`). Home ships the host half only after each role's app
+`?_route=` today and need the app half first (Wallet: `?to=`; Groups: `?group=`;
+Chain: `?account=`) — app PRs qortium-wallet#18, qortium-group-manager#4,
+qortium-chain-explorer#2. Home ships the host half only after each role's app
 half is published, so a fresh install never shows an item that opens an app
 which ignores the query.
 
