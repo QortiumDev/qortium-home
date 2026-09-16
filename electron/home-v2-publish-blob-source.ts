@@ -28,6 +28,17 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
 }
 
+// The validator has already proven canonical base64, so a plain atob decode
+// is exact. Portable on purpose: this module runs in the main process and in
+// the Android renderer bundle, which has no Buffer.
+function decodeCanonicalBase64(encoded: string): Uint8Array {
+  if (typeof Buffer !== 'undefined') return Uint8Array.from(Buffer.from(encoded, 'base64'))
+  const binary = globalThis.atob(encoded)
+  const bytes = new Uint8Array(binary.length)
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index)
+  return bytes
+}
+
 export function sanitizeHomeV2BlobFileName(value: unknown) {
   const requested = typeof value === 'string' ? value.trim() : ''
   // Last path segment only (an app-supplied name must never traverse), then
@@ -42,42 +53,44 @@ export function sanitizeHomeV2BlobFileName(value: unknown) {
 
 // Validate without decoding: the compatibility adapter uses this to budget a
 // whole legacy batch before allocating even its first source.
-export function homeV2PublishBlobByteLength(encoded: unknown): number {
+export function homeV2PublishBlobByteLength(encoded: unknown, action = 'STAGE_QDN_PUBLISH_SOURCE'): number {
   if (typeof encoded !== 'string' || !encoded) {
-    throw new Error('STAGE_QDN_PUBLISH_SOURCE requires bytesBase64.')
+    throw new Error(`${action} requires bytesBase64.`)
   }
   if (encoded.length > Math.ceil(HOME_V2_PUBLISH_BLOB_MAX_BYTES / 3) * 4) {
-    throw new Error('STAGE_QDN_PUBLISH_SOURCE accepts at most 25 MiB.')
+    throw new Error(`${action} accepts at most 25 MiB.`)
   }
   if (encoded.length % 4 !== 0 || !BASE64_SHAPE.test(encoded)) {
-    throw new Error('STAGE_QDN_PUBLISH_SOURCE bytesBase64 must be valid base64.')
+    throw new Error(`${action} bytesBase64 must be valid base64.`)
   }
   const padding = encoded.endsWith('==') ? 2 : encoded.endsWith('=') ? 1 : 0
   const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
   const lastValue = alphabet.indexOf(encoded[encoded.length - padding - 1] ?? '')
   if (padding && (lastValue < 0 || lastValue % (padding === 2 ? 16 : 4) !== 0)) {
-    throw new Error('STAGE_QDN_PUBLISH_SOURCE bytesBase64 must be canonical base64.')
+    throw new Error(`${action} bytesBase64 must be canonical base64.`)
   }
   const size = encoded.length / 4 * 3 - padding
-  if (size < 1) throw new Error('STAGE_QDN_PUBLISH_SOURCE bytes cannot be empty.')
+  if (size < 1) throw new Error(`${action} bytes cannot be empty.`)
   if (size > HOME_V2_PUBLISH_BLOB_MAX_BYTES) {
-    throw new Error('STAGE_QDN_PUBLISH_SOURCE accepts at most 25 MiB.')
+    throw new Error(`${action} accepts at most 25 MiB.`)
   }
   return size
 }
 
-export function normalizeHomeV2PublishBlobRequest(value: unknown): HomeV2PublishBlobRequest {
-  if (!isRecord(value)) throw new Error('STAGE_QDN_PUBLISH_SOURCE request is required.')
+// SAVE_FILE_BYTES reuses this exact validator: the same bounded, canonical
+// base64 an app may stage for publishing is what it may ask Home to save.
+export function normalizeHomeV2PublishBlobRequest(value: unknown, action = 'STAGE_QDN_PUBLISH_SOURCE'): HomeV2PublishBlobRequest {
+  if (!isRecord(value)) throw new Error(`${action} request is required.`)
 
   const encoded = value.bytesBase64
-  homeV2PublishBlobByteLength(encoded)
-  const bytes = Uint8Array.from(Buffer.from(encoded as string, 'base64'))
+  homeV2PublishBlobByteLength(encoded, action)
+  const bytes = decodeCanonicalBase64(encoded as string)
 
   const mimeValue = value.mimeType
   let mimeType: string | null = null
   if (mimeValue !== undefined && mimeValue !== null && mimeValue !== '') {
     if (typeof mimeValue !== 'string' || mimeValue.length > 100 || !MIME_SHAPE.test(mimeValue)) {
-      throw new Error('STAGE_QDN_PUBLISH_SOURCE mimeType is invalid.')
+      throw new Error(`${action} mimeType is invalid.`)
     }
     mimeType = mimeValue
   }

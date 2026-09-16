@@ -1134,12 +1134,28 @@ assert.equal(
   'qdn://APP/Wallet/Wallet',
 )
 
-// Qortal's SAVE_FILE also has a documented BLOB form. Writing app-supplied
-// bytes to disk is a new capability, not an alias, so it is refused BY NAME
-// rather than reported as a missing location.
+// Qortal's SAVE_FILE also has a documented BLOB form. App-held bytes are a
+// capability of their own (SAVE_FILE_BYTES) and reach it only as bytesBase64
+// — the encoding every other Home byte hand-off uses; a structured `blob`
+// cannot cross the bridge and is refused BY NAME so the app learns which
+// field to send.
 assert.throws(
   () => resolveHomeV2AppAlias('SAVE_FILE', { blob: {}, filename: 'notes.txt' }),
-  /SAVE_FILE with a blob is not supported/,
+  /SAVE_FILE with a blob is not supported; pass the bytes as bytesBase64/,
+)
+assert.deepEqual(
+  resolveHomeV2AppAlias('SAVE_FILE', { bytesBase64: 'aGVsbG8=', filename: 'notes.txt', mimeType: 'text/plain' }),
+  { action: 'SAVE_FILE_BYTES', request: { bytesBase64: 'aGVsbG8=', fileName: 'notes.txt', mimeType: 'text/plain' } },
+  'SAVE_FILE bytesBase64 becomes SAVE_FILE_BYTES; Qortal-style `filename` is accepted',
+)
+assert.deepEqual(
+  resolveHomeV2AppAlias('SAVE_FILE', { bytesBase64: 'aGVsbG8=', fileName: 'a.bin', service: 'APP', name: 'x' }),
+  { action: 'SAVE_FILE_BYTES', request: { bytesBase64: 'aGVsbG8=', fileName: 'a.bin' } },
+  'stray coordinate fields beside bytes are dropped, never saved as a resource',
+)
+assert.throws(
+  () => resolveHomeV2AppAlias('SAVE_FILE', { filename: 'notes.txt' }),
+  /requires a location .* or bytesBase64/,
 )
 
 // Prompt classification. None of the five re-adds may land in a prompt family

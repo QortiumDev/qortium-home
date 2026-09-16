@@ -52,6 +52,7 @@ import {
   QORTIUM_PUBLIC_NODE_RETAIN_MIN_SYNC_PERCENT,
 } from '../../electron/qortium-public-node-policy'
 import { isHomeV2PublishExtraAction } from '../../electron/home-v2-app-actions'
+import { normalizeHomeV2PublishBlobRequest } from '../../electron/home-v2-publish-blob-source'
 import {
   isHomeV2CrosschainReadAction,
   projectHomeV2CrosschainReadResult,
@@ -2359,6 +2360,16 @@ export function createPortableNodeClient(
               sourceTabId: context?.tabId ?? null,
               streamUrl,
             }
+      }
+      if (action === 'SAVE_FILE_BYTES') {
+        // Same validator as the desktop bridge; Android's save is the shared
+        // download path SAVE_QDN_RESOURCE already uses.
+        const file = normalizeHomeV2PublishBlobRequest(request, 'SAVE_FILE_BYTES')
+        return dependencies.saveBinary({
+          bytes: file.bytes,
+          fileName: file.fileName,
+          mimeType: file.mimeType ?? 'application/octet-stream',
+        })
       }
       if (action === 'SAVE_QDN_RESOURCE') {
         const resource = getQdnResourceViewerRequest(request as QdnAppRequest)

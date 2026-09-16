@@ -103,6 +103,8 @@ export const HOME_V2_ROUTE_INDEPENDENT_ACTIONS = Object.freeze([
   // is disabled or unreachable.
   'OPEN_EXTERNAL_LINK',
   'OPEN_NEW_TAB',
+  // Writes bytes the app already holds through the save dialog; no node.
+  'SAVE_FILE_BYTES',
   'SHOW_CONTEXT_MENU',
   'SHOW_NOTIFICATION',
   'SHOW_ACTIONS',

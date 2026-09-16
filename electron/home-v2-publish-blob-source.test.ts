@@ -51,4 +51,14 @@ assert.throws(
   assert.throws(() => normalizeHomeV2PublishBlobRequest({ bytesBase64: oversized }), /at most 25 MiB/)
 }
 
+// SAVE_FILE_BYTES shares the validator and names itself in every refusal.
+assert.throws(() => normalizeHomeV2PublishBlobRequest({ bytesBase64: '' }, 'SAVE_FILE_BYTES'), /^Error: SAVE_FILE_BYTES requires bytesBase64/)
+assert.throws(() => normalizeHomeV2PublishBlobRequest({ bytesBase64: 'AA=A' }, 'SAVE_FILE_BYTES'), /SAVE_FILE_BYTES bytesBase64 must be valid base64/)
+{
+  const saved = normalizeHomeV2PublishBlobRequest({ bytesBase64: 'aGVsbG8=', fileName: '../../etc/passwd', mimeType: 'text/plain' }, 'SAVE_FILE_BYTES')
+  assert.equal(Buffer.from(saved.bytes).toString(), 'hello')
+  assert.equal(saved.fileName, 'passwd', 'a leaf name only, never a path')
+  assert.equal(saved.mimeType, 'text/plain')
+}
+
 console.log('home-v2-publish-blob-source.test: ok')

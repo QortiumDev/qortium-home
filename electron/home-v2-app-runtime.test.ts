@@ -174,6 +174,8 @@ assert.deepEqual(getHomeV2AvailableAppActions('qortalRequest', {
   'GET_MARKET_PRICES',
   // Native and supported foreign receive-wallet answers are Home-local too.
   'GET_USER_WALLET',
+  // Writes bytes the app already holds through the save dialog; no node.
+  'SAVE_FILE_BYTES',
   // Hands a link to the system browser after a confirmation; no node involved.
   'OPEN_EXTERNAL_LINK',
 ])
@@ -598,6 +600,8 @@ for (const action of [
   'GET_MINTING_STATUS',
   'LIST_MINTING_ACCOUNTS',
   'START_MINTING',
+  // A widget has no window to own a save dialog and no prompt surface.
+  'SAVE_FILE_BYTES',
   'REMOVE_MINTING_ACCOUNT',
   // The list reads pass the GET_ prefix rule but describe the user's own node
   // too — which names the user blocks and follows is a behavioral profile of
