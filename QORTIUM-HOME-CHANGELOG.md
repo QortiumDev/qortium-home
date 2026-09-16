@@ -32,6 +32,19 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## fix: the update check picks the highest prerelease, not GitHub's first row
+
+2026-09-15
+
+After beta.10 shipped, a desktop on the Prerelease channel still offered
+beta.9 when its node had not yet fetched the QDN release pointer and Home fell
+back to GitHub. GitHub does not list releases by version or date: releases
+cut on the same day come back ordered by tag name as plain text, so beta.9
+sat above beta.8 above beta.10 — and Home took the first row. Home now
+compares the versions and offers the highest prerelease in the listing. The
+release page order on GitHub itself cannot be changed (it follows the tag
+name), so this is where the fix belongs.
+
 ## docs: context menu version 2 contract (accounts and groups first)
 
 2026-09-15
