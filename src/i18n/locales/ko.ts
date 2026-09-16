@@ -640,6 +640,8 @@ export const ko: Record<TranslationKey, string> = {
   "updates.checkFailed": "앱 업데이트를 확인할 수 없습니다.",
   "updates.checkForUpdates": "업데이트 확인",
   "updates.checkReleasesFailed": "Qortium Home 릴리스를 확인할 수 없습니다.",
+  "updates.qdnFetching": "QDN에 더 새로운 릴리스가 게시되었지만 노드가 아직 가져오는 중입니다. 잠시 후 다시 확인하세요.",
+  "updates.qdnFetchingNotice": "노드가 이 릴리스의 QDN 사본을 아직 가져오는 중입니다. 도착할 때까지 다운로드는 GitHub에서 이루어집니다.",
   "updates.rateLimited": "GitHub이 현재 이 연결에서의 릴리스 확인을 제한하고 있습니다. 나중에 다시 시도하거나 릴리스 페이지에서 다운로드하세요.",
   "updates.releaseChannelDescription": "안정 릴리스 또는 테스트용 사전 릴리스입니다.",
   "updates.releaseSourceLabel": "릴리스 소스",

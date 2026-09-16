@@ -614,6 +614,8 @@ export const en = {
   "updates.checkFailed": "Unable to check app updates.",
   "updates.checkForUpdates": "Check for updates",
   "updates.checkReleasesFailed": "Unable to check Qortium Home releases.",
+  "updates.qdnFetching": "A newer release is published on QDN, but your node is still fetching it. Check again in a moment.",
+  "updates.qdnFetchingNotice": "Your node is still fetching the QDN copy of this release; until it arrives, the download comes from GitHub.",
   "updates.rateLimited": "GitHub is limiting release checks from this connection for now. Try again later, or download from the releases page.",
   "updates.releaseChannelDescription": "Stable releases, or prereleases for testing.",
   "updates.releaseSourceLabel": "Release source",

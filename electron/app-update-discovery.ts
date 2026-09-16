@@ -231,10 +231,30 @@ export function selectHighestPrerelease(
  * node knows)" -- the caller falls through to its next source, and the GET
  * itself has asked the node to fetch it for next time.
  */
-export async function fetchTrustedHomeReleaseFromQdn(
+/**
+ * What the node knows about a release resource it could not serve. A 404 on
+ * the resource GET is ambiguous: "nothing published under that identifier"
+ * and "a newer version is on chain and this node has not fetched its bytes
+ * yet" look identical on that route, and only the second is an update the
+ * user should hear about. `/arbitrary/resource/status` tells them apart: it
+ * reports NOT_PUBLISHED for the first and a fetch state (PUBLISHED,
+ * DOWNLOADING, MISSING_DATA, BUILDING, ...) for the second. The GET itself
+ * has already asked the node to fetch, so the next check usually succeeds.
+ */
+export type QdnReleaseFetching = { readonly identifier: string; readonly status: string }
+
+export type QdnReleaseLookup =
+  | { readonly kind: 'release'; readonly release: TrustedHomeRelease }
+  | { readonly kind: 'fetching'; readonly fetching: QdnReleaseFetching }
+  | { readonly kind: 'none' }
+
+const QDN_STATUS_TIMEOUT_MS = 15_000
+const QDN_STATUS_NOT_PUBLISHED = new Set(['NOT_PUBLISHED', 'UNSUPPORTED'])
+
+export async function lookupTrustedHomeReleaseOnQdn(
   channel: HomeAppUpdateChannel,
   options: { readonly nodeApiUrl: string; readonly fetchImpl?: FetchLike },
-): Promise<TrustedHomeRelease | null> {
+): Promise<QdnReleaseLookup> {
   const fetchImpl = options.fetchImpl ?? fetch
   const readJson = async (identifier: string) => {
     const controller = new AbortController()
@@ -251,11 +271,52 @@ export async function fetchTrustedHomeReleaseFromQdn(
       clearTimeout(timeout)
     }
   }
-  const tagName = parseHomeReleaseChannelPointer(await readJson(homeReleaseChannelIdentifier(channel)))
-  if (!tagName) return null
-  const manifest = await readJson(homeReleaseManifestIdentifier(tagName))
-  if (manifest === null) return null
-  return parseHomeReleaseManifest(manifest, { channel, nodeApiUrl: options.nodeApiUrl, tagName })
+  // Best effort: a status route that fails or answers nonsense reads as
+  // "not published", which is the version-1 behaviour.
+  const fetchState = async (identifier: string): Promise<QdnReleaseFetching | null> => {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), QDN_STATUS_TIMEOUT_MS)
+    try {
+      const base = options.nodeApiUrl.replace(/\/+$/, '')
+      const response = await fetchImpl(
+        `${base}/arbitrary/resource/status/${HOME_RELEASE_MANIFEST_SERVICE}/${encodeURIComponent(HOME_RELEASE_PUBLISHER)}/${encodeURIComponent(identifier)}`,
+        { headers: { Accept: 'application/json' }, redirect: 'error', signal: controller.signal },
+      )
+      if (!response.ok) return null
+      const body = await readBoundedJson(response)
+      const status = isRecord(body) && typeof body.status === 'string' ? body.status.slice(0, 40) : ''
+      if (!status || QDN_STATUS_NOT_PUBLISHED.has(status)) return null
+      return { identifier, status }
+    } catch {
+      return null
+    } finally {
+      clearTimeout(timeout)
+    }
+  }
+  const pointerIdentifier = homeReleaseChannelIdentifier(channel)
+  const pointer = await readJson(pointerIdentifier)
+  if (pointer === null) {
+    const fetching = await fetchState(pointerIdentifier)
+    return fetching ? { kind: 'fetching', fetching } : { kind: 'none' }
+  }
+  const tagName = parseHomeReleaseChannelPointer(pointer)
+  if (!tagName) return { kind: 'none' }
+  const manifestIdentifier = homeReleaseManifestIdentifier(tagName)
+  const manifest = await readJson(manifestIdentifier)
+  if (manifest === null) {
+    const fetching = await fetchState(manifestIdentifier)
+    return fetching ? { kind: 'fetching', fetching } : { kind: 'none' }
+  }
+  const release = parseHomeReleaseManifest(manifest, { channel, nodeApiUrl: options.nodeApiUrl, tagName })
+  return release ? { kind: 'release', release } : { kind: 'none' }
+}
+
+export async function fetchTrustedHomeReleaseFromQdn(
+  channel: HomeAppUpdateChannel,
+  options: { readonly nodeApiUrl: string; readonly fetchImpl?: FetchLike },
+): Promise<TrustedHomeRelease | null> {
+  const lookup = await lookupTrustedHomeReleaseOnQdn(channel, options)
+  return lookup.kind === 'release' ? lookup.release : null
 }
 
 export type HomeReleaseSourceOrder = 'github' | 'qdn' | 'qdn-then-github'
@@ -268,6 +329,56 @@ export type HomeReleaseSourceOrder = 'github' | 'qdn' | 'qdn-then-github'
  * reported only if no later source produced an answer, so a stale or absent
  * QDN manifest never masks a working GitHub listing and vice versa.
  */
+export type HomeReleaseDiscovery = {
+  readonly release: TrustedHomeRelease | null
+  /**
+   * Set when the QDN source knows a release it could not serve yet (see
+   * `QdnReleaseLookup`). With a release from GitHub alongside it, the UI can
+   * say the QDN copy is still on its way; alone, it is the reason there is no
+   * answer, and a far better one than "nothing found".
+   */
+  readonly qdnFetching: QdnReleaseFetching | null
+}
+
+export type HomeReleaseDiscoveryOptions = {
+  readonly order: HomeReleaseSourceOrder
+  readonly nodeApiUrl: () => Promise<string | null>
+  readonly fromGithub?: (channel: HomeAppUpdateChannel) => Promise<TrustedHomeRelease | null>
+  readonly fromQdn?: (channel: HomeAppUpdateChannel, nodeApiUrl: string) => Promise<QdnReleaseLookup>
+}
+
+export async function discoverHomeRelease(
+  channel: HomeAppUpdateChannel,
+  options: HomeReleaseDiscoveryOptions,
+): Promise<HomeReleaseDiscovery> {
+  const sources: readonly ('github' | 'qdn')[] =
+    options.order === 'github' ? ['github'] : options.order === 'qdn' ? ['qdn'] : ['qdn', 'github']
+  const fromGithub = options.fromGithub ?? ((next) => fetchTrustedHomeRelease(next))
+  const fromQdn = options.fromQdn ?? ((next, nodeApiUrl) => lookupTrustedHomeReleaseOnQdn(next, { nodeApiUrl }))
+  let failure: unknown = null
+  let qdnFetching: QdnReleaseFetching | null = null
+  for (const source of sources) {
+    try {
+      if (source === 'qdn') {
+        const nodeApiUrl = await options.nodeApiUrl()
+        if (!nodeApiUrl) continue
+        const lookup = await fromQdn(channel, nodeApiUrl)
+        if (lookup.kind === 'release') return { qdnFetching: null, release: lookup.release }
+        if (lookup.kind === 'fetching') qdnFetching = lookup.fetching
+        continue
+      }
+      const release = await fromGithub(channel)
+      if (release) return { qdnFetching, release }
+    } catch (error) {
+      failure = error
+    }
+  }
+  // A pending QDN fetch is an answer in itself; a source failure beside it
+  // is not what the user needs to hear.
+  if (failure && !qdnFetching) throw failure
+  return { qdnFetching, release: null }
+}
+
 export async function fetchHomeReleaseFromSources(
   channel: HomeAppUpdateChannel,
   options: {
@@ -277,26 +388,14 @@ export async function fetchHomeReleaseFromSources(
     readonly fromQdn?: (channel: HomeAppUpdateChannel, nodeApiUrl: string) => Promise<TrustedHomeRelease | null>
   },
 ): Promise<TrustedHomeRelease | null> {
-  const sources: readonly ('github' | 'qdn')[] =
-    options.order === 'github' ? ['github'] : options.order === 'qdn' ? ['qdn'] : ['qdn', 'github']
-  const fromGithub = options.fromGithub ?? ((next) => fetchTrustedHomeRelease(next))
-  const fromQdn = options.fromQdn ?? ((next, nodeApiUrl) => fetchTrustedHomeReleaseFromQdn(next, { nodeApiUrl }))
-  let failure: unknown = null
-  for (const source of sources) {
-    try {
-      if (source === 'qdn') {
-        const nodeApiUrl = await options.nodeApiUrl()
-        if (!nodeApiUrl) continue
-        const release = await fromQdn(channel, nodeApiUrl)
-        if (release) return release
-        continue
-      }
-      const release = await fromGithub(channel)
-      if (release) return release
-    } catch (error) {
-      failure = error
-    }
-  }
-  if (failure) throw failure
-  return null
+  const fromQdn = options.fromQdn
+  return (await discoverHomeRelease(channel, {
+    ...options,
+    fromQdn: fromQdn
+      ? async (next, nodeApiUrl) => {
+          const release = await fromQdn(next, nodeApiUrl)
+          return release ? { kind: 'release', release } : { kind: 'none' }
+        }
+      : undefined,
+  })).release
 }

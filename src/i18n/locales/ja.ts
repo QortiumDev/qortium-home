@@ -640,6 +640,8 @@ export const ja: Record<TranslationKey, string> = {
   "updates.checkFailed": "アプリのアップデートを確認できません。",
   "updates.checkForUpdates": "アップデートを確認",
   "updates.checkReleasesFailed": "Qortium Homeのリリースを確認できません。",
+  "updates.qdnFetching": "QDN に新しいリリースが公開されていますが、ノードはまだ取得中です。しばらくしてからもう一度確認してください。",
+  "updates.qdnFetchingNotice": "ノードはこのリリースの QDN コピーをまだ取得中です。届くまでは GitHub からダウンロードします。",
   "updates.rateLimited": "GitHub が現在この接続からのリリース確認を制限しています。後でもう一度試すか、リリースページからダウンロードしてください。",
   "updates.releaseChannelDescription": "安定版リリース、またはテスト用のプレリリース。",
   "updates.releaseSourceLabel": "リリースの取得元",

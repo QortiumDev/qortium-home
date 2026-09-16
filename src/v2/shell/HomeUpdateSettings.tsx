@@ -282,6 +282,14 @@ export function HomeUpdateSettings({
           {updates.message.text}
         </p>
       ) : null}
+      {/* The connected node knows this release on QDN but is still fetching
+          its bytes, so the download above comes from GitHub for now. Shown
+          only beside a release; alone, the pending fetch IS the status. */}
+      {result?.qdnFetching && result.release ? (
+        <p className="home-v2-update-message" data-home-v2-update-qdn-fetching="true" data-tone="neutral" role="status">
+          {t('updates.qdnFetchingNotice')}
+        </p>
+      ) : null}
     </section>
   )
 }

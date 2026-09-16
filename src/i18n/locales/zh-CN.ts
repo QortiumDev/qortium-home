@@ -640,6 +640,8 @@ export const zhCN: Record<TranslationKey, string> = {
   "updates.checkFailed": "无法检查应用更新。",
   "updates.checkForUpdates": "检查更新",
   "updates.checkReleasesFailed": "无法检查 Qortium Home 发布版本。",
+  "updates.qdnFetching": "QDN 上已发布更新的版本，但您的节点仍在获取。请稍后再检查。",
+  "updates.qdnFetchingNotice": "您的节点仍在获取此版本的 QDN 副本；在它到达之前，将从 GitHub 下载。",
   "updates.rateLimited": "GitHub 目前限制了来自此连接的版本检查。请稍后重试，或从发布页面下载。",
   "updates.releaseChannelDescription": "稳定版本，或用于测试的预发布版本。",
   "updates.releaseSourceLabel": "版本来源",

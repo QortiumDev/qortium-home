@@ -640,6 +640,8 @@ export const ro: Record<TranslationKey, string> = {
   "updates.checkFailed": "Nu s-au putut verifica actualizările aplicației.",
   "updates.checkForUpdates": "Caută actualizări",
   "updates.checkReleasesFailed": "Nu s-au putut verifica lansările Qortium Home.",
+  "updates.qdnFetching": "O versiune mai nouă este publicată pe QDN, dar nodul tău încă o descarcă. Verifică din nou peste puțin timp.",
+  "updates.qdnFetchingNotice": "Nodul tău încă descarcă copia QDN a acestei versiuni; până ajunge, descărcarea vine de pe GitHub.",
   "updates.rateLimited": "GitHub limitează deocamdată verificările de versiuni de la această conexiune. Încercați mai târziu sau descărcați din pagina de versiuni.",
   "updates.releaseChannelDescription": "Versiuni stabile sau prelansări pentru testare.",
   "updates.releaseSourceLabel": "Sursa versiunilor",

@@ -640,6 +640,8 @@ export const nl: Record<TranslationKey, string> = {
   "updates.checkFailed": "Kan app-updates niet controleren.",
   "updates.checkForUpdates": "Controleren op updates",
   "updates.checkReleasesFailed": "Kan Qortium Home-releases niet controleren.",
+  "updates.qdnFetching": "Er is een nieuwere release gepubliceerd op QDN, maar je node haalt die nog op. Controleer zo meteen opnieuw.",
+  "updates.qdnFetchingNotice": "Je node haalt de QDN-kopie van deze release nog op; tot die er is, komt de download van GitHub.",
   "updates.rateLimited": "GitHub beperkt op dit moment versiecontroles vanaf deze verbinding. Probeer het later opnieuw of download vanaf de releasepagina.",
   "updates.releaseChannelDescription": "Stabiele versies, of voorlopige versies om te testen.",
   "updates.releaseSourceLabel": "Bron van versies",

@@ -74,7 +74,12 @@ export type GithubJsonFetcher = (url: string) => Promise<unknown | null>;
  */
 export type QdnReleaseJsonReader = (
   identifier: string,
-) => Promise<{ readonly nodeApiUrl: string; readonly data: unknown | null }>;
+) => Promise<{
+  readonly nodeApiUrl: string;
+  readonly data: unknown | null;
+  /** On a 404: the node's resource status (`/arbitrary/resource/status`), if it could be read. */
+  readonly status?: string | null;
+}>;
 
 export type AppUpdateReleaseSource = 'github' | 'qdn' | 'qdn-then-github';
 
@@ -253,12 +258,22 @@ async function getRelease(channel: QortiumAppUpdateChannel, fetchJson: GithubJso
     return null;
   }
 
-  return (
-    releases
-      .map(normalizeGithubRelease)
-      .find((release): release is GithubRelease => !!release && release.draft !== true && release.prerelease === true) ??
-    null
-  );
+  // GitHub lists same-day releases by tag string, descending (beta.9 above
+  // beta.8 above beta.10, observed 2026-09-15), so the first row is not the
+  // newest. Pick the highest version; a tag that does not parse only fills in
+  // when nothing parses.
+  let best: GithubRelease | null = null;
+  let fallback: GithubRelease | null = null;
+  for (const candidate of releases.map(normalizeGithubRelease)) {
+    if (!candidate || candidate.draft === true || candidate.prerelease !== true) continue;
+    const tagName = getString(candidate.tag_name);
+    if (!tagName || compareAppVersions(tagName, tagName) === null) {
+      fallback ??= candidate;
+      continue;
+    }
+    if (!best || (compareAppVersions(tagName, getString(best.tag_name) ?? '') ?? 0) > 0) best = candidate;
+  }
+  return best ?? fallback;
 }
 
 function buildBaseResult(
@@ -370,15 +385,19 @@ export async function checkAppUpdates(
 async function getQdnRelease(
   channel: QortiumAppUpdateChannel,
   readQdn: QdnReleaseJsonReader,
-): Promise<GithubRelease | null> {
+): Promise<{ release: GithubRelease | null; fetching: boolean }> {
+  // `fetching` is set when the node reports the resource as known but not yet
+  // held (any status other than not-published) — see the desktop's
+  // `lookupTrustedHomeReleaseOnQdn` for the rationale.
   const pointer = await readQdn(homeReleaseChannelIdentifier(channel));
+  if (pointer.data === null) return { release: null, fetching: isQdnFetching(pointer.status) };
   const tagName = parseHomeReleaseChannelPointer(pointer.data);
-  if (!tagName) return null;
+  if (!tagName) return { release: null, fetching: false };
   const manifest = await readQdn(homeReleaseManifestIdentifier(tagName));
-  if (manifest.data === null) return null;
+  if (manifest.data === null) return { release: null, fetching: isQdnFetching(manifest.status) };
   const release = parseHomeReleaseManifest(manifest.data, { channel, nodeApiUrl: manifest.nodeApiUrl, tagName });
-  if (!release) return null;
-  return {
+  if (!release) return { release: null, fetching: false };
+  return { fetching: false, release: {
     assets: release.assets.map((asset) => ({
       browser_download_url: asset.downloadUrl,
       digest: asset.digest,
@@ -392,7 +411,11 @@ async function getQdnRelease(
     prerelease: channel === 'prerelease',
     published_at: release.publishedAt ?? '',
     tag_name: release.tagName,
-  };
+  } };
+}
+
+function isQdnFetching(status: string | null | undefined) {
+  return typeof status === 'string' && status !== '' && status !== 'NOT_PUBLISHED' && status !== 'UNSUPPORTED';
 }
 
 /**
@@ -414,11 +437,12 @@ export async function checkAppUpdatesFromSources(
   const sources: readonly ('github' | 'qdn')[] =
     options.order === 'github' ? ['github'] : options.order === 'qdn' ? ['qdn'] : ['qdn', 'github'];
   let failure: unknown = null;
+  let qdnFetching = false;
   for (const source of sources) {
     try {
       if (source === 'qdn') {
         if (!options.readQdn) continue;
-        const release = await getQdnRelease(channel, options.readQdn);
+        const { release, fetching } = await getQdnRelease(channel, options.readQdn);
         if (release) {
           // The GitHub reader hands back one release for stable and a listing
           // for prerelease; the synthetic release is served the same way.
@@ -426,14 +450,24 @@ export async function checkAppUpdatesFromSources(
             fetchJson: async () => (channel === 'stable' ? release : [release]),
           });
         }
+        qdnFetching = fetching;
         continue;
       }
-      return await checkAppUpdates(environment, channel, { fetchJson: options.fetchJson });
+      const result = await checkAppUpdates(environment, channel, { fetchJson: options.fetchJson });
+      // checkAppUpdates reports its own failures as a result rather than
+      // throwing; a pending QDN fetch is the better answer than that failure.
+      if (qdnFetching && result.status === 'error') break;
+      return qdnFetching ? { ...result, qdnFetching: true } : result;
     } catch (error) {
       failure = error;
     }
   }
   const baseResult = buildBaseResult(environment, channel);
+  // A pending QDN fetch is an answer in itself, and a better one than a
+  // source failure beside it.
+  if (qdnFetching) {
+    return { ...baseResult, qdnFetching: true, status: 'not-found', message: t('updates.qdnFetching') };
+  }
   if (failure) {
     return {
       ...baseResult,

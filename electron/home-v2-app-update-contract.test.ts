@@ -53,7 +53,7 @@ const service = createHomeV2AppUpdateService({
   installDownloadedFile: async (filePath, digest) => { installed = { filePath, digest } },
   fetchRelease: async () => {
     fetchCount += 1
-    return release
+    return { qdnFetching: null, release }
   },
   getEnvironment: () => ({
     currentVersion: '2.0.0',
@@ -101,7 +101,7 @@ const revocationService = createHomeV2AppUpdateService({
     revokedDownloadCalls += 1
     throw new Error('A revoked automatic update reached the download boundary.')
   },
-  fetchRelease: async () => release,
+  fetchRelease: async () => ({ qdnFetching: null, release }),
   getEnvironment: () => ({
     currentVersion: '2.0.0',
     platform: { arch: 'x64', label: 'Linux x64', os: 'linux', supported: true },
@@ -163,7 +163,7 @@ const unsupportedHandoffService = createHomeV2AppUpdateService({
     releaseTag,
     size: asset.size,
   }),
-  fetchRelease: async () => release,
+  fetchRelease: async () => ({ qdnFetching: null, release }),
   getEnvironment: () => ({
     currentVersion: '2.0.0',
     platform: { arch: 'x64', label: 'Linux x64', os: 'linux', supported: true },
@@ -222,6 +222,51 @@ for (const [status, issue] of [['403', 'rate-limited'], ['429', 'rate-limited'],
   const result = await limited.check(checkRequest)
   assert.equal(result.state, 'unavailable')
   assert.equal(result.issue, issue, `HTTP ${status}`)
+}
+
+// The node knows a newer release on QDN but has not fetched it yet. Alone,
+// that is the reason there is no release — never "not found"; beside a
+// GitHub release it is carried as a flag so the UI can say the QDN copy is on
+// its way while the download uses GitHub.
+{
+  const fetchingOnly = createHomeV2AppUpdateService({
+    downloadAsset: async () => { throw new Error('unreachable') },
+    fetchRelease: async () => ({ qdnFetching: { identifier: 'home-latest-stable', status: 'DOWNLOADING' }, release: null }),
+    getEnvironment: () => ({
+      currentVersion: '2.0.0',
+      platform: { arch: 'x64', label: 'Linux x64', os: 'linux', supported: true },
+    }),
+    installDownloadedFile: async () => undefined,
+    openDownloadedFile: async () => undefined,
+    openReleasePage: async () => undefined,
+    readSettings: async () => ({ generation: 1, homeUpdatePolicy: 'notify', releaseChannel: 'stable', releaseSource: 'qdn' }),
+    revealDownloadedFile: async () => undefined,
+  })
+  const pending = await fetchingOnly.check(checkRequest)
+  assert.equal(pending.state, 'unavailable')
+  assert.equal(pending.issue, 'qdn-fetching')
+  assert.equal(pending.qdnFetching, true)
+  assert.equal(pending.release, null)
+
+  const fetchingBesideGithub = createHomeV2AppUpdateService({
+    downloadAsset: async () => { throw new Error('unreachable') },
+    fetchRelease: async () => ({ qdnFetching: { identifier: 'home-latest-stable', status: 'MISSING_DATA' }, release }),
+    getEnvironment: () => ({
+      currentVersion: '2.0.0',
+      platform: { arch: 'x64', label: 'Linux x64', os: 'linux', supported: true },
+    }),
+    installDownloadedFile: async () => undefined,
+    openDownloadedFile: async () => undefined,
+    openReleasePage: async () => undefined,
+    readSettings: async () => ({ generation: 1, homeUpdatePolicy: 'notify', releaseChannel: 'stable', releaseSource: 'qdn-then-github' }),
+    revealDownloadedFile: async () => undefined,
+  })
+  const withGithub = await fetchingBesideGithub.check(checkRequest)
+  assert.equal(withGithub.state, 'available')
+  assert.equal(withGithub.issue, null)
+  assert.equal(withGithub.qdnFetching, true)
+  assert.equal(withGithub.release?.tagName, 'v2.1.0')
+  assert.equal(first.qdnFetching, false, 'a QDN-served release carries no fetching flag')
 }
 
 console.log('Home 2 app update contract tests passed.')

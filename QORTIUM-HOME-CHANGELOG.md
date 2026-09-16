@@ -32,6 +32,27 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## fix: a release the node knows but has not fetched yet is reported as "fetching", and releases are seeded to the public nodes
+
+2026-09-15
+
+Publishing a Home release to QDN puts the bytes on the publishing node only;
+every other node fetches them the first time a client asks. On the day
+beta.10 shipped, no public node had been asked yet, so a tester's own node —
+fully synced, and able to see the beta.10 transaction — could not obtain the
+new pointer, answered "not found", and Home fell back to GitHub's mis-ordered
+listing and said "beta.9, up to date". Two changes. The release script now
+ends by asking both public nodes for the new pointer and manifest (and arms
+the package fetches), so the bytes are where testers look before anyone
+checks. And Home now asks the node the right question: a "not found" for a
+release resource is checked against the node's resource status, and when the
+node reports a newer version it has not finished fetching, Home says so — "a
+newer release is published on QDN, but your node is still fetching it" —
+instead of "not found"; when GitHub can supply the release meanwhile, Home
+offers it and notes that the QDN copy is still on its way. Desktop and
+Android share the change, and Android's GitHub listing now also picks the
+highest prerelease. Adds two translated strings.
+
 ## fix: the update check picks the highest prerelease, not GitHub's first row
 
 2026-09-15

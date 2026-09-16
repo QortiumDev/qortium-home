@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { IpcMainInvokeEvent } from 'electron'
 import type { StoredHomeV2AppUpdateSettings } from './home-v2-app-update-settings-codec.js'
+import type { HomeReleaseDiscovery } from './app-update-discovery.js'
 import {
   compareHomeAppVersions,
   selectTrustedHomeReleaseAsset,
@@ -17,6 +18,7 @@ export type HomeV2AppUpdateIssue =
   | 'invalid-version'
   | 'no-compatible-asset'
   | 'operation-in-progress'
+  | 'qdn-fetching'
   | 'rate-limited'
   | 'release-changed'
   | 'release-not-found'
@@ -37,6 +39,13 @@ export type HomeV2AppUpdateCheck = {
   readonly currentVersion: string
   readonly issue: HomeV2AppUpdateIssue | null
   readonly platform: HomeAppUpdatePlatform
+  /**
+   * The connected node knows a newer release on QDN but has not fetched its
+   * bytes yet. Beside a release it means "the QDN copy is still on its way"
+   * (the download uses GitHub meanwhile); with issue `qdn-fetching` it is why
+   * there is no release to show yet.
+   */
+  readonly qdnFetching: boolean
   readonly release: null | {
     readonly name: string
     readonly publishedAt: string | null
@@ -105,7 +114,7 @@ type Dependencies = {
     releaseTag: string
     size: number
   }>
-  readonly fetchRelease: (channel: HomeAppUpdateChannel) => Promise<TrustedHomeRelease | null>
+  readonly fetchRelease: (channel: HomeAppUpdateChannel) => Promise<HomeReleaseDiscovery>
   readonly getEnvironment: () => UpdateEnvironment
   readonly now?: () => Date
   readonly openDownloadedFile: (filePath: string) => void | Promise<void>
@@ -223,6 +232,7 @@ function baseCheck(
     currentVersion: environment.currentVersion,
     issue: null,
     platform: redactedPlatform(environment.platform),
+    qdnFetching: false,
     release: null,
     revision: 1,
     schema: 'home-v2-app-update-check',
@@ -257,8 +267,11 @@ export function createHomeV2AppUpdateService(dependencies: Dependencies) {
       return { ...base, issue: 'unsupported-platform', state: 'unsupported' }
     }
     let release: TrustedHomeRelease | null
+    let qdnFetching = false
     try {
-      release = await dependencies.fetchRelease(channel)
+      const discovery = await dependencies.fetchRelease(channel)
+      release = discovery.release
+      qdnFetching = discovery.qdnFetching !== null
     } catch (error) {
       // GitHub answers an exhausted unauthenticated quota (60/hour per
       // address) with 403, and 429 when it throttles outright. Testers on a
@@ -266,7 +279,11 @@ export function createHomeV2AppUpdateService(dependencies: Dependencies) {
       const status = /^release-http-(403|429)$/.exec(error instanceof Error ? error.message : '')
       return { ...base, issue: status ? 'rate-limited' : 'release-unavailable', state: 'unavailable' }
     }
-    if (!release) return { ...base, issue: 'release-not-found', state: 'not-found' }
+    if (!release) {
+      return qdnFetching
+        ? { ...base, issue: 'qdn-fetching', qdnFetching: true, state: 'unavailable' }
+        : { ...base, issue: 'release-not-found', state: 'not-found' }
+    }
     const releaseSummary = {
       name: release.name,
       publishedAt: release.publishedAt,
@@ -277,6 +294,7 @@ export function createHomeV2AppUpdateService(dependencies: Dependencies) {
       return {
         ...base,
         issue: 'invalid-version',
+        qdnFetching,
         release: releaseSummary,
         state: 'unavailable',
       }
@@ -286,6 +304,7 @@ export function createHomeV2AppUpdateService(dependencies: Dependencies) {
       return {
         ...base,
         asset: asset ? { digestAvailable: true, name: asset.name, size: asset.size, source: asset.source } : null,
+        qdnFetching,
         release: releaseSummary,
         state: 'up-to-date',
       }
@@ -294,6 +313,7 @@ export function createHomeV2AppUpdateService(dependencies: Dependencies) {
       return {
         ...base,
         issue: 'no-compatible-asset',
+        qdnFetching,
         release: releaseSummary,
         state: 'no-compatible-asset',
       }
@@ -301,6 +321,7 @@ export function createHomeV2AppUpdateService(dependencies: Dependencies) {
     return {
       ...base,
       asset: { digestAvailable: true, name: asset.name, size: asset.size, source: asset.source },
+      qdnFetching,
       release: releaseSummary,
       state: 'available',
     }
@@ -351,7 +372,7 @@ export function createHomeV2AppUpdateService(dependencies: Dependencies) {
         }
         let release: TrustedHomeRelease | null
         try {
-          release = await dependencies.fetchRelease(channel)
+          release = (await dependencies.fetchRelease(channel)).release
         } catch {
           return actionResult('failed', 'release-unavailable')
         }
@@ -444,7 +465,7 @@ export function createHomeV2AppUpdateService(dependencies: Dependencies) {
         'home-v2-app-update-open-release-request',
       )
       try {
-        const release = await dependencies.fetchRelease(channel)
+        const release = (await dependencies.fetchRelease(channel)).release
         if (!release) return actionResult('blocked', 'release-not-found')
         if (release.tagName !== releaseTag) return actionResult('blocked', 'release-changed')
         await dependencies.openReleasePage(release.htmlUrl)

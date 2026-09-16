@@ -7,7 +7,7 @@ import {
   parseHomeReleaseManifest,
   qdnResourceUrl,
 } from './home-v2-release-manifest.js'
-import { fetchHomeReleaseFromSources, fetchTrustedHomeReleaseFromQdn } from './app-update-discovery.js'
+import { discoverHomeRelease, fetchHomeReleaseFromSources, fetchTrustedHomeReleaseFromQdn, lookupTrustedHomeReleaseOnQdn } from './app-update-discovery.js'
 import type { TrustedHomeRelease } from './app-update-policy.js'
 
 const node = 'http://127.0.0.1:24891'
@@ -103,5 +103,67 @@ await assert.rejects(order('qdn-then-github', 'fail', 'none'), /qdn-down/)
 assert.equal(await order('qdn', 'none', 'release'), null, 'QDN only: GitHub is never consulted')
 assert.equal(await order('qdn', 'release', 'fail', false), null)
 assert.equal((await order('github', 'release', 'release'))?.assets[0].source, 'github')
+
+// A 404 on the resource GET is ambiguous. The status route separates "nothing
+// published" (NOT_PUBLISHED → none) from "the node knows a newer version and
+// is fetching it" (any fetch state → fetching), for the pointer and for the
+// manifest alike. The live case on 2026-09-15: the beta.10 pointer transaction
+// was on chain, the bytes were not on the tester's node, and Home said
+// "beta.9, up to date".
+{
+  const pending = new Map<string, unknown>([
+    [`${node}/arbitrary/resource/status/JSON/QortiumHomeTest/home-latest-prerelease`, { status: 'MISSING_DATA', id: 'MISSING_DATA' }],
+  ])
+  const pendingFetch = (async (input: string | URL | Request) => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+    const body = pending.get(url)
+    return new Response(body === undefined ? 'not found' : JSON.stringify(body), { status: body === undefined ? 404 : 200 })
+  }) as typeof fetch
+  const lookup = await lookupTrustedHomeReleaseOnQdn('prerelease', { nodeApiUrl: node, fetchImpl: pendingFetch })
+  assert.deepEqual(lookup, { kind: 'fetching', fetching: { identifier: 'home-latest-prerelease', status: 'MISSING_DATA' } })
+
+  // Pointer served, manifest still on its way.
+  const manifestPending = new Map<string, unknown>([
+    [`${node}/arbitrary/JSON/QortiumHomeTest/home-latest-prerelease`, { tag: 'v2.1.0-beta.10' }],
+    [`${node}/arbitrary/resource/status/JSON/QortiumHomeTest/home-release-v2.1.0-beta.10`, { status: 'DOWNLOADING' }],
+  ])
+  const manifestFetch = (async (input: string | URL | Request) => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+    const body = manifestPending.get(url)
+    return new Response(body === undefined ? 'not found' : JSON.stringify(body), { status: body === undefined ? 404 : 200 })
+  }) as typeof fetch
+  assert.deepEqual(await lookupTrustedHomeReleaseOnQdn('prerelease', { nodeApiUrl: node, fetchImpl: manifestFetch }),
+    { kind: 'fetching', fetching: { identifier: 'home-release-v2.1.0-beta.10', status: 'DOWNLOADING' } })
+
+  // Genuinely unpublished, or a status route that cannot answer: none.
+  const unpublished = new Map<string, unknown>([
+    [`${node}/arbitrary/resource/status/JSON/QortiumHomeTest/home-latest-stable`, { status: 'NOT_PUBLISHED' }],
+  ])
+  const unpublishedFetch = (async (input: string | URL | Request) => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+    const body = unpublished.get(url)
+    return new Response(body === undefined ? 'not found' : JSON.stringify(body), { status: body === undefined ? 404 : 200 })
+  }) as typeof fetch
+  assert.deepEqual(await lookupTrustedHomeReleaseOnQdn('stable', { nodeApiUrl: node, fetchImpl: unpublishedFetch }), { kind: 'none' })
+  assert.deepEqual(await lookupTrustedHomeReleaseOnQdn('stable', { nodeApiUrl: node, fetchImpl: fakeFetch }), { kind: 'none' })
+
+  // Discovery carries the pending fetch beside a GitHub answer, and reports it
+  // alone instead of a source failure when nothing else answered.
+  const fetching = { identifier: 'home-latest-prerelease', status: 'MISSING_DATA' }
+  const discover = (orderName: 'qdn' | 'qdn-then-github', github: 'release' | 'none' | 'fail') => discoverHomeRelease('prerelease', {
+    order: orderName,
+    nodeApiUrl: async () => node,
+    fromQdn: async () => ({ kind: 'fetching', fetching }),
+    fromGithub: async () => { if (github === 'fail') throw new Error('release-http-403'); return github === 'release' ? githubRelease : null },
+  })
+  assert.deepEqual(await discover('qdn-then-github', 'release'), { qdnFetching: fetching, release: githubRelease })
+  assert.deepEqual(await discover('qdn-then-github', 'none'), { qdnFetching: fetching, release: null })
+  assert.deepEqual(await discover('qdn-then-github', 'fail'), { qdnFetching: fetching, release: null }, 'a pending QDN fetch outranks a GitHub failure')
+  assert.deepEqual(await discover('qdn', 'release'), { qdnFetching: fetching, release: null })
+  assert.deepEqual(await discoverHomeRelease('prerelease', {
+    order: 'qdn-then-github', nodeApiUrl: async () => node,
+    fromQdn: async () => ({ kind: 'release', release: fromQdn! }), fromGithub: async () => githubRelease,
+  }), { qdnFetching: null, release: fromQdn })
+}
 
 console.log('Home 2 QDN release manifest, fetch and source-order tests passed.')

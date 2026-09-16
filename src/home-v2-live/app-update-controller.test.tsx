@@ -13,6 +13,7 @@ const available = {
   currentVersion: '2.0.0',
   issue: null,
   platform: { arch: 'x64', label: 'Linux x64', os: 'linux', supported: true },
+  qdnFetching: false,
   release: { name: 'Home 2.1', publishedAt: null, tagName: 'v2.1.0' },
   revision: 1,
   schema: 'home-v2-app-update-check',

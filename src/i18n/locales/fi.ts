@@ -640,6 +640,8 @@ export const fi: Record<TranslationKey, string> = {
   "updates.checkFailed": "Sovelluspäivityksiä ei voitu tarkistaa.",
   "updates.checkForUpdates": "Tarkista päivitykset",
   "updates.checkReleasesFailed": "Qortium Home -julkaisuja ei voitu tarkistaa.",
+  "updates.qdnFetching": "QDN:ssä on julkaistu uudempi versio, mutta solmusi hakee sitä vielä. Tarkista hetken kuluttua uudelleen.",
+  "updates.qdnFetchingNotice": "Solmusi hakee vielä tämän version QDN-kopiota; kunnes se saapuu, lataus tulee GitHubista.",
   "updates.rateLimited": "GitHub rajoittaa toistaiseksi julkaisutarkistuksia tästä yhteydestä. Yritä myöhemmin uudelleen tai lataa julkaisusivulta.",
   "updates.releaseChannelDescription": "Vakaat julkaisut tai esijulkaisut testausta varten.",
   "updates.releaseSourceLabel": "Julkaisujen lähde",

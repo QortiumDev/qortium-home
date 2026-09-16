@@ -640,6 +640,8 @@ export const he: Record<TranslationKey, string> = {
   "updates.checkFailed": "לא ניתן לבדוק עדכוני אפליקציה.",
   "updates.checkForUpdates": "בדיקת עדכונים",
   "updates.checkReleasesFailed": "לא ניתן לבדוק מהדורות של Qortium Home.",
+  "updates.qdnFetching": "גרסה חדשה יותר פורסמה ב‑QDN, אך הצומת שלך עדיין מוריד אותה. בדוק שוב בעוד רגע.",
+  "updates.qdnFetchingNotice": "הצומת שלך עדיין מוריד את עותק ה‑QDN של גרסה זו; עד שיגיע, ההורדה מגיעה מ‑GitHub.",
   "updates.rateLimited": "GitHub מגביל כרגע בדיקות גרסאות מהחיבור הזה. נסו שוב מאוחר יותר או הורידו מדף הגרסאות.",
   "updates.releaseChannelDescription": "גרסאות יציבות, או גרסאות מוקדמות לבדיקה.",
   "updates.releaseSourceLabel": "מקור הגרסאות",

@@ -235,3 +235,31 @@ else {
   log(`${channelIdentifier} -> ${tag}`)
 }
 log(`done: manifest ${manifestIdentifier}, pointer ${channelIdentifier}`)
+
+// --- seed the public nodes ---
+// Publishing only puts the bytes on THIS node. Every other node fetches a
+// resource the first time a client asks it for one, so until someone asks, a
+// tester on node1/node2 (or on a local node that can only reach the seeds)
+// gets 404 "data unavailable" for the new pointer and Home falls back to
+// GitHub. Ask both seeds now: the two JSON resources synchronously (tiny, and
+// the answer proves they hold them), the FILE assets with ?async=true so the
+// seeds start pulling them in the background without this script waiting.
+// Failures here are reported, not fatal: the publication itself is complete.
+const publicNodes = (process.env.QORTIUM_HOME_PUBLIC_NODES ?? 'https://node1.qortium.app,https://node2.qortium.app')
+  .split(',').map((value) => value.trim().replace(/\/+$/, '')).filter(Boolean)
+if (!dryRun) {
+  for (const publicNode of publicNodes) {
+    for (const identifier of [channelIdentifier, manifestIdentifier]) {
+      const url = `${publicNode}/arbitrary/JSON/${encodeURIComponent(PUBLISHER)}/${encodeURIComponent(identifier)}`
+      const seeded = await fetch(url, { signal: AbortSignal.timeout(60_000) })
+        .then(async (response) => response.ok && JSON.stringify(await response.json()).includes(tag))
+        .catch(() => false)
+      log(`${seeded ? 'seeded' : 'NOT seeded (retry later)'} ${publicNode} JSON/${identifier}`)
+    }
+    for (const asset of assets) {
+      const url = `${publicNode}/arbitrary/FILE/${encodeURIComponent(PUBLISHER)}/${encodeURIComponent(asset.identifier)}?async=true`
+      await fetch(url, { signal: AbortSignal.timeout(15_000) }).catch(() => null)
+    }
+    log(`armed ${assets.length} FILE fetches on ${publicNode}`)
+  }
+}
