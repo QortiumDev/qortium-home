@@ -1,12 +1,12 @@
 # Home 2.1 beta testing and app development
 
-Home 2.1.0-beta.10 is a testing prerelease. Home 1.8.0 remains the latest stable
+Home 2.1.0-beta.11 is a testing prerelease. Home 1.8.0 remains the latest stable
 release. Choose Prerelease in Home's update settings to follow the Home 2 line,
 or install the matching platform asset manually. Report the Home version,
 platform, app version, selected network, node route and reproduction steps.
 Keep passwords, recovery material and private message contents out of reports.
 
-Android beta.10 uses versionCode 52. It can update release-signed beta.9 (code 51), beta.8 (code 50), beta.7 (code 49), beta.6 (code 48), beta.5 (code 47), beta.4 (code 46), beta.3 (code 45),
+Android beta.11 uses versionCode 53. It can update release-signed beta.10 (code 52), beta.9 (code 51), beta.8 (code 50), beta.7 (code 49), beta.6 (code 48), beta.5 (code 47), beta.4 (code 46), beta.3 (code 45),
 beta.2 (code 44), beta.1 (code 43), Home 1.8.0 (code 41) and release-signed
 development Home 2.1.0 (code 42). Development
 builds named 2.1.0 sort above the beta in semantic-version comparisons, so
@@ -15,7 +15,7 @@ signer and cannot be updated in place by the release APK.
 
 ## Start with the runtime contract
 
-Home's application version is 2.1.0-beta.10; its QAVS platform version is 2.1.
+Home's application version is 2.1.0-beta.11; its QAVS platform version is 2.1.
 Feature-detect actions instead of treating either version as a capability list.
 Use `qdnRequest` for Qortium and `qortalRequest` for Qortal. The invoked bridge
 determines the network; a network field in the payload does not switch it.
@@ -177,6 +177,14 @@ APP/WEBSITE navigation and a resource viewer are distinct operations.
    a new tab; right-click → "Open in new tab" now really does (it had been
    navigating in place). Inside an app, middle-click a qdn:// link — it
    should open in a new tab instead of doing nothing.
+15. New in beta.11. The update check tells the truth about QDN. Set the
+   release source to "QDN" in Settings › Updates and press Check right after
+   a release is announced: if your node has not finished fetching the new
+   release yet, Home now says "A newer release is published on QDN, but your
+   node is still fetching it" instead of "up to date" or "not found"; with
+   "QDN, then GitHub" it offers the release from GitHub at once and notes the
+   QDN copy is on its way. Report any check that still names an older
+   version than the announcement.
 
 ## Reports still being investigated
 

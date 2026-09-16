@@ -32,6 +32,20 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## release: prepare home 2.1.0-beta.11
+
+2026-09-15
+
+Prepare the eleventh Home 2.1 public testing prerelease. It carries what
+merged since beta.10: the update check picks the highest prerelease instead
+of GitHub's first row, a release the node knows but has not fetched yet is
+reported as "fetching" rather than "not found" or "up to date", releases are
+seeded to the public nodes at publish time, the link-click conventions have
+a packaged smoke, and the context-menu version 2 contract is documented.
+Android advances to code 53 so it can update beta.10 and every earlier
+package. Stable users remain on Home 1.8.0. The beta testing guide gains
+the update-check item. No runtime source changes in this entry.
+
 ## fix: a release the node knows but has not fetched yet is reported as "fetching", and releases are seeded to the public nodes
 
 2026-09-15
