@@ -506,6 +506,23 @@ body,
   background: var(--v2-chrome);
 }
 
+/* An app on this tab is waiting on a permission prompt: pulse the tab so the
+   wait is visible from anywhere in the strip (the prompt itself renders only
+   on its own, active tab). */
+.home-v2-tab.has-attention {
+  border-color: var(--v2-accent);
+  animation: home-v2-tab-attention 1.2s ease-in-out infinite;
+}
+
+@keyframes home-v2-tab-attention {
+  0%, 100% { box-shadow: inset 0 -2px 0 var(--v2-accent); }
+  50% { box-shadow: inset 0 -2px 0 transparent; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .home-v2-tab.has-attention { animation: none; box-shadow: inset 0 -2px 0 var(--v2-accent); }
+}
+
 .home-v2-tab > button[role='tab'] {
   display: flex;
   min-width: 0;

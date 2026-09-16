@@ -32,6 +32,19 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## fix: a pending app permission prompt brings Home forward and marks its tab
+
+2026-09-16
+
+A tester attached a large image in Chat and saw only "Sending" — Home's
+"Allow publish a public QDN resource?" prompt was up within a third of a
+second, but nothing made it noticeable, and an unanswered prompt is denied
+after a minute. Every prompt Home raises for an app now restores and raises
+the Home window and flashes its frame until it is focused (never stealing
+focus from another application), and the tab whose app is waiting carries a
+pulsing accent mark in the tab strip until the prompt is answered. Desktop
+only for the window part; the tab mark is shared.
+
 ## feat: apps can save bytes they hold through Home's save dialog (SAVE_FILE_BYTES)
 
 2026-09-16

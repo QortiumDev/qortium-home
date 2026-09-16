@@ -1738,6 +1738,23 @@ try {
     assert.equal(activeTab().dataset.tabOverlay, undefined)
     assert.equal(activeTab().querySelector('button[role=tab] > span:not(.home-v2-tab__favicon)')?.textContent, 'Dashboard')
   }
+  // A tab whose app is waiting on a permission prompt is marked so the wait
+  // is visible from the strip; every other tab stays unmarked.
+  {
+    const attentionState = createProductState()
+    const tabId = attentionState.activeTabId
+    act(() => root.render(
+      <BrowserChrome key="attention" snapshot={homeV2Fixture} productState={attentionState} attentionTabId={tabId} />,
+    ))
+    const marked = container.querySelector(`.home-v2-tab[data-tab-id="${tabId as string}"]`)
+    assert.ok(marked?.classList.contains('has-attention'), 'the prompt tab carries has-attention')
+    assert.equal(marked?.getAttribute('data-tab-attention'), 'prompt')
+    assert.equal(container.querySelectorAll('.home-v2-tab.has-attention').length, 1)
+    act(() => root.render(
+      <BrowserChrome key="attention" snapshot={homeV2Fixture} productState={attentionState} attentionTabId={null} />,
+    ))
+    assert.equal(container.querySelectorAll('.home-v2-tab.has-attention').length, 0)
+  }
 } finally {
   act(() => root.unmount())
   container.remove()
