@@ -130,6 +130,34 @@ await assert.rejects(fetchJson('https://api.github.com/repos/QortiumDev/qortium-
   result = await checkAppUpdatesFromSources(environment, 'stable', { order: 'qdn', fetchJson: githubOk,
     readQdn: async (identifier) => ({ nodeApiUrl: node, data: identifier === 'home-latest-stable' ? { tag: 'v2.1.0-beta.4' } : manifest }) })
   assert.equal(result.status, 'not-found')
+
+  // The node knows a newer release it has not fetched yet (404 on the read,
+  // a fetch state on the status route). Alone that is reported as a pending
+  // QDN fetch, never as "not found"; beside GitHub it rides along as a flag.
+  const pendingRead = async (identifier: string) => ({ nodeApiUrl: node, data: null, status: identifier === 'home-latest-stable' ? 'MISSING_DATA' : 'NOT_PUBLISHED' })
+  result = await checkAppUpdatesFromSources(environment, 'stable', { order: 'qdn', fetchJson: githubOk, readQdn: pendingRead })
+  assert.equal(result.status, 'not-found')
+  assert.equal(result.qdnFetching, true)
+  assert.match(result.message, /QDN/)
+  result = await checkAppUpdatesFromSources(environment, 'stable', { order: 'qdn-then-github', fetchJson: githubOk, readQdn: pendingRead })
+  assert.equal(result.asset?.source, 'github')
+  assert.equal(result.qdnFetching, true)
+  result = await checkAppUpdatesFromSources(environment, 'stable', { order: 'qdn-then-github', fetchJson: githubDown, readQdn: pendingRead })
+  assert.equal(result.status, 'not-found', 'a pending QDN fetch outranks a GitHub failure')
+  assert.equal(result.qdnFetching, true)
+  result = await checkAppUpdatesFromSources(environment, 'prerelease', { order: 'qdn', fetchJson: githubOk, readQdn: pendingRead })
+  assert.equal(result.qdnFetching, undefined, 'NOT_PUBLISHED is plain not-found')
+
+  // GitHub lists same-day releases by tag string, descending (the live order
+  // on 2026-09-15 was beta.9, beta.8, beta.10, beta.7): the highest version
+  // must win, not the first row.
+  const listed = ['v2.1.0-beta.9', 'v2.1.0-beta.8', 'v2.1.0-beta.10', 'v2.1.0-beta.7'].map((tag_name) => ({
+    ...release, tag_name, html_url: `https://github.com/QortiumDev/qortium-home/releases/tag/${tag_name}`,
+    assets: [{ ...release.assets[0], browser_download_url: `https://github.com/QortiumDev/qortium-home/releases/download/${tag_name}/Qortium-Home-${tag_name.slice(1)}-android-release.apk` }],
+  }))
+  const githubOrdered = createAndroidGithubJsonFetcher(async () => ({ status: 200, data: listed }))
+  result = await checkAppUpdates({ ...environment, currentVersion: '2.1.0-beta.9' }, 'prerelease', { fetchJson: githubOrdered })
+  assert.equal(result.release?.tagName, 'v2.1.0-beta.10', 'the highest prerelease wins over GitHub list order')
 }
 
 console.log('Android Home 2 app update native fetch tests passed.')

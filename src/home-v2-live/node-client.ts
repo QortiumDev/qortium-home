@@ -448,6 +448,7 @@ const SHELL_STATE_KEY = 'home-v2-live-shell-state'
 const APP_RESOURCE_LIMIT = 50
 const APP_READ_TIMEOUT_MS = 30_000
 // The release pointer and manifest are tiny; a node that cannot answer in this time is treated as not having them.
+const RELEASE_STATUS_TIMEOUT_MS = 15_000
 const RELEASE_READ_TIMEOUT_MS = 8_000
 const CORE_UPDATE_TIMEOUT_MS = 30_000
 const CORE_UPDATE_STATUS_MAX_BYTES = 128 * 1024
@@ -1604,7 +1605,16 @@ export function createPortableNodeClient(
       const { nodeApiUrl } = await getReadableNode(network)
       const path = `/arbitrary/${encodeURIComponent(resource.service)}/${encodeURIComponent(resource.name)}/${encodeURIComponent(resource.identifier)}`
       const response = await dependencies.requestJson(`${nodeApiUrl}${path}`, 'GET', RELEASE_READ_TIMEOUT_MS)
-      if (response.status === 404) return { nodeApiUrl, data: null }
+      if (response.status === 404) {
+        // Ambiguous: unpublished, or a newer version the node has not fetched
+        // yet (the GET just asked it to). The status route tells them apart.
+        const statusPath = `/arbitrary/resource/status/${encodeURIComponent(resource.service)}/${encodeURIComponent(resource.name)}/${encodeURIComponent(resource.identifier)}`
+        const status = await dependencies.requestJson(`${nodeApiUrl}${statusPath}`, 'GET', RELEASE_STATUS_TIMEOUT_MS).catch(() => null)
+        const parsed = status?.ok
+          ? (typeof status.data === 'string' ? JSON.parse(status.data || 'null') : status.data) as { status?: unknown } | null
+          : null
+        return { nodeApiUrl, data: null, status: typeof parsed?.status === 'string' ? parsed.status.slice(0, 40) : null }
+      }
       if (!response.ok) throw new Error(`release-http-${response.status}`)
       const data = typeof response.data === 'string'
         ? (response.data ? (JSON.parse(response.data) as unknown) : null)

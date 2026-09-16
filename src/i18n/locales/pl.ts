@@ -640,6 +640,8 @@ export const pl: Record<TranslationKey, string> = {
   "updates.checkFailed": "Nie można sprawdzić aktualizacji aplikacji.",
   "updates.checkForUpdates": "Sprawdź aktualizacje",
   "updates.checkReleasesFailed": "Nie można sprawdzić wydań Qortium Home.",
+  "updates.qdnFetching": "Na QDN opublikowano nowsze wydanie, ale Twój węzeł wciąż je pobiera. Sprawdź ponownie za chwilę.",
+  "updates.qdnFetchingNotice": "Twój węzeł wciąż pobiera kopię QDN tego wydania; do tego czasu pobieranie pochodzi z GitHuba.",
   "updates.rateLimited": "GitHub ogranicza obecnie sprawdzanie wydań z tego połączenia. Spróbuj później lub pobierz ze strony wydań.",
   "updates.releaseChannelDescription": "Wydania stabilne lub przedpremierowe do testów.",
   "updates.releaseSourceLabel": "Źródło wydań",

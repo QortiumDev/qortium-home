@@ -150,6 +150,7 @@ const appUpdates = {
     currentVersion: '2.1.0',
     issue: null,
     platform: { arch: 'x64', label: 'Linux x64', os: 'linux', supported: true },
+    qdnFetching: false,
     release: null,
     revision: 1,
     schema: 'home-v2-app-update-check',

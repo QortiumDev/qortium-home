@@ -640,6 +640,8 @@ export const ar: Record<TranslationKey, string> = {
   "updates.checkFailed": "تعذّر التحقق من تحديثات التطبيق.",
   "updates.checkForUpdates": "التحقق من وجود تحديثات",
   "updates.checkReleasesFailed": "تعذّر التحقق من إصدارات Qortium Home.",
+  "updates.qdnFetching": "تم نشر إصدار أحدث على QDN، لكن عقدتك ما زالت تجلبه. تحقق مرة أخرى بعد قليل.",
+  "updates.qdnFetchingNotice": "ما زالت عقدتك تجلب نسخة QDN من هذا الإصدار؛ حتى وصولها، يتم التنزيل من GitHub.",
   "updates.rateLimited": "يحدّ GitHub حاليًا من فحص الإصدارات من هذا الاتصال. حاول لاحقًا أو نزّل من صفحة الإصدارات.",
   "updates.releaseChannelDescription": "إصدارات مستقرة أو إصدارات أولية للاختبار.",
   "updates.releaseSourceLabel": "مصدر الإصدارات",

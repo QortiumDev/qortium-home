@@ -17,6 +17,7 @@ export type HomeV2AppUpdateIssue =
   | 'invalid-version'
   | 'no-compatible-asset'
   | 'operation-in-progress'
+  | 'qdn-fetching'
   | 'rate-limited'
   | 'release-changed'
   | 'release-not-found'
@@ -39,6 +40,8 @@ export type HomeV2AppUpdateCheck = {
   readonly currentVersion: string
   readonly issue: HomeV2AppUpdateIssue | null
   readonly platform: QortiumAppUpdatePlatform
+  /** The connected node knows a newer QDN release it has not fetched yet. */
+  readonly qdnFetching: boolean
   readonly release: null | {
     readonly name: string
     readonly publishedAt: string | null
@@ -197,6 +200,7 @@ const issues = new Set<HomeV2AppUpdateIssue>([
   'invalid-version',
   'no-compatible-asset',
   'operation-in-progress',
+  'qdn-fetching',
   'rate-limited',
   'release-changed',
   'release-not-found',
@@ -302,6 +306,7 @@ export function parseHomeV2AppUpdateCheck(value: unknown): HomeV2AppUpdateCheck 
     'currentVersion',
     'issue',
     'platform',
+    'qdnFetching',
     'release',
     'revision',
     'schema',
@@ -319,7 +324,8 @@ export function parseHomeV2AppUpdateCheck(value: unknown): HomeV2AppUpdateCheck 
     !string(value.checkedAt) ||
     !Number.isFinite(Date.parse(value.checkedAt as string)) ||
     !string(value.currentVersion) ||
-    (value.currentVersion as string).length > 100
+    (value.currentVersion as string).length > 100 ||
+    typeof value.qdnFetching !== 'boolean'
   ) throw new Error('Home update status was malformed.')
   let release: HomeV2AppUpdateCheck['release'] = null
   if (value.release !== null) {
@@ -367,7 +373,10 @@ export function parseHomeV2AppUpdateCheck(value: unknown): HomeV2AppUpdateCheck 
     (state === 'unsupported' && issue === 'unsupported-platform' && !release && !asset) ||
     (state === 'unavailable' &&
       (issue === 'release-unavailable' || issue === 'rate-limited' || issue === 'invalid-version') &&
-      !asset)
+      !asset) ||
+    // The node knows a newer QDN release it has not fetched yet, and no other
+    // source answered: nothing to show, but not "not found" either.
+    (state === 'unavailable' && issue === 'qdn-fetching' && value.qdnFetching === true && !release && !asset)
   if (!coherent) throw new Error('Home update status fields were inconsistent.')
   return {
     asset,
@@ -376,6 +385,7 @@ export function parseHomeV2AppUpdateCheck(value: unknown): HomeV2AppUpdateCheck 
     currentVersion: value.currentVersion as string,
     issue,
     platform,
+    qdnFetching: value.qdnFetching,
     release,
     revision: 1,
     schema: 'home-v2-app-update-check',

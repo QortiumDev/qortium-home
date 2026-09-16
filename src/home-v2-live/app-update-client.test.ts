@@ -14,6 +14,7 @@ const check = {
   currentVersion: '2.0.0',
   issue: null,
   platform: { arch: 'x64', label: 'Linux x64', os: 'linux', supported: true },
+  qdnFetching: false,
   release: { name: 'Home 2.1', publishedAt: null, tagName: 'v2.1.0' },
   revision: 1,
   schema: 'home-v2-app-update-check',
@@ -22,6 +23,14 @@ const check = {
 assert.equal(parseHomeV2AppUpdateCheck(check).state, 'available')
 assert.throws(() => parseHomeV2AppUpdateCheck({ ...check, extra: true }), /unexpected/)
 assert.throws(() => parseHomeV2AppUpdateCheck({ ...check, state: 'not-found' }), /inconsistent/)
+// The pending-QDN-fetch state: unavailable + qdn-fetching + the flag, nothing else.
+assert.equal(parseHomeV2AppUpdateCheck({ ...check, asset: null, release: null, issue: 'qdn-fetching', qdnFetching: true, state: 'unavailable' }).issue, 'qdn-fetching')
+assert.throws(() => parseHomeV2AppUpdateCheck({ ...check, asset: null, release: null, issue: 'qdn-fetching', qdnFetching: false, state: 'unavailable' }), /inconsistent/)
+assert.throws(() => parseHomeV2AppUpdateCheck({ ...check, issue: 'qdn-fetching', qdnFetching: true, state: 'unavailable' }), /inconsistent/)
+assert.equal(parseHomeV2AppUpdateCheck({ ...check, qdnFetching: true }).qdnFetching, true, 'the flag rides beside a GitHub release')
+assert.throws(() => parseHomeV2AppUpdateCheck({ ...check, qdnFetching: 'yes' }), /malformed/)
+const { qdnFetching: _omitted, ...withoutFlag } = check
+assert.throws(() => parseHomeV2AppUpdateCheck(withoutFlag), /unexpected/)
 assert.equal(
   parseHomeV2AppUpdateCheck({ ...check, asset: null, release: null, state: 'unavailable', issue: 'rate-limited' }).issue,
   'rate-limited',

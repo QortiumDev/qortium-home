@@ -640,6 +640,8 @@ export const de: Record<TranslationKey, string> = {
   "updates.checkFailed": "App-Updates können nicht geprüft werden.",
   "updates.checkForUpdates": "Nach Updates suchen",
   "updates.checkReleasesFailed": "Qortium-Home-Releases können nicht geprüft werden.",
+  "updates.qdnFetching": "Auf QDN ist eine neuere Version veröffentlicht, aber dein Node lädt sie noch. Prüfe gleich noch einmal.",
+  "updates.qdnFetchingNotice": "Dein Node lädt die QDN-Kopie dieser Version noch; bis sie da ist, kommt der Download von GitHub.",
   "updates.rateLimited": "GitHub begrenzt derzeit Versionsabfragen von dieser Verbindung. Versuchen Sie es später erneut oder laden Sie von der Releases-Seite herunter.",
   "updates.releaseChannelDescription": "Stabile Versionen oder Vorabversionen zum Testen.",
   "updates.releaseSourceLabel": "Quelle der Versionen",

@@ -640,6 +640,8 @@ export const hu: Record<TranslationKey, string> = {
   "updates.checkFailed": "Az alkalmazásfrissítések nem ellenőrizhetők.",
   "updates.checkForUpdates": "Frissítések keresése",
   "updates.checkReleasesFailed": "A Qortium Home kiadásai nem ellenőrizhetők.",
+  "updates.qdnFetching": "Újabb kiadás jelent meg a QDN-en, de a csomópontod még tölti le. Ellenőrizd újra egy pillanat múlva.",
+  "updates.qdnFetchingNotice": "A csomópontod még tölti le ennek a kiadásnak a QDN-példányát; amíg megérkezik, a letöltés a GitHubról jön.",
   "updates.rateLimited": "A GitHub jelenleg korlátozza a kiadások ellenőrzését erről a kapcsolatról. Próbálja később, vagy töltse le a kiadások oldaláról.",
   "updates.releaseChannelDescription": "Stabil kiadások vagy előzetes kiadások teszteléshez.",
   "updates.releaseSourceLabel": "Kiadások forrása",

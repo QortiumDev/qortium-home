@@ -640,6 +640,8 @@ export const ru: Record<TranslationKey, string> = {
   "updates.checkFailed": "Не удалось проверить обновления приложения.",
   "updates.checkForUpdates": "Проверить обновления",
   "updates.checkReleasesFailed": "Не удалось проверить релизы Qortium Home.",
+  "updates.qdnFetching": "В QDN опубликован более новый выпуск, но ваш узел ещё загружает его. Проверьте снова через минуту.",
+  "updates.qdnFetchingNotice": "Ваш узел ещё загружает QDN-копию этого выпуска; пока она не получена, загрузка идёт с GitHub.",
   "updates.rateLimited": "GitHub пока ограничивает проверку версий с этого подключения. Повторите позже или скачайте со страницы релизов.",
   "updates.releaseChannelDescription": "Стабильные версии или предварительные для тестирования.",
   "updates.releaseSourceLabel": "Источник версий",

@@ -641,6 +641,8 @@ export const hi: Record<TranslationKey, string> = {
   "updates.checkFailed": "ऐप अपडेट जांचे नहीं जा सके।",
   "updates.checkForUpdates": "अपडेट जांचें",
   "updates.checkReleasesFailed": "Qortium Home रिलीज जांची नहीं जा सकीं।",
+  "updates.qdnFetching": "QDN पर एक नया रिलीज़ प्रकाशित है, लेकिन आपका नोड अभी भी उसे ला रहा है। थोड़ी देर में फिर से जाँचें।",
+  "updates.qdnFetchingNotice": "आपका नोड अभी भी इस रिलीज़ की QDN प्रति ला रहा है; उसके आने तक डाउनलोड GitHub से होगा।",
   "updates.rateLimited": "GitHub फ़िलहाल इस कनेक्शन से रिलीज़ जाँच सीमित कर रहा है। बाद में फिर कोशिश करें, या रिलीज़ पेज से डाउनलोड करें।",
   "updates.releaseChannelDescription": "स्थिर रिलीज़, या परीक्षण के लिए प्री-रिलीज़।",
   "updates.releaseSourceLabel": "रिलीज़ स्रोत",

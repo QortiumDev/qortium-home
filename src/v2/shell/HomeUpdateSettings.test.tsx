@@ -45,6 +45,7 @@ function fixture(os: 'android' | 'linux' | 'darwin', withDownload = false): Home
       currentVersion: '2.0.0',
       issue: null,
       platform: { arch: 'x64', label: os === 'android' ? 'Android x64' : os === 'darwin' ? 'macOS' : 'Linux x64', os, supported: true },
+      qdnFetching: false,
       release: { name: 'Home 2.1', publishedAt: null, tagName: 'v2.1.0' },
       revision: 1,
       schema: 'home-v2-app-update-check',

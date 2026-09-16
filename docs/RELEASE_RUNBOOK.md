@@ -138,3 +138,15 @@ per package (`home-<tag>-<platform>`), the `JSON` manifest
 `home-latest-prerelease`), and skips resources that are already published.
 Record the manifest identifier in the release receipt. A release is not
 complete for QDN users until the pointer names it.
+
+Publishing puts the bytes on the publishing node only; every other node fetches
+a resource the first time a client asks it for one. So the script ends by
+asking both public nodes (`QORTIUM_HOME_PUBLIC_NODES`, default node1/node2) for
+the new pointer and manifest — it logs `seeded <node> JSON/<identifier>` once
+each answers with the new tag — and arms the seven `FILE` fetches on them with
+`?async=true`. Until that has happened, a tester on a public node, or on a
+local node that can only reach the seeds, sees "no release on QDN" and Home
+falls back to GitHub. If a seed logs `NOT seeded`, re-run the script (it skips
+what is already published and only repeats the seeding) or request the two
+JSON URLs by hand. Do not consider the QDN step done until both seeds report
+`seeded` for the pointer.

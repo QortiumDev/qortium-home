@@ -620,6 +620,8 @@ export const el: Record<TranslationKey, string> = {
   "updates.checkFailed": "Δεν ήταν δυνατός ο έλεγχος ενημερώσεων εφαρμογής.",
   "updates.checkForUpdates": "Έλεγχος για ενημερώσεις",
   "updates.checkReleasesFailed": "Δεν ήταν δυνατός ο έλεγχος κυκλοφοριών Qortium Home.",
+  "updates.qdnFetching": "Μια νεότερη έκδοση έχει δημοσιευτεί στο QDN, αλλά ο κόμβος σας τη λαμβάνει ακόμη. Ελέγξτε ξανά σε λίγο.",
+  "updates.qdnFetchingNotice": "Ο κόμβος σας λαμβάνει ακόμη το αντίγραφο QDN αυτής της έκδοσης· μέχρι να φτάσει, η λήψη γίνεται από το GitHub.",
   "updates.rateLimited": "Το GitHub περιορίζει προς το παρόν τους ελέγχους εκδόσεων από αυτή τη σύνδεση. Δοκιμάστε αργότερα ή κατεβάστε από τη σελίδα εκδόσεων.",
   "updates.releaseChannelDescription": "Σταθερές εκδόσεις ή προεκδόσεις για δοκιμές.",
   "updates.releaseSourceLabel": "Πηγή εκδόσεων",

@@ -641,6 +641,8 @@ export const nb: Record<TranslationKey, string> = {
   "updates.checkFailed": "Kan ikke se etter appoppdateringer.",
   "updates.checkForUpdates": "Se etter oppdateringer",
   "updates.checkReleasesFailed": "Kan ikke se etter Qortium Home-utgivelser.",
+  "updates.qdnFetching": "En nyere utgivelse er publisert på QDN, men noden din henter den fortsatt. Sjekk igjen om et øyeblikk.",
+  "updates.qdnFetchingNotice": "Noden din henter fortsatt QDN-kopien av denne utgivelsen; til den kommer, hentes nedlastingen fra GitHub.",
   "updates.rateLimited": "GitHub begrenser for øyeblikket versjonssjekker fra denne tilkoblingen. Prøv igjen senere, eller last ned fra utgivelsessiden.",
   "updates.releaseChannelDescription": "Stabile versjoner, eller forhåndsversjoner for testing.",
   "updates.releaseSourceLabel": "Kilde for versjoner",

@@ -640,6 +640,8 @@ export const sv: Record<TranslationKey, string> = {
   "updates.checkFailed": "Det gick inte att söka efter appuppdateringar.",
   "updates.checkForUpdates": "Sök efter uppdateringar",
   "updates.checkReleasesFailed": "Det gick inte att söka efter Qortium Home-utgåvor.",
+  "updates.qdnFetching": "En nyare utgåva är publicerad på QDN, men din nod hämtar den fortfarande. Kontrollera igen om en stund.",
+  "updates.qdnFetchingNotice": "Din nod hämtar fortfarande QDN-kopian av den här utgåvan; tills den kommer sker nedladdningen från GitHub.",
   "updates.rateLimited": "GitHub begränsar just nu versionskontroller från den här anslutningen. Försök igen senare eller ladda ned från utgåvesidan.",
   "updates.releaseChannelDescription": "Stabila versioner, eller förhandsversioner för testning.",
   "updates.releaseSourceLabel": "Källa för versioner",

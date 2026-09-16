@@ -640,6 +640,8 @@ export const et: Record<TranslationKey, string> = {
   "updates.checkFailed": "Rakenduse uuendusi ei õnnestunud kontrollida.",
   "updates.checkForUpdates": "Kontrolli uuendusi",
   "updates.checkReleasesFailed": "Qortium Home'i väljalaskeid ei õnnestunud kontrollida.",
+  "updates.qdnFetching": "QDN-is on avaldatud uuem versioon, kuid sinu sõlm alles laadib seda. Kontrolli hetke pärast uuesti.",
+  "updates.qdnFetchingNotice": "Sinu sõlm alles laadib selle versiooni QDN-koopiat; kuni see saabub, tuleb allalaadimine GitHubist.",
   "updates.rateLimited": "GitHub piirab praegu väljalasete kontrolli sellest ühendusest. Proovi hiljem uuesti või laadi alla väljalasete lehelt.",
   "updates.releaseChannelDescription": "Stabiilsed väljalasked või eelväljalasked testimiseks.",
   "updates.releaseSourceLabel": "Väljalasete allikas",

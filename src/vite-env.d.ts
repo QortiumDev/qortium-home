@@ -382,6 +382,8 @@ type QortiumAppUpdateCheckResult = {
   currentVersion: string;
   message: string;
   platform: QortiumAppUpdatePlatform;
+  /** The node knows a newer QDN release it has not fetched yet. */
+  qdnFetching?: boolean;
   release?: QortiumAppUpdateRelease;
   status: QortiumAppUpdateStatus;
 };

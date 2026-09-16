@@ -640,6 +640,8 @@ export const es: Record<TranslationKey, string> = {
   "updates.checkFailed": "No se pudieron comprobar las actualizaciones de la aplicación.",
   "updates.checkForUpdates": "Buscar actualizaciones",
   "updates.checkReleasesFailed": "No se pudieron comprobar los lanzamientos de Qortium Home.",
+  "updates.qdnFetching": "Hay una versión más reciente publicada en QDN, pero tu nodo todavía la está descargando. Vuelve a comprobar en un momento.",
+  "updates.qdnFetchingNotice": "Tu nodo todavía está obteniendo la copia QDN de esta versión; hasta que llegue, la descarga viene de GitHub.",
   "updates.rateLimited": "GitHub está limitando las comprobaciones de versiones desde esta conexión por ahora. Inténtalo más tarde o descarga desde la página de versiones.",
   "updates.releaseChannelDescription": "Versiones estables o preliminares para pruebas.",
   "updates.releaseSourceLabel": "Origen de las versiones",

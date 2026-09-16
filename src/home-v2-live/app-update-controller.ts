@@ -58,6 +58,7 @@ function issueMessage(issue: HomeV2AppUpdateIssue | null) {
     case 'operation-in-progress': return t('home2.core.action.inProgress')
     case 'download-not-found': return t('updates.checkFailed')
     case 'rate-limited': return t('updates.rateLimited')
+    case 'qdn-fetching': return t('updates.qdnFetching')
     default: return t('updates.checkReleasesFailed')
   }
 }
@@ -115,11 +116,16 @@ function nativeCheckResult(result: QortiumAppUpdateCheckResult): HomeV2AppUpdate
     result.asset.size <= MAX_UPDATE_ASSET_BYTES
     ? { digestAvailable: true as const, name: result.asset.name, size: result.asset.size, source: assetSource }
     : null
+  const qdnFetching = result.qdnFetching === true
+  // A pending QDN fetch with nothing else to show is its own state, not "not
+  // found" — the desktop main process reports it the same way.
   const state = result.status === 'error'
     ? 'unavailable'
-    : result.status === 'available' && !trustedAsset
-      ? 'no-compatible-asset'
-      : result.status
+    : result.status === 'not-found' && qdnFetching
+      ? 'unavailable'
+      : result.status === 'available' && !trustedAsset
+        ? 'no-compatible-asset'
+        : result.status
   return {
     asset: trustedAsset,
     channel: result.channel,
@@ -132,9 +138,12 @@ function nativeCheckResult(result: QortiumAppUpdateCheckResult): HomeV2AppUpdate
         : state === 'unsupported'
           ? 'unsupported-platform'
           : state === 'unavailable'
-            ? (/\bHTTP (403|429)\b/.test(result.message) ? 'rate-limited' : 'release-unavailable')
+            ? result.status === 'not-found' && qdnFetching
+              ? 'qdn-fetching'
+              : (/\bHTTP (403|429)\b/.test(result.message) ? 'rate-limited' : 'release-unavailable')
             : null,
     platform: result.platform,
+    qdnFetching,
     release: trustedRelease
       ? {
           name: trustedRelease.name,
