@@ -1769,6 +1769,15 @@ before.
 
 ## Change Entries
 
+### 2026-09-17 - feat(qdn): allow session approval for Qortium publishing
+
+QDN apps can now ask once for permission to publish fee-free resources on
+Qortium for the current tab session. The approval is limited to the same app,
+account, publishing name, node route, and unlocked session; Home clears it when
+any of those bindings change. Qortal publishing, multi-resource publishing,
+deletions, payments, and every other transaction continue to ask each time,
+and publishing can never be allowed permanently.
+
 ### 2026-09-01 - feat(wallet): add Home-local foreign signing foundation
 
 Adds the private-key boundary needed to restore BTC, LTC, DOGE, DGB, RVN,

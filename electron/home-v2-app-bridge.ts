@@ -228,6 +228,7 @@ import {
   homeV2DurableAccountReadCapability,
   homeV2PermissionGrantKey,
   homeV2PermissionGrantFamily,
+  isHomeV2SessionPublishPermission,
   isHomeV2AccountReadAction,
   isHomeV2ChatSendAction,
   isHomeV2ForeignWalletPermissionAction,
@@ -1608,6 +1609,7 @@ async function requireAccountReadPermission(
     readonly hiddenCount?: number
     readonly fileName: string
     readonly operationLabel: string
+    readonly publisherName?: string
     readonly resourceCoordinate: string
     readonly routeLabel: string
     readonly size: number
@@ -1827,6 +1829,20 @@ async function requireAccountReadPermission(
         network: targetNetwork, tabId: context.tabId,
       })
     : () => true
+  const publishSession = isHomeV2SessionPublishPermission({
+    action,
+    protocol,
+    writeKind: writeDetails?.kind,
+  })
+  if (publishSession && (writeDetails?.kind !== 'publish' || !writeDetails.publisherName)) {
+    throw new Error('Qortium publish session scope requires an owned publishing name.')
+  }
+  const publishConsentCurrent = publishSession
+    ? sessionAccountReadGrants.capture({
+        family: 'PUBLISH_QDN_RESOURCE', hostWebContentsId: context.windowId,
+        network: targetNetwork, tabId: context.tabId,
+      })
+    : () => true
   const routeIndependent = action === 'GET_PENDING_TRANSACTIONS' ||
     action === 'FORGET_PENDING_TRANSACTION' ||
     (action === 'GET_USER_WALLET' && writeDetails?.kind === 'foreign-wallet-read')
@@ -1863,6 +1879,8 @@ async function requireAccountReadPermission(
           ? writeDetails.target
         : writeDetails?.kind === 'foreign-server'
           ? `foreign-server:${writeDetails.coin}`
+        : writeDetails?.kind === 'publish'
+          ? `publish-name:${writeDetails.publisherName ?? ''}`
         : ''
   const grantKey = homeV2PermissionGrantKey({
     accountId: context.accountId,
@@ -1884,7 +1902,7 @@ async function requireAccountReadPermission(
     // Naming the action here means no future edit to that payload can make one
     // approval cover a second signed message.
     action === 'SEND_MESSAGE' ||
-    (!isHomeV2AccountReadAction(action) && writeDetails?.kind === 'publish') ||
+    (!publishSession && !isHomeV2AccountReadAction(action) && writeDetails?.kind === 'publish') ||
     writeDetails?.kind === 'journal' ||
     // Minting writes load or remove a key on the user's own node. Neither is
     // ever retained as a session or durable grant: every one asks again.
@@ -2132,10 +2150,10 @@ async function requireAccountReadPermission(
                 writeOperationLabel: writeDetails.operationLabel,
                 writeRouteLabel: writeDetails.routeLabel,
                 // Report the value this function actually enforces instead of
-                // a hard-coded `true`. Publishing, PUBLISH_CHAT_ATTACHMENT and
-                // SAVE_CHAT_ATTACHMENT are not account-read actions, so
-                // singleRequestOnly stays true for them and their prompt keeps
-                // offering single-request only. The two attachment READS
+                // a hard-coded `true`. Fee-free Qortium PUBLISH_QDN_RESOURCE is
+                // the one publish action allowed to offer a tab-session scope;
+                // Qortal publishing, PUBLISH_CHAT_ATTACHMENT and
+                // SAVE_CHAT_ATTACHMENT remain single-request only. The two attachment READS
                 // (GET_CHAT_ATTACHMENT_STREAM_URL, OPEN_CHAT_ATTACHMENT_VIEWER)
                 // are account-read family members that this function has always
                 // allowed to hold a session grant; the flag was telling the
@@ -2315,9 +2333,18 @@ async function requireAccountReadPermission(
   } finally {
     if (ownsPendingDecision) pendingSessionGrantDecisions.delete(grantKey)
   }
+  // Coalescing concurrent requests is safe only when the user chose the
+  // session scope. "Allow once" belongs exclusively to the request that
+  // created the prompt; waiters must fail instead of silently borrowing it.
+  if (sharePendingDecision && !ownsPendingDecision && decision.approved && decision.scope === 'single-request') {
+    throw new Error('The single-request approval was used by another request.')
+  }
   if (!decision.approved) throw new Error('Account access was denied.')
   if (accountRatingSession && decision.scope !== 'single-request' && decision.scope !== 'session') {
     throw new Error('Account ratings require a single-request or session approval.')
+  }
+  if (publishSession && decision.scope !== 'single-request' && decision.scope !== 'session') {
+    throw new Error('Qortium publishing requires a single-request or session approval.')
   }
   const freshContext = getQdnViewContextForWebContents(sender)
   if (
@@ -2339,6 +2366,7 @@ async function requireAccountReadPermission(
     }
   }
   if (!ratingConsentCurrent()) throw new Error('The rating session changed before approval completed.')
+  if (!publishConsentCurrent()) throw new Error('The publishing session changed before approval completed.')
   // A durable grant must never fail the action the user just approved, and must
   // never be BELIEVED unless it actually stuck. Two distinct failure modes:
   //   - the write throws (an app key the capability store refuses outright,
@@ -3095,6 +3123,7 @@ async function publishHomeV2PublicPublishSource(
       operationLabel: publishRoute.authenticated
         ? 'Publish a QDN resource through your trusted node'
         : 'Publish a public QDN resource',
+      publisherName: request.resource.name,
       resourceCoordinate: `${request.resource.service}/${request.resource.name}/${request.resource.identifier ?? 'default'}`,
       routeLabel: `${node.mode} · ${node.nodeApiUrl} · ${homeV2QdnPublishLimitMessage(publishRoute.limit)}`,
       size: publishSize,
