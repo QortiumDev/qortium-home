@@ -56,7 +56,13 @@ export async function streamQdnAttestationArtifact(input: {
   readonly response: Response
 }): Promise<QdnStreamedArtifact> {
   if (input.expectedHash.byteLength !== 32) throw new Error('QDN builder returned an invalid artifact hash.')
-  const declaredHeader = input.response.headers.get('content-length')
+  // Fetch decodes HTTP content codings before exposing body bytes, while
+  // Content-Length still describes the encoded transport representation.
+  // Attestation is over the decoded artifact: always bound and hash those bytes.
+  const encoding = input.response.headers.get('content-encoding')?.trim().toLowerCase()
+  const declaredHeader = !encoding || encoding === 'identity'
+    ? input.response.headers.get('content-length')
+    : null
   const declared = declaredHeader === null ? null : Number(declaredHeader)
   if (declared !== null && Number.isFinite(declared) && declared > input.maximumBytes) {
     await input.response.body?.cancel()

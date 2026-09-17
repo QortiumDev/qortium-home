@@ -1769,6 +1769,18 @@ before.
 
 ## Change Entries
 
+### 2026-09-17 - fix(qdn): desktop publishing no longer rejects compressed attestation replies
+
+Publishing a QDN resource through a trusted node on desktop could stop before
+signing with "QDN attestation artifact has an invalid size." The node sends
+the artifact compressed, Home decompresses it, and the size check was
+comparing the compressed transport length against the decompressed bytes.
+Home now asks the node for an uncompressed reply, and when a reply is still
+compressed it verifies the decompressed artifact against the approved size
+cap and its signed content hash instead of the transport length. Android
+already behaved this way. Nothing about the approved-size limit or the
+content-hash check changed.
+
 ### 2026-09-17 - feat(qdn): allow session approval for Qortium publishing
 
 QDN apps can now ask once for permission to publish fee-free resources on

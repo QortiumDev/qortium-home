@@ -4,6 +4,8 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import nodePath from 'node:path'
 import { zipSync } from 'fflate'
+import { createServer } from 'node:http'
+import { gzipSync } from 'node:zlib'
 
 import { base58Encode } from './base58.js'
 import {
@@ -91,6 +93,50 @@ try {
     maximumBytes: encrypted.ciphertext.length - 1,
     response: new Response(encrypted.ciphertext),
   }), /exceeded the approved size/)
+
+  // Real Fetch reproduces Core's gzip response: the decoded body and retained
+  // wire Content-Length differ, even though the signed artifact is intact.
+  const encoded = gzipSync(metadataBytes)
+  assert.notEqual(encoded.length, metadataBytes.length)
+  const server = createServer((_request, reply) => {
+    reply.writeHead(200, { 'Content-Encoding': 'gzip', 'Content-Length': encoded.length })
+    reply.end(encoded)
+  })
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+  try {
+    const address = server.address()
+    assert(address && typeof address !== 'string')
+    const url = `http://127.0.0.1:${address.port}/metadata`
+    const decoded = await streamQdnAttestationArtifact({
+      destinationPath: nodePath.join(root, 'gzip-metadata.bin'),
+      expectedHash: hash(metadataBytes), maximumBytes: metadataBytes.length,
+      response: await fetch(url),
+    })
+    assert.equal(decoded.size, metadataBytes.length)
+    await assert.rejects(streamQdnAttestationArtifact({
+      destinationPath: nodePath.join(root, 'gzip-too-large.bin'),
+      expectedHash: hash(metadataBytes), maximumBytes: metadataBytes.length - 1,
+      response: await fetch(url),
+    }), /exceeded the approved size/)
+    await assert.rejects(streamQdnAttestationArtifact({
+      destinationPath: nodePath.join(root, 'gzip-wrong-hash.bin'),
+      expectedHash: hash(new Uint8Array([1, 2, 3])), maximumBytes: metadataBytes.length,
+      response: await fetch(url),
+    }), /did not match its signed content hash/)
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()))
+  }
+  await assert.rejects(streamQdnAttestationArtifact({
+    destinationPath: nodePath.join(root, 'identity-length-mismatch.bin'),
+    expectedHash: hash(metadataBytes), maximumBytes: metadataBytes.length + 1,
+    response: new Response(metadataBytes, {headers:{'Content-Encoding':'identity','Content-Length':String(metadataBytes.length + 1)}}),
+  }), /invalid size/)
+  await assert.rejects(streamQdnAttestationArtifact({
+    destinationPath: nodePath.join(root, 'empty-gzip-body.bin'),
+    expectedHash: hash(metadataBytes), maximumBytes: metadataBytes.length,
+    response: new Response(new Uint8Array(), {headers:{'Content-Encoding':'gzip','Content-Length':'20'}}),
+  }), /invalid size/)
+
 } finally {
   await rm(root, { force: true, recursive: true })
 }
