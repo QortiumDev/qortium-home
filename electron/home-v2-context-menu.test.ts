@@ -238,4 +238,16 @@ assert.match(androidHostSource, /ANDROID_CONTEXT_MENU_TIMEOUT_MS/)
 assert.match(androidHostSource, /activeTab\.context\.resourceLocation !== pending\.resourceLocation/)
 assert.match(androidHostSource, /pending\.resolve\(dismissedHomeV2ContextMenuResult\(\)\)/)
 
+// Every permission prompt the bridge raises first brings the Home window to
+// attention (restore / raise / flash, never stealing focus), so a prompt can
+// not wait unseen behind other windows (owner report 2026-09-16).
+{
+  const sends = desktopBridgeSource.match(/hostWindow\.webContents\.send\('home-v2-app:permission-request'/g) ?? []
+  const guarded = desktopBridgeSource.match(/bringPromptToAttention\(hostWindow\)\n\s*hostWindow\.webContents\.send\('home-v2-app:permission-request'/g) ?? []
+  assert.ok(sends.length >= 7, 'permission-request send sites present')
+  assert.equal(guarded.length, sends.length, 'every permission-request send is preceded by bringPromptToAttention')
+  assert.match(desktopBridgeSource, /function bringPromptToAttention\(hostWindow: BrowserWindow\)/)
+  assert.doesNotMatch(desktopBridgeSource.slice(desktopBridgeSource.indexOf('function bringPromptToAttention'), desktopBridgeSource.indexOf('async function requireAccountReadPermission')), /steal: true/, 'attention never steals focus')
+}
+
 console.log('Home v2 context menu contract tests passed.')

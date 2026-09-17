@@ -922,6 +922,7 @@ async function requireHomeV2NotificationPermission(
       resolve,
       timeout,
     })
+    bringPromptToAttention(hostWindow)
     hostWindow.webContents.send('home-v2-app:permission-request', {
       accountId: context.accountId,
       action: 'SHOW_NOTIFICATION',
@@ -986,6 +987,7 @@ async function requireHomeV2BookmarkManagerPermission(
       resolve,
       timeout,
     })
+    bringPromptToAttention(hostWindow)
     hostWindow.webContents.send('home-v2-app:permission-request', {
       accountId: context.accountId,
       action,
@@ -1073,6 +1075,7 @@ async function requireHomeV2NotificationManagerPermission(
       resolve,
       timeout,
     })
+    bringPromptToAttention(hostWindow)
     hostWindow.webContents.send('home-v2-app:permission-request', {
       accountId: context.accountId,
       action,
@@ -1308,6 +1311,7 @@ async function requestHomeV2HomeSettingsUpdateApproval(
       resolve,
       timeout,
     })
+    bringPromptToAttention(hostWindow)
     hostWindow.webContents.send('home-v2-app:permission-request', {
       accountId: context.accountId,
       action: 'UPDATE_HOME_SETTINGS',
@@ -1400,6 +1404,7 @@ async function handleHomeV2ExternalLinkAction(
       resolve,
       timeout,
     })
+    bringPromptToAttention(hostWindow)
     hostWindow.webContents.send('home-v2-app:permission-request', {
       accountId: context.accountId,
       action: HOME_V2_EXTERNAL_LINK_ACTION,
@@ -1559,6 +1564,26 @@ function liveResourceMatchesGrant(context: QdnViewContext): boolean {
     requestedUrl: null,
     resourceUrl: context.resourceUrl,
   })
+}
+
+/**
+ * A pending app prompt must not sit unseen. The renderer only shows it on
+ * the prompt's own (active) tab, so the remaining ways to miss it are the
+ * Home WINDOW being behind other windows or minimized — the case reported
+ * 2026-09-16, where a large attachment's publish prompt waited while the
+ * user watched "Sending". Restore and raise the window and ask the OS for
+ * attention; never steal focus from other applications (`focus({steal})`
+ * is reserved for an explicit user click, see the notification handler).
+ */
+function bringPromptToAttention(hostWindow: BrowserWindow) {
+  if (hostWindow.isDestroyed()) return
+  if (hostWindow.isMinimized()) hostWindow.restore()
+  if (!hostWindow.isVisible()) hostWindow.show()
+  if (!hostWindow.isFocused()) {
+    hostWindow.moveTop()
+    hostWindow.flashFrame(true)
+    hostWindow.once('focus', () => { if (!hostWindow.isDestroyed()) hostWindow.flashFrame(false) })
+  }
 }
 
 async function requireAccountReadPermission(
@@ -2034,7 +2059,8 @@ async function requireAccountReadPermission(
         resolve,
         timeout,
       })
-      hostWindow.webContents.send('home-v2-app:permission-request', {
+      bringPromptToAttention(hostWindow)
+    hostWindow.webContents.send('home-v2-app:permission-request', {
         accountId: context.accountId,
         action,
         appIdentityKey: context.resourceUrl ?? `home-v2-tab:${context.tabId}`,
@@ -5954,6 +5980,7 @@ async function requireWidgetPermission(
       resolve,
       timeout,
     })
+    bringPromptToAttention(hostWindow)
     hostWindow.webContents.send('home-v2-app:permission-request', {
       accountId: context.accountId,
       action: 'OPEN_AS_WIDGET',

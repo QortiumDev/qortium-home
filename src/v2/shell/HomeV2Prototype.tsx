@@ -1242,6 +1242,7 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
         onReload={props.onReload}
         navigationDisabled={!!overlayOwnerTabId}
         newTabPreference={props.newTabPreference}
+        attentionTabId={permissionOverlayTabId ?? null}
         activeTabOverlay={
           productState.destination === 'releases' && props.releaseNotesTarget
             ? {

@@ -131,6 +131,7 @@ export interface BrowserChromeProps {
   readonly onSelectAccount?: (accountId: string) => void
   /** The covering page's name and mark for the active tab (see TabStrip). */
   readonly activeTabOverlay?: { readonly label: string; readonly icon: ReactNode } | null
+  readonly attentionTabId?: TabId | null
   /**
    * Everything the node-status menus need to act rather than only report:
    * the Core manager and maintenance slices behind start/stop and updates,
@@ -276,6 +277,7 @@ export function BrowserChrome({
   rememberedUnlockAccountIds,
   onSelectAccount,
   activeTabOverlay,
+  attentionTabId = null,
   coreManagement,
   onConfigureCustomNode,
   onOpenCoreSettings,
@@ -568,6 +570,7 @@ export function BrowserChrome({
           loadVisibleAvatar={loadVisibleAvatar}
           onOpenGroupPicker={(position, groupKey) => setGroupPicker({ ...position, groupKey })}
           activeTabOverlay={activeTabOverlay}
+          attentionTabId={attentionTabId}
           condensed={tabStripCondensed}
           selectedAccountId={selectedAccountId}
           preferredAvatarNetwork={snapshot.nodes.qortium.mode !== 'disabled' ? 'qortium' : 'qortal'}

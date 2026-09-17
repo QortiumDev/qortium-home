@@ -97,6 +97,8 @@ export interface TabStripProps {
    * Presentation only; the product model still holds the covered tab.
    */
   readonly activeTabOverlay?: { readonly label: string; readonly icon: ReactNode } | null
+  /** Tab whose app is waiting on a permission prompt; marked so it cannot go unnoticed. */
+  readonly attentionTabId?: TabId | null
 }
 
 /** Below this strip width only the active tab's group is shown. */
@@ -339,6 +341,7 @@ export function TabStrip({
   onReorderGroup,
   onDetachGroup,
   activeTabOverlay,
+  attentionTabId = null,
 }: TabStripProps) {
   const grouping = { dashboardAccountId: selectedAccountId ?? null }
   const tabElements = useRef(new Map<string, HTMLDivElement>())
@@ -626,9 +629,10 @@ export function TabStrip({
       <div
         className={`home-v2-tab${
           entry.kind === 'internal' ? ' home-v2-tab--dashboard' : ''
-        }${isActive ? ' is-active' : ''}`}
+        }${isActive ? ' is-active' : ''}${attentionTabId === entry.id ? ' has-attention' : ''}`}
         key={key}
         data-tab-id={key}
+        data-tab-attention={attentionTabId === entry.id ? 'prompt' : undefined}
         data-internal-page={entry.kind === 'internal' ? entry.page : undefined}
         data-tab-overlay={overlay ? productState.transient ?? undefined : undefined}
         ref={registerTab(key)}
