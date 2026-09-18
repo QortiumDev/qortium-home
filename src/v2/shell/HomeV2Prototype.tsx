@@ -93,6 +93,7 @@ import type {
   HomeV2WindowBehaviorChange,
   HomeV2WindowBehaviorState,
 } from '../../home-v2-live/window-behavior-client'
+import type { HomeV2RemoteDebuggingState } from '../../home-v2-live/remote-debugging-client'
 import type { HomeV2OnChainCoreUpdates } from '../../home-v2-live/on-chain-core-update-controller'
 import {
   HomeV2ReleaseNotesPage,
@@ -164,6 +165,7 @@ export interface HomeV2PrototypeProps {
   readonly resolveAccountLabel?: (accountId: string) => string | null
   readonly notificationPolicy?: HomeV2NotificationPolicyState | null
   readonly windowBehavior?: HomeV2WindowBehaviorState | null
+  readonly remoteDebugging?: HomeV2RemoteDebuggingState | null
   readonly releaseNotesTarget?: HomeV2ReleaseNotesTarget | null
   readonly onboarding?: HomeV2OnboardingState
   readonly pinnedApps?: HomeV2PinnedAppsProps
@@ -300,6 +302,7 @@ export interface HomeV2PrototypeProps {
   ) => void
   readonly onSetAppNotifications?: (enabled: boolean) => Promise<void>
   readonly onSetWindowBehavior?: (change: HomeV2WindowBehaviorChange) => Promise<void>
+  readonly onSetRemoteDebugging?: (enabled: boolean) => Promise<void>
   readonly onOpenReleaseNotes?: (target: HomeV2ReleaseNotesTarget) => void
   readonly onPinTabToDashboard?: (tabId: ProductState['tabs'][number]['id']) => void | Promise<void>
   /** Reopens the most recently closed tab, from the tab context menu. */
@@ -1434,6 +1437,8 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
                 onSetAppNotifications={props.onSetAppNotifications}
                 windowBehavior={props.windowBehavior}
                 onSetWindowBehavior={props.onSetWindowBehavior}
+                remoteDebugging={props.remoteDebugging}
+                onSetRemoteDebugging={props.onSetRemoteDebugging}
                 onOpenReleaseNotes={props.onOpenReleaseNotes}
                 onRestartWelcome={props.onRestartWelcome}
                 requestedSection={(() => {

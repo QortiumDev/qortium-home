@@ -1,8 +1,6 @@
 package org.qortium.home;
 
-import android.content.pm.ApplicationInfo;
 import android.os.Bundle;
-import android.webkit.WebView;
 import androidx.activity.EdgeToEdge;
 import com.getcapacitor.BridgeActivity;
 
@@ -12,7 +10,9 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         HomeV2ProfileRecoveryPlugin.restoreIfRequested(this);
         HomeV2ProfileRecoveryPlugin.ensureBackupBeforeRenderer(this);
-        WebView.setWebContentsDebuggingEnabled((getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0);
+        // Debuggable builds: always on. Release builds: the persisted Settings >
+        // Developer switch (RemoteDebuggingPlugin), default off.
+        RemoteDebuggingPlugin.applyOnStartup(this);
         registerPlugin(QdnRenderProxyPlugin.class);
         registerPlugin(HomeV2SecureStoragePlugin.class);
         registerPlugin(HomeV2BoundedHttpPlugin.class);
@@ -23,6 +23,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(UpdateInstallerPlugin.class);
         registerPlugin(ExternalLinkPlugin.class);
         registerPlugin(WalletBackupPlugin.class);
+        registerPlugin(RemoteDebuggingPlugin.class);
         super.onCreate(savedInstanceState);
         // Opt into edge-to-edge so the safe-area plugin reports real insets.
         // Must run AFTER super.onCreate(): calling it earlier inflates the decor

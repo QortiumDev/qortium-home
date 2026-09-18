@@ -91,7 +91,8 @@ import {
   registerQdnIpcHandlers,
   sweepOrphanedQdnPreviewStagingDirs,
 } from './qdn.js';
-import { registerQdnViewIpcHandlers, syncQdnViewsForWindowZoom } from './qdn-views.js';
+import { getQdnViewDeveloperToolsCandidates, registerQdnViewIpcHandlers, syncQdnViewsForWindowZoom } from './qdn-views.js';
+import { resolveDeveloperToolsTarget, toggleWebContentsDevTools, type DeveloperToolsScope } from './developer-tools.js';
 import { registerQdnManagerPermissionStoreIpcHandlers } from './qdn-manager-permission-store.js';
 import { shouldLoadRendererFromDist } from './renderer-entry.js';
 import { destroyTray, getTray, installTray } from './tray.js';
@@ -954,6 +955,17 @@ function createWindow(options: CreateWindowOptions = {}) {
 
     const primaryModifier = process.platform === 'darwin' ? input.meta : input.control;
 
+    // F12 is the second developer-tools key (the View menu item carries
+    // Ctrl/Cmd+Shift+I, and a menu item holds one accelerator). This handler
+    // only sees keys while the shell renderer has focus, i.e. while the active
+    // tab is a shell page; an app view with focus handles F12 itself in
+    // qdn-views. Same resolution as the menu item either way.
+    if (input.key === 'F12' && !primaryModifier && !input.alt && !input.shift) {
+      toggleDeveloperTools('tab', window);
+      event.preventDefault();
+      return;
+    }
+
     if (!primaryModifier || input.alt || input.shift) {
       return;
     }
@@ -1002,12 +1014,26 @@ function sendMenuCommand(command: MenuCommand) {
   BrowserWindow.getFocusedWindow()?.webContents.send('menu:command', command);
 }
 
+// "This tab" is the app view the window currently shows; when it shows none
+// (dashboard, settings, a viewer page) the tab IS the shell renderer, which is
+// also what "Home" always means. See electron/developer-tools.ts.
+function toggleDeveloperTools(scope: DeveloperToolsScope, window = BrowserWindow.getFocusedWindow()) {
+  if (!window || window.isDestroyed()) {
+    return;
+  }
+
+  const target = resolveDeveloperToolsTarget(scope, getQdnViewDeveloperToolsCandidates(window));
+  toggleWebContentsDevTools(target.kind === 'app-view' ? target.view.webContents : window.webContents);
+}
+
 const DEFAULT_MENU_LABELS = {
   back: 'Back',
   closeTab: 'Close Tab',
   closeWindow: 'Close Window',
   copy: 'Copy',
   cut: 'Cut',
+  developerToolsHome: 'Developer Tools for Home',
+  developerToolsTab: 'Developer Tools for This Tab',
   edit: 'Edit',
   file: 'File',
   focusAddressBar: 'Focus Address Bar',
@@ -1143,6 +1169,18 @@ function buildApplicationMenu() {
         },
         { type: 'separator' },
         { role: 'togglefullscreen', label: menuLabels.toggleFullScreen },
+        { type: 'separator' },
+        {
+          label: menuLabels.developerToolsTab,
+          // F12 is the second key for this item; see the before-input-event
+          // handlers in createWindow (shell) and qdn-views (app view).
+          accelerator: 'CommandOrControl+Shift+I',
+          click: () => toggleDeveloperTools('tab'),
+        },
+        {
+          label: menuLabels.developerToolsHome,
+          click: () => toggleDeveloperTools('home'),
+        },
       ],
     },
     {

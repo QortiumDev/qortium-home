@@ -46,6 +46,7 @@ import {
 } from './qdn-view-fullscreen.js';
 import { isWidgetTabId } from './widget-registry.js';
 import { resetZoom, zoomIn, zoomOut } from './zoom.js';
+import { toggleWebContentsDevTools, type DeveloperToolsViewCandidate } from './developer-tools.js';
 import {
   HOME_V2_CONTEXT_MENU_VERSION,
   getHomeV2ContextMenuItems,
@@ -1077,6 +1078,25 @@ export function getQdnViewContextForTab(
   };
 }
 
+// The app views one host window holds, reduced to what the developer-tools
+// resolver (electron/developer-tools.ts) needs to pick "this tab": Home shows
+// at most one app view per window, so the visible live one is the active tab.
+// Keyed by the host window's webContents id, like every other lookup here.
+export function getQdnViewDeveloperToolsCandidates(
+  window: BrowserWindow,
+): readonly (DeveloperToolsViewCandidate & { readonly webContents: WebContents })[] {
+  if (window.isDestroyed()) return [];
+  const windowViews = qdnViewsByWindow.get(window.webContents.id);
+  if (!windowViews) return [];
+  return Array.from(windowViews.values(), (entry) => ({
+    destroyed: entry.view.webContents.isDestroyed(),
+    tabId: entry.tabId,
+    visible: isQdnNativeViewVisible(entry.view, entry.requestedVisible),
+    webContents: entry.view.webContents,
+    widget: isWidgetTabId(entry.tabId),
+  }));
+}
+
 export function syncWidgetQdnViewState(value: unknown) {
   if (!isRecord(value)) throw new Error('Widget runtime state is required.');
   const displaySettings = sanitizeDisplaySettings(value.displaySettings);
@@ -1163,6 +1183,13 @@ function resolveQdnLinkResourceTarget(linkURL: string): HomeV2ContextMenuTarget 
 // silently truncated, so the user is never handed a partial copy.
 const MAX_QDN_SELECTION_COPY_LENGTH = 100_000;
 
+// The native menu's own extra item. "Inspect element" is a developer action
+// on THIS view's webContents, so it is a separate kind rather than a shared
+// backend operation: it never leaves the view and touches no Home state.
+type QdnViewNativeMenuOperation =
+  | HomeV2ContextMenuOperation
+  | { readonly kind: 'inspect-element'; readonly x: number; readonly y: number };
+
 function showQdnViewLinkContextMenu(entry: QdnViewEntry, params: Electron.ContextMenuParams) {
   // Widget views and the shell renderer never get this menu; guarded by the
   // caller, re-checked here so the helper is safe on its own.
@@ -1172,7 +1199,7 @@ function showQdnViewLinkContextMenu(entry: QdnViewEntry, params: Electron.Contex
   const selectionText = typeof params.selectionText === 'string' ? params.selectionText.trim() : '';
 
   const template: MenuItemConstructorOptions[] = [];
-  let selectedOperation: HomeV2ContextMenuOperation | null = null;
+  let selectedOperation: QdnViewNativeMenuOperation | null = null;
 
   const resourceTarget = linkURL ? resolveQdnLinkResourceTarget(linkURL) : null;
   if (resourceTarget) {
@@ -1201,12 +1228,26 @@ function showQdnViewLinkContextMenu(entry: QdnViewEntry, params: Electron.Contex
     });
   }
 
-  // Plain page content with neither a qdn/qortal link nor a selection shows no
-  // menu at all — the app keeps its normal (menu-less) behavior.
-  if (template.length === 0) return;
-
   const anchor: HomeV2ContextMenuAnchor | null =
     Number.isFinite(params.x) && Number.isFinite(params.y) ? { x: params.x, y: params.y } : null;
+
+  // Developer tools for the element under the pointer, on every app tab. The
+  // coordinates come from the trusted event params, in this view's own
+  // coordinate space, which is exactly what inspectElement takes. Plain page
+  // content (no link, no selection) therefore now gets a one-item menu rather
+  // than none.
+  if (anchor) {
+    if (template.length > 0) template.push({ type: 'separator' });
+    const { x, y } = anchor;
+    template.push({
+      label: 'Inspect Element',
+      click: () => {
+        selectedOperation = { kind: 'inspect-element', x, y };
+      },
+    });
+  }
+
+  if (template.length === 0) return;
   const popupHost = getQdnViewContextMenuPopupHost(entry.view.webContents, anchor);
   if (!popupHost) return;
 
@@ -1247,7 +1288,9 @@ function showQdnViewLinkContextMenu(entry: QdnViewEntry, params: Electron.Contex
       ) {
         return;
       }
-      if (operation.kind === 'copy') {
+      if (operation.kind === 'inspect-element') {
+        entry.view.webContents.inspectElement(operation.x, operation.y);
+      } else if (operation.kind === 'copy') {
         clipboard.writeText(operation.value);
       } else {
         sendQdnViewLinkOpen(entry, operation.address, capturedResourceUrl);
@@ -1387,6 +1430,18 @@ function applyViewGuards(entry: QdnViewEntry) {
     }
 
     const primaryModifier = process.platform === 'darwin' ? input.meta : input.control;
+
+    // F12 toggles this app's own developer tools (the View menu's "for this
+    // tab" item carries Ctrl/Cmd+Shift+I; a menu item holds one accelerator,
+    // so the second key is handled here like the zoom keys are). The view has
+    // OS keyboard focus while it is on screen, so the key never reaches the
+    // shell window's handler. Same target the menu item resolves to: this
+    // view is the visible one of its window, widget or tab alike.
+    if (input.key === 'F12' && !primaryModifier && !input.alt && !input.shift) {
+      toggleWebContentsDevTools(entry.view.webContents);
+      event.preventDefault();
+      return;
+    }
 
     if (!primaryModifier || input.alt) {
       return;

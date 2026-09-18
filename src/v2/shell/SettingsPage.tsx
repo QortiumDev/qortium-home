@@ -38,6 +38,7 @@ import type {
   HomeV2WindowBehaviorChange,
   HomeV2WindowBehaviorState,
 } from '../../home-v2-live/window-behavior-client'
+import type { HomeV2RemoteDebuggingState } from '../../home-v2-live/remote-debugging-client'
 import type { HomeV2OnChainCoreUpdates } from '../../home-v2-live/on-chain-core-update-controller'
 import { OnChainCoreUpdateSettings } from './OnChainCoreUpdateSettings'
 import { I2pCoreHealthDetails, NodeModeSelect } from './HomeV2NodeCoreSection'
@@ -119,9 +120,16 @@ export interface SettingsPageProps extends AppearanceSettingsPageProps {
   readonly resolveAccountLabel?: (accountId: string) => string | null
   readonly notificationPolicy?: HomeV2NotificationPolicyState | null
   readonly windowBehavior?: HomeV2WindowBehaviorState | null
+  /**
+   * Android only: the WebView remote-debugging switch. Null (or absent) on
+   * desktop and in the browser preview, which keeps the Developer group off
+   * those hosts entirely — desktop has real developer tools instead.
+   */
+  readonly remoteDebugging?: HomeV2RemoteDebuggingState | null
   readonly requestedSection?: HomeV2SettingsSectionTarget
   readonly onSetAppNotifications?: (enabled: boolean) => Promise<void>
   readonly onSetWindowBehavior?: (change: HomeV2WindowBehaviorChange) => Promise<void>
+  readonly onSetRemoteDebugging?: (enabled: boolean) => Promise<void>
   // Carries the PRODUCT, not just a tag. It used to be a bare tagName, which
   // is why every release-notes link in Home 2 could only ever mean the Home
   // app: the product was hard-coded at the one call site that built the
@@ -327,6 +335,76 @@ function WindowBehaviorSettings({
   )
 }
 
+/**
+ * Settings > General > Developer: the Android WebView remote-debugging switch.
+ *
+ * The flag is process-wide on Android (the shell and every app tab share the
+ * one WebView), so what it exposes is every tab's context to chrome://inspect
+ * over USB — acceptable for an explicit, default-off developer opt-in. The
+ * host owns and persists the value; this group shows what it reported and
+ * re-renders on what a change returns. A debuggable build reports always-on
+ * and the switch is shown checked and read-only.
+ */
+function RemoteDebuggingSettings({
+  remoteDebugging,
+  onSetRemoteDebugging,
+}: Pick<SettingsPageProps, 'remoteDebugging' | 'onSetRemoteDebugging'>) {
+  const [status, setStatus] = useState<'idle' | 'saving' | 'error'>('idle')
+
+  // Android only: absent elsewhere rather than disabled.
+  if (!remoteDebugging) return null
+
+  const apply = async (enabled: boolean) => {
+    if (!onSetRemoteDebugging || status === 'saving') return
+    setStatus('saving')
+    try {
+      await onSetRemoteDebugging(enabled)
+      setStatus('idle')
+    } catch {
+      setStatus('error')
+    }
+  }
+
+  return (
+    <div className="home-v2-developer-settings">
+      <div className="home-v2-setting-group-heading">
+        <strong>{t('home2.settings.developer')}</strong>
+        <span>{t('home2.settings.developerDescription')}</span>
+      </div>
+      <div className="home-v2-setting-row" data-home-v2-developer-setting="remote-debugging">
+        <div className="home-v2-setting-row__copy">
+          <strong>{t('home2.settings.remoteDebugging')}</strong>
+          <span>{t('home2.settings.remoteDebuggingDescription')}</span>
+          {remoteDebugging.alwaysOn ? (
+            <span>{t('home2.settings.remoteDebuggingAlwaysOn')}</span>
+          ) : status === 'saving' ? (
+            <span role="status">{t('common.saving')}</span>
+          ) : status === 'error' ? (
+            <span role="alert">{t('common.error')}</span>
+          ) : null}
+        </div>
+        <div className="home-v2-setting-row__control">
+          <label>
+            <input
+              aria-label={t('home2.settings.remoteDebugging')}
+              checked={remoteDebugging.enabled}
+              disabled={
+                remoteDebugging.alwaysOn || !onSetRemoteDebugging || status === 'saving'
+              }
+              role="switch"
+              type="checkbox"
+              onChange={(event) => void apply(event.target.checked)}
+            />
+            {t(
+              remoteDebugging.enabled ? 'home2.settings.enabled' : 'home2.settings.disabled',
+            )}
+          </label>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function GeneralSettings({
   nodes,
   newTabPreference,
@@ -340,6 +418,8 @@ function GeneralSettings({
   startPageCount,
   windowBehavior,
   onSetWindowBehavior,
+  remoteDebugging,
+  onSetRemoteDebugging,
 }: Pick<
   SettingsPageProps,
   | 'newTabPreference'
@@ -354,6 +434,8 @@ function GeneralSettings({
   | 'startPageCount'
   | 'windowBehavior'
   | 'onSetWindowBehavior'
+  | 'remoteDebugging'
+  | 'onSetRemoteDebugging'
 >) {
   const [selectedKind, setSelectedKind] = useState(newTabPreference.kind)
   const [customAddress, setCustomAddress] = useState(
@@ -537,6 +619,10 @@ function GeneralSettings({
         windowBehavior={windowBehavior}
         onSetWindowBehavior={onSetWindowBehavior}
       />
+      <RemoteDebuggingSettings
+        remoteDebugging={remoteDebugging}
+        onSetRemoteDebugging={onSetRemoteDebugging}
+      />
       <div className="home-v2-setting-row">
         <div className="home-v2-setting-row__copy">
           <strong>{t('welcome.restart')}</strong>
@@ -707,6 +793,8 @@ export function SettingsPage(props: SettingsPageProps) {
               startPageCount={props.startPageCount}
               windowBehavior={props.windowBehavior}
               onSetWindowBehavior={props.onSetWindowBehavior}
+              remoteDebugging={props.remoteDebugging}
+              onSetRemoteDebugging={props.onSetRemoteDebugging}
             />
           ) : activeSection === 'core' &&
             (props.coreManagement?.available ||

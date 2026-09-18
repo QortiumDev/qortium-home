@@ -32,6 +32,27 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## feat: developer tools for app tabs and Home, plus an Android remote-debugging switch
+
+2026-09-18
+
+App developers testing their work in Home had no console to look at: Home
+never turned Chromium's developer tools off, but its own View menu had no way
+to open them, and the standard Electron shortcut would have been the wrong
+tool anyway, because each app runs in its own separate view rather than in
+Home's window. The desktop View menu now ends with a "Developer Tools for
+This Tab" item (Ctrl/Cmd+Shift+I or F12) that opens a detached developer
+tools window for whichever app is currently showing - or for Home's own page
+when the active tab is the dashboard, Settings, or a viewer - and a
+"Developer Tools for Home" item for Home's own interface regardless of what
+the tab shows. Right-clicking inside an app also offers "Inspect Element" for
+the thing under the pointer. On Android, where the system WebView has no
+built-in console, Settings > General gains a Developer group with an
+"Allow remote debugging of app tabs" switch, off by default and remembered
+across restarts; with it on, a USB-connected desktop Chrome can inspect Home
+and its app tabs through chrome://inspect, exactly as debug builds already
+allowed. The seven new labels are translated into all 23 languages.
+
 ## chore: sync the QDN service list with Core and re-verify version/chain-hash parity
 
 2026-09-18
