@@ -32,6 +32,23 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## release: prepare home 2.1.0-beta.12
+
+2026-09-18
+
+Prepare the twelfth Home 2.1 public testing prerelease. It carries what
+merged since beta.11: developer tools for app tabs and Home (Ctrl+Shift+I,
+F12, Inspect Element, and an Android remote-debugging switch), a remote
+Core's I2P transport shown from the node's own status instead of "Not
+installed", tab labels that name the app rather than the network, the QDN
+service list and chain-config hash exclusions brought back in line with
+Core, session approval for fee-free Qortium publishing with the desktop
+compressed-attestation fix, apps saving bytes through Home's save dialog,
+and a pending app prompt bringing Home forward. Android advances to code 54
+so it can update beta.11 and every earlier package. Stable users remain on
+Home 1.8.0. The beta testing guide gains the beta.12 item. No runtime
+source changes in this entry.
+
 ## feat: developer tools for app tabs and Home, plus an Android remote-debugging switch
 
 2026-09-18
@@ -110,6 +127,31 @@ was — on the tab's own mark. A title that is only the network word, or one
 where the word is part of a longer name, is left untouched, and an app's unread
 counter such as "(3)" is kept in front of the shortened name. The change sits
 in the shared tab model, so desktop and Android label tabs the same way.
+
+## fix(qdn): desktop publishing no longer rejects compressed attestation replies
+
+2026-09-17
+
+Publishing a QDN resource through a trusted node on desktop could stop before
+signing with "QDN attestation artifact has an invalid size." The node sends
+the artifact compressed, Home decompresses it, and the size check was
+comparing the compressed transport length against the decompressed bytes.
+Home now asks the node for an uncompressed reply, and when a reply is still
+compressed it verifies the decompressed artifact against the approved size
+cap and its signed content hash instead of the transport length. Android
+already behaved this way. Nothing about the approved-size limit or the
+content-hash check changed.
+
+## feat(qdn): allow session approval for Qortium publishing
+
+2026-09-17
+
+QDN apps can now ask once for permission to publish fee-free resources on
+Qortium for the current tab session. The approval is limited to the same app,
+account, publishing name, node route, and unlocked session; Home clears it when
+any of those bindings change. Qortal publishing, multi-resource publishing,
+deletions, payments, and every other transaction continue to ask each time,
+and publishing can never be allowed permanently.
 
 ## fix: a pending app permission prompt brings Home forward and marks its tab
 
@@ -1847,27 +1889,6 @@ alike. The publish actions themselves still refuse inline bytes exactly as
 before.
 
 ## Change Entries
-
-### 2026-09-17 - fix(qdn): desktop publishing no longer rejects compressed attestation replies
-
-Publishing a QDN resource through a trusted node on desktop could stop before
-signing with "QDN attestation artifact has an invalid size." The node sends
-the artifact compressed, Home decompresses it, and the size check was
-comparing the compressed transport length against the decompressed bytes.
-Home now asks the node for an uncompressed reply, and when a reply is still
-compressed it verifies the decompressed artifact against the approved size
-cap and its signed content hash instead of the transport length. Android
-already behaved this way. Nothing about the approved-size limit or the
-content-hash check changed.
-
-### 2026-09-17 - feat(qdn): allow session approval for Qortium publishing
-
-QDN apps can now ask once for permission to publish fee-free resources on
-Qortium for the current tab session. The approval is limited to the same app,
-account, publishing name, node route, and unlocked session; Home clears it when
-any of those bindings change. Qortal publishing, multi-resource publishing,
-deletions, payments, and every other transaction continue to ask each time,
-and publishing can never be allowed permanently.
 
 ### 2026-09-01 - feat(wallet): add Home-local foreign signing foundation
 
@@ -6339,7 +6360,6 @@ had quietly grown two different answers to the same question, which is how this
 was missed for a release. A test now fails if either of them goes back to
 answering it alone.
 
-
 ### 2026-07-22 - fix(qdn): publish to a Qortium Core on another machine
 
 Publishing to QDN only worked when Qortium Core was running on the same machine
@@ -7026,14 +7046,12 @@ connection-error handling no longer re-closes a socket that is already
 failing, and a failed connection now goes straight back onto the normal
 reconnect schedule.
 
-
 ### 2026-07-14 - release: prepare home 1.4.1
 
 Bumps Qortium Home to 1.4.1 with Android versionCode 29 for the next
 prerelease. This release adds the first-run Welcome setup for new installs,
 the Fun display style with protections for privileged QDN actions, and
 Home-managed Java 25 with visible opt-in updates.
-
 
 ### 2026-07-14 - tests: refresh desktop smoke checks for current QDN behavior
 
@@ -7043,7 +7061,6 @@ what live autocomplete really does after Tab-completing "qdn://" — keep
 suggesting the next segment (QDN services) instead of closing the list — and
 the QDN API check now expects render links that carry the identifier as part
 of the path. No application behavior changed.
-
 
 ### 2026-07-14 - home: first-run welcome setup
 
