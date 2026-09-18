@@ -5,9 +5,10 @@ import {
   toggleWebContentsDevTools,
 } from './developer-tools.js';
 
-const hidden = { destroyed: false, tabId: 'tab-hidden', visible: false };
-const shown = { destroyed: false, tabId: 'tab-shown', visible: true };
-const gone = { destroyed: true, tabId: 'tab-gone', visible: true };
+const hidden = { destroyed: false, tabId: 'tab-hidden', visible: false, widget: false };
+const shown = { destroyed: false, tabId: 'tab-shown', visible: true, widget: false };
+const widget = { destroyed: false, tabId: 'widget:clock', visible: true, widget: true };
+const gone = { destroyed: true, tabId: 'tab-gone', visible: true, widget: false };
 
 // --- which view "this tab" means ------------------------------------------------
 
@@ -37,6 +38,16 @@ assert.deepEqual(
   resolveDeveloperToolsTarget('tab', []),
   { kind: 'shell' },
   '"this tab" falls back to the shell in a window with no app views at all',
+);
+assert.deepEqual(
+  resolveDeveloperToolsTarget('tab', [widget, hidden]),
+  { kind: 'shell' },
+  '"this tab" on the dashboard means the shell, not a visible widget view',
+);
+assert.deepEqual(
+  resolveDeveloperToolsTarget('tab', [widget, shown]),
+  { kind: 'app-view', view: shown },
+  '"this tab" prefers the shown app tab over a widget that is also on screen',
 );
 assert.deepEqual(
   resolveDeveloperToolsTarget('home', [hidden, shown]),

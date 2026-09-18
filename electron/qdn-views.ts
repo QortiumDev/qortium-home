@@ -1093,6 +1093,7 @@ export function getQdnViewDeveloperToolsCandidates(
     tabId: entry.tabId,
     visible: isQdnNativeViewVisible(entry.view, entry.requestedVisible),
     webContents: entry.view.webContents,
+    widget: isWidgetTabId(entry.tabId),
   }));
 }
 

@@ -28,6 +28,10 @@ export interface DeveloperToolsViewCandidate {
   readonly destroyed: boolean;
   readonly tabId: string;
   readonly visible: boolean;
+  /** Dashboard widgets are app views too, and are on screen while the
+   * dashboard (a shell page) is the active tab — so they never count as
+   * "this tab". F12 inside a widget still targets the widget. */
+  readonly widget: boolean;
 }
 
 export type DeveloperToolsTarget<T extends DeveloperToolsViewCandidate> =
@@ -38,7 +42,7 @@ export type DeveloperToolsTarget<T extends DeveloperToolsViewCandidate> =
 export function pickDeveloperToolsTabView<T extends DeveloperToolsViewCandidate>(
   views: readonly T[],
 ): T | null {
-  return views.find((view) => view.visible && !view.destroyed) ?? null;
+  return views.find((view) => view.visible && !view.destroyed && !view.widget) ?? null;
 }
 
 export function resolveDeveloperToolsTarget<T extends DeveloperToolsViewCandidate>(
