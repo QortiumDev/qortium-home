@@ -214,12 +214,18 @@ export const QORTIUM_CORE_DESCRIPTOR = {
     settingsRelativePath: path.join('preview', 'settings-preview.json'),
   },
   chain: {
+    // Must equal Core's own CHAIN_CONFIG_HASH_EXCLUDED_FIELDS exactly
+    // (org.qortium.block.BlockChain, commit 6eade4fc0) - anything Home
+    // excludes here that Core does not still exclude will make two
+    // previewchain.json files Home treats as "compatible" (same
+    // previewChainSha256) that Core's own getChainConfigHash() would treat as
+    // different configs. onlineAccountsSignatureV2Height and
+    // assetOrderBoundsHeight look like schedule metadata but Core hashes
+    // them; only these three are actually excluded.
     compatibilityHashExcludedFields: [
       'checkpoints',
       'featureTriggers',
       'featureTriggerScheduleEnforcementHeight',
-      'onlineAccountsSignatureV2Height',
-      'assetOrderBoundsHeight',
     ],
     fileName: 'previewchain.json',
     kind: 'file',

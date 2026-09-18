@@ -32,6 +32,30 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## chore: sync the QDN service list with Core and re-verify version/chain-hash parity
+
+2026-09-18
+
+A maintenance pass checked three places where Home has to keep in step with
+Qortium Core rather than its own logic. First, the lookup Home uses to find a
+QDN resource's numeric service id (used when rating a resource, setting an
+avatar, or displaying a resource's details) was missing 19 of Core's newer
+services, including every private/encrypted variant and Core's own
+system-only services - looking those up threw an "unknown service" error
+instead of working. Second, Home's list of chain-config fields that are
+allowed to differ between two otherwise-compatible Core releases had two
+extra entries Core does not actually treat as safe to ignore, which could
+have made Home reuse existing blockchain data across an update that Core
+itself would have considered incompatible; that list is now back down to
+exactly the three fields Core excludes. Third, the version parser Home reuses
+for both Qortium's and Qortal's Core builds only recognized Qortium's
+"qortium-" version prefix; it now also recognizes Qortal's own "qortal-"
+prefix. A stale planning note pointing at an unmerged Wallet app PR was also
+updated now that the PR has merged and the app has been republished. None of
+this changes what Home shows or does day to day; it closes gaps that would
+only have surfaced on newer/private QDN resources, an unusual chain-config
+change, or Qortal-specific version handling.
+
 ## fix: show the connected Core's I2P transport status instead of "Not installed" for a remote Core
 
 2026-09-18

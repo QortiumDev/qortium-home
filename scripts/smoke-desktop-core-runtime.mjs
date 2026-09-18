@@ -24,12 +24,14 @@ const packageJson = JSON.parse(readFileSync(path.join(repoRoot, 'package.json'),
 const commandTimeoutMs = 120_000;
 const appTimeoutMs = 90_000;
 const cdpTimeoutMs = 90_000;
+// Must equal Core's own CHAIN_CONFIG_HASH_EXCLUDED_FIELDS
+// (org.qortium.block.BlockChain) and electron/core-network-descriptor.ts's
+// compatibilityHashExcludedFields - see electron/chain-config-hash-parity.test.ts
+// for the exclusion-set fixture and canonicalization checks that run offline.
 const chainConfigHashExcludedFields = new Set([
   'checkpoints',
   'featureTriggers',
   'featureTriggerScheduleEnforcementHeight',
-  'onlineAccountsSignatureV2Height',
-  'assetOrderBoundsHeight',
 ]);
 
 function log(message) {
@@ -962,7 +964,11 @@ async function runCompatibleChainUpdateScenario() {
     const updatedCore = createPreviewInstall({
       installPath: updatePaths.coreInstall,
       previewChainOverrides: {
-        assetOrderBoundsHeight: 27000,
+        // Only vary fields Core actually excludes from the hash (see
+        // chainConfigHashExcludedFields above). assetOrderBoundsHeight and
+        // onlineAccountsSignatureV2Height are NOT excluded - varying either
+        // one is a genuine chain-config change and belongs in an
+        // incompatible-update scenario, not here.
         checkpoints: [
           {
             height: 24000,
@@ -970,7 +976,6 @@ async function runCompatibleChainUpdateScenario() {
           },
         ],
         featureTriggerScheduleEnforcementHeight: 99990,
-        onlineAccountsSignatureV2Height: 27000,
       },
       runtimePath: updatePaths.coreRuntime,
       tagName: 'vsmoke-preview.16',
