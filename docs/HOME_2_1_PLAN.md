@@ -84,9 +84,11 @@ media/document/archive overlays do not by themselves complete generic viewer
 tabs. Each change needs meaningful tests and relevant renderer/packaged checks;
 permission/signing changes additionally need independent security review.
 
-Wallet #17 already provides the proposed app-side capability integration and
-awaits its maintainer; do not duplicate it. Public-node foreign sends remain a
-separate planned Home/Core phase with a distinct `HOME_SIGNED_PUBLIC_NODE`
+Wallet #17 (QortiumDev/qortium-wallet, formerly walletium) already provides
+the proposed app-side capability integration; it merged 2026-09-16 and the QDN
+Wallet app was republished that same evening. Do not duplicate it. Public-node
+foreign sends remain a separate planned Home/Core phase with a distinct
+`HOME_SIGNED_PUBLIC_NODE`
 capability, operator/xpub disclosure, public endpoint limits, chain checks and
 ambiguous-broadcast handling. Do not enable this by allowlisting admin routes.
 Core already pins official Pirate v1.2.0 through #304; upstream #48–#50 are

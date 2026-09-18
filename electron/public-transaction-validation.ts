@@ -16,34 +16,58 @@ const ADDRESS_LENGTH = 25;
 const SIGNATURE_LENGTH = 64;
 const PAYMENT_LENGTH = ADDRESS_LENGTH + 8 + 8;
 
+// Every Core org.qortium.arbitrary.misc.Service enum constant, name -> id.
+// This map is used to look up the id of a resource's service for signing
+// (ratings, avatars, publishes) and display, so it must cover every service
+// Core can report on a resource - public or private - not just the ones
+// Home's own QDN viewer will browse (see qdn-public-services.ts for that
+// narrower, deliberately curated list).
+//
+// Source of truth: qortium-core src/main/java/org/qortium/arbitrary/misc/Service.java
+// at commit 6eade4fc0 (see that file for validation rules per service).
 const QDN_SERVICE_IDS: Readonly<Record<string, number>> = Object.freeze({
   APP: 1000,
+  APP_PRIVATE: 1001,
+  ARBITRARY_DATA: 100,
   ATTACHMENT: 130,
+  ATTACHMENT_PRIVATE: 131,
   AUDIO: 600,
+  AUDIO_PRIVATE: 601,
+  AUTO_UPDATE: 1,
   AUTO_UPDATE_BINARY: 2,
   BLOG: 700,
   BLOG_COMMENT: 778,
   BLOG_POST: 777,
+  BLOG_PRIVATE: 701,
   CHAIN_COMMENT: 1810,
   CHAIN_DATA: 160,
   CODE: 1400,
   COMMENT: 1800,
   COUPON: 1340,
   DATABASE: 1700,
+  DATABASE_PRIVATE: 1701,
   DOCUMENT: 800,
+  DOCUMENT_PRIVATE: 801,
   EXTENSION: 1420,
   FILE: 140,
+  FILE_PRIVATE: 141,
   FILES: 150,
+  FILES_PRIVATE: 151,
   GAME: 1500,
   GIF_REPOSITORY: 1200,
   GIT_REPOSITORY: 300,
+  GIT_REPOSITORY_PRIVATE: 301,
   IMAGE: 400,
   IMAGE_GALLERY: 430,
+  IMAGE_GALLERY_PRIVATE: 431,
+  IMAGE_PRIVATE: 401,
   ITEM: 1510,
   JSON: 1110,
   LIST: 900,
   MAIL: 1900,
+  MAIL_PRIVATE: 1901,
   MESSAGE: 1910,
+  MESSAGE_PRIVATE: 1911,
   METADATA: 1100,
   NFT: 1600,
   OFFER: 1330,
@@ -57,11 +81,15 @@ const QDN_SERVICE_IDS: Readonly<Record<string, number>> = Object.freeze({
   QCHAT_VOICE: 620,
   QCHAT_IMAGE: 420,
   SNAPSHOT: 1710,
+  SNAPSHOT_PRIVATE: 1711,
   STORE: 1300,
   THUMBNAIL: 410,
   VIDEO: 500,
+  VIDEO_PRIVATE: 501,
   VOICE: 630,
+  VOICE_PRIVATE: 631,
   WEBSITE: 200,
+  WEBSITE_PRIVATE: 201,
 });
 
 export function getStaticQdnServiceId(service: string) {

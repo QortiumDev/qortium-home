@@ -1,5 +1,16 @@
+// Both Core forks stamp their *live* build version with a network prefix at
+// runtime (Controller.VERSION_PREFIX + buildVersionProperty): Qortium's is
+// "qortium-", Qortal's own is "qortal-" (confirmed against both forks'
+// Controller.java). The jar's bundled build.properties resource itself is
+// unprefixed - core-jar-identity.ts reads that file directly, so its
+// buildVersion never carries either prefix - but this parser is exported and
+// reused by Qortal-aware code (electron/qortal-release-policy.ts) as a
+// general "Core version string" parser, not a Qortium-only one, so it must
+// not silently mis-parse a genuinely "qortal-"-prefixed value (e.g. Core's
+// own /admin/info buildVersion, or a future caller that reads it) the way it
+// would have before this fix, which only stripped "qortium-".
 export function getCoreSemver(value: string | null | undefined) {
-  const normalized = value?.trim().replace(/^qortium-/i, '').replace(/^v/i, '');
+  const normalized = value?.trim().replace(/^(?:qortium|qortal)-/i, '').replace(/^v/i, '');
 
   if (!normalized) {
     return null;

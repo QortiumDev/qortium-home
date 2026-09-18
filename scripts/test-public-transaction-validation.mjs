@@ -13,6 +13,8 @@ import {
   assertPublicUpdateNameTransaction,
   assertPublicUpdatePollTransaction,
   assertPublicVoteOnPollTransaction,
+  getAvatarQdnServiceId,
+  getStaticQdnServiceId,
 } from '../dist-electron/public-transaction-validation.js';
 import { parsePublicPollCapabilities } from '../dist-electron/public-poll-capabilities.js';
 import { QDN_PUBLIC_NODE_BRIDGE_ACTIONS } from '../dist-electron/qdn-app-actions.js';
@@ -469,4 +471,139 @@ assert.throws(() => assertPublicBuyNameTransaction(concat(common(7), sized('alic
   assert.throws(() => assertUnsignedHomeV2QortiumTransferAssetTransaction(transferBytes, tExpected({ assetId: 8 })), /asset/);
 }
 
-console.log('Public transaction validation tests passed.');
+// getStaticQdnServiceId's QDN_SERVICE_IDS map must cover every Core
+// org.qortium.arbitrary.misc.Service constant - public and private - because
+// it is used to look up the id of *any* resource a rating, avatar or publish
+// request references, not just the services Home's own viewer will browse
+// (electron/qdn-public-services.ts owns that narrower whitelist and is
+// covered separately by electron/qdn-public-services.test.ts).
+//
+// Fixture: every Service constant name -> id, transcribed from
+// qortium-core src/main/java/org/qortium/arbitrary/misc/Service.java
+// at commit 6eade4fc0. Keep this in sync when Core adds a service.
+const CORE_QDN_SERVICE_IDS = {
+  APP: 1000,
+  APP_PRIVATE: 1001,
+  ARBITRARY_DATA: 100,
+  ATTACHMENT: 130,
+  ATTACHMENT_PRIVATE: 131,
+  AUDIO: 600,
+  AUDIO_PRIVATE: 601,
+  AUTO_UPDATE: 1,
+  AUTO_UPDATE_BINARY: 2,
+  BLOG: 700,
+  BLOG_COMMENT: 778,
+  BLOG_POST: 777,
+  BLOG_PRIVATE: 701,
+  CHAIN_COMMENT: 1810,
+  CHAIN_DATA: 160,
+  CODE: 1400,
+  COMMENT: 1800,
+  COUPON: 1340,
+  DATABASE: 1700,
+  DATABASE_PRIVATE: 1701,
+  DOCUMENT: 800,
+  DOCUMENT_PRIVATE: 801,
+  EXTENSION: 1420,
+  FILE: 140,
+  FILE_PRIVATE: 141,
+  FILES: 150,
+  FILES_PRIVATE: 151,
+  GAME: 1500,
+  GIF_REPOSITORY: 1200,
+  GIT_REPOSITORY: 300,
+  GIT_REPOSITORY_PRIVATE: 301,
+  IMAGE: 400,
+  IMAGE_GALLERY: 430,
+  IMAGE_GALLERY_PRIVATE: 431,
+  IMAGE_PRIVATE: 401,
+  ITEM: 1510,
+  JSON: 1110,
+  LIST: 900,
+  MAIL: 1900,
+  MAIL_PRIVATE: 1901,
+  MESSAGE: 1910,
+  MESSAGE_PRIVATE: 1911,
+  METADATA: 1100,
+  NFT: 1600,
+  OFFER: 1330,
+  PLAYLIST: 910,
+  PLUGIN: 1410,
+  PODCAST: 640,
+  PRODUCT: 1310,
+  QCHAT_ATTACHMENT: 120,
+  QCHAT_ATTACHMENT_PRIVATE: 121,
+  QCHAT_AUDIO: 610,
+  QCHAT_VOICE: 620,
+  QCHAT_IMAGE: 420,
+  SNAPSHOT: 1710,
+  SNAPSHOT_PRIVATE: 1711,
+  STORE: 1300,
+  THUMBNAIL: 410,
+  VIDEO: 500,
+  VIDEO_PRIVATE: 501,
+  VOICE: 630,
+  VOICE_PRIVATE: 631,
+  WEBSITE: 200,
+  WEBSITE_PRIVATE: 201,
+};
+
+for (const [service, id] of Object.entries(CORE_QDN_SERVICE_IDS)) {
+  assert.equal(
+    getStaticQdnServiceId(service),
+    id,
+    `getStaticQdnServiceId(${service}) should resolve to Core's id ${id}.`,
+  );
+}
+
+assert.throws(
+  () => getStaticQdnServiceId('NOT_A_REAL_SERVICE'),
+  /Unknown public QDN service/,
+  'an unrecognized service name should still be rejected.',
+);
+
+{
+  const coreNames = Object.keys(CORE_QDN_SERVICE_IDS).sort();
+  const homeNames = Object.keys(CORE_QDN_SERVICE_IDS)
+    .filter((service) => {
+      try {
+        getStaticQdnServiceId(service);
+        return true;
+      } catch {
+        return false;
+      }
+    })
+    .sort();
+
+  assert.deepEqual(
+    homeNames,
+    coreNames,
+    'QDN_SERVICE_IDS must resolve every Core Service constant, public or private.',
+  );
+}
+
+// Core's avatar rule (AvatarResource.validate) accepts only public,
+// single-file services. getAvatarQdnServiceId must agree for every service
+// in the fixture above - this doubles as a regression guard for the newly
+// added private/system entries, which must all be rejected as avatars.
+for (const [service, single, isPrivate] of [
+  ['ATTACHMENT', true, false],
+  ['ATTACHMENT_PRIVATE', true, true],
+  ['AUTO_UPDATE', false, false],
+  ['AUTO_UPDATE_BINARY', true, false],
+  ['ARBITRARY_DATA', false, false],
+  ['IMAGE', true, false],
+  ['IMAGE_PRIVATE', true, true],
+  ['WEBSITE', false, false],
+  ['APP', false, false],
+]) {
+  if (single && !isPrivate) {
+    assert.equal(getAvatarQdnServiceId(service), CORE_QDN_SERVICE_IDS[service]);
+  } else {
+    assert.throws(() => getAvatarQdnServiceId(service), /cannot be an avatar/);
+  }
+}
+
+console.log(
+  `Public transaction validation tests passed (${Object.keys(CORE_QDN_SERVICE_IDS).length} QDN services checked against Core).`,
+);

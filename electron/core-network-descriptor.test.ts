@@ -62,8 +62,6 @@ assert.deepEqual(descriptor.chain, {
     'checkpoints',
     'featureTriggers',
     'featureTriggerScheduleEnforcementHeight',
-    'onlineAccountsSignatureV2Height',
-    'assetOrderBoundsHeight',
   ],
   fileName: 'previewchain.json',
   kind: 'file',
