@@ -32,6 +32,25 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## fix: show the connected Core's I2P transport status instead of "Not installed" for a remote Core
+
+2026-09-18
+
+A tester running Home against a Core on a VPS, reached through an SSH tunnel,
+saw "I2P router · Not installed" on the dashboard and an offer to install one,
+even though that Core's own I2P router was running and carrying traffic. Home
+was only ever looking for a router it had installed on this computer, and said
+nothing about the Core it was actually talking to. The dashboard now reports
+the two separately: a line for the connected Core's I2P transport, taken from
+the node status Home already reads (active or inactive, with the chain and data
+session and LeaseSet state beside it), and the local router line renamed "Local
+Home I2P router" so it is clear whose router is missing. When the connected
+Core is a remote one whose I2P is already up, Home also says in plain words
+that a local router is optional there, and the install button steps back from
+being the card's main action. Nothing changes for a Core running on this
+computer beyond the clearer label, and the Core I2P line appears on Android
+too, where Home never manages a router of its own.
+
 ## fix: a tab is labelled with the app's name, not "Qortium" and then the name
 
 2026-09-18

@@ -10,7 +10,11 @@ import type {
   NetworkId,
   NodeConnectionMode,
 } from '../contracts'
-import { deriveI2pCoreHealth, type I2pCorePlaneHealth } from '../i2p-health'
+import {
+  deriveI2pCoreHealth,
+  type I2pCoreHealth,
+  type I2pCorePlaneHealth,
+} from '../i2p-health'
 import { coreReleaseGate } from '../../home-v2-live/core-release-offer'
 import { useCoreLifecycleControl, type HomeV2CoreManagement } from './CoreManagerCards'
 import { HomeV2SectionToggle } from './HomeV2Prototype'
@@ -85,6 +89,88 @@ export function I2pCoreHealthDetails({ node }: { readonly node: HomeV2Snapshot['
           <small data-home-v2-i2p-health-plane="data">{i2pPlaneText('data', health.data)}</small>
         </>
       ) : <small>{t('home2.node.waitingForStatus')}</small>}
+    </div>
+  )
+}
+
+/**
+ * The I2P transport of the Core Home is CONNECTED TO -- local, public or a
+ * custom/remote one behind a tunnel -- as that Core reports it in the node
+ * status Home already polls (/admin/status). It is independent of Home's own
+ * managed router: a remote Core runs its own i2pd, so "no local router" says
+ * nothing about it (issue #610). Null = nothing to show, either because the
+ * node is not reachable or because this Core reports no I2P session state.
+ */
+export function coreI2pTransportState(node: HomeV2Snapshot['nodes'][NetworkId]): {
+  readonly health: I2pCoreHealth
+  readonly state: 'active' | 'inactive' | 'unknown'
+} | null {
+  if (node.mode === 'disabled' || (node.state !== 'online' && node.state !== 'syncing') || node.error) {
+    return null
+  }
+  const health = deriveI2pCoreHealth(node)
+  if (!health.reported) return null
+  const sessions = [health.chain.session, health.data.session]
+  // Peer counts alone are not a transport verdict: a Core too old to report
+  // its SAM sessions (or one without I2P at all, like Qortal's) gets no line
+  // rather than a permanent "unknown" one.
+  if (sessions.every((session) => session === 'not-reported')) return null
+  // One plane up is enough to prove the Core's router is carrying traffic;
+  // "inactive" is only claimed when Core reported BOTH planes and both are
+  // down. Anything partial stays unknown rather than being rounded either way.
+  const state = sessions.includes('up')
+    ? 'active' as const
+    : sessions.every((session) => session === 'down')
+      ? 'inactive' as const
+      : 'unknown' as const
+  return { health, state }
+}
+
+/**
+ * The connected Core's I2P transport, as one compact dashboard line. It reads
+ * the node status only, so it is there for a remote Core and on Android where
+ * Home manages nothing locally; the per-plane detail stays in Settings.
+ */
+function CoreI2pLine({
+  network,
+  node,
+}: {
+  readonly network: NetworkId
+  readonly node: HomeV2Snapshot['nodes'][NetworkId]
+}) {
+  const transport = coreI2pTransportState(node)
+  if (!transport) return null
+  const { health, state } = transport
+  return (
+    <div
+      className="home-v2-transport-line"
+      data-home-v2-core-i2p="dashboard"
+      data-network={network}
+      data-core-i2p-state={state}
+    >
+      <span className="home-v2-core-runtime" data-runtime={state === 'active' ? 'running' : 'stopped'}>
+        <span className="home-v2-status-dot" aria-hidden="true" />
+        {t('home2.node.coreI2p.label')}
+        {' · '}
+        {state === 'active'
+          ? t('home2.node.coreI2p.active')
+          : state === 'inactive'
+            ? t('home2.node.coreI2p.inactive')
+            : t('common.unknown')}
+      </span>
+      {(['chain', 'data'] as const).map((plane) => (
+        <small
+          key={plane}
+          className="home-v2-core-line__version"
+          data-home-v2-core-i2p-plane={plane}
+        >
+          {t('home2.node.coreI2p.plane', {
+            leaseSet: i2pLeaseSetLabel(health[plane].leaseSet),
+            plane,
+            session: i2pHealthStateLabel(health[plane].session),
+          })}
+        </small>
+      ))}
     </div>
   )
 }
@@ -730,7 +816,13 @@ function HomeUpdateRow({
  * mode, its Apply/restart flow and the router folder stay in Settings.
  * Shares the transport controller with Settings, so busy and notice agree.
  */
-function TransportLine({ transport }: { readonly transport: HomeV2TransportManagement }) {
+function TransportLine({
+  node,
+  transport,
+}: {
+  readonly node: HomeV2Snapshot['nodes'][NetworkId]
+  readonly transport: HomeV2TransportManagement
+}) {
   const status = transport.status
   if (!status) {
     // The row exists while the first poll is in flight; returning nothing
@@ -739,12 +831,17 @@ function TransportLine({ transport }: { readonly transport: HomeV2TransportManag
       <div className="home-v2-transport-line" data-home-v2-node-core-transport="loading">
         <span className="home-v2-core-runtime" data-runtime="unknown">
           <span className="home-v2-status-dot" aria-hidden="true" />
-          {t('connections.routerLabel')}
+          {t('home2.transportMaintenance.router.localLabel')}
         </span>
         <small className="home-v2-core-line__version">{t('home2.common.loading')}</small>
       </div>
     )
   }
+  // A Core reached over the network runs its own I2P router; Home's local one
+  // would only serve a local Core. When that remote Core's transport is
+  // already up, installing one here is an option, not a fix (issue #610).
+  const localRouterOptional = (node.mode === 'custom' || node.mode === 'public') &&
+    coreI2pTransportState(node)?.state === 'active'
   const routerRunning = status.router.state === 'managed-running' || status.router.state === 'external-running'
   const routerWord = routerRunning
     ? t('core.runtimeRunning')
@@ -760,10 +857,11 @@ function TransportLine({ transport }: { readonly transport: HomeV2TransportManag
       data-home-v2-node-core-transport="dashboard"
       data-network="qortium"
       data-router-state={status.router.state}
+      data-home-v2-local-router-optional={localRouterOptional ? 'true' : undefined}
     >
       <span className="home-v2-core-runtime" data-runtime={routerRunning ? 'running' : 'stopped'}>
         <span className="home-v2-status-dot" aria-hidden="true" />
-        {t('connections.routerLabel')}
+        {t('home2.transportMaintenance.router.localLabel')}
         {' · '}
         {routerWord}
       </span>
@@ -776,7 +874,9 @@ function TransportLine({ transport }: { readonly transport: HomeV2TransportManag
         {status.capabilities.canEnsureRouter && transport.onEnsureRouter ? (
           <button
             type="button"
-            className="home-v2-primary-button"
+            // Optional here, so it must not compete with the actions that are
+            // actually needed: it drops to a secondary button.
+            className={localRouterOptional ? 'home-v2-secondary-button' : 'home-v2-primary-button'}
             data-home-v2-node-core-action="ensure-router"
             disabled={blocked}
             onClick={transport.onEnsureRouter}
@@ -812,6 +912,11 @@ function TransportLine({ transport }: { readonly transport: HomeV2TransportManag
         ) : null}
         <CoreProgressBar progress={transport.progress} />
       </span>
+      {localRouterOptional ? (
+        <span className="home-v2-core-notice" data-home-v2-local-router-optional-note role="status">
+          {t('home2.transportMaintenance.router.localOptional')}
+        </span>
+      ) : null}
       {transport.notice ? (
         <span className="home-v2-core-notice" role={transport.notice.error ? 'alert' : 'status'}>
           {transport.notice.message}
@@ -909,8 +1014,12 @@ export function HomeV2NodeCoreSection({
                   network={network}
                 />
               ) : null}
+              {/* The connected Core's own I2P transport, from the node status
+                  Home already polls. It needs no local core manager, so it is
+                  there for a remote Core and on Android too. */}
+              <CoreI2pLine network={network} node={snapshot.nodes[network]} />
               {coreAvailable && network === 'qortium' && coreManagement?.transport ? (
-                <TransportLine transport={coreManagement.transport} />
+                <TransportLine node={snapshot.nodes[network]} transport={coreManagement.transport} />
               ) : null}
             </article>
           )
