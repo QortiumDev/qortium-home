@@ -32,6 +32,21 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## fix: a tab is labelled with the app's name, not "Qortium" and then the name
+
+2026-09-18
+
+A tester on Home for Android reported that opening an app into a tab labelled
+it "Qortium Chat" rather than "Chat", so on a phone-width tab strip every tab
+just read "Qortium". The label comes from the app's own page title, and apps
+name themselves with the network in front ("Qortium Chat", "Qortal Q-Mail").
+Home now drops that leading (or trailing) network word when a name is left
+over, so the tab shows the app's name and the network stays where it already
+was — on the tab's own mark. A title that is only the network word, or one
+where the word is part of a longer name, is left untouched, and an app's unread
+counter such as "(3)" is kept in front of the shortened name. The change sits
+in the shared tab model, so desktop and Android label tabs the same way.
+
 ## fix: a pending app permission prompt brings Home forward and marks its tab
 
 2026-09-16

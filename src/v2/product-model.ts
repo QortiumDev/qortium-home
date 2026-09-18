@@ -5,7 +5,10 @@ import type {
   TabId,
 } from './contracts'
 import { parseAppResourceLocation } from './resource-location'
-import { sanitizeHomeV2AppTitle } from './app-frame-messages'
+import {
+  sanitizeHomeV2AppTitle,
+  stripNetworkNameFromAppTitle,
+} from './app-frame-messages'
 import { validateCurrentAppLocation } from './current-app-location'
 import { parseViewerLocation } from './viewer-location'
 import { groupTabsByAccount, HOME_TAB_GROUP_KEY, type TabGroupingOptions } from './shell/tab-groups'
@@ -780,7 +783,11 @@ function setTabTitle(
   const fallback = parseAppResourceLocation(
     current.context.resourceLocation,
   ).identity.name
-  const title = sanitizeHomeV2AppTitle(requestedTitle) ?? fallback
+  // An app's own document.title is the label, minus the network word it puts
+  // in front of its name -- the strip has no room for "Qortium" on every tab,
+  // and the network is already shown by the tab's mark.
+  const reported = sanitizeHomeV2AppTitle(requestedTitle)
+  const title = reported ? stripNetworkNameFromAppTitle(reported) : fallback
   if (title === current.title) return state
   return freezeProductState({
     ...state,

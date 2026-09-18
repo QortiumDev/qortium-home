@@ -21,6 +21,51 @@ export function sanitizeHomeV2AppTitle(value: unknown): string | null {
     : title
 }
 
+/**
+ * Apps commonly title themselves with the network in front of their own name
+ * ("Qortium Chat"), and that whole string is what the bridge reports as the
+ * tab label. On a narrow strip -- Home on a phone, or a condensed desktop
+ * window -- the network word is all that fits, so every tab reads "Qortium…".
+ * The label is the app's name; which network the tab belongs to is already
+ * carried by the tab's network mark and its account group badge.
+ *
+ * Only a network word that is separated from the rest of the title is removed,
+ * and only when a name is left over: "Qortium" alone, or "Qortiumizer", is the
+ * app's own name and stays whole. A leading counter badge ("(3) Qortium Chat")
+ * is kept, since it is the app's unread signal rather than part of its name.
+ */
+const APP_TITLE_NETWORK_WORDS = ['qortium', 'qortal'] as const
+const APP_TITLE_LEADING_BADGE = /^(?:\([^()]{1,12}\)|\[[^[\]]{1,12}\])\s*/
+const APP_TITLE_LEADING_SEPARATOR = /^[\s\-–—:|·>»]+/
+const APP_TITLE_TRAILING_SEPARATOR = /[\s\-–—:|·<«]+$/
+
+export function stripNetworkNameFromAppTitle(title: string): string {
+  const badge = APP_TITLE_LEADING_BADGE.exec(title)?.[0] ?? ''
+  let rest = title.slice(badge.length)
+
+  for (const word of APP_TITLE_NETWORK_WORDS) {
+    if (!rest.toLowerCase().startsWith(word)) continue
+    const after = rest.slice(word.length)
+    const trimmed = after.replace(APP_TITLE_LEADING_SEPARATOR, '')
+    if (trimmed && trimmed.length < after.length) {
+      rest = trimmed
+      break
+    }
+  }
+
+  for (const word of APP_TITLE_NETWORK_WORDS) {
+    if (!rest.toLowerCase().endsWith(word)) continue
+    const before = rest.slice(0, rest.length - word.length)
+    const trimmed = before.replace(APP_TITLE_TRAILING_SEPARATOR, '')
+    if (trimmed && trimmed.length < before.length) {
+      rest = trimmed
+      break
+    }
+  }
+
+  return `${badge}${rest}`
+}
+
 export function readHomeV2AppTitleMessage(
   value: unknown,
   bridgeToken: string,

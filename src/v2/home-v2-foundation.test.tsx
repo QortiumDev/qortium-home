@@ -51,6 +51,7 @@ import {
   readHomeV2AppNavigationMessage,
   readHomeV2AppTitleMessage,
   sanitizeHomeV2AppTitle,
+  stripNetworkNameFromAppTitle,
 } from './app-frame-messages'
 import { HomeV2FixturePreview } from './fixture/HomeV2FixturePreview'
 import { AppearanceSettingsPage } from './shell/AppearanceSettingsPage'
@@ -292,6 +293,15 @@ function testProductModelKeepsSourceQualifiedTabs(): void {
     title: 'Chat room 42',
   })
   assert.equal(titledChat.tabs[0].title, 'Chat room 42')
+  // Reported through the reducer, so desktop and Android label tabs alike.
+  assert.equal(
+    reduceProductState(withChat, {
+      type: 'set-tab-title',
+      tabId: fixtureIds.chatTab,
+      title: 'Qortium Chat',
+    }).tabs[0].title,
+    'Chat',
+  )
   assert.equal(titledChat.revision, withChat.revision + 1)
   assert.equal(
     reduceProductState(titledChat, {
@@ -1053,6 +1063,26 @@ function testAndroidAppFrameMessagesStayBounded(): void {
   assert.equal(
     sanitizeHomeV2AppTitle('  Help\n\u202eCenter  '),
     'Help Center',
+  )
+  // Apps put the network in front of their own name; the tab label is the name.
+  assert.equal(stripNetworkNameFromAppTitle('Qortium Chat'), 'Chat')
+  assert.equal(stripNetworkNameFromAppTitle('Qortal Q-Mail'), 'Q-Mail')
+  assert.equal(stripNetworkNameFromAppTitle('Qortium - Trust'), 'Trust')
+  assert.equal(stripNetworkNameFromAppTitle('Trust \u2013 Qortium'), 'Trust')
+  assert.equal(
+    stripNetworkNameFromAppTitle('(3) Qortium Chat'),
+    '(3) Chat',
+    'an unread badge is the app signalling, not part of its name',
+  )
+  assert.equal(
+    stripNetworkNameFromAppTitle('Qortium'),
+    'Qortium',
+    'a title that is only the network word is the whole name',
+  )
+  assert.equal(
+    stripNetworkNameFromAppTitle('Qortiumizer'),
+    'Qortiumizer',
+    'only a separated network word is a prefix',
   )
   const longTitle = sanitizeHomeV2AppTitle('A'.repeat(200))
   assert.equal(longTitle?.length, 160)
