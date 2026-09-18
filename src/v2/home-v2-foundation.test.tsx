@@ -2245,11 +2245,28 @@ function testCoreManagementRenderingAndAndroidDegrade(): void {
   ].map((match) => match[1])
   assert.deepEqual(transportLines, ['qortium'])
   // The fixture's router is not installed yet: the line says so and offers
-  // the install-and-start action, nothing else.
-  assert.match(dashboard, /I2P router · Not installed/)
+  // the install-and-start action, nothing else. The label names HOME's router,
+  // because a missing local router says nothing about the I2P transport of the
+  // Core Home is connected to (issue #610).
+  assert.match(dashboard, /Local Home I2P router · Not installed/)
   assert.match(dashboard, /data-home-v2-node-core-action="ensure-router"[^>]*>Install and start I2P router</)
   assert.doesNotMatch(dashboard, /data-home-v2-node-core-action="stop-router"/)
   assert.doesNotMatch(dashboard, /aria-label="Transport mode"|>Apply transport mode</)
+  // The CONNECTED Core's own I2P transport is a separate line, read from the
+  // node status Home already polls: the fixture Core has both sessions up and
+  // both LeaseSets resolved, so it says active even with no local router.
+  assert.match(
+    dashboard,
+    /data-home-v2-core-i2p="dashboard" data-network="qortium" data-core-i2p-state="active"/,
+  )
+  assert.match(dashboard, /Core I2P · Active/)
+  assert.match(dashboard, /data-home-v2-core-i2p-plane="chain"[^>]*>chain: session Ready · LeaseSet Ready</)
+  assert.match(dashboard, /data-home-v2-core-i2p-plane="data"[^>]*>data: session Ready · LeaseSet Ready</)
+  // The Qortal node reports no I2P SAM sessions, so it gets no line at all
+  // rather than a permanent "unknown" one.
+  assert.doesNotMatch(dashboard, /data-home-v2-core-i2p="dashboard" data-network="qortal"/)
+  // A local Core keeps the install action primary and gets no optional note.
+  assert.doesNotMatch(dashboard, /data-home-v2-local-router-optional/)
   // Java gates the release install, so only the Java control is offered and the
   // running Core never gets an install button behind its back.
   assert.match(dashboard, /data-home-v2-node-core-action="java"[^>]*>Install Java</)
@@ -2315,6 +2332,46 @@ function testCoreManagementRenderingAndAndroidDegrade(): void {
     )
     assert.match(loadingTransport, /data-home-v2-node-core-transport="loading"/)
     assert.doesNotMatch(loadingTransport, /data-home-v2-node-core-transport="dashboard"/)
+    // Even with no transport status yet, the Core's own I2P transport is
+    // reported: it comes from the node status, not from the local manager.
+    assert.match(loadingTransport, /Core I2P · Active/)
+    assert.match(loadingTransport, /Local Home I2P router</)
+  }
+  {
+    // Issue #610: a custom Core reached over a tunnel. Its status says both
+    // I2P sessions are up, so the dashboard says so, and Home's own router --
+    // which would only ever serve a LOCAL Core -- is offered as an option
+    // rather than as the thing that is missing.
+    const remoteCore = renderToStaticMarkup(
+      <HomeV2Prototype
+        snapshot={{
+          ...homeV2Fixture,
+          nodes: {
+            ...homeV2Fixture.nodes,
+            qortium: { ...homeV2Fixture.nodes.qortium, mode: 'custom' as const },
+          },
+        }}
+        productState={createProductState()}
+        permissionState={createPermissionState()}
+        layout="desktop"
+        appUpdates={appUpdates}
+        coreManagement={coreManagement}
+        onOpenReleaseNotes={() => undefined}
+      />,
+    )
+    assert.match(remoteCore, /data-core-i2p-state="active"/)
+    assert.match(remoteCore, /Core I2P · Active/)
+    assert.match(remoteCore, /Local Home I2P router · Not installed/)
+    assert.match(remoteCore, /data-home-v2-local-router-optional="true"/)
+    assert.match(
+      remoteCore,
+      /data-home-v2-local-router-optional-note[^>]*>The connected Core runs its own I2P router/,
+    )
+    assert.match(
+      remoteCore,
+      /class="home-v2-secondary-button"[^>]*data-home-v2-node-core-action="ensure-router"/,
+      'the local router install drops to a secondary action when it is optional',
+    )
   }
   // One Home-update row for the whole dashboard, not one per network -- and
   // in its own "Home" section, outside Node & Core, since it depends on no
