@@ -420,6 +420,8 @@ import {
   type HomeV2WindowBehaviorChange,
   type HomeV2WindowBehaviorState,
 } from './window-behavior-client'
+import { resolveHomeV2RemoteDebuggingClient } from './android-remote-debugging-client'
+import type { HomeV2RemoteDebuggingState } from './remote-debugging-client'
 import { resolveDualIdentity } from './identity-resolver'
 import { useTabAccountIdentities } from './useTabAccountIdentities'
 import { completeUnlockAfterAccountStatePropagation } from './unlock-account-state'
@@ -1400,6 +1402,9 @@ export function HomeV2LiveApp() {
   // Desktop only: null on Android and in the browser preview, which is what
   // keeps the Window settings group off those hosts entirely.
   const windowBehaviorClient = useMemo(() => resolveHomeV2WindowBehaviorClient(), [])
+  // Android only, the mirror image: null on desktop (which has real developer
+  // tools) and in the browser preview, so the Developer group is absent there.
+  const remoteDebuggingClient = useMemo(() => resolveHomeV2RemoteDebuggingClient(), [])
   // Durable account.read grants are stored per selected account, so QDN Apps
   // settings has to say which account each one covers. An id that no longer
   // resolves (a wallet removed from this device) falls back to a shortened
@@ -1498,6 +1503,8 @@ export function HomeV2LiveApp() {
   notificationPolicyRef.current = notificationPolicy
   const [windowBehavior, setWindowBehavior] =
     useState<HomeV2WindowBehaviorState | null>(null)
+  const [remoteDebugging, setRemoteDebugging] =
+    useState<HomeV2RemoteDebuggingState | null>(null)
   // Live mirror of productState so long-running async work (e.g. the chat-send
   // context recheck that spans a tens-of-seconds memory-pow) sees the CURRENT
   // tab set, not the snapshot captured when the request started. Without this
@@ -1724,6 +1731,34 @@ export function HomeV2LiveApp() {
       setWindowBehavior(await windowBehaviorClient.set(change))
     },
     [windowBehaviorClient],
+  )
+
+  useEffect(() => {
+    if (!remoteDebuggingClient) return
+    let disposed = false
+    void remoteDebuggingClient
+      .get()
+      .then((state) => {
+        if (!disposed) setRemoteDebugging(state)
+      })
+      // Left null, so the group stays absent rather than showing a guessed
+      // switch position.
+      .catch(() => undefined)
+    return () => {
+      disposed = true
+    }
+  }, [remoteDebuggingClient])
+
+  // The host applies the flag and replies with the state as it now stands; a
+  // failure rethrows and leaves the displayed value alone.
+  const changeRemoteDebugging = useCallback(
+    async (enabled: boolean) => {
+      if (!remoteDebuggingClient) {
+        throw new Error('Remote debugging is unavailable on this platform.')
+      }
+      setRemoteDebugging(await remoteDebuggingClient.set(enabled))
+    },
+    [remoteDebuggingClient],
   )
 
   const setGlobalAppNotifications = useCallback(
@@ -11577,6 +11612,8 @@ export function HomeV2LiveApp() {
       onSetAppNotifications={setGlobalAppNotifications}
       windowBehavior={windowBehavior}
       onSetWindowBehavior={windowBehaviorClient ? changeWindowBehavior : undefined}
+      remoteDebugging={remoteDebugging}
+      onSetRemoteDebugging={remoteDebuggingClient ? changeRemoteDebugging : undefined}
     />
   )
 }

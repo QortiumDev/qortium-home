@@ -680,6 +680,8 @@ type QortiumHomeMenuLabels = {
   closeWindow: string;
   copy: string;
   cut: string;
+  developerToolsHome: string;
+  developerToolsTab: string;
   edit: string;
   file: string;
   focusAddressBar: string;
