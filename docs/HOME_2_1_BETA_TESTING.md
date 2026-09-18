@@ -1,12 +1,12 @@
 # Home 2.1 beta testing and app development
 
-Home 2.1.0-beta.11 is a testing prerelease. Home 1.8.0 remains the latest stable
+Home 2.1.0-beta.12 is a testing prerelease. Home 1.8.0 remains the latest stable
 release. Choose Prerelease in Home's update settings to follow the Home 2 line,
 or install the matching platform asset manually. Report the Home version,
 platform, app version, selected network, node route and reproduction steps.
 Keep passwords, recovery material and private message contents out of reports.
 
-Android beta.11 uses versionCode 53. It can update release-signed beta.10 (code 52), beta.9 (code 51), beta.8 (code 50), beta.7 (code 49), beta.6 (code 48), beta.5 (code 47), beta.4 (code 46), beta.3 (code 45),
+Android beta.12 uses versionCode 54. It can update release-signed beta.11 (code 53), beta.10 (code 52), beta.9 (code 51), beta.8 (code 50), beta.7 (code 49), beta.6 (code 48), beta.5 (code 47), beta.4 (code 46), beta.3 (code 45),
 beta.2 (code 44), beta.1 (code 43), Home 1.8.0 (code 41) and release-signed
 development Home 2.1.0 (code 42). Development
 builds named 2.1.0 sort above the beta in semantic-version comparisons, so
@@ -15,7 +15,7 @@ signer and cannot be updated in place by the release APK.
 
 ## Start with the runtime contract
 
-Home's application version is 2.1.0-beta.11; its QAVS platform version is 2.1.
+Home's application version is 2.1.0-beta.12; its QAVS platform version is 2.1.
 Feature-detect actions instead of treating either version as a capability list.
 Use `qdnRequest` for Qortium and `qortalRequest` for Qortal. The invoked bridge
 determines the network; a network field in the payload does not switch it.
@@ -185,6 +185,23 @@ APP/WEBSITE navigation and a resource viewer are distinct operations.
    "QDN, then GitHub" it offers the release from GitHub at once and notes the
    QDN copy is on its way. Report any check that still names an older
    version than the announcement.
+
+16. New in beta.12. (a) Developer tools: on desktop, press Ctrl+Shift+I (or
+   F12) while an app tab is showing and that app's developer tools open in a
+   separate window; View › "Developer Tools for Home" opens Home's own. Right-
+   click inside an app for "Inspect Element". On Android, Settings › General
+   gains "Allow remote debugging"; with it on and a USB cable, chrome://inspect
+   on a desktop browser lists the app tabs. (b) A remote Core's I2P: connect
+   Home to a Core that runs its own I2P router (SSH tunnel or public node) and
+   the dashboard should show "Core I2P · Active" from the node's own status
+   instead of "Not installed", with the local router line renamed "Local Home
+   I2P router". (c) Tab labels: a tab shows the app's name ("Chat"), not
+   "Qortium Chat", on phones and desktops alike. (d) Publishing from an app on
+   a trusted node works again on desktop, and an app may ask once per tab
+   session to publish fee-free Qortium resources ("Allow for this tab").
+   Report any tab still labelled with the network name, any I2P line that
+   contradicts the node's status, and any developer-tools key that opens the
+   wrong window.
 
 ## Reports still being investigated
 
