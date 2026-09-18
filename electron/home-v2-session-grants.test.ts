@@ -14,6 +14,8 @@ import {
   homeV2AccountReadAlwaysAllowDetail,
   HOME_V2_PERMISSIONLESS_ACTIONS,
   isHomeV2PermissionlessAction,
+  homeV2PublishPermissionScopes,
+  isHomeV2SessionPublishPermission,
 } from './home-v2-session-grants.js'
 import { QDN_APP_CAPABILITIES } from './qdn-manager-permissions.js'
 
@@ -26,6 +28,34 @@ assert.equal(homeV2PermissionGrantFamily('SEND_DIRECT_CHAT_MESSAGE'), 'chat.dire
 assert.equal(homeV2PermissionGrantFamily('SEND_DIRECT_CHAT_REACTION'), 'chat.direct.mutate')
 assert.equal(homeV2PermissionGrantFamily('SEND_PRIVATE_GROUP_CHAT_MESSAGE'), 'chat.private-group.mutate')
 assert.equal(homeV2PermissionGrantFamily('SEND_PRIVATE_GROUP_CHAT_EDIT'), 'chat.private-group.mutate')
+
+assert.deepEqual(homeV2PublishPermissionScopes({
+  action: 'PUBLISH_QDN_RESOURCE', protocol: 'qdnRequest', writeKind: 'publish',
+}), ['single-request', 'session'])
+for (const input of [
+  { action: 'PUBLISH_QDN_RESOURCE', protocol: 'qortalRequest', writeKind: 'publish' },
+  { action: 'PUBLISH_MULTIPLE_QDN_RESOURCES', protocol: 'qdnRequest', writeKind: 'publish-multiple' },
+  { action: 'DELETE_QDN_RESOURCE', protocol: 'qdnRequest', writeKind: 'qdn-delete' },
+  { action: 'PUBLISH_CHAT_ATTACHMENT', protocol: 'qdnRequest', writeKind: 'publish' },
+  { action: 'PUBLISH_QDN_RESOURCE', protocol: 'qdnRequest', writeKind: 'payment' },
+]) {
+  assert.equal(isHomeV2SessionPublishPermission(input), false)
+  assert.deepEqual(homeV2PublishPermissionScopes(input), ['single-request'])
+}
+
+const publishKeyBase = {
+  accountId: 'account-one', accountUnlocked: true,
+  action: 'PUBLISH_QDN_RESOURCE', appIdentity: 'qdn://APP/QuixMix/default',
+  nodeRoute: 'public|https://preview.qortal.org', principalId: 50,
+  protocol: 'qdnRequest', tabId: 'tab-publish', writeKind: 'publish',
+}
+const publishKey = homeV2PermissionGrantKey({ ...publishKeyBase, target: 'publish-name:QuixMix' })
+assert.notEqual(publishKey, homeV2PermissionGrantKey({ ...publishKeyBase, target: 'publish-name:OtherName' }))
+assert.notEqual(publishKey, homeV2PermissionGrantKey({ ...publishKeyBase, accountUnlocked: false, target: 'publish-name:QuixMix' }))
+assert.notEqual(publishKey, homeV2PermissionGrantKey({ ...publishKeyBase, nodeRoute: 'public|https://other.example', target: 'publish-name:QuixMix' }))
+assert.notEqual(publishKey, homeV2PermissionGrantKey({ ...publishKeyBase, tabId: 'other-tab', target: 'publish-name:QuixMix' }))
+assert.notEqual(publishKey, homeV2PermissionGrantKey({ ...publishKeyBase, appIdentity: 'qdn://APP/Other/default', target: 'publish-name:QuixMix' }))
+assert.notEqual(publishKey, homeV2PermissionGrantKey({ ...publishKeyBase, protocol: 'qortalRequest', target: 'publish-name:QuixMix' }))
 for (const action of [
   'GET_SELECTED_ACCOUNT',
   'GET_USER_ACCOUNT',
@@ -116,6 +146,38 @@ store.invalidate(10, { kind: 'account-changed', network: null, tabId: null })
 assert.equal(store.has('window-a-tab-a-read'), false)
 assert.equal(store.has('window-b-tab-a-qortium'), true)
 assert.equal(store.size(), 1)
+
+// A publish session is a normal mutation grant: every lifecycle boundary that
+// can change its app, account, unlock state, tab, chain route or node removes
+// it. capture() additionally rejects an ABA change while the first approval is
+// in flight, even if the visible values later change back.
+{
+  const binding = {
+    family: 'PUBLISH_QDN_RESOURCE', hostWebContentsId: 20,
+    network: 'qortium' as const, tabId: 'tab-publish',
+  }
+  const invalidations = [
+    { kind: 'account-changed', network: null, tabId: null },
+    { kind: 'locked', network: null, tabId: null },
+    { kind: 'navigation-changed', network: null, tabId: 'tab-publish' },
+    { kind: 'app-replaced', network: null, tabId: 'tab-publish' },
+    { kind: 'tab-closed', network: null, tabId: 'tab-publish' },
+    { kind: 'node-changed', network: 'qortium' as const, tabId: null },
+  ] as const
+  for (const invalidation of invalidations) {
+    const publishStore = createHomeV2SessionGrantStore()
+    publishStore.add('publish', binding)
+    const remainedCurrent = publishStore.capture(binding)
+    publishStore.invalidate(20, invalidation)
+    assert.equal(publishStore.has('publish'), false, `${invalidation.kind} revokes publish consent`)
+    assert.equal(remainedCurrent(), false, `${invalidation.kind} invalidates in-flight publish consent`)
+  }
+
+  const otherNetwork = createHomeV2SessionGrantStore()
+  otherNetwork.add('publish', binding)
+  otherNetwork.invalidate(20, { kind: 'node-changed', network: 'qortal', tabId: null })
+  assert.equal(otherNetwork.has('publish'), true, 'a Qortal route change does not revoke Qortium publish consent')
+}
 
 // Read-only actions are permissionless (owner decision 2026-08-24), so the
 // bridge must skip the prompt for exactly the account-read set and for

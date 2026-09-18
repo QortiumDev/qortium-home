@@ -154,6 +154,30 @@ export function isHomeV2ChatSendAction(action: string): boolean {
   return CHAT_SEND_ACTIONS.has(action)
 }
 
+export function homeV2PublishPermissionScopes(input: {
+  readonly action: string
+  readonly protocol: string
+  readonly writeKind?: string
+}): readonly ('single-request' | 'session')[] {
+  // Only the zero-fee, single-resource Qortium path may retain publish
+  // authority. Qortal publishing pays an ARBITRARY transaction fee, while
+  // batches, attachment helpers and deletes have different effects and keep
+  // their per-request prompts.
+  return input.action === 'PUBLISH_QDN_RESOURCE' &&
+    input.protocol === 'qdnRequest' &&
+    input.writeKind === 'publish'
+    ? Object.freeze(['single-request', 'session'] as const)
+    : Object.freeze(['single-request'] as const)
+}
+
+export function isHomeV2SessionPublishPermission(input: {
+  readonly action: string
+  readonly protocol: string
+  readonly writeKind?: string
+}): boolean {
+  return homeV2PublishPermissionScopes(input).includes('session')
+}
+
 export function isHomeV2PermissionlessAction(action: string): boolean {
   return PERMISSIONLESS_ACTIONS.has(action)
 }

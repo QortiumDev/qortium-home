@@ -107,8 +107,12 @@ export function prepareMockQdnPermission(
         label: 'Fixture payload',
         value: `${request.data64.length} base64 characters`,
       },
+      {
+        label: 'Session scope',
+        value: 'Qortium only · this app tab · this account and publishing name · current node route · while the account remains unlocked',
+      },
     ],
-    allowedScopes: ['single-request'],
+    allowedScopes: ['single-request', 'session'],
   })
 }
 

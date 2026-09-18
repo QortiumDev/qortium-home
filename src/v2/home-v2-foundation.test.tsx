@@ -1277,7 +1277,7 @@ function testBridgeProtocolsStaySeparate(): void {
   assert.equal(qdnPermissionPromptFixture.action, 'PUBLISH_QDN_RESOURCE')
   assert.equal(qdnPermissionPromptFixture.capability, 'qdn.publish')
   assert.equal(qdnPermissionPromptFixture.context.targetNetwork, 'qortium')
-  assert.deepEqual(qdnPermissionPromptFixture.allowedScopes, ['single-request'])
+  assert.deepEqual(qdnPermissionPromptFixture.allowedScopes, ['single-request', 'session'])
 
   assert.equal(qortalPermissionPromptFixture.protocol, 'qortalRequest')
   assert.equal(qortalPermissionPromptFixture.action, 'GET_USER_ACCOUNT')
@@ -1326,13 +1326,28 @@ function testPermissionBrokerScopesAndInvalidation(): void {
   assert.equal(qdnOnce.state.grants.length, 0)
   assert.equal(qdnOnce.state.pending.length, 0)
 
+  const qdnSession = resolvePermissionPrompt(
+    qdnPermissionStateFixture,
+    qdnPermissionPromptFixture.id,
+    { approved: true, scope: 'session' },
+  ).state
+  assert.equal(hasPermissionGrant(qdnSession, qdnPermissionPromptFixture), true)
+  assert.equal(invalidatePermissionState(qdnSession, { kind: 'locked' }).grants.length, 0)
+  assert.equal(invalidatePermissionState(qdnSession, {
+    kind: 'node-changed', network: 'qortium',
+  }).grants.length, 0)
+  assert.equal(invalidatePermissionState(qdnSession, {
+    kind: 'node-changed', network: 'qortal',
+  }).grants.length, 1)
+  assert.equal(invalidatePermissionState(qdnSession, {
+    kind: 'navigation-changed', tabId: qdnPermissionPromptFixture.context.tabId,
+  }).grants.length, 0)
   assert.throws(
-    () =>
-      resolvePermissionPrompt(
-        qdnPermissionStateFixture,
-        qdnPermissionPromptFixture.id,
-        { approved: true, scope: 'session' },
-      ),
+    () => resolvePermissionPrompt(
+      qdnPermissionStateFixture,
+      qdnPermissionPromptFixture.id,
+      { approved: true, scope: 'always' },
+    ),
     (error) => {
       assert.ok(error instanceof PermissionModelError)
       assert.equal(error.code, 'INVALID_PERMISSION_SCOPE')
@@ -3269,8 +3284,9 @@ function testPermissionDialogsOnDesktopAndPhone(): void {
     assert.match(qdn, /role="dialog"/)
     assert.match(qdn, /data-bridge-protocol="qdnRequest"/)
     assert.match(qdn, /data-bridge-action="PUBLISH_QDN_RESOURCE"/)
+    assert.match(qdn, /Qortium only · this app tab · this account and publishing name/)
     assert.match(qdn, />Allow once</)
-    assert.doesNotMatch(qdn, />Allow for this tab</)
+    assert.match(qdn, />Allow for this tab</)
     assert.doesNotMatch(qdn, />Always allow for this app</)
 
     const qortal = render(layout, qortalPermissionStateFixture)
@@ -3773,12 +3789,13 @@ function testGrantIdentityAndSendRateLimitHardening(): void {
     // added their grant-target and single-request arms, and again when the
     // durable account.encrypt check landed between them, and again when the
     // durable account.directChat (direct-message) check did, and again when
-    // the node-settings write kind added its arm. The ordering
+    // the node-settings write kind added its arm, and again when Qortium
+    // single-resource publishing gained a narrowly bound session arm. The ordering
     // property is what matters and is unchanged: the stale-resource check still
     // runs BEFORE any grant (session or durable) is honored -- and it is
     // asserted DIRECTLY below, so this budget is a secondary net against
     // reordering rather than the guarantee itself.
-    /liveResourceMatchesGrant\(context\)[\s\S]{0,11000}sessionAccountReadGrants\.has\(grantKey\)/,
+    /liveResourceMatchesGrant\(context\)[\s\S]{0,12000}sessionAccountReadGrants\.has\(grantKey\)/,
   )
   // The ordering asserted DIRECTLY, so it no longer depends on a character
   // budget that every new grant arm pushes against. The proximity match above
@@ -3846,7 +3863,7 @@ function testGrantIdentityAndSendRateLimitHardening(): void {
   // The durable chat.send grant must also sit after the stale-resource check.
   assert.match(
     appBridge,
-    /liveResourceMatchesGrant\(context\)[\s\S]{0,7000}hasQdnAccountCapability\(appGrantKey, context\.accountId, 'chat\.send'\)/,
+    /liveResourceMatchesGrant\(context\)[\s\S]{0,8000}hasQdnAccountCapability\(appGrantKey, context\.accountId, 'chat\.send'\)/,
   )
   // So must the durable account.read grant (R3-10). Its membership comes from
   // homeV2DurableAccountReadCapability, which returns null outside
@@ -3956,7 +3973,7 @@ function testGrantIdentityAndSendRateLimitHardening(): void {
   // dedicated foreign-wallet disclosure kind and must continue into a prompt.
   assert.match(
     appBridge,
-    /isHomeV2PermissionlessAction\(action\) && writeDetails\?\.kind !== 'foreign-wallet-read'\) return[\s\S]{0,6200}homeV2DurableAccountReadCapability\(action\)/,
+    /isHomeV2PermissionlessAction\(action\) && writeDetails\?\.kind !== 'foreign-wallet-read'\) return[\s\S]{0,7000}homeV2DurableAccountReadCapability\(action\)/,
   )
   assert.match(appBridge, /liveResourceMatchesGrant\(freshContext\)/)
   assert.match(appBridge, /isQdnViewVisible\(context\.windowId, context\.tabId\)/)

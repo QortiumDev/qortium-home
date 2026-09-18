@@ -257,8 +257,11 @@ async function fetchAuthenticatedQdnArtifact(input: {
 }) {
   if (input.hash.byteLength !== 32) throw new Error('QDN builder returned an invalid artifact hash.')
   const url = `${input.nodeApiUrl}/arbitrary/authenticated/data/${encodeURIComponent(base58Encode(input.hash))}`
+  // Core gzips this route. Ask for the identity coding (as Android's native
+  // twin already does) so the wire Content-Length describes the artifact;
+  // streamQdnAttestationArtifact still tolerates an encoded reply.
   const response = await nodeFetch(url, {
-    headers: { 'X-API-KEY': input.apiKey },
+    headers: { 'Accept-Encoding': 'identity', 'X-API-KEY': input.apiKey },
     method: 'GET',
     redirect: 'error',
     signal: AbortSignal.timeout(30 * 60_000),

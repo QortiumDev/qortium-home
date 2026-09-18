@@ -243,6 +243,8 @@ import {
   homeV2DurablePrivateGroupReadCapability,
   homeV2PermissionGrantKey,
   homeV2PermissionGrantFamily,
+  homeV2PublishPermissionScopes,
+  isHomeV2SessionPublishPermission,
   isHomeV2AccountReadAction,
   isHomeV2ChatSendAction,
   isHomeV2ForeignWalletPermissionAction,
@@ -4353,7 +4355,14 @@ export function HomeV2LiveApp() {
                 (value.action === 'PUBLISH_QDN_RESOURCE' && isPublishPromptText(field)))) ||
             typeof value.writeOperationLabel !== 'string' ||
             typeof value.writeRouteLabel !== 'string' ||
-            typeof value.writeTargetChainLabel !== 'string'))
+            typeof value.writeTargetChainLabel !== 'string' ||
+            value.writeSingleRequestOnly !== (isHomeV2AccountReadAction(value.action)
+              ? false
+              : !isHomeV2SessionPublishPermission({
+                  action: value.action,
+                  protocol: value.protocol,
+                  writeKind: value.writeKind,
+                }))))
         // Minting writes must always arrive as single-request prompts naming
         // the account, the node route and the chain. REMOVE_MINTING_ACCOUNT
         // additionally names the key; START_MINTING has none to name yet.
@@ -5338,6 +5347,12 @@ export function HomeV2LiveApp() {
           ...(accountReadPromptKind && value.writeSingleRequestOnly !== true
             ? [homeV2AccountReadAlwaysAllowDetail(account?.label ?? accountId)]
             : []),
+          ...(isPublish && value.targetNetwork === 'qortium'
+            ? [{
+                label: 'Session scope',
+                value: 'Qortium only · this app tab · this account and publishing name · current node route · while the account remains unlocked',
+              }]
+            : []),
         ],
         allowedScopes: isAtMessage
           // Stated first and unconditionally, ahead of every other arm: one
@@ -5351,6 +5366,12 @@ export function HomeV2LiveApp() {
           ? ['single-request']
           : isForeignWalletRead
           ? ['single-request', 'session']
+          : isPublish
+          ? homeV2PublishPermissionScopes({
+              action: value.action,
+              protocol: value.protocol,
+              writeKind: typeof value.writeKind === 'string' ? value.writeKind : undefined,
+            })
           // Second, and only after the signing arm above: a test pins
           // SEND_MESSAGE's arm first so no later edit can shadow it.
           //
@@ -5392,7 +5413,7 @@ export function HomeV2LiveApp() {
           // the grant is revocable in QDN Apps settings. Membership is the
           // frozen HOME_V2_ACCOUNT_READ_ACTIONS list, and the
           // writeSingleRequestOnly guard keeps anything the bridge refuses to
-          // retain — publishes, SAVE_CHAT_ATTACHMENT, journal forgets,
+          // retain — fee-bearing/attachment publishes, SAVE_CHAT_ATTACHMENT, journal forgets,
           // minting writes, unlock — on single-request only.
           : accountReadPromptKind && value.writeSingleRequestOnly !== true
           ? ['single-request', 'session', 'always']
@@ -8876,7 +8897,32 @@ export function HomeV2LiveApp() {
               }
             })()
             const appId = brand<AppId>(`home-v2:permission-app:${parsedApp.identityKey}`)
-            const decision = await queueBoundPermissionPrompt(createPermissionPrompt({
+            const nodeRoute = `${nodeBefore.mode}|${nodeApiUrl}`
+            const publishSession = isHomeV2SessionPublishPermission({
+              action: 'PUBLISH_QDN_RESOURCE',
+              protocol,
+              writeKind: 'publish',
+            })
+            const grantKey = homeV2PermissionGrantKey({
+              accountId,
+              accountUnlocked: true,
+              action: 'PUBLISH_QDN_RESOURCE',
+              appIdentity: parsedApp.identityKey,
+              nodeRoute,
+              principalId: 'android',
+              protocol,
+              tabId: context.tabId,
+              target: `publish-name:${publishRequest.resource.name}`,
+              writeKind: 'publish',
+            })
+            const publishBinding = {
+              family: 'PUBLISH_QDN_RESOURCE',
+              hostWebContentsId: 'android',
+              network: targetNetwork,
+              tabId: context.tabId,
+            } as const
+            const publishGrantCurrent = androidSessionAccountGrants.current.capture(publishBinding)
+            const prompt = createPermissionPrompt({
               id: requestId,
               protocol,
               action: 'PUBLISH_QDN_RESOURCE',
@@ -8918,11 +8964,37 @@ export function HomeV2LiveApp() {
                   ? [{ label: 'Tags', value: androidPromptText(publishRequest.resource.tags.join(', ')) }]
                   : []),
                 ...(feeRowValue !== null ? [{ label: 'Fee', value: feeRowValue }] : []),
+                ...(publishSession ? [{
+                  label: 'Session scope',
+                  value: 'Qortium only · this app tab · this account and publishing name · current node route · while the account remains unlocked',
+                }] : []),
               ],
-              allowedScopes: ['single-request'],
-            }), context.tabId)
+              allowedScopes: homeV2PublishPermissionScopes({
+                action: 'PUBLISH_QDN_RESOURCE',
+                protocol,
+                writeKind: 'publish',
+              }),
+            })
+            const joinedPendingPublish = publishSession &&
+              androidPendingSessionGrantDecisions.current.has(grantKey)
+            const decision = publishSession && androidSessionAccountGrants.current.has(grantKey)
+              ? ({ approved: true, scope: 'session' } as const)
+              : publishSession
+                ? await queueBoundSessionGrantPermission(grantKey, prompt, context.tabId)
+                : await queueBoundPermissionPrompt(prompt, context.tabId)
             if (!decision.approved) throw new Error('Public resource publication was denied.')
-            const nodeRoute = `${nodeBefore.mode}|${nodeApiUrl}`
+            if (publishSession && decision.scope !== 'single-request' && decision.scope !== 'session') {
+              throw new Error('Qortium publishing requires a single-request or session approval.')
+            }
+            if (joinedPendingPublish && decision.scope === 'single-request') {
+              throw new Error('The single-request approval was used by another publish request.')
+            }
+            if (publishSession && decision.scope === 'session') {
+              if (!publishGrantCurrent() || !isRequestCurrent()) {
+                throw new Error('The publishing session changed before approval completed.')
+              }
+              androidSessionAccountGrants.current.add(grantKey, publishBinding)
+            }
             const isStillValid = async () => {
               const currentTab = productStateRef.current.tabs.find((tab) => tab.id === context.tabId)
               const currentAccount = accountCatalogueRef.current.accounts.find((candidate) => candidate.id === accountId)
