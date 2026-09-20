@@ -32,6 +32,40 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## fix: the address bar navigates the current tab with that tab's account
+
+2026-09-20
+
+Typing an address into the address bar used to open it as a fresh tab under
+the account selected on the dashboard, and if that app was already open under
+that account anywhere, Home simply switched to that tab. With the Wallet app
+open in two tabs bound to two different accounts, typing its address from the
+second account's tab therefore jumped to the first account's tab, and typing
+an app that was not open yet opened it under the first account. The address
+bar now behaves like a browser's: it navigates the tab you are looking at,
+and that tab keeps its own account — the account it was bound to, or its
+explicit no-account state; if that account has since been removed from Home,
+the tab continues with no account rather than the removed one, and never the
+account selected elsewhere — so the same app open under another account
+elsewhere is left alone and you stay where you are. A bare app name
+(`qdn://APP/Explore`) still goes through discovery: one published resource
+opens in that tab straight away, several show the identifier chooser and the
+choice opens in that tab too. If you switch to another tab, or open the Core
+docs or release notes, while that lookup is still running, the late result
+is dropped with a note instead of pulling the tab you left back to the
+front. Home's own pages typed from an app tab —
+Settings, the Dashboard, Core API docs, release notes — still never take over
+an app tab and open the way they always did, leaving the app tab as it was;
+a resource viewer address still opens its own viewer tab, attributed to the
+tab's account. From the Dashboard or another Home page the address bar keeps
+its previous route (a tab of its own, or the already-open tab brought
+forward) under the selected account. The "+" button's custom new-tab
+address, the Dashboard's own links, links apps open in new tabs, an app
+replacing its own tab (which still has to name an exact identifier) and
+moving a tab between windows all keep their previous behaviour, on desktop
+and on Android alike. The account a navigated tab keeps is always read from
+Home's own record of that tab, never from the text typed.
+
 ## fix: skip the unlock dialog when already unlocked and merge the two foreign-wallet consents
 
 2026-09-20

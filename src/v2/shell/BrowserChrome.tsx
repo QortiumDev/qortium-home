@@ -62,6 +62,14 @@ export interface BrowserChromeProps {
   ) => void
   readonly onOpenAddress?: (address: string) => Promise<AddressOpenResult>
   /**
+   * The address bar's own submit — typing an address, or picking an
+   * identifier after a bare name: navigate the tab the user is looking at,
+   * like a browser, keeping that tab's account. Falls back to `onOpenAddress`
+   * when absent. The + button with a custom new-tab address stays on
+   * `onOpenAddress`: it is a tab being ADDED, not the current one navigated.
+   */
+  readonly onOpenAddressFromAddressBar?: (address: string) => Promise<AddressOpenResult>
+  /**
    * Opens the named tab's app as a widget. Resolves to null on success, or to
    * a message to show when the app has no widget face or the grant was refused.
    */
@@ -162,6 +170,12 @@ export interface BrowserChromeProps {
   ) => void | Promise<void>
 }
 
+/**
+ * How an address reached the opener: typed (or chosen) in the address bar
+ * over the current tab, or supplied by the + button's custom new-tab address.
+ */
+type AddressOpenRoute = 'address-bar' | 'new-tab'
+
 export type AddressOpenResult =
   | {
       readonly status: 'opened'
@@ -247,6 +261,7 @@ export function BrowserChrome({
   onReorderTab,
   onNavigate,
   onOpenAddress,
+  onOpenAddressFromAddressBar,
   onOpenAsWidget,
   widgetAvailable,
   canGoBack,
@@ -323,6 +338,10 @@ export function BrowserChrome({
   const addressEditing = useRef(false)
   const addressTab = useRef(productState.activeTabId)
   const [addressResult, setAddressResult] = useState<AddressOpenResult | null>(null)
+  // Which opener produced a 'choose' result, so the identifier the user then
+  // picks takes the SAME route: an address typed over the current tab
+  // navigates it in place, a + custom address still adds a tab.
+  const [addressResultRoute, setAddressResultRoute] = useState<AddressOpenRoute>('address-bar')
   const [addressBusy, setAddressBusy] = useState(false)
   const [selectedChoice, setSelectedChoice] = useState('')
   const [widgetBusy, setWidgetBusy] = useState(false)
@@ -416,15 +435,22 @@ export function BrowserChrome({
     setSelectedChoice('')
     setWidgetError(null)
   }, [currentAddress, productState.activeTabId])
-  const submitAddress = async (requestedAddress = address) => {
-    if (!onOpenAddress || navigationDisabled) return
+  const submitAddress = async (
+    requestedAddress = address,
+    route: AddressOpenRoute = 'address-bar',
+  ) => {
+    const open = route === 'address-bar'
+      ? onOpenAddressFromAddressBar ?? onOpenAddress
+      : onOpenAddress
+    if (!open || navigationDisabled) return
     addressEditing.current = false
     const request = addressRequest.current + 1
     addressRequest.current = request
     setAddressBusy(true)
     setAddressResult(null)
+    setAddressResultRoute(route)
     try {
-      const result = await onOpenAddress(requestedAddress)
+      const result = await open(requestedAddress)
       if (addressRequest.current !== request) return
       setAddressResult(result.status === 'opened' ? null : result)
       setSelectedChoice(result.status === 'choose' ? result.options[0]?.address ?? '' : '')
@@ -445,7 +471,7 @@ export function BrowserChrome({
     if (navigationDisabled) return
     if (newTabPreference.kind === 'custom') {
       setAddress(newTabPreference.address)
-      void submitAddress(newTabPreference.address)
+      void submitAddress(newTabPreference.address, 'new-tab')
       return
     }
     // Always a NEW tab, even when that page is already open: "+" and Ctrl+T
@@ -677,7 +703,7 @@ export function BrowserChrome({
                   disabled={navigationDisabled || !selectedChoice || addressBusy}
                   onClick={() => {
                     setAddress(selectedChoice)
-                    void submitAddress(selectedChoice)
+                    void submitAddress(selectedChoice, addressResultRoute)
                   }}
                 >
                   {t('common.open')}
