@@ -684,6 +684,27 @@ assert.notEqual(homeV2PermissionGrantFamily('DECRYPT_DATA'), homeV2PermissionGra
   assert.notEqual(receiveKey, homeV2PermissionGrantKey({ ...base, action: 'GET_WALLET_BALANCE', nodeRoute: receiveConsent.nodeRoute, appIdentity: 'qdn://APP/Other/Other', target: '' }))
   assert.notEqual(receiveKey, homeV2PermissionGrantKey({ ...base, action: 'GET_WALLET_BALANCE', nodeRoute: receiveConsent.nodeRoute, accountUnlocked: false, target: '' }))
 
+  // A trusted node is NOT always local (owner rule 2026-09-02/2026-09-20):
+  // a custom remote Core reached over HTTPS with an API key is admin-trusted
+  // too. The binding must treat it exactly like the loopback case — same
+  // shared grant across the four reads, Node row = that node's URL, and a
+  // grant that never matches the loopback route.
+  {
+    const remoteNode = { nodeApiUrl: 'https://core.example.net:24891', nodeRoute: 'custom|https://core.example.net:24891' } as const
+    const remoteReceive = homeV2ForeignWalletReadConsentBinding({ action: 'GET_USER_WALLET', adminNode: remoteNode })
+    assert.equal(remoteReceive.routeIndependent, false)
+    assert.equal(remoteReceive.routeLabel, remoteNode.nodeApiUrl)
+    assert.equal(remoteReceive.nodeRoute, remoteNode.nodeRoute)
+    const remoteKey = keyFor('GET_USER_WALLET', remoteReceive)
+    for (const action of FOREIGN_READS) {
+      const consent = homeV2ForeignWalletReadConsentBinding({ action, adminNode: remoteNode })
+      assert.equal(keyFor(action, consent), remoteKey, `${action} shares one grant on a remote trusted node`)
+      assert.equal(consent.routeLabel, remoteNode.nodeApiUrl, `${action} Node row shows the remote node`)
+      assert.ok(!keyFor(action, consent).includes('127.0.0.1'), `${action} grant key must not assume loopback`)
+    }
+    assert.notEqual(remoteKey, receiveKey, 'a remote trusted node never reuses the loopback grant')
+  }
+
   // Without a trusted node the receive-only derivation still works and
   // falls back to a route-independent grant with the local-wallet label —
   // which the balance reads (refused outright without a node) never share.
