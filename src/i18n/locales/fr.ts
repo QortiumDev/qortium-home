@@ -839,6 +839,7 @@ export const fr: Record<TranslationKey, string> = {
   "home2.accountDialog.title.removeAccount": "Supprimer le compte",
   "home2.accountDialog.title.renameAccount": "Modifier le libellé du compte",
   "home2.accountDialog.title.unlockAccount": "Déverrouiller le compte",
+  "home2.accountDialog.unlockRequestedBy": "{app} vous demande de déverrouiller ce compte.",
   "home2.accountDialog.useRememberedUnlock": "Utiliser le déverrouillage mémorisé protégé par l'appareil",
   "home2.app.checkingNetwork": "Vérification de {network}…",
   "home2.app.frameTitle": "Application QDN",

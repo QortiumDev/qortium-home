@@ -839,6 +839,7 @@ export const ru: Record<TranslationKey, string> = {
   "home2.accountDialog.title.removeAccount": "Удалить аккаунт",
   "home2.accountDialog.title.renameAccount": "Изменить метку аккаунта",
   "home2.accountDialog.title.unlockAccount": "Разблокировать аккаунт",
+  "home2.accountDialog.unlockRequestedBy": "{app} просит вас разблокировать этот аккаунт.",
   "home2.accountDialog.useRememberedUnlock": "Используйте запоминаемую разблокировку, защищенную устройством",
   "home2.app.checkingNetwork": "Проверяем {network}…",
   "home2.app.frameTitle": "Приложение QDN",

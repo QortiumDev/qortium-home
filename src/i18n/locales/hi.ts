@@ -840,6 +840,7 @@ export const hi: Record<TranslationKey, string> = {
   "home2.accountDialog.title.removeAccount": "खाता हटाएँ",
   "home2.accountDialog.title.renameAccount": "खाता लेबल बदलें",
   "home2.accountDialog.title.unlockAccount": "खाता अनलॉक करें",
+  "home2.accountDialog.unlockRequestedBy": "{app} आपसे इस खाते को अनलॉक करने के लिए कह रहा है।",
   "home2.accountDialog.useRememberedUnlock": "डिवाइस-सुरक्षित याद रखा गया अनलॉक उपयोग करें",
   "home2.app.checkingNetwork": "{network} की जाँच हो रही है…",
   "home2.app.frameTitle": "QDN ऐप",

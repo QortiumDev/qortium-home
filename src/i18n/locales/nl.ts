@@ -839,6 +839,7 @@ export const nl: Record<TranslationKey, string> = {
   "home2.accountDialog.title.removeAccount": "Account verwijderen",
   "home2.accountDialog.title.renameAccount": "Accountlabel wijzigen",
   "home2.accountDialog.title.unlockAccount": "Ontgrendel account",
+  "home2.accountDialog.unlockRequestedBy": "{app} vraagt u om dit account te ontgrendelen.",
   "home2.accountDialog.useRememberedUnlock": "Gebruik apparaatbeveiligde onthouden ontgrendeling",
   "home2.app.checkingNetwork": "{network} controleren…",
   "home2.app.frameTitle": "QDN-app",

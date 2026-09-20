@@ -839,6 +839,7 @@ export const hu: Record<TranslationKey, string> = {
   "home2.accountDialog.title.removeAccount": "Fiók eltávolítása",
   "home2.accountDialog.title.renameAccount": "Fiókcímke módosítása",
   "home2.accountDialog.title.unlockAccount": "Fiók feloldása",
+  "home2.accountDialog.unlockRequestedBy": "A(z) {app} arra kér, hogy oldd fel ezt a fiókot.",
   "home2.accountDialog.useRememberedUnlock": "Eszköz által védett megjegyzett feloldás használata",
   "home2.app.checkingNetwork": "A(z) {network} ellenőrzése…",
   "home2.app.frameTitle": "QDN-alkalmazás",

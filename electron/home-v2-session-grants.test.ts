@@ -18,6 +18,11 @@ import {
   isHomeV2SessionPublishPermission,
 } from './home-v2-session-grants.js'
 import { QDN_APP_CAPABILITIES } from './qdn-manager-permissions.js'
+import {
+  homeV2ForeignWalletReadConsentBinding,
+  HOME_V2_FOREIGN_WALLET_LOCAL_ROUTE_LABEL,
+  HOME_V2_ROUTE_INDEPENDENT_GRANT_ROUTE,
+} from './home-v2-foreign-wallet-actions.js'
 
 assert.equal(homeV2PermissionGrantFamily('SEND_CHAT_MESSAGE'), 'chat.public.mutate')
 assert.equal(homeV2PermissionGrantFamily('SEND_CHAT_EDIT'), 'chat.public.mutate')
@@ -615,5 +620,112 @@ assert.equal(isHomeV2AccountReadAction('DECRYPT_DATA'), false)
 assert.equal(homeV2DurableAccountReadCapability('DECRYPT_DATA'), null)
 assert.equal(homeV2PermissionGrantFamily('DECRYPT_DATA'), 'DECRYPT_DATA')
 assert.notEqual(homeV2PermissionGrantFamily('DECRYPT_DATA'), homeV2PermissionGrantFamily('ENCRYPT_DATA'))
+
+// One foreign-wallet consent (owner decision 2026-09-20). The four foreign
+// reads share the account.foreign-wallet.read family, but a grant is reused
+// only when the KEY matches, and the key carries the node route. With a
+// trusted Qortium node resolved, the receive-only GET_USER_WALLET derivation
+// binds to that node's route and label exactly as the balance reads do
+// (homeV2ForeignWalletReadConsentBinding), so one "for this tab" approval on
+// any of the four satisfies the other three. The route in the key is the
+// binding's own `nodeRoute` — the resolved ADMIN node's `${mode}|${url}` that
+// the prompt shows — never a separately looked-up readable-node route.
+{
+  const adminNode = { nodeApiUrl: 'http://127.0.0.1:24891', nodeRoute: 'local|http://127.0.0.1:24891' } as const
+  const FOREIGN_READS = ['GET_USER_WALLET', 'GET_WALLET_BALANCE', 'GET_USER_WALLET_INFO', 'GET_USER_WALLET_TRANSACTIONS'] as const
+  const base = {
+    accountId: 'account-1',
+    accountUnlocked: true,
+    appIdentity: 'qdn://APP/Wallet/Wallet',
+    principalId: 7,
+    protocol: 'qdnRequest',
+    tabId: 'tab-wallet',
+    writeKind: 'foreign-wallet-read',
+  }
+  const keyFor = (action: string, consent: { readonly nodeRoute: string }) =>
+    homeV2PermissionGrantKey({ ...base, action, nodeRoute: consent.nodeRoute, target: '' })
+
+  const receiveConsent = homeV2ForeignWalletReadConsentBinding({ action: 'GET_USER_WALLET', adminNode })
+  assert.equal(receiveConsent.routeIndependent, false)
+  assert.equal(receiveConsent.routeLabel, adminNode.nodeApiUrl)
+  assert.equal(receiveConsent.nodeRoute, adminNode.nodeRoute)
+  const receiveKey = keyFor('GET_USER_WALLET', receiveConsent)
+  for (const action of FOREIGN_READS) {
+    const consent = homeV2ForeignWalletReadConsentBinding({ action, adminNode })
+    assert.equal(consent.routeIndependent, false)
+    assert.equal(consent.nodeRoute, adminNode.nodeRoute, `${action} keys its grant on the admin node route`)
+    assert.ok(keyFor(action, consent).split('|').includes('local'), `${action} grant key carries the admin route`)
+    assert.ok(keyFor(action, consent).includes(adminNode.nodeRoute), `${action} grant key carries the admin route`)
+    assert.equal(consent.routeLabel, receiveConsent.routeLabel, `${action} shows the same Node row`)
+    assert.equal(consent.operationLabel, receiveConsent.operationLabel, `${action} shares the operation label`)
+    assert.equal(keyFor(action, consent), receiveKey, `${action} must share the receive-only read's session grant on a trusted node`)
+  }
+  assert.equal(homeV2PermissionGrantFamily('GET_USER_WALLET', 'foreign-wallet-read'), 'account.foreign-wallet.read')
+  assert.equal(homeV2PermissionGrantFamily('GET_WALLET_BALANCE', 'foreign-wallet-read'), 'account.foreign-wallet.read')
+
+  // A different admin route is a different grant: the route the user approved
+  // is the route the grant is stored under, so a route that differs by URL or
+  // by mode never reuses it.
+  const otherRoute = homeV2ForeignWalletReadConsentBinding({
+    action: 'GET_WALLET_BALANCE',
+    adminNode: { nodeApiUrl: 'http://127.0.0.1:24892', nodeRoute: 'local|http://127.0.0.1:24892' },
+  })
+  assert.notEqual(keyFor('GET_WALLET_BALANCE', otherRoute), receiveKey)
+  const otherMode = homeV2ForeignWalletReadConsentBinding({
+    action: 'GET_WALLET_BALANCE',
+    adminNode: { nodeApiUrl: adminNode.nodeApiUrl, nodeRoute: `custom|${adminNode.nodeApiUrl}` },
+  })
+  assert.notEqual(keyFor('GET_WALLET_BALANCE', otherMode), receiveKey)
+
+  // The shared key still honors every existing binding: a different tab,
+  // account, app or lock state is a different grant.
+  assert.notEqual(receiveKey, homeV2PermissionGrantKey({ ...base, action: 'GET_WALLET_BALANCE', nodeRoute: receiveConsent.nodeRoute, tabId: 'tab-other', target: '' }))
+  assert.notEqual(receiveKey, homeV2PermissionGrantKey({ ...base, action: 'GET_WALLET_BALANCE', nodeRoute: receiveConsent.nodeRoute, accountId: 'account-2', target: '' }))
+  assert.notEqual(receiveKey, homeV2PermissionGrantKey({ ...base, action: 'GET_WALLET_BALANCE', nodeRoute: receiveConsent.nodeRoute, appIdentity: 'qdn://APP/Other/Other', target: '' }))
+  assert.notEqual(receiveKey, homeV2PermissionGrantKey({ ...base, action: 'GET_WALLET_BALANCE', nodeRoute: receiveConsent.nodeRoute, accountUnlocked: false, target: '' }))
+
+  // A trusted node is NOT always local (owner rule 2026-09-02/2026-09-20):
+  // a custom remote Core reached over HTTPS with an API key is admin-trusted
+  // too. The binding must treat it exactly like the loopback case — same
+  // shared grant across the four reads, Node row = that node's URL, and a
+  // grant that never matches the loopback route.
+  {
+    const remoteNode = { nodeApiUrl: 'https://core.example.net:24891', nodeRoute: 'custom|https://core.example.net:24891' } as const
+    const remoteReceive = homeV2ForeignWalletReadConsentBinding({ action: 'GET_USER_WALLET', adminNode: remoteNode })
+    assert.equal(remoteReceive.routeIndependent, false)
+    assert.equal(remoteReceive.routeLabel, remoteNode.nodeApiUrl)
+    assert.equal(remoteReceive.nodeRoute, remoteNode.nodeRoute)
+    const remoteKey = keyFor('GET_USER_WALLET', remoteReceive)
+    for (const action of FOREIGN_READS) {
+      const consent = homeV2ForeignWalletReadConsentBinding({ action, adminNode: remoteNode })
+      assert.equal(keyFor(action, consent), remoteKey, `${action} shares one grant on a remote trusted node`)
+      assert.equal(consent.routeLabel, remoteNode.nodeApiUrl, `${action} Node row shows the remote node`)
+      assert.ok(!keyFor(action, consent).includes('127.0.0.1'), `${action} grant key must not assume loopback`)
+    }
+    assert.notEqual(remoteKey, receiveKey, 'a remote trusted node never reuses the loopback grant')
+  }
+
+  // Without a trusted node the receive-only derivation still works and
+  // falls back to a route-independent grant with the local-wallet label —
+  // which the balance reads (refused outright without a node) never share.
+  const fallback = homeV2ForeignWalletReadConsentBinding({ action: 'GET_USER_WALLET', adminNode: null })
+  assert.equal(fallback.routeIndependent, true)
+  assert.equal(fallback.routeLabel, HOME_V2_FOREIGN_WALLET_LOCAL_ROUTE_LABEL)
+  assert.equal(fallback.nodeRoute, HOME_V2_ROUTE_INDEPENDENT_GRANT_ROUTE)
+  assert.equal(fallback.operationLabel, 'Read foreign receive wallet')
+  assert.notEqual(keyFor('GET_USER_WALLET', fallback), receiveKey)
+  for (const action of ['GET_WALLET_BALANCE', 'GET_USER_WALLET_INFO', 'GET_USER_WALLET_TRANSACTIONS']) {
+    assert.throws(
+      () => homeV2ForeignWalletReadConsentBinding({ action, adminNode: null }),
+      /requires an authenticated Qortium node/,
+      `${action} can never be route-independent`,
+    )
+  }
+  // A half-specified node binding is refused rather than silently keyed on ''.
+  assert.throws(() => homeV2ForeignWalletReadConsentBinding({ action: 'GET_USER_WALLET', adminNode: { nodeApiUrl: '', nodeRoute: 'local|' } }))
+  assert.throws(() => homeV2ForeignWalletReadConsentBinding({ action: 'GET_USER_WALLET', adminNode: { nodeApiUrl: adminNode.nodeApiUrl, nodeRoute: '' } }))
+  assert.throws(() => homeV2ForeignWalletReadConsentBinding({ action: 'SEND_COIN', adminNode }))
+  assert.throws(() => homeV2ForeignWalletReadConsentBinding({ action: 'SET_CURRENT_FOREIGN_SERVER', adminNode }))
+}
 
 console.log('Home v2 session grant tests passed')
