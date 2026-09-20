@@ -838,6 +838,7 @@ export const en = {
   "home2.accountDialog.title.removeAccount": "Remove account",
   "home2.accountDialog.title.renameAccount": "Change account label",
   "home2.accountDialog.title.unlockAccount": "Unlock account",
+  "home2.accountDialog.unlockRequestedBy": "{app} is asking you to unlock this account.",
   "home2.accountDialog.useRememberedUnlock": "Use device-protected remembered unlock",
   "home2.app.checkingNetwork": "Checking {network}…",
   "home2.app.frameTitle": "QDN app",

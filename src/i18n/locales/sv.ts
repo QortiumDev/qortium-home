@@ -839,6 +839,7 @@ export const sv: Record<TranslationKey, string> = {
   "home2.accountDialog.title.removeAccount": "Ta bort konto",
   "home2.accountDialog.title.renameAccount": "Ändra kontoetikett",
   "home2.accountDialog.title.unlockAccount": "Lås upp konto",
+  "home2.accountDialog.unlockRequestedBy": "{app} ber dig låsa upp det här kontot.",
   "home2.accountDialog.useRememberedUnlock": "Använd enhetsskyddad ihågkommen upplåsning",
   "home2.app.checkingNetwork": "Kontrollerar {network}…",
   "home2.app.frameTitle": "QDN-applikation",

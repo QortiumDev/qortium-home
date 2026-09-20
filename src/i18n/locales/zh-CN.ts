@@ -839,6 +839,7 @@ export const zhCN: Record<TranslationKey, string> = {
   "home2.accountDialog.title.removeAccount": "删除帐户",
   "home2.accountDialog.title.renameAccount": "更改账户标签",
   "home2.accountDialog.title.unlockAccount": "解锁账户",
+  "home2.accountDialog.unlockRequestedBy": "{app} 请求你解锁此账户。",
   "home2.accountDialog.useRememberedUnlock": "使用受设备保护的记忆解锁",
   "home2.app.checkingNetwork": "正在检查 {network}…",
   "home2.app.frameTitle": "QDN应用程序",

@@ -839,6 +839,7 @@ export const ja: Record<TranslationKey, string> = {
   "home2.accountDialog.title.removeAccount": "アカウントを削除する",
   "home2.accountDialog.title.renameAccount": "アカウントのラベルを変更",
   "home2.accountDialog.title.unlockAccount": "アカウントのロックを解除する",
+  "home2.accountDialog.unlockRequestedBy": "{app} がこのアカウントのロック解除を求めています。",
   "home2.accountDialog.useRememberedUnlock": "デバイスで保護された記憶されたロック解除を使用する",
   "home2.app.checkingNetwork": "{network} をチェック中…",
   "home2.app.frameTitle": "QDNアプリ",

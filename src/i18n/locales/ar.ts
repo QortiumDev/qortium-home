@@ -839,6 +839,7 @@ export const ar: Record<TranslationKey, string> = {
   "home2.accountDialog.title.removeAccount": "إزالة الحساب",
   "home2.accountDialog.title.renameAccount": "تغيير تسمية الحساب",
   "home2.accountDialog.title.unlockAccount": "إلغاء قفل الحساب",
+  "home2.accountDialog.unlockRequestedBy": "يطلب منك {app} إلغاء قفل هذا الحساب.",
   "home2.accountDialog.useRememberedUnlock": "استخدام إلغاء القفل المحفوظ والمحمي بالجهاز",
   "home2.app.checkingNetwork": "جارٍ التحقق من {network}…",
   "home2.app.frameTitle": "تطبيق QDN",

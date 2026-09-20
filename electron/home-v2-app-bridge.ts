@@ -523,6 +523,7 @@ import {
   type ForeignWalletReadEndpoint,
 } from './foreign-wallet-read-contract.js'
 import {
+  homeV2ForeignWalletReadConsentBinding,
   isHomeV2ForeignWalletAdminAction,
   isHomeV2ForeignWalletReadAction,
   normalizeHomeV2ForeignServerRequest,
@@ -559,7 +560,7 @@ import {
 import { FOREIGN_WALLET_SEND_FRESHNESS_MS } from './foreign-wallet-reconciliation.js'
 import { buildForeignWalletReadRequest } from './foreign-wallet-read-contract.js'
 import { createHomeV2SendRateLimiter } from './home-v2-send-rate-limiter.js'
-import { assertHomeV2UnlockCompleted } from './home-v2-unlock-contract.js'
+import { assertHomeV2UnlockCompleted, homeV2UnlockPromptRequired, requireHomeV2Unlock } from './home-v2-unlock-contract.js'
 import { base58Decode, base58Encode } from './base58.js'
 import { computeHomeV2ChatNonce } from './home-v2-chat-pow.js'
 import { deriveHomeV2RewardSharePrivateKey } from './home-v2-reward-share-key.js'
@@ -1784,7 +1785,17 @@ async function requireAccountReadPermission(
   } | {
     readonly kind: 'foreign-wallet-read'
     readonly coin: string
+    // The ONE route this consent is pinned to: the resolved admin node's
+    // `${mode}|${nodeApiUrl}` that the prompt's Node row shows, used verbatim
+    // as the grant key's route and rechecked against a fresh
+    // resolveHomeV2AdminNode after approval — never a separately computed
+    // getHomeV2ReadableNode route. 'route-independent' for the local fallback.
+    readonly nodeRoute: string
     readonly operationLabel: string
+    // True only for the receive-only GET_USER_WALLET derivation when no
+    // trusted Qortium node resolved (homeV2ForeignWalletReadConsentBinding).
+    // The balance reads always pass false: they cannot run without a node.
+    readonly routeIndependent: boolean
     readonly routeLabel: string
   } | {
     readonly kind: 'foreign-server'
@@ -1820,6 +1831,12 @@ async function requireAccountReadPermission(
   // below. The checks above this line are NOT skipped: an unselected account
   // and a drifted live resource are still refused.
   if (isHomeV2PermissionlessAction(action) && writeDetails?.kind !== 'foreign-wallet-read') return
+  // Already unlocked: nothing to ask (2026-09-20). Gated exactly like
+  // GET_SELECTED_ACCOUNT — the two refusals above, nothing more. The locked
+  // path still prompts single-request and asserts the unlock completed.
+  if (action === 'UNLOCK_SELECTED_ACCOUNT' && !homeV2UnlockPromptRequired(context.accountId, isAccountUnlocked)) {
+    return
+  }
 
   const targetNetwork = protocol === 'qortalRequest' ? 'qortal' : 'qortium'
   const accountRatingSession = isHomeV2AccountRatingSessionAction(action, protocol, writeDetails?.kind)
@@ -1843,11 +1860,24 @@ async function requireAccountReadPermission(
         network: targetNetwork, tabId: context.tabId,
       })
     : () => true
+  // Foreign GET_USER_WALLET is route-independent only without a trusted node
+  // (homeV2ForeignWalletReadConsentBinding); otherwise it shares the balance
+  // reads' route, and so their one session grant.
   const routeIndependent = action === 'GET_PENDING_TRANSACTIONS' ||
     action === 'FORGET_PENDING_TRANSACTION' ||
-    (action === 'GET_USER_WALLET' && writeDetails?.kind === 'foreign-wallet-read')
-  const nodeBefore = routeIndependent ? null : await getHomeV2ReadableNode(targetNetwork)
-  const nodeRoute = nodeBefore ? `${nodeBefore.mode}|${nodeBefore.nodeApiUrl}` : 'route-independent'
+    (action === 'GET_USER_WALLET' && writeDetails?.kind === 'foreign-wallet-read' && writeDetails.routeIndependent)
+  // A foreign-wallet read is pinned to the admin route the caller resolved and
+  // the prompt shows (writeDetails.nodeRoute); everything else keys on the
+  // readable node. Deriving the key from a second lookup here could store the
+  // grant under a route the user never saw.
+  const foreignWalletRoute = writeDetails?.kind === 'foreign-wallet-read' && !routeIndependent
+    ? writeDetails.nodeRoute
+    : null
+  const nodeBefore = routeIndependent || foreignWalletRoute !== null
+    ? null
+    : await getHomeV2ReadableNode(targetNetwork)
+  const nodeRoute = foreignWalletRoute ??
+    (nodeBefore ? `${nodeBefore.mode}|${nodeBefore.nodeApiUrl}` : 'route-independent')
   const accountUnlocked = isAccountUnlocked(context.accountId)
   const grantTarget = writeDetails?.kind === 'group' || writeDetails?.kind === 'private-group'
       ? `group:${writeDetails.groupId}`
@@ -2308,6 +2338,10 @@ async function requireAccountReadPermission(
                 foreignWalletCoin: writeDetails.coin,
                 writeKind: 'foreign-wallet-read',
                 writeOperationLabel: writeDetails.operationLabel,
+                // Lets the prompt describe what THIS binding covers: the
+                // local-only derivation when no trusted node resolved, or the
+                // shared derive-plus-Core-reads consent otherwise.
+                writeRouteIndependent: writeDetails.routeIndependent,
                 writeRouteLabel: writeDetails.routeLabel,
                 writeSingleRequestOnly: false,
                 writeTargetChainLabel: 'Qortium',
@@ -2359,7 +2393,13 @@ async function requireAccountReadPermission(
   } else if (!isHomeV2AccountReadAction(action) && isAccountUnlocked(context.accountId) !== accountUnlocked) {
     throw new Error('Account lock state changed before approval completed.')
   }
-  if (!routeIndependent && !isHomeV2AccountReadAction(action)) {
+  if (foreignWalletRoute !== null) {
+    // Recheck against the SAME resolver the caller pinned the route with.
+    const adminAfter = await resolveHomeV2AdminNode('qortium')
+    if (adminAfter.nodeRoute !== nodeRoute) {
+      throw new Error('Account access node route changed before approval completed.')
+    }
+  } else if (!routeIndependent && !isHomeV2AccountReadAction(action)) {
     const nodeAfter = await getHomeV2ReadableNode(targetNetwork)
     if (`${nodeAfter.mode}|${nodeAfter.nodeApiUrl}` !== nodeRoute) {
       throw new Error('Account access node route changed before approval completed.')
@@ -9113,16 +9153,33 @@ async function deriveHomeV2ForeignWallet(
   if (protocol !== 'qdnRequest') throw new Error(`${action} foreign-wallet access requires qdnRequest.`)
   const coin = normalizeHomeV2ForeignWalletCoin(requestValue)
   const receiveOnly = action === 'GET_USER_WALLET'
-  const resolved = receiveOnly ? null : (resolvedInput ?? await resolveHomeV2AdminNode('qortium'))
-  if (resolved) assertHomeV2TrustedForeignWalletNode(action, resolved.trust)
+  // The receive-only derivation needs no Core, so a missing or untrusted node
+  // is not a failure for it — but when a trusted node DOES resolve, its
+  // consent binds to that node's route so it shares one session grant with
+  // the balance reads (homeV2ForeignWalletReadConsentBinding). The balance
+  // reads still refuse outright without a trusted node.
+  const resolved = receiveOnly
+    ? await resolveHomeV2AdminNode('qortium').catch(() => null)
+    : (resolvedInput ?? await resolveHomeV2AdminNode('qortium'))
+  if (resolved && !receiveOnly) assertHomeV2TrustedForeignWalletNode(action, resolved.trust)
+  // One route, computed once from the resolved admin node, feeds the prompt's
+  // Node row, the session-grant key and the post-approval recheck.
+  const consent = homeV2ForeignWalletReadConsentBinding({
+    action,
+    adminNode: resolved?.trusted
+      ? { nodeApiUrl: resolved.node.nodeApiUrl, nodeRoute: resolved.nodeRoute }
+      : null,
+  })
   if (!context.accountId || !isAccountUnlocked(context.accountId)) {
     throw new Error('Selected account is locked.')
   }
   await requireAccountReadPermission(sender, context, protocol, action, {
     coin,
     kind: 'foreign-wallet-read',
-    operationLabel: receiveOnly ? 'Read foreign receive wallet' : 'Read foreign wallet',
-    routeLabel: resolved?.node.nodeApiUrl ?? 'Home local wallet',
+    nodeRoute: consent.nodeRoute,
+    operationLabel: consent.operationLabel,
+    routeIndependent: consent.routeIndependent,
+    routeLabel: consent.routeLabel,
   })
   if (!context.accountId || !isAccountUnlocked(context.accountId) || !liveResourceMatchesGrant(context)) {
     throw new Error('Account access context changed before the foreign wallet read started.')
@@ -11822,8 +11879,29 @@ async function handleRequestWithRuntime(
     }
   }
   if (action === 'UNLOCK_SELECTED_ACCOUNT') {
-    await requireAccountReadPermission(sender, context, protocol, action)
-    const profile = await getAccountProfile(context.accountId as string)
+    // The two refusals GET_SELECTED_ACCOUNT's permissionless gate applies —
+    // and nothing more — before the lock state decides anything: an
+    // unselected account and a drifted live resource are refused either way.
+    if (!context.accountId) throw new Error('No account is selected for this tab.')
+    if (!liveResourceMatchesGrant(context)) {
+      throw new Error('Account access context changed before approval completed.')
+    }
+    const unlockAccountId = context.accountId
+    // requireHomeV2Unlock (behaviour-tested without Electron): already
+    // unlocked → resolves without ever calling `prompt`; locked → the
+    // single-request permission gate runs, then the unlock is asserted from
+    // live state. requireAccountReadPermission additionally returns early for
+    // an unlocked account itself, so no path through it can prompt one.
+    await requireHomeV2Unlock({
+      accountId: unlockAccountId,
+      isUnlocked: isAccountUnlocked,
+      prompt: () => requireAccountReadPermission(sender, context, protocol, action),
+    })
+    const profile = await getAccountProfile(unlockAccountId)
+    // `isUnlocked: true` is a promise to the app, so it is re-asserted AFTER
+    // the profile await — a lock that lands in between is reported as a
+    // failure, never as a false "unlocked".
+    assertHomeV2UnlockCompleted(unlockAccountId, isAccountUnlocked)
     return {
       address: profile.address,
       avatarContract: 'pointer-aware-account-avatar-v1',

@@ -262,6 +262,57 @@ const bridgeSource = readRepoSource('../electron/home-v2-app-bridge.ts', './home
 assert.ok(bridgeSource.includes("kind: 'foreign-wallet-read'"))
 assert.ok(bridgeSource.includes('deriveForeignWalletPublicRuntime'))
 assert.ok(!sliceAfter(bridgeSource, 'async function deriveHomeV2ForeignWallet', 5000, 'foreign wallet bridge').includes('deriveForeignWalletRuntime('))
+
+// One foreign-wallet consent (owner decision 2026-09-20). The receive-only
+// GET_USER_WALLET read is route-independent ONLY when the consent binding says
+// so (no trusted node); with a trusted node it binds to the same
+// getHomeV2ReadableNode route as the balance reads, so the four share a grant.
+// The balance reads themselves can never be route-independent.
+const routeIndependentRule = sliceAfter(bridgeSource, 'const routeIndependent = action ===', 400, 'route-independent rule')
+assert.ok(
+  routeIndependentRule.includes("(action === 'GET_USER_WALLET' && writeDetails?.kind === 'foreign-wallet-read' && writeDetails.routeIndependent)"),
+  'GET_USER_WALLET foreign reads are route-independent only when the consent binding says so',
+)
+assert.ok(!routeIndependentRule.includes('GET_WALLET_BALANCE'))
+assert.ok(!routeIndependentRule.includes('GET_USER_WALLET_INFO'))
+assert.ok(!routeIndependentRule.includes('GET_USER_WALLET_TRANSACTIONS'))
+const foreignDerivation = sliceAfter(bridgeSource, 'async function deriveHomeV2ForeignWallet', 5000, 'foreign wallet bridge')
+assert.ok(
+  foreignDerivation.includes("? await resolveHomeV2AdminNode('qortium').catch(() => null)"),
+  'the receive-only read resolves the admin node but tolerates its absence',
+)
+assert.ok(
+  foreignDerivation.includes('? { nodeApiUrl: resolved.node.nodeApiUrl, nodeRoute: resolved.nodeRoute }'),
+  'the consent binding is fed the resolved admin node (URL + route), or null when none resolved',
+)
+assert.ok(foreignDerivation.includes('nodeRoute: consent.nodeRoute'), 'the pinned route is handed to the permission gate')
+assert.ok(foreignDerivation.includes('routeIndependent: consent.routeIndependent'))
+assert.ok(foreignDerivation.includes('routeLabel: consent.routeLabel'))
+// ONE route through prompt, grant key and recheck: for a route-bound
+// foreign-wallet read the gate keys on writeDetails.nodeRoute (the admin
+// route the prompt shows) instead of a second getHomeV2ReadableNode lookup,
+// and rechecks it after approval against a fresh resolveHomeV2AdminNode.
+const routePinning = sliceAfter(bridgeSource, 'const foreignWalletRoute =', 700, 'foreign route pinning')
+assert.ok(routePinning.includes("writeDetails?.kind === 'foreign-wallet-read' && !routeIndependent"))
+assert.ok(routePinning.includes('? writeDetails.nodeRoute'))
+assert.ok(routePinning.includes('const nodeBefore = routeIndependent || foreignWalletRoute !== null'))
+assert.ok(routePinning.includes('const nodeRoute = foreignWalletRoute ??'))
+const routeRecheck = sliceAfter(bridgeSource, 'if (foreignWalletRoute !== null) {', 500, 'foreign route recheck')
+assert.ok(routeRecheck.includes("const adminAfter = await resolveHomeV2AdminNode('qortium')"))
+assert.ok(routeRecheck.includes('if (adminAfter.nodeRoute !== nodeRoute) {'))
+assert.ok(
+  bridgeSource.includes('writeRouteIndependent: writeDetails.routeIndependent,'),
+  'the prompt payload says whether this binding is the local-only fallback',
+)
+assert.ok(
+  foreignDerivation.includes("if (resolved && !receiveOnly) assertHomeV2TrustedForeignWalletNode(action, resolved.trust)"),
+  'the balance reads still refuse an untrusted node before any prompt',
+)
+assert.ok(!foreignDerivation.includes("'Home local wallet'"), 'the route label comes from the consent binding, not a bridge literal')
+// The single-request rule for the foreign SEND is untouched, and the shared
+// consent is still never borrowed by a concurrent "Allow once" waiter.
+assert.ok(sliceAfter(bridgeSource, 'const singleRequestOnly =', 4000, 'bridge').includes("writeDetails?.kind === 'foreign-send' ||"))
+assert.ok(bridgeSource.includes("if (sharePendingDecision && !ownsPendingDecision && decision.approved && decision.scope === 'single-request') {"))
 assert.ok(
   sliceAfter(bridgeSource, 'const singleRequestOnly =', 900, 'bridge').includes("action === 'SEND_MESSAGE'"),
   'SEND_MESSAGE must be named directly in the singleRequestOnly rule, not merely inherited from its write kind',
@@ -368,7 +419,7 @@ assert.ok(
   const unlockHandler = sliceAfter(
     liveAppSource,
     "if (action === 'UNLOCK_SELECTED_ACCOUNT') {\n        // No protocol guard",
-    3400,
+    5200,
     'android unlock handler',
   )
   assert.ok(

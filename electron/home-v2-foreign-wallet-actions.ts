@@ -33,6 +33,81 @@ export function isHomeV2TrustedForeignWalletRoute(
   return route.reachable && route.adminTrusted
 }
 
+export const HOME_V2_FOREIGN_WALLET_LOCAL_ROUTE_LABEL = 'Home local wallet'
+
+export const HOME_V2_ROUTE_INDEPENDENT_GRANT_ROUTE = 'route-independent'
+
+export type HomeV2ForeignWalletReadConsentBinding = Readonly<{
+  /**
+   * The exact node-route string the session grant is keyed on and the
+   * post-approval recheck compares against: the resolved admin node's
+   * `${mode}|${nodeApiUrl}`, or 'route-independent' for the local fallback.
+   * One value feeds the prompt label, the grant key and the recheck, so the
+   * user can never approve one route while the grant is stored under another.
+   */
+  nodeRoute: string
+  operationLabel: string
+  /**
+   * True only for the receive-only GET_USER_WALLET derivation when no trusted
+   * Qortium node resolved. The bridge then keys the session grant on
+   * 'route-independent' instead of a node route, so address derivation keeps
+   * working without a Core (the balance reads fail without one anyway).
+   */
+  routeIndependent: boolean
+  routeLabel: string
+}>
+
+/**
+ * How one of the four foreign-wallet reads binds its consent prompt and
+ * session grant to a node route.
+ *
+ * The four actions share one grant family (account.foreign-wallet.read), but
+ * a grant is only reused when its key matches — and the key includes the node
+ * route. GET_USER_WALLET derives address/xpub locally and used to bind to a
+ * fixed 'Home local wallet' pseudo-route while the balance, address-info and
+ * history reads bound to the trusted Core's route, so a wallet app that
+ * opened its receive address and then its balance raised TWO prompts for
+ * what the user sees as one decision (owner decision 2026-09-20: one
+ * consent). When a trusted Qortium node has resolved, every read — the
+ * receive-only derivation included — binds to that same route and label, so
+ * one "for this tab" approval covers all four. Only when NO trusted node
+ * resolves does the receive-only read fall back to a route-independent grant
+ * with the local-wallet label.
+ */
+export function homeV2ForeignWalletReadConsentBinding(input: {
+  readonly action: string
+  /**
+   * The resolved, admin-trusted Qortium node (resolveHomeV2AdminNode), or
+   * null when none resolved. `nodeRoute` is its `${mode}|${nodeApiUrl}`.
+   */
+  readonly adminNode: Readonly<{ nodeApiUrl: string; nodeRoute: string }> | null
+}): HomeV2ForeignWalletReadConsentBinding {
+  const receiveOnly = input.action === 'GET_USER_WALLET'
+  if (!receiveOnly && !isHomeV2ForeignWalletReadAction(input.action)) {
+    throw new Error(`${input.action} is not a foreign wallet read.`)
+  }
+  if (input.adminNode) {
+    if (!input.adminNode.nodeApiUrl || !input.adminNode.nodeRoute) {
+      throw new Error('A trusted node binding needs its API URL and route.')
+    }
+    return Object.freeze({
+      nodeRoute: input.adminNode.nodeRoute,
+      operationLabel: 'Read foreign wallet',
+      routeIndependent: false,
+      routeLabel: input.adminNode.nodeApiUrl,
+    })
+  }
+  if (!receiveOnly) {
+    throw new Error(`${input.action} requires an authenticated Qortium node.`)
+  }
+  return Object.freeze({
+    nodeRoute: HOME_V2_ROUTE_INDEPENDENT_GRANT_ROUTE,
+    operationLabel: 'Read foreign receive wallet',
+    routeIndependent: true,
+    routeLabel: HOME_V2_FOREIGN_WALLET_LOCAL_ROUTE_LABEL,
+  })
+}
+
 export function normalizeHomeV2ForeignWalletCoin(
   request: Record<string, unknown>,
 ): ForeignWalletCoin {

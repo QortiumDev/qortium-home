@@ -839,6 +839,7 @@ export const zhTW: Record<TranslationKey, string> = {
   "home2.accountDialog.title.removeAccount": "刪除帳戶",
   "home2.accountDialog.title.renameAccount": "變更帳戶標籤",
   "home2.accountDialog.title.unlockAccount": "解鎖帳戶",
+  "home2.accountDialog.unlockRequestedBy": "{app} 要求你解鎖此帳戶。",
   "home2.accountDialog.useRememberedUnlock": "使用受裝置保護的記憶解鎖",
   "home2.app.checkingNetwork": "正在檢查 {network}…",
   "home2.app.frameTitle": "QDN應用程式",

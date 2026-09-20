@@ -32,6 +32,41 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## fix: skip the unlock dialog when already unlocked and merge the two foreign-wallet consents
+
+2026-09-20
+
+Opening the Wallet app on desktop Home showed three prompts in a row for what
+the user experiences as one decision. The first was "Unlock account" even
+though the account was already unlocked: an app asking Home to unlock the
+selected account now gets its answer straight away when that account is
+already unlocked, with no password dialog, under exactly the same conditions
+as reading the selected account. When the account really is locked the
+dialog still appears, is still a one-time approval, and now says which app is
+asking ("Wallet is asking you to unlock this account."), in all 23 languages.
+The second and third prompts were both "Allow foreign wallet access?", once
+for deriving a foreign coin's receive address inside Home and once for
+letting the trusted Qortium Core read that wallet's balances and history —
+two prompts because the two halves were remembered under different node
+labels ("Home local wallet" versus the Core's address), so approving one for
+the tab never counted for the other. They are now one consent: whenever a
+trusted Qortium Core is connected, both halves are tied to that same node,
+one "for this tab" approval covers deriving addresses and reading balances
+and history for every supported foreign coin, the prompt says so, and the
+Node row shows the Core's address — the very same node the approval is
+remembered against and re-checked against once it is given. Only when no
+trusted Core is connected does address derivation keep working on its own,
+and the prompt then says plainly that it covers deriving addresses on this
+device only and consults no node. Everything that already cancelled these
+approvals — switching or locking the account, changing the node, closing
+the tab — still does, "Allow once" still covers exactly one request, and the
+foreign-send prompt is unchanged. On Android, an app's unlock request for an
+already-unlocked account is likewise answered without the dialog, the
+dialog names the app when it does appear, an unlock that completes is
+re-checked against the tab, account and node before the app hears about it,
+and the receive-address and balance halves share one approval whenever the
+connected Core is trusted.
+
 ## release: prepare home 2.1.0-beta.12
 
 2026-09-18

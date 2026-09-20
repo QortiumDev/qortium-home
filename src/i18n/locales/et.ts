@@ -839,6 +839,7 @@ export const et: Record<TranslationKey, string> = {
   "home2.accountDialog.title.removeAccount": "Eemalda konto",
   "home2.accountDialog.title.renameAccount": "Muuda konto silti",
   "home2.accountDialog.title.unlockAccount": "Ava konto lukustus",
+  "home2.accountDialog.unlockRequestedBy": "{app} palub sul selle konto lukustuse avada.",
   "home2.accountDialog.useRememberedUnlock": "Kasuta seadme kaitstud meeldejäetud lukustuse avamist",
   "home2.app.checkingNetwork": "Kontrollitakse võrku {network}…",
   "home2.app.frameTitle": "QDN-i rakendus",

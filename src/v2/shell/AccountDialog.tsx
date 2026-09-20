@@ -24,6 +24,7 @@ export function AccountDialog({
   error,
   mode,
   rememberedUnlockAvailable,
+  requestingAppTitle,
   suggestedLabel,
   onCancel,
   onSubmit,
@@ -33,6 +34,8 @@ export function AccountDialog({
   readonly error?: string | null
   readonly mode: AccountDialogMode
   readonly rememberedUnlockAvailable?: boolean
+  // The app that asked (UNLOCK_SELECTED_ACCOUNT); unset for a manual unlock.
+  readonly requestingAppTitle?: string
   readonly suggestedLabel?: string
   readonly onCancel: () => void
   readonly onSubmit: (value: AccountDialogSubmission) => void
@@ -76,6 +79,9 @@ export function AccountDialog({
           ) : null}
           {mode === 'enable-remember' ? (
             <p>{t('home2.accountDialog.enableRememberDescription')}</p>
+          ) : null}
+          {mode === 'unlock' && requestingAppTitle ? (
+            <p>{t('home2.accountDialog.unlockRequestedBy', { app: requestingAppTitle })}</p>
           ) : null}
           {needsLabel ? (
             <label>

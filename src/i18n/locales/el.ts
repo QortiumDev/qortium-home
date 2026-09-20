@@ -840,6 +840,7 @@ export const el: Record<TranslationKey, string> = {
   "home2.accountDialog.title.removeAccount": "Κατάργηση λογαριασμού",
   "home2.accountDialog.title.renameAccount": "Αλλαγή ετικέτας λογαριασμού",
   "home2.accountDialog.title.unlockAccount": "Ξεκλείδωμα λογαριασμού",
+  "home2.accountDialog.unlockRequestedBy": "Το {app} σας ζητά να ξεκλειδώσετε αυτόν τον λογαριασμό.",
   "home2.accountDialog.useRememberedUnlock": "Χρήση απομνημονευμένου ξεκλειδώματος με προστασία συσκευής",
   "home2.app.checkingNetwork": "Έλεγχος του {network}…",
   "home2.app.frameTitle": "Εφαρμογή QDN",

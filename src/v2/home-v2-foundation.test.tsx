@@ -3882,7 +3882,7 @@ function testGrantIdentityAndSendRateLimitHardening(): void {
     // runs BEFORE any grant (session or durable) is honored -- and it is
     // asserted DIRECTLY below, so this budget is a secondary net against
     // reordering rather than the guarantee itself.
-    /liveResourceMatchesGrant\(context\)[\s\S]{0,12000}sessionAccountReadGrants\.has\(grantKey\)/,
+    /liveResourceMatchesGrant\(context\)[\s\S]{0,13000}sessionAccountReadGrants\.has\(grantKey\)/,
   )
   // The ordering asserted DIRECTLY, so it no longer depends on a character
   // budget that every new grant arm pushes against. The proximity match above
@@ -3938,7 +3938,7 @@ function testGrantIdentityAndSendRateLimitHardening(): void {
   )
   assert.match(
     appBridge,
-    /liveResourceMatchesGrant\(context\)[\s\S]{0,12000}hasQdnAccountCapability\(appGrantKey, context\.accountId, 'account\.groupChat'\)/,
+    /liveResourceMatchesGrant\(context\)[\s\S]{0,13000}hasQdnAccountCapability\(appGrantKey, context\.accountId, 'account\.groupChat'\)/,
   )
   // And the store predicate: an 'always' on the two group reads records
   // account.groupChat with no route condition between decision and write.
@@ -3950,7 +3950,7 @@ function testGrantIdentityAndSendRateLimitHardening(): void {
   // The durable chat.send grant must also sit after the stale-resource check.
   assert.match(
     appBridge,
-    /liveResourceMatchesGrant\(context\)[\s\S]{0,8000}hasQdnAccountCapability\(appGrantKey, context\.accountId, 'chat\.send'\)/,
+    /liveResourceMatchesGrant\(context\)[\s\S]{0,9000}hasQdnAccountCapability\(appGrantKey, context\.accountId, 'chat\.send'\)/,
   )
   // So must the durable account.read grant (R3-10). Its membership comes from
   // homeV2DurableAccountReadCapability, which returns null outside
@@ -3962,9 +3962,10 @@ function testGrantIdentityAndSendRateLimitHardening(): void {
     // The window is a proximity heuristic that has to grow as
     // requireAccountReadPermission grows (the foreign-send write kind added a
     // grant target, a single-request rule and a grant-key field ahead of this
-    // point). ORDERING is the property being pinned; 12000 matches the
-    // account.groupChat pin above.
-    /liveResourceMatchesGrant\(context\)[\s\S]{0,12000}hasQdnAccountCapability\(appGrantKey, context\.accountId, durableAccountReadCapability\)/,
+    // point; the already-unlocked UNLOCK_SELECTED_ACCOUNT return and the
+    // foreign-wallet route binding grew it again on 2026-09-20). ORDERING is
+    // the property being pinned; 13000 matches the account.groupChat pin above.
+    /liveResourceMatchesGrant\(context\)[\s\S]{0,13000}hasQdnAccountCapability\(appGrantKey, context\.accountId, durableAccountReadCapability\)/,
   )
   // The durable read grant is bound to the selected account, not just the app,
   // so it cannot survive an account switch the way the session grant cannot.
@@ -4058,9 +4059,11 @@ function testGrantIdentityAndSendRateLimitHardening(): void {
   // explicit exception is the foreign branch of GET_USER_WALLET: the native
   // result remains permissionless, while the xpub/history branch supplies the
   // dedicated foreign-wallet disclosure kind and must continue into a prompt.
+  // The already-unlocked UNLOCK_SELECTED_ACCOUNT return sits immediately after
+  // it (2026-09-20) and shares the same two refusals above it.
   assert.match(
     appBridge,
-    /isHomeV2PermissionlessAction\(action\) && writeDetails\?\.kind !== 'foreign-wallet-read'\) return[\s\S]{0,7000}homeV2DurableAccountReadCapability\(action\)/,
+    /isHomeV2PermissionlessAction\(action\) && writeDetails\?\.kind !== 'foreign-wallet-read'\) return\s*\n[\s\S]{0,700}action === 'UNLOCK_SELECTED_ACCOUNT' && !homeV2UnlockPromptRequired\(context\.accountId, isAccountUnlocked\)[\s\S]{0,9000}homeV2DurableAccountReadCapability\(action\)/,
   )
   assert.match(appBridge, /liveResourceMatchesGrant\(freshContext\)/)
   assert.match(appBridge, /isQdnViewVisible\(context\.windowId, context\.tabId\)/)

@@ -839,6 +839,7 @@ export const ro: Record<TranslationKey, string> = {
   "home2.accountDialog.title.removeAccount": "Eliminați contul",
   "home2.accountDialog.title.renameAccount": "Schimbă eticheta contului",
   "home2.accountDialog.title.unlockAccount": "Deblocați contul",
+  "home2.accountDialog.unlockRequestedBy": "{app} vă cere să deblocați acest cont.",
   "home2.accountDialog.useRememberedUnlock": "Utilizați deblocarea memorată protejată de dispozitiv",
   "home2.app.checkingNetwork": "Se verifică {network}…",
   "home2.app.frameTitle": "Aplicația QDN",

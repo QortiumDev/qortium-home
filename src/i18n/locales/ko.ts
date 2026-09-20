@@ -839,6 +839,7 @@ export const ko: Record<TranslationKey, string> = {
   "home2.accountDialog.title.removeAccount": "계정 삭제",
   "home2.accountDialog.title.renameAccount": "계정 라벨 변경",
   "home2.accountDialog.title.unlockAccount": "계정 잠금 해제",
+  "home2.accountDialog.unlockRequestedBy": "{app}이(가) 이 계정의 잠금 해제를 요청하고 있습니다.",
   "home2.accountDialog.useRememberedUnlock": "기기 보호 기억 잠금 해제 사용",
   "home2.app.checkingNetwork": "{network} 확인 중…",
   "home2.app.frameTitle": "QDN 앱",

@@ -839,6 +839,7 @@ export const he: Record<TranslationKey, string> = {
   "home2.accountDialog.title.removeAccount": "הסרת החשבון",
   "home2.accountDialog.title.renameAccount": "שינוי תווית החשבון",
   "home2.accountDialog.title.unlockAccount": "ביטול נעילת החשבון",
+  "home2.accountDialog.unlockRequestedBy": "{app} מבקש ממך לבטל את נעילת החשבון הזה.",
   "home2.accountDialog.useRememberedUnlock": "שימוש בביטול נעילה שמור ומוגן במכשיר",
   "home2.app.checkingNetwork": "מתבצעת בדיקה של {network}…",
   "home2.app.frameTitle": "יישום QDN",

@@ -839,6 +839,7 @@ export const fi: Record<TranslationKey, string> = {
   "home2.accountDialog.title.removeAccount": "Poista tili",
   "home2.accountDialog.title.renameAccount": "Muuta tilin nimikettä",
   "home2.accountDialog.title.unlockAccount": "Avaa tilin lukitus",
+  "home2.accountDialog.unlockRequestedBy": "{app} pyytää sinua avaamaan tämän tilin lukituksen.",
   "home2.accountDialog.useRememberedUnlock": "Käytä laitteen suojaamaa muistettua lukituksen avausta",
   "home2.app.checkingNetwork": "Tarkistetaan verkkoa {network}…",
   "home2.app.frameTitle": "QDN-sovellus",

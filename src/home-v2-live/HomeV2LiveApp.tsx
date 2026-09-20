@@ -252,6 +252,7 @@ import {
 } from '../../electron/home-v2-session-grants'
 import { getHomeV2BridgeStateDetails } from '../../electron/home-v2-app-runtime'
 import {
+  homeV2ForeignWalletReadConsentBinding,
   isHomeV2ForeignWalletReadAction,
   normalizeHomeV2ForeignServerRequest,
   normalizeHomeV2ForeignWalletCoin,
@@ -261,6 +262,10 @@ import {
   getForeignWalletPublicResponse,
 } from '../../electron/foreign-wallet-read-contract'
 import { isHomeV2NativeWalletRequest } from '../../electron/home-v2-wallet-actions'
+import {
+  assertHomeV2UnlockCompleted,
+  homeV2UnlockPromptRequired,
+} from '../../electron/home-v2-unlock-contract'
 import { unwrapAndroidNodeRecord } from './android-node-envelope'
 import {
   normalizeHomeV2CreateGroupRequest,
@@ -1562,6 +1567,9 @@ export function HomeV2LiveApp() {
     pendingToken?: string
     permissionRequestId?: string
     requestTabId?: string
+    // Set only for an app-driven unlock: the dialog then says which app is
+    // asking. Manual toolbar/menu unlocks leave it unset.
+    requestingAppTitle?: string
     suggestedLabel?: string
   } | null>(null)
   const [accountDialogBusy, setAccountDialogBusy] = useState(false)
@@ -4315,6 +4323,7 @@ export function HomeV2LiveApp() {
             value.targetNetwork !== 'qortium' ||
             typeof value.foreignWalletCoin !== 'string' ||
             typeof value.writeOperationLabel !== 'string' ||
+            typeof value.writeRouteIndependent !== 'boolean' ||
             typeof value.writeRouteLabel !== 'string' ||
             value.writeTargetChainLabel !== 'Qortium' ||
             value.writeSingleRequestOnly !== false)) ||
@@ -4644,11 +4653,25 @@ export function HomeV2LiveApp() {
       const account = accountId
         ? accountCatalogueRef.current.accounts.find((candidate) => candidate.id === accountId)
         : undefined
+      // The app's display name, derived from its resource location exactly as
+      // every other prompt does — never from app-supplied text.
+      const appTitle = (() => {
+        if (typeof value.resourceUrl !== 'string') return 'QDN app'
+        try {
+          return parseAppResourceLocation(value.resourceUrl).identity.name
+        } catch {
+          return 'QDN app'
+        }
+      })()
       if (value.action === 'UNLOCK_SELECTED_ACCOUNT') {
         // The protocol check that used to live here is gone: unlocking is a
         // Home-account operation, not a chain one, and UNLOCK_SELECTED_ACCOUNT
         // is now advertised on both protocols (home-v2-app-actions.ts). A
         // missing account is still a hard denial — there is nothing to unlock.
+        // The main process only raises this request for a LOCKED account: an
+        // already-unlocked one is answered without a prompt (owner decision
+        // 2026-09-20), so this dialog always has a real question to ask and
+        // names the app asking it.
         if (!account) {
           window.homeV2Apps?.resolvePermission({
             approved: false,
@@ -4663,6 +4686,7 @@ export function HomeV2LiveApp() {
           mode: 'unlock',
           permissionRequestId: value.requestId,
           requestTabId: value.tabId,
+          requestingAppTitle: appTitle,
         })
         return
       }
@@ -4670,14 +4694,6 @@ export function HomeV2LiveApp() {
         typeof value.appIdentityKey === 'string' && value.appIdentityKey
           ? value.appIdentityKey
           : `home-v2-tab:${value.tabId}`
-      const appTitle = (() => {
-        if (typeof value.resourceUrl !== 'string') return 'QDN app'
-        try {
-          return parseAppResourceLocation(value.resourceUrl).identity.name
-        } catch {
-          return 'QDN app'
-        }
-      })()
       const isWidgetPrompt = value.action === 'OPEN_AS_WIDGET'
       const isAccountRead = isHomeV2AccountReadAction(value.action)
       const isChatWrite = isHomeV2PublicChatAction(value.action)
@@ -4922,7 +4938,9 @@ export function HomeV2LiveApp() {
             ? `${appTitle} wants to restart your own node's Core. Syncing, minting, and every app using this node pause until it comes back. This approval covers this one restart only; nothing is signed and nothing on chain changes.`
             : `${appTitle} wants to change the node settings listed below on your own node. Every change is shown exactly as it will be applied; some settings only take effect after a restart, which is asked about separately. This approval covers this one change only; nothing is signed and nothing on chain changes.`
           : isForeignWalletRead
-          ? `${appTitle} wants Home to derive public watch-only wallet data for supported foreign chains and let your trusted Qortium Core read balances and transaction history. The app receives addresses and an extended public key, never a seed or private key.`
+          ? value.writeRouteIndependent === true
+            ? `${appTitle} wants Home to derive receive addresses and an extended public key for supported foreign coins on this device for this tab session. No node is consulted, and no balances or history are read. The app receives addresses and an extended public key, never a seed or private key.`
+            : `${appTitle} wants foreign wallet access. This one approval covers both halves of it for this tab session: Home deriving receive addresses and an extended public key for every supported foreign coin, and your trusted Qortium Core at the node shown below reading their balances and transaction history. The app receives addresses and an extended public key, never a seed or private key.`
           : isForeignServerWrite
           ? `${appTitle} wants to change which server your trusted Qortium Core uses for one foreign chain. This approval covers this one change only.`
           : isPollWrite
@@ -5300,7 +5318,9 @@ export function HomeV2LiveApp() {
             ? [
                 { label: 'Account', value: account?.label ?? accountId },
                 { label: 'Coin', value: String(value.foreignWalletCoin) },
-                { label: 'Node', value: String(value.writeRouteLabel) },
+                value.writeRouteIndependent === true
+                  ? { label: 'Node', value: 'None — derived on this device' }
+                  : { label: 'Node', value: String(value.writeRouteLabel) },
                 { label: 'Shared with app', value: 'Receive address and extended public key (xpub)' },
                 { label: 'Not shared', value: 'Wallet seed, private key, or extended private key (xprv)' },
               ]
@@ -9119,6 +9139,44 @@ export function HomeV2LiveApp() {
           (candidate) => candidate.id === context.selectedAccountId,
         )
         if (!account) throw new Error('The selected account is no longer available.')
+        // Already unlocked: nothing to ask (owner decision 2026-09-20). This
+        // is the Android GET_SELECTED_ACCOUNT gate and result, exactly —
+        // a selected, present account and no prompt — mirroring the desktop
+        // bridge, which returns without a prompt for the same case.
+        if (!homeV2UnlockPromptRequired(account.id, (candidateId) =>
+          accountCatalogueRef.current.accounts.some((candidate) => candidate.id === candidateId && candidate.isUnlocked),
+        )) {
+          const tabBeforeLookup = productStateRef.current.tabs.find((tab) => tab.id === context.tabId)
+          if (!tabBeforeLookup) throw new Error('The app tab is no longer open.')
+          const identity = await resolveDualIdentity(account.address, (network, request) =>
+            nodeClient.readIdentity(network, request),
+          ).catch(() => null)
+          const tabAfterLookup = productStateRef.current.tabs.find((tab) => tab.id === context.tabId)
+          const unlockedAfterLookup = accountCatalogueRef.current.accounts.find(
+            (candidate) => candidate.id === account.id,
+          )
+          if (
+            !tabAfterLookup ||
+            tabAfterLookup.context.resourceLocation !== context.resourceLocation ||
+            tabAfterLookup.context.identityId !== tabBeforeLookup.context.identityId ||
+            tabAfterLookup.context.walletRef !== tabBeforeLookup.context.walletRef ||
+            unlockedAfterLookup?.address !== account.address
+          ) {
+            throw new Error('Account unlock context changed before the result could be delivered.')
+          }
+          assertHomeV2UnlockCompleted(account.id, () => unlockedAfterLookup.isUnlocked === true)
+          return {
+            address: account.address,
+            avatarContract: 'pointer-aware-account-avatar-v1',
+            avatarUrl: null,
+            isUnlocked: true,
+            name:
+              identity?.networks.qortium.primaryName ??
+              identity?.networks.qortal.primaryName ??
+              null,
+          }
+        }
+        const parsedUnlockApp = resolveAppIdentity()
         // Bind the route recheck to the network the REQUEST is on, not a fixed
         // chain. UNLOCK is advertised on both protocols; a qortalRequest unlock
         // establishes availability against the Qortal route, so the
@@ -9136,6 +9194,7 @@ export function HomeV2LiveApp() {
           accountId: account.walletId,
           mode: 'unlock',
           permissionRequestId: requestId,
+          requestingAppTitle: parsedUnlockApp.title,
         })
         return new Promise<unknown>((resolve, reject) => {
           const timeout = window.setTimeout(() => {
@@ -9169,6 +9228,36 @@ export function HomeV2LiveApp() {
               const identity = await resolveDualIdentity(freshAccount.address, (network, request) =>
                 nodeClient.readIdentity(network, request),
               ).catch(() => null)
+              // Re-read every guard AFTER the identity await: `isUnlocked:
+              // true` is a promise to the app, so an account locked, switched
+              // or replaced, a tab that moved to another app, or a route that
+              // changed during the lookup is a failure, never a false
+              // "unlocked". Same guards as the already-unlocked branch above.
+              const tabAfterLookup = productStateRef.current.tabs.find((tab) => tab.id === context.tabId)
+              const accountAfterLookup = accountCatalogueRef.current.accounts.find(
+                (candidate) => candidate.id === context.selectedAccountId,
+              )
+              const routeAfterLookup = parseHomeV2NodesSnapshot(await nodeClient.getSnapshot())[targetNetwork]
+              if (
+                !tabAfterLookup ||
+                tabAfterLookup.context.resourceLocation !== context.resourceLocation ||
+                tabAfterLookup.context.identityId !== freshTab.context.identityId ||
+                tabAfterLookup.context.walletRef !== freshTab.context.walletRef ||
+                !accountAfterLookup ||
+                accountAfterLookup.address !== freshAccount.address ||
+                `${routeAfterLookup.mode}|${routeAfterLookup.nodeApiUrl ?? ''}` !== nodeRoute
+              ) {
+                reject(new Error('Account unlock context changed before the result could be delivered.'))
+                return
+              }
+              try {
+                assertHomeV2UnlockCompleted(freshAccount.id, (candidateId) =>
+                  accountCatalogueRef.current.accounts.some((candidate) => candidate.id === candidateId && candidate.isUnlocked),
+                )
+              } catch (error) {
+                reject(error instanceof Error ? error : new Error(String(error)))
+                return
+              }
               resolve({
                 address: freshAccount.address,
                 avatarContract: 'pointer-aware-account-avatar-v1',
@@ -10351,26 +10440,39 @@ export function HomeV2LiveApp() {
         if (!account.isUnlocked) throw new Error('The selected account is locked.')
         const request = isRecord(requestValue) ? requestValue : {}
         const coin = normalizeHomeV2ForeignWalletCoin(request)
-        const routeBeforePrompt = receiveOnly
-          ? null
-          : parseHomeV2NodesSnapshot(await nodeClient.getSnapshot()).qortium
-        if (
-          routeBeforePrompt &&
-          (!routeBeforePrompt.nodeApiUrl || !routeBeforePrompt.capabilities.read || routeBeforePrompt.adminTrusted !== true)
-        ) {
+        const routeBeforePrompt = parseHomeV2NodesSnapshot(await nodeClient.getSnapshot()).qortium
+        const routeTrusted = !!routeBeforePrompt.nodeApiUrl &&
+          routeBeforePrompt.capabilities.read &&
+          routeBeforePrompt.adminTrusted === true
+        if (!receiveOnly && !routeTrusted) {
           throw new Error('Foreign wallet reads require a reachable authenticated Qortium node.')
         }
-        const trust = receiveOnly
-          ? { origin: 'Home local wallet', revision: 'home-local-wallet-v1', trusted: true as const }
-          : await nodeClient.adminTrust?.()
+        // Mirrors the desktop bridge (homeV2ForeignWalletReadConsentBinding):
+        // when a trusted Qortium node resolves, the receive-only derivation
+        // binds its consent to that node's origin so it shares ONE session
+        // grant with the balance reads; only without one does it fall back to
+        // the route-independent local-wallet binding. The derivation itself
+        // never uses the node either way.
+        const trustedNode = routeTrusted
+          ? await nodeClient.adminTrust?.().catch(() => null)
+          : null
+        const trust = trustedNode?.trusted
+          ? trustedNode
+          : receiveOnly
+            ? { origin: 'Home local wallet', revision: 'home-local-wallet-v1', trusted: true as const }
+            : trustedNode
         if (!trust?.trusted) throw new Error(trust?.reason ?? 'Using a foreign wallet requires an authenticated Qortium node.')
+        const consentBinding = homeV2ForeignWalletReadConsentBinding({
+          action,
+          adminNode: trustedNode?.trusted ? { nodeApiUrl: trust.origin, nodeRoute: trust.origin } : null,
+        })
         const parsedApp = resolveAppIdentity()
         const grantKey = homeV2PermissionGrantKey({
           accountId,
           accountUnlocked: true,
           action,
           appIdentity: parsedApp.identityKey,
-          nodeRoute: trust.origin,
+          nodeRoute: consentBinding.nodeRoute,
           principalId: 'android',
           protocol,
           tabId: context.tabId,
@@ -10394,13 +10496,15 @@ export function HomeV2LiveApp() {
               walletRef: brand<WalletRef>(`home-v2:wallet:${account.walletId}`),
             },
             title: 'Allow foreign wallet access?',
-            summary: receiveOnly
-              ? `${parsedApp.title} wants Home to derive a receive address and public watch-only wallet data for a supported foreign chain. The app receives an address and extended public key, never a seed or private key.`
-              : `${parsedApp.title} wants Home to derive public watch-only wallet data for a supported foreign chain and let your authenticated Qortium Core read balances and transaction history. The app receives addresses and an extended public key, never a seed or private key.`,
+            summary: consentBinding.routeIndependent
+              ? `${parsedApp.title} wants Home to derive receive addresses and an extended public key for supported foreign coins on this device for this tab session. No node is consulted, and no balances or history are read. The app receives addresses and an extended public key, never a seed or private key.`
+              : `${parsedApp.title} wants foreign wallet access. This one approval covers both halves of it for this tab session: Home deriving receive addresses and an extended public key for every supported foreign coin, and your trusted Qortium Core at the node shown below reading their balances and transaction history. The app receives addresses and an extended public key, never a seed or private key.`,
             details: [
               { label: 'Account', value: account.label },
               { label: 'Coin', value: coin },
-              { label: 'Node', value: trust.origin },
+              consentBinding.routeIndependent
+                ? { label: 'Node', value: 'None — derived on this device' }
+                : { label: 'Node', value: consentBinding.routeLabel },
               { label: 'Shared with app', value: 'Receive address and extended public key (xpub)' },
               { label: 'Not shared', value: 'Wallet seed, private key, or extended private key (xprv)' },
             ],
@@ -10421,13 +10525,23 @@ export function HomeV2LiveApp() {
         const freshTab = productStateRef.current.tabs.find((tab) => tab.id === context.tabId)
         const freshAccount = accountCatalogueRef.current.accounts.find((candidate) => candidate.id === accountId)
         const currentTrust = receiveOnly ? trust : await nodeClient.adminTrust?.()
+        // A route-bound grant (every read with a trusted node, the receive-only
+        // derivation included) is keyed on the node route it was approved
+        // for; a route that changed during the prompt is refused, as on
+        // desktop, rather than honored under the old key.
+        const routeAfterPrompt = consentBinding.routeIndependent
+          ? null
+          : parseHomeV2NodesSnapshot(await nodeClient.getSnapshot()).qortium
         if (
           !isRequestCurrent() ||
           !freshTab ||
           freshTab.context.resourceLocation !== context.resourceLocation ||
           !freshAccount?.isUnlocked ||
           !currentTrust?.trusted ||
-          currentTrust.revision !== trust.revision
+          currentTrust.revision !== trust.revision ||
+          (routeAfterPrompt !== null &&
+            `${routeAfterPrompt.mode}|${routeAfterPrompt.nodeApiUrl ?? ''}` !==
+              `${routeBeforePrompt.mode}|${routeBeforePrompt.nodeApiUrl ?? ''}`)
         ) {
           throw new Error('Account access context changed before the foreign wallet read started.')
         }
@@ -11006,6 +11120,7 @@ export function HomeV2LiveApp() {
         dialogVaultAccount?.security.rememberUnlock === true &&
         dialogVaultAccount.security.manuallyLocked === false
       }
+      requestingAppTitle={accountDialog.requestingAppTitle}
       suggestedLabel={accountDialog.suggestedLabel}
       onCancel={() => {
         if (accountDialog.pendingToken) {
