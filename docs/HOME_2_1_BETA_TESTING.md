@@ -202,6 +202,20 @@ APP/WEBSITE navigation and a resource viewer are distinct operations.
    Report any tab still labelled with the network name, any I2P line that
    contradicts the node's status, and any developer-tools key that opens the
    wrong window.
+17. New after beta.12 — the address bar navigates the tab you are in, with
+   that tab's account. Open the same app (say Wallet) in two tabs bound to
+   two different accounts, select the second tab and type the app's address
+   into the address bar: the tab you are in should load it, still under its
+   own account, and Home must not switch you to the other account's tab.
+   Type an app that is not open yet from that tab: it opens in that same
+   tab under that tab's account, not the account selected on the dashboard.
+   Type a bare app name (`qdn://APP/Explore`) from a tab under a non-default
+   account: one published resource opens in place; several show the
+   identifier chooser and the choice opens in place. Type `home://settings`
+   or `core://` from an app tab: the app tab stays as it was and Settings or
+   the Core docs open the way they always did. "+" with a custom new-tab
+   address still adds a tab. Report any case where the account shown on the
+   tab's group badge changes after typing an address, on desktop or Android.
 
 ## Reports still being investigated
 

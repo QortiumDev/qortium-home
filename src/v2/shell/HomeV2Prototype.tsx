@@ -196,6 +196,13 @@ export interface HomeV2PrototypeProps {
   readonly onOpenApp?: (app: AppDescriptor) => void
   readonly onOpenAddress?: (address: string) => Promise<AddressOpenResult>
   /**
+   * The address bar's own submit: navigate the tab the user is looking at,
+   * like a browser, keeping that tab's account binding — an app tab is
+   * replaced in place, never deduplicated against another tab. Falls back to
+   * `onOpenAddress` when absent. The + button keeps `onOpenAddress`.
+   */
+  readonly onOpenAddressFromAddressBar?: (address: string) => Promise<AddressOpenResult>
+  /**
    * The Dashboard's own links: navigate the Dashboard tab in place (Back
    * returns to it) rather than opening another tab. Falls back to
    * `onOpenAddress` when absent.
@@ -203,7 +210,8 @@ export interface HomeV2PrototypeProps {
   readonly onOpenAddressFromDashboard?: (address: string) => Promise<AddressOpenResult>
   /**
    * OPEN_CURRENT_TAB: replace one app tab's content in place. Reaches only the
-   * app stage — the address bar always opens a tab of its own.
+   * app stage; the address bar's own in-place route is
+   * `onOpenAddressFromAddressBar`.
    */
   readonly onOpenAddressInTab?: (
     address: string,
@@ -1236,6 +1244,7 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
         onReorderTab={onReorderTab}
         onNavigate={guardedNavigate}
         onOpenAddress={props.onOpenAddress}
+        onOpenAddressFromAddressBar={props.onOpenAddressFromAddressBar}
         onOpenAsWidget={props.onOpenAsWidget}
         widgetAvailable={props.widgetAvailable}
         canGoBack={props.canGoBack}

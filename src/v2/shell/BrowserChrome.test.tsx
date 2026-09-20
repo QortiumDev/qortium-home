@@ -1755,6 +1755,127 @@ try {
     ))
     assert.equal(container.querySelectorAll('.home-v2-tab.has-attention').length, 0)
   }
+  // The address bar's own submit routes through onOpenAddressFromAddressBar
+  // (navigate the current tab, keep its account) while the + button's custom
+  // new-tab address keeps onOpenAddress (add a tab). The identifier chosen
+  // after a bare name takes whichever route asked for the choice.
+  {
+    const routed: string[] = []
+    const chooseResult: AddressOpenResult = {
+      message: 'Choose a published identifier.',
+      options: [
+        { address: 'qdn://APP/Wallet/Wallet', label: 'Wallet' },
+        { address: 'qdn://APP/Wallet/Wallet-beta', label: 'Wallet-beta' },
+      ],
+      status: 'choose',
+    }
+    const renderRouted = () => root.render(
+      <BrowserChrome
+        key="address-bar-route"
+        snapshot={homeV2Fixture}
+        productState={createProductState()}
+        newTabPreference={{ address: 'qdn://APP/Wallet', kind: 'custom' }}
+        onOpenAddress={async (address) => {
+          routed.push(`new-tab:${address}`)
+          return address === 'qdn://APP/Wallet' ? chooseResult : { status: 'opened' }
+        }}
+        onOpenAddressFromAddressBar={async (address) => {
+          routed.push(`address-bar:${address}`)
+          return address === 'qdn://APP/Wallet' ? chooseResult : { status: 'opened' }
+        }}
+        loadVisibleAvatar={async () => ({ status: 'missing' })}
+      />,
+    )
+    act(() => renderRouted())
+    const addressInput = () => {
+      const input = container.querySelector<HTMLInputElement>('input[aria-label="Address and search"]')
+      assert.ok(input, 'expected the address input')
+      return input
+    }
+    const submitForm = () => container.querySelector('form.home-v2-address')!
+      .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    const chooseButton = () => {
+      const button = container.querySelector<HTMLButtonElement>('.home-v2-address__choice button')
+      assert.ok(button, 'expected the identifier-choice Open button')
+      return button
+    }
+    const chooseSelect = () => {
+      const select = container.querySelector<HTMLSelectElement>('select[aria-label="App resource identifier"]')
+      assert.ok(select, 'expected the identifier-choice select')
+      return select
+    }
+    const setNativeValue = (element: HTMLInputElement | HTMLSelectElement, value: string) => {
+      const isSelect = element.tagName === 'SELECT'
+      const prototype = isSelect ? window.HTMLSelectElement.prototype : window.HTMLInputElement.prototype
+      Object.getOwnPropertyDescriptor(prototype, 'value')!.set!.call(element, value)
+      element.dispatchEvent(new Event(isSelect ? 'change' : 'input', { bubbles: true }))
+    }
+
+    // Typing an explicit address and submitting: the address-bar route.
+    await act(async () => {
+      setNativeValue(addressInput(), 'qdn://APP/Chat/Chat')
+      submitForm()
+      await Promise.resolve()
+    })
+    assert.deepEqual(routed, ['address-bar:qdn://APP/Chat/Chat'])
+
+    // A bare name from the address bar: 'choose', and the chosen identifier
+    // goes back through the ADDRESS-BAR route, so it navigates in place.
+    await act(async () => {
+      setNativeValue(addressInput(), 'qdn://APP/Wallet')
+      submitForm()
+      await Promise.resolve()
+    })
+    assert.deepEqual(routed, ['address-bar:qdn://APP/Chat/Chat', 'address-bar:qdn://APP/Wallet'])
+    assert.match(container.textContent ?? '', /Choose a published identifier\./)
+    await act(async () => {
+      setNativeValue(chooseSelect(), 'qdn://APP/Wallet/Wallet-beta')
+      await Promise.resolve()
+    })
+    await act(async () => {
+      chooseButton().click()
+      await Promise.resolve()
+    })
+    assert.deepEqual(routed.at(-1), 'address-bar:qdn://APP/Wallet/Wallet-beta')
+    assert.equal(container.querySelector('.home-v2-address__choice'), null, 'the choice closes once opened')
+
+    // The + button with a custom address: the NEW-TAB route, and the
+    // identifier chosen after it stays on that route — a tab is being added,
+    // not the current one navigated.
+    routed.length = 0
+    await act(async () => {
+      newTabButton().click()
+      await Promise.resolve()
+    })
+    assert.deepEqual(routed, ['new-tab:qdn://APP/Wallet'])
+    await act(async () => {
+      chooseButton().click()
+      await Promise.resolve()
+    })
+    assert.deepEqual(routed, ['new-tab:qdn://APP/Wallet', 'new-tab:qdn://APP/Wallet/Wallet'])
+
+    // Without the dedicated callback the address bar falls back to onOpenAddress.
+    routed.length = 0
+    act(() => root.render(
+      <BrowserChrome
+        key="address-bar-fallback"
+        snapshot={homeV2Fixture}
+        productState={createProductState()}
+        newTabPreference={{ kind: 'search' }}
+        onOpenAddress={async (address) => {
+          routed.push(`new-tab:${address}`)
+          return { status: 'opened' }
+        }}
+        loadVisibleAvatar={async () => ({ status: 'missing' })}
+      />,
+    ))
+    await act(async () => {
+      setNativeValue(addressInput(), 'qdn://APP/Chat/Chat')
+      submitForm()
+      await Promise.resolve()
+    })
+    assert.deepEqual(routed, ['new-tab:qdn://APP/Chat/Chat'])
+  }
 } finally {
   act(() => root.unmount())
   container.remove()

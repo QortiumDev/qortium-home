@@ -1067,6 +1067,17 @@ interface HomeV2OpenAddressOptions {
    * own tabs, and alongside `replaceTarget`.
    */
   readonly inTab?: TabId
+  /**
+   * Set only by the address bar's own submit (openAddressFromAddressBar), and
+   * meaningful only alongside `replaceTarget`: the user is navigating the app
+   * tab they are looking at, so the two rules written for the BRIDGE caller
+   * of a replacement relax. A bare app name goes through discovery (one
+   * candidate navigates in place; several ask the user to choose, and the
+   * choice navigates in place too), and one of Home's own pages is not an
+   * error but falls through to its ordinary route, leaving the app tab as it
+   * was. OPEN_CURRENT_TAB never sets this and keeps both refusals.
+   */
+  readonly fromAddressBar?: boolean
 }
 
 /**
@@ -1085,6 +1096,26 @@ function assertHomeV2ReplaceableTab(
   const tab = findReplaceableAppTab(state, target)
   if (!tab) {
     throw new Error('That app tab is no longer showing the app that asked to replace it.')
+  }
+  return tab
+}
+
+/**
+ * The address bar's stricter form of the check above, for state read after
+ * an await: the tab must still be the one IN FRONT. The replace reducer
+ * activates its target and clears any transient page, so a late discovery
+ * result would otherwise replace a tab the user has since left — or pull it
+ * out from under the Core docs or release notes they opened meanwhile. An
+ * app's OPEN_CURRENT_TAB is not held to this: it asks for its own tab, in
+ * front or not.
+ */
+function assertHomeV2AddressBarTabInFront(
+  state: ProductState,
+  target: HomeV2ReplaceTabTarget,
+): AppTab {
+  const tab = assertHomeV2ReplaceableTab(state, target)
+  if (state.activeTabId !== target.tabId || state.transient !== null) {
+    throw new Error('That tab is no longer the one in front; nothing was opened.')
   }
   return tab
 }
@@ -2893,13 +2924,36 @@ export function HomeV2LiveApp() {
   // shell showing one account while the bridge still answered for another.
   // OPEN_CURRENT_TAB therefore has no way to change accounts — it changes only
   // which app is loaded.
+  //
+  // The address bar passes `binding`: the tab's account as the shell resolved
+  // it from trusted product state at submit time — the same account when it
+  // is still present, or the EXPLICIT no-account binding when the tab's saved
+  // account is no longer in the catalogue (so a stale binding is not carried
+  // forward, and the global account is never substituted). The bridge passes
+  // nothing and the tab's context is copied verbatim.
   const replaceTabWithApp = useCallback(
     (
       target: HomeV2ReplaceTabTarget,
       app: AppDescriptor,
       requestedLocation?: AppTabContext['resourceLocation'],
+      binding?: HomeV2AccountBinding,
     ) => {
       const current = assertHomeV2ReplaceableTab(productStateRef.current, target)
+      const resourceLocation =
+        requestedLocation ?? buildAppResourceLocation(app.sourceNetwork, app.resourceIdentity)
+      const context: AppTabContext = binding === undefined
+        ? {
+            appId: app.id,
+            identityId: current.context.identityId,
+            // Ordinary app tabs derive their URL from resourceLocation; only a
+            // publish preview carries one of its own.
+            previewUrl: null,
+            resourceLocation,
+            sourceNetwork: app.sourceNetwork,
+            tabId: target.tabId,
+            walletRef: current.context.walletRef,
+          }
+        : appTabContext(app, target.tabId, resourceLocation, binding)
       setShellNotice(null)
       dispatchProduct({
         type: 'replace-tab-app',
@@ -2909,19 +2963,7 @@ export function HomeV2LiveApp() {
         // against the entry it is about to overwrite, so the check above and
         // the write below cannot be separated by anything.
         fromResourceLocation: target.fromResourceLocation,
-        context: {
-          appId: app.id,
-          identityId: current.context.identityId,
-          // Ordinary app tabs derive their URL from resourceLocation; only a
-          // publish preview carries one of its own.
-          previewUrl: null,
-          resourceLocation:
-            requestedLocation ??
-            buildAppResourceLocation(app.sourceNetwork, app.resourceIdentity),
-          sourceNetwork: app.sourceNetwork,
-          tabId: target.tabId,
-          walletRef: current.context.walletRef,
-        },
+        context,
       })
       // The tab keeps its id but now hosts a DIFFERENT app, so every grant
       // bound to it must go — including account.read, which
@@ -2933,13 +2975,19 @@ export function HomeV2LiveApp() {
       invalidateAndroidRuntime('app-replaced', target.tabId)
       window.homeV2Apps?.invalidateRuntime({ kind: 'app-replaced', tabId: target.tabId })
       // Cross-app history is held by the shell. A fresh native view prevents
-      // earlier visits to the same resource leaking stale native indices.
-      if (current.context.resourceLocation !== (requestedLocation ??
-          buildAppResourceLocation(app.sourceNetwork, app.resourceIdentity))) {
+      // earlier visits to the same resource leaking stale native indices — and
+      // a native view's account is pinned at creation, so a binding that
+      // changed (a stale account collapsing to no account) needs a fresh view
+      // as well.
+      if (
+        current.context.resourceLocation !== resourceLocation ||
+        current.context.identityId !== context.identityId ||
+        current.context.walletRef !== context.walletRef
+      ) {
         void window.homeV2Apps?.destroy({ tabId: target.tabId })
       }
     },
-    [invalidateAndroidRuntime],
+    [appTabContext, invalidateAndroidRuntime],
   )
 
   // Whether an app has a widget face is only knowable from the manifest it
@@ -3059,14 +3107,18 @@ export function HomeV2LiveApp() {
     async (
       address: string,
       requestedAccountId?: HomeV2AccountBinding,
-      // Set only by OPEN_CURRENT_TAB: replace this existing app tab's content
-      // instead of opening another tab. Both fields come from the trusted
-      // host's own view context for the requesting app — never from the
-      // request — and together they are the compare half of a
-      // compare-and-swap.
+      // Set by OPEN_CURRENT_TAB and by the address bar: replace this existing
+      // app tab's content instead of opening another tab. Both fields come
+      // from trusted product state — the host's own view context for the
+      // requesting app, or the shell's own active tab — never from the
+      // request or the typed text — and together they are the compare half
+      // of a compare-and-swap. The replaced tab keeps its own account
+      // binding (see replaceTabWithApp); `requestedAccountId` only reaches
+      // the routes that open a tab of their own.
       replaceTarget?: HomeV2ReplaceTabTarget | null,
       options?: HomeV2OpenAddressOptions,
     ): Promise<AddressOpenResult> => {
+      const fromAddressBar = options?.fromAddressBar === true
       // A tab MOVING between windows, not an address being navigated to. The
       // ordinary open paths deduplicate — openApp activates an identical app
       // tab, `navigate` focuses an internal page that is already open — and
@@ -3081,15 +3133,20 @@ export function HomeV2LiveApp() {
         productStateRef.current.entries.some((entry) => entry.id === options.inTab && entry.kind === 'internal')
         ? options.inTab
         : undefined
+      // The app tab this open navigates in place, if any. Starts as
+      // `replaceTarget`; the address bar drops it below when the typed
+      // address is one of Home's own pages, which never take over an app tab
+      // and open by their ordinary route instead.
+      let replacing: HomeV2ReplaceTabTarget | null = replaceTarget ?? null
       try {
-        if (replaceTarget) {
+        if (replacing) {
           // The tab can close, or be replaced by someone else, between the
           // app's request and this handler. `tabs` holds APP tabs only, so
           // this also refuses an internal page's id. Fail here rather than in
           // the reducer: a reducer throw surfaces at render, and losing this
           // race is expected, not a bug. Re-checked after the await below and
           // once more by the reducer at the write.
-          assertHomeV2ReplaceableTab(productStateRef.current, replaceTarget)
+          assertHomeV2ReplaceableTab(productStateRef.current, replacing)
           // Home's own pages — settings, dashboard, welcome, Core docs,
           // release notes — are not app content and must never take over an
           // app tab, or an app could dress trusted Home chrome up as its own
@@ -3100,14 +3157,22 @@ export function HomeV2LiveApp() {
             parseHomeV2ReleaseNotesAddress(address) ||
             parseHomeV2InternalAddress(address)
           ) {
-            throw new Error('Home pages cannot replace an app tab; open them in a new tab instead.')
-          }
-          // A bare app name can match more than one published resource. The
-          // address bar answers that by asking the user to choose, but there
-          // is nobody to ask on a bridge call, and reporting success while
-          // doing nothing would be a lie. Require the app to say exactly which
-          // resource it means; OPEN_NEW_TAB keeps the chooser.
-          if (!parseAppResourceLocation(address).identifierWasExplicit) {
+            if (!fromAddressBar) {
+              throw new Error('Home pages cannot replace an app tab; open them in a new tab instead.')
+            }
+            // The same rule holds when it is the USER typing a Home page over
+            // an app tab: the page opens the way it always has — a transient
+            // page, or an internal page focused or opened as a tab of its
+            // own — and the app tab is left exactly as it was.
+            replacing = null
+          } else if (!fromAddressBar && !parseAppResourceLocation(address).identifierWasExplicit) {
+            // A bare app name can match more than one published resource.
+            // The address bar answers that by asking the user to choose, but
+            // there is nobody to ask on a bridge call, and reporting success
+            // while doing nothing would be a lie. Require the app to say
+            // exactly which resource it means; OPEN_NEW_TAB keeps the
+            // chooser, and so does the address bar (fromAddressBar), whose
+            // chosen option comes back through the same in-place route.
             throw new Error(
               'OPEN_CURRENT_TAB needs an explicit resource identifier: a bare app name can match more than one published resource. Use OPEN_NEW_TAB to let the user choose.',
             )
@@ -3159,7 +3224,12 @@ export function HomeV2LiveApp() {
           })
           return { status: 'opened' }
         }
-        if (!replaceTarget && isViewerAddress(address)) {
+        // A viewer never replaces an app tab (the product model has no such
+        // route: a viewer is not an app). The bridge caller falls through to
+        // the app-address parser and its error; the address bar opens the
+        // viewer in a tab of its own, under the same binding, as it always
+        // has.
+        if ((!replacing || fromAddressBar) && isViewerAddress(address)) {
           const tabId = openViewer(address, requestedAccountId)
           setShellNotice(null)
           return { status: 'opened', tabId }
@@ -3214,12 +3284,20 @@ export function HomeV2LiveApp() {
             identifier: resolved.candidate.identifier,
           }
           resourceLocation = resolved.address
-          // Unreachable while replacements require an explicit identifier
-          // (checked above, so the only await in this function is skipped for
-          // them) — kept so that relaxing that rule cannot silently reopen the
-          // window between the pre-flight check and the write.
-          if (replaceTarget) {
-            assertHomeV2ReplaceableTab(productStateRef.current, replaceTarget)
+          // The address bar's in-place navigation of a bare name reaches
+          // here after the only await in this function, so the tab may have
+          // closed, moved on, been left for another tab or been covered by a
+          // transient page meanwhile: check again, on state read after the
+          // await, before anything is dispatched, and refuse a late result
+          // for a tab that is no longer in front. (The bridge caller is
+          // refused above for a bare name and never gets this far; its own
+          // re-check is the plain replaceable-tab one.)
+          if (replacing) {
+            if (fromAddressBar) {
+              assertHomeV2AddressBarTabInFront(productStateRef.current, replacing)
+            } else {
+              assertHomeV2ReplaceableTab(productStateRef.current, replacing)
+            }
           }
         }
         // R4-4: the service is folded into the app id for WEBSITE and GAME so
@@ -3241,8 +3319,20 @@ export function HomeV2LiveApp() {
           targetNetworks: [parsed.sourceNetwork],
           placement: 'recommended',
         }
-        if (replaceTarget) {
-          replaceTabWithApp(replaceTarget, app, resourceLocation)
+        if (replacing) {
+          // In place, under the tab's OWN identity and wallet binding — for
+          // the address bar, as resolved from product state at submit (a
+          // stale account collapses to the explicit no-account binding). No
+          // dedupe against other tabs: the same app open elsewhere under
+          // another account is left alone, and the user stays where they are.
+          replaceTabWithApp(
+            replacing,
+            app,
+            resourceLocation,
+            // Never the global account here: a missing binding on the
+            // address-bar route is the explicit no-account one.
+            fromAddressBar ? requestedAccountId ?? HOME_V2_BIND_NO_ACCOUNT : undefined,
+          )
           return { status: 'opened' }
         }
         if (inTab && productStateRef.current.entries.some((entry) => entry.id === inTab && entry.kind === 'internal')) {
@@ -3276,6 +3366,61 @@ export function HomeV2LiveApp() {
         fromResourceLocation,
         tabId: brand<TabId>(tabId),
       }),
+    [openAddress],
+  )
+
+  /**
+   * The address bar's own submit (and the identifier chosen after a bare
+   * name): navigate the tab the user is LOOKING AT, the way a browser does,
+   * keeping that tab's account.
+   *
+   * - An app tab is replaced in place through the OPEN_CURRENT_TAB machinery,
+   *   which copies the tab's identity and wallet binding — a concrete account
+   *   or the explicit no-account binding — and never deduplicates against
+   *   another tab. So the same app already open under another account stays
+   *   where it is, and the user is not switched to it.
+   * - A viewer opens the address in a tab of its own, as before, bound to the
+   *   account the viewer is attributed to.
+   * - An internal page (Dashboard, Settings, welcome…) keeps today's route —
+   *   a tab of its own, or an open page focused — under the global account,
+   *   since internal pages carry no account of their own. So does a
+   *   transient page shown over a tab.
+   *
+   * Every binding here is read from trusted product state at submit time;
+   * nothing in the typed text can choose the account. The + button, the
+   * Dashboard's own links and every bridge caller keep their own routes.
+   */
+  const openAddressFromAddressBar = useCallback(
+    (address: string): Promise<AddressOpenResult> => {
+      const current = productStateRef.current
+      const entry = current.transient === null
+        ? current.entries.find((candidate) => candidate.id === current.activeTabId)
+        : undefined
+      if (entry?.kind !== 'app' && entry?.kind !== 'viewer') {
+        return openAddress(address)
+      }
+      // A still-present real Home account is kept as an account binding;
+      // `none`, an app-principal identity or a stale id all collapse to the
+      // EXPLICIT no-account binding, never the global account — the same
+      // rule OPEN_NEW_TAB applies to its originating tab. For an app tab
+      // this binding is handed to the replace step, so the ONE rule holds
+      // whether the address lands in place or in a viewer tab of its own.
+      const boundAccountId = savedEntryAccountId(entry)
+      const binding: HomeV2AccountBinding =
+        boundAccountId !== null &&
+        accountCatalogueRef.current.accounts.some((account) => account.id === boundAccountId)
+          ? boundAccountId
+          : HOME_V2_BIND_NO_ACCOUNT
+      if (entry.kind === 'viewer') {
+        return openAddress(address, binding)
+      }
+      return openAddress(
+        address,
+        binding,
+        { fromResourceLocation: entry.context.resourceLocation, tabId: entry.id },
+        { fromAddressBar: true },
+      )
+    },
     [openAddress],
   )
 
@@ -11682,6 +11827,7 @@ export function HomeV2LiveApp() {
       }}
       onOpenApp={openApp}
       onOpenAddress={openAddress}
+      onOpenAddressFromAddressBar={openAddressFromAddressBar}
       onOpenAddressFromDashboard={(address) =>
         openAddress(address, undefined, null, { inTab: activeDashboardTabId() })
       }
