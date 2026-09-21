@@ -32,6 +32,46 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## fix: new tabs and the selected account follow the active tab group
+
+2026-09-20
+
+The tab bar groups tabs by account, but the "+" button did not follow the
+group you were in: pressed from a second account's tab, it opened the new tab
+under the account selected on the Dashboard — and a custom new-tab address
+opened its app under that account too. Now the account context of what the
+shell itself opens follows the tab group you are in. The "+" button (and
+Ctrl+T, and a double-click on the strip) opens its page — the Dashboard, the
+search page, or your custom address — into the group you pressed it from, so
+it sits beside the tabs you were looking at, and an address opened from that
+page, or the custom address itself, is bound to that group's account. A group
+bound to no account gives a no-account tab, and an account that has since been
+removed from Home gives a no-account tab as well; the account selected
+elsewhere is never substituted. When you move into another account's group —
+by clicking one of its tabs, cycling with the keyboard, or closing a tab so
+its neighbour comes forward — the selected account becomes that group's
+account, so the account switcher, the Dashboard's Account tile, unlock and
+Settings all show and act on the account whose tabs you are looking at. Tabs
+bound to no account, and pages that belong to no group, leave the selection
+as it is. The Dashboard's own tiles and links open under the Dashboard's
+group; a pinned app or bookmark saved for a particular account keeps that
+account (an explicit per-item choice beats the group), while one saved
+without an account follows the group you are in. A page a tab goes Back to
+stays in the tab's group, a page moved between windows or reopened after
+closing keeps its group, and a saved session restores each page into the
+group it was in. Pages saved before this change carry no group: they stay in
+the Home group and use the selected account, as they always did — there is no
+migration. The switch of selected account waits for Home's account store to
+confirm it, one change at a time, so switching tabs quickly (or closing a tab
+while a switch is still in progress) always ends on the account of the tab
+you are actually looking at; a store that is momentarily unavailable is
+retried. The Rename, Remove and remember-unlock dialogs act on the account
+they were opened for and, if the selected account changed behind them, close
+with a note instead of acting on another account. Already-open app tabs are
+never rebound by a selection change, and nothing an app sends can choose an
+account: every binding comes from Home's own record of the tab in front. The
+same on desktop and Android.
+
 ## fix: the address bar navigates the current tab with that tab's account
 
 2026-09-20

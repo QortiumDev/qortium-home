@@ -49,10 +49,16 @@ export function groupTabsByAccount(
     .map(([key, group]) => ({ key, accountId: group.accountId, entries: group.entries }))
 }
 
-/** Which account's group a tab sits in, or null for the Home group. */
+/**
+ * Which account's group a tab sits in, or null for the Home group. The
+ * Dashboard sits with the selected account; any other internal page sits in
+ * the group it was opened into (ShellEntry.accountId), else in the Home
+ * group; apps and viewers sit with their own binding.
+ */
 export function tabGroupAccountId(entry: ShellEntry, options: TabGroupingOptions = {}): string | null {
-  if (entry.kind === 'internal' && entry.page === 'dashboard') {
-    return options.dashboardAccountId ?? null
+  if (entry.kind === 'internal') {
+    if (entry.page === 'dashboard') return options.dashboardAccountId ?? null
+    return entry.accountId ?? null
   }
   return savedEntryAccountId(entry)
 }

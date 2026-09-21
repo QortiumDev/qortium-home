@@ -50,6 +50,7 @@ import {
   type AppTab,
   type ProductState,
   type ReplaceTabTarget,
+  type TabPageId,
 } from '../v2/product-model'
 import {
   DEFAULT_NEW_TAB_PREFERENCE,
@@ -444,6 +445,13 @@ import {
 } from '../v2/resource-location'
 import { resolveHomeV2PublishPreviewOpen } from './publish-preview-tab'
 import { resolveAccountTabLaunch } from './account-tab-launch'
+import {
+  activeTabGroupOpenAccountId,
+  capturedAccountDialogTarget,
+  tabGroupAccountToFollow,
+  transferableEntryAccountId,
+} from './active-tab-group-account'
+import { createTabGroupFollower } from './tab-group-follower'
 import { rememberClosedTab, type ClosedTab } from './closed-tabs'
 import { currentAppLocation, currentAppLocationFromRender } from '../v2/current-app-location'
 import { resolveLaunchIdentifier } from '../v2/shell/render-path-identity'
@@ -1690,6 +1698,9 @@ export function HomeV2LiveApp() {
   const [accountCatalogueReady, setAccountCatalogueReady] = useState(false)
   const accountCatalogueRef = useRef<HomeV2AccountCatalogue>(emptyAccountCatalogue)
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null)
+  // Mirrors `selectedAccountId` for callbacks that must read the selection
+  // the moment a vault call commits, not on the next render.
+  const selectedAccountIdRef = useRef<string | null>(null)
   const [restoredAccountId, setRestoredAccountId] = useState<
     string | null | undefined
   >(undefined)
@@ -2175,6 +2186,7 @@ export function HomeV2LiveApp() {
     ) => {
       const epoch = accountSelectionEpoch.current + 1
       accountSelectionEpoch.current = epoch
+      selectedAccountIdRef.current = accountId
       setSelectedAccountId(accountId)
       // selectAccount runs for a re-selection of the SAME account far more often
       // than for a real switch (unlock, relaunch, catalogue refresh, restore).
@@ -3211,7 +3223,19 @@ export function HomeV2LiveApp() {
             const tabId = brand<TabId>(
               `home-v2:tab:${Date.now().toString(36)}:${tabSequence.current}`,
             )
-            dispatchProduct({ type: 'open-internal', page: internal, tabId })
+            // A transferred page keeps the group it was in: the sender's
+            // binding names it (a concrete account, or the explicit no-account
+            // one); with no binding it lands in the Home group as before.
+            dispatchProduct({
+              type: 'open-internal',
+              page: internal,
+              tabId,
+              ...(typeof requestedAccountId === 'string'
+                ? { accountId: requestedAccountId }
+                : requestedAccountId && requestedAccountId.bind === 'none'
+                  ? { accountId: null }
+                  : {}),
+            })
             return { status: 'opened', tabId }
           }
           if (inTab && !isTransientPage(internal)) {
@@ -3370,6 +3394,25 @@ export function HomeV2LiveApp() {
   )
 
   /**
+   * The account a shell-originated open from the tab group the user is IN
+   * binds to — the + button and the Dashboard's own links. Read from trusted
+   * product state at the moment of the click: the active app or viewer's
+   * binding, the group an internal page was opened into, the selected
+   * account for the Dashboard (which sits with the selection) or for a page
+   * that names no group. A removed account and the no-account group are the
+   * EXPLICIT no-account binding; nothing here is ever the global account by
+   * accident, and nothing an app supplies reaches it.
+   */
+  const activeTabGroupBinding = useCallback((): HomeV2AccountBinding => {
+    const accountId = activeTabGroupOpenAccountId(
+      productStateRef.current,
+      selectedAccountId,
+      accountCatalogueRef.current,
+    )
+    return accountId ?? HOME_V2_BIND_NO_ACCOUNT
+  }, [selectedAccountId])
+
+  /**
    * The address bar's own submit (and the identifier chosen after a bare
    * name): navigate the tab the user is LOOKING AT, the way a browser does,
    * keeping that tab's account.
@@ -3382,9 +3425,9 @@ export function HomeV2LiveApp() {
    * - A viewer opens the address in a tab of its own, as before, bound to the
    *   account the viewer is attributed to.
    * - An internal page (Dashboard, Settings, welcome…) keeps today's route —
-   *   a tab of its own, or an open page focused — under the global account,
-   *   since internal pages carry no account of their own. So does a
-   *   transient page shown over a tab.
+   *   a tab of its own, or an open page focused — bound to the group the
+   *   page sits in (the selected account for the Dashboard or a page that
+   *   names no group). So does a transient page shown over a tab.
    *
    * Every binding here is read from trusted product state at submit time;
    * nothing in the typed text can choose the account. The + button, the
@@ -3397,7 +3440,7 @@ export function HomeV2LiveApp() {
         ? current.entries.find((candidate) => candidate.id === current.activeTabId)
         : undefined
       if (entry?.kind !== 'app' && entry?.kind !== 'viewer') {
-        return openAddress(address)
+        return openAddress(address, activeTabGroupBinding())
       }
       // A still-present real Home account is kept as an account binding;
       // `none`, an app-principal identity or a stale id all collapse to the
@@ -3421,7 +3464,46 @@ export function HomeV2LiveApp() {
         { fromAddressBar: true },
       )
     },
-    [openAddress],
+    [activeTabGroupBinding, openAddress],
+  )
+
+  /**
+   * The "+" button (and Ctrl+T / the strip's double-click) with a Dashboard
+   * or search new-tab preference: another instance of the page, opened INTO
+   * the group the user is in, so it sits beside the tabs they were looking
+   * at and a later open from it binds to that group's account. Trusted
+   * chrome only.
+   */
+  const openInternalTabInActiveGroup = useCallback((page: TabPageId) => {
+    const binding = activeTabGroupBinding()
+    tabSequence.current += 1
+    dispatchProduct({
+      type: 'open-internal',
+      page,
+      tabId: brand<TabId>(`home-v2:tab:${Date.now().toString(36)}:${tabSequence.current}`),
+      accountId: typeof binding === 'string' ? binding : null,
+    })
+  }, [activeTabGroupBinding])
+
+  /**
+   * The "+" button with a custom new-tab address: a tab of its own (with the
+   * ordinary dedupe — an identical tab is brought forward), bound to the
+   * group the user is in rather than to the globally selected account.
+   */
+  const openAddressForNewTab = useCallback(
+    (address: string): Promise<AddressOpenResult> => openAddress(address, activeTabGroupBinding()),
+    [activeTabGroupBinding, openAddress],
+  )
+
+  /**
+   * The Dashboard's own links (pinned apps, Apps, Explore, Names): navigate
+   * the Dashboard tab in place, bound to the Dashboard's group — the selected
+   * account's — explicitly, rather than to whatever openApp would pick.
+   */
+  const openAddressFromDashboard = useCallback(
+    (address: string): Promise<AddressOpenResult> =>
+      openAddress(address, activeTabGroupBinding(), null, { inTab: activeDashboardTabId() }),
+    [activeDashboardTabId, activeTabGroupBinding, openAddress],
   )
 
   const resolveAndroidContextMenu = useCallback(
@@ -3855,7 +3937,11 @@ export function HomeV2LiveApp() {
       const inTab = options?.newTab || (pin.accountId && pin.accountId !== selectedAccountId)
         ? undefined
         : activeDashboardTabId()
-      const result = await openAddress(pin.displayUrl, savedAccountBinding(pin.accountId ?? selectedAccountId), null, { inTab })
+      // A pin saved for an explicit account keeps it (an explicit per-pin
+      // choice beats the implicit group); a pin without one follows the
+      // group the user is in — the Dashboard's, on a click from there.
+      const binding = pin.accountId ? savedAccountBinding(pin.accountId) : activeTabGroupBinding()
+      const result = await openAddress(pin.displayUrl, binding, null, { inTab })
       if (result.status !== 'opened') {
         // Reject so the pinned-apps inline alert (role=alert) renders the
         // failure next to the pin the user clicked (toolbar review FIX #1).
@@ -3864,7 +3950,7 @@ export function HomeV2LiveApp() {
         )
       }
     },
-    [activeDashboardTabId, openAddress, selectedAccountId],
+    [activeDashboardTabId, activeTabGroupBinding, openAddress, selectedAccountId],
   )
 
   const getDashboardPinContextMenuItems = useCallback(
@@ -3916,9 +4002,11 @@ export function HomeV2LiveApp() {
       const inTab = options?.newTab || (link.accountId && link.accountId !== selectedAccountId)
         ? undefined
         : activeDashboardTabId()
+      // Same rule as a pin: a saved account wins, otherwise the group the
+      // user is in.
       const result = await openAddress(
         link.displayUrl,
-        savedAccountBinding(link.accountId ?? selectedAccountId),
+        link.accountId ? savedAccountBinding(link.accountId) : activeTabGroupBinding(),
         null,
         { inTab },
       )
@@ -3928,7 +4016,7 @@ export function HomeV2LiveApp() {
         )
       }
     },
-    [activeDashboardTabId, openAddress, selectedAccountId],
+    [activeDashboardTabId, activeTabGroupBinding, openAddress, selectedAccountId],
   )
 
   /**
@@ -4070,7 +4158,7 @@ export function HomeV2LiveApp() {
       const transfer = buildHomeV2TabTransfer({
         address: target.address,
         title: target.title,
-        accountId: savedEntryAccountId(entry),
+        accountId: transferableEntryAccountId(entry),
         history: tabHistory(productStateRef.current, tabId),
       })
       try {
@@ -4127,7 +4215,7 @@ export function HomeV2LiveApp() {
           ? [{
               address: target.address,
               title: target.title,
-              accountId: savedEntryAccountId(entry),
+              accountId: transferableEntryAccountId(entry),
               history: tabHistory(productStateRef.current, entry.id),
             }]
           : []
@@ -10971,6 +11059,73 @@ export function HomeV2LiveApp() {
     await selectAccount(state.selectedAddressId, catalogue, state)
   }
 
+  // The selected account FOLLOWS the tab group the user moves into. Every
+  // route that changes the active tab — a click in the strip, keyboard
+  // cycling, a closed tab activating its neighbour, a transfer landing —
+  // ends in `activeTabId` changing, so one effect covers them all. The
+  // stored selection stays the single source of truth for the Dashboard's
+  // Account tile, unlock and lock, Settings, the account dialogs and every
+  // vault operation; making it follow the group keeps those consistent with
+  // the tab in front, where deriving a second "displayed" account would
+  // have forked what is shown from what an unlock or a signature acts on.
+  // Open APP tabs are pinned to their own account at creation and are not
+  // touched by a selection change (see openApp / getOrCreateEntry).
+  //
+  // Only a real, still-present account is followed: the no-account group and
+  // a page that names no group leave the selection alone (see
+  // tabGroupAccountToFollow). The first ready render adopts the restored
+  // active tab rather than switching, so startup never rewrites the saved
+  // selection on its own.
+  //
+  // The vault round-trip is async (slower still on Android), so the follow
+  // is serialised by createTabGroupFollower: one select in flight, the live
+  // target re-read after every completion or failure, bounded retries with
+  // backoff. A→B→A in quick succession ends on A, closing B mid-select ends
+  // on the neighbour's group, and nothing counts as followed until the vault
+  // state has confirmed it (the target reads selectedAccountIdRef, which
+  // selectAccount sets as it commits).
+  const commitVaultStateRef = useRef(commitVaultState)
+  commitVaultStateRef.current = commitVaultState
+  const vaultClientRef = useRef(vaultClient)
+  vaultClientRef.current = vaultClient
+  const tabGroupFollower = useRef(createTabGroupFollower({
+    target: () => tabGroupAccountToFollow(
+      productStateRef.current,
+      selectedAccountIdRef.current,
+      accountCatalogueRef.current,
+    ),
+    select: async (accountId) => {
+      const client = vaultClientRef.current
+      const account = accountCatalogueRef.current.accounts.find((candidate) => candidate.id === accountId)
+      if (!client || !account) return
+      // The badge names an address (catalogue id); the vault selects by
+      // wallet id plus address id — the same call the group badge's menu
+      // makes.
+      setUseCatalogueActiveAccount(false)
+      const state = await client.select({ accountId: account.walletId, addressId: account.id })
+      await commitVaultStateRef.current(state)
+    },
+    onFailure: (error) => console.warn('Unable to follow the tab group account.', error),
+  })).current
+  useEffect(() => () => tabGroupFollower.dispose(), [tabGroupFollower])
+  const followedActiveTabId = useRef<TabId | null>(null)
+  useEffect(() => {
+    if (!nodeClient || !vaultClient || !shellStateReady || !accountCatalogueReady) {
+      followedActiveTabId.current = null
+      return
+    }
+    const activeTabId = productState.activeTabId
+    if (followedActiveTabId.current === null || followedActiveTabId.current === activeTabId) {
+      followedActiveTabId.current = activeTabId
+      return
+    }
+    // Only the ACTIVE TAB changing starts a follow — never a selection
+    // change on its own, so an account the user picks from the menu while
+    // on another group's page is not fought.
+    followedActiveTabId.current = activeTabId
+    tabGroupFollower.sync()
+  }, [accountCatalogueReady, nodeClient, productState.activeTabId, shellStateReady, tabGroupFollower, vaultClient])
+
   const runVaultOperation = async (operation: () => Promise<HomeV2VaultState>) => {
     setAccountDialogBusy(true)
     setAccountDialogError(null)
@@ -10986,7 +11141,23 @@ export function HomeV2LiveApp() {
 
   const submitAccountDialog = (value: AccountDialogSubmission) => {
     if (!accountDialog || !vaultClient) return
-    const accountId = accountDialog.accountId ?? selectedVaultAccount?.id
+    // Rename, remove and remember-unlock capture the SELECTED wallet when
+    // they open (manageAccount / onToggleRememberUnlock) and act on it only
+    // while it is still selected: the selection follows the tab group, so a
+    // Ctrl+Tab behind the modal could otherwise retarget the dialog. Unlock
+    // captures the wallet it was asked for and is not tied to the selection.
+    const mutatesSelected =
+      accountDialog.mode === 'rename' ||
+      accountDialog.mode === 'remove-account' ||
+      accountDialog.mode === 'enable-remember'
+    const accountId = mutatesSelected
+      ? capturedAccountDialogTarget(accountDialog.accountId, vaultState.selectedAccountId)
+      : accountDialog.accountId ?? selectedVaultAccount?.id
+    if (mutatesSelected && !accountId) {
+      setAccountDialog(null)
+      setShellNotice('The selected account changed while the dialog was open; nothing was changed.')
+      return
+    }
     switch (accountDialog.mode) {
       case 'create':
         void runVaultOperation(async () => {
@@ -11107,7 +11278,8 @@ export function HomeV2LiveApp() {
     }
     if (!selectedVaultAccount) return
     if (action === 'rename' || action === 'remove-account') {
-      setAccountDialog({ mode: action })
+      // Captured now; refused at submit if the selection has moved on.
+      setAccountDialog({ mode: action, accountId: selectedVaultAccount.id })
       return
     }
     if (action === 'export') {
@@ -11455,7 +11627,8 @@ export function HomeV2LiveApp() {
       if ('page' in closed) {
         tabSequence.current += 1
         const tabId = brand<TabId>(`home-v2:internal:reopened:${Date.now().toString(36)}:${tabSequence.current}`)
-        dispatchProduct({ type: 'open-internal', page: closed.page, tabId })
+        dispatchProduct({ type: 'open-internal', page: closed.page, tabId,
+          ...(closed.accountId !== undefined ? { accountId: closed.accountId } : {}) })
         if (closed.section) dispatchProduct({ type: 'initialize-settings-history', tabId, section: closed.section })
         return
       }
@@ -11619,15 +11792,19 @@ export function HomeV2LiveApp() {
           // points Apps at their own app is honoured; falls back to the
           // shipped default when settings are unavailable.
           const inTab = options?.newTab ? undefined : activeDashboardTabId()
+          // Bound to the group the user clicked in, resolved at click time
+          // like `inTab`, not after the settings read.
+          const binding = activeTabGroupBinding()
           const settings = await qdnAppsManagement.client?.get().catch(() => null)
-          await openAddress(resolveHomeV2AppsAppUrl(settings ?? null), undefined, null, { inTab })
+          await openAddress(resolveHomeV2AppsAppUrl(settings ?? null), binding, null, { inTab })
         },
         // Same resolution for Explore: the user's assigned Explore app, else
         // the shipped default.
         onExplore: async (options) => {
           const inTab = options?.newTab ? undefined : activeDashboardTabId()
+          const binding = activeTabGroupBinding()
           const settings = await qdnAppsManagement.client?.get().catch(() => null)
-          await openAddress(resolveHomeV2ExploreAppUrl(settings ?? null), undefined, null, { inTab })
+          await openAddress(resolveHomeV2ExploreAppUrl(settings ?? null), binding, null, { inTab })
         },
         pins: collectionsSnapshot?.dashboardPins ?? [],
         status: dashboardPinsPhase,
@@ -11652,16 +11829,7 @@ export function HomeV2LiveApp() {
         dispatchProduct({ type: 'activate-tab', tabId })
       }
       onCloseTab={closeTab}
-      onOpenInternalTab={(page) => {
-        tabSequence.current += 1
-        dispatchProduct({
-          type: 'open-internal',
-          page,
-          tabId: brand<TabId>(
-            `home-v2:tab:${Date.now().toString(36)}:${tabSequence.current}`,
-          ),
-        })
-      }}
+      onOpenInternalTab={openInternalTabInActiveGroup}
       onReorderTab={(tabId, toIndex) =>
         dispatchProduct({ type: 'reorder-tab', tabId, toIndex })
       }
@@ -11674,6 +11842,8 @@ export function HomeV2LiveApp() {
         const inTab = activeDashboardTabId()
         if (inTab && destination !== 'dashboard' && !isTransientPage(destination)) {
           dispatchProduct({ type: 'show-internal-here', page: destination, tabId: inTab,
+            // The page stays in the Dashboard's group (the selected account's).
+            accountId: selectedAccountId,
             ...(destination === 'settings' && section ? { section } : {}) })
           return
         }
@@ -11813,7 +11983,7 @@ export function HomeV2LiveApp() {
           )
         } else {
           setAccountDialogError(null)
-          setAccountDialog({ mode: 'enable-remember' })
+          setAccountDialog({ mode: 'enable-remember', accountId: selectedVaultAccount.id })
         }
       }}
       onToggleLockOnExit={() => {
@@ -11828,9 +11998,8 @@ export function HomeV2LiveApp() {
       onOpenApp={openApp}
       onOpenAddress={openAddress}
       onOpenAddressFromAddressBar={openAddressFromAddressBar}
-      onOpenAddressFromDashboard={(address) =>
-        openAddress(address, undefined, null, { inTab: activeDashboardTabId() })
-      }
+      onOpenAddressForNewTab={openAddressForNewTab}
+      onOpenAddressFromDashboard={openAddressFromDashboard}
       onOpenAddressInTab={openAddressInTab}
       onOpenAsWidget={openTabAsWidget}
       onOpenTabWithAccount={shellStateReady && resourceViewer?.sourceTabId !== productState.activeTabId

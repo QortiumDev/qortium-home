@@ -13,6 +13,8 @@ export type ClosedTab = ClosedAppTab | {
   readonly sourceTabId: TabId
   readonly page: TabPageId
   readonly section?: HomeV2SettingsSectionId
+  /** The group the page sat in, so reopening puts it back there. */
+  readonly accountId?: string | null
 }
 
 /** One ordered close stack; internal pages never carry app authority. */
@@ -27,5 +29,6 @@ export function rememberClosedTab(history: readonly ClosedTab[], state: Navigati
   }
   const current = tabDestination(state, id)
   return [...history, { sourceTabId: id, page: entry.page,
-    ...(current?.kind === 'internal' && current.section ? { section: current.section } : {}) }].slice(-10)
+    ...(current?.kind === 'internal' && current.section ? { section: current.section } : {}),
+    ...(entry.accountId !== undefined ? { accountId: entry.accountId } : {}) }].slice(-10)
 }

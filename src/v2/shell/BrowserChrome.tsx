@@ -70,6 +70,11 @@ export interface BrowserChromeProps {
    */
   readonly onOpenAddressFromAddressBar?: (address: string) => Promise<AddressOpenResult>
   /**
+   * The + button's custom new-tab address: a tab of its own, bound to the
+   * tab group the user is in. Falls back to `onOpenAddress` when absent.
+   */
+  readonly onOpenAddressForNewTab?: (address: string) => Promise<AddressOpenResult>
+  /**
    * Opens the named tab's app as a widget. Resolves to null on success, or to
    * a message to show when the app has no widget face or the grant was refused.
    */
@@ -262,6 +267,7 @@ export function BrowserChrome({
   onNavigate,
   onOpenAddress,
   onOpenAddressFromAddressBar,
+  onOpenAddressForNewTab,
   onOpenAsWidget,
   widgetAvailable,
   canGoBack,
@@ -441,7 +447,7 @@ export function BrowserChrome({
   ) => {
     const open = route === 'address-bar'
       ? onOpenAddressFromAddressBar ?? onOpenAddress
-      : onOpenAddress
+      : onOpenAddressForNewTab ?? onOpenAddress
     if (!open || navigationDisabled) return
     addressEditing.current = false
     const request = addressRequest.current + 1

@@ -60,7 +60,23 @@ export interface AppTab {
  * appear more than once — every instance has its own id.
  */
 export type ShellEntry =
-  | { readonly kind: 'internal'; readonly id: TabId; readonly page: TabPageId }
+  | {
+      readonly kind: 'internal'
+      readonly id: TabId
+      readonly page: TabPageId
+      /**
+       * The tab group this page was opened INTO, when it was opened from a
+       * group: a "+" pressed while in account B's group opens its page in
+       * B's group, and a shell-originated open from that page binds to B.
+       * Null is the explicit no-account group; undefined (a page from before
+       * this field, or one reached by `navigate`) leaves the page in the Home
+       * group and lets the shell fall back to the selected account. Grouping
+       * only — a page holds no app or wallet authority — and never consulted
+       * for the Dashboard, which sits with the selected account and never
+       * carries the field.
+       */
+      readonly accountId?: string | null
+    }
   | { readonly kind: 'viewer'; readonly id: TabId; readonly title: string; readonly location: string;
       /** Attribution for saves/chrome only; viewers have no app or wallet authority. */
       readonly accountId: string | null }
@@ -134,6 +150,8 @@ export type ProductAction =
       readonly type: 'show-internal-here'
       readonly page: TabPageId
       readonly tabId: TabId
+      /** Keeps the tab in its group; see ShellEntry.accountId. */
+      readonly accountId?: string | null
     }
   | { readonly type: 'activate-tab'; readonly tabId: TabId }
   | { readonly type: 'close-tab'; readonly tabId: TabId }
@@ -158,6 +176,8 @@ export type ProductAction =
       readonly type: 'open-internal'
       readonly page: TabPageId
       readonly tabId: TabId
+      /** The group to open the page into; see ShellEntry.accountId. */
+      readonly accountId?: string | null
     }
   | {
       readonly type: 'reorder-tab'
@@ -464,7 +484,12 @@ export function restoreProductState(
         const page = typeof candidate.page === 'string' ? candidate.page : ''
         const id = typeof candidate.id === 'string' ? candidate.id.trim() : ''
         if (!restorableTabPages.has(page) || !id || id.length > 80) continue
-        pushEntry({ kind: 'internal', id: id as TabId, page: page as TabPageId })
+        const accountId = page === 'dashboard' ? undefined
+          : candidate.accountId === null ? null
+            : typeof candidate.accountId === 'string' && candidate.accountId.length <= 400 ? candidate.accountId
+              : undefined
+        pushEntry({ kind: 'internal', id: id as TabId, page: page as TabPageId,
+          ...(accountId !== undefined ? { accountId } : {}) })
       } else if (candidate.kind === 'viewer') {
         try {
           const id = typeof candidate.id === 'string' ? candidate.id.trim() : ''
@@ -843,7 +868,8 @@ function showInternalHere(
     return activateTab(state, action.tabId)
   }
   const entries = [...state.entries]
-  entries[index] = { kind: 'internal', id: action.tabId, page: action.page }
+  entries[index] = { kind: 'internal', id: action.tabId, page: action.page,
+    ...(action.accountId !== undefined && action.page !== 'dashboard' ? { accountId: action.accountId } : {}) }
   return freezeProductState({
     ...state,
     entries,
@@ -857,6 +883,7 @@ function openInternal(
   state: ProductState,
   page: TabPageId,
   tabId: TabId,
+  accountId?: string | null,
 ): ProductState {
   if (state.entries.some((entry) => entry.id === tabId)) {
     throw new ProductModelError(
@@ -873,7 +900,8 @@ function openInternal(
   }
   return freezeProductState({
     ...state,
-    entries: [...state.entries, { kind: 'internal', id: tabId, page }],
+    entries: [...state.entries, { kind: 'internal', id: tabId, page,
+      ...(accountId !== undefined && page !== 'dashboard' ? { accountId } : {}) }],
     transient: null,
     activeTabId: tabId,
     revision: state.revision + 1,
@@ -1005,7 +1033,7 @@ export function reduceProductState(
     case 'navigate':
       return navigate(state, action.destination)
     case 'open-internal':
-      return openInternal(state, action.page, action.tabId)
+      return openInternal(state, action.page, action.tabId, action.accountId)
     case 'reorder-tab':
       return reorderTab(state, action.tabId, action.toIndex)
     case 'reorder-group':
