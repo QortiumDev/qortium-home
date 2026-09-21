@@ -404,7 +404,7 @@
   "devDependencies": {
     "@capacitor/cli": "^8.5.1",
     "@types/ed2curve": "0.2.4",
-    "@types/node": "^24.13.3",
+    "@types/node": "^24.13.5",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.3.0",
     "@types/yauzl": "^2.10.3",
