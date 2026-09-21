@@ -32,6 +32,27 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## fix: dashboard pins open in place; new-tab opens stay in the background
+
+2026-09-21
+
+Clicking a pinned app saved for another account, from the Dashboard, opened it
+in a new tab under that account — and, because the selected account now
+follows the tab you move into, the Dashboard itself switched to that account
+as well. Dashboard links now follow browser convention fully: a plain click on
+any pinned app, bookmark-toolbar entry, Apps or Explore turns the Dashboard tab
+itself into that app, bound to the saved account when the item has one and to
+the Dashboard's own account otherwise, so no Dashboard remains open and nothing
+else changes (you are then in that account's group, so the selected account
+becomes that account — as it does whenever you move into a group). A middle
+click, Ctrl/Cmd-click or the context menu's "Open in new tab" instead opens the
+item in a new tab BEHIND the one you are on: the Dashboard stays where it is,
+in its own group, the selected account does not change, and only the new tab
+carries the saved account. The same applies to the bookmark toolbar from any
+tab: a middle click opens behind, a plain click opens as before. An item
+already open in another tab is left where it is when opened in the background
+rather than brought forward.
+
 ## fix: new tabs and the selected account follow the active tab group
 
 2026-09-20

@@ -46,6 +46,7 @@ const resources = await bundled('../src/v2/resource-location.ts')
 const viewers = await bundled('../src/v2/viewer-location.ts')
 const startup = await bundled('../src/home-v2-live/start-page-launch.ts')
 const activeGroup = await bundled('../src/home-v2-live/active-tab-group-account.ts')
+const tabGroups = await bundled('../src/v2/shell/tab-groups.ts')
 const { createAccountRequestEpochs } = await bundled('../src/home-v2-live/account-request-guard.ts')
 const guestId = contract.SAVED_GUEST_ACCOUNT_ID
 assert.equal(guestId, 'home-v2:guest')
@@ -78,6 +79,7 @@ function createShell(defaultId = 'wallet:A') {
     productStateRef: { current: { tabs: [managerTab], entries: [{ ...managerTab, kind: 'app' }], activeTabId: 'manager' } },
     snapshot: { identity: { id: `home-v2:identity:${defaultId}`, selectedWallet: `home-v2:wallet:${defaultId}` } },
     selectedAccountId: defaultId,
+    ...tabGroups,
     setShellNotice: (notice) => notices.push(notice),
     dispatchProduct: (action) => { if (action.type === 'open-app') opened.push(action) },
     parseHomeV2CoreDocsAddress: () => null,
@@ -93,6 +95,9 @@ function createShell(defaultId = 'wallet:A') {
     onboarding: { status: 'complete' },
     pendingStartup: { current: { startPages: 'always' } },
   })
+  sandbox.selectedAccountIdRef = { get current() { return sandbox.selectedAccountId } }
+  sandbox.captureHomeV2InPlaceTarget = evaluate(declaration(liveSource, 'captureHomeV2InPlaceTarget'), liveSource, sandbox)
+  sandbox.assertHomeV2InPlaceTargetInFront = evaluate(declaration(liveSource, 'assertHomeV2InPlaceTargetInFront'), liveSource, sandbox)
   sandbox.savedAccountBinding = evaluate(savedBinding, liveSource, sandbox)
   sandbox.openApp = evaluate(callback('openApp'), liveSource, sandbox)
   // The Dashboard's in-place route: the active tab here is the manager app,
@@ -226,10 +231,12 @@ for (const mode of ['deny', 'setStale']) {
   assert.equal(d.h.opened.length, 0, 'Guest never bypasses manager permission or source-view checks')
 }
 
-// The Dashboard's own pins navigate the Dashboard tab in place -- but only a
-// pin bound to the account the Dashboard is filed under (or to the current
-// account); a pin saved for another account, or a guest pin, still opens its
-// own tab, because it belongs in a different group.
+// A plain click on a pin from the Dashboard navigates that tab in place
+// whatever account the pin is saved for (the current account, another
+// account, or the guest sentinel): the Dashboard becomes the app, bound to
+// the pin's account. A new-tab request opens BEHIND the Dashboard instead,
+// which stays the active tab. A Dashboard that moved on (became an app)
+// before discovery finished is never taken over.
 {
   const h = createShell()
   const inPlace = []
@@ -237,31 +244,44 @@ for (const mode of ['deny', 'setStale']) {
     if (action.type === 'open-app') h.opened.push(action)
     if (action.type === 'open-app-here') inPlace.push(action)
   }
-  h.sandbox.productStateRef.current = {
-    tabs: [], activeTabId: 'dash', transient: null,
-    entries: [{ kind: 'internal', id: 'dash', page: 'dashboard' }],
+  const dashboard = () => {
+    h.sandbox.productStateRef.current = {
+      tabs: [], activeTabId: 'dash', transient: null,
+      entries: [{ kind: 'internal', id: 'dash', page: 'dashboard' }],
+    }
   }
+  dashboard()
   await h.pin({ displayUrl: address, accountId: null })
-  assert.equal(inPlace.length, 1, 'a pin for the current account navigates the Dashboard tab')
+  assert.equal(inPlace.length, 1, 'a pin without a saved account navigates the Dashboard tab')
   assert.equal(inPlace[0].tabId, 'dash')
   assert.equal(inPlace[0].context.identityId, 'home-v2:identity:wallet:A')
+  dashboard()
   await h.pin({ displayUrl: address, accountId: 'wallet:A' })
   assert.equal(inPlace.length, 2, 'a pin saved for the selected account too')
-  const tabsBefore = h.opened.length
+  dashboard()
   await h.pin({ displayUrl: address, accountId: 'wallet:B' })
-  assert.equal(inPlace.length, 2)
-  assert.equal(h.opened.length, tabsBefore + 1, "another account's pin opens its own tab")
+  assert.equal(inPlace.length, 3, "another account's pin navigates in place as well")
+  assert.equal(inPlace[2].context.identityId, 'home-v2:identity:wallet:B', 'bound to the saved account')
+  dashboard()
   await h.pin({ displayUrl: address, accountId: guestId })
-  assert.equal(inPlace.length, 2)
-  assert.equal(h.opened.length, tabsBefore + 2, 'a guest pin opens its own tab')
+  assert.equal(inPlace.length, 4, 'a guest pin navigates in place')
+  assert.equal(inPlace[3].context.identityId, 'home-v2:identity:none')
+  const tabsBefore = h.opened.length
+  dashboard()
+  await h.pin({ displayUrl: address, accountId: 'wallet:B' }, { newTab: true })
+  assert.equal(inPlace.length, 4)
+  assert.equal(h.opened.length, tabsBefore + 1, 'a new-tab request opens its own tab')
+  assert.equal(h.opened.at(-1).background, true, 'behind the Dashboard')
+  assert.equal(h.opened.at(-1).context.identityId, 'home-v2:identity:wallet:B')
   // The tab moved on (became an app) before discovery finished: no takeover.
   h.sandbox.productStateRef.current = {
     tabs: [], activeTabId: 'dash', transient: null,
     entries: [{ kind: 'app', id: 'dash', context: { resourceLocation: address } }],
   }
   await h.pin({ displayUrl: address, accountId: null })
-  assert.equal(inPlace.length, 2)
-  assert.equal(h.opened.length, tabsBefore + 3)
+  assert.equal(inPlace.length, 4)
+  assert.equal(h.opened.length, tabsBefore + 2)
+  assert.notEqual(h.opened.at(-1).background, true, 'a plain click from elsewhere opens in front')
 }
 
 console.log('Home v2 production guest saved-link launch and desktop/Android bridge tests passed.')

@@ -237,6 +237,17 @@ APP/WEBSITE navigation and a resource viewer are distinct operations.
    opened from "+" under the wrong account, a selected account that does not
    match the tab you stopped on, and any already-open app tab that changed
    account by itself.
+19. New after beta.12 — Dashboard pins open in place; new-tab opens stay in
+   the background. On the Dashboard as account 1, click a pinned app saved for
+   account 2: the Dashboard tab itself should become that app under account
+   2, with no Dashboard tab left behind (the selected account then follows
+   into account 2's group). Middle-click (or Ctrl/Cmd-click, or "Open in new
+   tab") the same pin: a new tab should appear behind the Dashboard, bound to
+   account 2, while the Dashboard stays in front, in account 1's group, with
+   account 1 still selected. Try the same with a bookmark-toolbar entry, from
+   the Dashboard and from an app tab. Report any Dashboard that switches
+   account after a middle click, and any pin click that leaves a Dashboard
+   tab open beside the app.
 
 ## Reports still being investigated
 

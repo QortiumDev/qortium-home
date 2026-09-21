@@ -80,6 +80,7 @@ function harness({ published = {} } = {}) {
     ...productModel, ...resourceLocation, ...newTabPreference, ...viewerLocation, ...accountContext, ...activeTabGroup,
     // The stored (global) selection, as the component's `selectedAccountId` state.
     selectedAccountId: 'acct-a',
+    ...tabGroups,
     Promise, Date, URL, Map, Set, Object, Array, JSON, String, Number, Boolean,
     productStateRef: product,
     // The GLOBAL account is A: what openApp binds to when nothing says otherwise.
@@ -107,10 +108,14 @@ function harness({ published = {} } = {}) {
     },
   })
   Object.defineProperty(sandbox, 'productState', { get: () => product.current })
+  // The ref mirror the component keeps in step with the state.
+  sandbox.selectedAccountIdRef = { get current() { return sandbox.selectedAccountId } }
   sandbox.brand = declaration('brand', sandbox)
   sandbox.HOME_V2_BIND_NO_ACCOUNT = callback('HOME_V2_BIND_NO_ACCOUNT', sandbox)
   sandbox.assertHomeV2ReplaceableTab = declaration('assertHomeV2ReplaceableTab', sandbox)
   sandbox.assertHomeV2AddressBarTabInFront = declaration('assertHomeV2AddressBarTabInFront', sandbox)
+  sandbox.captureHomeV2InPlaceTarget = declaration('captureHomeV2InPlaceTarget', sandbox)
+  sandbox.assertHomeV2InPlaceTargetInFront = declaration('assertHomeV2InPlaceTargetInFront', sandbox)
   sandbox.openApp = callback('openApp', sandbox)
   sandbox.appTabContext = callback('appTabContext', sandbox)
   sandbox.openAppHere = callback('openAppHere', sandbox)
@@ -127,6 +132,7 @@ function harness({ published = {} } = {}) {
   sandbox.SAVED_GUEST_ACCOUNT_ID = savedBookmarks.SAVED_GUEST_ACCOUNT_ID
   sandbox.savedAccountBinding = declaration('savedAccountBinding', sandbox)
   sandbox.openDashboardPin = callback('openDashboardPin', sandbox)
+  sandbox.openBookmarkToolbarLink = callback('openBookmarkToolbarLink', sandbox)
 
   /** Open `address` in a NEW tab bound to `accountId` (a saved-pin style open), returning the tab. */
   async function openTab(address, accountId) {
@@ -577,25 +583,162 @@ function assertBound(tab, accountId, label) {
   assert.notEqual(h.active().id, walletB.id)
 }
 
-// Dashboard pins: one WITHOUT a saved account follows the Dashboard's group;
-// one WITH an explicit saved account keeps it (and, being another group's,
-// opens its own tab rather than dragging the Dashboard over).
+// Dashboard pins and toolbar links. A PLAIN click from the Dashboard
+// navigates that tab in place whatever account the item is saved for — no
+// Dashboard remains open, so nothing else changes. A NEW-TAB request
+// (middle/Ctrl-click, "Open in new tab") opens BEHIND the Dashboard: it stays
+// the active tab, its group and the selection are untouched, and the follow
+// effect — keyed on the active tab — has nothing to do.
+for (const surface of ['pin', 'toolbar']) {
+  const open = (h, item, options) => surface === 'pin'
+    ? h.sandbox.openDashboardPin({ id: 'p', title: 'x', ...item }, options)
+    : h.sandbox.openBookmarkToolbarLink({ id: 'l', title: 'x', ...item }, options)
+  const follow = (h) => activeTabGroup.tabGroupAccountToFollow(h.product.current, h.sandbox.selectedAccountId, h.sandbox.accountCatalogueRef.current)
+
+  // (a) plain click on an item saved for account B from a Dashboard in A's group
+  {
+    const h = harness()
+    const dashboard = h.entries().find((entry) => entry.kind === 'internal' && entry.page === 'dashboard')
+    assert.equal(h.groupOf(dashboard.id), 'account:acct-a')
+    await open(h, { displayUrl: 'qdn://APP/Chat/Chat', accountId: 'acct-b' }, { newTab: false })
+    assert.equal(h.entries().length, 1, `(a) ${surface}: tab count unchanged`)
+    assert.equal(h.entries().some((entry) => entry.kind === 'internal' && entry.page === 'dashboard'), false, `(a) ${surface}: no Dashboard entry left`)
+    assert.equal(h.active().id, dashboard.id, `(a) ${surface}: the Dashboard tab itself became the app`)
+    assertBound(h.active(), 'acct-b', `(a) ${surface}: bound to the saved account`)
+    assert.equal(follow(h), 'acct-b', `(a) ${surface}: the user is now in B's group, so the selection may follow`)
+  }
+
+  // (b) middle-click / "Open in new tab" on the same item
+  {
+    const h = harness()
+    const dashboard = h.entries().find((entry) => entry.kind === 'internal' && entry.page === 'dashboard')
+    await open(h, { displayUrl: 'qdn://APP/Chat/Chat', accountId: 'acct-b' }, { newTab: true })
+    assert.equal(h.entries().length, 2, `(b) ${surface}: a new tab`)
+    assert.equal(h.active().id, dashboard.id, `(b) ${surface}: the Dashboard is still the active tab`)
+    assert.equal(h.entry(dashboard.id).kind, 'internal', `(b) ${surface}: and still the Dashboard`)
+    const opened = h.entries().find((entry) => entry.id !== dashboard.id)
+    assertBound(opened, 'acct-b', `(b) ${surface}: the background tab is bound to the saved account`)
+    assert.equal(h.sandbox.selectedAccountId, 'acct-a', `(b) ${surface}: the selection is still A`)
+    assert.equal(h.groupOf(dashboard.id), 'account:acct-a', `(b) ${surface}: the Dashboard is still in A's group`)
+    assert.equal(follow(h), null, `(b) ${surface}: the follower has no select to issue`)
+    // The same item again in the background: the identical tab is left where it is, nothing activated.
+    await open(h, { displayUrl: 'qdn://APP/Chat/Chat', accountId: 'acct-b' }, { newTab: true })
+    assert.equal(h.entries().length, 2)
+    assert.equal(h.active().id, dashboard.id)
+  }
+
+  // (c) an item saved WITHOUT an account: plain → in place bound to the Dashboard's group; new-tab → background, same binding
+  {
+    const h = harness()
+    const dashboard = h.entries().find((entry) => entry.kind === 'internal' && entry.page === 'dashboard')
+    await open(h, { displayUrl: 'qdn://APP/Explore/Explore', accountId: null }, { newTab: true })
+    assert.equal(h.active().id, dashboard.id, `(c) ${surface}: background tab, Dashboard still active`)
+    assertBound(h.entries().find((entry) => entry.id !== dashboard.id), 'acct-a', `(c) ${surface}: bound to the Dashboard's group`)
+    await open(h, { displayUrl: 'qdn://APP/Chat/Chat', accountId: null }, { newTab: false })
+    assert.equal(h.active().id, dashboard.id)
+    assertBound(h.entry(dashboard.id), 'acct-a', `(c) ${surface}: plain click replaced the Dashboard in place, bound to A`)
+    assert.equal(h.entries().length, 2)
+  }
+
+  // A guest item keeps its explicit no-account binding on both routes.
+  {
+    const h = harness()
+    const dashboard = h.entries().find((entry) => entry.kind === 'internal' && entry.page === 'dashboard')
+    await open(h, { displayUrl: 'qdn://APP/Explore/Explore', accountId: h.sandbox.SAVED_GUEST_ACCOUNT_ID }, { newTab: true })
+    assert.equal(h.entries().find((entry) => entry.id !== dashboard.id).context.identityId, 'home-v2:identity:none')
+    assert.equal(h.active().id, dashboard.id)
+    await open(h, { displayUrl: 'qdn://APP/Chat/Chat', accountId: h.sandbox.SAVED_GUEST_ACCOUNT_ID }, { newTab: false })
+    assert.equal(h.entry(dashboard.id).context.identityId, 'home-v2:identity:none', `${surface}: guest item in place is no-account`)
+  }
+
+  // From an APP tab (toolbar links are reachable there): a plain click still
+  // opens (and activates) its own tab; a new-tab request opens behind.
+  if (surface === 'toolbar') {
+    const h = harness()
+    const walletA = await h.openTab(WALLET_DEFAULT, 'acct-a')
+    await open(h, { displayUrl: 'qdn://APP/Chat/Chat', accountId: 'acct-b' }, { newTab: true })
+    assert.equal(h.active().id, walletA.id, 'toolbar from an app tab: background open leaves the app tab active')
+    await open(h, { displayUrl: 'qdn://APP/Explore/Explore', accountId: null }, { newTab: false })
+    assert.notEqual(h.active().id, walletA.id, 'toolbar from an app tab: a plain click opens its own tab, activated')
+    assert.equal(h.entry(walletA.id).context.resourceLocation, WALLET_DEFAULT, 'and never replaces the app tab')
+    assertBound(h.active(), 'acct-a', 'bound to the app tab\'s group when the link has no saved account')
+  }
+}
+
+// An in-place Dashboard open is a compare-and-swap around its async work.
+// A pin with a bare name goes through discovery; if the user switched tabs
+// meanwhile, or the Dashboard tab became Settings, the late result is refused:
+// nothing replaced, nothing activated, the other page untouched.
 {
   const h = harness()
-  h.sandbox.selectedAccountId = 'acct-b'
+  let release
+  h.sandbox.nodeClient.listAppResources = () => new Promise((resolve) => { release = resolve })
   const dashboard = h.entries().find((entry) => entry.kind === 'internal' && entry.page === 'dashboard')
-  await h.sandbox.openDashboardPin({ id: 'p1', displayUrl: 'qdn://APP/Chat/Chat', title: 'Chat', accountId: null })
-  assert.equal(h.entries().length, 1, 'no saved account: navigated the Dashboard tab in place')
-  assertBound(h.entry(dashboard.id), 'acct-b', 'a pin without a saved account follows the Dashboard\'s group')
-
-  const h2 = harness()
-  h2.sandbox.selectedAccountId = 'acct-b'
-  const dashboard2 = h2.entries().find((entry) => entry.kind === 'internal' && entry.page === 'dashboard')
-  await h2.sandbox.openDashboardPin({ id: 'p2', displayUrl: 'qdn://APP/Chat/Chat', title: 'Chat', accountId: 'acct-a' })
-  assert.equal(h2.entry(dashboard2.id).kind, 'internal', 'a pin saved for another account leaves the Dashboard alone')
-  assertBound(h2.active(), 'acct-a', 'and keeps its explicit account')
-  await h2.sandbox.openDashboardPin({ id: 'p3', displayUrl: 'qdn://APP/Explore/Explore', title: 'Explore', accountId: h2.sandbox.SAVED_GUEST_ACCOUNT_ID })
-  assert.equal(h2.active().context.identityId, 'home-v2:identity:none', 'a pin saved as guest stays no-account')
+  const walletA = await h.openTab(WALLET_DEFAULT, 'acct-a')
+  h.activate(dashboard.id)
+  const pending = h.sandbox.openDashboardPin({ id: 'p', title: 'Chat', displayUrl: 'qdn://APP/Chat', accountId: null })
+  await new Promise((resolve) => setImmediate(resolve))
+  h.activate(walletA.id)
+  release([{ service: 'APP', name: 'Chat', identifier: 'Chat' }])
+  await assert.rejects(pending, /no longer the one in front/, 'switched tabs mid-discovery: refused')
+  assert.equal(h.entry(dashboard.id).kind, 'internal', 'the Dashboard was not replaced')
+  assert.equal(h.entry(dashboard.id).page, 'dashboard')
+  assert.equal(h.active().id, walletA.id, 'nothing was activated')
+  assert.equal(h.entries().length, 2, 'and no tab was opened elsewhere')
+}
+{
+  const h = harness()
+  let release
+  h.sandbox.nodeClient.listAppResources = () => new Promise((resolve) => { release = resolve })
+  const dashboard = h.entries().find((entry) => entry.kind === 'internal' && entry.page === 'dashboard')
+  const pending = h.sandbox.openDashboardPin({ id: 'p', title: 'Chat', displayUrl: 'qdn://APP/Chat', accountId: null })
+  await new Promise((resolve) => setImmediate(resolve))
+  // The Dashboard tab became Settings (its own links do this in place).
+  h.sandbox.dispatchProduct({ type: 'show-internal-here', page: 'settings', tabId: dashboard.id, accountId: 'acct-a' })
+  release([{ service: 'APP', name: 'Chat', identifier: 'Chat' }])
+  await assert.rejects(pending, /no longer the one in front/, 'Dashboard became Settings mid-discovery: refused')
+  assert.equal(h.entry(dashboard.id).kind, 'internal', 'Settings untouched')
+  assert.equal(h.entry(dashboard.id).page, 'settings')
+  assert.equal(h.entries().length, 1)
+}
+// The selection moving mid-discovery moves the Dashboard to another group:
+// that is a different target too, and is refused.
+{
+  const h = harness()
+  let release
+  h.sandbox.nodeClient.listAppResources = () => new Promise((resolve) => { release = resolve })
+  const dashboard = h.entries().find((entry) => entry.kind === 'internal' && entry.page === 'dashboard')
+  const pending = h.sandbox.openDashboardPin({ id: 'p', title: 'Chat', displayUrl: 'qdn://APP/Chat', accountId: null })
+  await new Promise((resolve) => setImmediate(resolve))
+  h.sandbox.selectedAccountId = 'acct-b'
+  release([{ service: 'APP', name: 'Chat', identifier: 'Chat' }])
+  await assert.rejects(pending, /no longer the one in front/, 'Dashboard changed group mid-discovery: refused')
+  assert.equal(h.entry(dashboard.id).kind, 'internal')
+}
+// A Dashboard that is no longer in front when the click's own await ends
+// (Apps / Explore read settings first) is refused as well, not redirected.
+{
+  const h = harness()
+  const dashboard = h.entries().find((entry) => entry.kind === 'internal' && entry.page === 'dashboard')
+  const walletA = await h.openTab(WALLET_DEFAULT, 'acct-a')
+  const result = await h.sandbox.openAddress('qdn://APP/Chat/Chat', 'acct-a', null, { inTab: dashboard.id })
+  assert.equal(result.status, 'error')
+  assert.match(result.message, /no longer the one in front/)
+  assert.equal(h.entries().length, 2, 'no new tab either')
+  assert.equal(h.active().id, walletA.id)
+}
+// And the reducer is the last line of defence: open-app-here with an
+// expectedPage refuses a tab showing another page.
+{
+  const h = harness()
+  const dashboard = h.entries().find((entry) => entry.kind === 'internal' && entry.page === 'dashboard')
+  h.sandbox.dispatchProduct({ type: 'show-internal-here', page: 'settings', tabId: dashboard.id })
+  const app = { id: 'home-v2:app:qortium:Chat:Chat', title: 'Chat', description: '', category: 'utility', sourceNetwork: 'qortium',
+    resourceIdentity: { service: 'APP', name: 'Chat', identifier: 'Chat' }, targetNetworks: ['qortium'], placement: 'recommended' }
+  assert.throws(() => h.sandbox.dispatchProduct({ type: 'open-app-here', app, tabId: dashboard.id, expectedPage: 'dashboard', context: {
+    appId: app.id, tabId: dashboard.id, sourceNetwork: 'qortium', previewUrl: null, resourceLocation: 'qdn://APP/Chat/Chat',
+    identityId: 'home-v2:identity:acct-a', walletRef: 'home-v2:wallet:wallet-a' } }), /no longer showing the dashboard page/)
+  assert.equal(h.entry(dashboard.id).page, 'settings')
 }
 
 // (d) The selection follows the group the user moves into: what the follow
