@@ -83,4 +83,30 @@ assert.deepEqual(groupTabsByAccount([]), [])
   )
 }
 
+// An internal page opened INTO a group sits in that group; one opened into
+// the no-account group, or from before pages carried a group, sits in Home.
+// The Dashboard ignores the field and stays with the selection.
+{
+  const page = (id: string, accountId?: string | null): ShellEntry =>
+    ({ kind: 'internal', id, page: 'newtab', ...(accountId !== undefined ? { accountId } : {}) }) as unknown as ShellEntry
+  const dashboard = { kind: 'internal', id: 'dash', page: 'dashboard', accountId: 'wallet:B' } as unknown as ShellEntry
+  const entries = [
+    dashboard,
+    app('b1', 'wallet:B'),
+    page('in-b', 'wallet:B'),
+    page('legacy'),
+    page('guest', null),
+    app('a1', 'wallet:A'),
+    page('in-a', 'wallet:A'),
+  ]
+  const groups = groupTabsByAccount(entries, { dashboardAccountId: 'wallet:A' })
+  assert.deepEqual(groups.map((group) => [group.key, group.entries.map((entry) => entry.id)]), [
+    [HOME_TAB_GROUP_KEY, ['legacy', 'guest']],
+    ['account:wallet:A', ['dash', 'a1', 'in-a']],
+    ['account:wallet:B', ['b1', 'in-b']],
+  ])
+  assert.deepEqual(groupedTabOrder(entries, { dashboardAccountId: 'wallet:A' }),
+    ['legacy', 'guest', 'dash', 'a1', 'in-a', 'b1', 'in-b'])
+}
+
 console.log('Home v2 tab group tests passed.')

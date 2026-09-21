@@ -1854,6 +1854,47 @@ try {
     })
     assert.deepEqual(routed, ['new-tab:qdn://APP/Wallet', 'new-tab:qdn://APP/Wallet/Wallet'])
 
+    // With the dedicated new-tab callback, "+" (and the identifier chosen
+    // after it) take THAT route — bound to the active tab group by the host —
+    // while the address bar keeps its own.
+    routed.length = 0
+    act(() => root.render(
+      <BrowserChrome
+        key="new-tab-route"
+        snapshot={homeV2Fixture}
+        productState={createProductState()}
+        newTabPreference={{ address: 'qdn://APP/Wallet', kind: 'custom' }}
+        onOpenAddress={async (address) => {
+          routed.push(`fallback:${address}`)
+          return { status: 'opened' }
+        }}
+        onOpenAddressFromAddressBar={async (address) => {
+          routed.push(`address-bar:${address}`)
+          return { status: 'opened' }
+        }}
+        onOpenAddressForNewTab={async (address) => {
+          routed.push(`group-new-tab:${address}`)
+          return address === 'qdn://APP/Wallet' ? chooseResult : { status: 'opened' }
+        }}
+        loadVisibleAvatar={async () => ({ status: 'missing' })}
+      />,
+    ))
+    await act(async () => {
+      newTabButton().click()
+      await Promise.resolve()
+    })
+    await act(async () => {
+      chooseButton().click()
+      await Promise.resolve()
+    })
+    assert.deepEqual(routed, ['group-new-tab:qdn://APP/Wallet', 'group-new-tab:qdn://APP/Wallet/Wallet'])
+    await act(async () => {
+      setNativeValue(addressInput(), 'qdn://APP/Chat/Chat')
+      submitForm()
+      await Promise.resolve()
+    })
+    assert.deepEqual(routed.at(-1), 'address-bar:qdn://APP/Chat/Chat')
+
     // Without the dedicated callback the address bar falls back to onOpenAddress.
     routed.length = 0
     act(() => root.render(

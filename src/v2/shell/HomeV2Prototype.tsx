@@ -203,6 +203,11 @@ export interface HomeV2PrototypeProps {
    */
   readonly onOpenAddressFromAddressBar?: (address: string) => Promise<AddressOpenResult>
   /**
+   * The + button's custom new-tab address: a tab of its own, bound to the tab
+   * group the user is in. Falls back to `onOpenAddress` when absent.
+   */
+  readonly onOpenAddressForNewTab?: (address: string) => Promise<AddressOpenResult>
+  /**
    * The Dashboard's own links: navigate the Dashboard tab in place (Back
    * returns to it) rather than opening another tab. Falls back to
    * `onOpenAddress` when absent.
@@ -1245,6 +1250,7 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
         onNavigate={guardedNavigate}
         onOpenAddress={props.onOpenAddress}
         onOpenAddressFromAddressBar={props.onOpenAddressFromAddressBar}
+        onOpenAddressForNewTab={props.onOpenAddressForNewTab}
         onOpenAsWidget={props.onOpenAsWidget}
         widgetAvailable={props.widgetAvailable}
         canGoBack={props.canGoBack}

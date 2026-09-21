@@ -216,6 +216,27 @@ APP/WEBSITE navigation and a resource viewer are distinct operations.
    the Core docs open the way they always did. "+" with a custom new-tab
    address still adds a tab. Report any case where the account shown on the
    tab's group badge changes after typing an address, on desktop or Android.
+18. New after beta.12 — "+" and the selected account follow the tab group
+   you are in. With tabs open under two accounts, click a tab in the second
+   account's group: the account switcher and the Dashboard's Account tile
+   should now show that account (the Dashboard tab moves into that group).
+   Press "+" there: the new tab (Dashboard, search page or your custom
+   address) should appear in that same group, and an app opened from it —
+   or the custom address itself — should be bound to that account. Do the
+   same from a tab bound to no account: the new tab must be a no-account tab,
+   not the selected account's. Close a tab so its neighbour in another group
+   comes forward and check the selected account follows. Switch tabs quickly
+   between two groups (Ctrl+Tab, or fast clicks) and check the selected
+   account ends on the tab you stopped on. A pinned app or bookmark saved
+   for a specific account opens under that account wherever you click it;
+   one saved without an account opens under the group you are in. Open the
+   Rename or Remove account dialog, Ctrl+Tab into another account's tab
+   behind it, then submit: it should close with a note and change nothing.
+   Tabs and pages from before this build stay in the Home group and use the
+   selected account. Report any new tab landing in the wrong group, any app
+   opened from "+" under the wrong account, a selected account that does not
+   match the tab you stopped on, and any already-open app tab that changed
+   account by itself.
 
 ## Reports still being investigated
 

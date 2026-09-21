@@ -7,6 +7,7 @@ import { mergeQdnAppHistory, spliceQdnAppHistory, type QdnAppHistorySession } fr
 import type { AppTabNavigationSnapshot } from '../v2/shell/AppTabStage'
 import type { HomeV2SettingsSectionId } from '../v2/shell/SettingsPage'
 import type { HomeV2ReleaseNotesTarget } from '../v2/shell/HomeV2ReleaseNotesPage'
+import { savedEntryAccountId } from '../v2/shell/account-context'
 
 /** Session-only destinations. Deliberately no vault, wallet or grant snapshots. */
 export type TabDestination =
@@ -30,7 +31,9 @@ export type NavigationAction = Exclude<ProductAction, { readonly type: 'show-int
    * section change that follows is a repeat rather than a second history
    * entry (one click, one Back).
    */
-  | { readonly type: 'show-internal-here'; readonly page: TabPageId; readonly tabId: TabId; readonly section?: HomeV2SettingsSectionId }
+  | { readonly type: 'show-internal-here'; readonly page: TabPageId; readonly tabId: TabId; readonly section?: HomeV2SettingsSectionId;
+      /** Keeps the tab in its group; see ShellEntry.accountId. */
+      readonly accountId?: string | null }
   | { readonly type: 'show-transient'; readonly destination: Extract<TabDestination, { kind: 'releases' | 'core-docs' }> }
   | { readonly type: 'settings-section'; readonly tabId?: TabId; readonly section: HomeV2SettingsSectionId }
   | { readonly type: 'forget-native-history'; readonly tabId: TabId }
@@ -226,8 +229,12 @@ export function reduceTabNavigation(state: NavigationState, action: NavigationAc
       }
     } else if (target.kind === 'internal') {
       // Back to the page this tab showed before it became an app (or a viewer
-      // overlay's underlying page): the entry changes kind in place.
-      next = reduceProductState(state, { type: 'show-internal-here', tabId: entry.id, page: target.page })
+      // overlay's underlying page): the entry changes kind in place, and
+      // stays in its group — the page carries the account the app or viewer
+      // was bound to, so the tab does not jump to the Home group.
+      const accountId = entry.kind === 'internal' ? entry.accountId : savedEntryAccountId(entry)
+      next = reduceProductState(state, { type: 'show-internal-here', tabId: entry.id, page: target.page,
+        ...(accountId !== undefined ? { accountId } : {}) })
     } else {
       next = reduceProductState(state, { type: 'activate-tab', tabId: entry.id })
     }

@@ -45,6 +45,7 @@ const contract = await bundled('../electron/bookmark-manager-contract.ts')
 const resources = await bundled('../src/v2/resource-location.ts')
 const viewers = await bundled('../src/v2/viewer-location.ts')
 const startup = await bundled('../src/home-v2-live/start-page-launch.ts')
+const activeGroup = await bundled('../src/home-v2-live/active-tab-group-account.ts')
 const { createAccountRequestEpochs } = await bundled('../src/home-v2-live/account-request-guard.ts')
 const guestId = contract.SAVED_GUEST_ACCOUNT_ID
 assert.equal(guestId, 'home-v2:guest')
@@ -61,10 +62,12 @@ const desktopOpenCallback = findOne(liveSource, (node) =>
 function createShell(defaultId = 'wallet:A') {
   const opened = []
   const notices = []
-  const managerTab = { id: 'manager', context: { resourceLocation: managerAddress } }
+  // The manager app tab is bound to wallet:A — the group a click from it is in.
+  const managerTab = { id: 'manager', context: { resourceLocation: managerAddress,
+    identityId: 'home-v2:identity:wallet:A', walletRef: 'home-v2:wallet:wallet:A' } }
   const accounts = ['wallet:A', 'wallet:B'].map((id) => ({ id, walletId: id, label: id }))
   const sandbox = vm.createContext({
-    Error, console, ...contract, ...resources, ...viewers, ...startup,
+    Error, console, ...contract, ...resources, ...viewers, ...startup, ...activeGroup,
     HOME_V2_BIND_NO_ACCOUNT: Object.freeze({ bind: 'none' }),
     brand: (value) => value,
     isRecord: (value) => !!value && typeof value === 'object' && !Array.isArray(value),
@@ -98,6 +101,7 @@ function createShell(defaultId = 'wallet:A') {
   sandbox.appTabContext = evaluate(callback('appTabContext'), liveSource, sandbox)
   sandbox.openAppHere = evaluate(callback('openAppHere'), liveSource, sandbox)
   sandbox.openAddress = evaluate(callback('openAddress'), liveSource, sandbox)
+  sandbox.activeTabGroupBinding = evaluate(callback('activeTabGroupBinding'), liveSource, sandbox)
   const h = {
     sandbox, opened, notices,
     pin: evaluate(callback('openDashboardPin'), liveSource, sandbox),
@@ -149,7 +153,9 @@ for (const surface of ['pin', 'toolbar', 'startPages', 'desktopOpen', 'request']
   await open(null)
   // Android BOOKMARKS_OPEN inherits the requesting manager's account. The
   // trusted desktop bridge resolves null that way before its onOpen event.
-  assertLastBinding(h, surface === 'request' ? 'wallet:A' : 'wallet:B')
+  // A pin or toolbar link saved WITHOUT an account follows the group the
+  // user is in — the manager tab's, wallet:A — never the global default.
+  assertLastBinding(h, surface === 'request' || surface === 'pin' || surface === 'toolbar' ? 'wallet:A' : 'wallet:B')
   const before = h.opened.length
   try { await open('wallet:missing') } catch (error) {
     assert.match(error.message, /account|opened/i)

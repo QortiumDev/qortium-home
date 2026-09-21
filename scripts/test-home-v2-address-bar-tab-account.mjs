@@ -29,6 +29,9 @@ const resourceLocation = await bundled('../src/v2/resource-location.ts')
 const newTabPreference = await bundled('../src/v2/new-tab-preference.ts')
 const viewerLocation = await bundled('../src/v2/viewer-location.ts')
 const accountContext = await bundled('../src/v2/shell/account-context.ts')
+const tabGroups = await bundled('../src/v2/shell/tab-groups.ts')
+const activeTabGroup = await bundled('../src/home-v2-live/active-tab-group-account.ts')
+const savedBookmarks = await bundled('../electron/bookmark-manager-contract.ts')
 
 const file = new URL('../src/home-v2-live/HomeV2LiveApp.tsx', import.meta.url)
 const text = readFileSync(file, 'utf8')
@@ -74,7 +77,9 @@ function harness({ published = {} } = {}) {
   const product = { current: productModel.createProductState() }
   const effects = [], notices = [], discoveries = []
   const sandbox = vm.createContext({
-    ...productModel, ...resourceLocation, ...newTabPreference, ...viewerLocation, ...accountContext,
+    ...productModel, ...resourceLocation, ...newTabPreference, ...viewerLocation, ...accountContext, ...activeTabGroup,
+    // The stored (global) selection, as the component's `selectedAccountId` state.
+    selectedAccountId: 'acct-a',
     Promise, Date, URL, Map, Set, Object, Array, JSON, String, Number, Boolean,
     productStateRef: product,
     // The GLOBAL account is A: what openApp binds to when nothing says otherwise.
@@ -114,6 +119,14 @@ function harness({ published = {} } = {}) {
   sandbox.openAddress = callback('openAddress', sandbox)
   sandbox.openAddressInTab = callback('openAddressInTab', sandbox)
   sandbox.openAddressFromAddressBar = callback('openAddressFromAddressBar', sandbox)
+  sandbox.activeDashboardTabId = callback('activeDashboardTabId', sandbox)
+  sandbox.activeTabGroupBinding = callback('activeTabGroupBinding', sandbox)
+  sandbox.openInternalTabInActiveGroup = callback('openInternalTabInActiveGroup', sandbox)
+  sandbox.openAddressForNewTab = callback('openAddressForNewTab', sandbox)
+  sandbox.openAddressFromDashboard = callback('openAddressFromDashboard', sandbox)
+  sandbox.SAVED_GUEST_ACCOUNT_ID = savedBookmarks.SAVED_GUEST_ACCOUNT_ID
+  sandbox.savedAccountBinding = declaration('savedAccountBinding', sandbox)
+  sandbox.openDashboardPin = callback('openDashboardPin', sandbox)
 
   /** Open `address` in a NEW tab bound to `accountId` (a saved-pin style open), returning the tab. */
   async function openTab(address, accountId) {
@@ -129,7 +142,10 @@ function harness({ published = {} } = {}) {
   const active = () => product.current.entries.find((entry) => entry.id === product.current.activeTabId)
   const entry = (id) => product.current.entries.find((candidate) => candidate.id === id)
   const bar = (address) => sandbox.openAddressFromAddressBar(address)
-  return { sandbox, product, effects, notices, discoveries, openTab, activate, entries, active, entry, bar }
+  /** The strip's group key for a tab, as the chrome would draw it. */
+  const groupOf = (tabId) => tabGroups.tabGroupKey(
+    tabGroups.tabGroupAccountId(entry(tabId), { dashboardAccountId: sandbox.selectedAccountId }))
+  return { sandbox, product, effects, notices, discoveries, openTab, activate, entries, active, entry, bar, groupOf }
 }
 
 const WALLET_DEFAULT = 'qdn://APP/QortiumHomeTest/Wallet'
@@ -487,4 +503,120 @@ function assertBound(tab, accountId, label) {
   assert.equal(h.entries().length, 4)
 }
 
-console.log('Address bar navigates the current tab with that tab\'s account; bridge and new-tab routes unchanged.')
+// ---- New tabs and the selected account follow the active tab group -------
+
+// (a) "+" from account B's app tab (global selection A): the new internal
+// page opens INTO B's group, and is the active tab.
+{
+  const h = harness()
+  const walletB = await h.openTab(WALLET_DEFAULT, 'acct-b')
+  assert.equal(h.groupOf(walletB.id), 'account:acct-b')
+  h.sandbox.openInternalTabInActiveGroup('newtab')
+  const page = h.active()
+  assert.equal(page.kind, 'internal')
+  assert.equal(page.page, 'newtab')
+  assert.equal(page.accountId, 'acct-b', '(a) the page carries B\'s group')
+  assert.equal(h.groupOf(page.id), 'account:acct-b', '(a) and the strip draws it in B\'s group')
+  assert.equal(h.sandbox.selectedAccountId, 'acct-a', '(a) the stored selection itself is not touched by the open')
+  // From that page, "+" again stays in B's group; so does an address typed
+  // into it (the address bar's internal-page route now binds to the group).
+  h.sandbox.openInternalTabInActiveGroup('settings')
+  assert.equal(h.active().accountId, 'acct-b')
+  await h.bar('qdn://APP/Chat/Chat')
+  assertBound(h.active(), 'acct-b', '(a) an address typed into that page binds to B, not the selected A')
+}
+
+// (b) "+" with a custom new-tab address from B's tab → an app tab bound to
+// B, not to the selected A; the ordinary dedupe still applies.
+{
+  const h = harness()
+  const walletB = await h.openTab(WALLET_DEFAULT, 'acct-b')
+  const result = await h.sandbox.openAddressForNewTab('qdn://APP/Chat/Chat')
+  assertOpened(result)
+  assert.equal(h.entries().length, 3, '(b) a tab of its own')
+  assertBound(h.active(), 'acct-b', '(b) bound to the group\'s account')
+  assert.notEqual(h.active().id, walletB.id, '(b) the tab the user was in is untouched')
+  h.activate(walletB.id)
+  await h.sandbox.openAddressForNewTab('qdn://APP/Chat/Chat')
+  assert.equal(h.entries().length, 3, '(b) an identical tab under B is brought forward, not duplicated')
+}
+
+// (c) A Dashboard in B's group (selection B): its tiles/links navigate the
+// Dashboard tab in place, bound to B.
+{
+  const h = harness()
+  h.sandbox.selectedAccountId = 'acct-b'
+  const dashboard = h.entries().find((entry) => entry.kind === 'internal' && entry.page === 'dashboard')
+  assert.equal(h.groupOf(dashboard.id), 'account:acct-b')
+  const result = await h.sandbox.openAddressFromDashboard('qdn://APP/Chat/Chat')
+  assert.equal(result.status, 'opened')
+  assert.equal(result.tabId, dashboard.id, '(c) the Dashboard tab itself became the app')
+  assertBound(h.entry(dashboard.id), 'acct-b', '(c) bound to the Dashboard\'s group')
+  assert.equal(h.entries().length, 1)
+}
+
+// (e) The no-account group: "+" opens the page into that group, a custom
+// address binds to the explicit no-account identity — never the selected A.
+{
+  const h = harness()
+  const guest = await h.openTab(WALLET_DEFAULT, h.sandbox.HOME_V2_BIND_NO_ACCOUNT)
+  assert.equal(h.groupOf(guest.id), 'home')
+  h.sandbox.openInternalTabInActiveGroup('newtab')
+  assert.equal(h.active().accountId, null, '(e) the page names the no-account group')
+  await h.bar('qdn://APP/Explore/Explore')
+  assert.equal(h.active().context.identityId, 'home-v2:identity:none', '(e) an address typed into that page is no-account too')
+  h.activate(guest.id)
+  await h.sandbox.openAddressForNewTab('qdn://APP/Chat/Chat')
+  assert.equal(h.active().context.identityId, 'home-v2:identity:none', '(e) explicit no-account')
+  assert.equal(h.active().context.walletRef, null)
+  // A removed account is the same: no-account, not the selected one.
+  const walletB = await h.openTab('qdn://APP/Explore/Explore', 'acct-b')
+  h.sandbox.accountCatalogueRef.current = { accounts: ACCOUNTS.filter((a) => a.id !== 'acct-b'), activeAccountId: 'acct-a' }
+  await h.sandbox.openAddressForNewTab('qdn://APP/Chat/Chat')
+  assert.equal(h.active().context.identityId, 'home-v2:identity:none', '(e) removed account → no-account')
+  assert.notEqual(h.active().id, walletB.id)
+}
+
+// Dashboard pins: one WITHOUT a saved account follows the Dashboard's group;
+// one WITH an explicit saved account keeps it (and, being another group's,
+// opens its own tab rather than dragging the Dashboard over).
+{
+  const h = harness()
+  h.sandbox.selectedAccountId = 'acct-b'
+  const dashboard = h.entries().find((entry) => entry.kind === 'internal' && entry.page === 'dashboard')
+  await h.sandbox.openDashboardPin({ id: 'p1', displayUrl: 'qdn://APP/Chat/Chat', title: 'Chat', accountId: null })
+  assert.equal(h.entries().length, 1, 'no saved account: navigated the Dashboard tab in place')
+  assertBound(h.entry(dashboard.id), 'acct-b', 'a pin without a saved account follows the Dashboard\'s group')
+
+  const h2 = harness()
+  h2.sandbox.selectedAccountId = 'acct-b'
+  const dashboard2 = h2.entries().find((entry) => entry.kind === 'internal' && entry.page === 'dashboard')
+  await h2.sandbox.openDashboardPin({ id: 'p2', displayUrl: 'qdn://APP/Chat/Chat', title: 'Chat', accountId: 'acct-a' })
+  assert.equal(h2.entry(dashboard2.id).kind, 'internal', 'a pin saved for another account leaves the Dashboard alone')
+  assertBound(h2.active(), 'acct-a', 'and keeps its explicit account')
+  await h2.sandbox.openDashboardPin({ id: 'p3', displayUrl: 'qdn://APP/Explore/Explore', title: 'Explore', accountId: h2.sandbox.SAVED_GUEST_ACCOUNT_ID })
+  assert.equal(h2.active().context.identityId, 'home-v2:identity:none', 'a pin saved as guest stays no-account')
+}
+
+// (d) The selection follows the group the user moves into: what the follow
+// effect would select after each activation, on real product state.
+{
+  const h = harness()
+  const walletA = await h.openTab(WALLET_DEFAULT, 'acct-a')
+  const walletB = await h.openTab('qdn://APP/Explore/Explore', 'acct-b')
+  const guest = await h.openTab('qdn://APP/Chat/Chat', h.sandbox.HOME_V2_BIND_NO_ACCOUNT)
+  const follow = () => activeTabGroup.tabGroupAccountToFollow(h.product.current, h.sandbox.selectedAccountId, h.sandbox.accountCatalogueRef.current)
+  h.activate(walletB.id)
+  assert.equal(follow(), 'acct-b', '(d) A → B')
+  h.sandbox.selectedAccountId = 'acct-b'
+  h.activate(walletA.id)
+  assert.equal(follow(), 'acct-a', '(d) B → A')
+  h.sandbox.selectedAccountId = 'acct-a'
+  h.activate(guest.id)
+  assert.equal(follow(), null, '(d) the no-account group leaves the selection alone')
+  h.sandbox.dispatchProduct({ type: 'close-tab', tabId: guest.id })
+  assert.equal(h.active().id, walletB.id, 'closing activates the neighbour')
+  assert.equal(follow(), 'acct-b', '(d) …and the selection follows that neighbour\'s group')
+}
+
+console.log('Address bar navigates the current tab with that tab\'s account; new tabs and the selection follow the active tab group; bridge routes unchanged.')
