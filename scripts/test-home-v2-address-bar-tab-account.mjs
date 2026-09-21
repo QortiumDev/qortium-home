@@ -441,24 +441,109 @@ function assertBound(tab, accountId, label) {
   assert.deepEqual(h.entry(walletB.id), before, 'the app tab is left as it was')
 }
 
-// From an INTERNAL page (the Dashboard) the address bar keeps today's route:
-// a tab of its own under the global account, deduplicated as before.
+// From an INTERNAL page (the Dashboard, Settings…) the address bar navigates
+// THAT tab in place, like a browser: the page becomes the app, bound to the
+// page's group, and no new tab appears — even when the same app is already
+// open elsewhere.
 {
+  // (a) Dashboard active, typed app address.
   const h = harness()
   const walletA = await h.openTab(WALLET_DEFAULT, 'acct-a')
   const dashboard = h.entries().find((entry) => entry.kind === 'internal')
   h.activate(dashboard.id)
-  const result = await h.bar(WALLET_DEFAULT)
-  assertOpened(result)
-  assert.equal(h.entries().length, 2, 'from the Dashboard an identical global-account tab is activated, not duplicated')
-  assert.equal(h.active().id, walletA.id)
-  assert.equal(h.entry(dashboard.id).kind, 'internal', 'the Dashboard tab is not navigated')
-
+  const result = await h.bar('qdn://APP/Chat/Chat')
+  assert.equal(result.status, 'opened')
+  assert.equal(result.tabId, dashboard.id, '(a) the Dashboard tab itself became the app')
+  assert.equal(h.entries().length, 2, '(a) tab count unchanged, no new tab')
+  assert.equal(h.active().id, dashboard.id)
+  assertBound(h.entry(dashboard.id), 'acct-a', '(a) bound to the Dashboard\'s group')
+  assert.equal(h.entries().some((entry) => entry.kind === 'internal'), false, '(a) no Dashboard remains')
+  assert.deepEqual(h.entry(walletA.id).context.resourceLocation, WALLET_DEFAULT, '(a) the other tab is untouched')
+}
+{
+  // (a') The same app already open in another tab is NOT deduplicated onto: the page still becomes the app.
+  const h = harness()
+  const walletA = await h.openTab(WALLET_DEFAULT, 'acct-a')
+  const dashboard = h.entries().find((entry) => entry.kind === 'internal')
   h.activate(dashboard.id)
-  const opened = await h.bar('qdn://APP/Chat/Chat')
-  assertOpened(opened)
-  assert.equal(h.entries().length, 3, 'a new app from the Dashboard gets a tab of its own')
-  assertBound(h.active(), 'acct-a', 'bound to the global account, as before')
+  await h.bar(WALLET_DEFAULT)
+  assert.equal(h.entries().length, 2)
+  assert.equal(h.active().id, dashboard.id, '(a\') the user stays in the Dashboard tab, now the app')
+  assertBound(h.entry(dashboard.id), 'acct-a', '(a\') bound to the group')
+  assert.equal(h.entry(walletA.id).kind, 'app')
+}
+{
+  // (b) Bare name with one candidate; then a bare name with two → chooser → choice in place.
+  const h = harness({ published: {
+    Explore: [{ service: 'APP', name: 'Explore', identifier: 'Explore' }],
+    Wallet: [{ service: 'APP', name: 'Wallet', identifier: 'Wallet' }, { service: 'APP', name: 'Wallet', identifier: 'Wallet-beta' }],
+  } })
+  h.sandbox.selectedAccountId = 'acct-b'
+  const dashboard = h.entries().find((entry) => entry.kind === 'internal')
+  const one = await h.bar('qdn://APP/Explore')
+  assert.equal(one.status, 'opened')
+  assert.equal(one.tabId, dashboard.id, '(b) one candidate: in place')
+  assert.equal(h.entries().length, 1)
+  assertBound(h.entry(dashboard.id), 'acct-b', '(b) bound to the Dashboard\'s group (the selection)')
+
+  const h2 = harness({ published: {
+    Wallet: [{ service: 'APP', name: 'Wallet', identifier: 'Wallet' }, { service: 'APP', name: 'Wallet', identifier: 'Wallet-beta' }],
+  } })
+  h2.sandbox.openInternalTabInActiveGroup('newtab')
+  const page = h2.active()
+  assert.equal(page.kind, 'internal')
+  const choose = await h2.bar('qdn://APP/Wallet')
+  assert.equal(choose.status, 'choose', '(b) two candidates: the chooser')
+  assert.equal(h2.entry(page.id).kind, 'internal', '(b) nothing navigated while the choice is pending')
+  const chosen = await h2.bar(choose.options[1].address)
+  assert.equal(chosen.status, 'opened')
+  assert.equal(chosen.tabId, page.id, '(b) the choice navigates the page in place')
+  assert.equal(h2.entry(page.id).context.resourceLocation, 'qdn://APP/Wallet/Wallet-beta')
+  assertBound(h2.entry(page.id), 'acct-a', '(b) bound to the page\'s group')
+  assert.equal(h2.entries().length, 2)
+}
+{
+  // (c) A Home page typed from the Dashboard replaces the Dashboard in place, keeping its group.
+  const h = harness()
+  const dashboard = h.entries().find((entry) => entry.kind === 'internal')
+  const result = await h.bar('home://settings')
+  assert.equal(result.status, 'opened')
+  assert.equal(result.tabId, dashboard.id, '(c) Settings shown in that tab')
+  assert.equal(h.entries().length, 1, '(c) no tab stacked')
+  assert.equal(h.entry(dashboard.id).page, 'settings')
+  assert.equal(h.entry(dashboard.id).accountId, 'acct-a', '(c) the page keeps the Dashboard\'s group')
+  assert.equal(h.product.current.destination, 'settings')
+  // And from a page opened into B's group, the group is kept too.
+  h.sandbox.dispatchProduct({ type: 'open-internal', page: 'newtab', tabId: 'page-b', accountId: 'acct-b' })
+  const page = h.active()
+  assert.equal(page.accountId, 'acct-b')
+  await h.bar('home://settings')
+  assert.equal(h.entry(page.id).page, 'settings')
+  assert.equal(h.entry(page.id).accountId, 'acct-b')
+  // Core docs are transient: shown over the page, which is left as it was.
+  const before = h.entry(page.id)
+  await h.bar('core://api-documentation')
+  assert.deepEqual(h.entry(page.id), before)
+  assert.equal(h.product.current.transient, 'core-docs')
+}
+{
+  // (d) Tab switched mid-discovery → refused (compare-and-swap), nothing activated, no tab opened.
+  const h = harness()
+  let release
+  h.sandbox.nodeClient.listAppResources = () => new Promise((resolve) => { release = resolve })
+  const walletA = await h.openTab(WALLET_DEFAULT, 'acct-a')
+  const dashboard = h.entries().find((entry) => entry.kind === 'internal')
+  h.activate(dashboard.id)
+  const pending = h.bar('qdn://APP/Chat')
+  await new Promise((resolve) => setImmediate(resolve))
+  h.activate(walletA.id)
+  release([{ service: 'APP', name: 'Chat', identifier: 'Chat' }])
+  const result = await pending
+  assert.equal(result.status, 'error')
+  assert.match(result.message, /no longer the one in front/, '(d) refused')
+  assert.equal(h.entry(dashboard.id).kind, 'internal', '(d) the Dashboard was not replaced')
+  assert.equal(h.active().id, walletA.id, '(d) nothing activated')
+  assert.equal(h.entries().length, 2, '(d) no tab opened')
 }
 
 // (f) The OPEN_CURRENT_TAB bridge path is unchanged: a bare name is refused,

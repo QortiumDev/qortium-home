@@ -32,6 +32,27 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## fix: the address bar navigates Home pages in place too
+
+2026-09-21
+
+Typing an address into the address bar while on the Dashboard (or Settings,
+or the welcome page) still opened it in a new tab, leaving the Dashboard tab
+behind — the earlier address-bar fix had covered app tabs only. The address
+bar now always navigates the tab in front: from a Home page, the typed app
+replaces that page in the same tab, bound to the page's account group, with no
+new tab and no switch to an identical tab open elsewhere; a bare app name
+still looks up its published resources (one opens straight away, several show
+the chooser and the choice opens in that tab); and one of Home's own pages
+(`home://settings`, the Dashboard, welcome) replaces the page in the same tab,
+keeping its group, instead of bringing another tab forward. The same guards
+as for pinned apps apply: if you switch tabs while a lookup is still running,
+the late result is dropped with a note rather than replacing the tab you left.
+Home pages typed while an APP tab is in front still open the way they did —
+an app tab is never taken over by Home chrome — and the Core API docs and
+release notes still show over the page. The "+" button, the Dashboard's own
+tiles and every app-initiated open are unchanged.
+
 ## fix: dashboard pins open in place; new-tab opens stay in the background
 
 2026-09-21

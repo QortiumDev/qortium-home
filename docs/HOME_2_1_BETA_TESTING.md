@@ -248,6 +248,14 @@ APP/WEBSITE navigation and a resource viewer are distinct operations.
    the Dashboard and from an app tab. Report any Dashboard that switches
    account after a middle click, and any pin click that leaves a Dashboard
    tab open beside the app.
+20. New after beta.12 — the address bar navigates Home pages in place too. On
+   the Dashboard, type an app address (or a bare name such as
+   `qdn://APP/Explore`) and press Enter: the Dashboard tab itself should
+   become that app, under the Dashboard's account, with no extra tab and no
+   jump to a copy of the app already open elsewhere. Type `home://settings`
+   from the Dashboard: Settings should appear in that same tab. From an app
+   tab, `home://settings` must still leave the app tab alone. Report any
+   typed address that opens a new tab while a Home page is in front.
 
 ## Reports still being investigated
 

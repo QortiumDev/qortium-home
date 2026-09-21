@@ -3300,7 +3300,14 @@ export function HomeV2LiveApp() {
           }
           if (inPlace && !isTransientPage(internal)) {
             assertHomeV2InPlaceTargetInFront(productStateRef.current, inPlace, selectedAccountIdRef.current)
-            dispatchProduct({ type: 'show-internal-here', page: internal, tabId: inPlace.tabId })
+            // The page keeps its group: its own for a page opened into one,
+            // the selection's for the Dashboard.
+            const target = productStateRef.current.entries.find((candidate) => candidate.id === inPlace.tabId)
+            const accountId = target?.kind === 'internal' && target.page !== 'dashboard'
+              ? target.accountId
+              : inPlace.accountId
+            dispatchProduct({ type: 'show-internal-here', page: internal, tabId: inPlace.tabId,
+              ...(accountId !== undefined ? { accountId } : {}) })
             return { status: 'opened', tabId: inPlace.tabId }
           }
           if (background && !isTransientPage(internal)) {
@@ -3506,10 +3513,11 @@ export function HomeV2LiveApp() {
    *   where it is, and the user is not switched to it.
    * - A viewer opens the address in a tab of its own, as before, bound to the
    *   account the viewer is attributed to.
-   * - An internal page (Dashboard, Settings, welcome…) keeps today's route —
-   *   a tab of its own, or an open page focused — bound to the group the
-   *   page sits in (the selected account for the Dashboard or a page that
-   *   names no group). So does a transient page shown over a tab.
+   * - An internal page (Dashboard, Settings, welcome…) is navigated in
+   *   place — the page becomes the app, or another Home page — bound to the
+   *   group the page sits in (the selected account for the Dashboard or a
+   *   page that names no group). A transient page shown over a tab keeps
+   *   today's route, a tab of its own.
    *
    * Every binding here is read from trusted product state at submit time;
    * nothing in the typed text can choose the account. The + button, the
@@ -3521,7 +3529,16 @@ export function HomeV2LiveApp() {
       const entry = current.transient === null
         ? current.entries.find((candidate) => candidate.id === current.activeTabId)
         : undefined
+      if (entry?.kind === 'internal') {
+        // A Home page in front — the Dashboard, Settings, welcome… — is
+        // navigated in place like a browser tab: the same route the
+        // Dashboard's own pins take (in-place target captured now, checked
+        // again after discovery, page re-checked by the reducer), bound to
+        // the page's group. A Home page typed here replaces the page too.
+        return openAddress(address, activeTabGroupBinding(), null, { inTab: entry.id })
+      }
       if (entry?.kind !== 'app' && entry?.kind !== 'viewer') {
+        // A transient page over the tab: today's route, a tab of its own.
         return openAddress(address, activeTabGroupBinding())
       }
       // A still-present real Home account is kept as an account binding;
