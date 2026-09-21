@@ -135,12 +135,29 @@ for (const coin of expectedForeignWalletCoins) {
 }
 // A coin Home cannot derive at all never advertises sending, however the
 // flags are set.
-for (const coin of ['BCH', 'ARRR', 'ZEC']) {
+for (const coin of ['BCH', 'ZEC']) {
   assert.deepEqual(getHomeWalletCapability(coin, true, true, true), unavailableCapability);
 }
-for (const coin of ['BCH', 'PPC', 'KMD', 'VRSC', 'ZEC', 'LBC', 'XVG', 'ARRR', 'UNKNOWN', '', null]) {
+for (const coin of ['BCH', 'PPC', 'KMD', 'VRSC', 'ZEC', 'LBC', 'XVG', 'UNKNOWN', '', null]) {
   assert.deepEqual(getHomeWalletCapability(coin), unavailableCapability);
 }
+// ARRR is its own branch (electron/arrr-custody.ts): the bitcoiny flags never
+// reach it, so even "trusted + sending" leaves it unavailable, and it names
+// the custody contract plus a reason. The available shape is pinned in
+// arrr-custody.test.ts.
+const arrrUnavailable: HomeWalletCapability = {
+  ...unavailableCapability,
+  custodyContract: 'qortium-home-arrr-custody-v1',
+  requiresUnlockedAccount: true,
+  syncStatus: false,
+  unavailableReason: 'ARRR custody is not available on this host or route.',
+};
+assert.deepEqual(getHomeWalletCapability('ARRR', true, true, true), arrrUnavailable);
+assert.deepEqual(getHomeWalletCapability('ARRR'), arrrUnavailable);
+assert.deepEqual(getHomeWalletCapability('arrr', true, true, true, { available: false, reason: 'because' }), {
+  ...arrrUnavailable,
+  unavailableReason: 'because',
+});
 
 const qortalInfo = {
   currencyCode: 'QORT',

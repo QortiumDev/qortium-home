@@ -70,6 +70,7 @@ import {
   type ForeignWalletReadEndpoint,
 } from '../../electron/foreign-wallet-read-contract'
 import type { ForeignWalletPublicRuntime } from '../../electron/foreign-wallets'
+import { HOME_V2_ARRR_ANDROID_UNAVAILABLE_REASON } from '../../electron/arrr-custody'
 import type { HomeV2ForeignServerRequest } from '../../electron/home-v2-foreign-wallet-actions'
 import {
   classifyForeignWalletRouteProbe,
@@ -2250,6 +2251,10 @@ export function createPortableNodeClient(
             true,
             foreignWalletTrustedCoreAvailable,
             foreignWalletSendAvailable,
+            // ARRR custody is desktop-only: Android has no privileged process
+            // to derive the spending key in, so the row says so rather than
+            // advertising a read that would be refused.
+            { available: false, reason: HOME_V2_ARRR_ANDROID_UNAVAILABLE_REASON },
           )
         }
         // Both cores answer a valid-but-absent AT with an empty 2xx body;

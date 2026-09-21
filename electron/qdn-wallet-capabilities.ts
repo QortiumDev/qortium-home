@@ -1,3 +1,5 @@
+import { ARRR_CUSTODY_CONTRACT } from './arrr-custody.js';
+
 export const HOME_WALLET_CONTRACT = 'qortium-home-wallet-v1' as const;
 
 export type HomeWalletMode =
@@ -5,6 +7,12 @@ export type HomeWalletMode =
   | 'PUBLIC_NODE'
   | 'HOME_SIGNED_PUBLIC_NODE'
   | 'TRUSTED_CORE'
+  // ARRR only. The user's ADMIN-TRUSTED Core holds a copy of the wallet's
+  // spending key (handed over per request by Home, under its own consent)
+  // and answers the address, balances and history from its synced copy.
+  // Never used for a send: that would be Core spending, which Home does
+  // not offer.
+  | 'TRUSTED_CORE_CUSTODY'
   | 'NONE';
 
 export type HomeWalletCapability = {
@@ -20,10 +28,37 @@ export type HomeWalletCapability = {
   sendMode: HomeWalletMode;
   serverManagement: boolean;
   serverManagementMode: HomeWalletMode;
+  // ARRR custody rows only. `custodyContract` names the structured contract
+  // (request/response shapes and GET_ARRR_SYNC_STATUS's snapshot) so an app
+  // gates on a version, and `syncStatus` says the structured status action
+  // is served on this host/route. Absent on every other row.
+  custodyContract?: typeof ARRR_CUSTODY_CONTRACT;
+  syncStatus?: boolean;
+  // Why an ARRR row is unavailable, when it is — e.g. Android, a public or
+  // untrusted route, or a locked account. Absent when available and on every
+  // other coin's row.
+  unavailableReason?: string;
 };
 
 const QORT_CURRENCY_CODE = 'QORT';
 const FOREIGN_CURRENCY_CODES = new Set(['BTC', 'LTC', 'DOGE', 'DGB', 'RVN', 'DASH', 'NMC', 'FIRO']);
+const ARRR_CURRENCY_CODE = 'ARRR';
+
+/**
+ * Availability of the ARRR custody read adapter for the caller's host/route/
+ * account. Computed by the host from ITS OWN facts (desktop, admin-trusted
+ * route, unlocked account) — never from the bitcoiny send-route probe, which
+ * answers a different question about a different family.
+ */
+export type HomeWalletArrrCustodyAvailability = Readonly<{
+  available: boolean;
+  reason?: string;
+}>;
+
+export const ARRR_CUSTODY_UNAVAILABLE: HomeWalletArrrCustodyAvailability = Object.freeze({
+  available: false,
+  reason: 'ARRR custody is not available on this host or route.',
+});
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
@@ -46,9 +81,52 @@ export function getHomeWalletCapability(
   foreignWalletLocalAvailable = false,
   foreignWalletTrustedCoreAvailable = foreignWalletLocalAvailable,
   foreignWalletSendAvailable = false,
+  arrrCustody: HomeWalletArrrCustodyAvailability = ARRR_CUSTODY_UNAVAILABLE,
 ): HomeWalletCapability {
   const normalizedCurrencyCode = getCurrencyCode(currencyCode);
   const isQort = normalizedCurrencyCode === QORT_CURRENCY_CODE;
+
+  if (normalizedCurrencyCode === ARRR_CURRENCY_CODE) {
+    // The ARRR branch is separate from the eight-coin branch on purpose: it
+    // neither inherits the bitcoiny flags nor can be reached by them. Send is
+    // ALWAYS false — Core's /send would be Core spending the user's key — and
+    // server management stays unavailable in this tranche.
+    if (arrrCustody.available) {
+      return {
+        contract: HOME_WALLET_CONTRACT,
+        custodyContract: ARRR_CUSTODY_CONTRACT,
+        implemented: true,
+        protocol: 'qdnRequest',
+        read: true,
+        readMode: 'TRUSTED_CORE_CUSTODY',
+        receive: true,
+        receiveMode: 'TRUSTED_CORE_CUSTODY',
+        requiresUnlockedAccount: true,
+        send: false,
+        sendMode: 'NONE',
+        serverManagement: false,
+        serverManagementMode: 'NONE',
+        syncStatus: true,
+      };
+    }
+    return {
+      contract: HOME_WALLET_CONTRACT,
+      custodyContract: ARRR_CUSTODY_CONTRACT,
+      implemented: false,
+      protocol: 'qdnRequest',
+      read: false,
+      readMode: 'NONE',
+      receive: false,
+      receiveMode: 'NONE',
+      requiresUnlockedAccount: true,
+      send: false,
+      sendMode: 'NONE',
+      serverManagement: false,
+      serverManagementMode: 'NONE',
+      syncStatus: false,
+      unavailableReason: arrrCustody.reason ?? ARRR_CUSTODY_UNAVAILABLE.reason,
+    };
+  }
 
   if (isQort) {
     return {
@@ -108,6 +186,7 @@ export function addHomeWalletCapability(
   foreignWalletLocalAvailable = false,
   foreignWalletTrustedCoreAvailable = foreignWalletLocalAvailable,
   foreignWalletSendAvailable = false,
+  arrrCustody: HomeWalletArrrCustodyAvailability = ARRR_CUSTODY_UNAVAILABLE,
 ) {
   if (!isRecord(blockchain)) {
     return blockchain;
@@ -120,6 +199,7 @@ export function addHomeWalletCapability(
       foreignWalletLocalAvailable,
       foreignWalletTrustedCoreAvailable,
       foreignWalletSendAvailable,
+      arrrCustody,
     ),
   };
 }
@@ -130,6 +210,7 @@ export function buildHomeBlockchainDiscovery(
   foreignWalletLocalAvailable = false,
   foreignWalletTrustedCoreAvailable = foreignWalletLocalAvailable,
   foreignWalletSendAvailable = false,
+  arrrCustody: HomeWalletArrrCustodyAvailability = ARRR_CUSTODY_UNAVAILABLE,
 ) {
   const addQortAndCapabilities = (rows: unknown[]) =>
     [qortalPublicNodeBlockchainInfo, ...rows].map((row) =>
@@ -138,6 +219,7 @@ export function buildHomeBlockchainDiscovery(
         foreignWalletLocalAvailable,
         foreignWalletTrustedCoreAvailable,
         foreignWalletSendAvailable,
+        arrrCustody,
       ));
 
   if (Array.isArray(blockchains)) {

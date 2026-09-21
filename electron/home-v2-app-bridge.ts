@@ -523,6 +523,25 @@ import {
   type ForeignWalletReadEndpoint,
 } from './foreign-wallet-read-contract.js'
 import {
+  HOME_V2_ARRR_LOCKED_ACCOUNT_REASON,
+  HOME_V2_ARRR_UNTRUSTED_ROUTE_REASON,
+  createArrrCustodyReadQueue,
+  isArrrCustodyError,
+  isHomeV2ArrrCustodyRequest,
+  type ArrrCustodyReadRequest,
+  type ArrrCustodyResponse,
+  type HomeV2ArrrCustodyReadAction,
+} from './arrr-custody.js'
+import {
+  adminTrustUnchangedAcrossAwait,
+  arrrCustodyBridgeErrorDetails,
+  arrrCustodyCancelsQueuedRead,
+  createArrrCustodyNodeCrypto,
+  projectArrrCustodyRoute,
+  runHomeV2ArrrCustodyRead,
+  type ArrrCustodyRoute,
+} from './home-v2-arrr-custody-read.js'
+import {
   homeV2ForeignWalletReadConsentBinding,
   isHomeV2ForeignWalletAdminAction,
   isHomeV2ForeignWalletReadAction,
@@ -569,6 +588,7 @@ import {
   homeV2AdminTrustMessage,
   homeV2NodeOrigin,
   type HomeV2AdminTrust,
+  type HomeV2AdminTrustRefusal,
 } from './home-v2-admin-trust.js'
 import {
   getHomeV2ManagedAdminBindingId,
@@ -744,6 +764,9 @@ type AccountReadAction =
   | 'GET_WALLET_BALANCE'
   | 'GET_USER_WALLET_INFO'
   | 'GET_USER_WALLET_TRANSACTIONS'
+  // ARRR custody. Shares three action names with the bitcoiny reads above
+  // but carries its own write kind and grant family (account.arrr-custody.read).
+  | 'GET_ARRR_SYNC_STATUS'
   | 'SET_CURRENT_FOREIGN_SERVER'
   // The one SIGNING member of this union. It is never permissionless and never
   // grantable; see the singleRequestOnly rule below.
@@ -1798,6 +1821,17 @@ async function requireAccountReadPermission(
     readonly routeIndependent: boolean
     readonly routeLabel: string
   } | {
+    // ARRR custody (arrr-custody.ts). Home hands the account's ARRR spending
+    // key to the trusted Core named by `nodeRoute`, so this is its OWN
+    // consent family, never the bitcoiny foreign-wallet-read one, and it has
+    // no route-independent form: without a trusted Core there is nothing to
+    // consent to. Pinned to the route exactly like foreign-wallet-read.
+    readonly kind: 'arrr-custody-read'
+    readonly coin: 'ARRR'
+    readonly nodeRoute: string
+    readonly operationLabel: string
+    readonly routeLabel: string
+  } | {
     readonly kind: 'foreign-server'
     readonly coin: string
     readonly operationLabel: string
@@ -1830,7 +1864,9 @@ async function requireAccountReadPermission(
   // publishes, spends, unlocks the account or writes to disk still gates
   // below. The checks above this line are NOT skipped: an unselected account
   // and a drifted live resource are still refused.
-  if (isHomeV2PermissionlessAction(action) && writeDetails?.kind !== 'foreign-wallet-read') return
+  // ARRR custody (hands a spending key to Core) is never permissionless.
+  const arrrCustodyRead = writeDetails?.kind === 'arrr-custody-read'
+  if (!arrrCustodyRead && isHomeV2PermissionlessAction(action) && writeDetails?.kind !== 'foreign-wallet-read') return
   // Already unlocked: nothing to ask (2026-09-20). Gated exactly like
   // GET_SELECTED_ACCOUNT — the two refusals above, nothing more. The locked
   // path still prompts single-request and asserts the unlock completed.
@@ -1872,7 +1908,9 @@ async function requireAccountReadPermission(
   // grant under a route the user never saw.
   const foreignWalletRoute = writeDetails?.kind === 'foreign-wallet-read' && !routeIndependent
     ? writeDetails.nodeRoute
-    : null
+    : writeDetails?.kind === 'arrr-custody-read'
+      ? writeDetails.nodeRoute
+      : null
   const nodeBefore = routeIndependent || foreignWalletRoute !== null
     ? null
     : await getHomeV2ReadableNode(targetNetwork)
@@ -2342,6 +2380,15 @@ async function requireAccountReadPermission(
                 // local-only derivation when no trusted node resolved, or the
                 // shared derive-plus-Core-reads consent otherwise.
                 writeRouteIndependent: writeDetails.routeIndependent,
+                writeRouteLabel: writeDetails.routeLabel,
+                writeSingleRequestOnly: false,
+                writeTargetChainLabel: 'Qortium',
+              }
+          : writeDetails?.kind === 'arrr-custody-read'
+            ? {
+                arrrCustodyCoin: writeDetails.coin,
+                writeKind: 'arrr-custody-read',
+                writeOperationLabel: writeDetails.operationLabel,
                 writeRouteLabel: writeDetails.routeLabel,
                 writeSingleRequestOnly: false,
                 writeTargetChainLabel: 'Qortium',
@@ -9239,6 +9286,131 @@ async function readHomeV2ForeignWallet(
     ))
 }
 
+// ---------------------------------------------------------------------------
+// ARRR custody reads (arrr-custody.ts)
+//
+// The privileged half of the ARRR adapter. Everything here is a spend-
+// authority boundary: the entropy Home derives IS the wallet's spending key,
+// and it goes to exactly one place — the admin-trusted Core the user consented
+// to, in the body of one authenticated POST. It is derived inside a callback,
+// zeroed by the callee, never stored on an object, never logged, never sent to
+// the renderer or an app, never journaled. What comes back (address, atomic
+// balance, history, sync snapshot) is scrubbed of the entropy string before it
+// can reach an app, in case a node ever echoed a request body.
+
+/**
+ * The transport for one ARRR read. Distinct from postHomeV2TrustedForeignWallet
+ * on purpose: that helper discards Core's message (it is node-controlled
+ * text), while the ARRR classifier needs it to recognise the stable
+ * `ARRR_WALLET_BUSY` reason. The message is handed to the pure classifier
+ * only — it never becomes the error an app sees — and the request body is
+ * never read back, logged or attached to anything thrown.
+ */
+async function postHomeV2ArrrCustody(
+  route: ArrrCustodyRoute,
+  request: ArrrCustodyReadRequest,
+): Promise<ArrrCustodyResponse> {
+  const response = await nodeFetch(`${route.nodeApiUrl}${request.pathname}`, {
+    body: request.body,
+    headers: {
+      'Content-Type': request.contentType,
+      'X-API-KEY': route.apiKey,
+    },
+    method: request.method,
+    redirect: 'error',
+    signal: AbortSignal.timeout(30_000),
+  })
+  const result = await readBoundedResponse(response, 'POST', 2 * 1024 * 1024)
+  return { body: result.body, data: result.data, ok: result.ok, status: result.status }
+}
+
+// One ARRR request in flight per Core route (arrr-custody.ts): Core switches
+// its single active ARRR wallet between accounts serially and answers 409
+// while it does, so Home never races its own requests into that state. A
+// newer sync-status poll from the same tab replaces one still waiting, and
+// queued work is cancelled on lifecycle invalidation (invalidateRuntime).
+const homeV2ArrrCustodyReads = createArrrCustodyReadQueue()
+
+// The digest wrapper returns node:crypto's OWNED Buffers so the derivation's
+// finally zeroes the only copy of every intermediate (review finding 4).
+const homeV2ArrrCustodyCrypto = createArrrCustodyNodeCrypto()
+
+async function resolveHomeV2ArrrCustodyRoute(): Promise<ArrrCustodyRoute> {
+  return projectArrrCustodyRoute(await resolveHomeV2AdminNode('qortium'))
+}
+
+/**
+ * The privileged half of the ARRR adapter, wired into the executable
+ * orchestrator (home-v2-arrr-custody-read.ts). Everything here is a spend-
+ * authority boundary: the entropy Home derives IS the wallet's spending key,
+ * and it goes to exactly one place — the admin-trusted Core the user consented
+ * to, in the body of one authenticated POST. It is derived inside a callback,
+ * zeroed by the callee, never stored on an object, never logged, never sent to
+ * the renderer or an app, never journaled. Trust, consent, account and view
+ * context are re-verified after every await, including after the HTTP round
+ * trip, before a result is delivered.
+ */
+async function readHomeV2ArrrCustody(
+  sender: WebContents,
+  context: QdnViewContext,
+  protocol: HomeV2AppBridgeProtocol,
+  action: HomeV2ArrrCustodyReadAction,
+  requestValue: Record<string, unknown>,
+  publicRouteRevision: string,
+) {
+  if (protocol !== 'qdnRequest') throw new Error(`${action} ARRR custody access requires qdnRequest.`)
+  const hostWindow = getContextWindow(context)
+  const hostWebContentsId = hostWindow && !hostWindow.isDestroyed() ? hostWindow.webContents.id : context.windowId
+  try {
+    return await runHomeV2ArrrCustodyRead<QdnViewContext>({
+      action,
+      assertTrusted: (route) => {
+        if (route.trusted) return
+        throw createHomeV2BridgeError(
+          homeV2AdminTrustMessage((route.reason ?? 'key-missing') as HomeV2AdminTrustRefusal, 'Using the ARRR wallet'),
+          { action, code: 'NODE_CAPABILITY_MISSING', network: 'qortium', retryable: false },
+        )
+      },
+      captureConsent: () => sessionAccountReadGrants.capture({
+        family: 'account.arrr-custody.read',
+        hostWebContentsId: context.windowId,
+        network: 'qortium',
+        tabId: context.tabId,
+      }),
+      context,
+      contextAccountId: (value) => value.accountId ?? null,
+      crypto: homeV2ArrrCustodyCrypto,
+      freshContext: () => getQdnViewContextForWebContents(sender) ?? null,
+      getSeed: (accountId) => getAccountForeignWalletSeed(accountId),
+      isAccountUnlocked: (accountId) => isAccountUnlocked(accountId),
+      liveResourceMatchesGrant: (value) => liveResourceMatchesGrant(value),
+      lockedError: () => createHomeV2BridgeError(HOME_V2_ARRR_LOCKED_ACCOUNT_REASON, {
+        action, code: 'ACCOUNT_LOCKED', network: 'qortium', retryable: false,
+      }),
+      post: postHomeV2ArrrCustody,
+      principalKey: `${sender.id}|${context.tabId}`,
+      queue: homeV2ArrrCustodyReads,
+      queueTags: { hostWebContentsId, tabId: context.tabId },
+      requestValue,
+      requireConsent: (binding) => requireAccountReadPermission(sender, context, protocol, action, {
+        coin: binding.coin,
+        kind: 'arrr-custody-read',
+        nodeRoute: binding.nodeRoute,
+        operationLabel: binding.operationLabel,
+        routeLabel: binding.routeLabel,
+      }),
+      resolveRoute: resolveHomeV2ArrrCustodyRoute,
+      sameViewContext: (before, after) => sameViewContext(before, after),
+    })
+  } catch (error) {
+    if (isArrrCustodyError(error)) {
+      // The PUBLIC route revision (home-v2-app-runtime), never the trust digest.
+      throw createHomeV2BridgeError(error.message, arrrCustodyBridgeErrorDetails(error, action, publicRouteRevision))
+    }
+    throw error
+  }
+}
+
 async function setHomeV2ForeignServer(
   sender: WebContents,
   context: QdnViewContext,
@@ -11822,6 +11994,21 @@ async function handleRequestWithRuntime(
     })
     return true
   }
+  // ARRR custody is branched on the RUNTIME KIND before the bitcoiny wallet
+  // family sees the request: the three shared action names plus
+  // GET_ARRR_SYNC_STATUS go to the custody adapter whenever the coin is
+  // Pirate Chain, and the bitcoiny path below still refuses ARRR outright
+  // (normalizeForeignWalletCoin) if anything slipped past this branch.
+  if (protocol === 'qdnRequest' && isHomeV2ArrrCustodyRequest(action, requestValue)) {
+    return readHomeV2ArrrCustody(
+      sender,
+      context,
+      protocol,
+      action as HomeV2ArrrCustodyReadAction,
+      requestValue,
+      hostInfo.route.revision,
+    )
+  }
   // Beside GET_SELECTED_ACCOUNT because that is exactly what it is: the same
   // address, relabelled for wallet apps. No node call, no key derivation, no
   // unlocked account. The FOREIGN branch Home 1.x had here — which derived a
@@ -12042,6 +12229,10 @@ async function handleRequestWithRuntime(
                 resolved.apiKey,
                 resolved.trust.revision,
               )
+              // The probe was an await: re-resolve so a route or key change
+              // during it is not advertised as still trusted.
+              const after = await resolveHomeV2AdminNode('qortium')
+              if (!adminTrustUnchangedAcrossAwait(resolved, after)) return { send: false, trusted: false }
               return { send, trusted: true }
             },
             () => ({ send: false, trusted: false }),
@@ -12049,6 +12240,18 @@ async function handleRequestWithRuntime(
         : { send: false, trusted: false }
       const foreignWalletTrustedCoreAvailable = foreignWalletDiscovery.trusted
       const foreignWalletSendAvailable = foreignWalletDiscovery.send
+      // ARRR custody availability is computed from the SAME admin-trust
+      // answer and the account's lock state — never from the bitcoiny
+      // send-route probe, which asks a different Core route about a
+      // different family. Desktop only by construction (this is the Electron
+      // bridge); the Android client reports its own reason.
+      const arrrCustody = action === 'GET_CROSSCHAIN_BLOCKCHAINS'
+        ? !foreignWalletDiscovery.trusted
+          ? { available: false, reason: HOME_V2_ARRR_UNTRUSTED_ROUTE_REASON }
+          : !(!!context.accountId && isAccountUnlocked(context.accountId))
+            ? { available: false, reason: HOME_V2_ARRR_LOCKED_ACCOUNT_REASON }
+            : { available: true }
+        : { available: false }
       return projectHomeV2CrosschainReadResult(
         action,
         chainReadRequest,
@@ -12056,6 +12259,7 @@ async function handleRequestWithRuntime(
         true,
         foreignWalletTrustedCoreAvailable,
         foreignWalletSendAvailable,
+        arrrCustody,
       )
     }
     // Both cores answer a valid-but-absent AT with an empty 2xx body (Qortal
@@ -12466,6 +12670,11 @@ export function registerHomeV2AppBridgeIpcHandlers() {
   const invalidateRuntime = (hostWebContentsId: number, value: unknown) => {
     const invalidation = normalizeHomeV2RuntimeInvalidation(value)
     sessionAccountReadGrants.invalidate(hostWebContentsId, invalidation)
+    // Queued ARRR custody reads for this host are obsolete on any lifecycle
+    // change that ends their consent: account/lock/node changes drop them
+    // all, tab-scoped changes drop that tab's. A read already in flight is
+    // not interrupted here; its own post-HTTP recheck refuses delivery.
+    homeV2ArrrCustodyReads.cancelWhere((meta) => arrrCustodyCancelsQueuedRead(hostWebContentsId, invalidation, meta))
     widgetGrants.clear()
     // Retain rate history across navigation and route invalidations so an app
     // cannot bypass the send ceiling by causing either event. Account changes

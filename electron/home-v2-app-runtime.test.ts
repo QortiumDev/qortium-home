@@ -726,7 +726,11 @@ for (const protocol of ['qdnRequest', 'qortalRequest'] as const) {
     withheld.filter((entry) => (
       // OPEN_AS_WIDGET is not a capability: Android has no widget surface to
       // open onto.
-      entry !== 'OPEN_AS_WIDGET'
+      entry !== 'OPEN_AS_WIDGET' &&
+      // An entry with a STATED platform reason (ANDROID_UNSUPPORTED_ACTION_REASONS)
+      // is the one sanctioned way to withhold; the reason itself is asserted
+      // below so an empty string cannot qualify.
+      !(isHomeV2AndroidUnsupportedAction(entry) && !!homeV2AndroidActionRefusal(entry, protocol)?.message)
     )),
     [],
     `android must advertise everything the ${protocol} catalogue advertises to a tab`,
