@@ -242,7 +242,11 @@ export function reduceTabNavigation(state: NavigationState, action: NavigationAc
     return showCurrent(withHistory(next, entry.id, { entries: history.entries, index: action.index,
       ...(target.kind !== 'app' && history.native ? { native: history.native } : {}) }))
   }
-  let next: NavigationState = reduceProductState(state, action)
+  const reduced = reduceProductState(state, action)
+  // Nothing changed (a deduplicated background open): hand back the very
+  // same state, so nothing re-renders and nothing is persisted for it.
+  if (reduced === state) return state
+  let next: NavigationState = reduced
   const navigation: Record<string, TabHistory> = {}
   for (const entry of next.entries) {
     const history = tabHistory(state, entry.id)
@@ -273,7 +277,9 @@ export function reduceTabNavigation(state: NavigationState, action: NavigationAc
   }
   // Explicitly opening an already-open page returns to its root, but selecting
   // its tab resumes its current destination. Neither records visits to other tabs.
-  if (action.type === 'open-app' || (action.type === 'navigate' && action.destination !== 'releases' && action.destination !== 'core-docs')) {
+  // A background open changes nothing about the tab in front, so it records
+  // nothing against it either.
+  if ((action.type === 'open-app' && !action.background) || (action.type === 'navigate' && action.destination !== 'releases' && action.destination !== 'core-docs')) {
     const current = tabDestination(next)
     if (current?.kind === 'releases' || current?.kind === 'core-docs') {
       const entry = next.entries.find(candidate => candidate.id === next.activeTabId)!

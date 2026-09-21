@@ -76,7 +76,8 @@ function shell(options: { readonly delayed?: boolean; readonly failFirst?: numbe
   const releaseNext = async () => { shell.release.shift()?.(); await settle() }
   return { ...shell, get selected() { return shell.selected }, get selects() { return shell.selects },
     get committed() { return shell.committed }, get failures() { return shell.failures },
-    get state() { return shell.state }, follower, activate, close, releaseNext }
+    get state() { return shell.state }, set state(next: ProductState) { shell.state = next },
+    follower, activate, close, releaseNext }
 }
 
 // The plain case: into B's group → one select, confirmed, done.
@@ -172,6 +173,72 @@ function shell(options: { readonly delayed?: boolean; readonly failFirst?: numbe
   await h.releaseNext()
   assert.deepEqual(h.selects, ['acct-b'], 'no select after dispose')
   assert.equal(h.selected, 'acct-b', 'the in-flight one still commits')
+}
+
+// A background open (middle-click / "Open in new tab" on a Dashboard pin or
+// toolbar link) never starts a follow: the effect keys on the active tab, and
+// a background open leaves it — so the selection, and the Dashboard's group,
+// stay put. Modelled here exactly as the component's effect does it: sync()
+// only when activeTabId changed.
+{
+  const h = shell({ delayed: true })
+  let followed = h.state.activeTabId
+  const effect = () => {
+    if (followed === h.state.activeTabId) return
+    followed = h.state.activeTabId
+    h.follower.sync()
+  }
+  const dashboard = h.state.entries.find((entry) => entry.kind === 'internal')!
+  let state = reduceProductState(h.state, { type: 'activate-tab', tabId: dashboard.id })
+  h.state = state
+  followed = state.activeTabId
+  // Background open of an app bound to B, behind the Dashboard.
+  state = reduceProductState(state, { type: 'open-app', background: true, app: app('Chat'), tabId: 'bg' as TabId, context: {
+    appId: app('Chat').id, tabId: 'bg' as TabId, sourceNetwork: 'qortium', previewUrl: null,
+    resourceLocation: 'qdn://APP/Chat/Chat', identityId: 'home-v2:identity:acct-b', walletRef: 'home-v2:wallet:wallet-b',
+  } as never })
+  h.state = state
+  effect()
+  await settle()
+  assert.equal(state.activeTabId, dashboard.id, 'the Dashboard is still the active tab')
+  assert.equal(state.entries.some((entry) => entry.id === 'bg'), true, 'the tab was added')
+  assert.deepEqual(h.selects, [], 'no select was issued')
+  assert.equal(h.selected, 'acct-a')
+  assert.equal(tabGroupAccountToFollow(state, 'acct-a', catalogue), null, 'and there is nothing for the follower to do')
+  // The same open in the background again: deduplicated, still nothing activated.
+  const again = reduceProductState(state, { type: 'open-app', background: true, app: app('Chat'), tabId: 'bg2' as TabId, context: {
+    appId: app('Chat').id, tabId: 'bg2' as TabId, sourceNetwork: 'qortium', previewUrl: null,
+    resourceLocation: 'qdn://APP/Chat/Chat', identityId: 'home-v2:identity:acct-b', walletRef: 'home-v2:wallet:wallet-b',
+  } as never })
+  assert.equal(again.activeTabId, dashboard.id)
+  assert.equal(again.entries.length, state.entries.length)
+  assert.equal(again, state, 'the product reducer hands back the very same state')
+  // …and so does the navigation wrapper the shell actually dispatches through:
+  // no rebuilt history, no clone, so nothing re-renders or is persisted.
+  const navInitial = createProductState()
+  const navState: NavigationState = reduceTabNavigation(reduceTabNavigation(navInitial, { type: 'open-app', app: app('Chat'), tabId: 'first' as TabId, context: {
+    appId: app('Chat').id, tabId: 'first' as TabId, sourceNetwork: 'qortium', previewUrl: null,
+    resourceLocation: 'qdn://APP/Chat/Chat', identityId: 'home-v2:identity:acct-b', walletRef: 'home-v2:wallet:wallet-b',
+  } as never }), { type: 'activate-tab', tabId: navInitial.activeTabId })
+  const navAgain = reduceTabNavigation(navState, { type: 'open-app', background: true, app: app('Chat'), tabId: 'second' as TabId, context: {
+    appId: app('Chat').id, tabId: 'second' as TabId, sourceNetwork: 'qortium', previewUrl: null,
+    resourceLocation: 'qdn://APP/Chat/Chat', identityId: 'home-v2:identity:acct-b', walletRef: 'home-v2:wallet:wallet-b',
+  } as never })
+  assert.equal(navAgain, navState, 'reduceTabNavigation returns the identical state for a deduplicated background open')
+  // Background viewer and internal opens keep the active tab and a transient page too.
+  const viewer = reduceProductState(state, { type: 'open-viewer', background: true, tabId: 'v' as TabId, location: 'qdn://DOCUMENT/Library/book', accountId: 'acct-b' })
+  assert.equal(viewer.activeTabId, dashboard.id)
+  const page = reduceProductState(viewer, { type: 'open-internal', background: true, page: 'settings', tabId: 's' as TabId, accountId: 'acct-b' })
+  assert.equal(page.activeTabId, dashboard.id)
+  assert.equal((page.entries.find((entry) => entry.id === 's') as { accountId?: string | null }).accountId, 'acct-b')
+  // A foreground open, by contrast, does start a follow.
+  state = reduceProductState(page, { type: 'activate-tab', tabId: 'bg' as TabId })
+  h.state = state
+  effect()
+  await tick()
+  assert.deepEqual(h.selects, ['acct-b'], 'activating the background tab later follows into B')
+  await h.releaseNext()
+  assert.equal(h.selected, 'acct-b')
 }
 
 // Dialog capture: rename / remove / remember-unlock act on the wallet they

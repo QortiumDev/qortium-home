@@ -438,7 +438,7 @@ import {
   type HomeV2DashboardCollapsed,
 } from './shell-state'
 import { homeV2ShellStateHasPublishPreview } from '../../electron/home-v2-window-startup'
-import { groupTabsByAccount } from '../v2/shell/tab-groups'
+import { groupTabsByAccount, tabGroupAccountId } from '../v2/shell/tab-groups'
 import {
   buildAppResourceLocation,
   parseAppResourceLocation,
@@ -1086,6 +1086,14 @@ interface HomeV2OpenAddressOptions {
    * was. OPEN_CURRENT_TAB never sets this and keeps both refusals.
    */
   readonly fromAddressBar?: boolean
+  /**
+   * Open behind the current tab (see the product model's `open-app`
+   * `background`): the middle-click / "Open in new tab" route of Home's own
+   * links. The tab the user is on stays active, so nothing keyed on the
+   * active tab — the selected account included — changes. Ignored alongside
+   * `replaceTarget` and `inTab`, which by definition open nothing new.
+   */
+  readonly background?: boolean
 }
 
 /**
@@ -1126,6 +1134,49 @@ function assertHomeV2AddressBarTabInFront(
     throw new Error('That tab is no longer the one in front; nothing was opened.')
   }
   return tab
+}
+
+/**
+ * What an in-place open of a Home page (the Dashboard's own links, pins and
+ * toolbar entries) must still find in front when it dispatches: the same
+ * tab, still that page, still in the same group, still the active tab, with
+ * no transient page over it. Captured at the click and checked again after
+ * the last await — app discovery, a settings read — because a late result
+ * must never replace and activate a tab the user has moved on from, or a
+ * Dashboard that has meanwhile become Settings. The `open-app-here` reducer
+ * checks the page once more at the write (`expectedPage`).
+ */
+interface HomeV2InPlaceTarget {
+  readonly tabId: TabId
+  readonly page: TabPageId
+  readonly accountId: string | null
+}
+
+function captureHomeV2InPlaceTarget(
+  state: ProductState,
+  tabId: TabId,
+  selectedAccountId: string | null,
+): HomeV2InPlaceTarget | null {
+  const entry = state.entries.find((candidate) => candidate.id === tabId)
+  if (!entry || entry.kind !== 'internal' || state.activeTabId !== tabId || state.transient !== null) {
+    return null
+  }
+  return {
+    tabId,
+    page: entry.page,
+    accountId: tabGroupAccountId(entry, { dashboardAccountId: selectedAccountId }),
+  }
+}
+
+function assertHomeV2InPlaceTargetInFront(
+  state: ProductState,
+  target: HomeV2InPlaceTarget,
+  selectedAccountId: string | null,
+): void {
+  const current = captureHomeV2InPlaceTarget(state, target.tabId, selectedAccountId)
+  if (!current || current.page !== target.page || current.accountId !== target.accountId) {
+    throw new Error('That page is no longer the one in front; nothing was opened.')
+  }
 }
 
 function getContextMenuTargetLabel(target: HomeV2ContextMenuTarget) {
@@ -2756,6 +2807,7 @@ export function HomeV2LiveApp() {
       requestedLocation?: AppTabContext['resourceLocation'],
       requestedAccountId?: HomeV2AccountBinding,
       newInstance = false,
+      background = false,
     ) => {
       setShellNotice(null)
       // Three-way: a concrete account id, an explicit no-account binding, or
@@ -2781,6 +2833,7 @@ export function HomeV2LiveApp() {
       dispatchProduct({
         type: 'open-app',
         newInstance,
+        background,
         app,
         tabId,
         context: {
@@ -2873,6 +2926,7 @@ export function HomeV2LiveApp() {
       tabId: TabId,
       requestedLocation?: AppTabContext['resourceLocation'],
       requestedAccountId?: HomeV2AccountBinding,
+      expectedPage?: TabPageId,
     ) => {
       setShellNotice(null)
       dispatchProduct({
@@ -2880,6 +2934,7 @@ export function HomeV2LiveApp() {
         app,
         tabId,
         context: appTabContext(app, tabId, requestedLocation, requestedAccountId),
+        ...(expectedPage !== undefined ? { expectedPage } : {}),
       })
     },
     [appTabContext],
@@ -3096,7 +3151,7 @@ export function HomeV2LiveApp() {
   // history, restore, bookmarks and cross-window transfer all stay keyed on it
   // — and the position is handed to the position store for this tab alone,
   // where it is consumed by the viewer's first read and never re-applied.
-  const openViewer = useCallback((address: string, requestedAccountId?: HomeV2AccountBinding) => {
+  const openViewer = useCallback((address: string, requestedAccountId?: HomeV2AccountBinding, background = false) => {
     const resource = parseViewerAddress(address)
     const accountId = typeof requestedAccountId === 'string' ? requestedAccountId
       : requestedAccountId && requestedAccountId.bind === 'none' ? null : accountCatalogueRef.current.activeAccountId
@@ -3108,7 +3163,7 @@ export function HomeV2LiveApp() {
     // Recorded BEFORE the dispatch that mounts the tab, under the same identity
     // the shell reads positions with: JSON.stringify([location, accountId]).
     recordViewerPositionSeed(tabId, JSON.stringify([resource.location, accountId]), resource.seed)
-    dispatchProduct({ type: 'open-viewer', location: resource.location, accountId, tabId })
+    dispatchProduct({ type: 'open-viewer', location: resource.location, accountId, tabId, background })
     // Always a new tab: the open-viewer reducer appends unconditionally, it
     // never dedupes by location or account, so this id is always the tab that
     // resulted.
@@ -3131,6 +3186,7 @@ export function HomeV2LiveApp() {
       options?: HomeV2OpenAddressOptions,
     ): Promise<AddressOpenResult> => {
       const fromAddressBar = options?.fromAddressBar === true
+      const background = options?.background === true && !replaceTarget && !options?.inTab
       // A tab MOVING between windows, not an address being navigated to. The
       // ordinary open paths deduplicate — openApp activates an identical app
       // tab, `navigate` focuses an internal page that is already open — and
@@ -3138,19 +3194,23 @@ export function HomeV2LiveApp() {
       // the original as soon as main accepts the hand-over. So a transfer
       // always makes its own tab, and reports which one it made.
       const forceNewTab = options?.forceNewTab === true && !replaceTarget
-      // Only while that tab is still the internal page it was when the link
-      // was clicked; discovery below can take a while, and a tab that has
-      // meanwhile become something else keeps it.
-      const inTab = !replaceTarget && !forceNewTab && options?.inTab &&
-        productStateRef.current.entries.some((entry) => entry.id === options.inTab && entry.kind === 'internal')
-        ? options.inTab
-        : undefined
+      // The page to navigate in place, captured now — the tab, its page, its
+      // group — and required to be unchanged and still in front immediately
+      // before the dispatch, after any await. A request whose page is no
+      // longer in front is refused below, not redirected to a new tab.
+      const inPlaceRequested = !replaceTarget && !forceNewTab && options?.inTab !== undefined
+      const inPlace = inPlaceRequested && options?.inTab
+        ? captureHomeV2InPlaceTarget(productStateRef.current, options.inTab, selectedAccountIdRef.current)
+        : null
       // The app tab this open navigates in place, if any. Starts as
       // `replaceTarget`; the address bar drops it below when the typed
       // address is one of Home's own pages, which never take over an app tab
       // and open by their ordinary route instead.
       let replacing: HomeV2ReplaceTabTarget | null = replaceTarget ?? null
       try {
+        if (inPlaceRequested && !inPlace) {
+          throw new Error('That page is no longer the one in front; nothing was opened.')
+        }
         if (replacing) {
           // The tab can close, or be replaced by someone else, between the
           // app's request and this handler. `tabs` holds APP tabs only, so
@@ -3238,9 +3298,27 @@ export function HomeV2LiveApp() {
             })
             return { status: 'opened', tabId }
           }
-          if (inTab && !isTransientPage(internal)) {
-            dispatchProduct({ type: 'show-internal-here', page: internal, tabId: inTab })
-            return { status: 'opened', tabId: inTab }
+          if (inPlace && !isTransientPage(internal)) {
+            assertHomeV2InPlaceTargetInFront(productStateRef.current, inPlace, selectedAccountIdRef.current)
+            dispatchProduct({ type: 'show-internal-here', page: internal, tabId: inPlace.tabId })
+            return { status: 'opened', tabId: inPlace.tabId }
+          }
+          if (background && !isTransientPage(internal)) {
+            // Behind the current tab, into the group the caller bound it to.
+            tabSequence.current += 1
+            const tabId = brand<TabId>(`home-v2:tab:${Date.now().toString(36)}:${tabSequence.current}`)
+            dispatchProduct({
+              type: 'open-internal',
+              page: internal,
+              tabId,
+              background: true,
+              ...(typeof requestedAccountId === 'string'
+                ? { accountId: requestedAccountId }
+                : requestedAccountId && requestedAccountId.bind === 'none'
+                  ? { accountId: null }
+                  : {}),
+            })
+            return { status: 'opened', tabId }
           }
           dispatchProduct({
             type: 'navigate',
@@ -3254,7 +3332,7 @@ export function HomeV2LiveApp() {
         // viewer in a tab of its own, under the same binding, as it always
         // has.
         if ((!replacing || fromAddressBar) && isViewerAddress(address)) {
-          const tabId = openViewer(address, requestedAccountId)
+          const tabId = openViewer(address, requestedAccountId, background)
           setShellNotice(null)
           return { status: 'opened', tabId }
         }
@@ -3359,11 +3437,15 @@ export function HomeV2LiveApp() {
           )
           return { status: 'opened' }
         }
-        if (inTab && productStateRef.current.entries.some((entry) => entry.id === inTab && entry.kind === 'internal')) {
-          openAppHere(app, inTab, resourceLocation, requestedAccountId)
-          return { status: 'opened', tabId: inTab }
+        if (inPlace) {
+          // State read after the last await (discovery above): the tab must
+          // still be the same page, in the same group, in front. The reducer
+          // re-checks the page at the write.
+          assertHomeV2InPlaceTargetInFront(productStateRef.current, inPlace, selectedAccountIdRef.current)
+          openAppHere(app, inPlace.tabId, resourceLocation, requestedAccountId, inPlace.page)
+          return { status: 'opened', tabId: inPlace.tabId }
         }
-        const tabId = openApp(app, resourceLocation, requestedAccountId, forceNewTab)
+        const tabId = openApp(app, resourceLocation, requestedAccountId, forceNewTab, background)
         // Reported only when a new tab was forced. Otherwise the reducer may
         // have activated an identical existing tab and this id names nothing.
         return forceNewTab ? { status: 'opened', tabId } : { status: 'opened' }
@@ -3929,19 +4011,20 @@ export function HomeV2LiveApp() {
 
   const openDashboardPin = useCallback(
     async (pin: BookmarkManagerDashboardPin, options?: HomeV2ChromeOpenOptions) => {
-      // In place only when the pin binds to the account the Dashboard is
-      // filed under; a pin saved for another account would drag the tab into
-      // that account's group, so it opens its own tab as before. A new-tab
-      // request (middle/Ctrl-click, the context menu's "Open in new tab")
-      // never navigates in place — the Dashboard stays where it is.
-      const inTab = options?.newTab || (pin.accountId && pin.accountId !== selectedAccountId)
-        ? undefined
-        : activeDashboardTabId()
+      // A plain click from the Dashboard navigates that tab in place — the
+      // Dashboard becomes the app and no Dashboard remains open — whatever
+      // account the pin is saved for: the tab simply becomes a tab of that
+      // account's group (and the selection then follows the user there). A
+      // new-tab request (middle/Ctrl-click, the context menu's "Open in new
+      // tab") opens BEHIND the Dashboard instead, so the Dashboard stays the
+      // active tab and its group and the selected account are untouched.
+      const newTab = options?.newTab === true
+      const inTab = newTab ? undefined : activeDashboardTabId()
       // A pin saved for an explicit account keeps it (an explicit per-pin
       // choice beats the implicit group); a pin without one follows the
       // group the user is in — the Dashboard's, on a click from there.
       const binding = pin.accountId ? savedAccountBinding(pin.accountId) : activeTabGroupBinding()
-      const result = await openAddress(pin.displayUrl, binding, null, { inTab })
+      const result = await openAddress(pin.displayUrl, binding, null, { inTab, background: newTab })
       if (result.status !== 'opened') {
         // Reject so the pinned-apps inline alert (role=alert) renders the
         // failure next to the pin the user clicked (toolbar review FIX #1).
@@ -3950,7 +4033,7 @@ export function HomeV2LiveApp() {
         )
       }
     },
-    [activeDashboardTabId, activeTabGroupBinding, openAddress, selectedAccountId],
+    [activeDashboardTabId, activeTabGroupBinding, openAddress],
   )
 
   const getDashboardPinContextMenuItems = useCallback(
@@ -3995,20 +4078,20 @@ export function HomeV2LiveApp() {
   const openBookmarkToolbarLink = useCallback(
     async (link: BookmarkManagerLink, options?: HomeV2ChromeOpenOptions) => {
       // Same rule as a pinned app: a plain click from the Dashboard navigates
-      // that tab in place (when the link binds to the Dashboard's account),
-      // while a new-tab request, or a click from anywhere else, opens its own
-      // tab. Home chrome cannot replace an app tab's content, so from an app
-      // tab a plain click still opens (or activates) a separate tab.
-      const inTab = options?.newTab || (link.accountId && link.accountId !== selectedAccountId)
-        ? undefined
-        : activeDashboardTabId()
+      // that tab in place, whatever account the link is saved for, while a
+      // new-tab request opens behind the current tab and leaves it — and the
+      // selected account — alone. Home chrome cannot replace an app tab's
+      // content, so from an app tab a plain click still opens (or activates)
+      // a separate tab.
+      const newTab = options?.newTab === true
+      const inTab = newTab ? undefined : activeDashboardTabId()
       // Same rule as a pin: a saved account wins, otherwise the group the
       // user is in.
       const result = await openAddress(
         link.displayUrl,
         link.accountId ? savedAccountBinding(link.accountId) : activeTabGroupBinding(),
         null,
-        { inTab },
+        { inTab, background: newTab },
       )
       if (result.status !== 'opened') {
         setShellNotice(
@@ -4016,7 +4099,7 @@ export function HomeV2LiveApp() {
         )
       }
     },
-    [activeDashboardTabId, activeTabGroupBinding, openAddress, selectedAccountId],
+    [activeDashboardTabId, activeTabGroupBinding, openAddress],
   )
 
   /**
@@ -11793,10 +11876,12 @@ export function HomeV2LiveApp() {
           // shipped default when settings are unavailable.
           const inTab = options?.newTab ? undefined : activeDashboardTabId()
           // Bound to the group the user clicked in, resolved at click time
-          // like `inTab`, not after the settings read.
+          // like `inTab`, not after the settings read. A new-tab request
+          // opens behind the Dashboard.
           const binding = activeTabGroupBinding()
           const settings = await qdnAppsManagement.client?.get().catch(() => null)
-          await openAddress(resolveHomeV2AppsAppUrl(settings ?? null), binding, null, { inTab })
+          await openAddress(resolveHomeV2AppsAppUrl(settings ?? null), binding, null,
+            { inTab, background: options?.newTab === true })
         },
         // Same resolution for Explore: the user's assigned Explore app, else
         // the shipped default.
@@ -11804,7 +11889,8 @@ export function HomeV2LiveApp() {
           const inTab = options?.newTab ? undefined : activeDashboardTabId()
           const binding = activeTabGroupBinding()
           const settings = await qdnAppsManagement.client?.get().catch(() => null)
-          await openAddress(resolveHomeV2ExploreAppUrl(settings ?? null), binding, null, { inTab })
+          await openAddress(resolveHomeV2ExploreAppUrl(settings ?? null), binding, null,
+            { inTab, background: options?.newTab === true })
         },
         pins: collectionsSnapshot?.dashboardPins ?? [],
         status: dashboardPinsPhase,

@@ -103,7 +103,14 @@ export interface ProductState {
 }
 
 export type ProductAction =
-  | { readonly type: 'open-viewer'; readonly tabId: TabId; readonly location: string; readonly accountId: string | null }
+  | {
+      readonly type: 'open-viewer'
+      readonly tabId: TabId
+      readonly location: string
+      readonly accountId: string | null
+      /** See `open-app`'s `background`. */
+      readonly background?: boolean
+    }
   | {
       readonly type: 'open-app'
       readonly app: AppDescriptor
@@ -111,6 +118,14 @@ export type ProductAction =
       readonly tabId: TabId
       /** Trusted shell duplication only; ordinary opens keep their dedup policy. */
       readonly newInstance?: boolean
+      /**
+       * Open BEHIND the current tab: the tab is added (or, deduplicated, left
+       * where it is) but not activated, and a transient page in front stays.
+       * The middle-click / "Open in new tab" route of Home's own links, so
+       * the page the user is on — and everything keyed on the active tab —
+       * is untouched. Trusted chrome only.
+       */
+      readonly background?: boolean
     }
   /**
    * Replaces one app tab's content in place, keeping its id and its position
@@ -141,6 +156,15 @@ export type ProductAction =
       readonly app: AppDescriptor
       readonly context: AppTabContext
       readonly tabId: TabId
+      /**
+       * The compare half of a compare-and-swap for an open that resolved
+       * asynchronously (app discovery, a settings read): the page the tab
+       * was showing when the user clicked. The reducer refuses if the tab has
+       * meanwhile become another page, so a late result can never land on
+       * top of what the user moved on to. The shell checks the same thing —
+       * and that the tab is still the one in front — before dispatching.
+       */
+      readonly expectedPage?: TabPageId
     }
   /**
    * Turns any tab into an internal page in place (the inverse route, and how
@@ -178,6 +202,8 @@ export type ProductAction =
       readonly tabId: TabId
       /** The group to open the page into; see ShellEntry.accountId. */
       readonly accountId?: string | null
+      /** See `open-app`'s `background`. */
+      readonly background?: boolean
     }
   | {
       readonly type: 'reorder-tab'
@@ -727,6 +753,9 @@ function openApp(
       contextsIdentifySameTab(entry.context, action.context),
   )
   if (existing) {
+    // Already open: a background open leaves it (and the user) where they
+    // are; an ordinary one brings it forward.
+    if (action.background) return state
     return freezeProductState({
       ...state,
       transient: null,
@@ -753,8 +782,8 @@ function openApp(
         context: { ...action.context, tabId: action.tabId },
       },
     ],
-    transient: null,
-    activeTabId: action.tabId,
+    transient: action.background ? state.transient : null,
+    activeTabId: action.background ? state.activeTabId : action.tabId,
     revision: state.revision + 1,
   })
 }
@@ -837,6 +866,12 @@ function openAppHere(
     // into an app under the user.
     throw new ProductModelError('TAB_NOT_FOUND', `Tab ${action.tabId} is not an internal page.`)
   }
+  if (action.expectedPage !== undefined && state.entries[index].page !== action.expectedPage) {
+    throw new ProductModelError(
+      'TAB_CONTEXT_CHANGED',
+      `Tab ${action.tabId} is no longer showing the ${action.expectedPage} page.`,
+    )
+  }
   assertAppTabTarget(action.app, action.context, action.tabId)
   const entries = [...state.entries]
   entries[index] = {
@@ -884,6 +919,7 @@ function openInternal(
   page: TabPageId,
   tabId: TabId,
   accountId?: string | null,
+  background?: boolean,
 ): ProductState {
   if (state.entries.some((entry) => entry.id === tabId)) {
     throw new ProductModelError(
@@ -896,14 +932,14 @@ function openInternal(
     const existing = state.entries.find(
       (entry) => entry.kind === 'internal' && entry.page === 'dashboard',
     )
-    if (existing) return activateTab(state, existing.id)
+    if (existing) return background ? state : activateTab(state, existing.id)
   }
   return freezeProductState({
     ...state,
     entries: [...state.entries, { kind: 'internal', id: tabId, page,
       ...(accountId !== undefined && page !== 'dashboard' ? { accountId } : {}) }],
-    transient: null,
-    activeTabId: tabId,
+    transient: background ? state.transient : null,
+    activeTabId: background ? state.activeTabId : tabId,
     revision: state.revision + 1,
   })
 }
@@ -1000,7 +1036,9 @@ export function reduceProductState(
     case 'open-viewer': {
       const resource = parseViewerLocation(action.location)
       if (state.entries.some(entry => entry.id === action.tabId)) throw new ProductModelError('TAB_ALREADY_EXISTS', 'Viewer tab already exists.')
-      return freezeProductState({ ...state, transient: null, activeTabId: action.tabId,
+      return freezeProductState({ ...state,
+        transient: action.background ? state.transient : null,
+        activeTabId: action.background ? state.activeTabId : action.tabId,
         revision: state.revision + 1, entries: [...state.entries, {
           kind: 'viewer', id: action.tabId, location: resource.location,
           title: resource.path?.split('/').at(-1) ?? resource.name, accountId: action.accountId,
@@ -1033,7 +1071,7 @@ export function reduceProductState(
     case 'navigate':
       return navigate(state, action.destination)
     case 'open-internal':
-      return openInternal(state, action.page, action.tabId, action.accountId)
+      return openInternal(state, action.page, action.tabId, action.accountId, action.background)
     case 'reorder-tab':
       return reorderTab(state, action.tabId, action.toIndex)
     case 'reorder-group':
