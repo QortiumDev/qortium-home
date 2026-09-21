@@ -1,7 +1,13 @@
 import { secp256k1 } from '@noble/curves/secp256k1.js';
 import { base58Decode, base58Encode } from './base58.js';
 
-export type ForeignWalletCoin = 'BTC' | 'LTC' | 'DOGE' | 'DGB' | 'RVN' | 'DASH' | 'NMC' | 'FIRO';
+// The eight bitcoiny coins Home derives locally: BIP32-style HD wallets with
+// an xpub Core can watch. ARRR is deliberately NOT here — Pirate Chain's
+// shielded wallet has no xpub and Core's routes take the wallet ENTROPY
+// (spend authority), so it is modelled as its own runtime kind in
+// arrr-custody.ts and never enters this HD/xpub/signing machinery.
+export type BitcoinyWalletCoin = 'BTC' | 'LTC' | 'DOGE' | 'DGB' | 'RVN' | 'DASH' | 'NMC' | 'FIRO';
+export type ForeignWalletCoin = BitcoinyWalletCoin;
 
 export type ForeignWalletCrypto = {
   ripemd160: (data: Uint8Array) => Uint8Array;
@@ -18,6 +24,14 @@ export type ForeignWalletRuntime = {
 };
 
 export type ForeignWalletPublicRuntime = Omit<ForeignWalletRuntime, 'xprv58'>;
+
+/**
+ * Runtime-kind tag for the bitcoiny public runtime, so it can sit in a
+ * discriminated union beside the ARRR custody runtime (arrr-custody.ts).
+ * The bitcoiny runtime is what Core WATCHES (address + xpub); the ARRR
+ * runtime carries no key material at all.
+ */
+export type BitcoinyWalletPublicRuntime = ForeignWalletPublicRuntime & { readonly kind?: 'bitcoiny' };
 
 type ForeignWalletLeafKey = {
   address: string;

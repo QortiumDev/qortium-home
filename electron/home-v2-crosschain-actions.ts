@@ -13,7 +13,11 @@
 // Pure module: no Electron/Node/DOM imports, so the desktop bridge and the
 // Android bridge share one implementation.
 
-import { buildHomeBlockchainDiscovery } from './qdn-wallet-capabilities.js'
+import {
+  ARRR_CUSTODY_UNAVAILABLE,
+  buildHomeBlockchainDiscovery,
+  type HomeWalletArrrCustodyAvailability,
+} from './qdn-wallet-capabilities.js'
 import { getForeignWalletCoins } from './foreign-wallets.js'
 
 export const HOME_V2_CROSSCHAIN_READ_ACTIONS = Object.freeze([
@@ -219,6 +223,10 @@ export function projectHomeV2CrosschainReadResult(
   foreignWalletLocalAvailable = false,
   foreignWalletTrustedCoreAvailable = foreignWalletLocalAvailable,
   foreignWalletSendAvailable = false,
+  // ARRR custody availability is a SEPARATE input from the three bitcoiny
+  // flags: the host computes it from its own facts (desktop, admin-trusted
+  // route, unlocked account), never from the bitcoiny send-route probe.
+  arrrCustody: HomeWalletArrrCustodyAvailability = ARRR_CUSTODY_UNAVAILABLE,
 ) {
   if (action === 'GET_CROSSCHAIN_BLOCKCHAINS') {
     // 1.x qdn.ts:3077-3082.
@@ -228,6 +236,7 @@ export function projectHomeV2CrosschainReadResult(
       foreignWalletLocalAvailable,
       foreignWalletTrustedCoreAvailable,
       foreignWalletSendAvailable,
+      arrrCustody,
     )
   }
   if (action === 'GET_CROSSCHAIN_SERVER_INFO') {

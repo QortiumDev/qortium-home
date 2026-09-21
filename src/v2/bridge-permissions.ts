@@ -15,6 +15,14 @@ export type PermissionScope = 'single-request' | 'session' | 'always'
 export type PermissionCapability =
   | 'account.read'
   | 'account.foreign-wallet.read'
+  // ARRR (Pirate Chain) custody: Home derives the account's ARRR SPENDING KEY
+  // and hands it to the user's admin-trusted Qortium Core, which keeps a
+  // synced copy of the wallet and answers the address, balances and history.
+  // Its OWN capability, never merged with 'account.foreign-wallet.read' (that
+  // one hands Core watch material only) and never durable: single-request or
+  // tab-session only, so there is no card in QDN Apps settings. Ending the
+  // session revokes the app's access, not the copy the Core keeps.
+  | 'account.arrr-custody.read'
   | 'account.public.read'
   | 'qdn.publish'
   | 'qortal.account.read'
@@ -175,6 +183,7 @@ export interface PermissionPrompt {
     | 'GET_WALLET_BALANCE'
     | 'GET_USER_WALLET_INFO'
     | 'GET_USER_WALLET_TRANSACTIONS'
+    | 'GET_ARRR_SYNC_STATUS'
     | 'SET_CURRENT_FOREIGN_SERVER'
     | 'JOIN_GROUP'
     | 'LEAVE_GROUP'
@@ -389,7 +398,12 @@ function grantMatchesPrompt(
   const unifiedAccountRead = grant.capability === 'account.read' && prompt.capability === 'account.read'
   const unifiedForeignWalletRead = grant.capability === 'account.foreign-wallet.read' &&
     prompt.capability === 'account.foreign-wallet.read'
-  const unifiedRead = unifiedAccountRead || unifiedForeignWalletRead
+  // The four ARRR custody reads share one tab-session grant among themselves
+  // — and only among themselves: the capability string differs from the
+  // foreign-wallet one, so neither family's grant satisfies the other.
+  const unifiedArrrCustodyRead = grant.capability === 'account.arrr-custody.read' &&
+    prompt.capability === 'account.arrr-custody.read'
+  const unifiedRead = unifiedAccountRead || unifiedForeignWalletRead || unifiedArrrCustodyRead
   return (
     (unifiedRead || grant.protocol === prompt.protocol) &&
     (unifiedRead || grant.action === prompt.action) &&
@@ -449,7 +463,9 @@ export function resolvePermissionPrompt(
         const unifiedAccountRead = candidate.capability === 'account.read' && grant.capability === 'account.read'
         const unifiedForeignWalletRead = candidate.capability === 'account.foreign-wallet.read' &&
           grant.capability === 'account.foreign-wallet.read'
-        const unifiedRead = unifiedAccountRead || unifiedForeignWalletRead
+        const unifiedArrrCustodyRead = candidate.capability === 'account.arrr-custody.read' &&
+          grant.capability === 'account.arrr-custody.read'
+        const unifiedRead = unifiedAccountRead || unifiedForeignWalletRead || unifiedArrrCustodyRead
         return !(
           candidate.scope === grant.scope &&
           (grant.scope === 'always' || candidate.sourceTabId === grant.sourceTabId) &&

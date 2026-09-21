@@ -32,6 +32,38 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## feat: ARRR balances through a trusted Core (custody read adapter)
+
+2026-09-21
+
+Wallet apps can now show an ARRR (Pirate Chain) address, balances and
+transaction history on desktop, through a Qortium Core you administer. ARRR is
+different from the other foreign coins: a Pirate Chain wallet has no
+watch-only key, so the Core that reads it must hold the wallet's spending key
+and keep a synced copy of the wallet. Home therefore asks separately before
+the first ARRR request in a tab — "Allow ARRR wallet custody on your trusted
+Core?" — and the prompt says exactly what happens: Home derives this account's
+ARRR spending key and hands it to your trusted Core at the node shown, which
+keeps a synced copy to read balances and history; the app receives only the
+address, balances and history, never the key; and ending the tab session
+revokes the app's access, not the copy your Core keeps. The approval is for
+one request or for this tab, never remembered across sessions, and it is a
+different approval from the existing foreign-wallet one — neither covers the
+other. It is only offered on your own local Core or a custom HTTPS node with
+your API key attached, never on a public node, and only while the account is
+unlocked. The key is derived with the same method Qortal Hub uses (so a
+Hub-imported account sees the same ARRR address), inside Home's privileged
+process only, for the duration of one request, and is never written anywhere,
+logged, or shown to an app. Apps get a new `GET_ARRR_SYNC_STATUS` action that
+reports the Core's synchronization state, heights, both balances and any last
+error as a checked snapshot, so they can show real progress instead of
+guessing; the balance action returns the verified (spendable) amount by
+default and the total on request, and says so plainly when the verified
+amount is not known yet. If your Core is busy switching to another account's
+ARRR wallet, Home answers "Your Core is busy with another ARRR wallet; try
+again shortly." rather than showing the wrong wallet. Sending ARRR is not
+offered. On Android, ARRR stays unavailable and the app is told why.
+
 ## fix: the address bar navigates Home pages in place too
 
 2026-09-21

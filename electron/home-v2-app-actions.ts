@@ -13,6 +13,7 @@ import {
   HOME_V2_FOREIGN_WALLET_ADMIN_ACTIONS,
   HOME_V2_FOREIGN_WALLET_READ_ACTIONS,
 } from './home-v2-foreign-wallet-actions.js'
+import { HOME_V2_ARRR_SYNC_STATUS_ACTION } from './arrr-custody.js'
 import { getPollOptionsInput } from './qdn-poll-options-input.js'
 import {
   getOptionalPollVoteOptionIndexes,
@@ -119,6 +120,11 @@ const QDN_ACTIONS = [
   'GET_CHAT_MESSAGE',
   'GET_CHAT_ATTACHMENT_STREAM_URL',
   ...HOME_V2_FOREIGN_WALLET_READ_ACTIONS,
+  // The structured ARRR sync snapshot (arrr-custody.ts). qdnRequest-only and,
+  // like the foreign-wallet reads, advertised only on an admin-trusted route
+  // (home-v2-app-runtime.ts); withheld on Android, where the spending key
+  // cannot be derived in a privileged process.
+  HOME_V2_ARRR_SYNC_STATUS_ACTION,
   ...HOME_V2_CROSSCHAIN_READ_ACTIONS,
   'GET_GROUP',
   'GET_GROUP_BANS',

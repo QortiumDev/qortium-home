@@ -1,4 +1,20 @@
-import type { ForeignWalletPublicRuntime } from './foreign-wallets.js';
+import type { BitcoinyWalletPublicRuntime, ForeignWalletPublicRuntime } from './foreign-wallets.js';
+import type { ArrrCustodyRuntime } from './arrr-custody.js';
+
+/**
+ * Every wallet runtime the Home 2 bridge can hold, discriminated by `kind`.
+ * The bitcoiny runtime (address + xpub, what Core WATCHES) is the only one the
+ * xpub request builder below accepts; the ARRR custody runtime carries no key
+ * material and is served by arrr-custody.ts, which posts a per-request
+ * entropy instead. Branching on `kind` here is what keeps ARRR out of the
+ * eight-coin machinery: a caller cannot fabricate an xpub for it because the
+ * type has none.
+ */
+export type HomeV2ForeignWalletRuntime = BitcoinyWalletPublicRuntime | ArrrCustodyRuntime;
+
+export function isArrrCustodyRuntime(runtime: HomeV2ForeignWalletRuntime): runtime is ArrrCustodyRuntime {
+  return (runtime as { kind?: unknown }).kind === 'arrr-custody';
+}
 
 export type ForeignWalletReadEndpoint = 'addressinfos' | 'walletbalance' | 'wallettransactions';
 
@@ -20,9 +36,12 @@ export function getForeignWalletPublicResponse(wallet: ForeignWalletPublicRuntim
 }
 
 export function buildForeignWalletReadRequest(
-  wallet: ForeignWalletPublicRuntime,
+  wallet: HomeV2ForeignWalletRuntime,
   endpoint: ForeignWalletReadEndpoint,
 ): ForeignWalletReadRequest {
+  if (isArrrCustodyRuntime(wallet)) {
+    throw new Error('ARRR has no extended public key; use the ARRR custody read adapter.');
+  }
   return {
     body: endpoint === 'addressinfos'
       ? JSON.stringify({ xpub58: wallet.xpub58 })
@@ -60,10 +79,13 @@ export function normalizeForeignWalletReadError(error: unknown, coin: ForeignWal
 }
 
 export async function executeForeignWalletRead<T>(
-  wallet: ForeignWalletPublicRuntime,
+  wallet: HomeV2ForeignWalletRuntime,
   endpoint: ForeignWalletReadEndpoint,
   post: (request: ForeignWalletReadRequest) => Promise<T>,
 ) {
+  if (isArrrCustodyRuntime(wallet)) {
+    throw new Error('ARRR has no extended public key; use the ARRR custody read adapter.');
+  }
   try {
     return await post(buildForeignWalletReadRequest(wallet, endpoint));
   } catch (error) {

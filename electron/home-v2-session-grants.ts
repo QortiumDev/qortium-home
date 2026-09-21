@@ -347,6 +347,14 @@ export function homeV2PermissionGrantFamily(action: string, writeKind?: string):
   // against, or being satisfied by, the other.
   if (writeKind === 'foreign-send') return 'payment.FOREIGN_SEND'
   if (action === 'RATE_ACCOUNT' && writeKind === 'rating') return 'account.rating'
+  // ARRR custody reuses three of the bitcoiny action NAMES (GET_USER_WALLET,
+  // GET_WALLET_BALANCE, GET_USER_WALLET_TRANSACTIONS) but is a different
+  // disclosure entirely: Home hands the account's ARRR spending key to the
+  // trusted Core. Keyed on the write kind, and checked BEFORE the bitcoiny
+  // family, so a foreign-wallet grant can never satisfy it nor it a
+  // foreign-wallet read. Session or single-request only; never durable
+  // (homeV2DurableAccountReadCapability answers null for all four).
+  if (writeKind === 'arrr-custody-read') return 'account.arrr-custody.read'
   if (isHomeV2ForeignWalletPermissionAction(action)) return 'account.foreign-wallet.read'
   if (isHomeV2AccountReadAction(action)) return 'account.read'
   if (PUBLIC_CHAT_MUTATIONS.has(action)) return 'chat.public.mutate'

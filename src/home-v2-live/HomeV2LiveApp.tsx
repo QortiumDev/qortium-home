@@ -264,6 +264,14 @@ import {
 } from '../../electron/foreign-wallet-read-contract'
 import { isHomeV2NativeWalletRequest } from '../../electron/home-v2-wallet-actions'
 import {
+  HOME_V2_ARRR_ANDROID_UNAVAILABLE_REASON,
+  HOME_V2_ARRR_CUSTODY_PROMPT_TITLE,
+  homeV2ArrrCustodyPromptDetails,
+  homeV2ArrrCustodyPromptSummary,
+  isArrrCustodyCoin,
+  isHomeV2ArrrCustodyReadAction,
+} from '../../electron/arrr-custody'
+import {
   assertHomeV2UnlockCompleted,
   homeV2UnlockPromptRequired,
 } from '../../electron/home-v2-unlock-contract'
@@ -4595,6 +4603,7 @@ export function HomeV2LiveApp() {
             value.action !== 'GET_SELECTED_ACCOUNT' &&
             value.action !== 'GET_USER_ACCOUNT' &&
             !isHomeV2ForeignWalletPermissionAction(value.action) &&
+            value.action !== 'GET_ARRR_SYNC_STATUS' &&
             value.action !== 'SET_CURRENT_FOREIGN_SERVER' &&
             value.action !== 'GET_PENDING_TRANSACTIONS' &&
             value.action !== 'FORGET_PENDING_TRANSACTION' &&
@@ -4650,7 +4659,21 @@ export function HomeV2LiveApp() {
           typeof value.accountId !== 'string') ||
         typeof value.tabId !== 'string' ||
         (value.targetNetwork !== 'qortal' && value.targetNetwork !== 'qortium') ||
+        // ARRR custody reuses three foreign-wallet action names under its own
+        // write kind; a payload claiming that kind must carry every row the
+        // custody prompt shows, and may only arrive for the four ARRR actions.
+        (value.writeKind === 'arrr-custody-read' &&
+          (!isHomeV2ArrrCustodyReadAction(value.action) ||
+            value.protocol !== 'qdnRequest' ||
+            value.targetNetwork !== 'qortium' ||
+            value.arrrCustodyCoin !== 'ARRR' ||
+            typeof value.writeOperationLabel !== 'string' ||
+            typeof value.writeRouteLabel !== 'string' ||
+            value.writeTargetChainLabel !== 'Qortium' ||
+            value.writeSingleRequestOnly !== false)) ||
+        (value.action === 'GET_ARRR_SYNC_STATUS' && value.writeKind !== 'arrr-custody-read') ||
         (isHomeV2ForeignWalletPermissionAction(value.action) &&
+          value.writeKind !== 'arrr-custody-read' &&
           (value.writeKind !== 'foreign-wallet-read' ||
             value.protocol !== 'qdnRequest' ||
             value.targetNetwork !== 'qortium' ||
@@ -5077,7 +5100,10 @@ export function HomeV2LiveApp() {
       // re-validated above — is what separates them here.
       const isForeignSend = isHomeV2PaymentAction(value.action) && value.writeKind === 'foreign-send'
       const isPaymentSend = isHomeV2PaymentAction(value.action) && !isForeignSend
-      const isForeignWalletRead = isHomeV2ForeignWalletPermissionAction(value.action)
+      // ARRR custody is decided by the WRITE KIND (re-validated above), since
+      // three of its four actions share their names with the bitcoiny reads.
+      const isArrrCustodyRead = value.writeKind === 'arrr-custody-read'
+      const isForeignWalletRead = !isArrrCustodyRead && isHomeV2ForeignWalletPermissionAction(value.action)
       const isForeignServerWrite = value.action === 'SET_CURRENT_FOREIGN_SERVER'
       // A zero-fee chain MESSAGE to an AT. Its own prompt kind: it signs, so it
       // must never inherit the read-only account prompt's wording, its
@@ -5096,7 +5122,7 @@ export function HomeV2LiveApp() {
       const isDecrypt = value.action === 'DECRYPT_DATA'
       const accountReadPromptKind = homeV2AccountReadPromptKind(value.action)
       const isGenericAccountRead = accountReadPromptKind === 'account'
-      const operationLabel = isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment || isNotification || isBookmarkManager || isNotificationManager || isHomeSettingsUpdate || isExternalLink || isJournalForget || isMintingWrite || isListWrite || isPollWrite || isNameWrite || isGroupMutation || isPublishMultiple || isQdnDelete || isRatingWrite || isAccountAvatar || isPaymentSend || isForeignSend || isForeignWalletRead || isForeignServerWrite || isAtMessage || isEncrypt || isDecrypt || isNodeSettingsWrite
+      const operationLabel = isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment || isNotification || isBookmarkManager || isNotificationManager || isHomeSettingsUpdate || isExternalLink || isJournalForget || isMintingWrite || isListWrite || isPollWrite || isNameWrite || isGroupMutation || isPublishMultiple || isQdnDelete || isRatingWrite || isAccountAvatar || isPaymentSend || isForeignSend || isForeignWalletRead || isArrrCustodyRead || isForeignServerWrite || isAtMessage || isEncrypt || isDecrypt || isNodeSettingsWrite
         ? String(value.writeOperationLabel)
         : ''
       const prompt = createPermissionPrompt({
@@ -5109,6 +5135,8 @@ export function HomeV2LiveApp() {
           ? 'account.encrypt'
           : isWidgetPrompt
           ? 'window.widget.open'
+          : isArrrCustodyRead
+          ? 'account.arrr-custody.read'
           : isForeignWalletRead
           ? 'account.foreign-wallet.read'
           : isForeignServerWrite
@@ -5235,6 +5263,8 @@ export function HomeV2LiveApp() {
           ? 'Open this link in your browser?'
           : accountReadPromptKind
           ? homeV2AccountReadPromptTitle(accountReadPromptKind)
+          : isArrrCustodyRead
+          ? HOME_V2_ARRR_CUSTODY_PROMPT_TITLE
           : isForeignWalletRead
           ? 'Allow foreign wallet access?'
           : isForeignServerWrite
@@ -5270,6 +5300,8 @@ export function HomeV2LiveApp() {
           ? value.action === 'RESTART_NODE'
             ? `${appTitle} wants to restart your own node's Core. Syncing, minting, and every app using this node pause until it comes back. This approval covers this one restart only; nothing is signed and nothing on chain changes.`
             : `${appTitle} wants to change the node settings listed below on your own node. Every change is shown exactly as it will be applied; some settings only take effect after a restart, which is asked about separately. This approval covers this one change only; nothing is signed and nothing on chain changes.`
+          : isArrrCustodyRead
+          ? homeV2ArrrCustodyPromptSummary(appTitle, String(value.writeRouteLabel))
           : isForeignWalletRead
           ? value.writeRouteIndependent === true
             ? `${appTitle} wants Home to derive receive addresses and an extended public key for supported foreign coins on this device for this tab session. No node is consulted, and no balances or history are read. The app receives addresses and an extended public key, never a seed or private key.`
@@ -5647,6 +5679,11 @@ export function HomeV2LiveApp() {
                   value: 'Touching any other minter’s key on this node, giving the app any private or minting key, or changing minting on any node but this local one',
                 },
               ]
+          : isArrrCustodyRead
+            ? [...homeV2ArrrCustodyPromptDetails({
+                accountLabel: account?.label ?? accountId,
+                nodeLabel: String(value.writeRouteLabel),
+              })]
           : isForeignWalletRead
             ? [
                 { label: 'Account', value: account?.label ?? accountId },
@@ -5752,6 +5789,11 @@ export function HomeV2LiveApp() {
           ? homeV2RatingPermissionScopes(value.action)
           : isForeignServerWrite
           ? ['single-request']
+          // Session or single-request, never 'always': a standing grant to
+          // hand a spending key to a Core would have no card to revoke it
+          // from, and the main process refuses to retain one anyway.
+          : isArrrCustodyRead
+          ? ['single-request', 'session']
           : isForeignWalletRead
           ? ['single-request', 'session']
           : isPublish
@@ -10761,6 +10803,17 @@ export function HomeV2LiveApp() {
         (action === 'GET_USER_WALLET' && isRecord(requestValue) && !isHomeV2NativeWalletRequest(requestValue))
       )
       if (isAndroidHost && foreignWalletRequest) {
+        // ARRR custody is desktop-only (electron/arrr-custody.ts): the
+        // spending key may be derived only in a privileged process, which the
+        // Android client does not have. Refused with the reason, before the
+        // bitcoiny coin normalizer's generic "unsupported coin".
+        if (isRecord(requestValue) && isArrrCustodyCoin(
+          (isRecord(requestValue.payload) ? requestValue.payload : requestValue).coin ??
+            (isRecord(requestValue.payload) ? requestValue.payload : requestValue).blockchain ??
+            requestValue.coin ?? requestValue.blockchain,
+        )) {
+          throw new Error(HOME_V2_ARRR_ANDROID_UNAVAILABLE_REASON)
+        }
         const receiveOnly = action === 'GET_USER_WALLET'
         const foreignWalletRead = nodeClient.foreignWalletRead
         if (!vaultClient?.getForeignWalletPublicData || (!receiveOnly && !foreignWalletRead)) {

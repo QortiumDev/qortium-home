@@ -256,6 +256,23 @@ APP/WEBSITE navigation and a resource viewer are distinct operations.
    from the Dashboard: Settings should appear in that same tab. From an app
    tab, `home://settings` must still leave the app tab alone. Report any
    typed address that opens a new tab while a Home page is in front.
+21. New after beta.12 — ARRR balances through your own Core (desktop only;
+   needs a Core with the ARRR read contract). With a Hub-imported account
+   that holds ARRR, unlocked, and Home on your local Core (or a custom HTTPS
+   node with your API key attached), open the Wallet app's ARRR page. Expect
+   ONE prompt, "Allow ARRR wallet custody on your trusted Core?", naming the
+   account and the node and saying the spending key goes to that Core; allow
+   it for this tab. The receive address must match what Qortal Hub shows for
+   the same account. Watch the sync progress (real heights, not a guessed
+   percentage), then the verified and total balances and the history. Leave
+   the page and come back: no second prompt in the same tab, and the numbers
+   stay. Switch to a second ARRR account in another tab: either its own
+   numbers or "Your Core is busy with another ARRR wallet; try again
+   shortly." — never the first account's balance under the second account's
+   name. On a public node the ARRR row must say it is unavailable and no
+   prompt must appear; there must be no ARRR send button anywhere. Report the
+   Core version, the node route, and any prompt that appears twice for one
+   tab or any balance shown for the wrong account.
 
 ## Reports still being investigated
 

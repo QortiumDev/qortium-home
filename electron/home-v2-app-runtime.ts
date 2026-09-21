@@ -10,6 +10,7 @@ import {
   isHomeV2TrustedForeignWalletRoute,
 } from './home-v2-foreign-wallet-actions.js'
 import { isHomeV2NodeSettingsWriteAction } from './home-v2-node-settings.js'
+import { HOME_V2_ARRR_ANDROID_UNAVAILABLE_REASON, HOME_V2_ARRR_SYNC_STATUS_ACTION } from './arrr-custody.js'
 
 export type HomeV2AppPlatform = 'android' | 'desktop'
 export type HomeV2ConfiguredRouteKind =
@@ -203,7 +204,11 @@ export function getHomeV2AvailableAppActions(
     if (
       protocol === 'qdnRequest' &&
       (isHomeV2ForeignWalletReadAction(action) ||
-        isHomeV2ForeignWalletAdminAction(action))
+        isHomeV2ForeignWalletAdminAction(action) ||
+        // The ARRR sync snapshot is answered by the Core that holds the
+        // wallet copy, so it is advertised exactly where the other
+        // authenticated wallet reads are: a reachable, admin-trusted route.
+        action === HOME_V2_ARRR_SYNC_STATUS_ACTION)
     ) {
       return isHomeV2TrustedForeignWalletRoute(route)
     }
@@ -257,6 +262,10 @@ function isWidgetPublicReadAction(action: string) {
     // even though they are permissionless in a normal tab.
     action === 'GET_MINTING_STATUS' ||
     action === 'LIST_MINTING_ACCOUNTS' ||
+    // The ARRR sync snapshot is the selected account's wallet state, reached
+    // by handing its spending key to Core under a prompt a widget cannot
+    // show. Excluded with GET_USER_WALLET for the same reason.
+    action === HOME_V2_ARRR_SYNC_STATUS_ACTION ||
     // The list reads describe the user's own node too — which names the user
     // blocks and follows is a behavioral profile of the person, not of any
     // app — and both match /^GET_/, so without this line they would be
@@ -326,7 +335,16 @@ export function homeV2WidgetWithholdsSelfSubject(action: string) {
 // not the action: Core's byte-upload preview route takes the bytes, and
 // Android has had bytes all along. Both hosts now use that route and gate on
 // admin trust, so Android runs the action like any other (2026-09-02).
-const ANDROID_UNSUPPORTED_ACTION_REASONS = new Map<string, string>([])
+const ANDROID_UNSUPPORTED_ACTION_REASONS = new Map<string, string>([
+  // True of the ACTION: it hands the account's ARRR spending key to a Core,
+  // which Home permits only when that key is derived inside a privileged
+  // process the app renderer cannot reach (Electron main). Android derives
+  // its foreign public data in the shared TypeScript layer and has no such
+  // boundary yet; until a native account-seed derivation with the same
+  // vectors, consent and lifecycle checks exists, the honest answer is a
+  // refusal, not a half-working custody path.
+  [HOME_V2_ARRR_SYNC_STATUS_ACTION, HOME_V2_ARRR_ANDROID_UNAVAILABLE_REASON],
+])
 
 const ANDROID_UNSUPPORTED_ACTIONS: ReadonlySet<string> = new Set(ANDROID_UNSUPPORTED_ACTION_REASONS.keys())
 
