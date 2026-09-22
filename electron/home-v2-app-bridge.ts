@@ -1,3 +1,5 @@
+import { ARRR_WALLET_SESSION_CONTRACT, type ArrrWalletSessionRequest } from './arrr-wallet-session.js'
+import { isHomeV2ArrrSyncControlAction, arrrSyncControlOperation, arrrSyncControlRows, runHomeV2ArrrSyncControl, ArrrSyncControlError, type ArrrSyncControlAction } from './home-v2-arrr-sync-control.js'
 import { isHomeV2AccountRatingSessionAction } from './home-v2-rating-permissions.js'
 import {
   app,
@@ -767,6 +769,8 @@ type AccountReadAction =
   // ARRR custody. Shares three action names with the bitcoiny reads above
   // but carries its own write kind and grant family (account.arrr-custody.read).
   | 'GET_ARRR_SYNC_STATUS'
+  | 'GET_ARRR_WALLET_SESSION'
+  | ArrrSyncControlAction
   | 'SET_CURRENT_FOREIGN_SERVER'
   // The one SIGNING member of this union. It is never permissionless and never
   // grantable; see the singleRequestOnly rule below.
@@ -9330,6 +9334,7 @@ async function postHomeV2ArrrCustody(
 // newer sync-status poll from the same tab replaces one still waiting, and
 // queued work is cancelled on lifecycle invalidation (invalidateRuntime).
 const homeV2ArrrCustodyReads = createArrrCustodyReadQueue()
+const homeV2ArrrSessionReads = createArrrCustodyReadQueue()
 
 // The digest wrapper returns node:crypto's OWNED Buffers so the derivation's
 // finally zeroes the only copy of every intermediate (review finding 4).
@@ -9357,6 +9362,7 @@ async function readHomeV2ArrrCustody(
   action: HomeV2ArrrCustodyReadAction,
   requestValue: Record<string, unknown>,
   publicRouteRevision: string,
+  sessionRequest?: ArrrWalletSessionRequest,
 ) {
   if (protocol !== 'qdnRequest') throw new Error(`${action} ARRR custody access requires qdnRequest.`)
   const hostWindow = getContextWindow(context)
@@ -9364,6 +9370,7 @@ async function readHomeV2ArrrCustody(
   try {
     return await runHomeV2ArrrCustodyRead<QdnViewContext>({
       action,
+      sessionRequest,
       assertTrusted: (route) => {
         if (route.trusted) return
         throw createHomeV2BridgeError(
@@ -9389,16 +9396,22 @@ async function readHomeV2ArrrCustody(
       }),
       post: postHomeV2ArrrCustody,
       principalKey: `${sender.id}|${context.tabId}`,
-      queue: homeV2ArrrCustodyReads,
+      queue: action === 'GET_ARRR_WALLET_SESSION' && sessionRequest?.operation !== 'activate' ? homeV2ArrrSessionReads : homeV2ArrrCustodyReads,
       queueTags: { hostWebContentsId, tabId: context.tabId },
       requestValue,
-      requireConsent: (binding) => requireAccountReadPermission(sender, context, protocol, action, {
-        coin: binding.coin,
-        kind: 'arrr-custody-read',
-        nodeRoute: binding.nodeRoute,
-        operationLabel: binding.operationLabel,
-        routeLabel: binding.routeLabel,
-      }),
+      requireConsent: async (binding) => {
+        await requireAccountReadPermission(sender, context, protocol, action, {
+          coin: binding.coin, kind: 'arrr-custody-read', nodeRoute: binding.nodeRoute,
+          operationLabel: binding.operationLabel, routeLabel: binding.routeLabel,
+        })
+        if (sessionRequest?.operation === 'activate') {
+          await requireAccountReadPermission(sender, context, protocol, 'ACTIVATE_ARRR_WALLET', {
+            kind: 'node-settings', operationLabel: arrrSyncControlOperation('ACTIVATE_ARRR_WALLET'),
+            routeLabel: binding.routeLabel, targetChainLabel: 'Qortium',
+            settingsDetails: arrrSyncControlRows('ACTIVATE_ARRR_WALLET', binding.routeLabel),
+          })
+        }
+      },
       resolveRoute: resolveHomeV2ArrrCustodyRoute,
       sameViewContext: (before, after) => sameViewContext(before, after),
     })
@@ -9407,6 +9420,58 @@ async function readHomeV2ArrrCustody(
       // The PUBLIC route revision (home-v2-app-runtime), never the trust digest.
       throw createHomeV2BridgeError(error.message, arrrCustodyBridgeErrorDetails(error, action, publicRouteRevision))
     }
+    throw error
+  }
+}
+
+async function controlHomeV2ArrrSync(
+  sender: WebContents, context: QdnViewContext, protocol: HomeV2AppBridgeProtocol,
+  action: ArrrSyncControlAction, requestValue: Record<string, unknown>,
+) {
+  if (protocol !== 'qdnRequest') throw new Error('ARRR sync controls require qdnRequest.')
+  const epochCurrent = sessionAccountReadGrants.capture({ family: action, hostWebContentsId: context.windowId, network: 'qortium', tabId: context.tabId })
+  const assertContext = () => {
+    const fresh = getQdnViewContextForWebContents(sender)
+    if (!epochCurrent() || !fresh || !sameViewContext(context, fresh) || !liveResourceMatchesGrant(fresh) ||
+        !context.accountId || fresh.accountId !== context.accountId || !isAccountUnlocked(context.accountId)) {
+      throw new Error('The app or unlocked account changed before the ARRR controller request completed.')
+    }
+  }
+  try {
+    return await runHomeV2ArrrSyncControl({
+      action, requestValue, assertContext, resolveRoute: resolveHomeV2ArrrCustodyRoute,
+      principalKey: `${sender.id}|${context.tabId}`, queue: homeV2ArrrCustodyReads,
+      queueTags: { hostWebContentsId: context.windowId, tabId: context.tabId },
+      requireApproval: async route => {
+        await requireAccountReadPermission(sender, context, protocol, action, {
+          kind: 'node-settings', operationLabel: arrrSyncControlOperation(action),
+          routeLabel: route.nodeApiUrl, targetChainLabel: 'Qortium',
+          settingsDetails: arrrSyncControlRows(action, route.nodeApiUrl),
+        })
+        const limit = chatSendRateLimiter.checkAndRecordSend(chatSendRateLimitKey(sender, context))
+        if (!limit.allowed) throw new Error(limit.message)
+      },
+      post: async (route, pathname) => {
+        const response = await nodeFetch(`${route.nodeApiUrl}${pathname}`, {
+          method: 'POST', headers: { 'X-API-KEY': route.apiKey },
+          redirect: 'error', signal: AbortSignal.timeout(30_000),
+        })
+        const result = await readBoundedResponse(response, 'POST', 4096)
+        return { body: result.body, data: result.data, ok: result.ok, status: result.status }
+      },
+      readEnabled: async route => {
+        const response = await nodeFetch(`${route.nodeApiUrl}/crosschain/arrr/status`, {
+          method: 'GET', redirect: 'error', signal: AbortSignal.timeout(15_000),
+        })
+        const result = await readBoundedResponse(response, 'GET', 4096)
+        if (!result.ok) throw new Error('ARRR status readback failed.')
+        return result.data
+      },
+    })
+  } catch (error) {
+    if (error instanceof ArrrSyncControlError) throw createHomeV2BridgeError(error.message, {
+      action, code: error.code, network: 'qortium', retryable: false,
+    })
     throw error
   }
 }
@@ -11994,6 +12059,18 @@ async function handleRequestWithRuntime(
     })
     return true
   }
+  if (action === 'ACTIVATE_ARRR_WALLET') {
+    if (Object.keys(requestValue).some(key => !['action', 'coin', 'expectedRevision'].includes(key)) ||
+        (requestValue.coin !== undefined && requestValue.coin !== 'ARRR') ||
+        typeof requestValue.expectedRevision !== 'string' || !/^[a-f0-9-]{36}$/.test(requestValue.expectedRevision)) {
+      throw new Error('An ARRR activation requires the last observed session revision and optional coin ARRR.')
+    }
+    return readHomeV2ArrrCustody(sender, context, protocol, 'GET_ARRR_WALLET_SESSION', requestValue,
+      hostInfo.route.revision, { operation: 'activate', expectedRevision: requestValue.expectedRevision })
+  }
+  if (isHomeV2ArrrSyncControlAction(action)) {
+    return controlHomeV2ArrrSync(sender, context, protocol, action, requestValue)
+  }
   // ARRR custody is branched on the RUNTIME KIND before the bitcoiny wallet
   // family sees the request: the three shared action names plus
   // GET_ARRR_SYNC_STATUS go to the custody adapter whenever the coin is
@@ -12233,7 +12310,17 @@ async function handleRequestWithRuntime(
               // during it is not advertised as still trusted.
               const after = await resolveHomeV2AdminNode('qortium')
               if (!adminTrustUnchangedAcrossAwait(resolved, after)) return { send: false, trusted: false }
-              return { send, trusted: true }
+              let sessionAvailable = false
+              try {
+                const response = await nodeFetch(`${resolved.node.nodeApiUrl}/crosschain/arrr/walletsession`, {
+                  headers: { 'X-API-KEY': resolved.apiKey }, redirect: 'error', signal: AbortSignal.timeout(5000),
+                })
+                const body = await readBoundedResponse(response, 'GET', 4096)
+                sessionAvailable = body.ok && !!body.data && (body.data as { contract?: unknown }).contract === ARRR_WALLET_SESSION_CONTRACT
+              } catch { /* Older Core has no explicit ownership protocol. */ }
+              const finalRoute = await resolveHomeV2AdminNode('qortium')
+              if (!adminTrustUnchangedAcrossAwait(resolved, finalRoute)) return { send: false, trusted: false }
+              return { send, trusted: true, sessionAvailable }
             },
             () => ({ send: false, trusted: false }),
           )
@@ -12250,7 +12337,7 @@ async function handleRequestWithRuntime(
           ? { available: false, reason: HOME_V2_ARRR_UNTRUSTED_ROUTE_REASON }
           : !(!!context.accountId && isAccountUnlocked(context.accountId))
             ? { available: false, reason: HOME_V2_ARRR_LOCKED_ACCOUNT_REASON }
-            : { available: true }
+            : { available: true, sessionAvailable: 'sessionAvailable' in foreignWalletDiscovery && foreignWalletDiscovery.sessionAvailable === true }
         : { available: false }
       return projectHomeV2CrosschainReadResult(
         action,
@@ -12675,6 +12762,7 @@ export function registerHomeV2AppBridgeIpcHandlers() {
     // all, tab-scoped changes drop that tab's. A read already in flight is
     // not interrupted here; its own post-HTTP recheck refuses delivery.
     homeV2ArrrCustodyReads.cancelWhere((meta) => arrrCustodyCancelsQueuedRead(hostWebContentsId, invalidation, meta))
+    homeV2ArrrSessionReads.cancelWhere((meta) => arrrCustodyCancelsQueuedRead(hostWebContentsId, invalidation, meta))
     widgetGrants.clear()
     // Retain rate history across navigation and route invalidations so an app
     // cannot bypass the send ceiling by causing either event. Account changes

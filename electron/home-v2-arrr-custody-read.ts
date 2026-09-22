@@ -1,3 +1,4 @@
+import type { ArrrWalletSessionRequest } from './arrr-wallet-session.js'
 // Home 2 desktop ARRR custody read — the privileged orchestration, with its
 // dependencies injected so the boundary can be EXECUTED under test:
 // denial before any seed access, trust revoked while queued → no dispatch,
@@ -48,6 +49,7 @@ export type ArrrCustodyRoute = Readonly<{
 
 export type ArrrCustodyReadDeps<Context> = Readonly<{
   action: HomeV2ArrrCustodyReadAction
+  sessionRequest?: ArrrWalletSessionRequest
   /** Throws the bridge's NODE_CAPABILITY_MISSING error for an untrusted route. */
   assertTrusted: (route: ArrrCustodyRoute) => void
   /** A checker captured AFTER consent that turns false on any lifecycle invalidation. */
@@ -163,6 +165,7 @@ export async function runHomeV2ArrrCustodyRead<Context>(
     try {
       result = await executeArrrCustodyRead({
         action,
+        sessionRequest: deps.sessionRequest,
         crypto: deps.crypto,
         nonce: seed.addressIndex,
         post: (request) => deps.post(route, request),

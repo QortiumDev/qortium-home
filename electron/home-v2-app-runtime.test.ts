@@ -1023,3 +1023,15 @@ assert.equal(homeV2AndroidActionRefusal('ENCRYPT_DATA', 'qortalRequest'), null)
 }
 
 console.log('Home v2 app runtime contract tests passed.')
+
+// Controller writes are qdnRequest-only, admin-trusted, and desktop-only.
+for (const action of ['STOP_ARRR_SYNC', 'START_ARRR_SYNC']) {
+  assert.equal(getHomeV2AppActions('qdnRequest').includes(action), true)
+  assert.equal(getHomeV2AppActions('qortalRequest').includes(action), false)
+  assert.equal(isHomeV2AndroidUnsupportedAction(action), true)
+  assert.equal(getHomeV2ContextualAppActions([action], 'android').includes(action), false)
+  assert.equal(getHomeV2ContextualAppActions([action], 'widget').includes(action), false)
+  assert.match(homeV2AndroidActionRefusal(action, 'qdnRequest')!.message, /desktop/)
+  assert.equal(getHomeV2AvailableAppActions('qdnRequest', { qortal: publicInfo.route, qortium: publicInfo.route }).includes(action), false)
+  assert.equal(getHomeV2AvailableAppActions('qdnRequest', { qortal: publicInfo.route, qortium: { ...publicInfo.route, adminTrusted: true, reachable: true } }).includes(action), true)
+}

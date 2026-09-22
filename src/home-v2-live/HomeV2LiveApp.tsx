@@ -1,3 +1,4 @@
+import { isHomeV2ArrrSyncControlAction, validArrrSyncControlRows, arrrSyncControlOperation, arrrSyncControlImpact } from '../../electron/home-v2-arrr-sync-control'
 import { homeV2RatingPermissionScopes, homeV2RatingPermissionSummary, homeV2RatingPermissionScopeDetail } from '../../electron/home-v2-rating-permissions'
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import { Capacitor } from '@capacitor/core'
@@ -567,6 +568,7 @@ function isNodeListDetailRows(
  * the node URL at most 500.
  */
 function isNodeSettingsDetailRows(action: string, value: unknown): boolean {
+  if (isHomeV2ArrrSyncControlAction(action)) return validArrrSyncControlRows(action, value)
   if (!Array.isArray(value)) return false
   const row = (candidate: unknown, label: string | null, maxLength: number) =>
     isRecord(candidate) &&
@@ -4604,6 +4606,7 @@ export function HomeV2LiveApp() {
             value.action !== 'GET_USER_ACCOUNT' &&
             !isHomeV2ForeignWalletPermissionAction(value.action) &&
             value.action !== 'GET_ARRR_SYNC_STATUS' &&
+            value.action !== 'GET_ARRR_WALLET_SESSION' &&
             value.action !== 'SET_CURRENT_FOREIGN_SERVER' &&
             value.action !== 'GET_PENDING_TRANSACTIONS' &&
             value.action !== 'FORGET_PENDING_TRANSACTION' &&
@@ -4634,6 +4637,7 @@ export function HomeV2LiveApp() {
             !isHomeV2MintingWriteAction(value.action) &&
             !isHomeV2ListWriteAction(value.action) &&
             !isHomeV2NodeSettingsWriteAction(value.action) &&
+            !isHomeV2ArrrSyncControlAction(value.action) &&
             !isHomeV2PollWriteAction(value.action) &&
             !isHomeV2NameWriteAction(value.action) &&
             !isHomeV2GroupMutationAction(value.action) &&
@@ -4671,7 +4675,7 @@ export function HomeV2LiveApp() {
             typeof value.writeRouteLabel !== 'string' ||
             value.writeTargetChainLabel !== 'Qortium' ||
             value.writeSingleRequestOnly !== false)) ||
-        (value.action === 'GET_ARRR_SYNC_STATUS' && value.writeKind !== 'arrr-custody-read') ||
+        ((value.action === 'GET_ARRR_SYNC_STATUS' || value.action === 'GET_ARRR_WALLET_SESSION') && value.writeKind !== 'arrr-custody-read') ||
         (isHomeV2ForeignWalletPermissionAction(value.action) &&
           value.writeKind !== 'arrr-custody-read' &&
           (value.writeKind !== 'foreign-wallet-read' ||
@@ -4793,7 +4797,7 @@ export function HomeV2LiveApp() {
         // row plus the Node row; UPDATE_NODE_SETTINGS the Node row plus the
         // per-key current/proposed pairs. A prompt that cannot show exactly
         // what would change on the user's node is refused, not rendered.
-        || (isHomeV2NodeSettingsWriteAction(value.action) &&
+        || ((isHomeV2NodeSettingsWriteAction(value.action) || isHomeV2ArrrSyncControlAction(value.action)) &&
           (value.writeKind !== 'node-settings' ||
             value.protocol !== 'qdnRequest' ||
             value.targetNetwork !== 'qortium' ||
@@ -5088,7 +5092,7 @@ export function HomeV2LiveApp() {
       const isJournalForget = value.action === 'FORGET_PENDING_TRANSACTION'
       const isMintingWrite = isHomeV2MintingWriteAction(value.action)
       const isListWrite = isHomeV2ListWriteAction(value.action)
-      const isNodeSettingsWrite = isHomeV2NodeSettingsWriteAction(value.action)
+      const isNodeSettingsWrite = isHomeV2NodeSettingsWriteAction(value.action) || isHomeV2ArrrSyncControlAction(value.action)
       const isPollWrite = isHomeV2PollWriteAction(value.action)
       const isNameWrite = isHomeV2NameWriteAction(value.action)
       const isGroupMutation = isHomeV2GroupMutationAction(value.action)
@@ -5276,7 +5280,7 @@ export function HomeV2LiveApp() {
           : isAtMessage
             ? 'Send a message to a contract?'
           : isNodeSettingsWrite
-            ? value.action === 'RESTART_NODE'
+            ? isHomeV2ArrrSyncControlAction(value.action) ? `${arrrSyncControlOperation(value.action)}?` : value.action === 'RESTART_NODE'
               ? 'Restart your node?'
               : 'Change node settings?'
           : isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment || isMintingWrite || isListWrite || isPollWrite || isNameWrite || isGroupMutation || isPublishMultiple || isQdnDelete || isRatingWrite || isAccountAvatar || isPaymentSend || isForeignSend
@@ -5297,7 +5301,9 @@ export function HomeV2LiveApp() {
           : isListWrite
           ? `${appTitle} wants to change a named list stored on your own node. Apps on this node share these lists — they commonly drive blocking and following — so this change affects what other apps show you. This approval covers this one change only; nothing is signed and nothing on chain changes.`
           : isNodeSettingsWrite
-          ? value.action === 'RESTART_NODE'
+          ? isHomeV2ArrrSyncControlAction(value.action)
+            ? `${appTitle} wants to control ARRR syncing on your node. ${arrrSyncControlImpact(value.action)} This approval covers this one request only; no funds are sent.`
+            : value.action === 'RESTART_NODE'
             ? `${appTitle} wants to restart your own node's Core. Syncing, minting, and every app using this node pause until it comes back. This approval covers this one restart only; nothing is signed and nothing on chain changes.`
             : `${appTitle} wants to change the node settings listed below on your own node. Every change is shown exactly as it will be applied; some settings only take effect after a restart, which is asked about separately. This approval covers this one change only; nothing is signed and nothing on chain changes.`
           : isArrrCustodyRead

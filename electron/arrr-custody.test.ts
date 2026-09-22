@@ -272,6 +272,9 @@ assert.equal(available.sendMode, 'NONE')
 assert.equal(available.serverManagement, false)
 assert.equal(available.serverManagementMode, 'NONE')
 assert.equal(available.syncStatus, true)
+assert.equal(available.syncControlContract, 'qortium-home-arrr-sync-control-v1')
+assert.equal(getHomeWalletCapability('ARRR').syncControlContract, undefined)
+assert.equal(getHomeWalletCapability('BTC', true).syncControlContract, undefined)
 assert.equal(available.custodyContract, ARRR_CUSTODY_CONTRACT)
 assert.equal(available.unavailableReason, undefined)
 // The bitcoiny flags never make ARRR available, and "send" can never be
@@ -806,6 +809,7 @@ assert.equal(scrubArrrEntropy('plain', ''), 'plain')
   assert.ok(bridge.includes("return projectArrrCustodyRoute(await resolveHomeV2AdminNode('qortium'))"))
   assert.ok(bridge.includes('const homeV2ArrrCustodyCrypto = createArrrCustodyNodeCrypto()'))
   assert.ok(bridge.includes('homeV2ArrrCustodyReads.cancelWhere((meta) => arrrCustodyCancelsQueuedRead(hostWebContentsId, invalidation, meta))'))
+  assert.ok(bridge.includes('homeV2ArrrSessionReads.cancelWhere((meta) => arrrCustodyCancelsQueuedRead(hostWebContentsId, invalidation, meta))'))
   assert.ok(bridge.includes('if (!adminTrustUnchangedAcrossAwait(resolved, after)) return { send: false, trusted: false }'))
   const post = sliceAfter(bridge, 'async function postHomeV2ArrrCustody(', 1200, 'ARRR transport')
   assert.ok(post.includes("redirect: 'error'") && post.includes("'X-API-KEY': route.apiKey") && post.includes('readBoundedResponse(response') && !post.includes('console.'))
@@ -1320,3 +1324,47 @@ for (const call of [3, 4]) {
 }
 
 console.log('ARRR custody read adapter tests passed.')
+
+// Partial native history must survive the custody whitelist without becoming zero.
+{
+  const rows = projectArrrTransactions([
+    { txHash: 'pending', metadataComplete: false, pending: true, totalAmount: null, feeAmount: null },
+    { txHash: 'restored', metadataComplete: false, pending: false, totalAmount: null, feeAmount: null, totalAmountEstimate: -90, feeAmountEstimate: 10 },
+    { txHash: 'known', metadataComplete: true, pending: false, totalAmount: 100, feeAmount: 0 },
+  ])
+  assert.equal(rows.length, 3)
+  assert.equal(rows[0].totalAmount, null)
+  assert.equal(rows[0].feeAmount, null)
+  assert.equal(rows[0].pending, true)
+  assert.equal(rows[1].totalAmountEstimate, -90)
+  assert.equal(rows[1].feeAmountEstimate, 10)
+  assert.equal(rows[2].totalAmount, 100)
+  assert.throws(() => projectArrrTransactions([{ txHash: 'bad', totalAmount: null }]), /invalid ARRR transaction list/)
+  assert.throws(() => projectArrrTransactions([{ txHash: 'bad', metadataComplete: true, pending: false, totalAmount: null }]), /invalid ARRR transaction list/)
+  assert.throws(() => projectArrrTransactions([{ txHash: 'bad', metadataComplete: false, pending: false, totalAmount: null, totalAmountEstimate: '90' }]), /invalid ARRR transaction list/)
+}
+
+assert.throws(() => projectArrrTransactions([{ txHash: 'contradictory', metadataComplete: false, pending: false, totalAmount: 100 }]), /invalid ARRR transaction list/)
+
+// Explicit sessions share the same custody/context boundary, but never post a
+// native-selecting read for passive observations.
+for (const operation of ['status', 'activate'] as const) {
+  const session = { contract: 'qortium-arrr-wallet-session-v1', revision: '11111111-1111-1111-1111-111111111111', enabled: true, relation: 'SELF', lifecycle: 'RUNNING', address: null }
+  const h = harness({ action: 'GET_ARRR_WALLET_SESSION', sessionRequest: { operation, ...(operation === 'activate' ? { expectedRevision: session.revision } : {}) }, reply: response(200, JSON.stringify(session), session) })
+  assert.deepEqual(await runHomeV2ArrrCustodyRead(h.deps), session)
+  assert.equal(h.calls.post[0].pathname, '/crosschain/arrr/walletsession')
+  assert.equal(h.calls.post[0].contentType, 'application/json')
+  const request = JSON.parse(h.calls.post[0].body)
+  assert.equal(request.operation, operation)
+  assert.equal(request.entropy58, ENTROPY_V2_N0)
+  assert.equal(request.expectedRevision, operation === 'activate' ? session.revision : undefined)
+  const denied = harness({ ...h.deps, requireConsent: async () => { throw new Error('denied') } })
+  await assert.rejects(runHomeV2ArrrCustodyRead(denied.deps), /denied/)
+  assert.equal(denied.calls.seed, 0)
+  assert.equal(denied.calls.post.length, 0)
+}
+{
+  const failure = classifyArrrCustodyFailure(response(409, '', { message: 'ARRR_WALLET_NOT_ACTIVE' }), 'syncstatus')
+  assert.equal(failure.code, 'ARRR_WALLET_NOT_ACTIVE')
+  assert.equal(failure.retryable, false)
+}

@@ -1,3 +1,4 @@
+import { parseArrrWalletSession, type ArrrWalletSession, type ArrrWalletSessionRequest } from './arrr-wallet-session.js'
 // Home 2 desktop ARRR (Pirate Chain) custody READ adapter — the pure half.
 //
 // ARRR is deliberately NOT a member of the eight-coin bitcoiny HD/xpub/signing
@@ -95,6 +96,7 @@ export const HOME_V2_ARRR_CUSTODY_READ_ACTIONS = Object.freeze([
   'GET_WALLET_BALANCE',
   'GET_USER_WALLET_TRANSACTIONS',
   HOME_V2_ARRR_SYNC_STATUS_ACTION,
+  'GET_ARRR_WALLET_SESSION',
 ] as const)
 
 export type HomeV2ArrrCustodyReadAction = typeof HOME_V2_ARRR_CUSTODY_READ_ACTIONS[number]
@@ -181,7 +183,7 @@ function requestedCoin(request: Record<string, unknown>) {
 export function isHomeV2ArrrCustodyRequest(action: string, request: Record<string, unknown>): boolean {
   if (!isHomeV2ArrrCustodyReadAction(action)) return false
   const coin = requestedCoin(request)
-  if (action === HOME_V2_ARRR_SYNC_STATUS_ACTION) {
+  if (action === HOME_V2_ARRR_SYNC_STATUS_ACTION || action === 'GET_ARRR_WALLET_SESSION') {
     if (coin === undefined || coin === null || (typeof coin === 'string' && coin.trim() === '')) return true
     if (!isArrrCustodyCoin(coin)) throw new Error('GET_ARRR_SYNC_STATUS describes the ARRR wallet only.')
     return true
@@ -331,11 +333,11 @@ export function withArrrEntropy58<T>(
 // ---------------------------------------------------------------------------
 // Requests
 
-export type ArrrCustodyReadEndpoint = 'walletaddress' | 'walletbalance' | 'wallettransactions' | 'syncstatus'
+export type ArrrCustodyReadEndpoint = 'walletaddress' | 'walletbalance' | 'wallettransactions' | 'syncstatus' | 'walletsession'
 
 export type ArrrCustodyReadRequest = Readonly<{
   body: string
-  contentType: 'text/plain'
+  contentType: 'text/plain' | 'application/json'
   method: 'POST'
   pathname: string
 }>
@@ -346,6 +348,7 @@ export function arrrCustodyEndpointForAction(action: HomeV2ArrrCustodyReadAction
     case 'GET_WALLET_BALANCE': return 'walletbalance'
     case 'GET_USER_WALLET_TRANSACTIONS': return 'wallettransactions'
     case HOME_V2_ARRR_SYNC_STATUS_ACTION: return 'syncstatus'
+    case 'GET_ARRR_WALLET_SESSION': return 'walletsession'
   }
 }
 
@@ -404,6 +407,8 @@ function coreErrorOf(response: ArrrCustodyResponse) {
  */
 export function classifyArrrCustodyFailure(response: ArrrCustodyResponse, endpoint: ArrrCustodyReadEndpoint): ArrrCustodyError {
   const coreError = coreErrorOf(response)
+  if (coreError?.message.includes('ARRR_SESSION_CHANGED')) return custodyError('The active ARRR wallet changed. Refresh status and confirm again.', 'ARRR_SESSION_CHANGED', false, response.status)
+  if (coreError?.message.includes('ARRR_WALLET_NOT_ACTIVE')) return custodyError('This account is not the active ARRR wallet on your Core. Switch accounts explicitly to sync it.', 'ARRR_WALLET_NOT_ACTIVE', false, response.status)
   if (
     response.status === 409 ||
     coreError?.code === CORE_OPERATION_IN_PROGRESS ||
@@ -642,12 +647,16 @@ export function parseArrrSyncSnapshot(data: unknown): ArrrSyncSnapshot {
 /** Core's SimpleTransaction, projected field by field. */
 export type ArrrTransactionParty = Readonly<{ address: string; addressInWallet: boolean; amount: number }>
 export type ArrrTransaction = Readonly<{
-  feeAmount: number
+  feeAmount: number | null
   inputs: readonly ArrrTransactionParty[]
   memo: string | null
   outputs: readonly ArrrTransactionParty[]
   timestamp: number | null
-  totalAmount: number
+  totalAmount: number | null
+  totalAmountEstimate?: number | null
+  feeAmountEstimate?: number | null
+  metadataComplete?: boolean
+  pending?: boolean
   txHash: string
 }>
 
@@ -704,19 +713,32 @@ export function projectArrrTransactions(data: unknown): readonly ArrrTransaction
       if (typeof entry.timestamp !== 'number' || !Number.isFinite(entry.timestamp)) return invalidTransactions()
       timestamp = Math.floor(entry.timestamp)
     }
+    const partial = typeof entry.metadataComplete === 'boolean'
+    if (entry.metadataComplete !== undefined && !partial) invalidTransactions()
+    if (partial && typeof entry.pending !== 'boolean') invalidTransactions()
+    const nullableAmount = (value: unknown) => value === null || value === undefined ? null : txAmount(value)
+    const totalAmount = partial ? nullableAmount(entry.totalAmount) : txAmount(entry.totalAmount)
+    if (partial && entry.metadataComplete !== (totalAmount !== null)) invalidTransactions()
     return Object.freeze({
-      feeAmount: entry.feeAmount === undefined || entry.feeAmount === null ? 0 : txAmount(entry.feeAmount),
+      ...(partial ? {
+        metadataComplete: entry.metadataComplete as boolean,
+        pending: entry.pending as boolean,
+        totalAmountEstimate: totalAmount === null ? nullableAmount(entry.totalAmountEstimate) : null,
+        feeAmountEstimate: entry.feeAmount == null ? nullableAmount(entry.feeAmountEstimate) : null,
+      } : {}),
+      feeAmount: partial ? nullableAmount(entry.feeAmount) : entry.feeAmount == null ? 0 : txAmount(entry.feeAmount),
       inputs: txParties(entry.inputs),
       memo: txText(entry.memo, false),
       outputs: txParties(entry.outputs),
       timestamp,
-      totalAmount: txAmount(entry.totalAmount),
+      totalAmount,
       txHash: txText(entry.txHash, true) as string,
     })
   }))
 }
 
 export type ArrrCustodyReadResult =
+  | Readonly<{ action: 'GET_ARRR_WALLET_SESSION'; result: ArrrWalletSession }>
   | Readonly<{ action: 'GET_USER_WALLET'; result: Readonly<{ address: string; coin: 'ARRR' }> }>
   | Readonly<{ action: 'GET_WALLET_BALANCE'; result: string }>
   | Readonly<{ action: 'GET_USER_WALLET_TRANSACTIONS'; result: readonly ArrrTransaction[] }>
@@ -735,6 +757,8 @@ export function projectArrrCustodyResponse(
       return projectArrrTransactions(response.data)
     case HOME_V2_ARRR_SYNC_STATUS_ACTION:
       return parseArrrSyncSnapshot(response.data)
+    case 'GET_ARRR_WALLET_SESSION':
+      return parseArrrWalletSession(response.data)
   }
 }
 
@@ -754,6 +778,7 @@ export async function executeArrrCustodyRead(input: Readonly<{
   post: (request: ArrrCustodyReadRequest) => Promise<ArrrCustodyResponse>
   seed: Uint8Array
   verified?: boolean
+  sessionRequest?: ArrrWalletSessionRequest
   walletVersion: number
 }>): Promise<ArrrCustodyReadResult['result']> {
   const endpoint = arrrCustodyEndpointForAction(input.action)
@@ -763,12 +788,16 @@ export async function executeArrrCustodyRead(input: Readonly<{
       // The string is closed over by this callback only; nothing below stores
       // it. It is passed to `post` as the body and used once more to scrub the
       // answer, then the callback returns and the last reference is gone.
-      const request = buildArrrCustodyReadRequest(endpoint, entropy58, { verified: input.verified })
+      const request: ArrrCustodyReadRequest = endpoint === 'walletsession'
+        ? { method: 'POST', pathname: '/crosschain/arrr/walletsession', contentType: 'application/json',
+            body: JSON.stringify({ entropy58, ...(input.sessionRequest ?? { operation: 'status' }) }) }
+        : buildArrrCustodyReadRequest(endpoint, entropy58, { verified: input.verified })
       let response: ArrrCustodyResponse
       try {
         response = await input.post(request)
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
+        if (input.sessionRequest?.operation === 'activate') throw custodyError('The ARRR activation may have taken effect. Check wallet status before confirming again.', 'ARRR_SESSION_ACTIVATION_UNCERTAIN', false)
         throw custodyError(scrubArrrEntropy(message, entropy58), 'ARRR_CUSTODY_TRANSPORT_FAILED', true)
       }
       // A JSON answer carrying `__proto__`/`constructor`/`prototype` keys is
