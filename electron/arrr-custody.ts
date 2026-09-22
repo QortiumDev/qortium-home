@@ -642,12 +642,16 @@ export function parseArrrSyncSnapshot(data: unknown): ArrrSyncSnapshot {
 /** Core's SimpleTransaction, projected field by field. */
 export type ArrrTransactionParty = Readonly<{ address: string; addressInWallet: boolean; amount: number }>
 export type ArrrTransaction = Readonly<{
-  feeAmount: number
+  feeAmount: number | null
   inputs: readonly ArrrTransactionParty[]
   memo: string | null
   outputs: readonly ArrrTransactionParty[]
   timestamp: number | null
-  totalAmount: number
+  totalAmount: number | null
+  totalAmountEstimate?: number | null
+  feeAmountEstimate?: number | null
+  metadataComplete?: boolean
+  pending?: boolean
   txHash: string
 }>
 
@@ -704,13 +708,25 @@ export function projectArrrTransactions(data: unknown): readonly ArrrTransaction
       if (typeof entry.timestamp !== 'number' || !Number.isFinite(entry.timestamp)) return invalidTransactions()
       timestamp = Math.floor(entry.timestamp)
     }
+    const partial = typeof entry.metadataComplete === 'boolean'
+    if (entry.metadataComplete !== undefined && !partial) invalidTransactions()
+    if (partial && typeof entry.pending !== 'boolean') invalidTransactions()
+    const nullableAmount = (value: unknown) => value === null || value === undefined ? null : txAmount(value)
+    const totalAmount = partial ? nullableAmount(entry.totalAmount) : txAmount(entry.totalAmount)
+    if (partial && entry.metadataComplete !== (totalAmount !== null)) invalidTransactions()
     return Object.freeze({
-      feeAmount: entry.feeAmount === undefined || entry.feeAmount === null ? 0 : txAmount(entry.feeAmount),
+      ...(partial ? {
+        metadataComplete: entry.metadataComplete as boolean,
+        pending: entry.pending as boolean,
+        totalAmountEstimate: totalAmount === null ? nullableAmount(entry.totalAmountEstimate) : null,
+        feeAmountEstimate: entry.feeAmount == null ? nullableAmount(entry.feeAmountEstimate) : null,
+      } : {}),
+      feeAmount: partial ? nullableAmount(entry.feeAmount) : entry.feeAmount == null ? 0 : txAmount(entry.feeAmount),
       inputs: txParties(entry.inputs),
       memo: txText(entry.memo, false),
       outputs: txParties(entry.outputs),
       timestamp,
-      totalAmount: txAmount(entry.totalAmount),
+      totalAmount,
       txHash: txText(entry.txHash, true) as string,
     })
   }))

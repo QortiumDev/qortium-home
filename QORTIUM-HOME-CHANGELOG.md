@@ -32,6 +32,12 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## Preserve unknown and estimated ARRR transaction amounts
+
+2026-09-22
+
+Keep incomplete ARRR history rows from compatible Core versions without converting unknown fees or totals into zero. Pass only the explicitly allowed completeness, pending, and estimate fields to wallet apps, preserving the existing validation and custody boundaries. Legacy Core responses retain their existing projection.
+
 ## feat: ARRR balances through a trusted Core (custody read adapter)
 
 2026-09-21

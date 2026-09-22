@@ -1320,3 +1320,24 @@ for (const call of [3, 4]) {
 }
 
 console.log('ARRR custody read adapter tests passed.')
+
+// Partial native history must survive the custody whitelist without becoming zero.
+{
+  const rows = projectArrrTransactions([
+    { txHash: 'pending', metadataComplete: false, pending: true, totalAmount: null, feeAmount: null },
+    { txHash: 'restored', metadataComplete: false, pending: false, totalAmount: null, feeAmount: null, totalAmountEstimate: -90, feeAmountEstimate: 10 },
+    { txHash: 'known', metadataComplete: true, pending: false, totalAmount: 100, feeAmount: 0 },
+  ])
+  assert.equal(rows.length, 3)
+  assert.equal(rows[0].totalAmount, null)
+  assert.equal(rows[0].feeAmount, null)
+  assert.equal(rows[0].pending, true)
+  assert.equal(rows[1].totalAmountEstimate, -90)
+  assert.equal(rows[1].feeAmountEstimate, 10)
+  assert.equal(rows[2].totalAmount, 100)
+  assert.throws(() => projectArrrTransactions([{ txHash: 'bad', totalAmount: null }]), /invalid ARRR transaction list/)
+  assert.throws(() => projectArrrTransactions([{ txHash: 'bad', metadataComplete: true, pending: false, totalAmount: null }]), /invalid ARRR transaction list/)
+  assert.throws(() => projectArrrTransactions([{ txHash: 'bad', metadataComplete: false, pending: false, totalAmount: null, totalAmountEstimate: '90' }]), /invalid ARRR transaction list/)
+}
+
+assert.throws(() => projectArrrTransactions([{ txHash: 'contradictory', metadataComplete: false, pending: false, totalAmount: 100 }]), /invalid ARRR transaction list/)
