@@ -1,3 +1,4 @@
+import { ARRR_SYNC_CONTROL_CONTRACT } from './home-v2-arrr-sync-control.js';
 import { ARRR_CUSTODY_CONTRACT } from './arrr-custody.js';
 
 export const HOME_WALLET_CONTRACT = 'qortium-home-wallet-v1' as const;
@@ -34,6 +35,7 @@ export type HomeWalletCapability = {
   // is served on this host/route. Absent on every other row.
   custodyContract?: typeof ARRR_CUSTODY_CONTRACT;
   syncStatus?: boolean;
+  syncControlContract?: typeof ARRR_SYNC_CONTROL_CONTRACT;
   // Why an ARRR row is unavailable, when it is — e.g. Android, a public or
   // untrusted route, or a locked account. Absent when available and on every
   // other coin's row.
@@ -107,6 +109,7 @@ export function getHomeWalletCapability(
         serverManagement: false,
         serverManagementMode: 'NONE',
         syncStatus: true,
+        syncControlContract: ARRR_SYNC_CONTROL_CONTRACT,
       };
     }
     return {

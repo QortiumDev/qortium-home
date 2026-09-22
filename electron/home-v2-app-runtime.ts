@@ -1,3 +1,4 @@
+import { isHomeV2ArrrSyncControlAction } from './home-v2-arrr-sync-control.js'
 import {
   getHomeV2AppActions,
   getHomeV2AppNetwork,
@@ -217,7 +218,7 @@ export function getHomeV2AvailableAppActions(
     // a reachable route the user actually administers (their managed local
     // Core, or a custom node with their attached key). The metadata READ is
     // not gated — it is the same anonymous Core route FETCH_NODE_API allows.
-    if (protocol === 'qdnRequest' && isHomeV2NodeSettingsWriteAction(action)) {
+    if (protocol === 'qdnRequest' && (isHomeV2NodeSettingsWriteAction(action) || isHomeV2ArrrSyncControlAction(action))) {
       return route.reachable && route.adminTrusted
     }
     if (HOME_V2_ADMIN_TRUSTED_ROUTE_ACTIONS.has(action)) {
@@ -344,6 +345,8 @@ const ANDROID_UNSUPPORTED_ACTION_REASONS = new Map<string, string>([
   // vectors, consent and lifecycle checks exists, the honest answer is a
   // refusal, not a half-working custody path.
   [HOME_V2_ARRR_SYNC_STATUS_ACTION, HOME_V2_ARRR_ANDROID_UNAVAILABLE_REASON],
+  ['STOP_ARRR_SYNC', 'ARRR sync controls require desktop Home.'],
+  ['START_ARRR_SYNC', 'ARRR sync controls require desktop Home.'],
 ])
 
 const ANDROID_UNSUPPORTED_ACTIONS: ReadonlySet<string> = new Set(ANDROID_UNSUPPORTED_ACTION_REASONS.keys())

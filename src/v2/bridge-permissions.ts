@@ -184,6 +184,8 @@ export interface PermissionPrompt {
     | 'GET_USER_WALLET_INFO'
     | 'GET_USER_WALLET_TRANSACTIONS'
     | 'GET_ARRR_SYNC_STATUS'
+    | 'STOP_ARRR_SYNC'
+    | 'START_ARRR_SYNC'
     | 'SET_CURRENT_FOREIGN_SERVER'
     | 'JOIN_GROUP'
     | 'LEAVE_GROUP'

@@ -1,3 +1,4 @@
+import { HOME_V2_ARRR_SYNC_CONTROL_ACTIONS } from './home-v2-arrr-sync-control.js'
 import {
   getAssetBalancesPath,
   getAssetInfoPath,
@@ -125,6 +126,7 @@ const QDN_ACTIONS = [
   // (home-v2-app-runtime.ts); withheld on Android, where the spending key
   // cannot be derived in a privileged process.
   HOME_V2_ARRR_SYNC_STATUS_ACTION,
+  ...HOME_V2_ARRR_SYNC_CONTROL_ACTIONS,
   ...HOME_V2_CROSSCHAIN_READ_ACTIONS,
   'GET_GROUP',
   'GET_GROUP_BANS',

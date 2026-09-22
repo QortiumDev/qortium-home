@@ -32,6 +32,14 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## Add Home-mediated ARRR sync controls
+
+2026-09-22
+
+Desktop Wallet apps can request that Home stop or start ARRR's wallet controller on an admin-trusted Qortium node. Each request asks for approval and explains that it affects all accounts and apps using ARRR on that node, while Core keeps running. These controls change the current Core run only; they do not change saved startup settings or delete wallet data. Apps never receive the node's API key, and control requests do not derive or send a wallet key.
+
+Home confirms the controller response and enabled state before reporting completion. A stop that exceeds Core's wait is shown as unconfirmed, not as a successful stop or an automatic reason to restart Core. Starting the controller does not mean the wallet has finished syncing: the next approved wallet read loads the selected wallet and reports its progress. Every approval is for one request; account, tab and node changes invalidate queued work. Controls are withheld on Android, public nodes and widgets.
+
 ## feat: ARRR balances through a trusted Core (custody read adapter)
 
 2026-09-21

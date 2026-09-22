@@ -1,3 +1,4 @@
+import { isHomeV2ArrrSyncControlAction, arrrSyncControlOperation, arrrSyncControlRows, runHomeV2ArrrSyncControl, ArrrSyncControlError, type ArrrSyncControlAction } from './home-v2-arrr-sync-control.js'
 import { isHomeV2AccountRatingSessionAction } from './home-v2-rating-permissions.js'
 import {
   app,
@@ -767,6 +768,7 @@ type AccountReadAction =
   // ARRR custody. Shares three action names with the bitcoiny reads above
   // but carries its own write kind and grant family (account.arrr-custody.read).
   | 'GET_ARRR_SYNC_STATUS'
+  | ArrrSyncControlAction
   | 'SET_CURRENT_FOREIGN_SERVER'
   // The one SIGNING member of this union. It is never permissionless and never
   // grantable; see the singleRequestOnly rule below.
@@ -9411,6 +9413,58 @@ async function readHomeV2ArrrCustody(
   }
 }
 
+async function controlHomeV2ArrrSync(
+  sender: WebContents, context: QdnViewContext, protocol: HomeV2AppBridgeProtocol,
+  action: ArrrSyncControlAction, requestValue: Record<string, unknown>,
+) {
+  if (protocol !== 'qdnRequest') throw new Error('ARRR sync controls require qdnRequest.')
+  const epochCurrent = sessionAccountReadGrants.capture({ family: action, hostWebContentsId: context.windowId, network: 'qortium', tabId: context.tabId })
+  const assertContext = () => {
+    const fresh = getQdnViewContextForWebContents(sender)
+    if (!epochCurrent() || !fresh || !sameViewContext(context, fresh) || !liveResourceMatchesGrant(fresh) ||
+        !context.accountId || fresh.accountId !== context.accountId || !isAccountUnlocked(context.accountId)) {
+      throw new Error('The app or unlocked account changed before the ARRR controller request completed.')
+    }
+  }
+  try {
+    return await runHomeV2ArrrSyncControl({
+      action, requestValue, assertContext, resolveRoute: resolveHomeV2ArrrCustodyRoute,
+      principalKey: `${sender.id}|${context.tabId}`, queue: homeV2ArrrCustodyReads,
+      queueTags: { hostWebContentsId: context.windowId, tabId: context.tabId },
+      requireApproval: async route => {
+        await requireAccountReadPermission(sender, context, protocol, action, {
+          kind: 'node-settings', operationLabel: arrrSyncControlOperation(action),
+          routeLabel: route.nodeApiUrl, targetChainLabel: 'Qortium',
+          settingsDetails: arrrSyncControlRows(action, route.nodeApiUrl),
+        })
+        const limit = chatSendRateLimiter.checkAndRecordSend(chatSendRateLimitKey(sender, context))
+        if (!limit.allowed) throw new Error(limit.message)
+      },
+      post: async (route, pathname) => {
+        const response = await nodeFetch(`${route.nodeApiUrl}${pathname}`, {
+          method: 'POST', headers: { 'X-API-KEY': route.apiKey },
+          redirect: 'error', signal: AbortSignal.timeout(30_000),
+        })
+        const result = await readBoundedResponse(response, 'POST', 4096)
+        return { body: result.body, data: result.data, ok: result.ok, status: result.status }
+      },
+      readEnabled: async route => {
+        const response = await nodeFetch(`${route.nodeApiUrl}/crosschain/arrr/status`, {
+          method: 'GET', redirect: 'error', signal: AbortSignal.timeout(15_000),
+        })
+        const result = await readBoundedResponse(response, 'GET', 4096)
+        if (!result.ok) throw new Error('ARRR status readback failed.')
+        return result.data
+      },
+    })
+  } catch (error) {
+    if (error instanceof ArrrSyncControlError) throw createHomeV2BridgeError(error.message, {
+      action, code: error.code, network: 'qortium', retryable: false,
+    })
+    throw error
+  }
+}
+
 async function setHomeV2ForeignServer(
   sender: WebContents,
   context: QdnViewContext,
@@ -11993,6 +12047,9 @@ async function handleRequestWithRuntime(
       tabId: context.tabId,
     })
     return true
+  }
+  if (isHomeV2ArrrSyncControlAction(action)) {
+    return controlHomeV2ArrrSync(sender, context, protocol, action, requestValue)
   }
   // ARRR custody is branched on the RUNTIME KIND before the bitcoiny wallet
   // family sees the request: the three shared action names plus
