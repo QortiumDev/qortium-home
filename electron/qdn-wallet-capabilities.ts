@@ -1,3 +1,4 @@
+import { ARRR_WALLET_SESSION_CONTRACT } from './arrr-wallet-session.js'
 import { ARRR_SYNC_CONTROL_CONTRACT } from './home-v2-arrr-sync-control.js';
 import { ARRR_CUSTODY_CONTRACT } from './arrr-custody.js';
 
@@ -35,6 +36,7 @@ export type HomeWalletCapability = {
   // is served on this host/route. Absent on every other row.
   custodyContract?: typeof ARRR_CUSTODY_CONTRACT;
   syncStatus?: boolean;
+  walletSessionContract?: typeof ARRR_WALLET_SESSION_CONTRACT;
   syncControlContract?: typeof ARRR_SYNC_CONTROL_CONTRACT;
   // Why an ARRR row is unavailable, when it is — e.g. Android, a public or
   // untrusted route, or a locked account. Absent when available and on every
@@ -54,6 +56,7 @@ const ARRR_CURRENCY_CODE = 'ARRR';
  */
 export type HomeWalletArrrCustodyAvailability = Readonly<{
   available: boolean;
+  sessionAvailable?: boolean;
   reason?: string;
 }>;
 
@@ -110,6 +113,7 @@ export function getHomeWalletCapability(
         serverManagementMode: 'NONE',
         syncStatus: true,
         syncControlContract: ARRR_SYNC_CONTROL_CONTRACT,
+        ...(arrrCustody.sessionAvailable ? { walletSessionContract: ARRR_WALLET_SESSION_CONTRACT } : {}),
       };
     }
     return {

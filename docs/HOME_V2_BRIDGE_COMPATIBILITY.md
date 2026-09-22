@@ -1036,3 +1036,9 @@ Enabling Core's API documentation page (and the restart that applies it) is
 gated on admin trust **and** on the desktop transport. Android has no native
 path behind `enableHomeV2CoreDocs`, so the control is not offered there rather
 than being offered and refused. Reading the documentation works on both.
+
+### Explicit ARRR wallet sessions
+
+Desktop `GET_ARRR_WALLET_SESSION` returns `{ contract: 'qortium-arrr-wallet-session-v1', revision, enabled, relation: 'SELF'|'OTHER'|'NONE', lifecycle, address }`. `address` is only this entropy wallet's previously verified in-memory address, or null. This read never selects a native wallet. The current ARRR discovery row advertises `walletSessionContract` only after Home probes support on the admin-trusted Core. Account custody consent and post-await context checks still apply.
+
+`ACTIVATE_ARRR_WALLET` accepts only `action`, optional `coin:'ARRR'`, and the last observed `expectedRevision`. Home supplies entropy for the selected account after custody consent plus a one-request node-wide confirmation. It calls Core's protected wallet-session activation; stale revisions fail rather than silently replacing a newer account. A result means account selection/controller activation, never completed wallet synchronization. Transport ambiguity is not automatically retried. Public nodes, widgets and Android cannot activate accounts. Existing Stop is node-wide; Start alone does not choose a custody account on the new Core.

@@ -32,6 +32,12 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## Require explicit ARRR account switching
+
+2026-09-22
+
+On a Core that supports the new wallet-session contract, Home exposes passive account ownership/status reads and a separate, explicitly approved account activation. A second account can inspect its own stopped address and learn that another account owns the controller without interrupting the scan. Switching requires both custody consent and a one-request node-wide confirmation. Home binds the operation to the selected account, trusted node and observed session revision; keys and entropy remain outside the app. Passive status has its own queue so a long native read cannot hide a stop or recovery state. Older Core and Android do not advertise the new session capability.
+
 ## Add Home-mediated ARRR sync controls
 
 2026-09-22

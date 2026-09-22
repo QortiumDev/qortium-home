@@ -4606,6 +4606,7 @@ export function HomeV2LiveApp() {
             value.action !== 'GET_USER_ACCOUNT' &&
             !isHomeV2ForeignWalletPermissionAction(value.action) &&
             value.action !== 'GET_ARRR_SYNC_STATUS' &&
+            value.action !== 'GET_ARRR_WALLET_SESSION' &&
             value.action !== 'SET_CURRENT_FOREIGN_SERVER' &&
             value.action !== 'GET_PENDING_TRANSACTIONS' &&
             value.action !== 'FORGET_PENDING_TRANSACTION' &&
@@ -4674,7 +4675,7 @@ export function HomeV2LiveApp() {
             typeof value.writeRouteLabel !== 'string' ||
             value.writeTargetChainLabel !== 'Qortium' ||
             value.writeSingleRequestOnly !== false)) ||
-        (value.action === 'GET_ARRR_SYNC_STATUS' && value.writeKind !== 'arrr-custody-read') ||
+        ((value.action === 'GET_ARRR_SYNC_STATUS' || value.action === 'GET_ARRR_WALLET_SESSION') && value.writeKind !== 'arrr-custody-read') ||
         (isHomeV2ForeignWalletPermissionAction(value.action) &&
           value.writeKind !== 'arrr-custody-read' &&
           (value.writeKind !== 'foreign-wallet-read' ||

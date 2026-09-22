@@ -3,15 +3,17 @@ import type { ArrrCustodyReadQueue, ArrrCustodyResponse } from './arrr-custody.j
 import type { ArrrCustodyRoute } from './home-v2-arrr-custody-read.js'
 
 export const ARRR_SYNC_CONTROL_CONTRACT = 'qortium-home-arrr-sync-control-v1' as const
-export const HOME_V2_ARRR_SYNC_CONTROL_ACTIONS = ['STOP_ARRR_SYNC', 'START_ARRR_SYNC'] as const
+export const HOME_V2_ARRR_SYNC_CONTROL_ACTIONS = ['STOP_ARRR_SYNC', 'START_ARRR_SYNC', 'ACTIVATE_ARRR_WALLET'] as const
 export type ArrrSyncControlAction = (typeof HOME_V2_ARRR_SYNC_CONTROL_ACTIONS)[number]
 export function isHomeV2ArrrSyncControlAction(action: string): action is ArrrSyncControlAction {
-  return action === 'STOP_ARRR_SYNC' || action === 'START_ARRR_SYNC'
+  return action === 'STOP_ARRR_SYNC' || action === 'START_ARRR_SYNC' || action === 'ACTIVATE_ARRR_WALLET'
 }
 export function arrrSyncControlOperation(action: ArrrSyncControlAction) {
+  if (action === 'ACTIVATE_ARRR_WALLET') return 'Sync this ARRR account'
   return action === 'STOP_ARRR_SYNC' ? 'Stop ARRR syncing' : 'Start ARRR syncing'
 }
 export function arrrSyncControlImpact(action: ArrrSyncControlAction) {
+  if (action === 'ACTIVATE_ARRR_WALLET') return 'Make this account the active ARRR wallet on this node. Any other account’s scan stops; its stored wallet data is kept. Only one ARRR account can sync at a time.'
   return action === 'STOP_ARRR_SYNC'
     ? "Stop this node's ARRR wallet controller for all accounts and apps. Core keeps running; stored wallet data is kept."
     : "Start this node's ARRR wallet controller. Wallet syncing resumes when the wallet is opened."
@@ -66,7 +68,7 @@ export type ArrrSyncControlDeps = {
 
 export async function runHomeV2ArrrSyncControl(deps: ArrrSyncControlDeps): Promise<ArrrSyncControlResult> {
   validateArrrSyncControlRequest(deps.requestValue)
-  if (!isHomeV2ArrrSyncControlAction(deps.action)) throw new Error('Unsupported ARRR sync control.')
+  if (deps.action !== 'STOP_ARRR_SYNC' && deps.action !== 'START_ARRR_SYNC') throw new Error('Unsupported ARRR sync control.')
   deps.assertContext()
   const initial = await deps.resolveRoute()
   deps.assertContext()

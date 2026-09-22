@@ -209,7 +209,7 @@ export function getHomeV2AvailableAppActions(
         // The ARRR sync snapshot is answered by the Core that holds the
         // wallet copy, so it is advertised exactly where the other
         // authenticated wallet reads are: a reachable, admin-trusted route.
-        action === HOME_V2_ARRR_SYNC_STATUS_ACTION)
+        (action === HOME_V2_ARRR_SYNC_STATUS_ACTION || action === 'GET_ARRR_WALLET_SESSION'))
     ) {
       return isHomeV2TrustedForeignWalletRoute(route)
     }
@@ -346,6 +346,8 @@ const ANDROID_UNSUPPORTED_ACTION_REASONS = new Map<string, string>([
   // refusal, not a half-working custody path.
   [HOME_V2_ARRR_SYNC_STATUS_ACTION, HOME_V2_ARRR_ANDROID_UNAVAILABLE_REASON],
   ['STOP_ARRR_SYNC', 'ARRR sync controls require desktop Home.'],
+  ['ACTIVATE_ARRR_WALLET', 'ARRR wallet switching requires desktop Home.'],
+  ['GET_ARRR_WALLET_SESSION', 'ARRR wallet sessions require desktop Home.'],
   ['START_ARRR_SYNC', 'ARRR sync controls require desktop Home.'],
 ])
 
