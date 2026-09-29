@@ -32,6 +32,10 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## Check ARRR exclusion from the native payment journal
+
+- Update the bridge regression check for the new ARRR dispatch branch, preserving the assertion that both foreign send paths bypass the native QORT journal.
+
 ## Add approved ARRR sends with durable recovery
 
 2026-09-29
