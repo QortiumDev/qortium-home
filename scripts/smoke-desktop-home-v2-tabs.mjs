@@ -194,8 +194,8 @@ async function main() {
       (await cdp.evaluate(activeStartupPage)) === 'dashboard',
     )
 
-    // Open a second internal page through the ordinary address-bar route so
-    // there are two tabs to switch between.
+    // Address-bar navigation replaces the current page. Open Settings first,
+    // then create a fresh Dashboard so both pages remain available to test.
     await cdp.evaluate(`(() => {
       const input = document.querySelector('.home-v2-address input')
       const setValue = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
@@ -205,6 +205,21 @@ async function main() {
       return true
     })()`)
     await sleep(2500)
+
+    await waitForStartup('enabled New tab button', () =>
+      cdp.evaluate(`!!document.querySelector('button[aria-label="New tab"]:not(:disabled)')`),
+    )
+    await cdp.evaluate(`document.querySelector('button[aria-label="New tab"]:not(:disabled)').click()`)
+    await waitForStartup('Dashboard and Settings tabs', async () => {
+      const tabs = JSON.parse(await cdp.evaluate(TAB_STATE))
+      return tabs.some(tab => tab.key === 'dashboard') && tabs.some(tab => tab.key === 'settings')
+    })
+    // Set up Settings as active; the assertion below uses genuine mouse input
+    // to return to Dashboard rather than using this JavaScript control path.
+    await cdp.evaluate(`document.querySelector('.home-v2-tab[data-internal-page="settings"] button[role=tab]').click()`)
+    await waitForStartup('active Settings', async () =>
+      JSON.parse(await cdp.evaluate(TAB_STATE)).find(tab => tab.key === 'settings')?.selected,
+    )
 
     const before = JSON.parse(await cdp.evaluate(TAB_STATE))
     log(`tabs: ${before.map((tab) => `${tab.key}${tab.selected ? '*' : ''}`).join(' ')}`)

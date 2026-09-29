@@ -32,6 +32,20 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## Create two tabs before testing pointer switching
+
+- Make the packaged tab smoke open a second tab explicitly, respecting the current start-page navigation behavior while still testing real mouse switching and drag reordering.
+
+## Check ARRR exclusion from the native payment journal
+
+- Update the bridge regression check for the new ARRR dispatch branch, preserving the assertion that both foreign send paths bypass the native QORT journal.
+
+## Add approved ARRR sends with durable recovery
+
+2026-09-29
+
+Desktop Home can approve a mainnet ARRR payment on a trusted Core supporting send protocol v2. The prompt shows the fixed 0.0001 ARRR fee and explains Core custody. Home records each request before dispatch, recovers lost replies without resending, retains completed receipts and requires a fresh acknowledgment and approval for a later payment. Public nodes, older Core versions, Android and widgets remain excluded.
+
 ## Integrate ARRR account controls with partial history
 
 2026-09-22

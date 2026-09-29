@@ -1,3 +1,4 @@
+import { ARRR_SEND_ROWS, arrrSendApprovalSummary } from '../../electron/arrr-send-contract'
 import { isHomeV2ArrrSyncControlAction, validArrrSyncControlRows, arrrSyncControlOperation, arrrSyncControlImpact } from '../../electron/home-v2-arrr-sync-control'
 import { homeV2RatingPermissionScopes, homeV2RatingPermissionSummary, homeV2RatingPermissionScopeDetail } from '../../electron/home-v2-rating-permissions'
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
@@ -4871,11 +4872,11 @@ export function HomeV2LiveApp() {
             value.targetNetwork !== 'qortium' ||
             value.writeTargetChainLabel !== 'Qortium' ||
             typeof value.foreignSendCoin !== 'string' ||
-            !FOREIGN_SEND_COINS.has(value.foreignSendCoin) ||
+            !(FOREIGN_SEND_COINS.has(value.foreignSendCoin) || value.foreignSendCoin === 'ARRR') ||
             typeof value.foreignSendChainId !== 'string' ||
-            !/^bip122:[0-9a-f]{32}$/.test(value.foreignSendChainId) ||
-            !isSequencedDetailRows(FOREIGN_SEND_DETAIL_SEQUENCE, value.foreignSendDetails) ||
-            value.writeOperationLabel !== homeV2ForeignSendOperationLabel(value.foreignSendCoin) ||
+            !(value.foreignSendCoin === 'ARRR' ? value.foreignSendChainId === 'pirate' : /^bip122:[0-9a-f]{32}$/.test(value.foreignSendChainId)) ||
+            !isSequencedDetailRows(value.foreignSendCoin === 'ARRR' ? ARRR_SEND_ROWS.map(label => ({ label })) : FOREIGN_SEND_DETAIL_SEQUENCE, value.foreignSendDetails) ||
+            value.writeOperationLabel !== (value.foreignSendCoin === 'ARRR' ? 'Send ARRR' : homeV2ForeignSendOperationLabel(value.foreignSendCoin)) ||
             typeof value.writeRouteLabel !== 'string' ||
             value.writeSingleRequestOnly !== true))
         || (isHomeV2PaymentAction(value.action) && value.writeKind !== 'foreign-send' &&
@@ -5326,6 +5327,8 @@ export function HomeV2LiveApp() {
             : `${appTitle} wants to sign and broadcast the QDN publish transactions listed below from the selected account — one per resource. They cost no fee — Home pays for each with proof-of-work on this device. Every resource, file, size and content hash is listed exactly as it will be signed; this approval covers exactly these listed transactions.`
           : isQdnDelete
           ? `${appTitle} wants to sign and broadcast one QDN deletion transaction from the selected account. Approving marks the resource below DELETED on the Qortium chain for EVERY peer — this deletes the published resource itself, not just a local copy, and only publishing it again would replace it. It costs no fee — Home pays for it with proof-of-work on this device.`
+          : isForeignSend && value.foreignSendCoin === 'ARRR'
+          ? arrrSendApprovalSummary(appTitle)
           : isForeignSend
           ? `${appTitle} wants to SEND ${String(value.foreignSendCoin)} from the wallet Home derives for the selected account. Home builds and signs this transaction itself \u2014 your node relays finished bytes and never receives a seed, a private key, or an extended private key. The amount, the recipient, the network fee and where any change goes are listed exactly as they will be signed. Once broadcast it cannot be recalled, and this approval covers this one send only.`
           : isPaymentSend
@@ -5483,10 +5486,12 @@ export function HomeV2LiveApp() {
               // here is the QORTIUM node that will relay the finished bytes —
               // a second 'Chain' row would read as a contradiction, so the
               // route label carries it alone.
-              { label: 'Relayed by', value: String(value.writeRouteLabel) },
+              { label: value.foreignSendCoin === 'ARRR' ? 'Custody node' : 'Relayed by', value: String(value.writeRouteLabel) },
               // The shell's own copy, not a bridge row: what is NOT shared
               // must not be forgeable by the thing asking for the send.
-              { label: 'Not shared', value: 'Wallet seed, private key, or extended private key (xprv)' },
+              value.foreignSendCoin === 'ARRR'
+                ? { label: 'Custody', value: 'Your ARRR spending key is sent to this trusted Core, which builds and broadcasts this payment. An uncertain outcome blocks this wallet’s spending.' }
+                : { label: 'Not shared', value: 'Wallet seed, private key, or extended private key (xprv)' },
               { label: 'Scope', value: 'This one foreign-coin send only' },
             ]
           : isPaymentSend

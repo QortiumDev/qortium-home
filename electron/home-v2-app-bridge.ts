@@ -1,3 +1,7 @@
+import { compatibleArrrSendContract } from './arrr-send-contract.js'
+import { createArrrSendStore } from './home-v2-arrr-send-store.js'
+import { executeArrrSend, readArrrSend, isArrrSendRequest, ArrrSendBeforeDispatchError, assertArrrSendContext, classifyArrrSendFailure } from './home-v2-arrr-send.js'
+import { homeV2ArrrCustodyConsentBinding } from './arrr-custody.js'
 import { ARRR_WALLET_SESSION_CONTRACT, type ArrrWalletSessionRequest } from './arrr-wallet-session.js'
 import { isHomeV2ArrrSyncControlAction, arrrSyncControlOperation, arrrSyncControlRows, runHomeV2ArrrSyncControl, ArrrSyncControlError, type ArrrSyncControlAction } from './home-v2-arrr-sync-control.js'
 import { isHomeV2AccountRatingSessionAction } from './home-v2-rating-permissions.js'
@@ -770,6 +774,8 @@ type AccountReadAction =
   // but carries its own write kind and grant family (account.arrr-custody.read).
   | 'GET_ARRR_SYNC_STATUS'
   | 'GET_ARRR_WALLET_SESSION'
+  | 'GET_ARRR_SEND_READINESS'
+  | 'GET_ARRR_SEND_OPERATION'
   | ArrrSyncControlAction
   | 'SET_CURRENT_FOREIGN_SERVER'
   // The one SIGNING member of this union. It is never permissionless and never
@@ -4264,6 +4270,9 @@ async function handleHomeV2PaymentAction(
   // in-flight lock and the native journal gate. `handleHomeV2PaymentAction`
   // keeps its blanket foreign refusal below as the fail-closed backstop for
   // anything this predicate does not claim.
+  if (isArrrSendRequest(action, requestValue)) {
+    return handleHomeV2ArrrSend(sender, context, protocol, 'SEND_COIN', requestValue)
+  }
   if (action === 'SEND_COIN' && isHomeV2ForeignSendRequest(action, requestValue)) {
     return handleHomeV2ForeignSendAction(sender, context, protocol, network, routeRevision, requestValue)
   }
@@ -9016,6 +9025,59 @@ async function probeHomeV2ForeignSendRouteSupported(
   return outcome === 'supported'
 }
 
+async function handleHomeV2ArrrSend(
+  sender: WebContents, context: QdnViewContext, protocol: HomeV2AppBridgeProtocol,
+  action: 'SEND_COIN' | 'GET_ARRR_SEND_READINESS' | 'GET_ARRR_SEND_OPERATION', requestValue: Record<string, unknown>,
+) {
+  if (protocol !== 'qdnRequest' || !context.accountId) throw new Error('ARRR sending requires a selected account in desktop Home.')
+  const accountId = context.accountId
+  const initial = await resolveHomeV2ArrrCustodyRoute()
+  const epochCurrent = sessionAccountReadGrants.capture({ family: 'account.arrr-custody.read', hostWebContentsId: context.windowId, network: 'qortium', tabId: context.tabId })
+  const validateNow = () => {
+    const fresh = getQdnViewContextForWebContents(sender)
+    if (!epochCurrent() || !fresh || !sameViewContext(context, fresh) || !liveResourceMatchesGrant(fresh) ||
+        fresh.accountId !== accountId || !isAccountUnlocked(accountId)) throw new Error('The unlocked account or app changed during ARRR send access.')
+  }
+  const assertValid = () => assertArrrSendContext(initial, resolveHomeV2ArrrCustodyRoute, validateNow)
+  const binding = homeV2ArrrCustodyConsentBinding({ adminNode: { nodeApiUrl: initial.nodeApiUrl, nodeRoute: initial.nodeRoute } })
+  let sendAttempted = false
+  const deps = {
+    accountId, appIdentity: homeV2AppIdentityKey(context), route: initial.nodeRoute,
+    crypto: homeV2ArrrCustodyCrypto, store: createArrrSendStore(app.getPath('userData')), assertValid,
+    consent: async () => {
+      await requireAccountReadPermission(sender, context, protocol, 'GET_ARRR_SYNC_STATUS', {
+        coin: binding.coin, kind: 'arrr-custody-read', nodeRoute: binding.nodeRoute,
+        operationLabel: binding.operationLabel, routeLabel: binding.routeLabel,
+      })
+    },
+    approve: async (rows: readonly { label: string; value: string }[]) => {
+      await requireAccountReadPermission(sender, context, protocol, 'SEND_COIN', {
+        kind: 'foreign-send', coin: 'ARRR', chainId: 'pirate', foreignSendDetails: rows,
+        operationLabel: 'Send ARRR', routeLabel: initial.nodeApiUrl, target: 'arrr-send', targetChainLabel: 'Qortium',
+      })
+    },
+    getSeed: () => getAccountForeignWalletSeed(accountId),
+    post: async (pathname: string, body: string, contentType: string) => {
+      try { await assertValid() } catch { throw new ArrrSendBeforeDispatchError('The account or trusted node changed before dispatch.') }
+      if (pathname === '/crosschain/arrr/send') sendAttempted = true
+      const response = await nodeFetch(`${initial.nodeApiUrl}${pathname}`, {
+        body, method: 'POST', headers: { 'Content-Type': contentType, 'X-API-KEY': initial.apiKey },
+        redirect: 'error', signal: AbortSignal.timeout(30_000),
+      })
+      const result = await readBoundedResponse(response, 'POST', 8192)
+      return { body: result.body, data: result.data, ok: result.ok, status: result.status }
+    },
+  }
+  try { return action === 'SEND_COIN' ? await executeArrrSend(requestValue, deps) : await readArrrSend(deps, action) }
+  catch (error) {
+    if (action === 'SEND_COIN') {
+      const failure = classifyArrrSendFailure(error, sendAttempted)
+      throw createHomeV2BridgeError(failure.message, { action, code: failure.code, network: 'qortium', retryable: false })
+    }
+    throw error
+  }
+}
+
 async function handleHomeV2ForeignSendAction(
   sender: WebContents,
   context: QdnViewContext,
@@ -12059,6 +12121,10 @@ async function handleRequestWithRuntime(
     })
     return true
   }
+  if (action === 'GET_ARRR_SEND_READINESS' || action === 'GET_ARRR_SEND_OPERATION') {
+    if (Object.keys(requestValue).some(key => !['action', 'coin'].includes(key)) || requestValue.coin !== 'ARRR') throw new Error('An ARRR send status request requires coin ARRR.')
+    return handleHomeV2ArrrSend(sender, context, protocol, action, requestValue)
+  }
   if (action === 'ACTIVATE_ARRR_WALLET') {
     if (Object.keys(requestValue).some(key => !['action', 'coin', 'expectedRevision'].includes(key)) ||
         (requestValue.coin !== undefined && requestValue.coin !== 'ARRR') ||
@@ -12311,6 +12377,7 @@ async function handleRequestWithRuntime(
               const after = await resolveHomeV2AdminNode('qortium')
               if (!adminTrustUnchangedAcrossAwait(resolved, after)) return { send: false, trusted: false }
               let sessionAvailable = false
+              let arrrSendAvailable = false
               try {
                 const response = await nodeFetch(`${resolved.node.nodeApiUrl}/crosschain/arrr/walletsession`, {
                   headers: { 'X-API-KEY': resolved.apiKey }, redirect: 'error', signal: AbortSignal.timeout(5000),
@@ -12318,9 +12385,16 @@ async function handleRequestWithRuntime(
                 const body = await readBoundedResponse(response, 'GET', 4096)
                 sessionAvailable = body.ok && !!body.data && (body.data as { contract?: unknown }).contract === ARRR_WALLET_SESSION_CONTRACT
               } catch { /* Older Core has no explicit ownership protocol. */ }
+              try {
+                const response = await nodeFetch(`${resolved.node.nodeApiUrl}/crosschain/arrr/sendcontract`, {
+                  headers: { 'X-API-KEY': resolved.apiKey }, redirect: 'error', signal: AbortSignal.timeout(5000),
+                })
+                const body = await readBoundedResponse(response, 'GET', 4096)
+                arrrSendAvailable = unlocked && body.ok && compatibleArrrSendContract(body.data)
+              } catch { /* Core without protocol v2 must never advertise send. */ }
               const finalRoute = await resolveHomeV2AdminNode('qortium')
               if (!adminTrustUnchangedAcrossAwait(resolved, finalRoute)) return { send: false, trusted: false }
-              return { send, trusted: true, sessionAvailable }
+              return { send, trusted: true, sessionAvailable, arrrSendAvailable }
             },
             () => ({ send: false, trusted: false }),
           )
@@ -12337,7 +12411,7 @@ async function handleRequestWithRuntime(
           ? { available: false, reason: HOME_V2_ARRR_UNTRUSTED_ROUTE_REASON }
           : !(!!context.accountId && isAccountUnlocked(context.accountId))
             ? { available: false, reason: HOME_V2_ARRR_LOCKED_ACCOUNT_REASON }
-            : { available: true, sessionAvailable: 'sessionAvailable' in foreignWalletDiscovery && foreignWalletDiscovery.sessionAvailable === true }
+            : { available: true, sendAvailable: 'arrrSendAvailable' in foreignWalletDiscovery && foreignWalletDiscovery.arrrSendAvailable === true, sessionAvailable: 'sessionAvailable' in foreignWalletDiscovery && foreignWalletDiscovery.sessionAvailable === true }
         : { available: false }
       return projectHomeV2CrosschainReadResult(
         action,
@@ -12569,7 +12643,7 @@ async function handleRequest(
     // txid in the foreign write-ahead log instead, and must be kept out of
     // this one entirely: its results carry no Base58 signature, so recording
     // one would throw and fail-close every native payment for the account.
-    const foreignSend = isHomeV2ForeignSendRequest(action, aliasedRequest)
+    const foreignSend = isArrrSendRequest(action, aliasedRequest) || isHomeV2ForeignSendRequest(action, aliasedRequest)
     if (
       context.accountId &&
       !foreignSend &&

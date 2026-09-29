@@ -1190,8 +1190,9 @@ for (const later of [
 // 'unknown' outcome. A foreign send carries neither, so it is kept out of
 // both journal steps rather than relying on the result shape alone.
 const dispatcherJournal = stripComments(
-  sliceAfter(bridgeSource, 'const foreignSend = isHomeV2ForeignSendRequest(action, aliasedRequest)', 2_000, 'dispatcher'),
+  sliceAfter(bridgeSource, 'const foreignSend =', 2_000, 'dispatcher'),
 )
+assert.ok(dispatcherJournal.includes('isArrrSendRequest(action, aliasedRequest) || isHomeV2ForeignSendRequest(action, aliasedRequest)'))
 assert.ok(dispatcherJournal.includes('!foreignSend &&'))
 assert.ok(dispatcherJournal.includes('context.accountId && !foreignSend'))
 

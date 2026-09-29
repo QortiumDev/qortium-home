@@ -1,3 +1,4 @@
+import { ARRR_SEND_CONTRACT } from './arrr-send-contract.js'
 import { ARRR_WALLET_SESSION_CONTRACT } from './arrr-wallet-session.js'
 import { ARRR_SYNC_CONTROL_CONTRACT } from './home-v2-arrr-sync-control.js';
 import { ARRR_CUSTODY_CONTRACT } from './arrr-custody.js';
@@ -12,8 +13,7 @@ export type HomeWalletMode =
   // ARRR only. The user's ADMIN-TRUSTED Core holds a copy of the wallet's
   // spending key (handed over per request by Home, under its own consent)
   // and answers the address, balances and history from its synced copy.
-  // Never used for a send: that would be Core spending, which Home does
-  // not offer.
+  // Sending additionally requires the versioned durable send contract.
   | 'TRUSTED_CORE_CUSTODY'
   | 'NONE';
 
@@ -27,6 +27,7 @@ export type HomeWalletCapability = {
   receiveMode: HomeWalletMode;
   requiresUnlockedAccount: boolean;
   send: boolean;
+  sendContract?: typeof ARRR_SEND_CONTRACT;
   sendMode: HomeWalletMode;
   serverManagement: boolean;
   serverManagementMode: HomeWalletMode;
@@ -57,6 +58,7 @@ const ARRR_CURRENCY_CODE = 'ARRR';
 export type HomeWalletArrrCustodyAvailability = Readonly<{
   available: boolean;
   sessionAvailable?: boolean;
+  sendAvailable?: boolean;
   reason?: string;
 }>;
 
@@ -93,9 +95,8 @@ export function getHomeWalletCapability(
 
   if (normalizedCurrencyCode === ARRR_CURRENCY_CODE) {
     // The ARRR branch is separate from the eight-coin branch on purpose: it
-    // neither inherits the bitcoiny flags nor can be reached by them. Send is
-    // ALWAYS false — Core's /send would be Core spending the user's key — and
-    // server management stays unavailable in this tranche.
+    // neither inherits the bitcoiny flags nor can be reached by them. Custody
+    // sending additionally requires Core protocol v2; server management stays unavailable.
     if (arrrCustody.available) {
       return {
         contract: HOME_WALLET_CONTRACT,
@@ -107,8 +108,9 @@ export function getHomeWalletCapability(
         receive: true,
         receiveMode: 'TRUSTED_CORE_CUSTODY',
         requiresUnlockedAccount: true,
-        send: false,
-        sendMode: 'NONE',
+        send: arrrCustody.sendAvailable === true,
+        sendMode: arrrCustody.sendAvailable ? 'TRUSTED_CORE_CUSTODY' : 'NONE',
+        ...(arrrCustody.sendAvailable ? { sendContract: ARRR_SEND_CONTRACT } : {}),
         serverManagement: false,
         serverManagementMode: 'NONE',
         syncStatus: true,
