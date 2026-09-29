@@ -209,7 +209,7 @@ export function getHomeV2AvailableAppActions(
         // The ARRR sync snapshot is answered by the Core that holds the
         // wallet copy, so it is advertised exactly where the other
         // authenticated wallet reads are: a reachable, admin-trusted route.
-        (action === HOME_V2_ARRR_SYNC_STATUS_ACTION || action === 'GET_ARRR_WALLET_SESSION'))
+        (action === HOME_V2_ARRR_SYNC_STATUS_ACTION || action === 'GET_ARRR_WALLET_SESSION' || action === 'GET_ARRR_SEND_READINESS' || action === 'GET_ARRR_SEND_OPERATION'))
     ) {
       return isHomeV2TrustedForeignWalletRoute(route)
     }
@@ -267,6 +267,7 @@ function isWidgetPublicReadAction(action: string) {
     // by handing its spending key to Core under a prompt a widget cannot
     // show. Excluded with GET_USER_WALLET for the same reason.
     action === HOME_V2_ARRR_SYNC_STATUS_ACTION ||
+    action === 'GET_ARRR_SEND_READINESS' || action === 'GET_ARRR_SEND_OPERATION' ||
     // The list reads describe the user's own node too — which names the user
     // blocks and follows is a behavioral profile of the person, not of any
     // app — and both match /^GET_/, so without this line they would be
@@ -347,6 +348,8 @@ const ANDROID_UNSUPPORTED_ACTION_REASONS = new Map<string, string>([
   [HOME_V2_ARRR_SYNC_STATUS_ACTION, HOME_V2_ARRR_ANDROID_UNAVAILABLE_REASON],
   ['STOP_ARRR_SYNC', 'ARRR sync controls require desktop Home.'],
   ['ACTIVATE_ARRR_WALLET', 'ARRR wallet switching requires desktop Home.'],
+  ['GET_ARRR_SEND_READINESS', 'ARRR sending requires desktop Home.'],
+  ['GET_ARRR_SEND_OPERATION', 'ARRR sending requires desktop Home.'],
   ['GET_ARRR_WALLET_SESSION', 'ARRR wallet sessions require desktop Home.'],
   ['START_ARRR_SYNC', 'ARRR sync controls require desktop Home.'],
 ])

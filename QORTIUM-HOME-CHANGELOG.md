@@ -32,6 +32,12 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## Add approved ARRR sends with durable recovery
+
+2026-09-29
+
+Desktop Home can approve a mainnet ARRR payment on a trusted Core supporting send protocol v2. The prompt shows the fixed 0.0001 ARRR fee and explains Core custody. Home records each request before dispatch, recovers lost replies without resending, retains completed receipts and requires a fresh acknowledgment and approval for a later payment. Public nodes, older Core versions, Android and widgets remain excluded.
+
 ## Integrate ARRR account controls with partial history
 
 2026-09-22
