@@ -32,6 +32,10 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## Create two tabs before testing pointer switching
+
+- Make the packaged tab smoke open a second tab explicitly, respecting the current start-page navigation behavior while still testing real mouse switching and drag reordering.
+
 ## Check ARRR exclusion from the native payment journal
 
 - Update the bridge regression check for the new ARRR dispatch branch, preserving the assertion that both foreign send paths bypass the native QORT journal.
