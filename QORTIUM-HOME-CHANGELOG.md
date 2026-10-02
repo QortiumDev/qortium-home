@@ -36,7 +36,7 @@ both networks through explicit compatibility and security boundaries.
 
 2026-10-02
 
-Prepare beta.13 with desktop ARRR send approval and recovery, account-aware wallet navigation, attachment publishing progress, and the accumulated fixes since beta.12. Android advances to versionCode 55; the QAVS platform version stays at 2.1 and Home 1.8.0 remains the stable release.
+Align the current README, testing plan, and release guide with beta.13. Prepare beta.13 with desktop ARRR send approval and recovery, account-aware wallet navigation, attachment publishing progress, and the accumulated fixes since beta.12. Android advances to versionCode 55; the QAVS platform version stays at 2.1 and Home 1.8.0 remains the stable release.
 
 ## Report attachment publishing progress to apps
 
