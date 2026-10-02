@@ -193,7 +193,7 @@ async function main() {
     })
     log('Back returned from Settings to the Dashboard')
 
-    // The address bar still opens its own tab.
+    // Home addresses now navigate the current tab, just like app addresses (#622).
     await cdp.evaluate(`(() => {
       const input = document.querySelector('.home-v2-address input')
       const setValue = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
@@ -201,11 +201,18 @@ async function main() {
       input.dispatchEvent(new Event('input', { bubbles: true }))
       input.closest('form').requestSubmit()
     })()`)
-    await until('a separate Settings tab from the address bar', async () => {
+    await until('Settings in the same tab from the address bar', async () => {
       const tabs = await strip()
-      return tabs.length === before.length + 1 && tabs.find((tab) => tab.id === dashboard.id)?.page === 'dashboard'
+      const same = tabs.find((tab) => tab.id === dashboard.id)
+      return tabs.length === before.length && same?.page === 'settings' && same.selected
     })
-    log('the address bar still opens a tab of its own')
+    await cdp.evaluate(`document.querySelector(${JSON.stringify(back)}).click()`)
+    await until('Back from address-bar Settings to the Dashboard', async () => {
+      const tabs = await strip()
+      const same = tabs.find((tab) => tab.id === dashboard.id)
+      return tabs.length === before.length && same?.page === 'dashboard' && same.selected
+    })
+    log('the address bar navigates in place and Back restores the Dashboard')
     log('PASS')
   } finally {
     shutdown()

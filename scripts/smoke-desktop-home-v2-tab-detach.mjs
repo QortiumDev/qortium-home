@@ -107,6 +107,21 @@ const NAV_STATE = `JSON.stringify((() => {
   return { back: buttons[0] ? buttons[0].disabled : 'missing', forward: buttons[1] ? buttons[1].disabled : 'missing' }
 })())`
 
+// Compare the actual complete history, including a Dashboard entry retained by
+// in-place address-bar navigation. One Back click need not reach the first entry.
+async function historySnapshot(probe) {
+  return {
+    navigation: JSON.parse(await probe.evaluate(NAV_STATE)),
+    address: await probe.evaluate(`document.querySelector('.home-v2-address input')?.value`),
+    section: await probe.evaluate(`document.querySelector('.home-v2-settings-nav button[aria-current="page"]')?.textContent ?? null`),
+  }
+}
+
+async function navigateHistory(probe, direction) {
+  await probe.evaluate(`document.querySelectorAll('.home-v2-browser-controls button')[${direction === 'back' ? 0 : 1}].click()`)
+  await sleep(1200)
+}
+
 const SURFACE_NOTICE = `(document.querySelector('.home-v2-surface-notice') || {}).textContent || ''`
 
 // Drives the transfer channel directly, which is the only way to test what a
@@ -235,6 +250,19 @@ async function main() {
       fail(`the settings tab has no history to transfer (back disabled: ${sourceNav.back})`)
     }
 
+    const sourceHistory = [await historySnapshot(cdp)]
+    while (!sourceHistory.at(-1).navigation.back) {
+      assert.ok(sourceHistory.length < 10, 'source history must have a bounded first entry')
+      await navigateHistory(cdp, 'back')
+      sourceHistory.push(await historySnapshot(cdp))
+    }
+    assert.ok(sourceHistory.length >= 2, 'source history must include distinct entries')
+    for (let index = sourceHistory.length - 2; index >= 0; index -= 1) {
+      await navigateHistory(cdp, 'forward')
+      assert.deepEqual(await historySnapshot(cdp), sourceHistory[index], 'source forward history must restore each entry')
+    }
+    log(`source history recorded and restored: ${sourceHistory.length} entries`)
+
     // A second fresh tab, left as a new-tab page. It is the ONLY tab the
     // detached window could not have on its own: dashboard is every window's
     // default and welcome is opened by onboarding in every window, so neither
@@ -361,25 +389,21 @@ async function main() {
     )
     // --- what the tab brought with it ---------------------------------------
 
-    // The history the tab had in the window it left. A freshly opened settings
-    // tab has one destination and a disabled back button, so this is the whole
-    // difference between a transferred tab and a re-opened address.
-    const adoptedNav = JSON.parse(await detachedProbe.evaluate(NAV_STATE))
-    log(`detached tab navigation: back disabled ${adoptedNav.back}, forward disabled ${adoptedNav.forward}`)
-    assert.deepEqual(
-      adoptedNav,
-      { back: false, forward: true },
-      'the moved tab must arrive at the end of its own history, not as a fresh tab',
-    )
-    await detachedProbe.evaluate(
-      `document.querySelectorAll('.home-v2-browser-controls button')[0].click()`,
-    )
-    await sleep(1200)
-    assert.deepEqual(
-      JSON.parse(await detachedProbe.evaluate(NAV_STATE)),
-      { back: true, forward: false },
-      'going back in the transferred history must reach its first entry',
-    )
+    // Walk every transferred entry and compare it with the source window.
+    // This catches dropped, duplicated, reordered, or reset history without
+    // assuming how many entries address-bar navigation created.
+    for (let index = 0; index < sourceHistory.length; index += 1) {
+      if (index > 0) await navigateHistory(detachedProbe, 'back')
+      const source = sourceHistory[index]
+      // The existing address-only transfer contract intentionally normalizes
+      // Settings subsections to General (tab-transfer.test.ts covers this).
+      const expected = source.address === 'home://settings'
+        ? { ...source, section: 'General' }
+        : source
+      assert.deepEqual(await historySnapshot(detachedProbe), expected,
+        `transferred history entry ${index} must match the source address and navigation`)
+    }
+    log(`complete transferred history PASS: ${sourceHistory.length} entries`)
     detachedProbe.socket.close()
 
     // The account attribution. A moved tab names the account it was using, and

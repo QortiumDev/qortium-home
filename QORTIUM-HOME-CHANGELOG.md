@@ -32,6 +32,12 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## test: align packaged navigation smokes with in-place Home pages
+
+2026-10-02
+
+Verify address-bar Settings navigation keeps the same tab and Back returns to Dashboard. Compare every transferable history entry before and after detaching a packaged Home tab. The smoke check now accounts for the Dashboard entry preserved by in-place address-bar navigation while still detecting lost, duplicated, or reordered history.
+
 ## release: prepare home 2.1.0-beta.13
 
 2026-10-02
