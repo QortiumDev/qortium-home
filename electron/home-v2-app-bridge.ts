@@ -1,3 +1,4 @@
+import { createHomeV2PublishProgress, type HomeV2PublishProgress } from './home-v2-publish-progress.js'
 import { compatibleArrrSendContract } from './arrr-send-contract.js'
 import { createArrrSendStore } from './home-v2-arrr-send-store.js'
 import { executeArrrSend, readArrrSend, isArrrSendRequest, ArrrSendBeforeDispatchError, assertArrrSendContext, classifyArrrSendFailure } from './home-v2-arrr-send.js'
@@ -1859,6 +1860,7 @@ async function requireAccountReadPermission(
     readonly target: string
     readonly targetChainLabel: string
   },
+  onProgress?: HomeV2PublishProgress,
 ) {
   if (!context.accountId) throw new Error('No account is selected for this tab.')
   // Fix A defense-in-depth: refuse before even consulting the session-grant
@@ -2418,6 +2420,7 @@ async function requireAccountReadPermission(
     })
     if (sharePendingDecision) pendingSessionGrantDecisions.set(grantKey, decisionPromise)
   }
+  onProgress?.('approval')
   let decision: PermissionDecision
   try {
     decision = await decisionPromise
@@ -2431,6 +2434,7 @@ async function requireAccountReadPermission(
     throw new Error('The single-request approval was used by another request.')
   }
   if (!decision.approved) throw new Error('Account access was denied.')
+  onProgress?.('publishing')
   if (accountRatingSession && decision.scope !== 'single-request' && decision.scope !== 'session') {
     throw new Error('Account ratings require a single-request or session approval.')
   }
@@ -3104,7 +3108,9 @@ async function publishHomeV2CompatibleSources(
   routeRevision: string,
   requestValue: Record<string, unknown>,
   multiple: boolean,
+  onProgress?: HomeV2PublishProgress,
 ) {
+  onProgress?.('preparing')
   if (!context.accountId) throw new Error('No account is selected for this tab.')
   if (!isAccountUnlocked(context.accountId)) throw createHomeV2BridgeError('The selected account is locked.', {
     action: multiple ? 'PUBLISH_MULTIPLE_QDN_RESOURCES' : 'PUBLISH_QDN_RESOURCE',
@@ -3124,7 +3130,7 @@ async function publishHomeV2CompatibleSources(
     (token) => homeV2DesktopPublishSources.release(token),
     (request) => multiple
       ? publishHomeV2MultiplePublishSources(sender, context, protocol, network, routeRevision, request)
-      : publishHomeV2PublicPublishSource(sender, context, protocol, network, routeRevision, request),
+      : publishHomeV2PublicPublishSource(sender, context, protocol, network, routeRevision, request, onProgress),
   )
 }
 
@@ -3135,6 +3141,7 @@ async function publishHomeV2PublicPublishSource(
   network: HomeV2AppNetwork,
   routeRevision: string,
   requestValue: Record<string, unknown>,
+  onProgress?: HomeV2PublishProgress,
 ) {
   if (!context.accountId) throw new Error('No account is selected for this tab.')
   if (!isAccountUnlocked(context.accountId)) throw createHomeV2BridgeError('The selected account is locked.', {
@@ -3237,7 +3244,8 @@ async function publishHomeV2PublicPublishSource(
             hiddenCount: artifact.hiddenCount,
           }
         : {}),
-    })
+    }, onProgress)
+    onProgress?.('publishing')
     const isStillValid = async () => {
       const fresh = getQdnViewContextForWebContents(sender)
       if (!fresh || !sameViewContext(context, fresh) || !liveResourceMatchesGrant(fresh) || !isAccountUnlocked(accountId)) return false
@@ -4767,7 +4775,9 @@ async function publishHomeV2PrivateAttachmentSource(
   network: HomeV2AppNetwork,
   routeRevision: string,
   requestValue: Record<string, unknown>,
+  onProgress?: HomeV2PublishProgress,
 ) {
+  onProgress?.('preparing')
   if (!context.accountId) throw new Error('No account is selected for this tab.')
   if (!isAccountUnlocked(context.accountId)) throw createHomeV2BridgeError('The selected account is locked.', {
     action: 'PUBLISH_CHAT_ATTACHMENT',
@@ -4854,7 +4864,8 @@ async function publishHomeV2PrivateAttachmentSource(
     routeLabel: `${node.mode} · ${node.nodeApiUrl}`,
     size: source.size,
     targetChainLabel: network === 'qortal' ? 'Qortal' : 'Qortium',
-  })
+  }, onProgress)
+  onProgress?.('publishing')
   const isStillValid = async () => {
     const fresh = getQdnViewContextForWebContents(sender)
     if (!fresh || !sameViewContext(context, fresh) || !liveResourceMatchesGrant(fresh) || !isAccountUnlocked(accountId)) return false
@@ -11641,6 +11652,7 @@ async function handleRequestWithRuntime(
   action: string,
   hostInfo: HomeV2AppHostInfo,
   availableActions: readonly string[],
+  onProgress?: HomeV2PublishProgress,
 ) {
   if (action === 'SHOW_ACTIONS') return [...availableActions]
   if (!availableActions.includes(action)) {
@@ -11923,6 +11935,7 @@ async function handleRequestWithRuntime(
       hostInfo.route.revision,
       requestValue,
       action === 'PUBLISH_MULTIPLE_QDN_RESOURCES',
+      onProgress,
     )
   }
   if (action === 'DELETE_QDN_RESOURCE') {
@@ -11975,6 +11988,7 @@ async function handleRequestWithRuntime(
       network,
       hostInfo.route.revision,
       requestValue,
+      onProgress,
     )
   }
   if (
@@ -12568,6 +12582,7 @@ async function handleRequest(
   context: QdnViewContext,
   protocol: HomeV2AppBridgeProtocol,
   requestValue: unknown,
+  onProgress?: HomeV2PublishProgress,
 ) {
   let action = 'UNKNOWN'
   let hostInfo: HomeV2AppHostInfo | null = null
@@ -12682,6 +12697,7 @@ async function handleRequest(
       action,
       hostInfo,
       contextualActions,
+      onProgress,
     )
     try {
       const entry = context.accountId && !foreignSend
@@ -12949,6 +12965,7 @@ export function registerHomeV2AppBridgeIpcHandlers() {
   ipcMain.handle(
     'home-v2-app:request',
     async (event, protocolValue: unknown, request: unknown) => {
+      let active = true
       try {
         const context = getQdnViewContextForWebContents(event.sender)
         if (!context) {
@@ -12960,10 +12977,18 @@ export function registerHomeV2AppBridgeIpcHandlers() {
             context,
             normalizeHomeV2AppProtocol(protocolValue),
             request,
+            createHomeV2PublishProgress(String(protocolValue), request,
+              (message) => event.senderFrame?.send('home-v2-app:publish-progress', message),
+              () => {
+                const fresh = getQdnViewContextForWebContents(event.sender)
+                return active && !!fresh && sameViewContext(context, fresh) && liveResourceMatchesGrant(fresh)
+              }),
           ),
         )
       } catch (error) {
         return encodeQdnBridgeError(error)
+      } finally {
+        active = false
       }
     },
   )

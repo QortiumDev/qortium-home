@@ -106,3 +106,28 @@ changed node routes, wrong recipients, removed group members, missing or stale
 keys, malformed envelopes, replaced resource bytes, and unsupported decrypted
 active content. Encryption cannot revoke plaintext a recipient already viewed
 or saved.
+
+## Optional publishing progress
+
+Desktop and Android Home accept an optional `progressId` (1–80 ASCII letters,
+digits or hyphens) on `PUBLISH_CHAT_ATTACHMENT` and single `PUBLISH_QDN_RESOURCE`
+requests using the canonical uppercase action, on either network. Home posts an advisory window message:
+
+```json
+{"type":"QDN_PUBLISH_PROGRESS","protocol":"qdnRequest","action":"PUBLISH_CHAT_ATTACHMENT","progressId":"app-generated-unique-id","phase":"publishing"}
+```
+
+Phases are `preparing`, `approval` (a permission prompt is queued), and
+`publishing` (permission granted; validation, encryption and publication may still
+be running). Existing grants skip `approval`. Private encryption is included in
+`publishing`; these are coarse stages, not byte progress or confirmation status.
+No success or failure is inferred from a progress event: the original promise
+still carries the authoritative result/error, including unknown broadcasts.
+
+Use an unpredictable id per request, install the listener before dispatch, match
+id/protocol/action, and remove it when the request settles. Desktop delivers to
+the initiating frame via its preload; Android delivers to the checked requesting
+iframe, checked by frame identity and its reported location. Only phase and correlation fields are sent, never resource coordinates,
+account details, filenames, plaintext, or secrets. Stale contexts and failed
+progress delivery do not authorize requests or change their outcomes. Hosts/apps
+without this optional support continue using the ordinary request/result path.

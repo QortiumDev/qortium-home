@@ -1,3 +1,4 @@
+import type { HomeV2PublishProgress } from './publish-progress'
 import { ARRR_SEND_ROWS, arrrSendApprovalSummary } from '../../electron/arrr-send-contract'
 import { isHomeV2ArrrSyncControlAction, validArrrSyncControlRows, arrrSyncControlOperation, arrrSyncControlImpact } from '../../electron/home-v2-arrr-sync-control'
 import { homeV2RatingPermissionScopes, homeV2RatingPermissionSummary, homeV2RatingPermissionScopeDetail } from '../../electron/home-v2-rating-permissions'
@@ -5994,6 +5995,7 @@ export function HomeV2LiveApp() {
       protocol: HomeV2AppBridgeProtocol,
       requestValue: unknown,
       context: HomeV2AppRequestContext,
+      onProgress?: HomeV2PublishProgress,
     ) => {
       const requestEpochCurrent = androidAccountRequestEpochs.current.capture(
         context.tabId, protocol === 'qortalRequest' ? 'qortal' : 'qortium',
@@ -6010,12 +6012,16 @@ export function HomeV2LiveApp() {
       // lifecycle change. Recheck the immutable tab binding, never the default.
       const queueBoundPermissionPrompt: typeof queueAndroidPermissionPrompt = async (...args) => {
         assertRequestCurrent()
-        const decision = await queueAndroidPermissionPrompt(...args)
+        const pending = queueAndroidPermissionPrompt(...args)
+        reportPublishProgress('approval')
+        const decision = await pending
         return isRequestCurrent() ? decision : { approved: false }
       }
       const queueBoundSessionGrantPermission: typeof queueAndroidSessionGrantPermission = async (...args) => {
         assertRequestCurrent()
-        const decision = await queueAndroidSessionGrantPermission(...args)
+        const pending = queueAndroidSessionGrantPermission(...args)
+        reportPublishProgress('approval')
+        const decision = await pending
         return isRequestCurrent() ? decision : { approved: false }
       }
       // Same alias collapse the desktop bridge does, at this host's own entry
@@ -6027,6 +6033,13 @@ export function HomeV2LiveApp() {
         ? resolveHomeV2AppAlias(requestValue.action.trim().toUpperCase(), requestValue, protocol)
         : { action: '', request: {} as Record<string, unknown> }
       const action = alias.action
+      const reportPublishProgress: HomeV2PublishProgress = (phase) => {
+        if (isAndroidHost &&
+          (action === 'PUBLISH_QDN_RESOURCE' || action === 'PUBLISH_CHAT_ATTACHMENT') && isRequestCurrent()) {
+          onProgress?.(phase)
+        }
+      }
+      reportPublishProgress('preparing')
       // The rewritten request must carry the canonical ACTION with it: this
       // object is forwarded to the portable client, which reads `action` off
       // the request itself and would otherwise refuse an alias outright.
@@ -8160,6 +8173,7 @@ export function HomeV2LiveApp() {
             allowedScopes: ['single-request'],
           }), context.tabId)
           if (!decision.approved) throw new Error('Private attachment publication was denied.')
+          reportPublishProgress('publishing')
           if (!(await isStillValid())) throw new Error('The app, account, or node route changed before private attachment publishing.')
           const result = await vaultClient.publishPrivateAttachment({
             accountId,
@@ -9430,6 +9444,7 @@ export function HomeV2LiveApp() {
             if (joinedPendingPublish && decision.scope === 'single-request') {
               throw new Error('The single-request approval was used by another publish request.')
             }
+            reportPublishProgress('publishing')
             if (publishSession && decision.scope === 'session') {
               if (!publishGrantCurrent() || !isRequestCurrent()) {
                 throw new Error('The publishing session changed before approval completed.')

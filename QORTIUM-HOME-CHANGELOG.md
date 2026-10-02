@@ -32,6 +32,12 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## Report attachment publishing progress to apps
+
+2026-10-02
+
+Desktop and Android Home can now tell the requesting app when attachment publishing is preparing, awaiting approval, or publishing. The approval stage ends as soon as permission is granted, and existing permissions skip it. Each update is tied to its original app request and contains no attachment or account details. Apps without progress support keep the existing request/result behavior.
+
 ## Create two tabs before testing pointer switching
 
 - Make the packaged tab smoke open a second tab explicitly, respecting the current start-page navigation behavior while still testing real mouse switching and drag reordering.

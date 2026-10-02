@@ -840,7 +840,56 @@ function testFullscreenCueEventFiltering(): void {
   assert.ok(HOME_V2_APP_FULLSCREEN_CUE_MS < 3200)
 }
 
+async function testPublishProgressIsBoundToTheRequestingFrame(): Promise<void> {
+  const { withAActive, withBActive } = openTwoTabProductState()
+  const container = document.createElement('div')
+  document.body.appendChild(container)
+  const root = createRoot(container)
+  const pending: { progress: (phase: 'preparing' | 'approval' | 'publishing') => void; resolve: (value: unknown) => void }[] = []
+  const render = (productState: ProductState) => root.render(React.createElement(AppTabStage, {
+    productState, snapshot: homeV2Fixture,
+    requestApp: async (_protocol, _request, _context, onProgress) => new Promise(resolve => {
+      assert.ok(onProgress)
+      pending.push({ progress: onProgress, resolve })
+    }),
+    onOpenAddress: async () => undefined,
+  }))
+  await act(async () => { render(withAActive); await flushAsync() })
+  const frame = container.querySelector('iframe.home-v2-app-frame') as HTMLIFrameElement
+  assert.ok(frame?.contentWindow)
+  const target = frame.contentWindow
+  const url = new URL(frame.src)
+  const posted: { data: Record<string, unknown>; origin: unknown }[] = []
+  target.postMessage = ((data: Record<string, unknown>, origin: unknown) => posted.push({ data, origin })) as typeof target.postMessage
+  for (const id of ['first', 'second']) {
+    await act(async () => {
+      window.dispatchEvent(new MessageEvent('message', {
+        origin: url.origin, source: target,
+        data: { type: 'qortium:qdn-request', bridgeToken: url.searchParams.get('qdnHomeBridge'),
+          requestId: id, protocol: 'qdnRequest',
+          request: { action: 'PUBLISH_CHAT_ATTACHMENT', progressId: id } },
+      }))
+      await flushAsync()
+    })
+  }
+  assert.equal(pending.length, 2)
+  pending[0].progress('approval'); pending[1].progress('approval')
+  assert.deepEqual(posted.map(value => [value.data.progressId, value.data.phase, value.origin]), [
+    ['first', 'approval', url.origin], ['second', 'approval', url.origin],
+  ])
+  await act(async () => { pending[0].resolve(true); await flushAsync() })
+  const beforeLate = posted.length
+  pending[0].progress('publishing')
+  assert.equal(posted.length, beforeLate, 'settled requests must stop reporting')
+  await act(async () => { render(withBActive); await flushAsync() })
+  pending[1].progress('publishing')
+  assert.equal(posted.length, beforeLate, 'an unmounted tab must stop reporting')
+  await act(async () => { pending[1].resolve(true); await flushAsync(); root.unmount() })
+  container.remove()
+}
+
 async function main(): Promise<void> {
+  await testPublishProgressIsBoundToTheRequestingFrame()
   testFullscreenCueEventFiltering()
   testAndroidAppStageKeyChangesExactlyOnTabIdentityChange()
   await testTabSwitchNeverRendersAStaleIframeUnderTheNewTabsContext()
