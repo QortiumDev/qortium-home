@@ -32,6 +32,12 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## release: prepare home 2.1.0-beta.13
+
+2026-10-02
+
+Prepare beta.13 with desktop ARRR send approval and recovery, account-aware wallet navigation, attachment publishing progress, and the accumulated fixes since beta.12. Android advances to versionCode 55; the QAVS platform version stays at 2.1 and Home 1.8.0 remains the stable release.
+
 ## Report attachment publishing progress to apps
 
 2026-10-02

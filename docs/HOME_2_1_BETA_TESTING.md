@@ -1,12 +1,12 @@
 # Home 2.1 beta testing and app development
 
-Home 2.1.0-beta.12 is a testing prerelease. Home 1.8.0 remains the latest stable
+Home 2.1.0-beta.13 is a testing prerelease. Home 1.8.0 remains the latest stable
 release. Choose Prerelease in Home's update settings to follow the Home 2 line,
 or install the matching platform asset manually. Report the Home version,
 platform, app version, selected network, node route and reproduction steps.
 Keep passwords, recovery material and private message contents out of reports.
 
-Android beta.12 uses versionCode 54. It can update release-signed beta.11 (code 53), beta.10 (code 52), beta.9 (code 51), beta.8 (code 50), beta.7 (code 49), beta.6 (code 48), beta.5 (code 47), beta.4 (code 46), beta.3 (code 45),
+Android beta.13 uses versionCode 55. It can update release-signed beta.12 (code 54), beta.11 (code 53), beta.10 (code 52), beta.9 (code 51), beta.8 (code 50), beta.7 (code 49), beta.6 (code 48), beta.5 (code 47), beta.4 (code 46), beta.3 (code 45),
 beta.2 (code 44), beta.1 (code 43), Home 1.8.0 (code 41) and release-signed
 development Home 2.1.0 (code 42). Development
 builds named 2.1.0 sort above the beta in semantic-version comparisons, so
@@ -15,7 +15,7 @@ signer and cannot be updated in place by the release APK.
 
 ## Start with the runtime contract
 
-Home's application version is 2.1.0-beta.12; its QAVS platform version is 2.1.
+Home's application version is 2.1.0-beta.13; its QAVS platform version is 2.1.
 Feature-detect actions instead of treating either version as a capability list.
 Use `qdnRequest` for Qortium and `qortalRequest` for Qortal. The invoked bridge
 determines the network; a network field in the payload does not switch it.
