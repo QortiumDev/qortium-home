@@ -136,6 +136,20 @@ try {
   const address = () => cdp.evaluate(`document.querySelector('.home-v2-address input').value`)
   const countTabs = () => cdp.evaluate(`document.querySelectorAll('.home-v2-tab button[role="tab"]').length`)
   const currentTab = () => cdp.evaluate(`document.querySelector('.home-v2-tab button[role="tab"][aria-selected="true"]').closest('.home-v2-tab').dataset.tabId`)
+  const tabIds = () => cdp.evaluate(`[...document.querySelectorAll('.home-v2-tab')].map(tab => tab.dataset.tabId)`)
+  const beforeBackgroundOpen = async () => ({ ids: await tabIds(), active: await currentTab(), address: await address() })
+  async function verifyBackgroundOpen(label, before, targetAddress) {
+    await until(`${label} adds one background tab`, async () => await countTabs() === before.ids.length + 1)
+    assert.equal(await currentTab(), before.active, `${label} must retain the selected tab`)
+    assert.equal(await address(), before.address, `${label} must leave the originating address unchanged`)
+    const added = (await tabIds()).filter(id => !before.ids.includes(id))
+    assert.equal(added.length, 1, `${label} must create one distinct tab`)
+    await click(`.home-v2-tab[data-tab-id="${added[0]}"] button[role="tab"]`)
+    await until(`${label} target address`, async () => await currentTab() === added[0] && (await address()).startsWith(targetAddress))
+    await click(`.home-v2-tab[data-tab-id="${before.active}"] button[role="tab"]`)
+    await until(`${label} origin restored`, async () => await currentTab() === before.active && await address() === before.address)
+    return added[0]
+  }
   const back = '.home-v2-browser-controls button[aria-label="Back"]'
   await until('Dashboard restoration', async () => await currentTab() === 'dashboard')
   // Seed only this disposable profile: two Dashboard pins and one toolbar
@@ -171,24 +185,19 @@ try {
   await until('Pins visible again', () => cdp.evaluate(`!!document.querySelector(${JSON.stringify(pinAlpha)})`))
   log('Plain click on a pin navigates in place; Back restores the Dashboard')
 
-  // 2. Middle click on a pin: a new tab, Dashboard untouched.
+  // Home's own new-tab actions retain the active Dashboard (#621).
+  const beforeAlpha = await beforeBackgroundOpen()
   await pointer(pinAlpha, '2')
-  await until('Middle click opened Alpha in a new tab', async () => await countTabs() === baseTabs + 1 && (await address()).startsWith(alpha))
-  const alphaTab = await currentTab()
-  assert.notEqual(alphaTab, 'dashboard')
-  await click('.home-v2-tab[data-tab-id="dashboard"] button[role="tab"]')
-  await until('Dashboard still home://dashboard', async () => await currentTab() === 'dashboard' && await address() === 'home://dashboard')
-  log('Middle click on a pin opens a new tab')
+  const alphaTab = await verifyBackgroundOpen('Middle click on Alpha', beforeAlpha, alpha)
+  log('Middle click on a pin opens the correct background tab')
 
-  // 3. Ctrl+click on a bookmark-toolbar entry: a new tab.
+  const beforeBeta = await beforeBackgroundOpen()
   await pointer(linkBeta, '1', 'ctrl')
-  await until('Ctrl+click opened Beta in a new tab', async () => await countTabs() === baseTabs + 2 && (await address()).startsWith(beta))
-  assert.notEqual(await currentTab(), 'dashboard')
-  await click('.home-v2-tab[data-tab-id="dashboard"] button[role="tab"]')
-  await until('Dashboard active', async () => await currentTab() === 'dashboard')
-  log('Ctrl+click on a toolbar link opens a new tab')
+  await verifyBackgroundOpen('Ctrl+click on Beta', beforeBeta, beta)
+  log('Ctrl+click on a toolbar link opens the correct background tab')
 
   // 4. Context menu "Open in new tab" on a pin (in place since #560 until #600).
+  const beforeGamma = await beforeBackgroundOpen()
   await pointer(pinGamma, '3')
   const menuItem = await (async () => {
     let selector = null
@@ -205,11 +214,8 @@ try {
     return selector
   })()
   await click(menuItem)
-  await until('Context menu opened Gamma in a new tab', async () => await countTabs() === baseTabs + 3 && (await address()).startsWith(gamma))
-  assert.notEqual(await currentTab(), 'dashboard')
-  await click('.home-v2-tab[data-tab-id="dashboard"] button[role="tab"]')
-  await until('Dashboard unchanged after context open', async () => await currentTab() === 'dashboard' && await address() === 'home://dashboard')
-  log('Context menu "Open in new tab" on a pin opens a new tab')
+  await verifyBackgroundOpen('Context menu on Gamma', beforeGamma, gamma)
+  log('Context menu "Open in new tab" opens the correct background tab')
 
   // 5. Middle click on a qortal:// link inside the Alpha app view.
   await click(`.home-v2-tab[data-tab-id="${alphaTab}"] button[role="tab"]`)
