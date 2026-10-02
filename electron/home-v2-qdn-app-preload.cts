@@ -28,3 +28,9 @@ contextBridge.exposeInMainWorld('qdnRequest', (value: unknown) =>
 contextBridge.exposeInMainWorld('qortalRequest', (value: unknown) =>
   request('qortalRequest', value),
 )
+
+// Main sends only a request id, protocol, action and advisory phase.
+ipcRenderer.on('home-v2-app:publish-progress', (_event, message) => {
+  // QDN documents have a real origin. A torn-down/opaque document needs no update.
+  if (window.location.origin !== 'null') window.postMessage(message, window.location.origin)
+})

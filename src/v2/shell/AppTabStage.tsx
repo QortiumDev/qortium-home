@@ -1,3 +1,4 @@
+import { createHomeV2PublishProgress, type HomeV2PublishProgress } from '../../home-v2-live/publish-progress'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { HomeV2Snapshot } from '../contracts'
 import type { ProductState } from '../product-model'
@@ -762,10 +763,16 @@ function AndroidAppStage(props: AppTabStageProps) {
         selectedAccountId: launchAccountId === 'none' ? null : launchAccountId,
         tabId: resolved?.tab.id ?? '',
       }
+      let progressActive = true
+      const onProgress = createHomeV2PublishProgress(protocol, data.request,
+        (message) => (event.source as Window | null)?.postMessage(message, new URL(source).origin),
+        () => progressActive && frameRef.current?.contentWindow === event.source &&
+          !!launchIdentity && !!liveResourcePathRef.current &&
+          isSameRenderResourcePath(liveResourcePathRef.current, launchIdentity, resolved?.tab.context.sourceNetwork ?? 'qortium'))
       const request = props.requestApp
-        ? props.requestApp(protocol, data.request, context)
+        ? props.requestApp(protocol, data.request, context, onProgress)
         : props.nodeClient?.requestApp(protocol, data.request, context)
-      void request?.then(async (result) => {
+      void request?.finally(() => { progressActive = false }).then(async (result) => {
         if (
           result &&
           typeof result === 'object' &&
@@ -979,6 +986,7 @@ export interface AppTabStageProps {
     protocol: HomeV2AppBridgeProtocol,
     request: unknown,
     context: HomeV2AppRequestContext,
+    onProgress?: HomeV2PublishProgress,
   ) => Promise<unknown>
 }
 
