@@ -1055,3 +1055,70 @@ Desktop `GET_ARRR_WALLET_SESSION` returns `{ contract: 'qortium-arrr-wallet-sess
 - Terminal BROADCAST/FAILED receipts remain durable after delivery, navigation and restart. A new payment must include `acknowledgedOperationId` matching that receipt and receive a fresh approval. The prompt shows the previous transaction ID and says this is a NEW payment. One atomic store replacement prevents two approvals from replacing the same receipt.
 
 Recovery is deliberately tied to the original app identity and trusted-node route. Reopen that app and select that node to check a pending payment. Moving to another app/node does not evade an unresolved reservation. Deleting or replacing Home's `home-v2-arrr-send-reservations.json` or Core's send journal destroys recovery evidence and is not a supported unblock procedure. There is no automatic history-based reconciliation: Stashi v1.2.5 can leave an unknown payment without a recoverable transaction ID indefinitely blocked. Other wallets can spend once the native worker is healthy. The journals fail closed if the filesystem cannot prove durable file/directory writes.
+
+
+## XMR receive-only desktop prototype (2026-10-03)
+
+`GET_XMR_WALLET` and `ACTIVATE_XMR_WALLET` are QDN-only dedicated actions,
+withheld from widgets and Android. The route must be admin-trusted, reachable,
+and numeric loopback (`127.0.0.1` or `::1`); managed and explicitly configured
+local Core routes qualify. Core must advertise protocol 1, derivation 1, mainnet,
+12 decimals, local custody, `enabled:true`, `platformSupported:true`, and
+`send:false`. The initial Core native backend is Linux x86_64 only and opt-in.
+
+Discovery removes unverified Core-provided XMR rows, then appends a capability-
+verified synthetic row. Its custody contract is `qortium-home-xmr-custody-v1`.
+A locked account still sees the row, with read/receive disabled until unlock.
+This capability probe is an authenticated, bounded local metadata read; unlike
+ordinary foreign-chain discovery it uses the trusted local Core API key.
+
+- `GET_XMR_WALLET {coin?:"XMR", passive?:boolean}` reads only an already owned
+  account session. An inactive account returns `INACTIVE`; reading never starts
+  or switches a wallet. `account.xmr-custody.read` may cover a single request or
+  the tab session. `passive:true` fails with `XMR_READ_APPROVAL_REQUIRED` before
+  Core I/O if there is no current grant, and never opens a prompt.
+- `ACTIVATE_XMR_WALLET {coin?:"XMR"}` always requires its own single-request
+  `account.xmr-custody.activate` approval. Home derives uppercase-XMR-mixed
+  entropy only in the privileged process, follows the six public canonical
+  fixtures, and sends it only to the approved local Core. Restore height is
+  fixed at zero; no app-supplied seed, address, height, route, or session is
+  accepted. Core owns encrypted full-key wallet files and a single active scan;
+  activation can replace the previously selected wallet. No funds are sent.
+- Both return `{contract,state,send:false,updatedAt,wallet}`. A wallet contains
+  its mainnet address, scan height/target, sync flag, string atomic total and
+  unlocked balances (or null), and up to 100 newest-first transactions. Apps
+  receive no private/view keys, coin seed, wallet identity hash, API key,
+  credential digest, Core session token, or raw Core error.
+
+Every awaited stage rechecks account, unlock, app principal, consent epoch and
+route/key binding. Lock, account change, app replacement or tab close revokes
+access and requests exact-session deactivation. Navigation preserves scans;
+Qortal node changes do not disturb Qortium custody. A bounded per-Core lane
+serializes ordinary work. Generic `FETCH_NODE_API` rejects `/crosschain/xmr`
+and encoded equivalents, including through the legacy shared path normalizer.
+
+`home-v2-xmr-custody.json` in Home user data is an atomic/fsynced 0600 cleanup
+journal containing only the local URL, wallet identity and session revisions.
+It is written before activation dispatch. A lost activation reply is reconciled
+without resending keys; deactivating the exact previous revision also fences a
+late POST, including the initial null revision. Cleanup retries through the
+native 90-second transition allowance; unresolved evidence remains on disk and
+blocks activation. Definitive HTTP rejection or confirmed closed/replaced
+ownership releases the reservation.
+
+Quit cleanup is best-effort; startup recovery and the next approved request
+retry it. A journal for another local URL blocks access until that route is
+restored and its exact session can be reconciled with valid administrator
+credentials. Do not delete the journal while its old Core may still hold keys.
+A hung native worker can require a Core restart; Home cannot promise to erase
+keys from a hung native process. Core's encrypted wallet files remain on disk.
+
+This stage does not enable XMR sends, fees, server editing, trade funding, key
+export, Android or remote Core custody. Home is not a light-wallet server: Core
+uses its separately configured Monero daemon for the scan. Buffer copies are
+cleared, but JavaScript strings/BigInts cannot be reliably erased from memory.
+
+Verification: `npm run test:home-v2-xmr-custody`, existing ARRR custody/session/
+runtime/request-path tests, Electron and renderer TypeScript, renderer build.
+The staged Wallet has a synthetic desktop/mobile bridge harness; live full-scan,
+funded receive and installed Home/Core acceptance are separate release gates.

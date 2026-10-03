@@ -32,6 +32,47 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## Test publish progress with the page-world bridge installer
+
+2026-10-03
+
+Teach the publish-progress fixture's Electron mock to execute the page-world
+installer, preserving its checks for scoped progress delivery after structured
+app errors moved across the isolation boundary.
+
+## Keep node snapshot trust aligned with app requests
+
+2026-10-03
+
+Build the node status trust summary from the effective configured credential,
+including explicit overrides, instead of independently discovering another
+running Core's key. This prevents status refreshes from invalidating an active
+XMR wallet's credential binding. Only the trust flag and random binding handle
+reach the node bridge, and a changed status URL fails closed.
+
+## Preserve structured errors in Home v2 app requests
+
+2026-10-03
+
+Reconstruct QDN and Qortal request errors in the app page so stable error codes,
+retry guidance and outcome metadata survive Electron's isolated bridge. Extend
+the real sandboxed preload regression to both Home v2 protocols, including the
+first parser script and malformed responses. Refresh two source assertions for
+the XMR activation permission flow.
+
+## Add local XMR custody and receive-only wallet access
+
+2026-10-03
+
+Add desktop XMR discovery and privileged wallet access for an explicitly enabled,
+supported local Core. Activation has its own one-time custody approval; read
+approval supports one request or the tab session, and passive updates never open
+prompts. Home preserves uppercase XMR derivation, keeps keys and Core session
+authority out of apps, and revokes access on lock/account changes. A private
+cleanup journal survives restarts and fences uncertain activations. Ordinary
+reads and tab navigation never switch wallets. Sending, trade funding, Android
+custody and remote Core custody remain unavailable.
+
 ## test: align packaged navigation smokes with in-place Home pages
 
 2026-10-02

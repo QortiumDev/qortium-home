@@ -1,3 +1,4 @@
+import { isXmrAction, isNumericLoopbackXmrUrl } from './xmr-wallet-contract.js'
 import { isHomeV2ArrrSyncControlAction } from './home-v2-arrr-sync-control.js'
 import {
   getHomeV2AppActions,
@@ -32,6 +33,7 @@ export interface HomeV2AppNodeState {
 }
 
 export interface HomeV2AppRouteDescriptor {
+  readonly localXmrCustody?: boolean
   readonly adminTrusted: boolean
   readonly available: boolean
   readonly configuredKind: HomeV2ConfiguredRouteKind
@@ -184,6 +186,7 @@ export function getHomeV2AppRouteDescriptor(input: {
     input.accountId ?? 'none',
   ].join('|'))
   return Object.freeze({
+    localXmrCustody: input.platform !== 'android' && adminTrusted && isNumericLoopbackXmrUrl(input.node.nodeApiUrl ?? ''),
     adminTrusted,
     available,
     configuredKind,
@@ -202,6 +205,7 @@ export function getHomeV2AvailableAppActions(
   return Object.freeze(implemented.filter((action) => {
     if (routeIndependent.has(action)) return true
     const route = routes[getHomeV2AppNetwork(protocol, action)]
+    if (isXmrAction(action)) return protocol === 'qdnRequest' && route.localXmrCustody === true && route.reachable && route.adminTrusted
     if (
       protocol === 'qdnRequest' &&
       (isHomeV2ForeignWalletReadAction(action) ||
@@ -266,7 +270,7 @@ function isWidgetPublicReadAction(action: string) {
     // The ARRR sync snapshot is the selected account's wallet state, reached
     // by handing its spending key to Core under a prompt a widget cannot
     // show. Excluded with GET_USER_WALLET for the same reason.
-    action === HOME_V2_ARRR_SYNC_STATUS_ACTION ||
+    isXmrAction(action) || action === HOME_V2_ARRR_SYNC_STATUS_ACTION ||
     action === 'GET_ARRR_SEND_READINESS' || action === 'GET_ARRR_SEND_OPERATION' ||
     // The list reads describe the user's own node too — which names the user
     // blocks and follows is a behavioral profile of the person, not of any
@@ -338,6 +342,8 @@ export function homeV2WidgetWithholdsSelfSubject(action: string) {
 // Android has had bytes all along. Both hosts now use that route and gate on
 // admin trust, so Android runs the action like any other (2026-09-02).
 const ANDROID_UNSUPPORTED_ACTION_REASONS = new Map<string, string>([
+  ['GET_XMR_WALLET', 'XMR custody requires desktop Home and a supported local Core.'],
+  ['ACTIVATE_XMR_WALLET', 'XMR custody requires desktop Home and a supported local Core.'],
   // True of the ACTION: it hands the account's ARRR spending key to a Core,
   // which Home permits only when that key is derived inside a privileged
   // process the app renderer cannot reach (Electron main). Android derives

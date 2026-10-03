@@ -3950,7 +3950,7 @@ function testGrantIdentityAndSendRateLimitHardening(): void {
   // The durable chat.send grant must also sit after the stale-resource check.
   assert.match(
     appBridge,
-    /liveResourceMatchesGrant\(context\)[\s\S]{0,9000}hasQdnAccountCapability\(appGrantKey, context\.accountId, 'chat\.send'\)/,
+    /liveResourceMatchesGrant\(context\)[\s\S]{0,10000}hasQdnAccountCapability\(appGrantKey, context\.accountId, 'chat\.send'\)/,
   )
   // So must the durable account.read grant (R3-10). Its membership comes from
   // homeV2DurableAccountReadCapability, which returns null outside

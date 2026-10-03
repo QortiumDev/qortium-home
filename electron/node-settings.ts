@@ -19,6 +19,7 @@ import {
   writePreviewApiKey,
 } from './local-api-key.js';
 import { isNodeApiKeyTransportSafe, normalizeNodeApiUrl } from './node-api-url.js';
+import { summarizeHomeV2AdminNodeTrust } from './home-v2-admin-node-trust.js';
 import { homeV2NodeOrigin } from './home-v2-admin-trust.js';
 import { getHomeV2NodeAdminKey, setHomeV2NodeAdminKey } from './home-v2-node-admin-key.js';
 import { ensureNodeCa, nodeFetch, resolveNodeTlsTrust } from './node-tls.js';
@@ -1586,7 +1587,16 @@ export async function getNodeApiUrl(forceDiscoveryRefresh = false) {
 }
 
 export async function getNodeSettingsForHomeV2() {
-  return getNodeSettingsSnapshot();
+  const settings = await getNodeSettingsSnapshot();
+  return {
+    ...settings,
+    ...summarizeHomeV2AdminNodeTrust({
+      managedApiKey: settings.mode === 'local' ? getConfiguredNodeApiKey(settings) : '',
+      mode: settings.mode,
+      network: 'qortium',
+      nodeApiUrl: settings.nodeApiUrl,
+    }),
+  };
 }
 
 /**

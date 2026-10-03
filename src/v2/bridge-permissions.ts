@@ -22,6 +22,8 @@ export type PermissionCapability =
   // one hands Core watch material only) and never durable: single-request or
   // tab-session only, so there is no card in QDN Apps settings. Ending the
   // session revokes the app's access, not the copy the Core keeps.
+  | 'account.xmr-custody.read'
+  | 'account.xmr-custody.activate'
   | 'account.arrr-custody.read'
   | 'account.public.read'
   | 'qdn.publish'
@@ -183,6 +185,8 @@ export interface PermissionPrompt {
     | 'GET_WALLET_BALANCE'
     | 'GET_USER_WALLET_INFO'
     | 'GET_USER_WALLET_TRANSACTIONS'
+    | 'GET_XMR_WALLET'
+    | 'ACTIVATE_XMR_WALLET'
     | 'GET_ARRR_SYNC_STATUS'
     | 'GET_ARRR_WALLET_SESSION'
     | 'ACTIVATE_ARRR_WALLET'
@@ -407,7 +411,8 @@ function grantMatchesPrompt(
   // foreign-wallet one, so neither family's grant satisfies the other.
   const unifiedArrrCustodyRead = grant.capability === 'account.arrr-custody.read' &&
     prompt.capability === 'account.arrr-custody.read'
-  const unifiedRead = unifiedAccountRead || unifiedForeignWalletRead || unifiedArrrCustodyRead
+  const unifiedRead = unifiedAccountRead || unifiedForeignWalletRead || unifiedArrrCustodyRead ||
+    (grant.capability === 'account.xmr-custody.read' && prompt.capability === 'account.xmr-custody.read')
   return (
     (unifiedRead || grant.protocol === prompt.protocol) &&
     (unifiedRead || grant.action === prompt.action) &&
@@ -469,7 +474,8 @@ export function resolvePermissionPrompt(
           grant.capability === 'account.foreign-wallet.read'
         const unifiedArrrCustodyRead = candidate.capability === 'account.arrr-custody.read' &&
           grant.capability === 'account.arrr-custody.read'
-        const unifiedRead = unifiedAccountRead || unifiedForeignWalletRead || unifiedArrrCustodyRead
+        const unifiedRead = unifiedAccountRead || unifiedForeignWalletRead || unifiedArrrCustodyRead ||
+    (grant.capability === 'account.xmr-custody.read' && candidate.capability === 'account.xmr-custody.read')
         return !(
           candidate.scope === grant.scope &&
           (grant.scope === 'always' || candidate.sourceTabId === grant.sourceTabId) &&

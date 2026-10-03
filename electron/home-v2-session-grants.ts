@@ -354,6 +354,7 @@ export function homeV2PermissionGrantFamily(action: string, writeKind?: string):
   // family, so a foreign-wallet grant can never satisfy it nor it a
   // foreign-wallet read. Session or single-request only; never durable
   // (homeV2DurableAccountReadCapability answers null for all four).
+  if (writeKind === 'xmr-custody-read') return action === 'ACTIVATE_XMR_WALLET' ? 'account.xmr-custody.activate' : 'account.xmr-custody.read'
   if (writeKind === 'arrr-custody-read') return 'account.arrr-custody.read'
   if (isHomeV2ForeignWalletPermissionAction(action)) return 'account.foreign-wallet.read'
   if (isHomeV2AccountReadAction(action)) return 'account.read'

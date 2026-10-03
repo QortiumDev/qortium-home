@@ -184,7 +184,7 @@ assert.throws(
   assert.ok(resourceGuard < permissionlessReturn, 'the drifted-resource refusal precedes the permissionless return')
   assert.ok(permissionlessReturn < unlockReturn, 'the already-unlocked return sits right after the permissionless return')
   assert.ok(unlockReturn < promptSend, 'the already-unlocked return precedes the prompt')
-  assert.match(gate, /const singleRequestOnly = action === 'UNLOCK_SELECTED_ACCOUNT' \|\|/)
+  assert.match(gate, /const singleRequestOnly = action === 'ACTIVATE_XMR_WALLET' \|\| action === 'UNLOCK_SELECTED_ACCOUNT' \|\|/)
   assert.match(gate, /if \(action === 'UNLOCK_SELECTED_ACCOUNT'\) \{\s*\n\s*assertHomeV2UnlockCompleted\(context\.accountId, isAccountUnlocked\)/)
   const handlerStart = bridge.indexOf("if (action === 'UNLOCK_SELECTED_ACCOUNT') {\n    // The two refusals GET_SELECTED_ACCOUNT's permissionless gate applies")
   assert.notEqual(handlerStart, -1, 'the UNLOCK_SELECTED_ACCOUNT handler must be locatable')

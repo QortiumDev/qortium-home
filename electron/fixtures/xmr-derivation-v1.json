@@ -1,0 +1,59 @@
+{
+  "description": "Public synthetic fixtures ONLY. Seed bytes 00..1f or 00..3f; Home ARRR account-version semantics with uppercase XMR; standard Monero scalar order. Python hashlib/PyCryptodome and libsodium raw scalar-base multiplication. Native and Node parity tested separately.",
+  "fixtures": [
+    {
+      "walletVersion": 1,
+      "nonce": 0,
+      "masterSeed": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "coinSeed": "194503e15722f34ac63f06edd6b42d3f524d6be7db12fe9f3c32bfaa933d0e64",
+      "spend": "8b4d40b3b9cf843ac092381b9fd9f3c1514d6be7db12fe9f3c32bfaa933d0e04",
+      "view": "77130749e3fe9858fb56dfa63f28d7ebf18c0d4ee0ba9673e87f92ca97167d0b",
+      "address": "45v3kdD45enUKsTFnoodawHbDeHmcRj51GFp2SLkSVMsfe9meRVru8iUmH4ycSzd9vJaaLNcCPMqLbYvLQRdNaBvJn4hXF1"
+    },
+    {
+      "walletVersion": 1,
+      "nonce": 0,
+      "masterSeed": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
+      "coinSeed": "a7036a7e48e805f7d87b28e44f1b5897221a4c5f65a5a40507cdaf0f1d24c010",
+      "spend": "ba2f74212e85f39e02df304171217982221a4c5f65a5a40507cdaf0f1d24c000",
+      "view": "a4584266f0869d5c8dff092fa95cf26dfc00c59f20f2b88a564cacc2f75c450f",
+      "address": "4664t6umuA1acAXZife3Yo6mqkeCDcRsfinMrrmHimtSjJ6FyUJEVhebnaFzTfEh1uXv7bxh36TXyAy2shTyyV76FWQh2BA"
+    },
+    {
+      "walletVersion": 1,
+      "nonce": 7,
+      "masterSeed": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
+      "coinSeed": "a7036a7e48e805f7d87b28e44f1b5897221a4c5f65a5a40507cdaf0f1d24c010",
+      "spend": "ba2f74212e85f39e02df304171217982221a4c5f65a5a40507cdaf0f1d24c000",
+      "view": "a4584266f0869d5c8dff092fa95cf26dfc00c59f20f2b88a564cacc2f75c450f",
+      "address": "4664t6umuA1acAXZife3Yo6mqkeCDcRsfinMrrmHimtSjJ6FyUJEVhebnaFzTfEh1uXv7bxh36TXyAy2shTyyV76FWQh2BA"
+    },
+    {
+      "walletVersion": 2,
+      "nonce": 0,
+      "masterSeed": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
+      "coinSeed": "572230c5013eae37de558dac21fbe11337b1a3b99f922059043fc497798151cd",
+      "spend": "3b33aa69c598d116d2fbf108b2446e1936b1a3b99f922059043fc4977981510d",
+      "view": "79712ba792b97f6640b1f46df91c9ec2fbdbbefc5a7d2c18f2e7b3682db81a0d",
+      "address": "46QeNm5G9eGFZEQNwrhF3cgZ5xDBgaWFkhk7vhhQxtc82VaAXkgLaNz59MoKVFTKxhjEbCNQN5caqHBie7M5LRuj53XBLrx"
+    },
+    {
+      "walletVersion": 2,
+      "nonce": 1,
+      "masterSeed": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
+      "coinSeed": "43127050621b98a40ca8b1ee5b9f0608d1d25b46823b6a9e792c89d35c0cf5fc",
+      "spend": "60a708ded64c847b7d772f6250fbf5cecfd25b46823b6a9e792c89d35c0cf50c",
+      "view": "fee06169887164aab342ed3ddc6c23cbb092346554b25cdbff4d7d902eacef03",
+      "address": "41mPLMXt4CN1VvwsJHrGfqNgvU3NjhVKR7wvC1ni4jJEZwFWSZwKZjL9ALdr6DrTCqae8Lsq3UwoQLjP2TTBcWdNTecsDok"
+    },
+    {
+      "walletVersion": 2,
+      "nonce": 4294967295,
+      "masterSeed": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
+      "coinSeed": "11fb4e3aaf46470a349b566ff5a09d26e96aea6c74228acfc8ee1f44491bc86c",
+      "spend": "83038c0c11f4d8f92dee889dbdc563a9e86aea6c74228acfc8ee1f44491bc80c",
+      "view": "7b2f13c8c98badf24cc7c9ead63b8298c80f605683c3a092a329938beadec108",
+      "address": "4ATNnZZVEyXYaWmNGNC3SChJ8E9nbe49GPwkEGuYPdZt7AyZ2GKoGGcbmz5ydLzxiXBgsoiCosx7cUChjW7EB6PgMpKpNsc"
+    }
+  ]
+}
