@@ -512,3 +512,18 @@ test('definitive replacement rejection preserves the previous wallet cleanup jou
   assert.equal(s.store.get(route.nodeApiUrl), undefined)
   assert(s.calls.some((p) => p.endsWith('/deactivate')))
 })
+
+test('scan progress survives stale balances, is bounded, and strips private extras', () => {
+  const progress = { scanId: laterSession, startHeight: 10, height: 50, targetHeight: 100, updatedAt: 1234 }
+  const input = { ...ready(), state: 'STALE', wallet: null, progress: { ...progress, secret: 'never-project' } }
+  const result = projectXmrWallet(input, session, walletId)
+  assert.deepEqual(result.progress, progress)
+  assert.equal(result.wallet, null)
+  assert.equal('sessionId' in result, false)
+  assert.equal(projectXmrWallet(ready(), session, walletId).progress, null)
+  for (const patch of [{ scanId: 'bad' }, { startHeight: 51 }, { height: 101 }, { targetHeight: 0 },
+    { updatedAt: -1 }, { height: 1.5 }, { targetHeight: 500000001 }]) {
+    assert.throws(() => projectXmrWallet({ ...input, progress: { ...progress, ...patch } }, session, walletId))
+  }
+  assert.throws(() => projectXmrWallet(input, laterSession, walletId))
+})
