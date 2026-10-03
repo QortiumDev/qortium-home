@@ -110,7 +110,7 @@ const preload = ts.transpileModule(readFileSync(preloadPath, 'utf8'), {
 let listener; const posted = [];
 vm.runInNewContext(preload, {
   require: name => { assert.equal(name, 'electron'); return {
-    contextBridge: { exposeInMainWorld() {} },
+    contextBridge: { exposeInMainWorld() {}, executeInMainWorld({ func, args }) { func(...args); } },
     ipcRenderer: { on(channel, fn) { assert.equal(channel, 'home-v2-app:publish-progress'); listener = fn; } },
   }; },
   window: { location: { origin: 'https://app.example' }, postMessage: (...args) => posted.push(args) },

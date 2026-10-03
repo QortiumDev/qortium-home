@@ -32,6 +32,14 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## Test publish progress with the page-world bridge installer
+
+2026-10-03
+
+Teach the publish-progress fixture's Electron mock to execute the page-world
+installer, preserving its checks for scoped progress delivery after structured
+app errors moved across the isolation boundary.
+
 ## Keep node snapshot trust aligned with app requests
 
 2026-10-03
