@@ -25,6 +25,28 @@ app.whenReady().then(async () => {
   const { encodeQdnBridgeError, encodeQdnBridgeResult } = await import(
     pathToFileURL(path.join(distElectron, 'qdn-bridge-error.js')).href
   );
+  // Snapshot refresh must use the same effective credential as app requests,
+  // even when another local Core was discovered with a different key.
+  const { getHomeV2ManagedAdminBindingId } = await import(
+    pathToFileURL(path.join(distElectron, 'home-v2-node-admin-key.js')).href
+  );
+  const { summarizeHomeV2AdminNodeTrust } = await import(
+    pathToFileURL(path.join(distElectron, 'home-v2-admin-node-trust.js')).href
+  );
+  const origin = 'http://127.0.0.1:12345';
+  const unrelatedBinding = getHomeV2ManagedAdminBindingId('qortium', origin, 'synthetic-other-core');
+  const effectiveBinding = getHomeV2ManagedAdminBindingId('qortium', origin, 'synthetic-configured-core');
+  if (unrelatedBinding === effectiveBinding) throw new Error('Key changes must rotate the binding');
+  for (let i = 0; i < 3; i++) {
+    const summary = summarizeHomeV2AdminNodeTrust({
+      mode: 'local', network: 'qortium', nodeApiUrl: origin,
+      managedApiKey: 'synthetic-configured-core',
+    });
+    if (!summary.adminTrusted || summary.adminBindingId !== effectiveBinding ||
+        getHomeV2ManagedAdminBindingId('qortium', origin, 'synthetic-configured-core') !== effectiveBinding) {
+      throw new Error('Snapshot refresh changed the effective app credential binding');
+    }
+  }
   const expectedElectronVersion = process.env.QORTIUM_HOME_EXPECTED_ELECTRON_VERSION;
 
   if (expectedElectronVersion && process.versions.electron !== expectedElectronVersion) {

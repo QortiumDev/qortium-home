@@ -32,6 +32,16 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## Keep node snapshot trust aligned with app requests
+
+2026-10-03
+
+Build the node status trust summary from the effective configured credential,
+including explicit overrides, instead of independently discovering another
+running Core's key. This prevents status refreshes from invalidating an active
+XMR wallet's credential binding. Only the trust flag and random binding handle
+reach the node bridge, and a changed status URL fails closed.
+
 ## Preserve structured errors in Home v2 app requests
 
 2026-10-03

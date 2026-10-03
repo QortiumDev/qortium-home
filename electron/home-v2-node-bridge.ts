@@ -14,7 +14,6 @@ import {
   clearHomeV2NodeAdminKey,
   getHomeV2NodeAdminKeySummary,
 } from './home-v2-node-admin-key.js'
-import { summarizeHomeV2AdminNodeTrust } from './home-v2-admin-node-trust.js'
 import {
   getQortalLocalNodeStatusForHomeV2,
   getQortalNodeSettingsForHomeV2,
@@ -429,7 +428,11 @@ function normalizeNodeSummary(
     ),
     // Boolean + random binding id only; the credential itself never enters
     // this module (see home-v2-admin-node-trust.ts).
-    ...summarizeHomeV2AdminNodeTrust({ mode, network, nodeApiUrl: disabled ? null : nodeApiUrl ?? null }),
+    adminTrusted: !disabled && network === 'qortium' &&
+      nodeApiUrl === stringField(settings, 'nodeApiUrl') && settings.adminTrusted === true,
+    adminBindingId: !disabled && network === 'qortium' &&
+      nodeApiUrl === stringField(settings, 'nodeApiUrl') && settings.adminTrusted === true
+      ? stringField(settings, 'adminBindingId') : null,
     customConfigured: !!stringField(settings, 'customUrl'),
     customUrl: stringField(settings, 'customUrl'),
     ...localCoreSummary(installState, rawLocalStatus),
