@@ -32,6 +32,10 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## Forward validated Monero scan progress to Wallet
+
+- Let Wallet show live block progress and syncing estimates even when a complete balance/history read is still running. Validate the progress counts and timestamps, omit private authority fields, and remain compatible with older Core versions.
+
 ## Add exact-quote Monero send approval and recovery
 
 - Require separate preparation and exact recipient, amount, native fee and total-debit approvals for local XMR sends.

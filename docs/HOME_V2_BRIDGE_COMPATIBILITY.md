@@ -1122,3 +1122,15 @@ Verification: `npm run test:home-v2-xmr-custody`, existing ARRR custody/session/
 runtime/request-path tests, Electron and renderer TypeScript, renderer build.
 The staged Wallet has a synthetic desktop/mobile bridge harness; live full-scan,
 funded receive and installed Home/Core acceptance are separate release gates.
+
+
+### XMR scan progress extension
+
+The custody read response includes optional `progress` (null with older Core):
+`{scanId, startHeight, height, targetHeight, updatedAt}`. Home validates the
+display-only UUID, ordered nonnegative block counts (target at most 500 million)
+and millisecond timestamp before projecting those fields. The display identity
+is not the Core session or wallet ID and grants no authority. Financial snapshot
+`updatedAt` remains distinct: STALE can carry fresh scan progress with a null
+wallet. Neither progress nor ETA authorizes spending. Passive reads continue to
+require existing custody/read approval and never activate or switch wallets.

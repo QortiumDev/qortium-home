@@ -119,11 +119,19 @@ export type XmrTransaction = {
   outgoingAtomic: string | null
   feeAtomic: string | null
 }
+export type XmrScanProgress = {
+  scanId: string
+  startHeight: number
+  height: number
+  targetHeight: number
+  updatedAt: number
+}
 export type XmrPublicWallet = {
   contract: typeof XMR_CUSTODY_CONTRACT
   state: string
   send: false
   updatedAt: number | null
+  progress: XmrScanProgress | null
   wallet: null | {
     address: string
     height: number
@@ -139,6 +147,7 @@ export const inactiveXmrWallet = (state = 'INACTIVE'): XmrPublicWallet => ({
   state,
   send: false,
   updatedAt: null,
+  progress: null,
   wallet: null,
 })
 /** Allowlist projection: Core session authority, wallet ids, extra fields and error text never reach QDN. */
@@ -154,6 +163,19 @@ export function projectXmrWallet(v: unknown, session: string, walletId: string):
     throw new Error('XMR wallet ownership could not be verified.')
   const result = inactiveXmrWallet(v.state as string)
   result.updatedAt = v.updatedAt as number | null
+  // Optional for older Core versions. No raw session or wallet authority is projected.
+  if (v.progress != null) {
+    const p = v.progress
+    if (!record(p) || typeof p.scanId !== 'string' ||
+        !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(p.scanId) ||
+        !boundedInteger(p.startHeight) || !boundedInteger(p.height) ||
+        !boundedInteger(p.targetHeight) || p.targetHeight <= 0 ||
+        p.startHeight > p.height || p.height > p.targetHeight ||
+        !boundedInteger(p.updatedAt, 8_640_000_000_000_000))
+      throw new Error('XMR scan progress could not be verified.')
+    result.progress = { scanId: p.scanId, startHeight: p.startHeight, height: p.height,
+      targetHeight: p.targetHeight, updatedAt: p.updatedAt }
+  }
   if (v.wallet === null) return result
   const w = v.wallet
   if (
