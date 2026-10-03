@@ -280,6 +280,39 @@ export class HomeXmrCustody {
       return projectXmrWallet(response.data, owner.session, owner.walletId)
     })
   }
+  /** Send operations reuse already-approved custody; never derive or activate implicitly. */
+  async withSendOwner<T>(deps: Pick<XmrDeps, 'accountId' | 'host' | 'tab' | 'validate' | 'resolveRoute'>,
+    work: (io: { session: string; walletId: string; route: ArrrCustodyRoute; check: () => Promise<void>; call: XmrTransport }) => Promise<T>): Promise<T> {
+    const epoch = this.epochs.get(deps.host) ?? 0
+    const initial = await deps.resolveRoute()
+    deps.validate()
+    if (!isLocalXmrRoute(initial)) throw Error(XMR_UNAVAILABLE)
+    return this.lane(initial.nodeRoute, async () => {
+      const owner = this.owners.get(initial.nodeRoute)
+      if (!owner || owner.accountId !== deps.accountId || !sameRoute(owner.route, initial)) throw Error('Activate this XMR wallet before sending.')
+      const check = async () => {
+        const verify = () => {
+          deps.validate()
+          if ((this.epochs.get(deps.host) ?? 0) !== epoch || this.owners.get(initial.nodeRoute) !== owner) throw Error('XMR custody changed.')
+        }
+        verify()
+        const current = await deps.resolveRoute()
+        verify()
+        if (!sameRoute(initial, current)) throw Error('XMR node changed.')
+      }
+      const call: XmrTransport = async (route, path, method, body, session) => {
+        if (route !== initial || session !== owner.session) throw Error('Invalid XMR send route.')
+        await check()
+        const result = await this.transport(route, path, method, body, session)
+        await check()
+        return result
+      }
+      await check()
+      const result = await work({ session: owner.session, walletId: owner.walletId, route: initial, check, call })
+      await check()
+      return result
+    })
+  }
   /** Navigation preserves the scan; account/lock invalidation revokes app access immediately. */
   invalidate(host: number, kind: string, tab: string | null, network: string | null = null) {
     if (kind === 'navigation-changed' || (kind === 'node-changed' && network !== 'qortium')) return

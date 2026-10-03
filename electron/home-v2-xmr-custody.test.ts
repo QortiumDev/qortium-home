@@ -457,6 +457,10 @@ test('XMR advertising requires desktop numeric-loopback custody and excludes wid
     const actions = getHomeV2AvailableAppActions('qdnRequest', { qortium: route, qortal: route })
     assert.equal(actions.includes('GET_XMR_WALLET'), expected)
     assert.equal(actions.includes('ACTIVATE_XMR_WALLET'), expected)
+    for (const action of ['PREPARE_XMR_SEND', 'COMMIT_XMR_SEND', 'CANCEL_XMR_SEND', 'GET_XMR_SEND_STATUS']) {
+      assert.equal(actions.includes(action), expected)
+      assert(!getHomeV2ContextualAppActions(actions, 'widget').includes(action))
+    }
     assert(!getHomeV2ContextualAppActions(actions, 'widget').includes('GET_XMR_WALLET'))
   }
 })

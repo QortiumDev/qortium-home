@@ -1,3 +1,4 @@
+import { isXmrSendAction } from './xmr-send-contract.js'
 import { isXmrAction, isNumericLoopbackXmrUrl } from './xmr-wallet-contract.js'
 import { isHomeV2ArrrSyncControlAction } from './home-v2-arrr-sync-control.js'
 import {
@@ -205,7 +206,7 @@ export function getHomeV2AvailableAppActions(
   return Object.freeze(implemented.filter((action) => {
     if (routeIndependent.has(action)) return true
     const route = routes[getHomeV2AppNetwork(protocol, action)]
-    if (isXmrAction(action)) return protocol === 'qdnRequest' && route.localXmrCustody === true && route.reachable && route.adminTrusted
+    if (isXmrAction(action) || isXmrSendAction(action)) return protocol === 'qdnRequest' && route.localXmrCustody === true && route.reachable && route.adminTrusted
     if (
       protocol === 'qdnRequest' &&
       (isHomeV2ForeignWalletReadAction(action) ||
@@ -270,7 +271,7 @@ function isWidgetPublicReadAction(action: string) {
     // The ARRR sync snapshot is the selected account's wallet state, reached
     // by handing its spending key to Core under a prompt a widget cannot
     // show. Excluded with GET_USER_WALLET for the same reason.
-    isXmrAction(action) || action === HOME_V2_ARRR_SYNC_STATUS_ACTION ||
+    isXmrAction(action) || isXmrSendAction(action) || action === HOME_V2_ARRR_SYNC_STATUS_ACTION ||
     action === 'GET_ARRR_SEND_READINESS' || action === 'GET_ARRR_SEND_OPERATION' ||
     // The list reads describe the user's own node too — which names the user
     // blocks and follows is a behavioral profile of the person, not of any
