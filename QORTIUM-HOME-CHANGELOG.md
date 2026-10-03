@@ -32,6 +32,19 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## Add local XMR custody and receive-only wallet access
+
+2026-10-03
+
+Add desktop XMR discovery and privileged wallet access for an explicitly enabled,
+supported local Core. Activation has its own one-time custody approval; read
+approval supports one request or the tab session, and passive updates never open
+prompts. Home preserves uppercase XMR derivation, keeps keys and Core session
+authority out of apps, and revokes access on lock/account changes. A private
+cleanup journal survives restarts and fences uncertain activations. Ordinary
+reads and tab navigation never switch wallets. Sending, trade funding, Android
+custody and remote Core custody remain unavailable.
+
 ## test: align packaged navigation smokes with in-place Home pages
 
 2026-10-02

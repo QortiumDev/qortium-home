@@ -1,3 +1,4 @@
+import { isXmrAction, XMR_PROMPT_TITLE, XMR_PROMPT_SUMMARY, xmrPromptDetails } from '../../electron/xmr-wallet-contract'
 import type { HomeV2PublishProgress } from './publish-progress'
 import { ARRR_SEND_ROWS, arrrSendApprovalSummary } from '../../electron/arrr-send-contract'
 import { isHomeV2ArrrSyncControlAction, validArrrSyncControlRows, arrrSyncControlOperation, arrrSyncControlImpact } from '../../electron/home-v2-arrr-sync-control'
@@ -4607,6 +4608,7 @@ export function HomeV2LiveApp() {
             value.action !== 'GET_SELECTED_ACCOUNT' &&
             value.action !== 'GET_USER_ACCOUNT' &&
             !isHomeV2ForeignWalletPermissionAction(value.action) &&
+            !isXmrAction(value.action) &&
             value.action !== 'GET_ARRR_SYNC_STATUS' &&
             value.action !== 'GET_ARRR_WALLET_SESSION' &&
             value.action !== 'SET_CURRENT_FOREIGN_SERVER' &&
@@ -4668,6 +4670,11 @@ export function HomeV2LiveApp() {
         // ARRR custody reuses three foreign-wallet action names under its own
         // write kind; a payload claiming that kind must carry every row the
         // custody prompt shows, and may only arrive for the four ARRR actions.
+        (value.writeKind === 'xmr-custody-read' &&
+          (!isXmrAction(value.action) || value.protocol !== 'qdnRequest' || value.targetNetwork !== 'qortium' ||
+            value.xmrCustodyCoin !== 'XMR' || typeof value.writeOperationLabel !== 'string' ||
+            typeof value.writeRouteLabel !== 'string' || value.writeTargetChainLabel !== 'Qortium' || value.writeSingleRequestOnly !== (value.action === 'ACTIVATE_XMR_WALLET'))) ||
+        (isXmrAction(value.action) && value.writeKind !== 'xmr-custody-read') ||
         (value.writeKind === 'arrr-custody-read' &&
           (!isHomeV2ArrrCustodyReadAction(value.action) ||
             value.protocol !== 'qdnRequest' ||
@@ -5108,6 +5115,7 @@ export function HomeV2LiveApp() {
       const isPaymentSend = isHomeV2PaymentAction(value.action) && !isForeignSend
       // ARRR custody is decided by the WRITE KIND (re-validated above), since
       // three of its four actions share their names with the bitcoiny reads.
+      const isXmrCustodyRead = value.writeKind === 'xmr-custody-read'
       const isArrrCustodyRead = value.writeKind === 'arrr-custody-read'
       const isForeignWalletRead = !isArrrCustodyRead && isHomeV2ForeignWalletPermissionAction(value.action)
       const isForeignServerWrite = value.action === 'SET_CURRENT_FOREIGN_SERVER'
@@ -5128,7 +5136,7 @@ export function HomeV2LiveApp() {
       const isDecrypt = value.action === 'DECRYPT_DATA'
       const accountReadPromptKind = homeV2AccountReadPromptKind(value.action)
       const isGenericAccountRead = accountReadPromptKind === 'account'
-      const operationLabel = isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment || isNotification || isBookmarkManager || isNotificationManager || isHomeSettingsUpdate || isExternalLink || isJournalForget || isMintingWrite || isListWrite || isPollWrite || isNameWrite || isGroupMutation || isPublishMultiple || isQdnDelete || isRatingWrite || isAccountAvatar || isPaymentSend || isForeignSend || isForeignWalletRead || isArrrCustodyRead || isForeignServerWrite || isAtMessage || isEncrypt || isDecrypt || isNodeSettingsWrite
+      const operationLabel = isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment || isNotification || isBookmarkManager || isNotificationManager || isHomeSettingsUpdate || isExternalLink || isJournalForget || isMintingWrite || isListWrite || isPollWrite || isNameWrite || isGroupMutation || isPublishMultiple || isQdnDelete || isRatingWrite || isAccountAvatar || isPaymentSend || isForeignSend || isForeignWalletRead || isArrrCustodyRead || isXmrCustodyRead || isForeignServerWrite || isAtMessage || isEncrypt || isDecrypt || isNodeSettingsWrite
         ? String(value.writeOperationLabel)
         : ''
       const prompt = createPermissionPrompt({
@@ -5141,6 +5149,8 @@ export function HomeV2LiveApp() {
           ? 'account.encrypt'
           : isWidgetPrompt
           ? 'window.widget.open'
+          : isXmrCustodyRead
+          ? (value.action === 'ACTIVATE_XMR_WALLET' ? 'account.xmr-custody.activate' : 'account.xmr-custody.read')
           : isArrrCustodyRead
           ? 'account.arrr-custody.read'
           : isForeignWalletRead
@@ -5269,6 +5279,8 @@ export function HomeV2LiveApp() {
           ? 'Open this link in your browser?'
           : accountReadPromptKind
           ? homeV2AccountReadPromptTitle(accountReadPromptKind)
+          : isXmrCustodyRead
+          ? (value.action === 'ACTIVATE_XMR_WALLET' ? XMR_PROMPT_TITLE : 'Allow XMR wallet reads?')
           : isArrrCustodyRead
           ? HOME_V2_ARRR_CUSTODY_PROMPT_TITLE
           : isForeignWalletRead
@@ -5308,6 +5320,8 @@ export function HomeV2LiveApp() {
             : value.action === 'RESTART_NODE'
             ? `${appTitle} wants to restart your own node's Core. Syncing, minting, and every app using this node pause until it comes back. This approval covers this one restart only; nothing is signed and nothing on chain changes.`
             : `${appTitle} wants to change the node settings listed below on your own node. Every change is shown exactly as it will be applied; some settings only take effect after a restart, which is asked about separately. This approval covers this one change only; nothing is signed and nothing on chain changes.`
+          : isXmrCustodyRead
+          ? (value.action === 'ACTIVATE_XMR_WALLET' ? XMR_PROMPT_SUMMARY : 'Allow this app to read the selected account’s active XMR receive address, scan progress, balances and recent history. Reading does not activate a wallet or share keys. Activation requires a separate approval.')
           : isArrrCustodyRead
           ? homeV2ArrrCustodyPromptSummary(appTitle, String(value.writeRouteLabel))
           : isForeignWalletRead
@@ -5691,6 +5705,8 @@ export function HomeV2LiveApp() {
                   value: 'Touching any other minter’s key on this node, giving the app any private or minting key, or changing minting on any node but this local one',
                 },
               ]
+          : isXmrCustodyRead
+            ? xmrPromptDetails(account?.label ?? accountId, String(value.writeRouteLabel), value.action === 'ACTIVATE_XMR_WALLET')
           : isArrrCustodyRead
             ? [...homeV2ArrrCustodyPromptDetails({
                 accountLabel: account?.label ?? accountId,
@@ -5804,6 +5820,10 @@ export function HomeV2LiveApp() {
           // Session or single-request, never 'always': a standing grant to
           // hand a spending key to a Core would have no card to revoke it
           // from, and the main process refuses to retain one anyway.
+          : isXmrCustodyRead && value.action === 'ACTIVATE_XMR_WALLET'
+          ? ['single-request']
+          : isXmrCustodyRead
+          ? ['single-request', 'session']
           : isArrrCustodyRead
           ? ['single-request', 'session']
           : isForeignWalletRead

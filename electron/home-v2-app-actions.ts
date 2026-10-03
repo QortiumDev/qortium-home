@@ -1,3 +1,4 @@
+import { assertNotXmrCustodyPath } from './xmr-wallet-contract.js'
 import { HOME_V2_ARRR_SYNC_CONTROL_ACTIONS } from './home-v2-arrr-sync-control.js'
 import {
   getAssetBalancesPath,
@@ -126,6 +127,8 @@ const QDN_ACTIONS = [
   // (home-v2-app-runtime.ts); withheld on Android, where the spending key
   // cannot be derived in a privileged process.
   HOME_V2_ARRR_SYNC_STATUS_ACTION,
+  'GET_XMR_WALLET',
+  'ACTIVATE_XMR_WALLET',
   'GET_ARRR_WALLET_SESSION',
   'GET_ARRR_SEND_READINESS',
   'GET_ARRR_SEND_OPERATION',
@@ -740,6 +743,7 @@ export function normalizeHomeV2ReadPath(value: unknown) {
   }
   const parsed = new URL(raw, 'https://home-v2.invalid')
   const pathname = parsed.pathname
+  assertNotXmrCustodyPath(raw)
   const allowedAdminPath =
     pathname === '/admin/status' ||
     pathname === '/admin/info' ||

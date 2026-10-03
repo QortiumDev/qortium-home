@@ -1,3 +1,4 @@
+import { assertNotXmrCustodyPath } from './xmr-wallet-contract.js'
 // Request parsing and coercion shared by both QDN bridges.
 //
 // The desktop bridge (electron/qdn.ts) and the renderer/Android bridge
@@ -385,6 +386,7 @@ function getNodeApiPath(value: unknown, nodeApiUrl: string) {
   }
 
   const url = new URL(apiPath, nodeApiUrl);
+  assertNotXmrCustodyPath(apiPath)
 
   return `${url.pathname}${url.search}`;
 }

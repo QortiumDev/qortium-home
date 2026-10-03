@@ -1,7 +1,10 @@
+import { createXmrOwnerStore } from './home-v2-xmr-owner-store.js'
 import { createHomeV2PublishProgress, type HomeV2PublishProgress } from './home-v2-publish-progress.js'
 import { compatibleArrrSendContract } from './arrr-send-contract.js'
 import { createArrrSendStore } from './home-v2-arrr-send-store.js'
 import { executeArrrSend, readArrrSend, isArrrSendRequest, ArrrSendBeforeDispatchError, assertArrrSendContext, classifyArrrSendFailure } from './home-v2-arrr-send.js'
+import { HomeXmrCustody, isLocalXmrRoute } from './home-v2-xmr-custody.js'
+import { compatibleXmrCore, isXmrAction, XMR_CUSTODY_CONTRACT, type XmrAction } from './xmr-wallet-contract.js'
 import { homeV2ArrrCustodyConsentBinding } from './arrr-custody.js'
 import { ARRR_WALLET_SESSION_CONTRACT, type ArrrWalletSessionRequest } from './arrr-wallet-session.js'
 import { isHomeV2ArrrSyncControlAction, arrrSyncControlOperation, arrrSyncControlRows, runHomeV2ArrrSyncControl, ArrrSyncControlError, type ArrrSyncControlAction } from './home-v2-arrr-sync-control.js'
@@ -773,6 +776,8 @@ type AccountReadAction =
   | 'GET_USER_WALLET_TRANSACTIONS'
   // ARRR custody. Shares three action names with the bitcoiny reads above
   // but carries its own write kind and grant family (account.arrr-custody.read).
+  | 'GET_XMR_WALLET'
+  | 'ACTIVATE_XMR_WALLET'
   | 'GET_ARRR_SYNC_STATUS'
   | 'GET_ARRR_WALLET_SESSION'
   | 'GET_ARRR_SEND_READINESS'
@@ -1837,6 +1842,13 @@ async function requireAccountReadPermission(
     // consent family, never the bitcoiny foreign-wallet-read one, and it has
     // no route-independent form: without a trusted Core there is nothing to
     // consent to. Pinned to the route exactly like foreign-wallet-read.
+    readonly kind: 'xmr-custody-read'
+    readonly passive?: boolean
+    readonly coin: 'XMR'
+    readonly nodeRoute: string
+    readonly operationLabel: string
+    readonly routeLabel: string
+  } | {
     readonly kind: 'arrr-custody-read'
     readonly coin: 'ARRR'
     readonly nodeRoute: string
@@ -1877,7 +1889,7 @@ async function requireAccountReadPermission(
   // below. The checks above this line are NOT skipped: an unselected account
   // and a drifted live resource are still refused.
   // ARRR custody (hands a spending key to Core) is never permissionless.
-  const arrrCustodyRead = writeDetails?.kind === 'arrr-custody-read'
+  const arrrCustodyRead = writeDetails?.kind === 'arrr-custody-read' || writeDetails?.kind === 'xmr-custody-read'
   if (!arrrCustodyRead && isHomeV2PermissionlessAction(action) && writeDetails?.kind !== 'foreign-wallet-read') return
   // Already unlocked: nothing to ask (2026-09-20). Gated exactly like
   // GET_SELECTED_ACCOUNT — the two refusals above, nothing more. The locked
@@ -1920,6 +1932,8 @@ async function requireAccountReadPermission(
   // grant under a route the user never saw.
   const foreignWalletRoute = writeDetails?.kind === 'foreign-wallet-read' && !routeIndependent
     ? writeDetails.nodeRoute
+    : writeDetails?.kind === 'xmr-custody-read'
+      ? writeDetails.nodeRoute
     : writeDetails?.kind === 'arrr-custody-read'
       ? writeDetails.nodeRoute
       : null
@@ -1974,7 +1988,7 @@ async function requireAccountReadPermission(
     target: grantTarget,
     writeKind: writeDetails?.kind,
   })
-  const singleRequestOnly = action === 'UNLOCK_SELECTED_ACCOUNT' ||
+  const singleRequestOnly = action === 'ACTIVATE_XMR_WALLET' || action === 'UNLOCK_SELECTED_ACCOUNT' ||
     // SEND_MESSAGE signs a chain transaction. Pinned to the ACTION rather than
     // to writeDetails.kind on purpose: it reuses the 'direct' write kind for
     // its prompt payload, and the 'direct' arm below only forces
@@ -2118,6 +2132,7 @@ async function requireAccountReadPermission(
     return
   }
   if (!singleRequestOnly && sessionAccountReadGrants.has(grantKey)) return
+  if (writeDetails?.kind === 'xmr-custody-read' && writeDetails.passive === true) throw createHomeV2BridgeError('Refresh to approve XMR wallet reads.', { action, code: 'XMR_READ_APPROVAL_REQUIRED', network: 'qortium', retryable: false })
   const hostWindow = getContextWindow(context)
   if (!hostWindow || hostWindow.isDestroyed()) {
     throw new Error('The app request does not belong to an active Home window.')
@@ -2395,6 +2410,12 @@ async function requireAccountReadPermission(
                 writeRouteLabel: writeDetails.routeLabel,
                 writeSingleRequestOnly: false,
                 writeTargetChainLabel: 'Qortium',
+              }
+          : writeDetails?.kind === 'xmr-custody-read'
+            ? {
+                xmrCustodyCoin: 'XMR', writeKind: 'xmr-custody-read',
+                writeOperationLabel: writeDetails.operationLabel, writeRouteLabel: writeDetails.routeLabel,
+                writeSingleRequestOnly: action === 'ACTIVATE_XMR_WALLET', writeTargetChainLabel: 'Qortium',
               }
           : writeDetails?.kind === 'arrr-custody-read'
             ? {
@@ -9401,6 +9422,80 @@ async function postHomeV2ArrrCustody(
   return { body: result.body, data: result.data, ok: result.ok, status: result.status }
 }
 
+const homeV2XmrCustody = new HomeXmrCustody(async (route, pathname, method, body, session) => {
+  const response = await nodeFetch(`${route.nodeApiUrl}${pathname}`, {
+    method, body, redirect: 'error', signal: AbortSignal.timeout(15_000),
+    headers: { 'X-API-KEY': route.apiKey, 'Content-Type': 'application/json', ...(session ? { 'X-XMR-SESSION': session } : {}) },
+  })
+  const result = await readBoundedResponse(response, method, 256 * 1024)
+  return { ok: result.ok, status: result.status, data: result.data }
+}, {
+  list: () => createXmrOwnerStore(app.getPath('userData')).list(),
+  get: url => createXmrOwnerStore(app.getPath('userData')).get(url),
+  put: record => createXmrOwnerStore(app.getPath('userData')).put(record),
+  remove: record => createXmrOwnerStore(app.getPath('userData')).remove(record),
+})
+
+async function readHomeV2XmrCustody(sender: WebContents, context: QdnViewContext, action: XmrAction, requestValue: Record<string, unknown>) {
+  const accountId = context.accountId
+  const locked = () => createHomeV2BridgeError('Unlock the selected account to use its XMR wallet.', {
+    action, code: 'ACCOUNT_LOCKED', network: 'qortium', retryable: false,
+  })
+  if (!accountId || !isAccountUnlocked(accountId)) throw locked()
+  const hostWindow = getContextWindow(context)
+  const host = hostWindow && !hostWindow.isDestroyed() ? hostWindow.webContents.id : context.windowId
+  try {
+    return await homeV2XmrCustody.run({
+      action, request: requestValue, accountId, host, tab: context.tabId,
+      resolveRoute: resolveHomeV2ArrrCustodyRoute, // same admin-trust projection, separate XMR state/consent
+      validate: () => {
+        if (!isAccountUnlocked(accountId)) throw locked()
+        const fresh = getQdnViewContextForWebContents(sender)
+        if (!fresh || !sameViewContext(context, fresh) || fresh.accountId !== accountId || !liveResourceMatchesGrant(fresh))
+          throw new Error('XMR account access context changed.')
+      },
+      consent: (route) => requireAccountReadPermission(sender, context, 'qdnRequest', action, {
+        coin: 'XMR', kind: 'xmr-custody-read', passive: requestValue.passive === true, nodeRoute: route.nodeRoute,
+        operationLabel: action === 'ACTIVATE_XMR_WALLET' ? 'Activate the selected XMR wallet' : 'Read the selected XMR wallet', routeLabel: route.nodeApiUrl,
+      }),
+      captureConsent: () => sessionAccountReadGrants.capture({ family: action === 'ACTIVATE_XMR_WALLET' ? 'account.xmr-custody.activate' : 'account.xmr-custody.read', hostWebContentsId: context.windowId, network: 'qortium', tabId: context.tabId }),
+      getSeed: () => getAccountForeignWalletSeed(accountId),
+    })
+  } catch (error) {
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'XMR_READ_APPROVAL_REQUIRED') throw error
+    if (!isAccountUnlocked(accountId)) throw locked()
+    throw createHomeV2BridgeError('XMR access did not complete. Check the local Core, account selection and custody approval, then try again.', {
+      action, code: 'XMR_ACCESS_UNAVAILABLE', network: 'qortium', retryable: false,
+    })
+  }
+}
+
+async function discoverHomeV2Xmr(context: QdnViewContext) {
+  try {
+    const route = await resolveHomeV2ArrrCustodyRoute()
+    if (!isLocalXmrRoute(route)) return null
+    const response = await nodeFetch(`${route.nodeApiUrl}/crosschain/xmr/capabilities`, {
+      headers: { 'X-API-KEY': route.apiKey }, redirect: 'error', signal: AbortSignal.timeout(5000),
+    })
+    const result = await readBoundedResponse(response, 'GET', 4096)
+    const current = await resolveHomeV2ArrrCustodyRoute()
+    if (!result.ok || !compatibleXmrCore(result.data) || !isLocalXmrRoute(current) || current.nodeRoute !== route.nodeRoute ||
+        current.nodeApiUrl !== route.nodeApiUrl || current.revision !== route.revision || current.bindingId !== route.bindingId) return null
+    const unlocked = !!context.accountId && isAccountUnlocked(context.accountId)
+    return {
+      currencyCode: 'XMR', displayName: 'Monero', name: 'MONERO', walletEnabled: true, supportsWallet: true,
+      decimalPlaces: 12, activeNetwork: 'MAIN', supportsHtlc: false, supportsLocalChainTrades: false, supportsForeignForeignTrades: false,
+      homeWallet: {
+        contract: 'qortium-home-wallet-v1', custodyContract: XMR_CUSTODY_CONTRACT, implemented: true, protocol: 'qdnRequest',
+        read: unlocked, receive: unlocked, readMode: unlocked ? 'TRUSTED_CORE_CUSTODY' : 'NONE',
+        receiveMode: unlocked ? 'TRUSTED_CORE_CUSTODY' : 'NONE', requiresUnlockedAccount: true,
+        send: false, sendMode: 'NONE', serverManagement: false, serverManagementMode: 'NONE', syncStatus: true,
+        ...(!unlocked ? { unavailableReason: 'Unlock the selected account to use its XMR wallet.' } : {}),
+      },
+    }
+  } catch { return null }
+}
+
 // One ARRR request in flight per Core route (arrr-custody.ts): Core switches
 // its single active ARRR wallet between accounts serially and answers 409
 // while it does, so Home never races its own requests into that state. A
@@ -12135,6 +12230,10 @@ async function handleRequestWithRuntime(
     })
     return true
   }
+  if (isXmrAction(action)) {
+    if (protocol !== 'qdnRequest') throw new Error('XMR custody requires qdnRequest.')
+    return readHomeV2XmrCustody(sender, context, action, requestValue)
+  }
   if (action === 'GET_ARRR_SEND_READINESS' || action === 'GET_ARRR_SEND_OPERATION') {
     if (Object.keys(requestValue).some(key => !['action', 'coin'].includes(key)) || requestValue.coin !== 'ARRR') throw new Error('An ARRR send status request requires coin ARRR.')
     return handleHomeV2ArrrSend(sender, context, protocol, action, requestValue)
@@ -12427,7 +12526,7 @@ async function handleRequestWithRuntime(
             ? { available: false, reason: HOME_V2_ARRR_LOCKED_ACCOUNT_REASON }
             : { available: true, sendAvailable: 'arrrSendAvailable' in foreignWalletDiscovery && foreignWalletDiscovery.arrrSendAvailable === true, sessionAvailable: 'sessionAvailable' in foreignWalletDiscovery && foreignWalletDiscovery.sessionAvailable === true }
         : { available: false }
-      return projectHomeV2CrosschainReadResult(
+      const projected = projectHomeV2CrosschainReadResult(
         action,
         chainReadRequest,
         responseDataOrThrow(result, `${action} request`),
@@ -12436,6 +12535,11 @@ async function handleRequestWithRuntime(
         foreignWalletSendAvailable,
         arrrCustody,
       )
+      if (action === 'GET_CROSSCHAIN_BLOCKCHAINS' && Array.isArray(projected)) {
+        const xmr = await discoverHomeV2Xmr(context)
+        return [...projected.filter((row) => !(row && typeof row === 'object' && (row as { currencyCode?: string }).currencyCode === 'XMR')), ...(xmr ? [xmr] : [])]
+      }
+      return projected
     }
     // Both cores answer a valid-but-absent AT with an empty 2xx body (Qortal
     // 204s); normalize that to one documented error instead of returning ''.
@@ -12764,6 +12868,8 @@ export async function getHomeV2ShellAdminTrust() {
 }
 
 export function registerHomeV2AppBridgeIpcHandlers() {
+  void resolveHomeV2ArrrCustodyRoute().then(route => homeV2XmrCustody.recover(route)).catch(() => {})
+  app.on('before-quit', () => homeV2XmrCustody.shutdown())
   ipcMain.handle('home-v2-nodes:adminTrust', async (event) => {
     assertAuthorizedHomeV2Sender(event)
     return getHomeV2ShellAdminTrust()
@@ -12847,6 +12953,7 @@ export function registerHomeV2AppBridgeIpcHandlers() {
   const invalidateRuntime = (hostWebContentsId: number, value: unknown) => {
     const invalidation = normalizeHomeV2RuntimeInvalidation(value)
     sessionAccountReadGrants.invalidate(hostWebContentsId, invalidation)
+    homeV2XmrCustody.invalidate(hostWebContentsId, invalidation.kind, invalidation.tabId, invalidation.network)
     // Queued ARRR custody reads for this host are obsolete on any lifecycle
     // change that ends their consent: account/lock/node changes drop them
     // all, tab-scoped changes drop that tab's. A read already in flight is
