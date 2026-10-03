@@ -32,6 +32,16 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## Preserve structured errors in Home v2 app requests
+
+2026-10-03
+
+Reconstruct QDN and Qortal request errors in the app page so stable error codes,
+retry guidance and outcome metadata survive Electron's isolated bridge. Extend
+the real sandboxed preload regression to both Home v2 protocols, including the
+first parser script and malformed responses. Refresh two source assertions for
+the XMR activation permission flow.
+
 ## Add local XMR custody and receive-only wallet access
 
 2026-10-03
