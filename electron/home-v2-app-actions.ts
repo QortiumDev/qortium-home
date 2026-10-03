@@ -127,6 +127,7 @@ const QDN_ACTIONS = [
   // (home-v2-app-runtime.ts); withheld on Android, where the spending key
   // cannot be derived in a privileged process.
   HOME_V2_ARRR_SYNC_STATUS_ACTION,
+  'PREPARE_XMR_SEND', 'COMMIT_XMR_SEND', 'CANCEL_XMR_SEND', 'GET_XMR_SEND_STATUS',
   'GET_XMR_WALLET',
   'ACTIVATE_XMR_WALLET',
   'GET_ARRR_WALLET_SESSION',

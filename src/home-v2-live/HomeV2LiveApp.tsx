@@ -1,3 +1,4 @@
+import { XMR_SEND_ROWS, xmrSendSummary, isXmrSendAction } from '../../electron/xmr-send-contract'
 import { isXmrAction, XMR_PROMPT_TITLE, XMR_PROMPT_SUMMARY, xmrPromptDetails } from '../../electron/xmr-wallet-contract'
 import type { HomeV2PublishProgress } from './publish-progress'
 import { ARRR_SEND_ROWS, arrrSendApprovalSummary } from '../../electron/arrr-send-contract'
@@ -4609,6 +4610,7 @@ export function HomeV2LiveApp() {
             value.action !== 'GET_USER_ACCOUNT' &&
             !isHomeV2ForeignWalletPermissionAction(value.action) &&
             !isXmrAction(value.action) &&
+            !isXmrSendAction(value.action) &&
             value.action !== 'GET_ARRR_SYNC_STATUS' &&
             value.action !== 'GET_ARRR_WALLET_SESSION' &&
             value.action !== 'SET_CURRENT_FOREIGN_SERVER' &&
@@ -4648,7 +4650,7 @@ export function HomeV2LiveApp() {
             !isHomeV2PublishExtraAction(value.action) &&
             !isHomeV2RatingAction(value.action) &&
             value.action !== 'SET_ACCOUNT_AVATAR' &&
-            !isHomeV2PaymentAction(value.action) &&
+            !(isHomeV2PaymentAction(value.action) || isXmrSendAction(value.action)) &&
             !isHomeV2GroupAdminAction(value.action))) ||
         // The manager families and the Home-settings update act on Home-profile
         // data, not on an account, so they are prompted with no account selected
@@ -4874,17 +4876,18 @@ export function HomeV2LiveApp() {
         // approval is a Qortium-account operation even though the funds move
         // on another chain), coin-pinned, caption-pinned to the coin, and
         // single-request without exception.
-        || (isHomeV2PaymentAction(value.action) && value.writeKind === 'foreign-send' &&
-          (value.action !== 'SEND_COIN' ||
+        || (isXmrSendAction(value.action) && (value.writeKind !== 'foreign-send' || value.foreignSendCoin !== 'XMR' || !['PREPARE_XMR_SEND', 'COMMIT_XMR_SEND'].includes(value.action)))
+        || ((isHomeV2PaymentAction(value.action) || isXmrSendAction(value.action)) && value.writeKind === 'foreign-send' &&
+          ((value.foreignSendCoin === 'XMR' ? !['PREPARE_XMR_SEND', 'COMMIT_XMR_SEND'].includes(value.action) : value.action !== 'SEND_COIN') ||
             value.protocol !== 'qdnRequest' ||
             value.targetNetwork !== 'qortium' ||
             value.writeTargetChainLabel !== 'Qortium' ||
             typeof value.foreignSendCoin !== 'string' ||
-            !(FOREIGN_SEND_COINS.has(value.foreignSendCoin) || value.foreignSendCoin === 'ARRR') ||
+            !(FOREIGN_SEND_COINS.has(value.foreignSendCoin) || value.foreignSendCoin === 'ARRR' || value.foreignSendCoin === 'XMR') ||
             typeof value.foreignSendChainId !== 'string' ||
-            !(value.foreignSendCoin === 'ARRR' ? value.foreignSendChainId === 'pirate' : /^bip122:[0-9a-f]{32}$/.test(value.foreignSendChainId)) ||
-            !isSequencedDetailRows(value.foreignSendCoin === 'ARRR' ? ARRR_SEND_ROWS.map(label => ({ label })) : FOREIGN_SEND_DETAIL_SEQUENCE, value.foreignSendDetails) ||
-            value.writeOperationLabel !== (value.foreignSendCoin === 'ARRR' ? 'Send ARRR' : homeV2ForeignSendOperationLabel(value.foreignSendCoin)) ||
+            !(value.foreignSendCoin === 'XMR' ? value.foreignSendChainId === 'monero-mainnet' : value.foreignSendCoin === 'ARRR' ? value.foreignSendChainId === 'pirate' : /^bip122:[0-9a-f]{32}$/.test(value.foreignSendChainId)) ||
+            !isSequencedDetailRows(value.foreignSendCoin === 'XMR' ? XMR_SEND_ROWS.map(label => ({ label })) : value.foreignSendCoin === 'ARRR' ? ARRR_SEND_ROWS.map(label => ({ label })) : FOREIGN_SEND_DETAIL_SEQUENCE, value.foreignSendDetails) ||
+            value.writeOperationLabel !== (value.foreignSendCoin === 'XMR' ? (value.action === 'PREPARE_XMR_SEND' ? 'Prepare XMR' : 'Send XMR') : value.foreignSendCoin === 'ARRR' ? 'Send ARRR' : homeV2ForeignSendOperationLabel(value.foreignSendCoin)) ||
             typeof value.writeRouteLabel !== 'string' ||
             value.writeSingleRequestOnly !== true))
         || (isHomeV2PaymentAction(value.action) && value.writeKind !== 'foreign-send' &&
@@ -5111,7 +5114,7 @@ export function HomeV2LiveApp() {
       const isAccountAvatar = value.action === 'SET_ACCOUNT_AVATAR'
       // SEND_COIN is BOTH families' action name, so the write kind — already
       // re-validated above — is what separates them here.
-      const isForeignSend = isHomeV2PaymentAction(value.action) && value.writeKind === 'foreign-send'
+      const isForeignSend = (isHomeV2PaymentAction(value.action) || isXmrSendAction(value.action)) && value.writeKind === 'foreign-send'
       const isPaymentSend = isHomeV2PaymentAction(value.action) && !isForeignSend
       // ARRR custody is decided by the WRITE KIND (re-validated above), since
       // three of its four actions share their names with the bitcoiny reads.
@@ -5342,6 +5345,8 @@ export function HomeV2LiveApp() {
             : `${appTitle} wants to sign and broadcast the QDN publish transactions listed below from the selected account — one per resource. They cost no fee — Home pays for each with proof-of-work on this device. Every resource, file, size and content hash is listed exactly as it will be signed; this approval covers exactly these listed transactions.`
           : isQdnDelete
           ? `${appTitle} wants to sign and broadcast one QDN deletion transaction from the selected account. Approving marks the resource below DELETED on the Qortium chain for EVERY peer — this deletes the published resource itself, not just a local copy, and only publishing it again would replace it. It costs no fee — Home pays for it with proof-of-work on this device.`
+          : isForeignSend && value.foreignSendCoin === 'XMR'
+          ? value.action === 'PREPARE_XMR_SEND' ? `${appTitle} wants your local Core to prepare an XMR transaction and calculate its network fee. This does not broadcast. A separate approval showing the exact amount and fee is required to send.` : xmrSendSummary(appTitle)
           : isForeignSend && value.foreignSendCoin === 'ARRR'
           ? arrrSendApprovalSummary(appTitle)
           : isForeignSend
@@ -5501,13 +5506,15 @@ export function HomeV2LiveApp() {
               // here is the QORTIUM node that will relay the finished bytes —
               // a second 'Chain' row would read as a contradiction, so the
               // route label carries it alone.
-              { label: value.foreignSendCoin === 'ARRR' ? 'Custody node' : 'Relayed by', value: String(value.writeRouteLabel) },
+              { label: ['ARRR', 'XMR'].includes(String(value.foreignSendCoin)) ? 'Custody node' : 'Relayed by', value: String(value.writeRouteLabel) },
               // The shell's own copy, not a bridge row: what is NOT shared
               // must not be forgeable by the thing asking for the send.
-              value.foreignSendCoin === 'ARRR'
+              value.foreignSendCoin === 'XMR'
+                ? { label: 'Custody', value: 'Your local Core already holds this wallet’s XMR spending authority. The app receives no keys. Preparation does not broadcast; sending requires the exact quote approval.' }
+                : value.foreignSendCoin === 'ARRR'
                 ? { label: 'Custody', value: 'Your ARRR spending key is sent to this trusted Core, which builds and broadcasts this payment. An uncertain outcome blocks this wallet’s spending.' }
                 : { label: 'Not shared', value: 'Wallet seed, private key, or extended private key (xprv)' },
-              { label: 'Scope', value: 'This one foreign-coin send only' },
+              { label: 'Scope', value: value.action === 'PREPARE_XMR_SEND' ? 'This preparation only; no broadcast' : 'This one foreign-coin send only' },
             ]
           : isPaymentSend
           ? [

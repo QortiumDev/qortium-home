@@ -32,6 +32,12 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## Add exact-quote Monero send approval and recovery
+
+- Require separate preparation and exact recipient, amount, native fee and total-debit approvals for local XMR sends.
+- Persist opaque recovery handles before Core requests, bind them to the selected account, app and node, and never automatically retry an uncertain send.
+- Recover operations across tab replacement while rejecting stale account/session replies. Keep sends unavailable on read-only Core installations.
+
 ## Test publish progress with the page-world bridge installer
 
 2026-10-03

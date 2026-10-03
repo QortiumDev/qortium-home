@@ -1,3 +1,6 @@
+import { runXmrSend } from './home-v2-xmr-send.js'
+import { createXmrSendStore } from './home-v2-xmr-send-store.js'
+import { isXmrSendAction, compatibleXmrSendCore, XMR_SEND_CONTRACT, type XmrSendAction } from './xmr-send-contract.js'
 import { createXmrOwnerStore } from './home-v2-xmr-owner-store.js'
 import { createHomeV2PublishProgress, type HomeV2PublishProgress } from './home-v2-publish-progress.js'
 import { compatibleArrrSendContract } from './arrr-send-contract.js'
@@ -776,6 +779,10 @@ type AccountReadAction =
   | 'GET_USER_WALLET_TRANSACTIONS'
   // ARRR custody. Shares three action names with the bitcoiny reads above
   // but carries its own write kind and grant family (account.arrr-custody.read).
+  | 'PREPARE_XMR_SEND'
+  | 'COMMIT_XMR_SEND'
+  | 'CANCEL_XMR_SEND'
+  | 'GET_XMR_SEND_STATUS'
   | 'GET_XMR_WALLET'
   | 'ACTIVATE_XMR_WALLET'
   | 'GET_ARRR_SYNC_STATUS'
@@ -9470,6 +9477,36 @@ async function readHomeV2XmrCustody(sender: WebContents, context: QdnViewContext
   }
 }
 
+async function handleHomeV2XmrSend(sender: WebContents, context: QdnViewContext, action: XmrSendAction, request: Record<string, unknown>) {
+  if (!context.accountId || !isAccountUnlocked(context.accountId)) throw createHomeV2BridgeError('Unlock this account to use XMR.', { action, code: 'ACCOUNT_LOCKED', retryable: false, network: 'qortium' })
+  const accountId = context.accountId
+  // Reuse read consent, but never activate implicitly. Timer recovery uses passive=true.
+  await readHomeV2XmrCustody(sender, context, 'GET_XMR_WALLET', { action: 'GET_XMR_WALLET', passive: request.passive === true })
+  const epoch = sessionAccountReadGrants.capture({ family: 'account.xmr-custody.read', hostWebContentsId: context.windowId, network: 'qortium', tabId: context.tabId })
+  const hostWindow = getContextWindow(context)
+  const host = hostWindow && !hostWindow.isDestroyed() ? hostWindow.webContents.id : context.windowId
+  try {
+    return await runXmrSend(action, request, {
+      manager: homeV2XmrCustody, store: createXmrSendStore(app.getPath('userData')),
+      accountId, app: homeV2AppIdentityKey(context), host, tab: context.tabId, resolveRoute: resolveHomeV2ArrrCustodyRoute,
+      validate: () => {
+        const fresh = getQdnViewContextForWebContents(sender)
+        if (!epoch() || !isAccountUnlocked(accountId) || !fresh || !sameViewContext(context, fresh) || fresh.accountId !== accountId || !liveResourceMatchesGrant(fresh)) throw Error('The XMR account or app changed.')
+      },
+      approve: async (rows, handle, preparing) => {
+        const route = await resolveHomeV2ArrrCustodyRoute()
+        await requireAccountReadPermission(sender, context, 'qdnRequest', preparing ? 'PREPARE_XMR_SEND' : 'COMMIT_XMR_SEND', {
+          kind: 'foreign-send', coin: 'XMR', chainId: 'monero-mainnet', foreignSendDetails: rows,
+          operationLabel: preparing ? 'Prepare XMR' : 'Send XMR', routeLabel: route.nodeApiUrl,
+          target: 'xmr-send:' + handle, targetChainLabel: 'Qortium',
+        })
+      },
+    })
+  } catch {
+    throw createHomeV2BridgeError('XMR send access did not complete. Check the existing operation before trying another payment.', { action, code: 'XMR_SEND_STATUS_REQUIRED', network: 'qortium', retryable: false })
+  }
+}
+
 async function discoverHomeV2Xmr(context: QdnViewContext) {
   try {
     const route = await resolveHomeV2ArrrCustodyRoute()
@@ -9489,7 +9526,7 @@ async function discoverHomeV2Xmr(context: QdnViewContext) {
         contract: 'qortium-home-wallet-v1', custodyContract: XMR_CUSTODY_CONTRACT, implemented: true, protocol: 'qdnRequest',
         read: unlocked, receive: unlocked, readMode: unlocked ? 'TRUSTED_CORE_CUSTODY' : 'NONE',
         receiveMode: unlocked ? 'TRUSTED_CORE_CUSTODY' : 'NONE', requiresUnlockedAccount: true,
-        send: false, sendMode: 'NONE', serverManagement: false, serverManagementMode: 'NONE', syncStatus: true,
+        send: unlocked && compatibleXmrSendCore(result.data), sendMode: unlocked && compatibleXmrSendCore(result.data) ? 'TRUSTED_CORE_CUSTODY' : 'NONE', sendContract: XMR_SEND_CONTRACT, serverManagement: false, serverManagementMode: 'NONE', syncStatus: true,
         ...(!unlocked ? { unavailableReason: 'Unlock the selected account to use its XMR wallet.' } : {}),
       },
     }
@@ -12229,6 +12266,10 @@ async function handleRequestWithRuntime(
       tabId: context.tabId,
     })
     return true
+  }
+  if (isXmrSendAction(action)) {
+    if (protocol !== 'qdnRequest') throw Error('XMR sends require qdnRequest.')
+    return handleHomeV2XmrSend(sender, context, action, requestValue)
   }
   if (isXmrAction(action)) {
     if (protocol !== 'qdnRequest') throw new Error('XMR custody requires qdnRequest.')
