@@ -1,3 +1,4 @@
+import { advertiseWalletRequestContract } from '../../electron/wallet-request-contract'
 import type {
   HomeV2AccountCatalogue,
   NetworkId,
@@ -2244,7 +2245,7 @@ export function createPortableNodeClient(
           const foreignWalletSendAvailable = foreignWalletTrustedCoreAvailable &&
             context?.selectedAccountUnlocked === true &&
             await probeForeignSendRoute().catch(() => false)
-          return projectHomeV2CrosschainReadResult(
+          const projected = projectHomeV2CrosschainReadResult(
             action,
             chainReadRequest,
             data,
@@ -2256,6 +2257,9 @@ export function createPortableNodeClient(
             // advertising a read that would be refused.
             { available: false, reason: HOME_V2_ARRR_ANDROID_UNAVAILABLE_REASON },
           )
+          return action === 'GET_CROSSCHAIN_BLOCKCHAINS' && Array.isArray(projected)
+            ? projected.map(row => protocol === 'qdnRequest' ? advertiseWalletRequestContract(row) : row)
+            : projected
         }
         // Both cores answer a valid-but-absent AT with an empty 2xx body;
         // normalize that to the same documented error the desktop bridge uses.

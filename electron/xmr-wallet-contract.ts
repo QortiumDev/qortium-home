@@ -243,7 +243,7 @@ export function assertNotXmrCustodyPath(input: string) {
       .map((segment) => segment.split(';')[0])
       .filter(Boolean)
       .join('/')
-    if (/^crosschain\/xmr(?:\/|$)/.test(canonical))
+    if (/^crosschain\/(?:xmr|wallets\/xmr)(?:\/|$)/.test(canonical))
       throw new Error('XMR custody requires its dedicated wallet action.')
     let decoded: string
     try {

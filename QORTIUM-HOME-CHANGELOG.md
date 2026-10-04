@@ -2186,6 +2186,12 @@ before.
 
 ## Change Entries
 
+### Standardize wallet bridge requests and Core transport
+
+- Add a versioned coin/operation request catalog that resolves to existing wallet actions before permissions, platform and widget checks. Desktop and Android advertise the same bridge contract while retaining their supported operations.
+- Select the generic local Core wallet API from bounded authenticated metadata before dispatch; preserve native parsers, session fences and unknown-send handling without retrying mutations. Keep legacy hosts and Core versions compatible.
+
+
 ### 2026-09-01 - feat(wallet): add Home-local foreign signing foundation
 
 Adds the private-key boundary needed to restore BTC, LTC, DOGE, DGB, RVN,

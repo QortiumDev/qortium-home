@@ -1,3 +1,4 @@
+import type { WalletApiProtocols } from './core-wallet-api.js'
 import type { ArrrWalletSessionRequest } from './arrr-wallet-session.js'
 // Home 2 desktop ARRR custody read — the privileged orchestration, with its
 // dependencies injected so the boundary can be EXECUTED under test:
@@ -37,6 +38,7 @@ import {
  * here, never exported; `bindingId` is the random attachment id.
  */
 export type ArrrCustodyRoute = Readonly<{
+  walletApis?: WalletApiProtocols
   apiKey: string
   bindingId: string
   nodeApiUrl: string

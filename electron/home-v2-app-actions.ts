@@ -1,3 +1,4 @@
+import { WALLET_REQUEST_ACTION, resolveWalletRequest } from './wallet-request-contract.js'
 import { assertNotXmrCustodyPath } from './xmr-wallet-contract.js'
 import { HOME_V2_ARRR_SYNC_CONTROL_ACTIONS } from './home-v2-arrr-sync-control.js'
 import {
@@ -586,6 +587,7 @@ export function resolveHomeV2AppAlias(
   // network everywhere else in this bridge; it must here too.
   protocol: HomeV2AppBridgeProtocol = 'qdnRequest',
 ): { readonly action: string; readonly request: Record<string, unknown> } {
+  if (action === WALLET_REQUEST_ACTION) return resolveWalletRequest(request, protocol)
   const aliasServices = RESOURCE_VIEWER_ALIAS_SERVICES.get(action)
   if (aliasServices) {
     const rawService = homeV2RequestField(request, 'service')

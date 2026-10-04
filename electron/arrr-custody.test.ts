@@ -792,7 +792,7 @@ assert.equal(scrubArrrEntropy('plain', ''), 'plain')
   const handlerBody = handlerEnd === -1 ? handler : handler.slice(0, handlerEnd)
   for (const required of [
     'runHomeV2ArrrCustodyRead<QdnViewContext>({',
-    'resolveRoute: resolveHomeV2ArrrCustodyRoute',
+    'resolveRoute: resolveHomeV2WalletCustodyRoute',
     "kind: 'arrr-custody-read'",
     'nodeRoute: binding.nodeRoute',
     "family: 'account.arrr-custody.read'",
@@ -806,7 +806,11 @@ assert.equal(scrubArrrEntropy('plain', ''), 'plain')
   for (const forbidden of ['trust.revision', 'withArrrEntropy58', 'executeArrrCustodyRead', 'console.', 'entropy58', 'webContents.send']) {
     assert.ok(!handlerBody.includes(forbidden), `bridge wiring must not contain ${forbidden}`)
   }
-  assert.ok(bridge.includes("return projectArrrCustodyRoute(await resolveHomeV2AdminNode('qortium'))"))
+  const resolver = sliceAfter(bridge, 'async function resolveHomeV2WalletCustodyRoute(', 2400, 'wallet route discovery')
+  assert.ok(resolver.includes("const initial = projectArrrCustodyRoute(await resolveHomeV2AdminNode('qortium'))"))
+  assert.ok(resolver.includes("const current = projectArrrCustodyRoute(await resolveHomeV2AdminNode('qortium'))"))
+  for (const fence of ['!current.trusted', 'current.nodeApiUrl !== initial.nodeApiUrl', 'current.revision !== initial.revision', 'current.bindingId !== initial.bindingId', 'current.nodeRoute !== initial.nodeRoute'])
+    assert.ok(resolver.includes(fence), `wallet discovery must recheck ${fence}`)
   assert.ok(bridge.includes('const homeV2ArrrCustodyCrypto = createArrrCustodyNodeCrypto()'))
   assert.ok(bridge.includes('homeV2ArrrCustodyReads.cancelWhere((meta) => arrrCustodyCancelsQueuedRead(hostWebContentsId, invalidation, meta))'))
   assert.ok(bridge.includes('homeV2ArrrSessionReads.cancelWhere((meta) => arrrCustodyCancelsQueuedRead(hostWebContentsId, invalidation, meta))'))
