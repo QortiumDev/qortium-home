@@ -1,3 +1,6 @@
+import { coreWalletRequestPath, createWalletApiProtocolCache, type WalletApiProtocol } from './core-wallet-api.js'
+import { advertiseWalletRequestContract } from './wallet-request-contract.js'
+import { isNumericLoopbackXmrUrl } from './xmr-wallet-contract.js'
 import { runXmrSend } from './home-v2-xmr-send.js'
 import { createXmrSendStore } from './home-v2-xmr-send-store.js'
 import { isXmrSendAction, compatibleXmrSendCore, XMR_SEND_CONTRACT, type XmrSendAction } from './xmr-send-contract.js'
@@ -9071,14 +9074,14 @@ async function handleHomeV2ArrrSend(
 ) {
   if (protocol !== 'qdnRequest' || !context.accountId) throw new Error('ARRR sending requires a selected account in desktop Home.')
   const accountId = context.accountId
-  const initial = await resolveHomeV2ArrrCustodyRoute()
+  const initial = await resolveHomeV2WalletCustodyRoute()
   const epochCurrent = sessionAccountReadGrants.capture({ family: 'account.arrr-custody.read', hostWebContentsId: context.windowId, network: 'qortium', tabId: context.tabId })
   const validateNow = () => {
     const fresh = getQdnViewContextForWebContents(sender)
     if (!epochCurrent() || !fresh || !sameViewContext(context, fresh) || !liveResourceMatchesGrant(fresh) ||
         fresh.accountId !== accountId || !isAccountUnlocked(accountId)) throw new Error('The unlocked account or app changed during ARRR send access.')
   }
-  const assertValid = () => assertArrrSendContext(initial, resolveHomeV2ArrrCustodyRoute, validateNow)
+  const assertValid = () => assertArrrSendContext(initial, resolveHomeV2WalletCustodyRoute, validateNow)
   const binding = homeV2ArrrCustodyConsentBinding({ adminNode: { nodeApiUrl: initial.nodeApiUrl, nodeRoute: initial.nodeRoute } })
   let sendAttempted = false
   const deps = {
@@ -9100,7 +9103,8 @@ async function handleHomeV2ArrrSend(
     post: async (pathname: string, body: string, contentType: string) => {
       try { await assertValid() } catch { throw new ArrrSendBeforeDispatchError('The account or trusted node changed before dispatch.') }
       if (pathname === '/crosschain/arrr/send') sendAttempted = true
-      const response = await nodeFetch(`${initial.nodeApiUrl}${pathname}`, {
+      const mapped = coreWalletRequestPath(pathname, 'POST', initial.walletApis)
+      const response = await nodeFetch(`${initial.nodeApiUrl}${mapped.pathname}`, {
         body, method: 'POST', headers: { 'Content-Type': contentType, 'X-API-KEY': initial.apiKey },
         redirect: 'error', signal: AbortSignal.timeout(30_000),
       })
@@ -9416,7 +9420,8 @@ async function postHomeV2ArrrCustody(
   route: ArrrCustodyRoute,
   request: ArrrCustodyReadRequest,
 ): Promise<ArrrCustodyResponse> {
-  const response = await nodeFetch(`${route.nodeApiUrl}${request.pathname}`, {
+  const mapped = coreWalletRequestPath(request.pathname, request.method, route.walletApis)
+  const response = await nodeFetch(`${route.nodeApiUrl}${mapped.pathname}`, {
     body: request.body,
     headers: {
       'Content-Type': request.contentType,
@@ -9431,9 +9436,10 @@ async function postHomeV2ArrrCustody(
 }
 
 const homeV2XmrCustody = new HomeXmrCustody(async (route, pathname, method, body, session) => {
-  const response = await nodeFetch(`${route.nodeApiUrl}${pathname}`, {
+  const mapped = coreWalletRequestPath(pathname, method, route.walletApis)
+  const response = await nodeFetch(`${route.nodeApiUrl}${mapped.pathname}`, {
     method, body, redirect: 'error', signal: AbortSignal.timeout(15_000),
-    headers: { 'X-API-KEY': route.apiKey, 'Content-Type': 'application/json', ...(session ? { 'X-XMR-SESSION': session } : {}) },
+    headers: { 'X-API-KEY': route.apiKey, 'Content-Type': 'application/json', ...(session ? { [mapped.sessionHeader]: session } : {}) },
   })
   const result = await readBoundedResponse(response, method, 256 * 1024)
   return { ok: result.ok, status: result.status, data: result.data }
@@ -9455,7 +9461,7 @@ async function readHomeV2XmrCustody(sender: WebContents, context: QdnViewContext
   try {
     return await homeV2XmrCustody.run({
       action, request: requestValue, accountId, host, tab: context.tabId,
-      resolveRoute: resolveHomeV2ArrrCustodyRoute, // same admin-trust projection, separate XMR state/consent
+      resolveRoute: resolveHomeV2WalletCustodyRoute, // same admin-trust projection, separate XMR state/consent
       validate: () => {
         if (!isAccountUnlocked(accountId)) throw locked()
         const fresh = getQdnViewContextForWebContents(sender)
@@ -9489,13 +9495,13 @@ async function handleHomeV2XmrSend(sender: WebContents, context: QdnViewContext,
   try {
     return await runXmrSend(action, request, {
       manager: homeV2XmrCustody, store: createXmrSendStore(app.getPath('userData')),
-      accountId, app: homeV2AppIdentityKey(context), host, tab: context.tabId, resolveRoute: resolveHomeV2ArrrCustodyRoute,
+      accountId, app: homeV2AppIdentityKey(context), host, tab: context.tabId, resolveRoute: resolveHomeV2WalletCustodyRoute,
       validate: () => {
         const fresh = getQdnViewContextForWebContents(sender)
         if (!epoch() || !isAccountUnlocked(accountId) || !fresh || !sameViewContext(context, fresh) || fresh.accountId !== accountId || !liveResourceMatchesGrant(fresh)) throw Error('The XMR account or app changed.')
       },
       approve: async (rows, handle, preparing) => {
-        const route = await resolveHomeV2ArrrCustodyRoute()
+        const route = await resolveHomeV2WalletCustodyRoute()
         await requireAccountReadPermission(sender, context, 'qdnRequest', preparing ? 'PREPARE_XMR_SEND' : 'COMMIT_XMR_SEND', {
           kind: 'foreign-send', coin: 'XMR', chainId: 'monero-mainnet', foreignSendDetails: rows,
           operationLabel: preparing ? 'Prepare XMR' : 'Send XMR', routeLabel: route.nodeApiUrl,
@@ -9510,13 +9516,13 @@ async function handleHomeV2XmrSend(sender: WebContents, context: QdnViewContext,
 
 async function discoverHomeV2Xmr(context: QdnViewContext) {
   try {
-    const route = await resolveHomeV2ArrrCustodyRoute()
+    const route = await resolveHomeV2WalletCustodyRoute()
     if (!isLocalXmrRoute(route)) return null
     const response = await nodeFetch(`${route.nodeApiUrl}/crosschain/xmr/capabilities`, {
       headers: { 'X-API-KEY': route.apiKey }, redirect: 'error', signal: AbortSignal.timeout(5000),
     })
     const result = await readBoundedResponse(response, 'GET', 4096)
-    const current = await resolveHomeV2ArrrCustodyRoute()
+    const current = await resolveHomeV2WalletCustodyRoute()
     if (!result.ok || !compatibleXmrCore(result.data) || !isLocalXmrRoute(current) || current.nodeRoute !== route.nodeRoute ||
         current.nodeApiUrl !== route.nodeApiUrl || current.revision !== route.revision || current.bindingId !== route.bindingId) return null
     const unlocked = !!context.accountId && isAccountUnlocked(context.accountId)
@@ -9546,8 +9552,27 @@ const homeV2ArrrSessionReads = createArrrCustodyReadQueue()
 // finally zeroes the only copy of every intermediate (review finding 4).
 const homeV2ArrrCustodyCrypto = createArrrCustodyNodeCrypto()
 
-async function resolveHomeV2ArrrCustodyRoute(): Promise<ArrrCustodyRoute> {
-  return projectArrrCustodyRoute(await resolveHomeV2AdminNode('qortium'))
+const homeV2WalletApiProtocols = createWalletApiProtocolCache()
+async function resolveHomeV2WalletCustodyRoute(): Promise<ArrrCustodyRoute> {
+  const initial = projectArrrCustodyRoute(await resolveHomeV2AdminNode('qortium'))
+  if (!initial.trusted || !isNumericLoopbackXmrUrl(initial.nodeApiUrl)) return initial
+  const walletApis: Partial<Record<'ARRR' | 'XMR', WalletApiProtocol>> = {}
+  // GET metadata only; no credentials in the cache key, wallet keys, activation or mutation probe.
+  for (const coin of ['ARRR', 'XMR'] as const) {
+    const protocol = await homeV2WalletApiProtocols(`${initial.nodeApiUrl}|${initial.revision}|${initial.bindingId}`, coin, async () => {
+      const response = await nodeFetch(`${initial.nodeApiUrl}/crosschain/wallets/${coin}/protocol`, {
+        method: 'GET', headers: { 'X-API-KEY': initial.apiKey }, redirect: 'error', signal: AbortSignal.timeout(1500),
+      })
+      const result = await readBoundedResponse(response, 'GET', 8192)
+      return result.ok ? result.data : null
+    })
+    if (protocol) walletApis[coin] = protocol
+  }
+  // Metadata awaits never qualify a route that changed while being probed.
+  const current = projectArrrCustodyRoute(await resolveHomeV2AdminNode('qortium'))
+  if (!current.trusted || current.nodeApiUrl !== initial.nodeApiUrl || current.revision !== initial.revision || current.bindingId !== initial.bindingId || current.nodeRoute !== initial.nodeRoute)
+    throw new Error('The trusted wallet route changed during capability discovery.')
+  return { ...current, walletApis }
 }
 
 /**
@@ -9618,7 +9643,7 @@ async function readHomeV2ArrrCustody(
           })
         }
       },
-      resolveRoute: resolveHomeV2ArrrCustodyRoute,
+      resolveRoute: resolveHomeV2WalletCustodyRoute,
       sameViewContext: (before, after) => sameViewContext(before, after),
     })
   } catch (error) {
@@ -9645,7 +9670,7 @@ async function controlHomeV2ArrrSync(
   }
   try {
     return await runHomeV2ArrrSyncControl({
-      action, requestValue, assertContext, resolveRoute: resolveHomeV2ArrrCustodyRoute,
+      action, requestValue, assertContext, resolveRoute: resolveHomeV2WalletCustodyRoute,
       principalKey: `${sender.id}|${context.tabId}`, queue: homeV2ArrrCustodyReads,
       queueTags: { hostWebContentsId: context.windowId, tabId: context.tabId },
       requireApproval: async route => {
@@ -9658,7 +9683,8 @@ async function controlHomeV2ArrrSync(
         if (!limit.allowed) throw new Error(limit.message)
       },
       post: async (route, pathname) => {
-        const response = await nodeFetch(`${route.nodeApiUrl}${pathname}`, {
+        const mapped = coreWalletRequestPath(pathname, 'POST', route.walletApis)
+        const response = await nodeFetch(`${route.nodeApiUrl}${mapped.pathname}`, {
           method: 'POST', headers: { 'X-API-KEY': route.apiKey },
           redirect: 'error', signal: AbortSignal.timeout(30_000),
         })
@@ -12579,7 +12605,7 @@ async function handleRequestWithRuntime(
       )
       if (action === 'GET_CROSSCHAIN_BLOCKCHAINS' && Array.isArray(projected)) {
         const xmr = await discoverHomeV2Xmr(context)
-        return [...projected.filter((row) => !(row && typeof row === 'object' && (row as { currencyCode?: string }).currencyCode === 'XMR')), ...(xmr ? [xmr] : [])]
+        return [...projected.filter((row) => !(row && typeof row === 'object' && (row as { currencyCode?: string }).currencyCode === 'XMR')), ...(xmr ? [xmr] : [])].map(row => protocol === 'qdnRequest' ? advertiseWalletRequestContract(row) : row)
       }
       return projected
     }
@@ -12910,7 +12936,7 @@ export async function getHomeV2ShellAdminTrust() {
 }
 
 export function registerHomeV2AppBridgeIpcHandlers() {
-  void resolveHomeV2ArrrCustodyRoute().then(route => homeV2XmrCustody.recover(route)).catch(() => {})
+  void resolveHomeV2WalletCustodyRoute().then(route => homeV2XmrCustody.recover(route)).catch(() => {})
   app.on('before-quit', () => homeV2XmrCustody.shutdown())
   ipcMain.handle('home-v2-nodes:adminTrust', async (event) => {
     assertAuthorizedHomeV2Sender(event)

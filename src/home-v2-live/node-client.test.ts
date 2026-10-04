@@ -1253,6 +1253,7 @@ const authenticatedQortalBtc = authenticatedQortalDiscovery.find((row) => row.cu
 assert.equal(authenticatedQortalBtc?.homeWallet?.receive, true)
 assert.equal(authenticatedQortalBtc?.homeWallet?.read, true)
 assert.equal(authenticatedQortalBtc?.homeWallet?.serverManagement, true)
+assert.equal(authenticatedQortalBtc?.homeWallet?.requestContract, undefined)
 
 const authenticatedAndroidDiscovery = await client.requestApp('qdnRequest', {
   action: 'GET_CROSSCHAIN_BLOCKCHAINS',
@@ -1263,6 +1264,7 @@ const authenticatedAndroidDiscovery = await client.requestApp('qdnRequest', {
   tabId: 'wallet-tab',
 }) as Array<{ currencyCode?: string; homeWallet?: Record<string, unknown> }>
 const authenticatedAndroidBtc = authenticatedAndroidDiscovery.find((row) => row.currencyCode === 'BTC')
+assert.equal(authenticatedAndroidBtc?.homeWallet?.requestContract, 'qortium-home-wallet-request-v1')
 assert.equal(authenticatedAndroidBtc?.homeWallet?.send, true)
 assert.equal(authenticatedAndroidBtc?.homeWallet?.sendMode, 'HOME_LOCAL')
 assert.equal(lastRequestedUrl, 'https://qortium-admin.example/crosschain/btc/wallet/public/spend-context')

@@ -161,6 +161,11 @@ test('strict numeric loopback and dedicated paths only, including encoded paths'
   ])
     assert(!isLocalXmrRoute({ ...route, nodeApiUrl: url }))
   for (const p of [
+    '/crosschain/wallets/XMR',
+    '/crosschain/wallets/%58MR/status',
+    '/crosschain%2fwallets%2fxmr/stop',
+    '/crosschain/wallets/%2558MR/status',
+    '/crosschain/wallets;x=1/XMR/status',
     '/crosschain/xmr',
     '/crosschain/xmr/wallet',
     '/crosschain/%78mr/session',

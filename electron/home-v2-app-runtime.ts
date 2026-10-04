@@ -1,3 +1,4 @@
+import { WALLET_REQUEST_ACTION, walletRequestAvailable } from './wallet-request-contract.js'
 import { isXmrSendAction } from './xmr-send-contract.js'
 import { isXmrAction, isNumericLoopbackXmrUrl } from './xmr-wallet-contract.js'
 import { isHomeV2ArrrSyncControlAction } from './home-v2-arrr-sync-control.js'
@@ -203,7 +204,7 @@ export function getHomeV2AvailableAppActions(
 ): readonly string[] {
   const implemented = getHomeV2AppActions(protocol)
   const routeIndependent = new Set<string>(HOME_V2_ROUTE_INDEPENDENT_ACTIONS)
-  return Object.freeze(implemented.filter((action) => {
+  const available = implemented.filter((action) => {
     if (routeIndependent.has(action)) return true
     const route = routes[getHomeV2AppNetwork(protocol, action)]
     if (isXmrAction(action) || isXmrSendAction(action)) return protocol === 'qdnRequest' && route.localXmrCustody === true && route.reachable && route.adminTrusted
@@ -230,7 +231,8 @@ export function getHomeV2AvailableAppActions(
       return route.reachable && route.adminTrusted
     }
     return HOME_V2_REACHABLE_ROUTE_ACTIONS.has(action) ? route.reachable : route.available
-  }))
+  })
+  return Object.freeze(protocol === 'qdnRequest' && walletRequestAvailable(available) ? [...available, WALLET_REQUEST_ACTION] : available)
 }
 
 const WIDGET_LOCAL_ACTIONS = new Set<string>([
