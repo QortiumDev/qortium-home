@@ -16,7 +16,7 @@ import {
   type XmrOwnerRecord,
   type XmrOwnerStore,
 } from './home-v2-xmr-owner-store.js'
-import { projectXmrWallet, parseXmrSession, validateXmrRequest } from './xmr-wallet-contract.js'
+import { projectXmrWallet, parseXmrSession, validateXmrRequest, xmrPromptDetails, xmrGrantFamily } from './xmr-wallet-contract.js'
 import { normalizeHomeV2ReadPath } from './home-v2-app-actions.js'
 import { getNodeApiPath } from './qdn-request-values.js'
 import { homeV2PermissionGrantFamily } from './home-v2-session-grants.js'
@@ -457,6 +457,8 @@ test('XMR advertising requires desktop numeric-loopback custody and excludes wid
     const actions = getHomeV2AvailableAppActions('qdnRequest', { qortium: route, qortal: route })
     assert.equal(actions.includes('GET_XMR_WALLET'), expected)
     assert.equal(actions.includes('ACTIVATE_XMR_WALLET'), expected)
+    assert.equal(actions.includes('STOP_XMR_WALLET'), expected)
+    assert(!getHomeV2ContextualAppActions(actions, 'widget').includes('STOP_XMR_WALLET'))
     for (const action of ['PREPARE_XMR_SEND', 'COMMIT_XMR_SEND', 'CANCEL_XMR_SEND', 'GET_XMR_SEND_STATUS']) {
       assert.equal(actions.includes(action), expected)
       assert(!getHomeV2ContextualAppActions(actions, 'widget').includes(action))
@@ -480,7 +482,7 @@ test('permission wiring keeps passive reads promptless and activation single-req
   assert(ui.includes('!isXmrAction(value.action) &&'))
   assert(
     ui.includes(
-      "isXmrCustodyRead && value.action === 'ACTIVATE_XMR_WALLET'\n          ? ['single-request']",
+      "isXmrCustodyRead && isXmrControlAction(value.action)\n          ? ['single-request']",
     ),
   )
 })
@@ -526,4 +528,146 @@ test('scan progress survives stale balances, is bounded, and strips private extr
     assert.throws(() => projectXmrWallet({ ...input, progress: { ...progress, ...patch } }, session, walletId))
   }
   assert.throws(() => projectXmrWallet(input, laterSession, walletId))
+})
+
+
+test('stop has a separate grant and strict body, with honest key-free prompt details', () => {
+  assert.equal(homeV2PermissionGrantFamily('STOP_XMR_WALLET', 'xmr-custody-read'), 'account.xmr-custody.stop')
+  assert.notEqual(xmrGrantFamily('STOP_XMR_WALLET'), xmrGrantFamily('GET_XMR_WALLET'))
+  assert.notEqual(xmrGrantFamily('STOP_XMR_WALLET'), xmrGrantFamily('ACTIVATE_XMR_WALLET'))
+  for (const extra of [{session:'app-token'}, {passive:true}, {coinSeed:'app-key'}, {coin:'ARRR'}])
+    assert.throws(() => validateXmrRequest('STOP_XMR_WALLET', {action:'STOP_XMR_WALLET', ...extra}))
+  const rows = xmrPromptDetails('Selected account', 'Local Core', 'stop')
+  assert(rows.some(row => row.value.includes('no keys are transferred')))
+  assert(rows.some(row => row.value.includes('current wallet operation finishes')))
+  const bridge = readFileSync(new URL('../electron/home-v2-app-bridge.ts', import.meta.url), 'utf8')
+  const ui = readFileSync(new URL('../src/home-v2-live/HomeV2LiveApp.tsx', import.meta.url), 'utf8')
+  assert(bridge.includes("action === 'STOP_XMR_WALLET' ||"))
+  assert(bridge.includes('writeSingleRequestOnly: isXmrControlAction(action)'))
+  assert(ui.includes("isXmrCustodyRead && isXmrControlAction(value.action)\n          ? ['single-request']"))
+  assert(bridge.includes('stopContract: XMR_STOP_CONTRACT'))
+})
+test('stop revokes only its known owner, derives no seed, and reads never reactivate', async () => {
+  const s = setup()
+  const manager = new HomeXmrCustody(async (...args) => {
+    const response = await s.transport(...args)
+    return args[1].endsWith('/deactivate') ? {...response, data:{sessionId:laterSession,walletId:null,state:'CLOSING'}} : response
+  }, s.store)
+  await manager.run(deps())
+  const before = s.calls.length
+  const stop = deps('STOP_XMR_WALLET')
+  stop.getSeed = () => { throw Error('stop accessed seed') }
+  const reply = await manager.run(stop)
+  assert.equal(reply.state, 'STOPPED')
+  assert.equal(reply.wallet, null)
+  assert.equal(JSON.stringify(reply).includes(session), false)
+  assert.equal(s.store.list().length, 0)
+  assert.deepEqual(s.calls.slice(before), ['/crosschain/xmr/capabilities','/crosschain/xmr/deactivate'])
+  assert.equal((await manager.run(deps('GET_XMR_WALLET'))).state, 'INACTIVE')
+  assert.equal(s.calls.filter(p => p.endsWith('/activate')).length, 1)
+  await manager.run(deps())
+  assert.equal(s.calls.filter(p => p.endsWith('/activate')).length, 2)
+})
+test('inactive, wrong-account and denied stops cannot stop or recover another wallet', async () => {
+  const s = setup()
+  assert.equal((await s.manager.run(deps('STOP_XMR_WALLET'))).state, 'INACTIVE')
+  await s.manager.run(deps())
+  const record = s.store.get(route.nodeApiUrl)
+  const stop = deps('STOP_XMR_WALLET')
+  stop.accountId = 'other-account'
+  assert.equal((await s.manager.run(stop)).state, 'INACTIVE')
+  stop.accountId = 'public-account'
+  stop.consent = async () => { throw Error('denied') }
+  await assert.rejects(s.manager.run(stop), /denied/)
+  assert(!s.calls.some(p => p.endsWith('/deactivate')))
+  assert.deepEqual(s.store.get(route.nodeApiUrl), record)
+})
+test('lost stop reply reconciles once without replaying or stopping a replacement owner', async () => {
+  for (const replacement of [false,true]) {
+    const s = setup()
+    let stopped = false
+    const manager = new HomeXmrCustody(async (...args) => {
+      if (args[1].endsWith('/deactivate')) {
+        await s.transport(...args)
+        stopped = true
+        throw Error('lost reply')
+      }
+      if (stopped && args[1].endsWith('/session')) {
+        s.calls.push(args[1])
+        return {ok:true,status:200,data:{sessionId:laterSession,walletId:replacement?'f'.repeat(64):null,state:replacement?'SCANNING':'CLOSING'}}
+      }
+      return s.transport(...args)
+    }, s.store)
+    await manager.run(deps())
+    const before = s.calls.length
+    assert.equal((await manager.run(deps('STOP_XMR_WALLET'))).state, 'STOPPED')
+    assert.deepEqual(s.calls.slice(before), ['/crosschain/xmr/capabilities','/crosschain/xmr/deactivate','/crosschain/xmr/session'])
+    assert.equal(s.store.list().length, 0)
+  }
+})
+test('unconfirmed stop retains cleanup evidence and owner; only an explicit retry resends', async () => {
+  const s = setup()
+  let attempts = 0
+  const manager = new HomeXmrCustody(async (...args) => {
+    if (args[1].endsWith('/deactivate')) {
+      attempts++
+      throw Error('not dispatched')
+    }
+    return s.transport(...args)
+  }, s.store)
+  await manager.run(deps())
+  const record = s.store.get(route.nodeApiUrl)
+  await assert.rejects(manager.run(deps('STOP_XMR_WALLET')), /could not be confirmed/)
+  assert.equal(attempts,1)
+  assert.deepEqual(s.store.get(route.nodeApiUrl), record)
+  assert.equal((await manager.run(deps('GET_XMR_WALLET'))).state, 'READY')
+  assert.equal(attempts,1)
+  await assert.rejects(manager.run(deps('STOP_XMR_WALLET')))
+  assert.equal(attempts,2)
+})
+test('stop fences account, consent and route changes before dispatch', async () => {
+  for (const change of ['account','consent','route']) {
+    const s = setup()
+    let changed = false
+    const manager = new HomeXmrCustody(async (...args) => {
+      const response = await s.transport(...args)
+      if (change && args[1].endsWith('/capabilities')) changed = true
+      return response
+    }, s.store)
+    // Arm mutation only after activation.
+    await manager.run(deps())
+    changed = false
+    const stop = deps('STOP_XMR_WALLET')
+    stop.validate = () => { if (changed && change === 'account') throw Error('account changed') }
+    stop.captureConsent = () => () => !(changed && change === 'consent')
+    stop.resolveRoute = async () => changed && change === 'route' ? {...route, revision:'changed'} : route
+    await assert.rejects(manager.run(stop))
+    assert(!s.calls.some(p => p.endsWith('/deactivate')))
+    assert.equal(s.store.list().length,1)
+  }
+})
+
+
+test('invalidated stop replies are suppressed and cleanup intent survives dispatch', async () => {
+  for (const change of ['account','consent','route']) {
+    const s = setup()
+    let changed = false
+    const manager = new HomeXmrCustody(async (...args) => {
+      const response = await s.transport(...args)
+      if (args[1].endsWith('/deactivate')) {
+        changed = true
+        return {...response,data:{sessionId:laterSession,walletId:null,state:'CLOSING'}}
+      }
+      return response
+    }, s.store)
+    await manager.run(deps())
+    const stop = deps('STOP_XMR_WALLET')
+    const record = s.store.get(route.nodeApiUrl)
+    stop.validate = () => { if (changed && change === 'account') throw Error('account changed') }
+    stop.captureConsent = () => () => !(changed && change === 'consent')
+    stop.resolveRoute = async () => changed && change === 'route' ? {...route,revision:'changed'} : route
+    await assert.rejects(manager.run(stop))
+    assert.equal(s.calls.filter(p => p.endsWith('/deactivate')).length,1)
+    assert.deepEqual(s.store.get(route.nodeApiUrl), record)
+  }
 })

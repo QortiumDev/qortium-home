@@ -1,33 +1,40 @@
 import { compatibleXmrSendCore } from './xmr-send-contract.js'
 /** Public XMR read contract; safe to import in the permission renderer. No key derivation here. */
 export const XMR_CUSTODY_CONTRACT = 'qortium-home-xmr-custody-v1' as const
-export const XMR_ACTIONS = ['GET_XMR_WALLET', 'ACTIVATE_XMR_WALLET'] as const
+export const XMR_ACTIONS = ['GET_XMR_WALLET', 'ACTIVATE_XMR_WALLET', 'STOP_XMR_WALLET'] as const
 export type XmrAction = (typeof XMR_ACTIONS)[number]
 export const isXmrAction = (action: string): action is XmrAction =>
   (XMR_ACTIONS as readonly string[]).includes(action)
+export const XMR_STOP_CONTRACT = 'qortium-home-xmr-stop-v1' as const
+export const isXmrControlAction = (action: string) => action === 'ACTIVATE_XMR_WALLET' || action === 'STOP_XMR_WALLET'
+export const xmrGrantFamily = (action: string) => action === 'STOP_XMR_WALLET' ? 'account.xmr-custody.stop' : action === 'ACTIVATE_XMR_WALLET' ? 'account.xmr-custody.activate' : 'account.xmr-custody.read'
 export const XMR_PROMPT_TITLE = 'Allow XMR wallet custody on your local Core?'
 export const XMR_PROMPT_SUMMARY =
   'Home will give this local Core the selected account’s XMR spending key. Core keeps an encrypted wallet and scans Monero. The app can see its receive address, balances and recent history, but receives no keys. This approval does not authorize sending XMR; sending requires separate approval. Activating another account stops the previous wallet’s scan.'
 export const XMR_UNAVAILABLE =
   'XMR requires desktop Home and an enabled, supported local Core wallet.'
-export function xmrPromptDetails(account: string, node: string, activate = true) {
+export function xmrPromptDetails(account: string, node: string, activate: boolean | 'stop' = true) {
   return [
     { label: 'Account', value: account },
     { label: 'Coin', value: 'Monero (XMR)' },
     { label: 'Custody node', value: node },
     {
       label: 'Core access',
-      value: activate
+      value: activate === 'stop'
+        ? 'Stop the selected account’s active wallet; no keys are transferred.'
+        : activate
         ? 'XMR spending authority; encrypted wallet files remain on this node.'
         : 'Read the already active wallet only; no keys are transferred.',
     },
     {
       label: 'Shared with app',
-      value: 'Receive address, scan progress, balances and up to 100 recent transactions.',
+      value: activate === 'stop' ? 'Stop acknowledgement only; no wallet keys or session tokens.' : 'Receive address, scan progress, balances and up to 100 recent transactions.',
     },
     {
       label: 'Scan',
-      value: activate
+      value: activate === 'stop'
+        ? 'Stops background scanning and retries after any current wallet operation finishes. Saved wallet files are kept; resume requires activation.'
+        : activate
         ? 'Starts from block zero; returning to a tab reuses its saved checkpoint.'
         : 'Does not start, stop or switch a wallet scan.',
     },

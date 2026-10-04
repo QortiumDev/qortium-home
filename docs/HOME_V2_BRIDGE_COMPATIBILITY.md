@@ -1134,3 +1134,36 @@ is not the Core session or wallet ID and grants no authority. Financial snapshot
 `updatedAt` remains distinct: STALE can carry fresh scan progress with a null
 wallet. Neither progress nor ETA authorizes spending. Passive reads continue to
 require existing custody/read approval and never activate or switch wallets.
+
+
+### XMR explicit stop extension (2026-10-04)
+
+Discovery advertises `homeWallet.stopContract: "qortium-home-xmr-stop-v1"` only
+alongside compatible local XMR custody. Wallet must check this marker before
+offering `STOP_XMR_WALLET {coin?:"XMR"}`; older Home builds keep read/activation
+compatibility without promising a stop action. Stop is desktop/QDN-only and
+withheld from widgets, Android and remote or untrusted routes.
+
+Stop uses its separate `account.xmr-custody.stop` family and always asks for
+single-request approval. A read or activation approval cannot authorize it.
+The action accepts no app-supplied session, seed, route, restore height or
+passive flag. Home stops only its known owner for the selected account and
+current trusted route; inactive/different-account requests do not recover or
+stop another wallet. Account/unlock/principal/consent and route bindings are
+revalidated before dispatch and after each awaited stage.
+
+Home makes one owner-session-fenced `/crosschain/xmr/deactivate` POST. A lost
+acknowledgement gets at most one session read, with no automatic POST replay.
+A confirmed replaced/revoked session releases only its matching ownership
+journal. An unconfirmed stop retains cleanup evidence and requires an explicit
+status check or stop retry. Accepted deactivation revokes the session and
+queues serialized native closure: an in-flight operation may finish first.
+The public acknowledgement is a key-free `STOPPED` custody snapshot, not a
+promise that a native close has already returned. Core, encrypted wallet
+files and unresolved send journals remain intact. Passive reads do not
+activate; resuming requires explicit activation and its separate approval.
+
+Wallet pauses polling immediately, discards old replies, disables new sends,
+and keeps updates paused when stop is not confirmed. Visibility or host
+notifications cannot replay control requests. This extension does not add or
+switch daemons or restart Core.

@@ -7,7 +7,7 @@ import { compatibleArrrSendContract } from './arrr-send-contract.js'
 import { createArrrSendStore } from './home-v2-arrr-send-store.js'
 import { executeArrrSend, readArrrSend, isArrrSendRequest, ArrrSendBeforeDispatchError, assertArrrSendContext, classifyArrrSendFailure } from './home-v2-arrr-send.js'
 import { HomeXmrCustody, isLocalXmrRoute } from './home-v2-xmr-custody.js'
-import { compatibleXmrCore, isXmrAction, XMR_CUSTODY_CONTRACT, type XmrAction } from './xmr-wallet-contract.js'
+import { compatibleXmrCore, isXmrAction, isXmrControlAction, xmrGrantFamily, XMR_STOP_CONTRACT, XMR_CUSTODY_CONTRACT, type XmrAction } from './xmr-wallet-contract.js'
 import { homeV2ArrrCustodyConsentBinding } from './arrr-custody.js'
 import { ARRR_WALLET_SESSION_CONTRACT, type ArrrWalletSessionRequest } from './arrr-wallet-session.js'
 import { isHomeV2ArrrSyncControlAction, arrrSyncControlOperation, arrrSyncControlRows, runHomeV2ArrrSyncControl, ArrrSyncControlError, type ArrrSyncControlAction } from './home-v2-arrr-sync-control.js'
@@ -785,6 +785,7 @@ type AccountReadAction =
   | 'GET_XMR_SEND_STATUS'
   | 'GET_XMR_WALLET'
   | 'ACTIVATE_XMR_WALLET'
+  | 'STOP_XMR_WALLET'
   | 'GET_ARRR_SYNC_STATUS'
   | 'GET_ARRR_WALLET_SESSION'
   | 'GET_ARRR_SEND_READINESS'
@@ -1995,7 +1996,7 @@ async function requireAccountReadPermission(
     target: grantTarget,
     writeKind: writeDetails?.kind,
   })
-  const singleRequestOnly = action === 'ACTIVATE_XMR_WALLET' || action === 'UNLOCK_SELECTED_ACCOUNT' ||
+  const singleRequestOnly = action === 'ACTIVATE_XMR_WALLET' || action === 'UNLOCK_SELECTED_ACCOUNT' || action === 'STOP_XMR_WALLET' ||
     // SEND_MESSAGE signs a chain transaction. Pinned to the ACTION rather than
     // to writeDetails.kind on purpose: it reuses the 'direct' write kind for
     // its prompt payload, and the 'direct' arm below only forces
@@ -2422,7 +2423,7 @@ async function requireAccountReadPermission(
             ? {
                 xmrCustodyCoin: 'XMR', writeKind: 'xmr-custody-read',
                 writeOperationLabel: writeDetails.operationLabel, writeRouteLabel: writeDetails.routeLabel,
-                writeSingleRequestOnly: action === 'ACTIVATE_XMR_WALLET', writeTargetChainLabel: 'Qortium',
+                writeSingleRequestOnly: isXmrControlAction(action), writeTargetChainLabel: 'Qortium',
               }
           : writeDetails?.kind === 'arrr-custody-read'
             ? {
@@ -9463,9 +9464,9 @@ async function readHomeV2XmrCustody(sender: WebContents, context: QdnViewContext
       },
       consent: (route) => requireAccountReadPermission(sender, context, 'qdnRequest', action, {
         coin: 'XMR', kind: 'xmr-custody-read', passive: requestValue.passive === true, nodeRoute: route.nodeRoute,
-        operationLabel: action === 'ACTIVATE_XMR_WALLET' ? 'Activate the selected XMR wallet' : 'Read the selected XMR wallet', routeLabel: route.nodeApiUrl,
+        operationLabel: action === 'STOP_XMR_WALLET' ? 'Stop the selected XMR wallet' : action === 'ACTIVATE_XMR_WALLET' ? 'Activate the selected XMR wallet' : 'Read the selected XMR wallet', routeLabel: route.nodeApiUrl,
       }),
-      captureConsent: () => sessionAccountReadGrants.capture({ family: action === 'ACTIVATE_XMR_WALLET' ? 'account.xmr-custody.activate' : 'account.xmr-custody.read', hostWebContentsId: context.windowId, network: 'qortium', tabId: context.tabId }),
+      captureConsent: () => sessionAccountReadGrants.capture({ family: xmrGrantFamily(action), hostWebContentsId: context.windowId, network: 'qortium', tabId: context.tabId }),
       getSeed: () => getAccountForeignWalletSeed(accountId),
     })
   } catch (error) {
@@ -9523,7 +9524,7 @@ async function discoverHomeV2Xmr(context: QdnViewContext) {
       currencyCode: 'XMR', displayName: 'Monero', name: 'MONERO', walletEnabled: true, supportsWallet: true,
       decimalPlaces: 12, activeNetwork: 'MAIN', supportsHtlc: false, supportsLocalChainTrades: false, supportsForeignForeignTrades: false,
       homeWallet: {
-        contract: 'qortium-home-wallet-v1', custodyContract: XMR_CUSTODY_CONTRACT, implemented: true, protocol: 'qdnRequest',
+        contract: 'qortium-home-wallet-v1', custodyContract: XMR_CUSTODY_CONTRACT, stopContract: XMR_STOP_CONTRACT, implemented: true, protocol: 'qdnRequest',
         read: unlocked, receive: unlocked, readMode: unlocked ? 'TRUSTED_CORE_CUSTODY' : 'NONE',
         receiveMode: unlocked ? 'TRUSTED_CORE_CUSTODY' : 'NONE', requiresUnlockedAccount: true,
         send: unlocked && compatibleXmrSendCore(result.data), sendMode: unlocked && compatibleXmrSendCore(result.data) ? 'TRUSTED_CORE_CUSTODY' : 'NONE', sendContract: XMR_SEND_CONTRACT, serverManagement: false, serverManagementMode: 'NONE', syncStatus: true,
