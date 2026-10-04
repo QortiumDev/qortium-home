@@ -676,3 +676,47 @@ test('invalidated stop replies are suppressed and cleanup intent survives dispat
     assert.deepEqual(s.store.get(route.nodeApiUrl), record)
   }
 })
+
+test('scan choice is capability-gated before seed access and forwarded once', async () => {
+  for (const start of [{ scanMode: 'RESUME' }, { scanMode: 'NEW_AT_CURRENT_TIP' }, { scanMode: 'RESTORE_FROM_HEIGHT', restoreHeight: 123 }]) {
+    const bodies: Record<string, unknown>[] = []
+    let active = false
+    const manager = new HomeXmrCustody(async (_r, p, _m, b) => {
+      if (p.endsWith('/capabilities')) return { ok: true, status: 200, data: { ...cap, scanStartProtocolVersion: 1, scanModes: ['RESUME', 'RESTORE_FROM_HEIGHT', 'NEW_AT_CURRENT_TIP'] } }
+      if (p.endsWith('/activate')) { bodies.push(JSON.parse(b!)); active = true }
+      return { ok: true, status: 200, data: active ? ready() : { sessionId: null, walletId: null, state: 'IDLE' } }
+    }, memoryStore(), async () => {})
+    const d = deps(); d.request = { action: d.action, ...start }
+    await manager.run(d)
+    assert.equal(bodies.length, 1)
+    assert.equal(bodies[0].scanMode, start.scanMode)
+    assert.equal(bodies[0].restoreHeight, 'restoreHeight' in start ? start.restoreHeight : undefined)
+    d.request = { action: d.action, scanMode: 'NEW_AT_CURRENT_TIP' }
+    await assert.rejects(manager.run(d), /Stop the active wallet/)
+    assert.equal(bodies.length, 1, 'active wallets cannot silently change or ignore explicit policy')
+  }
+  const old = setup(), d = deps(); let seeds = 0
+  d.getSeed = () => { seeds++; throw Error('must not derive') }
+  d.request = { action: d.action, scanMode: 'NEW_AT_CURRENT_TIP' }
+  await assert.rejects(old.manager.run(d), /does not support/)
+  assert.equal(seeds, 0)
+  assert(!old.calls.some(p => p.endsWith('/activate')))
+})
+test('malformed modes fail before consent or seed access', async () => {
+  for (const scanMode of [null, [], ['NEW_AT_CURRENT_TIP'], {}]) {
+    const s = setup(), d = deps(); let prompts = 0
+    d.request = { action: d.action, scanMode }; d.consent = async () => { prompts++ }
+    d.getSeed = () => { throw Error('must not derive') }
+    await assert.rejects(s.manager.run(d), /Invalid wallet scan start/)
+    assert.equal(prompts, 0); assert.deepEqual(s.calls, [])
+  }
+})
+test('scan metadata and preparation are display-only whitelisted public fields', () => {
+  const raw = { ...ready(), restoreHeight: 100, initializationMode: 'NEW_AT_CURRENT_TIP', state: 'SCANNING',
+    preparation: { scanId: session, startHeight: 0, height: 50, targetHeight: 100, updatedAt: Date.now(), coinSeed: 'secret' } }
+  const result = projectXmrWallet(raw, session, walletId)
+  assert.deepEqual(result.scanStart, { mode: 'NEW_AT_CURRENT_TIP', height: 100 })
+  assert.equal(result.preparation?.height, 50)
+  assert(!JSON.stringify(result).includes('secret'))
+  assert.throws(() => projectXmrWallet({ ...raw, preparation: { ...raw.preparation, height: 100 } }, session, walletId), /preparation/)
+})

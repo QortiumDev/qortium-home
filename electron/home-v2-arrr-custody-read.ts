@@ -170,7 +170,12 @@ export async function runHomeV2ArrrCustodyRead<Context>(
         sessionRequest: deps.sessionRequest,
         crypto: deps.crypto,
         nonce: seed.addressIndex,
-        post: (request) => deps.post(route, request),
+        post: async (request) => {
+          await assertStillValid()
+          const response = await deps.post(route, request)
+          await assertStillValid()
+          return response
+        },
         seed: seed.seed,
         verified,
         walletVersion: seed.walletVersion,

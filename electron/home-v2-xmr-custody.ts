@@ -1,3 +1,4 @@
+import { walletScanStart, compatibleWalletScanStart } from './wallet-scan-start.js'
 import type { XmrOwnerStore, XmrOwnerRecord } from './home-v2-xmr-owner-store.js'
 import { createHash } from 'node:crypto'
 import type { ArrrCustodyRoute } from './home-v2-arrr-custody-read.js'
@@ -144,6 +145,7 @@ export class HomeXmrCustody {
   }
   async run(deps: XmrDeps) {
     validateXmrRequest(deps.action, deps.request)
+    const start = walletScanStart(deps.action === 'ACTIVATE_XMR_WALLET' ? deps.request : {})
     deps.validate()
     const epoch = this.epochs.get(deps.host) ?? 0
     const initial = await deps.resolveRoute()
@@ -168,10 +170,14 @@ export class HomeXmrCustody {
       const capability = await this.transport(initial, '/crosschain/xmr/capabilities', 'GET')
       await validate()
       if (!capability.ok || !compatibleXmrCore(capability.data)) throw new Error(XMR_UNAVAILABLE)
+      if (start.scanMode !== 'RESUME' && !compatibleWalletScanStart(capability.data))
+        throw new Error('This Core does not support wallet scan-start choices.')
       const liveOwner = this.owners.get(initial.nodeRoute)
       let owner = liveOwner
       if (owner && (owner.accountId !== deps.accountId || !sameRoute(owner.route, initial)))
         owner = undefined
+      if (owner && deps.action === 'ACTIVATE_XMR_WALLET' && start.scanMode !== 'RESUME')
+        throw new Error('Stop the active wallet before choosing a scan start. Saved progress will be preserved.')
       if (deps.action === 'STOP_XMR_WALLET') {
         // Stop only the selected account's known owner. Never recover or stop a different owner.
         if (!owner) return inactiveXmrWallet()
@@ -239,7 +245,7 @@ export class HomeXmrCustody {
                 JSON.stringify({
                   coinSeed,
                   derivationVersion: 1,
-                  restoreHeight: 0,
+                  ...(compatibleWalletScanStart(capability.data) ? start : { restoreHeight: 0 }),
                   expectedSession: previous.sessionId,
                 }),
               )
@@ -300,7 +306,7 @@ export class HomeXmrCustody {
           ) {
             const record = this.store.get(initial.nodeApiUrl)
             if (record?.session === owner.session) this.store.remove(record)
-            return inactiveXmrWallet('ACTIVATION_REJECTED')
+            return { ...inactiveXmrWallet('ACTIVATION_REJECTED'), ...(current.errorCode ? { scanStartError: current.errorCode } : {}) }
           }
         }
         return inactiveXmrWallet()

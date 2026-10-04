@@ -6,8 +6,9 @@ export type ArrrWalletSession = Readonly<{
   relation: 'SELF' | 'OTHER' | 'NONE'
   lifecycle: 'NEW' | 'RUNNING' | 'STOPPING' | 'TERMINATED' | 'DEGRADED'
   address: string | null
+  scanStart?: Readonly<{ mode: 'RESTORE_FROM_HEIGHT' | 'NEW_AT_CURRENT_TIP'; height: number }>
 }>
-export type ArrrWalletSessionRequest = Readonly<{ operation: 'status' | 'activate'; expectedRevision?: string }>
+export type ArrrWalletSessionRequest = Readonly<{ operation: 'status' | 'activate'; expectedRevision?: string; scanMode?: 'RESUME' | 'RESTORE_FROM_HEIGHT' | 'NEW_AT_CURRENT_TIP'; restoreHeight?: number }>
 export function parseArrrWalletSession(value: unknown): ArrrWalletSession {
   const v = value as Record<string, unknown> | null
   if (!v || v.contract !== ARRR_WALLET_SESSION_CONTRACT || typeof v.revision !== 'string' ||
@@ -17,7 +18,13 @@ export function parseArrrWalletSession(value: unknown): ArrrWalletSession {
       !(v.address == null || (typeof v.address === 'string' && /^zs[0-9a-z]{20,180}$/.test(v.address)))) {
     throw new Error('Core returned an invalid ARRR wallet session.')
   }
-  return Object.freeze({ contract: ARRR_WALLET_SESSION_CONTRACT, revision: v.revision,
+  const saved = v.scanStart as Record<string, unknown> | undefined
+  const height = saved?.height ?? v.restoreHeight
+  const mode = saved?.mode ?? v.initializationMode
+  const scanStart = v.relation === 'SELF' && Number.isSafeInteger(height) && Number(height) >= 1 && Number(height) <= 500_000_000 &&
+    (mode === 'RESTORE_FROM_HEIGHT' || mode === 'NEW_AT_CURRENT_TIP')
+    ? { mode, height: Number(height) } as NonNullable<ArrrWalletSession['scanStart']> : undefined
+  return Object.freeze({ contract: ARRR_WALLET_SESSION_CONTRACT, ...(scanStart ? { scanStart } : {}), revision: v.revision,
     enabled: v.enabled, relation: v.relation as ArrrWalletSession['relation'],
     lifecycle: v.lifecycle as ArrrWalletSession['lifecycle'], address: (v.address ?? null) as string | null })
 }

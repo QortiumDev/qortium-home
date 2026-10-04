@@ -1,3 +1,4 @@
+import { walletScanStart } from '../../electron/wallet-scan-start'
 import { XMR_SEND_ROWS, xmrSendSummary, isXmrSendAction } from '../../electron/xmr-send-contract'
 import { isXmrAction, isXmrControlAction, xmrGrantFamily, XMR_PROMPT_TITLE, XMR_PROMPT_SUMMARY, xmrPromptDetails } from '../../electron/xmr-wallet-contract'
 import type { HomeV2PublishProgress } from './publish-progress'
@@ -5713,7 +5714,7 @@ export function HomeV2LiveApp() {
                 },
               ]
           : isXmrCustodyRead
-            ? xmrPromptDetails(account?.label ?? accountId, String(value.writeRouteLabel), value.action === 'STOP_XMR_WALLET' ? 'stop' : value.action === 'ACTIVATE_XMR_WALLET')
+            ? xmrPromptDetails(account?.label ?? accountId, String(value.writeRouteLabel), value.action === 'STOP_XMR_WALLET' ? 'stop' : value.action === 'ACTIVATE_XMR_WALLET', value.walletScanStart ? walletScanStart(value.walletScanStart as Record<string, unknown>) : undefined)
           : isArrrCustodyRead
             ? [...homeV2ArrrCustodyPromptDetails({
                 accountLabel: account?.label ?? accountId,

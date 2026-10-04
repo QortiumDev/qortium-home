@@ -788,9 +788,14 @@ export async function executeArrrCustodyRead(input: Readonly<{
       // The string is closed over by this callback only; nothing below stores
       // it. It is passed to `post` as the body and used once more to scrub the
       // answer, then the callback returns and the last reference is gone.
-      const request: ArrrCustodyReadRequest = endpoint === 'walletsession'
+      const explicit = input.sessionRequest?.operation === 'activate' && input.sessionRequest.scanMode && input.sessionRequest.scanMode !== 'RESUME'
+      const { scanMode: _mode, restoreHeight: _height, ...session } = input.sessionRequest ?? { operation: 'status' }
+      const request: ArrrCustodyReadRequest = explicit
+        ? { method: 'POST', pathname: '/crosschain/arrr/initialize', contentType: 'application/json',
+            body: JSON.stringify({ entropy58, initializationMode: _mode, ...(_height !== undefined ? { restoreHeight: _height } : {}), expectedRevision: session.expectedRevision }) }
+        : endpoint === 'walletsession'
         ? { method: 'POST', pathname: '/crosschain/arrr/walletsession', contentType: 'application/json',
-            body: JSON.stringify({ entropy58, ...(input.sessionRequest ?? { operation: 'status' }) }) }
+            body: JSON.stringify({ entropy58, ...session }) }
         : buildArrrCustodyReadRequest(endpoint, entropy58, { verified: input.verified })
       let response: ArrrCustodyResponse
       try {
@@ -822,6 +827,18 @@ export async function executeArrrCustodyRead(input: Readonly<{
         throw failure
       }
       try {
+        if (explicit) {
+          const v = scrubbed.data as Record<string, unknown> | null
+          if (!v || v.initializationMode !== _mode || !Number.isSafeInteger(v.birthdayHeight) ||
+              Number(v.birthdayHeight) < 1 || Number(v.birthdayHeight) > 500_000_000 ||
+              (_mode === 'RESTORE_FROM_HEIGHT' && v.birthdayHeight !== _height))
+            throw new Error('ARRR initialization could not be confirmed; check wallet status before retrying.')
+          // Inspection only. Never activate again or replay the initialization after a lost reply.
+          const observed = await input.post({ method: 'POST', pathname: '/crosschain/arrr/walletsession',
+            contentType: 'application/json', body: JSON.stringify({ entropy58, operation: 'status' }) })
+          if (!observed.ok) throw new Error('Check wallet status to confirm initialization.')
+          return scrubArrrEntropy(projectArrrCustodyResponse(input.action, { ...observed, data: scrubArrrEntropy(observed.data, entropy58) }), entropy58)
+        }
         return scrubArrrEntropy(projectArrrCustodyResponse(input.action, scrubbed), entropy58)
       } catch (error) {
         if (error instanceof Error) {

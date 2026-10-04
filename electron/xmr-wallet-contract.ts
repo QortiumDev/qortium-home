@@ -1,3 +1,4 @@
+import { walletScanStart, walletScanPromptRows, type WalletScanStart } from './wallet-scan-start.js'
 import { compatibleXmrSendCore } from './xmr-send-contract.js'
 /** Public XMR read contract; safe to import in the permission renderer. No key derivation here. */
 export const XMR_CUSTODY_CONTRACT = 'qortium-home-xmr-custody-v1' as const
@@ -13,7 +14,7 @@ export const XMR_PROMPT_SUMMARY =
   'Home will give this local Core the selected account’s XMR spending key. Core keeps an encrypted wallet and scans Monero. The app can see its receive address, balances and recent history, but receives no keys. This approval does not authorize sending XMR; sending requires separate approval. Activating another account stops the previous wallet’s scan.'
 export const XMR_UNAVAILABLE =
   'XMR requires desktop Home and an enabled, supported local Core wallet.'
-export function xmrPromptDetails(account: string, node: string, activate: boolean | 'stop' = true) {
+export function xmrPromptDetails(account: string, node: string, activate: boolean | 'stop' = true, start?: WalletScanStart) {
   return [
     { label: 'Account', value: account },
     { label: 'Coin', value: 'Monero (XMR)' },
@@ -35,7 +36,7 @@ export function xmrPromptDetails(account: string, node: string, activate: boolea
       value: activate === 'stop'
         ? 'Stops background scanning and retries after any current wallet operation finishes. Saved wallet files are kept; resume requires activation.'
         : activate
-        ? 'Starts from block zero; returning to a tab reuses its saved checkpoint.'
+        ? (start ? walletScanPromptRows(start)[0].value : 'Resume saved progress; a fresh wallet uses a conservative historical scan start.')
         : 'Does not start, stop or switch a wallet scan.',
     },
     { label: 'Not permitted', value: 'Sending, trade funding, key export or remote-node custody.' },
@@ -45,13 +46,14 @@ export function validateXmrRequest(action: XmrAction, request: Record<string, un
   if (
     Object.keys(request).some(
       (key) =>
-        !['action', 'coin', ...(action === 'GET_XMR_WALLET' ? ['passive'] : [])].includes(key),
+        !['action', 'coin', ...(action === 'GET_XMR_WALLET' ? ['passive'] : action === 'ACTIVATE_XMR_WALLET' ? ['scanMode', 'restoreHeight'] : [])].includes(key),
     ) ||
     (request.coin !== undefined && request.coin !== 'XMR') ||
     (request.passive !== undefined && typeof request.passive !== 'boolean') ||
     request.action !== action
   )
-    throw new Error('An XMR request accepts only its action and optional coin XMR.')
+    throw new Error('Invalid XMR request.')
+  if (action === 'ACTIVATE_XMR_WALLET') walletScanStart(request)
 }
 const record = (v: unknown): v is Record<string, unknown> =>
   !!v && typeof v === 'object' && !Array.isArray(v)
@@ -100,7 +102,7 @@ export function parseXmrSession(v: unknown) {
     walletId: v.walletId as string | null,
     state: v.state as string,
     errorCode:
-      v.errorCode === 'XMR_RESTORE_HEIGHT_ABOVE_TIP' || v.errorCode === 'XMR_DAEMON_UNAVAILABLE'
+      ['XMR_RESTORE_HEIGHT_ABOVE_TIP', 'XMR_DAEMON_UNAVAILABLE', 'XMR_EXISTING_WALLET', 'XMR_RESTORE_HEIGHT_MISMATCH'].includes(String(v.errorCode))
         ? v.errorCode
         : null,
   }
@@ -139,6 +141,9 @@ export type XmrPublicWallet = {
   send: false
   updatedAt: number | null
   progress: XmrScanProgress | null
+  preparation?: XmrScanProgress
+  scanStart?: { mode: string; height: number }
+  scanStartError?: string
   wallet: null | {
     address: string
     height: number
@@ -182,6 +187,19 @@ export function projectXmrWallet(v: unknown, session: string, walletId: string):
       throw new Error('XMR scan progress could not be verified.')
     result.progress = { scanId: p.scanId, startHeight: p.startHeight, height: p.height,
       targetHeight: p.targetHeight, updatedAt: p.updatedAt }
+  }
+  if (v.restoreHeight != null) {
+    if (!boundedInteger(v.restoreHeight) || typeof v.initializationMode !== 'string' || !['RESUME', 'RESTORE_FROM_HEIGHT', 'NEW_AT_CURRENT_TIP'].includes(String(v.initializationMode)))
+      throw new Error('Invalid wallet scan start metadata.')
+    result.scanStart = { mode: String(v.initializationMode), height: v.restoreHeight }
+  }
+  if (v.preparation != null) {
+    const p = v.preparation
+    if (!record(p) || typeof p.scanId !== 'string' || !/^[a-f0-9-]{36}$/.test(p.scanId) ||
+        !boundedInteger(p.startHeight) || !boundedInteger(p.height) || !boundedInteger(p.targetHeight) ||
+        p.startHeight > p.height || p.height >= p.targetHeight || !boundedInteger(p.updatedAt, 8_640_000_000_000_000))
+      throw new Error('Invalid chain preparation progress.')
+    result.preparation = { scanId: p.scanId, startHeight: p.startHeight, height: p.height, targetHeight: p.targetHeight, updatedAt: p.updatedAt }
   }
   if (v.wallet === null) return result
   const w = v.wallet

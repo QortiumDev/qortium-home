@@ -49,3 +49,21 @@ Old Core versions, missing metadata and unregistered operations select the
 existing native endpoint **before dispatch**. A failed mutation is never retried
 on another endpoint. Apps likewise select the legacy Home action before one
 request when the bridge contract is absent; errors never trigger send replay.
+
+## Shared scan start
+
+Fresh compatible Core discovery adds `homeWallet.scanStartContract:
+"qortium-home-wallet-scan-start-v1"` and all three `scanModes`. ARRR and XMR
+`activate` parameters accept the same `scanMode`, plus integer `restoreHeight`
+only for `RESTORE_FROM_HEIGHT`. Default `RESUME` preserves saved progress.
+
+Home rejects malformed choices before consent/seed access and approves the chosen
+height or the explicit never-funded-address assertion in the native host prompt.
+Historical restore must start before the first receipt; current-tip mode cannot
+find older receipts. Compatible trusted numeric-loopback Core is required for
+explicit choices, while older Core retains its conservative resume behavior.
+Home maps the policy to the existing serialized coin custody operations; authority
+never reaches the QDN app. A lost activation acknowledgement is reconciled or left
+uncertain without replaying the seed/entropy request. Every awaited step fences
+account, route, grant and ownership changes, including ARRR's second passive status
+inspection. Saved heights and chain preparation are public display metadata only.

@@ -1,3 +1,4 @@
+import { walletScanStart, walletScanPromptRows, compatibleWalletScanStart, WALLET_SCAN_START_CONTRACT } from './wallet-scan-start.js'
 import { coreWalletRequestPath, createWalletApiProtocolCache, type WalletApiProtocol } from './core-wallet-api.js'
 import { advertiseWalletRequestContract } from './wallet-request-contract.js'
 import { isNumericLoopbackXmrUrl } from './xmr-wallet-contract.js'
@@ -1854,6 +1855,7 @@ async function requireAccountReadPermission(
     // no route-independent form: without a trusted Core there is nothing to
     // consent to. Pinned to the route exactly like foreign-wallet-read.
     readonly kind: 'xmr-custody-read'
+    readonly scanStart?: ReturnType<typeof walletScanStart>
     readonly passive?: boolean
     readonly coin: 'XMR'
     readonly nodeRoute: string
@@ -2425,6 +2427,7 @@ async function requireAccountReadPermission(
           : writeDetails?.kind === 'xmr-custody-read'
             ? {
                 xmrCustodyCoin: 'XMR', writeKind: 'xmr-custody-read',
+                ...(writeDetails.scanStart ? { walletScanStart: writeDetails.scanStart } : {}),
                 writeOperationLabel: writeDetails.operationLabel, writeRouteLabel: writeDetails.routeLabel,
                 writeSingleRequestOnly: isXmrControlAction(action), writeTargetChainLabel: 'Qortium',
               }
@@ -9469,7 +9472,7 @@ async function readHomeV2XmrCustody(sender: WebContents, context: QdnViewContext
           throw new Error('XMR account access context changed.')
       },
       consent: (route) => requireAccountReadPermission(sender, context, 'qdnRequest', action, {
-        coin: 'XMR', kind: 'xmr-custody-read', passive: requestValue.passive === true, nodeRoute: route.nodeRoute,
+        coin: 'XMR', kind: 'xmr-custody-read', ...(action === 'ACTIVATE_XMR_WALLET' ? { scanStart: walletScanStart(requestValue) } : {}), passive: requestValue.passive === true, nodeRoute: route.nodeRoute,
         operationLabel: action === 'STOP_XMR_WALLET' ? 'Stop the selected XMR wallet' : action === 'ACTIVATE_XMR_WALLET' ? 'Activate the selected XMR wallet' : 'Read the selected XMR wallet', routeLabel: route.nodeApiUrl,
       }),
       captureConsent: () => sessionAccountReadGrants.capture({ family: xmrGrantFamily(action), hostWebContentsId: context.windowId, network: 'qortium', tabId: context.tabId }),
@@ -9531,6 +9534,7 @@ async function discoverHomeV2Xmr(context: QdnViewContext) {
       decimalPlaces: 12, activeNetwork: 'MAIN', supportsHtlc: false, supportsLocalChainTrades: false, supportsForeignForeignTrades: false,
       homeWallet: {
         contract: 'qortium-home-wallet-v1', custodyContract: XMR_CUSTODY_CONTRACT, stopContract: XMR_STOP_CONTRACT, implemented: true, protocol: 'qdnRequest',
+        ...(compatibleWalletScanStart(result.data) ? { scanStartContract: WALLET_SCAN_START_CONTRACT, scanModes: ['RESUME', 'RESTORE_FROM_HEIGHT', 'NEW_AT_CURRENT_TIP'] } : {}),
         read: unlocked, receive: unlocked, readMode: unlocked ? 'TRUSTED_CORE_CUSTODY' : 'NONE',
         receiveMode: unlocked ? 'TRUSTED_CORE_CUSTODY' : 'NONE', requiresUnlockedAccount: true,
         send: unlocked && compatibleXmrSendCore(result.data), sendMode: unlocked && compatibleXmrSendCore(result.data) ? 'TRUSTED_CORE_CUSTODY' : 'NONE', sendContract: XMR_SEND_CONTRACT, serverManagement: false, serverManagementMode: 'NONE', syncStatus: true,
@@ -9639,11 +9643,24 @@ async function readHomeV2ArrrCustody(
           await requireAccountReadPermission(sender, context, protocol, 'ACTIVATE_ARRR_WALLET', {
             kind: 'node-settings', operationLabel: arrrSyncControlOperation('ACTIVATE_ARRR_WALLET'),
             routeLabel: binding.routeLabel, targetChainLabel: 'Qortium',
-            settingsDetails: arrrSyncControlRows('ACTIVATE_ARRR_WALLET', binding.routeLabel),
+            settingsDetails: [...arrrSyncControlRows('ACTIVATE_ARRR_WALLET', binding.routeLabel), ...walletScanPromptRows(walletScanStart(sessionRequest as Record<string, unknown>))],
           })
         }
       },
-      resolveRoute: resolveHomeV2WalletCustodyRoute,
+      resolveRoute: async () => {
+        const route = await resolveHomeV2WalletCustodyRoute()
+        if (sessionRequest?.scanMode && sessionRequest.scanMode !== 'RESUME') {
+          if (!isNumericLoopbackXmrUrl(route.nodeApiUrl) || !route.trusted) throw new Error('Wallet initialization requires a trusted local Core.')
+          const reply = await nodeFetch(`${route.nodeApiUrl}/crosschain/arrr/walletsession`, {
+            headers: { 'X-API-KEY': route.apiKey }, redirect: 'error', signal: AbortSignal.timeout(5000),
+          })
+          const body = await readBoundedResponse(reply, 'GET', 4096)
+          if (!body.ok || !compatibleWalletScanStart(body.data)) throw new Error('This Core does not support wallet scan-start choices.')
+          const current = await resolveHomeV2WalletCustodyRoute()
+          if (current.nodeRoute !== route.nodeRoute || current.revision !== route.revision || current.bindingId !== route.bindingId) throw new Error('Wallet custody changed.')
+        }
+        return route
+      },
       sameViewContext: (before, after) => sameViewContext(before, after),
     })
   } catch (error) {
@@ -12307,13 +12324,13 @@ async function handleRequestWithRuntime(
     return handleHomeV2ArrrSend(sender, context, protocol, action, requestValue)
   }
   if (action === 'ACTIVATE_ARRR_WALLET') {
-    if (Object.keys(requestValue).some(key => !['action', 'coin', 'expectedRevision'].includes(key)) ||
+    if (Object.keys(requestValue).some(key => !['action', 'coin', 'expectedRevision', 'scanMode', 'restoreHeight'].includes(key)) ||
         (requestValue.coin !== undefined && requestValue.coin !== 'ARRR') ||
         typeof requestValue.expectedRevision !== 'string' || !/^[a-f0-9-]{36}$/.test(requestValue.expectedRevision)) {
       throw new Error('An ARRR activation requires the last observed session revision and optional coin ARRR.')
     }
     return readHomeV2ArrrCustody(sender, context, protocol, 'GET_ARRR_WALLET_SESSION', requestValue,
-      hostInfo.route.revision, { operation: 'activate', expectedRevision: requestValue.expectedRevision })
+      hostInfo.route.revision, { operation: 'activate', expectedRevision: requestValue.expectedRevision, ...walletScanStart(requestValue) })
   }
   if (isHomeV2ArrrSyncControlAction(action)) {
     return controlHomeV2ArrrSync(sender, context, protocol, action, requestValue)
@@ -12558,12 +12575,14 @@ async function handleRequestWithRuntime(
               const after = await resolveHomeV2AdminNode('qortium')
               if (!adminTrustUnchangedAcrossAwait(resolved, after)) return { send: false, trusted: false }
               let sessionAvailable = false
+              let scanStartAvailable = false
               let arrrSendAvailable = false
               try {
                 const response = await nodeFetch(`${resolved.node.nodeApiUrl}/crosschain/arrr/walletsession`, {
                   headers: { 'X-API-KEY': resolved.apiKey }, redirect: 'error', signal: AbortSignal.timeout(5000),
                 })
                 const body = await readBoundedResponse(response, 'GET', 4096)
+                scanStartAvailable = isNumericLoopbackXmrUrl(resolved.node.nodeApiUrl) && body.ok && compatibleWalletScanStart(body.data)
                 sessionAvailable = body.ok && !!body.data && (body.data as { contract?: unknown }).contract === ARRR_WALLET_SESSION_CONTRACT
               } catch { /* Older Core has no explicit ownership protocol. */ }
               try {
@@ -12575,7 +12594,7 @@ async function handleRequestWithRuntime(
               } catch { /* Core without protocol v2 must never advertise send. */ }
               const finalRoute = await resolveHomeV2AdminNode('qortium')
               if (!adminTrustUnchangedAcrossAwait(resolved, finalRoute)) return { send: false, trusted: false }
-              return { send, trusted: true, sessionAvailable, arrrSendAvailable }
+              return { send, trusted: true, sessionAvailable, arrrSendAvailable, scanStartAvailable }
             },
             () => ({ send: false, trusted: false }),
           )
@@ -12592,7 +12611,7 @@ async function handleRequestWithRuntime(
           ? { available: false, reason: HOME_V2_ARRR_UNTRUSTED_ROUTE_REASON }
           : !(!!context.accountId && isAccountUnlocked(context.accountId))
             ? { available: false, reason: HOME_V2_ARRR_LOCKED_ACCOUNT_REASON }
-            : { available: true, sendAvailable: 'arrrSendAvailable' in foreignWalletDiscovery && foreignWalletDiscovery.arrrSendAvailable === true, sessionAvailable: 'sessionAvailable' in foreignWalletDiscovery && foreignWalletDiscovery.sessionAvailable === true }
+            : { available: true, sendAvailable: 'arrrSendAvailable' in foreignWalletDiscovery && foreignWalletDiscovery.arrrSendAvailable === true, sessionAvailable: 'sessionAvailable' in foreignWalletDiscovery && foreignWalletDiscovery.sessionAvailable === true, scanStartAvailable: 'scanStartAvailable' in foreignWalletDiscovery && foreignWalletDiscovery.scanStartAvailable === true }
         : { available: false }
       const projected = projectHomeV2CrosschainReadResult(
         action,
