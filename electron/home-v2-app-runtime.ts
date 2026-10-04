@@ -345,6 +345,7 @@ export function homeV2WidgetWithholdsSelfSubject(action: string) {
 const ANDROID_UNSUPPORTED_ACTION_REASONS = new Map<string, string>([
   ['GET_XMR_WALLET', 'XMR custody requires desktop Home and a supported local Core.'],
   ['ACTIVATE_XMR_WALLET', 'XMR custody requires desktop Home and a supported local Core.'],
+  ['STOP_XMR_WALLET', 'XMR custody requires desktop Home and a supported local Core.'],
   // True of the ACTION: it hands the account's ARRR spending key to a Core,
   // which Home permits only when that key is derived inside a privileged
   // process the app renderer cannot reach (Electron main). Android derives

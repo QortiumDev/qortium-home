@@ -32,6 +32,10 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## Let Wallet stop the selected Monero wallet safely
+
+Wallet can request a stop of the selected account's existing XMR session on its trusted local Core without restarting Core or transferring keys. Home asks for one-time stop approval separately from balance-read and activation permissions, fences account/node changes, and reconciles a lost acknowledgement without replaying the stop or touching a replacement wallet. Accepted stops revoke the old session and queue closure after any current operation; saved wallet files and unresolved send records remain intact. Passive reads never restart a stopped scan. Keep permission-security regression checks stable as the supported actions grow, checking refusal before grants inside the permission function instead of a fixed character-distance limit.
+
 ## Forward validated Monero scan progress to Wallet
 
 - Let Wallet show live block progress and syncing estimates even when a complete balance/history read is still running. Validate the progress counts and timestamps, omit private authority fields, and remain compatible with older Core versions.

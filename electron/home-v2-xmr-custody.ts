@@ -172,6 +172,35 @@ export class HomeXmrCustody {
       let owner = liveOwner
       if (owner && (owner.accountId !== deps.accountId || !sameRoute(owner.route, initial)))
         owner = undefined
+      if (deps.action === 'STOP_XMR_WALLET') {
+        // Stop only the selected account's known owner. Never recover or stop a different owner.
+        if (!owner) return inactiveXmrWallet()
+        const stopping = owner
+        const record = this.store.get(initial.nodeApiUrl)
+        await validate()
+        let accepted = false
+        try {
+          const response = await this.transport(initial, '/crosschain/xmr/deactivate', 'POST', undefined, stopping.session)
+          await validate()
+          if (!response.ok) throw new Error('XMR stop was not accepted.')
+          const closed = parseXmrSession(response.data)
+          accepted = closed.sessionId !== stopping.session && closed.walletId === null
+        } catch {
+          // A lost acknowledgement is reconciled once; never replay a stop or touch a replacement.
+          await validate()
+          const response = await this.transport(initial, '/crosschain/xmr/session', 'GET')
+          await validate()
+          if (response.ok) {
+            const observed = parseXmrSession(response.data)
+            accepted = observed.sessionId !== stopping.session || observed.walletId !== stopping.walletId
+          }
+        }
+        if (!accepted) throw new Error('XMR stop could not be confirmed. Check status or retry stopping.')
+        if (this.owners.get(initial.nodeRoute) === stopping) this.owners.delete(initial.nodeRoute)
+        if (record?.session === stopping.session && record.walletId === stopping.walletId) this.store.remove(record)
+        // Core revoked this session and queued a serialized close. An in-flight native call may finish first.
+        return inactiveXmrWallet('STOPPED')
+      }
       if (this.store.list().some((record) => record.nodeApiUrl !== initial.nodeApiUrl))
         return inactiveXmrWallet('CLEANUP_REQUIRED')
       if (!owner && liveOwner && deps.action === 'GET_XMR_WALLET') return inactiveXmrWallet()

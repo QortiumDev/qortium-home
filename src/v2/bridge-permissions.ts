@@ -24,6 +24,7 @@ export type PermissionCapability =
   // session revokes the app's access, not the copy the Core keeps.
   | 'account.xmr-custody.read'
   | 'account.xmr-custody.activate'
+  | 'account.xmr-custody.stop'
   | 'account.arrr-custody.read'
   | 'account.public.read'
   | 'qdn.publish'
@@ -191,6 +192,7 @@ export interface PermissionPrompt {
     | 'GET_XMR_SEND_STATUS'
     | 'GET_XMR_WALLET'
     | 'ACTIVATE_XMR_WALLET'
+  | 'STOP_XMR_WALLET'
     | 'GET_ARRR_SYNC_STATUS'
     | 'GET_ARRR_WALLET_SESSION'
     | 'ACTIVATE_ARRR_WALLET'

@@ -3867,53 +3867,34 @@ function testGrantIdentityAndSendRateLimitHardening(): void {
   // same app resource as the granted resourceUrl, checked BEFORE a session
   // grant is honored and again after the permission decision.
   assert.match(appBridge, /function liveResourceMatchesGrant/)
-  assert.match(
-    appBridge,
-    // Budget widened again when the durable account.read grant check (R3-10)
-    // grew an account binding and a canonical-principal lookup between these
-    // two points, again as the Home 2.1 restoration wave's write kinds
-    // (node-list, poll, name, group-mutation, publish-multiple, qdn-delete)
-    // added their grant-target and single-request arms, and again when the
-    // durable account.encrypt check landed between them, and again when the
-    // durable account.directChat (direct-message) check did, and again when
-    // the node-settings write kind added its arm, and again when Qortium
-    // single-resource publishing gained a narrowly bound session arm. The ordering
-    // property is what matters and is unchanged: the stale-resource check still
-    // runs BEFORE any grant (session or durable) is honored -- and it is
-    // asserted DIRECTLY below, so this budget is a secondary net against
-    // reordering rather than the guarantee itself.
-    /liveResourceMatchesGrant\(context\)[\s\S]{0,13000}sessionAccountReadGrants\.has\(grantKey\)/,
-  )
-  // The ordering asserted DIRECTLY, so it no longer depends on a character
-  // budget that every new grant arm pushes against. The proximity match above
-  // is kept because it also catches the two being separated by an early
-  // return, which a plain index comparison would not; this pins the property
-  // itself, and is what should be updated if the shape changes again.
   {
-    const staleCheck = appBridge.lastIndexOf('liveResourceMatchesGrant(context)')
-    const sessionGrant = appBridge.indexOf('sessionAccountReadGrants.has(grantKey)')
-    const durableRead = appBridge.indexOf('durableAccountReadCapability &&')
-    const durableEncrypt = appBridge.indexOf("hasQdnAccountCapability(appGrantKey, context.accountId, 'account.encrypt')")
-    const durableDecrypt = appBridge.indexOf("hasQdnAccountCapability(appGrantKey, context.accountId, 'account.decrypt')")
-    const durableChatSend = appBridge.indexOf("hasQdnAccountCapability(appGrantKey, context.accountId, 'chat.send')")
-    const durableDirectChat = appBridge.indexOf(
-      "hasQdnAccountCapability(appGrantKey, context.accountId, 'account.directChat')",
+    // Bound the checks to the permission function, not a character window.
+    // Additional actions or grant arms must not change this security invariant.
+    const permissionStart = appBridge.indexOf('async function requireAccountReadPermission(')
+    const permissionEnd = appBridge.indexOf('\nfunction homeV2PublishSourceBinding(', permissionStart)
+    assert.ok(permissionStart >= 0, 'the permission function must exist')
+    assert.ok(permissionEnd > permissionStart, 'the permission function boundary must exist')
+    const permission = appBridge.slice(permissionStart, permissionEnd)
+    const staleCheck = permission.indexOf('if (!liveResourceMatchesGrant(context))')
+    assert.ok(staleCheck >= 0, 'the permission function must reject a stale resource')
+    assert.match(
+      permission,
+      /if \(!liveResourceMatchesGrant\(context\)\) \{\s*throw new Error\(/,
+      'a mismatched resource must throw, not merely be observed',
     )
-    for (const [label, index] of [
-      ['the session grant', sessionGrant],
-      ['the durable account.read grant', durableRead],
-      ['the durable account.encrypt grant', durableEncrypt],
-      ['the durable account.decrypt grant', durableDecrypt],
-      ['the durable chat.send grant', durableChatSend],
-      ['the durable account.directChat grant', durableDirectChat],
+    for (const [label, expression] of [
+      ['session', 'sessionAccountReadGrants.has(grantKey)'],
+      ['durable account.read', 'hasQdnAccountCapability(appGrantKey, context.accountId, durableAccountReadCapability)'],
+      ['durable account.encrypt', "hasQdnAccountCapability(appGrantKey, context.accountId, 'account.encrypt')"],
+      ['durable account.decrypt', "hasQdnAccountCapability(appGrantKey, context.accountId, 'account.decrypt')"],
+      ['durable chat.send', "hasQdnAccountCapability(appGrantKey, context.accountId, 'chat.send')"],
+      ['durable account.directChat', "hasQdnAccountCapability(appGrantKey, context.accountId, 'account.directChat')"],
+      ['durable account.groupChat', "hasQdnAccountCapability(appGrantKey, context.accountId, 'account.groupChat')"],
     ] as const) {
-      assert.ok(index > 0, `${label} check must exist`)
-      assert.ok(
-        appBridge.indexOf('liveResourceMatchesGrant(context)') < index,
-        `the stale-resource check must run before ${label} is honored`,
-      )
+      const grantCheck = permission.indexOf(expression)
+      assert.ok(grantCheck >= 0, `the ${label} grant check must exist in the permission function`)
+      assert.ok(staleCheck < grantCheck, `the stale-resource refusal must precede the ${label} grant`)
     }
-    assert.ok(staleCheck > 0)
   }
   // The durable private-read grants are honored and recorded on ANY node
   // route (owner decision, 2026-09-01, reversing the 2026-08-30 trusted-node
@@ -3936,10 +3917,7 @@ function testGrantIdentityAndSendRateLimitHardening(): void {
     appBridge,
     /capability: 'account\.groupChat'/,
   )
-  assert.match(
-    appBridge,
-    /liveResourceMatchesGrant\(context\)[\s\S]{0,13000}hasQdnAccountCapability\(appGrantKey, context\.accountId, 'account\.groupChat'\)/,
-  )
+
   // And the store predicate: an 'always' on the two group reads records
   // account.groupChat with no route condition between decision and write.
   assert.match(
@@ -3947,26 +3925,12 @@ function testGrantIdentityAndSendRateLimitHardening(): void {
     /GET_PRIVATE_GROUP_ACTIVE_CHATS'[\s\S]{0,400}writeDetails\?\.kind === 'private-group'[\s\S]{0,200}capability: 'account\.groupChat'/,
   )
 
-  // The durable chat.send grant must also sit after the stale-resource check.
-  assert.match(
-    appBridge,
-    /liveResourceMatchesGrant\(context\)[\s\S]{0,10000}hasQdnAccountCapability\(appGrantKey, context\.accountId, 'chat\.send'\)/,
-  )
+
   // So must the durable account.read grant (R3-10). Its membership comes from
   // homeV2DurableAccountReadCapability, which returns null outside
   // HOME_V2_ACCOUNT_READ_ACTIONS, and it is additionally gated on
   // !singleRequestOnly — so it can never short-circuit a send, a publish, an
   // unlock, a group-admin action or a minting write.
-  assert.match(
-    appBridge,
-    // The window is a proximity heuristic that has to grow as
-    // requireAccountReadPermission grows (the foreign-send write kind added a
-    // grant target, a single-request rule and a grant-key field ahead of this
-    // point; the already-unlocked UNLOCK_SELECTED_ACCOUNT return and the
-    // foreign-wallet route binding grew it again on 2026-09-20). ORDERING is
-    // the property being pinned; 13000 matches the account.groupChat pin above.
-    /liveResourceMatchesGrant\(context\)[\s\S]{0,13000}hasQdnAccountCapability\(appGrantKey, context\.accountId, durableAccountReadCapability\)/,
-  )
   // The durable read grant is bound to the selected account, not just the app,
   // so it cannot survive an account switch the way the session grant cannot.
   assert.match(
