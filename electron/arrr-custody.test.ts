@@ -1406,3 +1406,13 @@ for (const scanMode of ['NEW_AT_CURRENT_TIP', 'RESTORE_FROM_HEIGHT'] as const) {
   await assert.rejects(runHomeV2ArrrCustodyRead(h.deps), /could not be confirmed/)
   assert.equal(h.calls.post.length, 1, 'mismatched acknowledgement is not followed by another POST')
 }
+
+// Generic timing history is optional display data, projected only after ownership is checked.
+{
+  const scanHistory = {identity: FULL_STATUS.walletIdentityHash, samples: [{at: FULL_STATUS.observedAt - 60000, blocks: 499000, total: FULL_STATUS.totalBlocks}, {at: FULL_STATUS.observedAt, blocks: FULL_STATUS.syncedBlocks, total: FULL_STATUS.totalBlocks}]}
+  const parsed = parseArrrSyncSnapshot({...FULL_STATUS, scanHistory: {...scanHistory, privateKey: 'synthetic-never-project'}})
+  assert.deepEqual(parsed.scanHistory, scanHistory); assert.equal(parsed.ready, false)
+  for (const history of [{...scanHistory, identity: 'other'}, {...scanHistory, samples: []}, {...scanHistory, samples: [...scanHistory.samples].reverse()}, {...scanHistory, samples: Array(129).fill(scanHistory.samples[0])}])
+    assert.throws(() => parseArrrSyncSnapshot({...FULL_STATUS, scanHistory: history}))
+  assert.equal(parseArrrSyncSnapshot(FULL_STATUS).scanHistory, undefined)
+}

@@ -1,3 +1,4 @@
+import { projectWalletScanHistory, type WalletScanHistory } from './wallet-scan-history.js'
 import { walletScanStart, walletScanPromptRows, type WalletScanStart } from './wallet-scan-start.js'
 import { compatibleXmrSendCore } from './xmr-send-contract.js'
 import { projectWalletReadStatus, type WalletReadStatus } from './wallet-read-status.js'
@@ -142,6 +143,7 @@ export type XmrPublicWallet = {
   send: false
   updatedAt: number | null
   progress: XmrScanProgress | null
+  scanHistory?: WalletScanHistory
   preparation?: XmrScanProgress
   scanStart?: { mode: string; height: number }
   scanStartError?: string
@@ -193,6 +195,8 @@ export function projectXmrWallet(v: unknown, session: string, walletId: string):
     result.progress = { scanId: p.scanId, startHeight: p.startHeight, height: p.height,
       targetHeight: p.targetHeight, updatedAt: p.updatedAt }
   }
+  const scanHistory = projectWalletScanHistory(v.scanHistory, result.progress?.scanId ?? null, result.progress ? result.progress.height - result.progress.startHeight : null, result.progress ? result.progress.targetHeight - result.progress.startHeight : null, result.progress?.updatedAt ?? null)
+  if (scanHistory) result.scanHistory = scanHistory
   if (v.restoreHeight != null) {
     if (!boundedInteger(v.restoreHeight) || typeof v.initializationMode !== 'string' || !['RESUME', 'RESTORE_FROM_HEIGHT', 'NEW_AT_CURRENT_TIP'].includes(String(v.initializationMode)))
       throw new Error('Invalid wallet scan start metadata.')

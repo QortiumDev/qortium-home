@@ -1,3 +1,4 @@
+import { projectWalletScanHistory, type WalletScanHistory } from './wallet-scan-history.js'
 import { parseArrrWalletSession, type ArrrWalletSession, type ArrrWalletSessionRequest } from './arrr-wallet-session.js'
 // Home 2 desktop ARRR (Pirate Chain) custody READ adapter — the pure half.
 //
@@ -527,6 +528,7 @@ export const ARRR_SYNC_STATES = Object.freeze(['DISABLED', 'LOADING', 'SYNCHRONI
 export type ArrrSyncState = typeof ARRR_SYNC_STATES[number]
 
 export type ArrrSyncSnapshot = Readonly<{
+  scanHistory?: WalletScanHistory
   contract: typeof ARRR_CUSTODY_CONTRACT
   coin: typeof ARRR_CUSTODY_COIN
   state: ArrrSyncState
@@ -620,6 +622,7 @@ export function parseArrrSyncSnapshot(data: unknown): ArrrSyncSnapshot {
   const restartRequired = data.restartRequired === true
   const stale = data.stale
   return Object.freeze({
+    ...(data.scanHistory == null ? {} : { scanHistory: projectWalletScanHistory(data.scanHistory, nullableText(data.walletIdentityHash, 'walletIdentityHash', 128), nullableCount(data.syncedBlocks, 'syncedBlocks'), nullableCount(data.totalBlocks, 'totalBlocks'), observedAt) }),
     backendMode: nullableText(data.backendMode, 'backendMode', 32),
     coin: ARRR_CUSTODY_COIN,
     contract: ARRR_CUSTODY_CONTRACT,

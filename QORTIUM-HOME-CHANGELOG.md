@@ -32,6 +32,10 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## Project wallet scan timing for reliable estimates
+
+Pass a bounded, validated history of ARRR/XMR backend scan observations to Wallet after verifying the selected account and node. Reloads can recover a rough estimate without storing wallet data in browser storage. Timing metadata remains optional display data, strips private extras, and never restores current balances or spending readiness.
+
 ## Approve shared wallet scan-start choices
 
 Let Wallet request resume, historical-height restore, or current-tip initialization through the same versioned ARRR/XMR scan policy. Show the selected height or never-funded-address warning in Home approval, require compatible trusted local Core support, keep keys inside Home, and fence every request against account, node and consent changes. Uncertain initialization is inspected without replaying the authority request; public progress distinguishes Monero chain preparation from wallet scanning.

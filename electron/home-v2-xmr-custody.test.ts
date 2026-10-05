@@ -760,3 +760,21 @@ test('stale display uses owner allowlist without restoring live financial readin
     assert.throws(() => projectXmrWallet({ ...input, display }, session, walletId))
   assert.equal(projectXmrWallet(ready(), session, walletId).display, undefined)
 })
+
+test('ETA history survives reload as display only and cannot cross scan or owner boundaries', () => {
+  const progress = { scanId: laterSession, startHeight: 10, height: 50, targetHeight: 100, updatedAt: 61000 }
+  const scanHistory = { identity: laterSession, samples: [{ at: 1000, blocks: 10, total: 90 }, { at: 61000, blocks: 40, total: 90 }] }
+  const input = { ...ready(), state: 'STALE', wallet: null, progress, scanHistory: { ...scanHistory, sessionId: 'secret' } }
+  const result = projectXmrWallet(input, session, walletId)
+  assert.deepEqual(result.scanHistory, scanHistory)
+  assert.equal(result.wallet, null); assert.equal(result.send, false)
+  assert.throws(() => projectXmrWallet(input, laterSession, walletId))
+  for (const history of [
+    {...scanHistory, identity: session}, {...scanHistory, samples: []},
+    {...scanHistory, samples: [...scanHistory.samples].reverse()},
+    {...scanHistory, samples: [{at: 61001, blocks: 40, total: 90}]},
+    {...scanHistory, samples: [{at: 61000, blocks: 41, total: 90}]},
+    {...scanHistory, samples: Array(129).fill(scanHistory.samples[0])},
+  ]) assert.throws(() => projectXmrWallet({...input, scanHistory: history}, session, walletId))
+  assert.equal(projectXmrWallet({...input, scanHistory: undefined}, session, walletId).scanHistory, undefined)
+})
