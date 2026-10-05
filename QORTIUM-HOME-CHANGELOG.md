@@ -2190,6 +2190,10 @@ before.
 
 ## Change Entries
 
+### Project bounded wallet read phases and retry diagnostics
+
+Home forwards optional coin-neutral read diagnostics after verifying wallet ownership. Apps can distinguish an operation still running from a scheduled retry without receiving session authority, keys or native error text; older Cores remain supported.
+
 ### Standardize wallet bridge requests and Core transport
 
 - Add a versioned coin/operation request catalog that resolves to existing wallet actions before permissions, platform and widget checks. Desktop and Android advertise the same bridge contract while retaining their supported operations.

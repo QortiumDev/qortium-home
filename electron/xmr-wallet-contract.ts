@@ -1,5 +1,6 @@
 import { walletScanStart, walletScanPromptRows, type WalletScanStart } from './wallet-scan-start.js'
 import { compatibleXmrSendCore } from './xmr-send-contract.js'
+import { projectWalletReadStatus, type WalletReadStatus } from './wallet-read-status.js'
 /** Public XMR read contract; safe to import in the permission renderer. No key derivation here. */
 export const XMR_CUSTODY_CONTRACT = 'qortium-home-xmr-custody-v1' as const
 export const XMR_ACTIONS = ['GET_XMR_WALLET', 'ACTIVATE_XMR_WALLET', 'STOP_XMR_WALLET'] as const
@@ -144,6 +145,7 @@ export type XmrPublicWallet = {
   preparation?: XmrScanProgress
   scanStart?: { mode: string; height: number }
   scanStartError?: string
+  read?: WalletReadStatus
   wallet: null | {
     address: string
     height: number
@@ -175,6 +177,8 @@ export function projectXmrWallet(v: unknown, session: string, walletId: string):
     throw new Error('XMR wallet ownership could not be verified.')
   const result = inactiveXmrWallet(v.state as string)
   result.updatedAt = v.updatedAt as number | null
+  const read = projectWalletReadStatus(v.read)
+  if (read) result.read = read
   // Optional for older Core versions. No raw session or wallet authority is projected.
   if (v.progress != null) {
     const p = v.progress
