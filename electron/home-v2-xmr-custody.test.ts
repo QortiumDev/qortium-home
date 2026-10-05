@@ -720,3 +720,30 @@ test('scan metadata and preparation are display-only whitelisted public fields',
   assert(!JSON.stringify(result).includes('secret'))
   assert.throws(() => projectXmrWallet({ ...raw, preparation: { ...raw.preparation, height: 100 } }, session, walletId), /preparation/)
 })
+
+
+test('wallet read diagnostics distinguish in-flight work from retries and strip authority', () => {
+  for (const read of [
+    { state: 'IDLE', phase: null, retryAt: null },
+    { state: 'IN_FLIGHT', phase: 'SYNC', retryAt: null },
+    { state: 'OVERDUE', phase: 'SAVE', retryAt: null },
+    { state: 'RETRY_SCHEDULED', phase: null, retryAt: 123456 },
+  ]) {
+    const result = projectXmrWallet({ ...ready(), read: { ...read, sessionId: session, error: 'private' } }, session, walletId)
+    assert.deepEqual(result.read, read)
+    assert(!JSON.stringify(result).includes('private'))
+  }
+  assert.equal(projectXmrWallet(ready(), session, walletId).read, undefined)
+  for (const read of [
+    { state: 'UNKNOWN', phase: null, retryAt: null },
+    { state: 'OVERDUE', phase: 'private-error', retryAt: null },
+    { state: 'OVERDUE', phase: 'SYNC', retryAt: 1 },
+    { state: 'IDLE', phase: 'SYNC', retryAt: null },
+    { state: 'RETRY_SCHEDULED', phase: null, retryAt: null },
+    { state: 'RETRY_SCHEDULED', phase: null, retryAt: -1 },
+    { state: ['IDLE'], phase: null, retryAt: null },
+    { state: 'OVERDUE', phase: ['SYNC'], retryAt: null },
+    { state: null, phase: null, retryAt: null },
+  ]) assert.throws(() => projectXmrWallet({ ...ready(), read }, session, walletId))
+  assert.throws(() => projectXmrWallet({ ...ready(), read: { state: 'OVERDUE', phase: 'SYNC', retryAt: null } }, laterSession, walletId))
+})
