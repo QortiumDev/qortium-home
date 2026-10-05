@@ -747,3 +747,16 @@ test('wallet read diagnostics distinguish in-flight work from retries and strip 
   ]) assert.throws(() => projectXmrWallet({ ...ready(), read }, session, walletId))
   assert.throws(() => projectXmrWallet({ ...ready(), read: { state: 'OVERDUE', phase: 'SYNC', retryAt: null } }, laterSession, walletId))
 })
+
+test('stale display uses owner allowlist without restoring live financial readiness', () => {
+  const data = { ...ready().wallet, nativeSecret: 'discard', transactions: [{ txid: 'a'.repeat(64), timestamp: 1, height: 1, confirmed: true, incomingAtomic: '0', outgoingAtomic: '0', feeAtomic: '0', sessionId: 'discard' }] }
+  const input = { ...ready(), state: 'UNAVAILABLE', wallet: null, display: { data, updatedAt: 1, authority: 'discard' } }
+  const projected = projectXmrWallet(input, session, walletId)
+  assert.equal(projected.wallet, null); assert.equal(projected.send, false)
+  assert.equal(projected.state, 'UNAVAILABLE'); assert.equal(projected.display?.data?.address, fixtures[0].address)
+  assert(!JSON.stringify(projected).includes('discard')); assert(!JSON.stringify(projected).includes('sessionId'))
+  assert.throws(() => projectXmrWallet(input, laterSession, walletId))
+  for (const display of [{ data, updatedAt: -1 }, { data: null, updatedAt: 1 }, { data: { ...data, balanceAtomic: 0 }, updatedAt: 1 }, { data: { ...data, transactions: [...data.transactions, ...data.transactions] }, updatedAt: 1 }])
+    assert.throws(() => projectXmrWallet({ ...input, display }, session, walletId))
+  assert.equal(projectXmrWallet(ready(), session, walletId).display, undefined)
+})
