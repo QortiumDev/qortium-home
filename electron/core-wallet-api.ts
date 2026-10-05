@@ -41,6 +41,7 @@ export function parseWalletApiProtocol(
 const names = {
   ARRR: {
     walletsession: 'session',
+    initialize: 'initialize',
     syncstatus: 'status',
     walletaddress: 'address',
     walletbalance: 'balance',

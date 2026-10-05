@@ -37,6 +37,8 @@ export type HomeWalletCapability = {
   // is served on this host/route. Absent on every other row.
   custodyContract?: typeof ARRR_CUSTODY_CONTRACT;
   syncStatus?: boolean;
+  scanStartContract?: string;
+  scanModes?: readonly string[];
   walletSessionContract?: typeof ARRR_WALLET_SESSION_CONTRACT;
   syncControlContract?: typeof ARRR_SYNC_CONTROL_CONTRACT;
   // Why an ARRR row is unavailable, when it is — e.g. Android, a public or
@@ -58,6 +60,7 @@ const ARRR_CURRENCY_CODE = 'ARRR';
 export type HomeWalletArrrCustodyAvailability = Readonly<{
   available: boolean;
   sessionAvailable?: boolean;
+  scanStartAvailable?: boolean;
   sendAvailable?: boolean;
   reason?: string;
 }>;
@@ -114,6 +117,7 @@ export function getHomeWalletCapability(
         serverManagement: false,
         serverManagementMode: 'NONE',
         syncStatus: true,
+        ...(arrrCustody.scanStartAvailable ? { scanStartContract: 'qortium-home-wallet-scan-start-v1', scanModes: ['RESUME', 'RESTORE_FROM_HEIGHT', 'NEW_AT_CURRENT_TIP'] } : {}),
         syncControlContract: ARRR_SYNC_CONTROL_CONTRACT,
         ...(arrrCustody.sessionAvailable ? { walletSessionContract: ARRR_WALLET_SESSION_CONTRACT } : {}),
       };

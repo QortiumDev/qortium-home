@@ -84,3 +84,20 @@ assert.deepEqual(
 )
 const unsupported = { currencyCode: 'UNKNOWN', homeWallet: { read: false } }
 assert.equal(advertiseWalletRequestContract(unsupported), unsupported)
+
+// The displayed choice must be the same strict scalar policy dispatched to Core.
+const { walletScanStart, walletScanPromptRows } = await import('./wallet-scan-start.js')
+assert.deepEqual(walletScanStart({}), { scanMode: 'RESUME' })
+for (const mode of [null, ['NEW_AT_CURRENT_TIP'], {}, 0, 'new', ''])
+  assert.throws(() => walletScanStart({ scanMode: mode }))
+for (const height of [null, '100', -1, 1.5, 500000001])
+  assert.throws(() => walletScanStart({ scanMode: 'RESTORE_FROM_HEIGHT', restoreHeight: height }))
+for (const scanMode of ['RESUME', 'NEW_AT_CURRENT_TIP'])
+  assert.throws(() => walletScanStart({ scanMode, restoreHeight: 0 }))
+assert.match(walletScanPromptRows(walletScanStart({ scanMode: 'NEW_AT_CURRENT_TIP' }))[0].value, /NEVER received funds/)
+for (const coin of ['ARRR', 'XMR']) {
+  const resolved = resolveWalletRequest({ action: 'WALLET_REQUEST', coin, operation: 'activate',
+    parameters: { scanMode: 'RESTORE_FROM_HEIGHT', restoreHeight: 123 } }, 'qdnRequest')
+  assert.equal(resolved.request.scanMode, 'RESTORE_FROM_HEIGHT')
+  assert.equal(resolved.request.restoreHeight, 123)
+}

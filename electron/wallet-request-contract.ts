@@ -25,7 +25,7 @@ const catalog: Readonly<Record<string, Readonly<Record<string, Operation>>>> = {
     ...common,
     status: read('GET_ARRR_SYNC_STATUS'),
     session: read('GET_ARRR_WALLET_SESSION'),
-    activate: read('ACTIVATE_ARRR_WALLET', ['expectedRevision']),
+    activate: read('ACTIVATE_ARRR_WALLET', ['expectedRevision', 'scanMode', 'restoreHeight']),
     stop: read('STOP_ARRR_SYNC'),
     start: read('START_ARRR_SYNC'),
     'send-readiness': read('GET_ARRR_SEND_READINESS'),
@@ -33,7 +33,7 @@ const catalog: Readonly<Record<string, Readonly<Record<string, Operation>>>> = {
   },
   XMR: {
     status: read('GET_XMR_WALLET', ['passive']),
-    activate: read('ACTIVATE_XMR_WALLET'),
+    activate: read('ACTIVATE_XMR_WALLET', ['scanMode', 'restoreHeight']),
     stop: read('STOP_XMR_WALLET'),
     'send-prepare': read('PREPARE_XMR_SEND', ['recipient', 'amount']),
     'send-commit': read('COMMIT_XMR_SEND', ['handle']),

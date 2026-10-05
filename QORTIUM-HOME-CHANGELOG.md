@@ -32,6 +32,10 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## Approve shared wallet scan-start choices
+
+Let Wallet request resume, historical-height restore, or current-tip initialization through the same versioned ARRR/XMR scan policy. Show the selected height or never-funded-address warning in Home approval, require compatible trusted local Core support, keep keys inside Home, and fence every request against account, node and consent changes. Uncertain initialization is inspected without replaying the authority request; public progress distinguishes Monero chain preparation from wallet scanning.
+
 ## Let Wallet stop the selected Monero wallet safely
 
 Wallet can request a stop of the selected account's existing XMR session on its trusted local Core without restarting Core or transferring keys. Home asks for one-time stop approval separately from balance-read and activation permissions, fences account/node changes, and reconciles a lost acknowledgement without replaying the stop or touching a replacement wallet. Accepted stops revoke the old session and queue closure after any current operation; saved wallet files and unresolved send records remain intact. Passive reads never restart a stopped scan. Keep permission-security regression checks stable as the supported actions grow, checking refusal before grants inside the permission function instead of a fixed character-distance limit.

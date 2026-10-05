@@ -1276,23 +1276,23 @@ for (const [label, mutate] of mutations) {
   assert.equal(h.calls.post.length, 0, `pre-seed: ${label} — nothing posted`)
 }
 // Pre-delivery: the request went out; mutate during the resolution that
-// follows the HTTP await (the fourth resolver call). Nothing is delivered.
+// follows the HTTP await (the fifth resolver call; a fourth check fences dispatch). Nothing is delivered.
 for (const [label, mutate] of mutations) {
   const h = harness()
   let resolves = 0
   h.deps = { ...h.deps, resolveRoute: () => {
     resolves += 1
-    if (resolves === 4) {
+    if (resolves === 5) {
       return new Promise<ArrrCustodyRoute>((resolve) => setTimeout(() => { mutate(h); resolve(h.state.route) }, 0))
     }
     return Promise.resolve(h.state.route)
   } }
   await assert.rejects(runHomeV2ArrrCustodyRead(h.deps), /context changed/, `pre-delivery: ${label}`)
-  assert.equal(resolves, 4, `pre-delivery: ${label} — the mutated resolution was the pre-delivery one`)
+  assert.equal(resolves, 5, `pre-delivery: ${label} — the mutated resolution was the pre-delivery one`)
   assert.equal(h.calls.post.length, 1, `pre-delivery: ${label} — the request had gone out`)
 }
 // The same two windows for a ROUTE change during the resolution.
-for (const call of [3, 4]) {
+for (const call of [3, 5]) {
   const h = harness()
   let resolves = 0
   h.deps = { ...h.deps, resolveRoute: () => {
@@ -1371,4 +1371,38 @@ for (const operation of ['status', 'activate'] as const) {
   const failure = classifyArrrCustodyFailure(response(409, '', { message: 'ARRR_WALLET_NOT_ACTIVE' }), 'syncstatus')
   assert.equal(failure.code, 'ARRR_WALLET_NOT_ACTIVE')
   assert.equal(failure.retryable, false)
+}
+
+// Explicit policies initialize once, then inspect passively under the same consent fence.
+for (const scanMode of ['NEW_AT_CURRENT_TIP', 'RESTORE_FROM_HEIGHT'] as const) {
+  const height = 3000000
+  const session = { contract: 'qortium-arrr-wallet-session-v1', revision: '11111111-1111-1111-1111-111111111111', enabled: true, relation: 'SELF', lifecycle: 'RUNNING', address: null }
+  const h = harness({ action: 'GET_ARRR_WALLET_SESSION', sessionRequest: { operation: 'activate', expectedRevision: session.revision, scanMode, ...(scanMode === 'RESTORE_FROM_HEIGHT' ? { restoreHeight: height } : {}) } })
+  h.deps = { ...h.deps, post: async (_route, request) => {
+    h.calls.post.push(request)
+    const value = request.pathname.endsWith('/initialize') ? { initializationMode: scanMode, birthdayHeight: height } : session
+    return response(200, JSON.stringify(value), value)
+  } }
+  assert.deepEqual(await runHomeV2ArrrCustodyRead(h.deps), session)
+  assert.equal(h.calls.post.length, 2)
+  assert.equal(h.calls.post[0].pathname, '/crosschain/arrr/initialize')
+  assert.equal(JSON.parse(h.calls.post[1].body).operation, 'status')
+  assert.equal(JSON.parse(h.calls.post[0].body).restoreHeight, scanMode === 'RESTORE_FROM_HEIGHT' ? height : undefined)
+  h.calls.post.length = 0
+  h.deps = { ...h.deps, post: async (_route, request) => { h.calls.post.push(request); throw Error('lost response') } }
+  await assert.rejects(runHomeV2ArrrCustodyRead(h.deps), /may have taken effect/)
+  assert.equal(h.calls.post.length, 1, 'lost secret POST is never replayed')
+  h.calls.post.length = 0
+  h.deps = { ...h.deps, post: async (_route, request) => {
+    h.calls.post.push(request)
+    h.state.context = { ...h.state.context, accountId: 'acct-2' }
+    return response(200, '', { initializationMode: scanMode, birthdayHeight: height })
+  } }
+  await assert.rejects(runHomeV2ArrrCustodyRead(h.deps), /may have taken effect/)
+  assert.equal(h.calls.post.length, 1, 'account switch prevents the second entropy POST')
+}
+{
+  const h = harness({ action: 'GET_ARRR_WALLET_SESSION', sessionRequest: { operation: 'activate', expectedRevision: '11111111-1111-1111-1111-111111111111', scanMode: 'RESTORE_FROM_HEIGHT', restoreHeight: 3000000 }, reply: response(200, '', { initializationMode: 'RESTORE_FROM_HEIGHT', birthdayHeight: 3000001 }) })
+  await assert.rejects(runHomeV2ArrrCustodyRead(h.deps), /could not be confirmed/)
+  assert.equal(h.calls.post.length, 1, 'mismatched acknowledgement is not followed by another POST')
 }
