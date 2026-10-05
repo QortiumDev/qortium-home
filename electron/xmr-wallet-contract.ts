@@ -146,6 +146,7 @@ export type XmrPublicWallet = {
   scanStart?: { mode: string; height: number }
   scanStartError?: string
   read?: WalletReadStatus
+  display?: { data: XmrPublicWallet['wallet']; updatedAt: number }
   wallet: null | {
     address: string
     height: number
@@ -204,6 +205,14 @@ export function projectXmrWallet(v: unknown, session: string, walletId: string):
         p.startHeight > p.height || p.height >= p.targetHeight || !boundedInteger(p.updatedAt, 8_640_000_000_000_000))
       throw new Error('Invalid chain preparation progress.')
     result.preparation = { scanId: p.scanId, startHeight: p.startHeight, height: p.height, targetHeight: p.targetHeight, updatedAt: p.updatedAt }
+  }
+  // Reuse the complete wallet allowlist; stale display never changes the live wallet/state.
+  if (v.display != null) {
+    const d = v.display
+    if (!record(d) || !boundedInteger(d.updatedAt, 8_640_000_000_000_000) || d.data == null)
+      throw new Error('Invalid wallet display snapshot.')
+    const projected = projectXmrWallet({ ...v, display: undefined, wallet: d.data }, session, walletId)
+    result.display = { data: projected.wallet, updatedAt: d.updatedAt }
   }
   if (v.wallet === null) return result
   const w = v.wallet

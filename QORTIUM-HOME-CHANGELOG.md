@@ -2190,6 +2190,10 @@ before.
 
 ## Change Entries
 
+### Preserve last observed wallet data during slow reads
+
+Project timestamped owner-verified display snapshots through the wallet allowlist, separately from live balances and spending readiness. Older Core responses remain supported.
+
 ### Project bounded wallet read phases and retry diagnostics
 
 Home forwards optional coin-neutral read diagnostics after verifying wallet ownership. Apps can distinguish an operation still running from a scheduled retry without receiving session authority, keys or native error text; older Cores remain supported.
