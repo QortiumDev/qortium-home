@@ -2204,6 +2204,12 @@ before.
 
 ## Change Entries
 
+### build(deps): bump lucide-react from 1.48.0 to 1.50.0
+
+2026-10-29
+
+Update the React icon library to 1.50.0 for current icon fixes and compatibility metadata, while preserving existing application behavior.
+
 ### build(deps-dev): bump @types/node from 24.13.6 to 24.19.2
 
 2026-10-29
