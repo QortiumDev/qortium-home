@@ -2204,6 +2204,12 @@ before.
 
 ## Change Entries
 
+### build(deps): bump gradle-wrapper from 8.14.5 to 8.14.6 in /android
+
+2026-10-29
+
+Update the Android build wrapper to Gradle 8.14.6, which addresses build security issues while remaining in the current Gradle series.
+
 ### Preserve last observed wallet data during slow reads
 
 Project timestamped owner-verified display snapshots through the wallet allowlist, separately from live balances and spending readiness. Older Core responses remain supported.
