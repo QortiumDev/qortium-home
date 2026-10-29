@@ -58,7 +58,7 @@ android/app/build/outputs/apk/v2Live/Qortium-Home-1.6.3-v2-live-android-v2Live.a
   Qortal Hub custom Core directory when configured.
 - Public-node selection only after a positive-height, fully synchronized status
   and a successful public-read check.
-- Qortium Public selection is limited to `https://node1.qortium.app` and
+- Qortium Public selection uses the remaining managed endpoint,
   `https://node2.qortium.app`. The current healthy selection stays active until
   it fails; initial or recovery selection prefers lower observed HTTPS request
   latency.

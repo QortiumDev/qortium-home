@@ -1,5 +1,4 @@
 export const QORTIUM_PUBLIC_NODE_API_URLS = [
-  'https://node1.qortium.app',
   'https://node2.qortium.app',
 ] as const;
 

@@ -32,6 +32,16 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## Remove retired Regxa bootstrap and public-node defaults
+
+2026-10-29
+
+Stop using the deleted Regxa node for new Core connections, public-node selection
+and Home release seeding. Remove its known obsolete entries when Home updates an
+installed Core template, while keeping unrelated operator choices and Core's
+customized runtime peer lists intact. Desktop and Android now share the remaining
+Qortium public-node list.
+
 ## Project wallet scan timing for reliable estimates
 
 Pass a bounded, validated history of ARRR/XMR backend scan observations to Wallet after verifying the selected account and node. Reloads can recover a rough estimate without storing wallet data in browser storage. Timing metadata remains optional display data, strips private extras, and never restores current balances or spending readiness.
@@ -2193,6 +2203,42 @@ alike. The publish actions themselves still refuse inline bytes exactly as
 before.
 
 ## Change Entries
+
+### build(deps-dev): bump @types/node from 24.13.6 to 24.19.2
+
+2026-10-29
+
+Update the Node 24 development type definitions to 24.19.2 and their matching HTTP types, including corrected text-formatting declarations. This does not upgrade the application runtime.
+
+### build(deps-dev): bump ws from 8.21.3 to 8.22.0
+
+2026-10-29
+
+Update the development WebSocket library to 8.22.0, including corrected connection state handling when invalid close arguments are rejected.
+
+### build(deps): bump @capacitor/app from 8.1.1 to 8.1.2
+
+2026-10-29
+
+Update the Capacitor App plugin to 8.1.2 for the latest platform fixes without changing the supported Capacitor major version.
+
+### build(deps): bump github/codeql-action from 4.38.2 to 4.39.1
+
+2026-10-29
+
+Update both CodeQL analysis steps together to 4.39.1 for maintained JavaScript and Android security analysis.
+
+### build(deps): bump @capacitor/filesystem from 8.1.3 to 8.1.5
+
+2026-10-29
+
+Update the native filesystem plugin to 8.1.5, retaining directory containment fixes and correcting temporary-directory operations on iOS.
+
+### build(deps): bump gradle-wrapper from 8.14.5 to 8.14.6 in /android
+
+2026-10-29
+
+Update the Android build wrapper to Gradle 8.14.6, which addresses build security issues while remaining in the current Gradle series.
 
 ### Preserve last observed wallet data during slow reads
 

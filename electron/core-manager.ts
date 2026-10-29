@@ -4,6 +4,7 @@ import { existsSync } from 'node:fs';
 import { chmod, copyFile, lstat, mkdir, open, readFile, readdir, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
+import { mergeBootstrapPeerList } from './core-bootstrap-peers.js';
 import { extractZipSafely } from './safe-zip-extraction.js';
 import { extract as extractTar } from 'tar';
 import {
@@ -710,36 +711,6 @@ async function moveRuntimeEntries(sourcePath: string, destinationPath: string) {
 
     await movePath(sourceEntryPath, destinationEntryPath);
   }
-}
-
-function mergeBootstrapPeerList(value: unknown, canonicalPeers: string[]) {
-  const existingPeers = Array.isArray(value) ? value : [];
-  const mergedPeers: unknown[] = [];
-  const seenPeers = new Set<string>();
-  let changed = !Array.isArray(value);
-
-  for (const peer of existingPeers) {
-    if (typeof peer === 'string') {
-      if (seenPeers.has(peer)) {
-        changed = true;
-        continue;
-      }
-
-      seenPeers.add(peer);
-    }
-
-    mergedPeers.push(peer);
-  }
-
-  for (const peer of canonicalPeers) {
-    if (!seenPeers.has(peer)) {
-      mergedPeers.push(peer);
-      seenPeers.add(peer);
-      changed = true;
-    }
-  }
-
-  return { changed, peers: mergedPeers };
 }
 
 async function writeFileAtomically(destinationPath: string, contents: string | Buffer) {

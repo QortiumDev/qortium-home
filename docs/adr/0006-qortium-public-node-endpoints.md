@@ -17,7 +17,6 @@ but the Dashboard should identify the node that Home is actually using.
 ## Decision
 
 - Keep the public nodes on separate stable hostnames:
-  - `https://node1.qortium.app` for Regxa at `146.103.42.59`.
   - `https://node2.qortium.app` for Netcup at `185.207.104.78`.
 - Do not add a shared `node.qortium.app` endpoint to Home's candidate list.
 - Probe both candidates over HTTPS using the real status and public-read
@@ -53,3 +52,11 @@ Core still sees HTTPS-proxied clients as the proxy address, so its per-client
 rate-limit buckets are shared on this route. Add explicitly bounded
 trusted-proxy client-address support before treating Core's current per-client
 rate limits as distinct through Caddy.
+
+## 2026-10-29 — Regxa retired
+
+Regxa was deleted. Public selection now uses only Netcup (`node2.qortium.app`).
+Desktop and Android share the public-node candidate list; existing cache entries
+for the retired origin are not eligible. This is one managed host, not redundant
+servers. Home also removes the exact retired IPv4/I2P defaults from its installed
+Core template while preserving unrelated entries and Core runtime list ownership.
