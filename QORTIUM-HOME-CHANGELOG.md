@@ -2204,6 +2204,12 @@ before.
 
 ## Change Entries
 
+### build(deps): bump @capacitor/app from 8.1.1 to 8.1.2
+
+2026-10-29
+
+Update the Capacitor App plugin to 8.1.2 for the latest platform fixes without changing the supported Capacitor major version.
+
 ### build(deps): bump github/codeql-action from 4.38.2 to 4.39.1
 
 2026-10-29
