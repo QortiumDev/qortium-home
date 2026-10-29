@@ -13,6 +13,8 @@ import { HOME_RELEASE_ASSET_SERVICE, HOME_RELEASE_PUBLISHER } from './home-v2-re
 import {
   downloadedUpdateInstallKind,
   environmentWithoutAppImageMount,
+  RELAUNCH_TRAMPOLINE,
+  RELAUNCH_TRAMPOLINE_SHELL,
   windowsPortableUpdateHelper,
 } from './app-update-install-kind.js';
 import {
@@ -820,11 +822,6 @@ function normalizeDownloadedFilePath(value: unknown) {
  * recorded when it was downloaded, so what runs is exactly what was verified
  * -- never whatever is at that path by the time the button is pressed.
  */
-const RELAUNCH_TRAMPOLINE_SHELL = '/bin/bash';
-/** Closes every descriptor above stdio, then execs $0 with the remaining arguments. */
-const RELAUNCH_TRAMPOLINE =
-  'for f in /proc/self/fd/*; do f=${f##*/}; [ "$f" -gt 2 ] && eval "exec $f>&-"; done 2>/dev/null; exec "$0" "$@"';
-
 export async function installDownloadedUpdate(value: unknown, expectedDigest: string) {
   const filePath = normalizeDownloadedFilePath(value);
   if (!/^sha256:[0-9a-f]{64}$/.test(expectedDigest)) {

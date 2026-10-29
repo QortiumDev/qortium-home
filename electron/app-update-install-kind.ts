@@ -16,6 +16,16 @@
  */
 import path from 'node:path';
 
+export const RELAUNCH_TRAMPOLINE_SHELL = '/bin/bash';
+/**
+ * Fixed shell source: the executable is supplied separately as $0, and its
+ * arguments as $@. Never interpolate either into this script or its eval.
+ * eval only closes numeric descriptors enumerated by /proc/self/fd.
+ * Shared with the executable relaunch regression tests.
+ */
+export const RELAUNCH_TRAMPOLINE =
+  'for f in /proc/self/fd/*; do f=${f##*/}; [ "$f" -gt 2 ] && eval "exec $f>&-"; done 2>/dev/null; exec "$0" "$@"';
+
 export type DownloadedUpdateInstallKind = 'relaunch' | 'disk-image' | null;
 
 export function downloadedUpdateInstallKind(

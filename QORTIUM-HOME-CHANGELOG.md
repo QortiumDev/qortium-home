@@ -32,6 +32,15 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## Verify AppImage updates preserve literal paths and launch arguments
+
+2026-10-29
+
+Add automated checks that Linux updates restart correctly from folders and files
+containing spaces, quotes and other special characters, preserve launch options,
+and release inherited files from the previous AppImage. Keep the existing update
+verification and restart behavior, with coverage for the direct-launch fallback.
+
 ## Remove retired Regxa bootstrap and public-node defaults
 
 2026-10-29
