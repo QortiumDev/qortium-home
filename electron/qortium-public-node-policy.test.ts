@@ -80,7 +80,7 @@ const retainBase = {
   height: 85_000,
   isSynced: false,
   latencyMs: 20,
-  nodeApiUrl: 'https://node1.qortium.app',
+  nodeApiUrl: 'https://node2.qortium.app',
   peerCount: 10,
   supportsPublicReads: true,
 };
@@ -102,10 +102,9 @@ assert.equal(canRetainQortiumPublicNode({ ...retainBase, isSynced: true, support
 assert.equal(isUsableQortiumPublicNode({ ...retainBase, syncBlocksRemaining: 1 } as QortiumPublicNodeCandidate), false);
 
 assert.deepEqual(QORTIUM_PUBLIC_NODE_API_URLS, [
-  'https://node1.qortium.app',
   'https://node2.qortium.app',
 ]);
-assert.equal(new Set(QORTIUM_PUBLIC_NODE_API_URLS).size, 2);
+assert.equal(new Set(QORTIUM_PUBLIC_NODE_API_URLS).size, 1);
 for (const endpoint of QORTIUM_PUBLIC_NODE_API_URLS) {
   const url = new URL(endpoint);
   assert.equal(url.protocol, 'https:');
@@ -147,7 +146,7 @@ const faster = candidate(QORTIUM_PUBLIC_NODE_API_URLS[0], {
   height: 85_000,
   latencyMs: 40,
 });
-const slowerHigher = candidate(QORTIUM_PUBLIC_NODE_API_URLS[1], {
+const slowerHigher = candidate('https://other-node.example', {
   height: 85_001,
   latencyMs: 120,
 });
@@ -163,10 +162,10 @@ assert.equal(
 );
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-for (const sourcePath of ['electron/node-settings.ts', 'src/platform.ts']) {
+for (const sourcePath of ['electron/node-settings.ts', 'src/platform.ts', 'src/home-v2-live/node-client.ts']) {
   const source = readFileSync(path.join(repoRoot, sourcePath), 'utf8');
   assert.match(source, /QORTIUM_PUBLIC_NODE_API_URLS/);
-  assert.match(source, /selectedPublicNodeApiUrl/);
+  assert.match(source, /selectedPublicNodeApiUrl|stickyPublicUrls/);
   assert.doesNotMatch(source, /fetchKnownPeerNodeApiUrls/);
   assert.doesNotMatch(source, /http:\/\/146\.103\.42\.59:24891/);
   assert.doesNotMatch(source, /http:\/\/185\.207\.104\.78:24891/);

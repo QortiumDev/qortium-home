@@ -1,3 +1,4 @@
+import { QORTIUM_PUBLIC_NODE_API_URLS } from '../../electron/qortium-public-node-policy'
 import { advertiseWalletRequestContract } from '../../electron/wallet-request-contract'
 import type {
   HomeV2AccountCatalogue,
@@ -438,7 +439,7 @@ export function parseHomeV2BoundedHttpBody(body: string, contentType = ''): unkn
 
 const PUBLIC_NODE_URLS = {
   qortal: ['https://ext-node.qortal.link', 'https://api.qortal.org'],
-  qortium: ['https://node1.qortium.app', 'https://node2.qortium.app'],
+  qortium: QORTIUM_PUBLIC_NODE_API_URLS,
 } as const
 
 const PUBLIC_READ_PATH =

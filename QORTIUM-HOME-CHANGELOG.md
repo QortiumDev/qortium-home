@@ -32,6 +32,16 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## Remove retired Regxa bootstrap and public-node defaults
+
+2026-10-29
+
+Stop using the deleted Regxa node for new Core connections, public-node selection
+and Home release seeding. Remove its known obsolete entries when Home updates an
+installed Core template, while keeping unrelated operator choices and Core's
+customized runtime peer lists intact. Desktop and Android now share the remaining
+Qortium public-node list.
+
 ## Project wallet scan timing for reliable estimates
 
 Pass a bounded, validated history of ARRR/XMR backend scan observations to Wallet after verifying the selected account and node. Reloads can recover a rough estimate without storing wallet data in browser storage. Timing metadata remains optional display data, strips private extras, and never restores current balances or spending readiness.
