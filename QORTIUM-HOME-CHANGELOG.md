@@ -2204,6 +2204,12 @@ before.
 
 ## Change Entries
 
+### build(deps): bump github/codeql-action from 4.38.2 to 4.39.1
+
+2026-10-29
+
+Update both CodeQL analysis steps together to 4.39.1 for maintained JavaScript and Android security analysis.
+
 ### build(deps): bump @capacitor/filesystem from 8.1.3 to 8.1.5
 
 2026-10-29
