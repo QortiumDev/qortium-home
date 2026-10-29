@@ -2204,6 +2204,12 @@ before.
 
 ## Change Entries
 
+### build(deps-dev): bump @types/node from 24.13.6 to 24.19.2
+
+2026-10-29
+
+Update the Node 24 development type definitions to 24.19.2 and their matching HTTP types, including corrected text-formatting declarations. This does not upgrade the application runtime.
+
 ### build(deps-dev): bump ws from 8.21.3 to 8.22.0
 
 2026-10-29
