@@ -2204,6 +2204,12 @@ before.
 
 ## Change Entries
 
+### build(deps): bump @capacitor/filesystem from 8.1.3 to 8.1.5
+
+2026-10-29
+
+Update the native filesystem plugin to 8.1.5, retaining directory containment fixes and correcting temporary-directory operations on iOS.
+
 ### build(deps): bump gradle-wrapper from 8.14.5 to 8.14.6 in /android
 
 2026-10-29
