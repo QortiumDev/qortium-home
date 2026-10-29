@@ -979,7 +979,7 @@ async function runScenarioActions({
 
     case 'nonlocal-node':
       await saveNodeSettings(mainClient, {
-        customUrl: 'http://146.103.42.59:24891',
+        customUrl: 'http://185.207.104.78:24891',
         mode: 'custom',
       });
       // Non-local nodes now use the keyless QDN write path, which still requires an

@@ -20,7 +20,7 @@ const reachablePublic = {
   capabilities: { read: true },
   customConfigured: false,
   mode: 'public' as const,
-  nodeApiUrl: 'https://node1.qortium.app',
+  nodeApiUrl: 'https://node2.qortium.app',
 }
 const publicInfo = getHomeV2AppHostInfo({
   accountId: 'wallet:one:0',

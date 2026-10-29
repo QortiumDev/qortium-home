@@ -261,16 +261,16 @@ public class HomeV2BoundedHttpPluginTest {
     @Test
     public void publicArtifactRequestAllowsOnlyTheArtifactEndpoint() throws Exception {
         HomeV2BoundedHttpPlugin.assertAllowedPublicArtifactRequest(
-                new URL("https://node1.qortium.app/arbitrary/public/data/3yZe7dABCDEFGHJKLMNPQRSTUVWXYZabcdefghijk"));
+                new URL("https://node2.qortium.app/arbitrary/public/data/3yZe7dABCDEFGHJKLMNPQRSTUVWXYZabcdefghijk"));
         HomeV2BoundedHttpPlugin.assertAllowedPublicArtifactRequest(
                 new URL("http://127.0.0.1:24891/arbitrary/public/data/3yZe7dABCDEFGHJKLMNPQRSTUVWXYZabcdefghijk"));
         String[] refused = {
-                "http://node1.qortium.app/arbitrary/public/data/3yZe7dABCDEFGHJKLMNPQRSTUVWXYZabcdefghijk",
-                "https://node1.qortium.app/arbitrary/public/data/3yZe7dABCDEFGHJKLMNPQRSTUVWXYZabcdefghijk?x=1",
-                "https://node1.qortium.app/arbitrary/public/data/../admin/status",
-                "https://node1.qortium.app/admin/status",
-                "https://user:pw@node1.qortium.app/arbitrary/public/data/3yZe7dABCDEFGHJKLMNPQRSTUVWXYZabcdefghijk",
-                "https://node1.qortium.app/arbitrary/public/data/0OIl",
+                "http://node2.qortium.app/arbitrary/public/data/3yZe7dABCDEFGHJKLMNPQRSTUVWXYZabcdefghijk",
+                "https://node2.qortium.app/arbitrary/public/data/3yZe7dABCDEFGHJKLMNPQRSTUVWXYZabcdefghijk?x=1",
+                "https://node2.qortium.app/arbitrary/public/data/../admin/status",
+                "https://node2.qortium.app/admin/status",
+                "https://user:pw@node2.qortium.app/arbitrary/public/data/3yZe7dABCDEFGHJKLMNPQRSTUVWXYZabcdefghijk",
+                "https://node2.qortium.app/arbitrary/public/data/0OIl",
         };
         for (String url : refused) {
             try {

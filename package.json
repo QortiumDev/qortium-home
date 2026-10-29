@@ -227,6 +227,7 @@
     "test:managed-java-generation": "node scripts/ensure-electron-build.mjs && node dist-electron/managed-java-generation.test.js",
     "test:managed-child-process": "node scripts/ensure-electron-build.mjs && node dist-electron/managed-child-process.test.js",
     "test:core-network-descriptor": "node scripts/ensure-electron-build.mjs && node dist-electron/core-network-descriptor.test.js",
+    "test:core-bootstrap-peers": "node scripts/ensure-electron-build.mjs && node dist-electron/core-bootstrap-peers.test.js",
     "test:chain-config-hash-parity": "node scripts/ensure-electron-build.mjs && node dist-electron/chain-config-hash-parity.test.js",
     "test:core-install-lock": "node scripts/ensure-electron-build.mjs && node dist-electron/core-install-lock.test.js",
     "test:core-operation-lock": "node scripts/ensure-electron-build.mjs && node dist-electron/core-operation-lock.test.js",
