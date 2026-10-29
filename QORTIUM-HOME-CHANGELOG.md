@@ -2204,6 +2204,12 @@ before.
 
 ## Change Entries
 
+### build(deps-dev): bump ws from 8.21.3 to 8.22.0
+
+2026-10-29
+
+Update the development WebSocket library to 8.22.0, including corrected connection state handling when invalid close arguments are rejected.
+
 ### build(deps): bump @capacitor/app from 8.1.1 to 8.1.2
 
 2026-10-29
