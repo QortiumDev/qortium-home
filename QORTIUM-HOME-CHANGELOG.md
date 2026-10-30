@@ -39,6 +39,7 @@ both networks through explicit compatibility and security boundaries.
 Prepare the next beta with the retired Regxa node defaults removed, the reviewed
 dependency updates, and AppImage update relaunch regression coverage. Keep the
 existing beta channel and advance Android's version code for upgrade installs.
+Align the release-metadata checks with beta.14 and Android version code 56.
 
 ## Verify AppImage updates preserve literal paths and launch arguments
 
