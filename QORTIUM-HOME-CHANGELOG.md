@@ -32,6 +32,14 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## Prepare Home 2.1.0-beta.14 release
+
+2026-10-29
+
+Prepare the next beta with the retired Regxa node defaults removed, the reviewed
+dependency updates, and AppImage update relaunch regression coverage. Keep the
+existing beta channel and advance Android's version code for upgrade installs.
+
 ## Verify AppImage updates preserve literal paths and launch arguments
 
 2026-10-29
