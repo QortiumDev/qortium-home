@@ -37,7 +37,6 @@
     "dist:mac:x64:remote": "node scripts/build-remote-mac.mjs dist:mac:x64",
     "dist:mac:arm64:remote": "node scripts/build-remote-mac.mjs dist:mac:arm64",
     "dist:mac:universal:remote": "node scripts/build-remote-mac.mjs dist:mac:universal",
-    "dist:mac:macos11:universal:remote": "node scripts/build-remote-mac.mjs dist:mac:macos11:universal",
     "dist:win:x64": "npm run build:native:windows && npm run build && electron-builder --win portable --x64 --publish never && npm run check:windows:core-observer -- --app \"dist-release/win-unpacked\"",
     "icons:android": "node scripts/generate-android-icons.mjs",
     "android:sync": "QORTIUM_HOME_ANDROID=1 npm run build:renderer && cap sync android",
@@ -377,7 +376,9 @@
     "test:home-v2-arrr-sync-control": "npm run build:electron && node dist-electron/home-v2-arrr-sync-control.test.js",
     "test:arrr-send": "npm run build:electron && node --test dist-electron/home-v2-arrr-send.test.js",
     "test:home-v2-xmr-send": "npm run build:electron && node --test dist-electron/home-v2-xmr-send.test.js",
-    "test:wallet-request-contract": "npm run build:electron && node dist-electron/wallet-request-contract.test.js && node dist-electron/core-wallet-api.test.js"
+    "test:wallet-request-contract": "npm run build:electron && node dist-electron/wallet-request-contract.test.js && node dist-electron/core-wallet-api.test.js",
+    "setup:electron": "install-electron --no",
+    "test:home-release-platforms": "node scripts/test-home-release-platforms.mjs"
   },
   "dependencies": {
     "@capacitor-community/safe-area": "^8.0.1",
@@ -416,11 +417,11 @@
     "@types/react-dom": "^19.3.0",
     "@types/yauzl": "^2.10.3",
     "@vitejs/plugin-react": "^5.1.1",
-    "electron": "^39.2.6",
+    "electron": "^43.8.4",
     "electron-builder": "^26.15.3",
     "jsdom": "^30.1.1",
     "typescript": "^5.9.3",
-    "vite": "^7.3.6",
+    "vite": "^7.3.7",
     "ws": "^8.22.0"
   },
   "overrides": {
@@ -508,7 +509,11 @@
         }
       ],
       "category": "public.app-category.utilities",
-      "identity": null
+      "identity": "-",
+      "minimumSystemVersion": "12.0.0",
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "hardenedRuntime": true
     },
     "dmg": {
       "backgroundColor": "#ffffff",
@@ -540,10 +545,10 @@
     }
   },
   "allowScripts": {
-    "electron@32.3.3": true,
-    "electron@36.9.5": true,
-    "electron@39.8.10": true,
     "electron-winstaller@5.4.0": true,
     "esbuild@0.27.7": true
+  },
+  "engines": {
+    "node": ">=22.12.0"
   }
 }

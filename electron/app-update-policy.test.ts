@@ -39,4 +39,20 @@ assert.equal(selectTrustedHomeReleaseAsset(release, platform('macos', 'arm64', '
 assert.equal(selectTrustedHomeReleaseAsset(release, platform('macos', 'x64', '11.7'))?.name.includes('macos11'), true)
 assert.equal(selectTrustedHomeReleaseAsset(release, platform('unsupported')), null)
 
+// beta.14+ has no legacy DMGs: older Macs must never fall back to the
+// incompatible regular universal package. Historical beta.13 choices stay valid.
+const currentRelease: TrustedHomeRelease = {
+  ...release,
+  assets: release.assets.filter((asset) => !asset.name.includes('macos11') && !asset.name.includes('macos1015')),
+}
+for (const source of ['github', 'qdn'] as const) {
+  const candidate = { ...currentRelease, assets: currentRelease.assets.map((asset) => ({ ...asset, source })) }
+  assert.equal(selectTrustedHomeReleaseAsset(candidate, platform('macos', 'x64', '10.15.7')), null)
+  assert.equal(selectTrustedHomeReleaseAsset(candidate, platform('macos', 'x64', '11.7')), null)
+  assert.equal(selectTrustedHomeReleaseAsset(candidate, platform('macos', 'arm64', '11.7')), null)
+  assert.equal(selectTrustedHomeReleaseAsset(candidate, platform('macos', 'x64', '12.7'))?.name.endsWith('-universal.dmg'), true)
+  assert.equal(selectTrustedHomeReleaseAsset(candidate, platform('macos', 'arm64', '12.7'))?.name.endsWith('-universal.dmg'), true)
+}
+
+
 console.log('Home 2 app update policy tests passed.')

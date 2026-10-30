@@ -143,7 +143,11 @@ Install dependencies:
 
 ```sh
 npm install
+npm run setup:electron
 ```
+
+Use Node.js 22.12 or newer (CI uses Node 24). Electron 43 downloads its binary
+on demand; `setup:electron` makes that step explicit before native tests.
 
 Build and start the desktop app locally:
 
@@ -169,6 +173,11 @@ npm start
 ```
 
 ## Release Builds
+
+Beta.14 and newer target macOS 12 or later with patched Electron 43. New macOS
+10.15/11 builds are retired; existing beta.13 legacy downloads remain available.
+macOS packages are ad-hoc code-signed for native API compatibility, without an
+Apple publisher identity or notarization. See [the release runbook](docs/RELEASE_RUNBOOK.md).
 
 Build a Linux x64 AppImage:
 

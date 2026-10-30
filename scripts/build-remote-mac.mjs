@@ -6,12 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const macos11UniversalTarget = 'dist:mac:macos11:universal';
-// Electron 36 (Chromium 136) is the last line that still targets macOS 11 (Big
-// Sur); Electron 37+ (Chromium 138+) bumped the minimum to macOS 12, so their
-// binaries' LC_BUILD_VERSION fails verify-macos-min-version against 11.0.0.
-const macos11ElectronVersion = '36.9.5';
-const allowedTargets = new Set(['dist:mac:x64', 'dist:mac:arm64', 'dist:mac:universal', macos11UniversalTarget]);
+const allowedTargets = new Set(['dist:mac:x64', 'dist:mac:arm64', 'dist:mac:universal']);
 const defaultRemoteHost = 'qortium-macmini';
 const defaultRemotePath = 'build/qortium-home';
 const expectedHostFingerprint = 'SHA256:kviKojSotaQOxY94eVLQ8K+ootwbhH3cEu7C0ZaVPaY';
@@ -26,7 +21,6 @@ Targets:
   dist:mac:x64
   dist:mac:arm64
   dist:mac:universal
-  dist:mac:macos11:universal
 
 Environment:
   QORTIUM_MAC_HOST         SSH host alias. Default: ${defaultRemoteHost}
@@ -192,38 +186,6 @@ tar -xf - -C "$remote_dir"
 }
 
 function getRemoteBuildScript(target) {
-  if (target === macos11UniversalTarget) {
-    return `
-set -euo pipefail
-version="$(node -p "require('./package.json').version")"
-npm run build:native:macos
-npm run build
-npm install --no-save --package-lock=false electron@${macos11ElectronVersion}
-QORTIUM_HOME_EXPECTED_ELECTRON_VERSION=${macos11ElectronVersion} node scripts/test-qdn-app-preload.mjs
-./node_modules/.bin/electron-builder --mac dmg --universal --publish never -c.electronVersion=${macos11ElectronVersion} -c.mac.minimumSystemVersion=11.0.0
-app_path="dist-release/mac-universal/Qortium Home.app"
-if [ ! -d "$app_path" ]; then
-  app_path="$(find dist-release -maxdepth 3 -type d -name 'Qortium Home.app' -print -quit)"
-fi
-if [ -z "$app_path" ] || [ ! -d "$app_path" ]; then
-  echo "Expected macOS app bundle not found for legacy verification." >&2
-  exit 1
-fi
-node scripts/verify-macos-min-version.mjs "$app_path" 11.0.0
-node scripts/verify-macos-core-observer.mjs "$app_path"
-normal_dmg="dist-release/Qortium-Home-$version-universal.dmg"
-legacy_dmg="dist-release/Qortium-Home-$version-macos11-universal.dmg"
-if [ ! -f "$normal_dmg" ]; then
-  echo "Expected legacy macOS build output not found: $normal_dmg" >&2
-  exit 1
-fi
-mv "$normal_dmg" "$legacy_dmg"
-if [ -f "$normal_dmg.blockmap" ]; then
-  mv "$normal_dmg.blockmap" "$legacy_dmg.blockmap"
-fi
-`;
-  }
-
   return `npm run ${shellQuote(target)}`;
 }
 

@@ -4,6 +4,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { homeReleaseSupportsLegacyMac } from './lib/home-release-platforms.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const defaultRepository = 'QortiumDev/qortium-home';
@@ -113,7 +114,7 @@ function getExpectedArtifacts(version) {
     path.join(repoRoot, 'dist-release', `Qortium-Home-${version}-macos11-universal.dmg`),
     path.join(repoRoot, 'dist-release', `Qortium-Home-${version}-macos1015-x64.dmg`),
     path.join(repoRoot, 'dist-release', `Qortium-Home-${version}-android-release.apk`),
-  ];
+  ].filter((artifact) => homeReleaseSupportsLegacyMac(version) || !/-macos(?:11|1015)-/.test(artifact));
 }
 
 function shellQuote(value) {
