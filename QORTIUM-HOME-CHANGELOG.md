@@ -44,7 +44,8 @@ launch in native CI with ad-hoc-only signing and identity discovery disabled.
 Stop new macOS 10.15/11 builds while keeping beta.13 downloads
 available, require the five current release packages, and verify that older Macs
 cannot select an incompatible regular DMG. Keep historical release decoding and
-operator/runtime state intact.
+operator/runtime state intact. Allow an explicit test-only Electron executable
+so native-window checks can remain on an isolated virtual display.
 
 ## Prepare Home 2.1.0-beta.14 release
 

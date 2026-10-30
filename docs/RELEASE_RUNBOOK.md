@@ -149,7 +149,8 @@ complete for QDN users until the pointer names it.
 
 Publishing puts the bytes on the publishing node only; every other node fetches
 a resource the first time a client asks it for one. So the script ends by
-asking both public nodes (`QORTIUM_HOME_PUBLIC_NODES`, default node1/node2) for
+asking the configured public nodes (`QORTIUM_HOME_PUBLIC_NODES`, default
+`https://node2.qortium.app`) for
 the new pointer and manifest — it logs `seeded <node> JSON/<identifier>` once
 each answers with the new tag — and arms the release's five `FILE` fetches on them with
 `?async=true`. Until that has happened, a tester on a public node, or on a

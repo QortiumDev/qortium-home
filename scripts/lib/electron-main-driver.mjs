@@ -236,9 +236,10 @@ export async function launchHome(options = {}) {
     '.',
   ]
   const useXvfb = process.platform === 'linux' && !process.env.DISPLAY
+  const binary = process.env.QORTIUM_HOME_ELECTRON_BIN?.trim() || electronBinary(repoRoot)
   const child = spawn(
-    useXvfb ? '/usr/bin/xvfb-run' : electronBinary(repoRoot),
-    useXvfb ? ['-a', electronBinary(repoRoot), ...args] : args,
+    useXvfb ? '/usr/bin/xvfb-run' : binary,
+    useXvfb ? ['-a', binary, ...args] : args,
     { cwd: repoRoot, detached: process.platform !== 'win32', env: environment, stdio: ['ignore', 'pipe', 'pipe'] },
   )
 
