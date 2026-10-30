@@ -32,6 +32,16 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## Expand managed Core bootstrap peers with verified I2P participants
+
+2026-10-30
+
+Add three chain and two data I2P participants to Home's managed Core bootstrap
+list, matching the reviewed Core profile additions. Give new and existing
+managed installations more starting points while preserving their existing
+peers and custom entries. Verify that beta.14 installations gain the expanded
+lists once while retaining operator customizations.
+
 ## Update desktop runtime and audited build dependencies
 
 2026-10-29

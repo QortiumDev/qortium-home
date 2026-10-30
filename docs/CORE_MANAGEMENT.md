@@ -162,6 +162,21 @@ The Linux launch wrapper uses Bash so it can close all inherited descriptors
 above stderr, including Electron's high-numbered resource handles and the
 AppImage runtime control pipe, so the mount can exit normally.
 
+## Bootstrap Peers
+
+Managed Qortium installations merge the bootstrap peers from
+`electron/core-network-descriptor.ts` into the installation template. The
+2026-10-30 expansion adds three chain I2P participants and two separate data
+participants, matching Core's Previewnet profile additions. They passed
+outbound handshakes with a fresh isolated Core using only the added peers as
+its initial lists. Existing IP and I2P entries remain; custom entries are
+preserved and repeated merges are idempotent. Core's runtime settings merge
+continues to preserve an operator-customized peer array as a whole.
+
+These participants are bootstrap options, not additional Home API defaults or
+managed VPS hosts. Historical persistence and successful handshakes do not
+establish independent operators or guaranteed uptime.
+
 ## Deferred Work
 
 - Stable/mainnet Core profile selection.

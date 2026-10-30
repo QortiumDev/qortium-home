@@ -24,4 +24,26 @@ assert.deepEqual(mergeBootstrapPeerList([custom], ['146.103.42.59:24894', chain,
 for (const peers of [QORTIUM_CORE_DESCRIPTOR.bootstrap.initialPeers, QORTIUM_CORE_DESCRIPTOR.bootstrap.initialDataPeers]) {
   assert.equal(peers.some(peer => peer.includes('146.103.42.59') || peer.includes(chain) || peer.includes(data)), false);
 }
-console.log('Managed Qortium bootstrap retirement and preservation checks passed.');
+// A beta.14 managed install gains the expanded list while retaining operator peers.
+for (const [previous, canonical] of [
+  [[
+    '185.207.104.78:24892', '80.241.221.139:24892',
+    'zqcackxkhjzfbbc6daigc73zqhzdpgwua3mjc7xgn3hwjed5z3ca.b32.i2p',
+  ], QORTIUM_CORE_DESCRIPTOR.bootstrap.initialPeers],
+  [[
+    '185.207.104.78:24894', '80.241.221.139:24894',
+    'qhk6g5hl7vqf5fmlgj6knbajtiszotaf2w26fwjapsr75kbz7fma.b32.i2p',
+  ], QORTIUM_CORE_DESCRIPTOR.bootstrap.initialDataPeers],
+] as const) {
+  const customPeer = 'operator-private.example:25000';
+  const installed = [customPeer, ...previous];
+  const original = [...installed];
+  const upgraded = mergeBootstrapPeerList(installed, canonical);
+  assert.equal(upgraded.changed, true);
+  assert.deepEqual(installed, original);
+  assert.deepEqual(upgraded.peers, [customPeer, ...canonical]);
+  assert.deepEqual(mergeBootstrapPeerList(upgraded.peers, canonical), {
+    changed: false, peers: upgraded.peers,
+  });
+}
+console.log('Managed Qortium bootstrap retirement, expansion and preservation checks passed.');
