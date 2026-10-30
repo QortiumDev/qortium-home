@@ -253,10 +253,14 @@ jobs:
           npm ci
           npm run setup:electron
       - name: Build native observer and desktop application
+        # Test ad-hoc signatures only; no signing secrets or identity discovery.
+        env:
+          CSC_FOR_PULL_REQUEST: 'true'
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
         run: |
           npm run build:native:macos
           npm run build
-          npx electron-builder --mac --dir --publish never
+          npx electron-builder --mac --dir --publish never -c.mac.identity=-
       - name: Verify code signature, minimum OS and native observer
         run: |
           app_path="$(find dist-release -maxdepth 3 -type d -name 'Qortium Home.app' -print -quit)"
