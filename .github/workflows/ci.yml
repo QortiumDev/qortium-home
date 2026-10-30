@@ -55,6 +55,7 @@ jobs:
       # sandboxed preload path it exists to cover.
       - name: Prepare Electron sandbox helper
         run: |
+          npm run setup:electron
           sudo chown root:root node_modules/electron/dist/chrome-sandbox
           sudo chmod 4755 node_modules/electron/dist/chrome-sandbox
 
@@ -127,6 +128,7 @@ jobs:
       # its sandbox. Needed by any smoke that launches unpackaged Electron.
       - name: Prepare Electron sandbox helper
         run: |
+          npm run setup:electron
           sudo chown root:root node_modules/electron/dist/chrome-sandbox
           sudo chmod 4755 node_modules/electron/dist/chrome-sandbox
 
@@ -233,3 +235,41 @@ jobs:
 
       - name: Test real Windows install locks and rollback
         run: npm run test:core-install-transaction
+
+  macos-runtime:
+    name: macOS desktop runtime
+    runs-on: macos-14
+    timeout-minutes: 25
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install dependencies and Electron binary
+        run: |
+          npm ci
+          npm run setup:electron
+      - name: Build native observer and desktop application
+        # Test ad-hoc signatures only; no signing secrets or identity discovery.
+        env:
+          CSC_FOR_PULL_REQUEST: 'true'
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: |
+          npm run build:native:macos
+          npm run build
+          npx electron-builder --mac --dir --publish never -c.mac.identity=-
+      - name: Verify code signature, minimum OS and native observer
+        run: |
+          app_path="$(find dist-release -maxdepth 3 -type d -name 'Qortium Home.app' -print -quit)"
+          test -n "$app_path"
+          codesign --verify --deep --strict --verbose=2 "$app_path"
+          node scripts/verify-macos-min-version.mjs "$app_path" 12.0.0
+          npm run check:macos:core-observer -- "$app_path"
+      - name: Exercise sandboxed preload and packaged onboarding
+        run: |
+          npm run test:qdn-app-preload
+          app_path="$(find dist-release -maxdepth 3 -type d -name 'Qortium Home.app' -print -quit)"
+          QORTIUM_HOME_APPIMAGE="$app_path/Contents/MacOS/Qortium Home" npm run smoke:desktop:home-v2-onboarding

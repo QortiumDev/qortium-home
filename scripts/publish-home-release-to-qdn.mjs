@@ -17,21 +17,14 @@ import { homedir } from 'node:os'
 import path from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import { Readable } from 'node:stream'
+import { homeReleasePlatform, assertHomeReleasePlatforms } from './lib/home-release-platforms.mjs'
 
 const PUBLISHER = 'QortiumHomeTest'
 const MANIFEST_SCHEMA = 'qortium-home-release'
 const REPOSITORY = 'QortiumDev/qortium-home'
 const POLL_INTERVAL_MS = 3_000
 const POLL_TIMEOUT_MS = 30 * 60 * 1000
-const PLATFORM_BY_SUFFIX = [
-  ['-x86_64.AppImage', 'linux-x64'],
-  ['-arm64.AppImage', 'linux-arm64'],
-  ['-x64.exe', 'windows-x64'],
-  ['-macos11-universal.dmg', 'macos11-universal'],
-  ['-macos1015-x64.dmg', 'macos1015-x64'],
-  ['-universal.dmg', 'macos-universal'],
-  ['-android-release.apk', 'android'],
-]
+
 
 const args = process.argv.slice(2)
 const option = (name) => { const index = args.indexOf(name); return index >= 0 ? args[index + 1] : undefined }
@@ -59,10 +52,7 @@ function sha256File(filePath) {
     createReadStream(filePath).on('data', (chunk) => hash.update(chunk)).on('error', reject).on('end', () => resolve(hash.digest('hex')))
   })
 }
-function platformFor(name) {
-  for (const [suffix, platform] of PLATFORM_BY_SUFFIX) if (name.endsWith(suffix)) return platform
-  return null
-}
+const platformFor = homeReleasePlatform
 
 // --- node access (mirrors the app publish scripts: key from the running local Core) ---
 function readText(filePath) { return readFileSync(filePath, 'utf8').trim() }
@@ -193,6 +183,7 @@ async function collectAssets() {
     if (identifier.length > 64) throw new Error(`${identifier} exceeds QDN's identifier cap.`)
     assets.push({ name: file.name, identifier, size: statSync(file.filePath).size, sha256, filePath: file.filePath, platform })
   }
+  assertHomeReleasePlatforms(tag, assets)
   return assets
 }
 

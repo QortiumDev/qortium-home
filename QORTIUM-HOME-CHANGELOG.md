@@ -32,6 +32,21 @@ both networks through explicit compatibility and security boundaries.
 - use this file as the public narrative of the application, alongside the
   technical git history
 
+## Update desktop runtime and audited build dependencies
+
+2026-10-29
+
+Move desktop Home to patched Electron 43.8.4 while retaining macOS 12 support,
+and update the affected build dependencies so the full dependency audit is clean.
+Download Electron explicitly before CI sandbox setup. Ad-hoc sign macOS packages
+for native notification compatibility and verify their signature, minimum OS and
+launch in native CI with ad-hoc-only signing and identity discovery disabled.
+Stop new macOS 10.15/11 builds while keeping beta.13 downloads
+available, require the five current release packages, and verify that older Macs
+cannot select an incompatible regular DMG. Keep historical release decoding and
+operator/runtime state intact. Allow an explicit test-only Electron executable
+so native-window checks can remain on an isolated virtual display.
+
 ## Prepare Home 2.1.0-beta.14 release
 
 2026-10-29

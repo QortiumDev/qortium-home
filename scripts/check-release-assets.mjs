@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { homeReleaseSupportsLegacyMac } from './lib/home-release-platforms.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const defaultRepository = 'QortiumDev/qortium-home';
@@ -163,7 +164,8 @@ function getExpectedArtifacts(version, options = {}) {
     });
   }
 
-  return options.androidOnly ? artifacts.filter((artifact) => artifact.group === 'android') : artifacts;
+  const supported = artifacts.filter((artifact) => homeReleaseSupportsLegacyMac(version) || !/-macos(?:11|1015)-/.test(artifact.name));
+  return options.androidOnly ? supported.filter((artifact) => artifact.group === 'android') : supported;
 }
 
 function stripTagPrefix(tag) {

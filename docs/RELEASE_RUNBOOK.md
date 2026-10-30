@@ -26,6 +26,7 @@ npm run test:release-metadata
 Run these gates from the repository root:
 
 ```sh
+npm run setup:electron
 npm test
 npx tsc --noEmit
 npx tsc -p electron/tsconfig.json --noEmit
@@ -61,14 +62,21 @@ npm run release:check -- --skip-github --android-only --allow-unsigned-android
 
 An unsigned package is not a releasable Android artifact.
 
-The production audit must report zero known vulnerabilities. Home's native
-tooling may retain development-only transitive packages that are excluded from
-the shipped application; assess those separately from the production result.
+Run both `npm audit` and `npm audit --omit=dev`; record their separate results.
+Electron is declared as a development dependency but its runtime ships in desktop
+packages, so a clean production-only audit does not cover it. Verify the exact
+runtime in the package, and separately assess any remaining tooling findings.
 
 ## 3. Complete the native platform matrix
 
-Build and exercise the macOS universal, macOS 11 universal, and macOS 10.15 x64
-DMGs on the Mac builder, and the Windows x64 portable package on Windows. Confirm the packaged
+For beta.14 and newer, the release has five assets: Linux x64/arm64 AppImages,
+Windows x64 portable EXE, macOS 12+ universal DMG and Android APK. Stop new macOS
+10.15/11 builds; keep already-published beta.13 legacy downloads unchanged.
+
+Build and exercise the macOS universal DMG on the Mac builder and the Windows
+x64 portable package on Windows. Verify the ad-hoc code signature, actual Mach-O
+minimum OS 12 and native notification delivery with user permission. Ad-hoc
+signing uses no publisher certificate and does not provide notarization. Confirm the packaged
 Qortal adoption selector on macOS, its deliberate rejection boundary on
 Windows, desktop Core lifecycle behavior on native hosts, and Android's lack of
 the desktop-only selector.
@@ -141,9 +149,10 @@ complete for QDN users until the pointer names it.
 
 Publishing puts the bytes on the publishing node only; every other node fetches
 a resource the first time a client asks it for one. So the script ends by
-asking both public nodes (`QORTIUM_HOME_PUBLIC_NODES`, default node1/node2) for
+asking the configured public nodes (`QORTIUM_HOME_PUBLIC_NODES`, default
+`https://node2.qortium.app`) for
 the new pointer and manifest — it logs `seeded <node> JSON/<identifier>` once
-each answers with the new tag — and arms the seven `FILE` fetches on them with
+each answers with the new tag — and arms the release's five `FILE` fetches on them with
 `?async=true`. Until that has happened, a tester on a public node, or on a
 local node that can only reach the seeds, sees "no release on QDN" and Home
 falls back to GitHub. If a seed logs `NOT seeded`, re-run the script (it skips
