@@ -13,6 +13,10 @@ import {
   parseHomeV2ResourceStreamCapabilityUrl,
   type HomeV2ResourceStreamBinding,
 } from './home-v2-resource-stream-capability.js'
+import {
+  readHomeV2ResourceStreamBodyBytes,
+  relayHomeV2ResourceStreamBody,
+} from './home-v2-resource-stream-body.js'
 
 const capabilityStore = new HomeV2ResourceStreamCapabilityStore()
 const validators = new Map<string, Readonly<{
@@ -77,50 +81,6 @@ function privateByteStreamResponse(
   return new Response(method === 'HEAD' ? null : new Uint8Array(body).buffer, { headers, status })
 }
 
-function boundedStream(body: ReadableStream<Uint8Array> | null) {
-  if (!body) return null
-  let total = 0
-  return body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
-    transform(chunk, controller) {
-      total += chunk.byteLength
-      if (total > HOME_V2_RESOURCE_STREAM_RESPONSE_MAX_BYTES) {
-        controller.error(new Error('Resource stream response exceeds the per-request byte limit.'))
-        return
-      }
-      controller.enqueue(chunk)
-    },
-  }))
-}
-
-async function readBoundedBytes(response: Response, maxBytes: number) {
-  const declaredLength = Number(response.headers.get('content-length'))
-  if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
-    await response.body?.cancel()
-    throw new Error('Resource exceeds the retained viewer byte limit.')
-  }
-  if (!response.body) return new Uint8Array()
-  const reader = response.body.getReader()
-  const chunks: Uint8Array[] = []
-  let length = 0
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-    length += value.byteLength
-    if (length > maxBytes) {
-      await reader.cancel()
-      throw new Error('Resource exceeds the retained viewer byte limit.')
-    }
-    chunks.push(value)
-  }
-  const bytes = new Uint8Array(length)
-  let offset = 0
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset)
-    offset += chunk.byteLength
-  }
-  return bytes
-}
-
 function safeResponseContentType(upstream: Headers, mimeType: string | null) {
   if (mimeType) return mimeType
   const value = upstream.get('content-type')?.split(';', 1)[0].trim().toLowerCase() || ''
@@ -162,6 +122,12 @@ export function registerHomeV2DesktopResourceStreamProtocol(targetSession: Sessi
   if (registeredSessions.has(targetSession)) return
   registeredSessions.add(targetSession)
   targetSession.protocol.handle(HOME_V2_RESOURCE_STREAM_SCHEME, async (request) => {
+    // The upstream request owns its own abort: request.signal does not fire
+    // when the renderer drops a media request, and only aborting frees the
+    // Core connection (see home-v2-resource-stream-body.ts).
+    const upstreamAbort = new AbortController()
+    const abortUpstream = () => upstreamAbort.abort()
+    request.signal.addEventListener('abort', abortUpstream, { once: true })
     try {
       if (request.method !== 'GET' && request.method !== 'HEAD') {
         return new Response('Method not allowed.', { status: 405 })
@@ -193,18 +159,23 @@ export function registerHomeV2DesktopResourceStreamProtocol(targetSession: Sessi
         headers,
         method: request.method,
         redirect: 'error',
-        signal: request.signal,
+        signal: upstreamAbort.signal,
       })
       if (upstream.url && new URL(upstream.url).toString() !== entry.upstreamUrl) {
         throw new Error('Resource stream response changed the approved upstream URL.')
       }
       assertHomeV2ResourceStreamResponseBounds(upstream.headers)
-      return new Response(request.method === 'HEAD' ? null : boundedStream(upstream.body), {
+      const body = request.method === 'HEAD'
+        ? null
+        : relayHomeV2ResourceStreamBody(upstream.body, HOME_V2_RESOURCE_STREAM_RESPONSE_MAX_BYTES, upstreamAbort)
+      if (!body) abortUpstream()
+      return new Response(body, {
         headers: responseHeaders(upstream.headers, entry.mimeType),
         status: upstream.status,
         statusText: upstream.statusText,
       })
     } catch (error) {
+      abortUpstream()
       return new Response(error instanceof Error ? error.message : 'Resource stream request failed.', { status: 502 })
     }
   })
@@ -283,19 +254,23 @@ export async function readHomeV2DesktopResourceStreamBytes(input: {
     }
   }
   const entry = capabilityStore.resolve(token)
+  const upstreamAbort = new AbortController()
   const upstream = await nodeFetch(entry.upstreamUrl, {
     headers: { 'accept-encoding': 'identity' },
     method: 'GET',
     redirect: 'error',
+    signal: upstreamAbort.signal,
   })
   if (!upstream.ok) {
+    upstreamAbort.abort()
     throw new Error(`Resource request returned HTTP ${upstream.status}.`)
   }
   if (upstream.url && new URL(upstream.url).toString() !== entry.upstreamUrl) {
+    upstreamAbort.abort()
     throw new Error('Resource stream response changed the approved upstream URL.')
   }
   return {
-    bytes: await readBoundedBytes(upstream, input.maxBytes),
+    bytes: await readHomeV2ResourceStreamBodyBytes(upstream, input.maxBytes, upstreamAbort),
     contentType: safeResponseContentType(upstream.headers, entry.mimeType),
   }
 }
